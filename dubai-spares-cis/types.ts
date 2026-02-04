@@ -1,122 +1,65 @@
-// types.ts
-
 export enum Priority {
-  LOW = "LOW",
-  MEDIUM = "MEDIUM",
-  HIGH = "HIGH",
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH'
 }
 
 export enum Source {
-  INSTAGRAM = "Instagram",
-  TIKTOK = "TikTok",
-  FACEBOOK = "Facebook",
-  TELEGRAM = "Telegram",
-  WHATSAPP = "WhatsApp",
-  OTHER = "Другое",
+  INSTAGRAM = 'Instagram',
+  TIKTOK = 'TikTok',
+  FACEBOOK = 'Facebook',
+  TELEGRAM = 'Telegram',
+  WHATSAPP = 'WhatsApp',
+  OTHER = 'Другое'
 }
 
-/**
- * Унифицированный тип для фоток (URL строками)
- */
-export type PhotoUrl = string;
-
-/**
- * Контакты магазина/поставщика (вынесено отдельно, чтобы не дублировать и
- * чтобы удобно типизировать автозаполнение).
- */
-export interface ShopContact {
-  shopName: string;
-  phone: string;
-  location: string; // может быть текст/ссылка/координаты
-}
-
-/**
- * Вариант цены по детали
- */
-export interface PriceVariant extends ShopContact {
+export interface PriceVariant {
   id: string;
   priceAed: number;
-
-  // Legacy/compat:
-  photoUrl?: PhotoUrl; // Deprecated, use photos
-  photos?: PhotoUrl[]; // New
-
+  shopName: string;
+  phone: string;
+  location: string;
+  photoUrl?: string; // Deprecated, use photos
+  photos?: string[]; // New
   createdAt: number;
 }
 
-/**
- * Деталь в заказе
- */
 export interface Part {
   id: string;
   name: string;
-
-  // Legacy/compat:
-  photoUrl?: PhotoUrl; // Deprecated, use photos
-  photos?: PhotoUrl[]; // New
-
+  photoUrl?: string; // Deprecated, use photos
+  photos?: string[]; // New
   variants: PriceVariant[];
   isFound: boolean;
 }
 
-/**
- * Заказ
- */
 export interface Order {
   id: string;
   brand: string;
   model: string;
   year: string;
   vin: string;
-
   priority: Priority;
-
   clientName: string;
   source: Source;
-
-  // Legacy/compat:
-  carPhotoUrl?: PhotoUrl; // Deprecated, use carPhotos
-  carPhotos?: PhotoUrl[]; // New
-
+  carPhotoUrl?: string; // Deprecated, use carPhotos
+  carPhotos?: string[]; // New
   parts: Part[];
-
-  // Финансы
-  markupPercent: number;   // наценка %
-  exchangeRate: number;    // курс AED->USD (пример: 3.67)
-
+  markupPercent: number;
+  exchangeRate: number;
   createdAt: number;
-
-  // Статусы
   isArchived: boolean;
   isSold: boolean;
-  soldProfitUsd?: number;
+  soldProfitUsd?: number; 
 }
 
-/**
- * Поставщик (база)
- */
-export interface Supplier extends ShopContact {
+export interface Supplier {
   id: string;
-
-  // brands можно сделать readonly, чтобы не было случайных мутаций
+  name: string;
+  phone: string;
+  location: string;
   brands: string[];
-
-  // Legacy/compat:
-  photoUrl?: PhotoUrl;
-  photos?: PhotoUrl[];
+  photoUrl?: string;
+  photos?: string[];
 }
-
-/**
- * Удобные алиасы, чтобы НЕ ловить never[] в коде:
- * - используйте их в useState<OrdersState>(...)
- */
-export type OrdersState = Order[];
-export type PartsState = Part[];
-export type VariantsState = PriceVariant[];
-export type SuppliersState = Supplier[];
-
-/**
- * Дефолтные значения (необязательно, но супер полезно)
- */
-export const DEFAULT_EXCHANGE_RATE = 3.67;
-export const DEFAULT_MARKUP_PERCENT = 15;
+ 
