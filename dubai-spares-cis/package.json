@@ -1,32 +1,31 @@
 {
   "name": "dubai-spares-cis",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
+
+  "engines": {
+    "node": "18.x"
+  },
+
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "start": "vite preview --host 0.0.0.0 --port $PORT"
   },
-  "dependencies": {
-    "lucide-react": "^0.454.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.23.0"
-  },
-  "devDependencies": {
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.19",
-    "postcss": "^8.4.38",
-    "typescript": "^5.5.3",
-    "vite": "^5.4.1"
-  }
-}
 
-{
-  "engines": {
-    "node": "22.x"
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.3",
+    "lucide-react": "^0.344.0"
+  },
+
+  "devDependencies": {
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.4"
   }
 }
