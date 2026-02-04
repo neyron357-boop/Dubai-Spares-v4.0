@@ -2,30 +2,20 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
-
     "module": "ESNext",
     "moduleResolution": "bundler",
-
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-
     "jsx": "react-jsx",
     "noEmit": true,
-
     "strict": true,
-
-    // 🔴 КЛЮЧЕВОЕ — ОТКЛЮЧАЕМ ДУШЕГУБОВ BUILD
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-
-    // 🔵 безопасно, можно оставить
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true
   },
-
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules", "dist"]
 }
