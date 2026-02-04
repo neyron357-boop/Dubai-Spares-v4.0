@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/Dubai-Spares-v4.0/'
+  preview: {
+    allowedHosts: [
+      'dubai-spares-cis-ay24a.ondigitalocean.app',
+      '.ondigitalocean.app'
+    ]
+  }
 })
