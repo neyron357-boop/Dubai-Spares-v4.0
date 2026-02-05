@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- 
+      RELAXED VIEWPORT:
+      Removed user-scalable=no to allow manual pinch-zoom.
+      Kept viewport-fit=cover for notch handling.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Dubai Spares CIS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Base reset */
+        * {
+            -webkit-tap-highlight-color: transparent;
+            box-sizing: border-box;
+        }
+
+        /* 
+           STABILITY LOCKS:
+           1. position: fixed + inset: 0 keeps the app "shell" stable.
+           2. overflow-x: hidden prevents horizontal shift when keyboard pushes layout.
+           3. REMOVED touch-action: none to allow user zooming/panning.
+        */
+        html, body {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; 
+            overflow-x: hidden; /* Critical to stop keyboard wobble */
+            background-color: #f9fafb;
+            -webkit-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+        }
+
+        #root {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        body {
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* 
+           INPUT STABILIZATION (The only zoom restriction):
+           font-size: 17px prevents iOS from AUTO-zooming when focusing an input.
+           This allows manual zoom elsewhere, but keeps the keyboard stable.
+        */
+        input, select, textarea {
+            font-size: 17px !important;
+            max-width: 100%;
+            border-radius: 0;
+            touch-action: manipulation;
+        }
+
+        /* Preserve larger text for specific inputs */
+        input.text-4xl { font-size: 2.25rem !important; }
+        input.text-3xl { font-size: 1.875rem !important; }
+        input.text-2xl { font-size: 1.5rem !important; }
+        input.text-xl { font-size: 1.25rem !important; }
+        input.text-lg { font-size: 1.125rem !important; }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+        }
+        
+        main {
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+        "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+        "react": "https://esm.sh/react@^19.2.4",
+        "react/": "https://esm.sh/react@^19.2.4/",
+        "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+        "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0"
+      }
+    }
+    </script>
+    <!-- Removed JS gesture blockers to allow pinch-zoom and double-tap zoom -->
+</head>
+<body class="bg-gray-50 text-gray-900 font-sans">
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script></body>
+</html>
