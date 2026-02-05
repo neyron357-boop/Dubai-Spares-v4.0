@@ -56,9 +56,11 @@ const PartDetailsScreen: React.FC = () => {
   useEffect(() => {
     if (isAdding) {
       if (latestOrderVariant) {
-        setShopName(latestOrderVariant.shopName);
-        setPhone(latestOrderVariant.phone);
-        setLocation(latestOrderVariant.location);
+        // ✅ FIX: guard against TS inferring "never" by reading via any + fallback
+        const v = latestOrderVariant as any;
+        setShopName(v?.shopName ?? '');
+        setPhone(v?.phone ?? '');
+        setLocation(v?.location ?? '');
       } else {
         setShopName('');
         setPhone('');
