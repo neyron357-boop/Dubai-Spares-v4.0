@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Order, Supplier } from './types';
-import { supabase } from './supabase';
+import { supabase } from './src/supabase';
 
 const ORDERS_KEY = 'dubai_spares_orders';
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
