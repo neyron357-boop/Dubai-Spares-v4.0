@@ -1,3 +1,7 @@
+import { startCloudSync } from './cloudSync'
+
+startCloudSync().catch(console.error)
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
