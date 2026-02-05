@@ -5,7 +5,7 @@ const ORDERS_KEY = 'dubai_spares_orders';
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
 // Global Memory State (Singleton Pattern)
-// This ensures that state updates are immediate and shared across all components 
+// This ensures that state updates are immediate and shared across all components
 // without waiting for LocalStorage round-trips or React render cycles.
 let globalOrders: Order[] = [];
 let globalSuppliers: Supplier[] = [];
@@ -32,6 +32,28 @@ const notifyListeners = () => {
   }
   // Update all subscribed components
   listeners.forEach(listener => listener());
+};
+
+/**
+ * ✅ External subscribe for cloud sync (Supabase / any backend)
+ * Позволяет слушать любые изменения стора снаружи, без React-хуков.
+ */
+export const subscribeStore = (listener: () => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+
+/**
+ * ✅ External export for cloud sync
+ * Единый JSON-экспорт всего состояния (совместим с restoreData).
+ */
+export const exportData = () => {
+  return {
+    orders: globalOrders,
+    suppliers: globalSuppliers,
+    version: '1.3',
+    exportedAt: new Date().toISOString()
+  };
 };
 
 export const useStore = () => {
@@ -103,6 +125,7 @@ export const useStore = () => {
     updateSupplier,
     deleteSupplier,
     getBackupData,
+    exportData: getBackupData, // ✅ добавили, чтобы cloudSync мог звать exportData()
     restoreData
   };
 };
