@@ -1,21 +1,30 @@
-import { supabase } from './supabaseClient'
+import { supabase } from './supabaseClient';
 
-export async function loadCloudState(): Promise<any> {
+const TABLE = 'app_state';
+const ID = 'global';
+
+export async function loadCloudState(): Promise<any | null> {
   const { data, error } = await supabase
-    .from('app_state')
+    .from(TABLE)
     .select('data')
-    .eq('id', 'global')
-    .single()
+    .eq('id', ID)
+    .single();
 
-  if (error) throw error
-  return data?.data ?? {}
+  if (error) {
+    console.error('loadCloudState error', error);
+    return null;
+  }
+
+  return data?.data ?? null;
 }
 
 export async function saveCloudState(json: any): Promise<void> {
   const { error } = await supabase
-    .from('app_state')
-    .update({ data: json, updated_at: new Date().toISOString() })
-    .eq('id', 'global')
+    .from(TABLE)
+    .upsert({ id: ID, data: json }, { onConflict: 'id' });
 
-  if (error) throw error
+  if (error) {
+    console.error('saveCloudState error', error);
+    throw error;
+  }
 }
