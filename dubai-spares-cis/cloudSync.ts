@@ -1,45 +1,49 @@
-import { useStore } from './store'
-import { loadCloudState, saveCloudState } from './cloudState'
+import { useStore } from './store';
+import { loadCloudState, saveCloudState } from './cloudState';
 
-function debounce<T extends (...args: any[]) => void>(fn: T, ms: number) {
-  let t: any
-  return (...args: Parameters<T>) => {
-    clearTimeout(t)
-    t = setTimeout(() => fn(...args), ms)
-  }
-}
+let started = false;
 
 export async function startCloudSync() {
-  let hydrating = true
+  if (started) return;
+  started = true;
 
-  // Берём методы из стора, но приводим тип к any, чтобы TS не валил билд
-  const storeAny = useStore.getState() as any
+  const store = useStore;
 
-  // 1) LOAD on app start
-  try {
-    const json = await loadCloudState()
+  // 1) LOAD from cloud on startup
+  let isHydrating = true;
+  const cloud = await loadCloudState();
 
-    if (json && Array.isArray(json.orders) && Array.isArray(json.suppliers)) {
-      storeAny.restoreData(json)
-    }
-  } catch (e) {
-    console.error('Cloud load failed', e)
-  } finally {
-    hydrating = false
+  if (cloud) {
+    // ВАЖНО: используем твой механизм импорта/восстановления
+    // В сторе у тебя уже есть restoreData(data: any)
+    store.getState().restoreData(cloud);
+    console.log('CLOUD: restored from Supabase');
+  } else {
+    console.log('CLOUD: nothing to restore (empty)');
   }
 
-  // 2) SAVE on any change (debounced)
-  const saveDebounced = debounce(async () => {
-    if (hydrating) return
-    try {
-      const backup = storeAny.getBackupData()
-      await saveCloudState(backup)
-    } catch (e) {
-      console.error('Cloud save failed', e)
-    }
-  }, 700)
+  isHydrating = false;
 
-  useStore.subscribe(() => {
-    saveDebounced()
-  })
+  // 2) SAVE to cloud on every change (debounced)
+  let timer: any = null;
+
+  store.subscribe((state, prevState) => {
+    if (isHydrating) return;
+
+    // Чтобы не сохранять на "пустом" старте:
+    if (state === prevState) return;
+
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try {
+        // ВАЖНО: используем твой механизм экспорта
+        // В сторе у тебя есть exportData(): any
+        const json = store.getState().exportData();
+        await saveCloudState(json);
+        console.log('CLOUD: saved');
+      } catch (e) {
+        console.error('CLOUD: save failed', e);
+      }
+    }, 800);
+  });
 }
