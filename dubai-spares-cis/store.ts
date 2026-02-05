@@ -56,6 +56,19 @@ export const exportData = () => {
   };
 };
 
+/**
+ * ✅ External restore for cloud sync
+ * Можно вызывать без React (не хук).
+ */
+export const restoreDataExternal = (data: any) => {
+  if (!data || !Array.isArray(data.orders)) {
+    throw new Error('Неверный формат данных');
+  }
+  globalOrders = data.orders;
+  globalSuppliers = Array.isArray(data.suppliers) ? data.suppliers : [];
+  notifyListeners();
+};
+
 export const useStore = () => {
   const [_, setVersion] = useState(0);
 
