@@ -5,12 +5,10 @@ export default defineConfig({
   plugins: [react()],
   build: {
     rollupOptions: {
-      // Это решает проблему, о которой написал DigitalOcean
-      external: [], 
+      external: [], // Оставляем пустым, чтобы Vite сам упаковал все библиотеки
     },
   },
   optimizeDeps: {
-    // Принудительно включаем zustand в сборку
-    include: ['zustand', '@supabase/supabase-js'],
+    include: ['zustand', '@supabase/supabase-js'], // Принудительно включаем важные пакеты
   },
 });
