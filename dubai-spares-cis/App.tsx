@@ -6,7 +6,7 @@ import OrderDetailsScreen from './screens/OrderDetailsScreen';
 import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
 import VendorSlider from './components/VendorSlider';
-import CloudDebug from './CloudDebug';
+
 import { 
   CarFront, 
   PlusCircle, 
@@ -41,7 +41,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </NavLink>
         </nav>
       )}
-      <CloudDebug />
     </div>
   );
 };
