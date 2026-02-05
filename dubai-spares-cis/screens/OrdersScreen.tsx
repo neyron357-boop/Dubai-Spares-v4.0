@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react'; // 1. Добавили useEffect
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useOrderStore } from '../store'; // 2. Исправили название на useOrderStore
+import { useOrderStore } from '../store'; // Используем обновленный стор
 import { Order, Priority, Part } from '../types';
 import { 
   Calendar, 
@@ -19,46 +19,26 @@ import IncomeModal from '../components/IncomeModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 
-export const OrdersScreen = () => {
-  const navigate = useNavigate();
-  
-  // 3. Подключаем данные и функцию синхронизации из store.ts
-  const orders = useOrderStore((state) => state.orders);
-  const deleteOrder = useOrderStore((state) => state.deleteOrder);
-  const syncOrders = useOrderStore((state) => state.syncOrders);
-
-  // 4. Эта магия сработает при открытии страницы: данные прилетят из облака
-  useEffect(() => {
-    syncOrders();
-  }, [syncOrders]);
-
-  const [filterPriority, setFilterPriority] = useState<Priority | 'all'>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-
-  // Дальше идет твой код с useMemo и фильтрацией...
 type TabType = 'active' | 'archive' | 'sold';
 type SortType = 'date' | 'brand' | 'priority' | 'status';
 
 const OrdersScreen: React.FC = () => {
-  const { orders, deleteOrder } = useStore();
+  // Подключаем данные и функции
+  const orders = useOrderStore((state) => state.orders);
+  const deleteOrder = useOrderStore((state) => state.deleteOrder);
   const syncOrders = useOrderStore((state) => state.syncOrders);
 
-useEffect(() => {
-  syncOrders(); // Загрузит данные из базы при открытии экрана
-}, []);
+  // Загружаем данные из облака при открытии экрана
+  useEffect(() => {
+    syncOrders();
+  }, [syncOrders]);
 
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>('active');
   const [sortBy, setSortBy] = useState<SortType>('date');
   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
   
-  // Gallery State
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
-  
-  // Delete State
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const filteredOrders = useMemo(() => {
@@ -78,12 +58,11 @@ useEffect(() => {
         case 'status': {
           const getFoundStatusScore = (o: Order) => {
             if (o.parts.length === 0) return 0;
-            const foundCount = o.parts.filter(p => p.variants.length > 0).length;
-            if (foundCount === o.parts.length) return 3; // 100% Found
-            if (foundCount > 0) return 2; // Partial
-            return 1; // None
+            const foundCount = o.parts.filter(p => p.variants && p.variants.length > 0).length;
+            if (foundCount === o.parts.length) return 3;
+            if (foundCount > 0) return 2;
+            return 1;
           };
-          // Sort desc: 100% -> Partial -> None
           return getFoundStatusScore(b) - getFoundStatusScore(a) || (b.createdAt - a.createdAt);
         }
         default: return b.createdAt - a.createdAt;
@@ -93,7 +72,6 @@ useEffect(() => {
 
   const getStatusColor = (createdAt: number, isSold: boolean) => {
     if (isSold) return 'border-l-4 border-green-700 bg-green-50/50';
-    // Keeping consistent left border but adding specific age badge below
     const diff = (Date.now() - createdAt) / (1000 * 60 * 60);
     if (diff < 24) return 'border-l-4 border-green-500';
     if (diff < 48) return 'border-l-4 border-yellow-500';
@@ -104,18 +82,13 @@ useEffect(() => {
     const diff = (Date.now() - createdAt) / (1000 * 60 * 60);
     let label = '';
     let style = '';
-
     if (diff < 1) label = 'NEW';
     else if (diff < 24) label = `${Math.floor(diff)}h`;
     else label = `${Math.floor(diff / 24)}d`;
 
-    if (diff < 24) {
-      style = 'bg-green-100 text-green-700'; // Subtle green
-    } else if (diff < 48) {
-      style = 'bg-yellow-100 text-yellow-700'; // Subtle yellow
-    } else {
-      style = 'bg-red-100 text-red-700'; // Subtle red
-    }
+    if (diff < 24) style = 'bg-green-100 text-green-700';
+    else if (diff < 48) style = 'bg-yellow-100 text-yellow-700';
+    else style = 'bg-red-100 text-red-700';
 
     return (
       <div className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-tighter flex items-center gap-1 ${style}`}>
@@ -126,11 +99,10 @@ useEffect(() => {
 
   const getOrderProfit = (order: Order) => {
     if (order.isSold && order.soldProfitUsd !== undefined) return order.soldProfitUsd.toFixed(0);
-    
     let totalCostAed = 0;
     let foundParts = 0;
     order.parts.forEach(p => {
-      if (p.isFound && p.variants.length > 0) {
+      if (p.isFound && p.variants && p.variants.length > 0) {
         totalCostAed += p.variants[0].priceAed;
         foundParts++;
       }
@@ -187,6 +159,7 @@ useEffect(() => {
         </div>
       </div>
 
+      {/* Табы */}
       <div className="flex p-1 bg-gray-100 rounded-xl shadow-inner">
         {(['active', 'archive', 'sold'] as TabType[]).map((tab) => (
           <button 
@@ -200,6 +173,7 @@ useEffect(() => {
         ))}
       </div>
 
+      {/* Сортировка */}
       <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
         {[
           { id: 'date', label: 'Дата', icon: Calendar },
@@ -218,6 +192,7 @@ useEffect(() => {
         ))}
       </div>
 
+      {/* Список заказов */}
       <div className="space-y-3">
         {filteredOrders.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-100 text-gray-300 text-xs font-bold uppercase tracking-widest">
@@ -276,7 +251,6 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* Part Names List */}
               <div className="mb-2 px-1">
                 <p className="text-xs font-bold text-gray-600 leading-tight line-clamp-2">
                   {order.parts.map(p => p.name).join(', ')}
