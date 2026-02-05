@@ -1,5 +1,5 @@
-import { useStore } from './store';
 import { loadCloudState, saveCloudState } from './cloudState';
+import { exportData, restoreDataExternal, subscribeStore } from './store';
 
 let started = false;
 
@@ -7,42 +7,42 @@ export async function startCloudSync() {
   if (started) return;
   started = true;
 
-  const store = useStore;
+  // ✅ Визуальный тест на телефоне (потом уберём)
+  // alert('CLOUDSYNC STARTED');
 
-  // 1) LOAD from cloud on startup
-  let isHydrating = true;
-  const cloud = await loadCloudState();
+  let hydrating = true;
 
-  if (cloud) {
-    // ВАЖНО: используем твой механизм импорта/восстановления
-    // В сторе у тебя уже есть restoreData(data: any)
-    store.getState().restoreData(cloud);
-    console.log('CLOUD: restored from Supabase');
-  } else {
-    console.log('CLOUD: nothing to restore (empty)');
+  // 1) LOAD once
+  try {
+    const cloud = await loadCloudState();
+    console.log('CLOUDSYNC LOADED', cloud);
+
+    if (cloud && Array.isArray(cloud.orders)) {
+      restoreDataExternal(cloud);
+      console.log('CLOUDSYNC RESTORED');
+    }
+  } catch (e) {
+    console.error('CLOUDSYNC LOAD/RESTORE FAILED', e);
+    alert('Cloud load/restore failed. Check console.');
+  } finally {
+    hydrating = false;
   }
 
-  isHydrating = false;
-
-  // 2) SAVE to cloud on every change (debounced)
+  // 2) SAVE on changes (debounced)
   let timer: any = null;
 
-  store.subscribe((state, prevState) => {
-    if (isHydrating) return;
-
-    // Чтобы не сохранять на "пустом" старте:
-    if (state === prevState) return;
+  subscribeStore(() => {
+    if (hydrating) return;
 
     if (timer) clearTimeout(timer);
     timer = setTimeout(async () => {
       try {
-        // ВАЖНО: используем твой механизм экспорта
-        // В сторе у тебя есть exportData(): any
-        const json = store.getState().exportData();
+        const json = exportData();
         await saveCloudState(json);
-        console.log('CLOUD: saved');
+        console.log('CLOUDSYNC SAVED');
       } catch (e) {
-        console.error('CLOUD: save failed', e);
+        console.error('CLOUDSYNC SAVE FAILED', e);
+        alert('Cloud save failed. Check console.');
       }
     }, 800);
   });
