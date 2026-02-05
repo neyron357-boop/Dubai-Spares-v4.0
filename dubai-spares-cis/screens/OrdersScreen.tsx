@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react'; // 1. Добавили useEffect
 import { useNavigate } from 'react-router-dom';
-import { useStore } from '../store';
+import { useOrderStore } from '../store'; // 2. Исправили название на useOrderStore
 import { Order, Priority, Part } from '../types';
 import { 
   Calendar, 
@@ -19,11 +19,37 @@ import IncomeModal from '../components/IncomeModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 
+export const OrdersScreen = () => {
+  const navigate = useNavigate();
+  
+  // 3. Подключаем данные и функцию синхронизации из store.ts
+  const orders = useOrderStore((state) => state.orders);
+  const deleteOrder = useOrderStore((state) => state.deleteOrder);
+  const syncOrders = useOrderStore((state) => state.syncOrders);
+
+  // 4. Эта магия сработает при открытии страницы: данные прилетят из облака
+  useEffect(() => {
+    syncOrders();
+  }, [syncOrders]);
+
+  const [filterPriority, setFilterPriority] = useState<Priority | 'all'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+  // Дальше идет твой код с useMemo и фильтрацией...
 type TabType = 'active' | 'archive' | 'sold';
 type SortType = 'date' | 'brand' | 'priority' | 'status';
 
 const OrdersScreen: React.FC = () => {
   const { orders, deleteOrder } = useStore();
+  const syncOrders = useOrderStore((state) => state.syncOrders);
+
+useEffect(() => {
+  syncOrders(); // Загрузит данные из базы при открытии экрана
+}, []);
+
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>('active');
   const [sortBy, setSortBy] = useState<SortType>('date');
