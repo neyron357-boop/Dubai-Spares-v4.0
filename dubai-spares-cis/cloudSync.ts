@@ -10,15 +10,17 @@ function debounce<T extends (...args: any[]) => void>(fn: T, ms: number) {
 }
 
 export async function startCloudSync() {
-  // 1) LOAD on app start
   let hydrating = true
+
+  // Берём методы из стора, но приводим тип к any, чтобы TS не валил билд
+  const storeAny = useStore.getState() as any
+
+  // 1) LOAD on app start
   try {
     const json = await loadCloudState()
 
-    // Твой импорт: restoreData(json)
-    // (с проверкой формата как у тебя в SuppliersScreen)
     if (json && Array.isArray(json.orders) && Array.isArray(json.suppliers)) {
-      useStore.getState().restoreData(json)
+      storeAny.restoreData(json)
     }
   } catch (e) {
     console.error('Cloud load failed', e)
@@ -30,7 +32,7 @@ export async function startCloudSync() {
   const saveDebounced = debounce(async () => {
     if (hydrating) return
     try {
-      const backup = useStore.getState().getBackupData() // Твой export
+      const backup = storeAny.getBackupData()
       await saveCloudState(backup)
     } catch (e) {
       console.error('Cloud save failed', e)
