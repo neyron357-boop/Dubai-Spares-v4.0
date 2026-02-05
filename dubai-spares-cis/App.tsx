@@ -41,6 +41,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </NavLink>
         </nav>
       )}
+      <CloudDebug />
     </div>
   );
 };
@@ -78,7 +79,6 @@ const App: React.FC = () => {
             <Route path="/order/:id" element={<OrderDetailsScreen />} />
             <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
             <Route path="/database" element={<SuppliersScreen />} />
-            <CloudDebug />
           </Routes>
         </Layout>
       </HashRouter>
