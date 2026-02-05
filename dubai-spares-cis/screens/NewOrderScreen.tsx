@@ -1,13 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useOrderStore } from '../store'; // Исправлено на useOrderStore
-import { Priority, Source, Order } from '../types';
-import { BRANDS, YEARS, DEFAULT_MARKUP, DEFAULT_RATE, SOURCES } from '../constants';
+import { useOrderStore } from '../src/store'; // Путь изменён на ../src/store
+import { Priority, Source, Order } from '../types'; // Путь изменён на ../src/types
+import { BRANDS, YEARS, DEFAULT_MARKUP, DEFAULT_RATE, SOURCES } from '../src/constants';
 import { Camera, Plus, X, Save, Image as ImageIcon, Trash2, User, Smartphone } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
 
 const NewOrderScreen: React.FC = () => {
-  const addOrder = useOrderStore((state) => state.addOrder); // Исправлено
+  const addOrder = useOrderStore((state) => state.addOrder);
   const navigate = useNavigate();
   const carFileRef = useRef<HTMLInputElement>(null);
   const partFileRef = useRef<HTMLInputElement>(null);
@@ -108,7 +108,6 @@ const NewOrderScreen: React.FC = () => {
         <h1 className="text-2xl font-black uppercase tracking-tight">Новый заказ</h1>
       </div>
 
-      {/* Приоритет */}
       <div className="grid grid-cols-3 gap-2">
         {(Object.values(Priority) as Priority[]).map((p) => (
           <button
@@ -126,7 +125,6 @@ const NewOrderScreen: React.FC = () => {
         ))}
       </div>
 
-      {/* Фото автомобиля */}
       <div className="space-y-3">
         <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Фото автомобиля</label>
         <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
@@ -159,7 +157,6 @@ const NewOrderScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Данные авто */}
       <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-50 space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
@@ -206,7 +203,6 @@ const NewOrderScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Данные клиента */}
       <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-50 space-y-4">
         <div className="flex items-center gap-2 mb-2">
            <User size={14} className="text-gray-400" />
@@ -232,7 +228,6 @@ const NewOrderScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Добавление деталей */}
       <div className="space-y-4">
         <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Запчасти для поиска</label>
         
@@ -283,7 +278,6 @@ const NewOrderScreen: React.FC = () => {
           )}
         </div>
 
-        {/* Список добавленных деталей */}
         <div className="space-y-2">
           {parts.map((p, i) => (
             <div key={i} className="flex items-center justify-between bg-white p-3 rounded-2xl border border-gray-100 group animate-in slide-in-from-right-2">
