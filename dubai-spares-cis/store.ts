@@ -5,31 +5,39 @@ const ORDERS_KEY = 'dubai_spares_orders';
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
 // Global Memory State (Singleton Pattern)
-// This ensures that state updates are immediate and shared across all components 
-// without waiting for LocalStorage round-trips or React render cycles.
 let globalOrders: Order[] = [];
 let globalSuppliers: Supplier[] = [];
 let listeners = new Set<() => void>();
 
-// Initialize once on module load
-try {
-  const savedOrders = localStorage.getItem(ORDERS_KEY);
-  if (savedOrders) globalOrders = JSON.parse(savedOrders);
+// ✅ Safe load to avoid app reset when JSON is corrupted
+const safeLoadArray = <T,>(key: string): T[] => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error(`Failed to parse ${key}:`, e);
+    return [];
+  }
+};
 
-  const savedSuppliers = localStorage.getItem(SUPPLIERS_KEY);
-  if (savedSuppliers) globalSuppliers = JSON.parse(savedSuppliers);
-} catch (e) {
-  console.error('Failed to load initial data:', e);
-}
+// Initialize once on module load (safe)
+globalOrders = safeLoadArray<Order>(ORDERS_KEY);
+globalSuppliers = safeLoadArray<Supplier>(SUPPLIERS_KEY);
 
-const notifyListeners = () => {
-  // Persist to storage
+const persistNow = () => {
   try {
     localStorage.setItem(ORDERS_KEY, JSON.stringify(globalOrders));
     localStorage.setItem(SUPPLIERS_KEY, JSON.stringify(globalSuppliers));
   } catch (e) {
     console.error('Failed to persist data:', e);
   }
+};
+
+const notifyListeners = () => {
+  // Persist to storage
+  persistNow();
   // Update all subscribed components
   listeners.forEach(listener => listener());
 };
@@ -40,8 +48,25 @@ export const useStore = () => {
   useEffect(() => {
     const listener = () => setVersion(v => v + 1);
     listeners.add(listener);
+
     return () => {
       listeners.delete(listener);
+    };
+  }, []);
+
+  // ✅ Extra persistence for iOS/Safari/PWA when app is minimized/closed
+  useEffect(() => {
+    const onPageHide = () => persistNow();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') persistNow();
+    };
+
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
 
@@ -51,7 +76,7 @@ export const useStore = () => {
   }, []);
 
   const updateOrder = useCallback((updatedOrder: Order) => {
-    globalOrders = globalOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o);
+    globalOrders = globalOrders.map(o => (o.id === updatedOrder.id ? updatedOrder : o));
     notifyListeners();
   }, []);
 
@@ -66,7 +91,7 @@ export const useStore = () => {
   }, []);
 
   const updateSupplier = useCallback((updated: Supplier) => {
-    globalSuppliers = globalSuppliers.map(s => s.id === updated.id ? updated : s);
+    globalSuppliers = globalSuppliers.map(s => (s.id === updated.id ? updated : s));
     notifyListeners();
   }, []);
 
