@@ -5,8 +5,6 @@ const ORDERS_KEY = 'dubai_spares_orders';
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
 // Global Memory State (Singleton Pattern)
-// This ensures that state updates are immediate and shared across all components
-// without waiting for LocalStorage round-trips or React render cycles.
 let globalOrders: Order[] = [];
 let globalSuppliers: Supplier[] = [];
 let listeners = new Set<() => void>();
@@ -35,8 +33,7 @@ const notifyListeners = () => {
 };
 
 /**
- * ✅ External subscribe for cloud sync (Supabase / any backend)
- * Позволяет слушать любые изменения стора снаружи, без React-хуков.
+ * ✅ External subscribe for cloud sync
  */
 export const subscribeStore = (listener: () => void) => {
   listeners.add(listener);
@@ -45,7 +42,6 @@ export const subscribeStore = (listener: () => void) => {
 
 /**
  * ✅ External export for cloud sync
- * Единый JSON-экспорт всего состояния (совместим с restoreData).
  */
 export const exportData = () => {
   return {
@@ -57,8 +53,7 @@ export const exportData = () => {
 };
 
 /**
- * ✅ External restore for cloud sync
- * Можно вызывать без React (не хук).
+ * ✅ External restore for cloud sync (NO React hooks!)
  */
 export const restoreDataExternal = (data: any) => {
   if (!data || !Array.isArray(data.orders)) {
@@ -111,21 +106,11 @@ export const useStore = () => {
   }, []);
 
   const getBackupData = useCallback(() => {
-    return {
-      orders: globalOrders,
-      suppliers: globalSuppliers,
-      version: '1.3',
-      exportedAt: new Date().toISOString()
-    };
+    return exportData();
   }, []);
 
   const restoreData = useCallback((data: any) => {
-    if (!data || !Array.isArray(data.orders)) {
-      throw new Error('Неверный формат данных');
-    }
-    globalOrders = data.orders;
-    globalSuppliers = Array.isArray(data.suppliers) ? data.suppliers : [];
-    notifyListeners();
+    restoreDataExternal(data);
   }, []);
 
   return {
@@ -138,7 +123,7 @@ export const useStore = () => {
     updateSupplier,
     deleteSupplier,
     getBackupData,
-    exportData: getBackupData, // ✅ добавили, чтобы cloudSync мог звать exportData()
+    exportData: getBackupData,
     restoreData
   };
 };
