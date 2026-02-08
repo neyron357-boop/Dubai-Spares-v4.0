@@ -4,6 +4,8 @@ const TABLE = 'app_state';
 const ID = 'global';
 
 export async function loadCloudState(): Promise<any | null> {
+  if (!supabase) return null;
+
   const { data, error } = await supabase
     .from(TABLE)
     .select('data')
@@ -25,6 +27,8 @@ export async function loadCloudState(): Promise<any | null> {
 }
 
 export async function saveCloudState(json: any): Promise<void> {
+  if (!supabase) return;
+
   const { error } = await supabase
     .from(TABLE)
     .upsert({ id: ID, data: json }, { onConflict: 'id' });
