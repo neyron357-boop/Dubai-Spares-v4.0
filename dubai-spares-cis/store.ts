@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Order, Supplier } from './types';
+import { Order, Supplier, Priority, Source, OrderNote } from './types';
 
 const ORDERS_KEY = 'dubai_spares_orders';
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
@@ -14,13 +14,46 @@ type PersistedState = {
   updatedAt: number;
 };
 
-// Global Memory State (Singleton Pattern)
 let globalOrders: Order[] = [];
 let globalSuppliers: Supplier[] = [];
 let listeners = new Set<() => void>();
+let hydrateListeners = new Set<(ready: boolean) => void>();
+let isHydrated = false;
 
 let idbWriteInFlight = false;
 let idbWriteQueued = false;
+
+const normalizeOrder = (order: any): Order => ({
+  id: String(order?.id ?? Date.now()),
+  brand: order?.brand ?? '',
+  model: order?.model ?? '',
+  year: order?.year ?? '',
+  vin: order?.vin ?? '',
+  priority: (Object.values(Priority).includes(order?.priority) ? order.priority : Priority.MEDIUM) as Priority,
+  clientName: order?.clientName ?? '',
+  source: (Object.values(Source).includes(order?.source) ? order.source : Source.OTHER) as Source,
+  carPhotoUrl: order?.carPhotoUrl,
+  carPhotos: Array.isArray(order?.carPhotos) ? order.carPhotos : (order?.carPhotoUrl ? [order.carPhotoUrl] : []),
+  parts: Array.isArray(order?.parts) ? order.parts : [],
+  notes: Array.isArray(order?.notes) ? order.notes : [],
+  isPinned: Boolean(order?.isPinned),
+  isVip: Boolean(order?.isVip),
+  markupPercent: Number(order?.markupPercent ?? 25),
+  exchangeRate: Number(order?.exchangeRate ?? 3.67),
+  createdAt: Number(order?.createdAt ?? Date.now()),
+  isArchived: Boolean(order?.isArchived),
+  isSold: Boolean(order?.isSold),
+  soldProfitUsd: typeof order?.soldProfitUsd === 'number' ? order.soldProfitUsd : undefined
+});
+
+const normalizeState = (state: PersistedState | null): PersistedState | null => {
+  if (!state) return null;
+  return {
+    orders: Array.isArray(state.orders) ? state.orders.map(normalizeOrder) : [],
+    suppliers: Array.isArray(state.suppliers) ? state.suppliers : [],
+    updatedAt: Number(state.updatedAt ?? Date.now())
+  };
+};
 
 const getCurrentState = (): PersistedState => ({
   orders: globalOrders,
@@ -28,26 +61,22 @@ const getCurrentState = (): PersistedState => ({
   updatedAt: Date.now()
 });
 
-const openDb = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') {
-      reject(new Error('IndexedDB is not available'));
-      return;
-    }
+const openDb = (): Promise<IDBDatabase> => new Promise((resolve, reject) => {
+  if (typeof indexedDB === 'undefined') {
+    reject(new Error('IndexedDB is not available'));
+    return;
+  }
 
-    const req = indexedDB.open(IDB_NAME, 1);
+  const req = indexedDB.open(IDB_NAME, 1);
 
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(IDB_STORE)) {
-        db.createObjectStore(IDB_STORE);
-      }
-    };
+  req.onupgradeneeded = () => {
+    const db = req.result;
+    if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+  };
 
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error('Failed to open IndexedDB'));
-  });
-};
+  req.onsuccess = () => resolve(req.result);
+  req.onerror = () => reject(req.error ?? new Error('Failed to open IndexedDB'));
+});
 
 const readFromIndexedDb = async (): Promise<PersistedState | null> => {
   try {
@@ -61,7 +90,7 @@ const readFromIndexedDb = async (): Promise<PersistedState | null> => {
       req.onerror = () => reject(req.error ?? new Error('Failed to read IndexedDB'));
     });
     db.close();
-    return result;
+    return normalizeState(result);
   } catch (e) {
     console.warn('IndexedDB read skipped:', e);
     return null;
@@ -86,9 +115,7 @@ const requestPersistentStorage = async () => {
   try {
     const storage = navigator.storage as StorageManager;
     const alreadyPersistent = await storage.persisted?.();
-    if (!alreadyPersistent) {
-      await storage.persist?.();
-    }
+    if (!alreadyPersistent) await storage.persist?.();
   } catch (e) {
     console.warn('Persistent storage request failed:', e);
   }
@@ -129,11 +156,15 @@ const notifyListeners = () => {
   listeners.forEach(listener => listener());
 };
 
+const setHydrated = (ready: boolean) => {
+  isHydrated = ready;
+  hydrateListeners.forEach(listener => listener(ready));
+};
+
 const initializeStore = async () => {
-  // Fast sync bootstrap from localStorage
   try {
     const savedOrders = localStorage.getItem(ORDERS_KEY);
-    if (savedOrders) globalOrders = JSON.parse(savedOrders);
+    if (savedOrders) globalOrders = JSON.parse(savedOrders).map(normalizeOrder);
 
     const savedSuppliers = localStorage.getItem(SUPPLIERS_KEY);
     if (savedSuppliers) globalSuppliers = JSON.parse(savedSuppliers);
@@ -141,54 +172,51 @@ const initializeStore = async () => {
     console.error('Failed to load initial data from localStorage:', e);
   }
 
-  // Stronger persistence layer (IndexedDB)
   const idbState = await readFromIndexedDb();
   if (idbState) {
-    globalOrders = Array.isArray(idbState.orders) ? idbState.orders : globalOrders;
-    globalSuppliers = Array.isArray(idbState.suppliers) ? idbState.suppliers : globalSuppliers;
+    globalOrders = idbState.orders;
+    globalSuppliers = idbState.suppliers;
     persistLocal();
     listeners.forEach(listener => listener());
   }
 
   await requestPersistentStorage();
+  setHydrated(true);
 };
 
 void initializeStore();
 
-/**
- * ✅ External subscribe for cloud sync
- */
 export const subscribeStore = (listener: () => void) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
 };
 
-/**
- * ✅ External export for cloud sync
- */
-export const exportData = () => {
-  return {
-    orders: globalOrders,
-    suppliers: globalSuppliers,
-    version: '1.3',
-    exportedAt: new Date().toISOString()
-  };
+export const subscribeHydration = (listener: (ready: boolean) => void) => {
+  hydrateListeners.add(listener);
+  listener(isHydrated);
+  return () => hydrateListeners.delete(listener);
 };
 
-/**
- * ✅ External restore for cloud sync (NO React hooks!)
- */
+export const exportData = () => ({
+  orders: globalOrders,
+  suppliers: globalSuppliers,
+  version: '1.4',
+  exportedAt: new Date().toISOString()
+});
+
 export const restoreDataExternal = (data: any) => {
   if (!data || !Array.isArray(data.orders)) {
     throw new Error('Неверный формат данных');
   }
-  globalOrders = data.orders;
+
+  globalOrders = data.orders.map(normalizeOrder);
   globalSuppliers = Array.isArray(data.suppliers) ? data.suppliers : [];
   notifyListeners();
 };
 
 export const useStore = () => {
-  const [_, setVersion] = useState(0);
+  const [, setVersion] = useState(0);
+  const [hydrated, setHydratedState] = useState(isHydrated);
 
   useEffect(() => {
     const listener = () => setVersion(v => v + 1);
@@ -198,13 +226,16 @@ export const useStore = () => {
     };
   }, []);
 
+  useEffect(() => subscribeHydration(setHydratedState), []);
+
   const addOrder = useCallback((order: Order) => {
-    globalOrders = [order, ...globalOrders];
+    globalOrders = [normalizeOrder(order), ...globalOrders];
     notifyListeners();
   }, []);
 
   const updateOrder = useCallback((updatedOrder: Order) => {
-    globalOrders = globalOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o);
+    const normalized = normalizeOrder(updatedOrder);
+    globalOrders = globalOrders.map(o => (o.id === normalized.id ? normalized : o));
     notifyListeners();
   }, []);
 
@@ -219,7 +250,7 @@ export const useStore = () => {
   }, []);
 
   const updateSupplier = useCallback((updated: Supplier) => {
-    globalSuppliers = globalSuppliers.map(s => s.id === updated.id ? updated : s);
+    globalSuppliers = globalSuppliers.map(s => (s.id === updated.id ? updated : s));
     notifyListeners();
   }, []);
 
@@ -228,17 +259,17 @@ export const useStore = () => {
     notifyListeners();
   }, []);
 
-  const getBackupData = useCallback(() => {
-    return exportData();
-  }, []);
-
-  const restoreData = useCallback((data: any) => {
-    restoreDataExternal(data);
+  const getBackupData = useCallback(() => exportData(), []);
+  const restoreData = useCallback((data: any) => restoreDataExternal(data), []);
+  const addNote = useCallback((orderId: string, note: OrderNote) => {
+    globalOrders = globalOrders.map(o => o.id === orderId ? { ...o, notes: [note, ...(o.notes ?? [])] } : o);
+    notifyListeners();
   }, []);
 
   return {
     orders: globalOrders,
     suppliers: globalSuppliers,
+    isHydrated: hydrated,
     addOrder,
     updateOrder,
     deleteOrder,
@@ -247,6 +278,7 @@ export const useStore = () => {
     deleteSupplier,
     getBackupData,
     exportData: getBackupData,
-    restoreData
+    restoreData,
+    addNote
   };
 };

@@ -33,6 +33,13 @@ export interface Part {
   isFound: boolean;
 }
 
+export interface OrderNote {
+  id: string;
+  text: string;
+  photos: string[];
+  createdAt: number;
+}
+
 export interface Order {
   id: string;
   brand: string;
@@ -45,6 +52,9 @@ export interface Order {
   carPhotoUrl?: string; // Deprecated, use carPhotos
   carPhotos?: string[]; // New
   parts: Part[];
+  notes?: OrderNote[];
+  isPinned?: boolean;
+  isVip?: boolean;
   markupPercent: number;
   exchangeRate: number;
   createdAt: number;

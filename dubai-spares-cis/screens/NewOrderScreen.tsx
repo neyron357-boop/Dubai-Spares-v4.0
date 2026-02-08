@@ -13,6 +13,7 @@ const NewOrderScreen: React.FC = () => {
   const partFileRef = useRef<HTMLInputElement>(null);
 
   const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
+  const [isVip, setIsVip] = useState(false);
   
   // Multiple Car Photos
   const [carPhotos, setCarPhotos] = useState<string[]>([]);
@@ -92,7 +93,8 @@ const NewOrderScreen: React.FC = () => {
       exchangeRate: DEFAULT_RATE,
       createdAt: Date.now(),
       isArchived: false,
-      isSold: false
+      isSold: false,
+      isVip,
     };
 
     addOrder(newOrder);
@@ -109,6 +111,19 @@ const NewOrderScreen: React.FC = () => {
 
       <div className="space-y-2">
         <label className="text-xs font-bold uppercase text-gray-400">Приоритет</label>
+
+      <div className="space-y-2">
+        <label className="text-xs font-bold uppercase text-gray-400">VIP заказ</label>
+        <button
+          type="button"
+          onClick={() => setIsVip(v => !v)}
+          className={`w-full py-3 rounded-xl text-sm font-bold transition-all ${isVip ? 'bg-purple-600 text-white' : 'bg-white border border-gray-200 text-gray-500'}`}
+        >
+          {isVip ? 'VIP включен' : 'Обычный заказ'}
+        </button>
+      </div>
+
+
         <div className="flex gap-2">
           {[
             { id: Priority.LOW, label: 'Низкий', active: 'bg-blue-600 text-white' },
