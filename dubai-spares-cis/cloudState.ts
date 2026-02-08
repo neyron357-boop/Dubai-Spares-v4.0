@@ -8,7 +8,6 @@ export async function loadCloudState(): Promise<any | null> {
     .from(TABLE)
     .select('data')
     .eq('id', ID)
-    .single();
     .maybeSingle();
 
   if (error) {
