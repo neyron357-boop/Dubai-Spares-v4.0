@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { HashRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import OrdersScreen from './screens/OrdersScreen';
 import NewOrderScreen from './screens/NewOrderScreen';
@@ -6,39 +6,57 @@ import OrderDetailsScreen from './screens/OrderDetailsScreen';
 import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
 import VendorSlider from './components/VendorSlider';
+import { CarFront, PlusCircle, Database } from 'lucide-react';
 
-import { 
-  CarFront, 
-  PlusCircle, 
-  Database,
-  ChevronRight
-} from 'lucide-react';
+const APP_PIN = '1234';
+
+const Loader: React.FC = () => (
+  <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-950 flex flex-col items-center justify-center text-white gap-4">
+    <div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin" />
+    <p className="text-xs font-bold uppercase tracking-[0.2em]">Загрузка данных...</p>
+  </div>
+);
+
+const PinGate: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState(false);
+  const submit = () => {
+    if (value === APP_PIN) onUnlock();
+    else { setError(true); setValue(''); }
+  };
+
+  return (
+    <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-950 flex flex-col items-center justify-center p-6 text-white">
+      <h1 className="text-xl font-black mb-2">Введите PIN</h1>
+      <p className="text-xs text-gray-400 mb-4">Простой код доступа к приложению</p>
+      <input
+        autoFocus
+        type="password"
+        maxLength={4}
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => { setError(false); setValue(e.target.value.replace(/\D/g, '')); }}
+        onKeyDown={(e) => e.key === 'Enter' && submit()}
+        className="w-full max-w-[220px] text-center text-3xl tracking-[0.6em] font-black bg-gray-900 border border-gray-700 rounded-2xl p-4 outline-none"
+      />
+      <button type="button" onClick={submit} className="mt-4 px-6 py-3 bg-blue-600 rounded-xl text-sm font-black uppercase tracking-wide">Открыть</button>
+      {error && <p className="text-red-400 text-xs mt-2">Неверный PIN</p>}
+    </div>
+  );
+};
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
 
   return (
-    // REVERTED: Back to h-[100dvh] which handled the viewport resizing better in the previous version.
     <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-50 flex flex-col overflow-hidden">
-      <main className="flex-1 overflow-y-auto no-scrollbar relative">
-        {children}
-      </main>
-      
+      <main className="flex-1 overflow-y-auto no-scrollbar relative">{children}</main>
       {!hideNav && (
         <nav className="h-16 bg-white border-t border-gray-200 flex items-center justify-around px-2 pb-safe shrink-0 z-50">
-          <NavLink to="/" className={({ isActive }) => `flex flex-col items-center gap-1 transition-colors ${isActive ? 'text-blue-600' : 'text-gray-400'}`}>
-            <CarFront size={24} />
-            <span className="text-[10px] font-medium">Заказы</span>
-          </NavLink>
-          <NavLink to="/new" className={({ isActive }) => `flex flex-col items-center gap-1 transition-colors ${isActive ? 'text-blue-600' : 'text-gray-400'}`}>
-            <PlusCircle size={24} />
-            <span className="text-[10px] font-medium">Новый</span>
-          </NavLink>
-          <NavLink to="/database" className={({ isActive }) => `flex flex-col items-center gap-1 transition-colors ${isActive ? 'text-blue-600' : 'text-gray-400'}`}>
-            <Database size={24} />
-            <span className="text-[10px] font-medium">База</span>
-          </NavLink>
+          <NavLink to="/" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
+          <NavLink to="/new" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">Новый</span></NavLink>
+          <NavLink to="/database" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Database size={24} /><span className="text-[10px] font-medium">База</span></NavLink>
         </nav>
       )}
     </div>
@@ -46,7 +64,19 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 const App: React.FC = () => {
-  // Global Enter Key Handler for next field
+  const [loading, setLoading] = useState(true);
+  const [unlocked, setUnlocked] = useState(() => localStorage.getItem('app_unlocked') === '1');
+
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 900);
+    return () => clearTimeout(t);
+  }, []);
+
+  const handleUnlock = () => {
+    localStorage.setItem('app_unlocked', '1');
+    setUnlocked(true);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       const target = e.target as HTMLInputElement;
@@ -56,16 +86,15 @@ const App: React.FC = () => {
         if (form) {
           const index = Array.prototype.indexOf.call(form, target);
           const next = form.elements[index + 1] as HTMLElement;
-          if (next) {
-            // preventScroll: true helps, but the main fix is in CSS font-size
-            next.focus({ preventScroll: true });
-          } else {
-            target.blur();
-          }
+          if (next) next.focus({ preventScroll: true });
+          else target.blur();
         }
       }
     }
   };
+
+  if (loading) return <Loader />;
+  if (!unlocked) return <PinGate onUnlock={handleUnlock} />;
 
   return (
     <div onKeyDown={handleKeyDown}>
