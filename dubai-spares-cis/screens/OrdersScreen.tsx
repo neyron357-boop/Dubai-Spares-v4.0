@@ -15,13 +15,14 @@ import {
   Smartphone,
   Clock,
   Pin,
-  Star
+  Star,
+  Maximize2
 } from 'lucide-react';
 import IncomeModal from '../components/IncomeModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 
-type TabType = 'active' | 'archive' | 'sold' | 'vip';
+type TabType = 'active' | 'archive' | 'sold' | 'vip' | 'leads';
 type SortType = 'date' | 'brand' | 'priority' | 'status';
 
 const weights = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
@@ -35,13 +36,15 @@ const OrdersScreen: React.FC = () => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [swipe, setSwipe] = useState<{ id: string; startX: number } | null>(null);
+  const [swipeAnimId, setSwipeAnimId] = useState<string | null>(null);
 
   const filteredOrders = useMemo(() => {
     let list = orders.filter(o => {
       if (activeTab === 'sold') return o.isSold;
       if (activeTab === 'archive') return o.isArchived && !o.isSold;
       if (activeTab === 'vip') return !!o.isVip && !o.isSold;
-      return !o.isArchived && !o.isSold && !o.isVip;
+      if (activeTab === 'leads') return !!o.isLead && !o.isSold;
+      return !o.isArchived && !o.isSold && !o.isVip && !o.isLead;
     });
 
     return [...list].sort((a, b) => {
@@ -105,7 +108,11 @@ const OrdersScreen: React.FC = () => {
   const onTouchStart = (id: string, x: number) => setSwipe({ id, startX: x });
   const onTouchEnd = (id: string, x: number) => {
     if (!swipe || swipe.id !== id) return;
-    if (x - swipe.startX > 60) togglePin(id);
+    if (x - swipe.startX > 60) {
+      togglePin(id);
+      setSwipeAnimId(id);
+      window.setTimeout(() => setSwipeAnimId(prev => (prev === id ? null : prev)), 280);
+    }
     setSwipe(null);
   };
 
@@ -126,6 +133,7 @@ const OrdersScreen: React.FC = () => {
           ['active', 'Актив'],
           ['vip', 'VIP'],
           ['archive', 'Архив'],
+          ['leads', 'Лиды'],
           ['sold', 'Продано']
         ] as [TabType, string][]).map(([tab, title]) => (
           <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg ${activeTab === tab ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'}`}>{title}</button>
@@ -153,7 +161,7 @@ const OrdersScreen: React.FC = () => {
               onClick={() => navigate(`/order/${order.id}`)}
               onTouchStart={(e) => onTouchStart(order.id, e.targetTouches[0].clientX)}
               onTouchEnd={(e) => onTouchEnd(order.id, e.changedTouches[0].clientX)}
-              className={`bg-white p-4 rounded-3xl shadow-sm border border-gray-100 relative overflow-hidden ${getStatusColor(order.createdAt, order.isSold)}`}
+              className={`p-4 rounded-3xl shadow-sm border relative overflow-hidden transition-transform duration-300 ${order.isVip ? 'bg-gradient-to-br from-yellow-50 via-amber-50 to-white border-yellow-200' : 'bg-white border-gray-100'} ${swipeAnimId === order.id ? 'translate-x-3' : ''} ${getStatusColor(order.createdAt, order.isSold)}`}
             >
               <div className="flex justify-between items-start mb-2 gap-2">
                 <div>
@@ -168,7 +176,8 @@ const OrdersScreen: React.FC = () => {
                 <div className="flex flex-col items-end gap-1">
                   <div className="flex gap-1 items-center">
                     {order.isPinned && <Pin size={13} className="text-blue-600" />}
-                    {order.isVip && <Star size={13} className="text-yellow-500 fill-yellow-400" />}
+                    {order.isVip && <Star size={13} className="text-yellow-600 fill-yellow-500" />}
+                    {order.isLead && <span className="px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-700 text-[9px] font-black uppercase">Lead</span>}
                     {getAgeBadge(order.createdAt)}
                     <div className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-tighter ${order.priority === Priority.HIGH ? 'bg-red-100 text-red-600' : order.priority === Priority.MEDIUM ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600'}`}>{order.priority}</div>
                   </div>
@@ -200,6 +209,7 @@ const OrdersScreen: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1">
+                  <button onClick={(e) => { e.stopPropagation(); navigate(`/order/${order.id}?fs=1`); }} className="p-2 text-gray-300 hover:text-gray-600"><Maximize2 size={17} /></button>
                   <button onClick={(e) => { e.stopPropagation(); togglePin(order.id); }} className="p-2 text-gray-300 hover:text-blue-600"><Pin size={18} className={order.isPinned ? 'fill-blue-100 text-blue-600' : ''} /></button>
                   <button onClick={(e) => { e.stopPropagation(); setDeleteId(order.id); }} className="p-2 text-gray-200 hover:text-red-500"><Trash2 size={20} /></button>
                   <ChevronRight size={20} className="text-gray-200" />

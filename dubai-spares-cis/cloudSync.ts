@@ -1,6 +1,40 @@
 import { loadCloudState, saveCloudState } from './cloudState';
 import { exportData, restoreDataExternal, subscribeStore } from './store';
 
+const getExportTimestamp = (data: any): number => {
+  if (!data?.exportedAt) return 0;
+  const ts = Date.parse(data.exportedAt);
+  return Number.isNaN(ts) ? 0 : ts;
+};
+
+const mergeById = <T extends { id: string }>(localItems: T[] = [], cloudItems: T[] = []) => {
+  const map = new Map<string, T>();
+  [...cloudItems, ...localItems].forEach(item => map.set(item.id, item));
+  return Array.from(map.values());
+};
+
+const mergeState = (local: any, cloud: any) => {
+  if (!cloud?.orders) return local;
+  if (!local?.orders) return cloud;
+
+  const localTs = getExportTimestamp(local);
+  const cloudTs = getExportTimestamp(cloud);
+
+  if (cloudTs > localTs) {
+    return {
+      ...cloud,
+      orders: mergeById(local.orders, cloud.orders),
+      suppliers: mergeById(local.suppliers || [], cloud.suppliers || [])
+    };
+  }
+
+  return {
+    ...local,
+    orders: mergeById(cloud.orders, local.orders),
+    suppliers: mergeById(cloud.suppliers || [], local.suppliers || [])
+  };
+};
+
 let started = false;
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -72,11 +106,18 @@ export async function startCloudSync() {
 
   // 1️⃣ LOAD from cloud once on start
   try {
+    const local = exportData();
     const cloud = await loadCloudState();
-    if (cloud && Array.isArray(cloud.orders)) {
-      restoreDataExternal(cloud);
-      lastSavedSnapshot = JSON.stringify(exportData());
-      console.log('☁️ Cloud data restored');
+    const merged = mergeState(local, cloud);
+    restoreDataExternal(merged);
+    const hydrated = exportData();
+    lastSavedSnapshot = JSON.stringify(hydrated);
+
+    if (!cloud || !Array.isArray(cloud.orders)) {
+      await saveCloudState(hydrated);
+      console.log('☁️ Cloud initialized from local data');
+    } else {
+      console.log('☁️ Cloud data merged and restored');
     }
   } catch (e) {
     console.error('Cloud load failed', e);
