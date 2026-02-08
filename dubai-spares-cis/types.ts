@@ -51,6 +51,16 @@ export interface Order {
   isArchived: boolean;
   isSold: boolean;
   soldProfitUsd?: number; 
+  isVip?: boolean;
+  isPinned?: boolean;
+  notes?: OrderNote[];
+}
+
+export interface OrderNote {
+  id: string;
+  text: string;
+  photos?: string[];
+  createdAt: number;
 }
 
 export interface Supplier {
