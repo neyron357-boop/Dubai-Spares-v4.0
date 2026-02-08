@@ -53,6 +53,7 @@ export interface Order {
   soldProfitUsd?: number; 
   isVip?: boolean;
   isPinned?: boolean;
+  isLead?: boolean;
   notes?: OrderNote[];
 }
 
@@ -60,6 +61,7 @@ export interface OrderNote {
   id: string;
   text: string;
   photos?: string[];
+  audios?: string[];
   createdAt: number;
 }
 

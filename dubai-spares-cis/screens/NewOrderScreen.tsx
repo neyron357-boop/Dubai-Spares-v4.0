@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Priority, Source, Order } from '../types';
 import { BRANDS, YEARS, DEFAULT_MARKUP, DEFAULT_RATE, SOURCES } from '../constants';
-import { Camera, Plus, X, Save, Image as ImageIcon, Trash2, User, Smartphone } from 'lucide-react';
+import { Camera, Plus, X, Save, Image as ImageIcon, Trash2, User, Smartphone, Star, Gem } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
 
 const NewOrderScreen: React.FC = () => {
@@ -12,6 +12,8 @@ const NewOrderScreen: React.FC = () => {
   const carFileRef = useRef<HTMLInputElement>(null);
   const partFileRef = useRef<HTMLInputElement>(null);
 
+  const [isVip, setIsVip] = useState(false);
+  const [isLead, setIsLead] = useState(false);
   const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
   
   // Multiple Car Photos
@@ -93,7 +95,8 @@ const NewOrderScreen: React.FC = () => {
       createdAt: Date.now(),
       isArchived: false,
       isSold: false,
-      isVip: false,
+      isVip,
+      isLead,
       isPinned: false,
       notes: []
     };
@@ -109,6 +112,14 @@ const NewOrderScreen: React.FC = () => {
   return (
     <form onSubmit={handleSubmit} className="p-4 space-y-6 pb-20">
       <h1 className="text-xl font-bold">Новый Заказ</h1>
+
+      <div className="bg-white p-3 rounded-2xl border border-gray-200 space-y-2">
+        <label className="text-xs font-bold uppercase text-gray-400">Тип клиента</label>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => setIsVip(v => !v)} className={`py-2.5 rounded-xl text-sm font-bold border transition-all inline-flex items-center justify-center gap-1.5 ${isVip ? 'bg-gradient-to-br from-yellow-400 to-amber-500 text-white border-yellow-500' : 'bg-white text-gray-500 border-gray-200'}`}><Star size={14} /> VIP</button>
+          <button type="button" onClick={() => setIsLead(v => !v)} className={`py-2.5 rounded-xl text-sm font-bold border transition-all inline-flex items-center justify-center gap-1.5 ${isLead ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-500 border-gray-200'}`}><Gem size={14} /> Lead</button>
+        </div>
+      </div>
 
       <div className="space-y-2">
         <label className="text-xs font-bold uppercase text-gray-400">Приоритет</label>

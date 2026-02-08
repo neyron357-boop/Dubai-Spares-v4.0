@@ -47,7 +47,7 @@ const PinGate: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => {
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
-  const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
+  const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor') || (location.pathname.includes('/order/') && new URLSearchParams(location.search).get('fs') === '1');
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-50 flex flex-col overflow-hidden">

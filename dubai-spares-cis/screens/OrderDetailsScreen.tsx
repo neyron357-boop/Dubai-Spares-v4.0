@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store';
-import { Order, Part, Source, Priority, OrderNote } from '../types';
+import { Order, Part, Priority, OrderNote } from '../types';
 import { SOURCES } from '../constants';
 import { 
   ArrowLeft, 
@@ -20,7 +20,11 @@ import {
   Smartphone,
   Maximize2,
   Minimize2,
-  Star
+  Star,
+  Mic,
+  Square,
+  Play,
+  Pause
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
@@ -29,20 +33,26 @@ import ConfirmModal from '../components/ConfirmModal';
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { orders, updateOrder } = useStore();
   const order = orders.find(o => o.id === id);
 
   const [isEstimateOpen, setIsEstimateOpen] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [deletePartId, setDeletePartId] = useState<string | null>(null);
-  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(new URLSearchParams(location.search).get('fs') === '1');
   const [newNoteText, setNewNoteText] = useState('');
   const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
+  const [newNoteAudios, setNewNoteAudios] = useState<string[]>([]);
   const noteFileRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   
   // Sell Flow State
   const [showSellConfirm, setShowSellConfirm] = useState(false);
   const [sellError, setSellError] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
 
   const [newPartName, setNewPartName] = useState('');
   // Multiple photos for new part
@@ -206,17 +216,79 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
+  const toggleRecording = async () => {
+    if (isRecording) {
+      recorderRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert('Запись аудио не поддерживается на этом устройстве');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setNewNoteAudios(prev => [...prev, reader.result as string]);
+        };
+        reader.readAsDataURL(blob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      setIsRecording(true);
+    } catch (e) {
+      console.error('Audio recording failed', e);
+      alert('Не удалось начать запись');
+    }
+  };
+
+  const toggleAudioPlayback = (id: string) => {
+    const audioEl = document.getElementById(id) as HTMLAudioElement | null;
+    if (!audioEl) return;
+
+    if (playingAudioId === id) {
+      audioEl.pause();
+      setPlayingAudioId(null);
+      return;
+    }
+
+    if (playingAudioId) {
+      const prev = document.getElementById(playingAudioId) as HTMLAudioElement | null;
+      prev?.pause();
+    }
+
+    audioEl.play().catch(() => setPlayingAudioId(null));
+    setPlayingAudioId(id);
+    audioEl.onended = () => setPlayingAudioId(null);
+  };
+
   const addNote = () => {
-    if (!newNoteText.trim() && newNotePhotos.length === 0) return;
+    if (!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0) return;
     const note: OrderNote = {
       id: Math.random().toString(36).slice(2, 9),
       text: newNoteText.trim(),
       photos: newNotePhotos,
+      audios: newNoteAudios,
       createdAt: Date.now()
     };
     updateOrder({ ...order, notes: [note, ...(order.notes || [])] });
     setNewNoteText('');
     setNewNotePhotos([]);
+    setNewNoteAudios([]);
   };
 
   const MARKUP_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
@@ -248,6 +320,7 @@ const OrderDetailsScreen: React.FC = () => {
             <button type="button" onClick={() => updateOrderField('isVip', !order.isVip)} className={`text-[10px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-tight ${order.isVip ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>
               <span className="inline-flex items-center gap-1"><Star size={12} /> VIP</span>
             </button>
+            <button type="button" onClick={() => updateOrderField('isLead', !order.isLead)} className={`text-[10px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-tight ${order.isLead ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500'}`}>LEAD</button>
             <select value={order.priority} onChange={(e) => updateOrderField('priority', e.target.value as Priority)} className="text-[10px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-tight bg-white border border-gray-200 text-gray-700">
               <option value={Priority.HIGH}>HIGH</option>
               <option value={Priority.MEDIUM}>MEDIUM</option>
@@ -420,7 +493,9 @@ const OrderDetailsScreen: React.FC = () => {
           <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
             <button type="button" onClick={() => noteFileRef.current?.click()} className="w-12 h-12 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 flex items-center justify-center"><ImageIcon size={18} /></button>
+            <button type="button" onClick={toggleRecording} className={`w-12 h-12 rounded-xl border-2 ${isRecording ? 'border-red-300 bg-red-50 text-red-600' : 'border-gray-200 text-gray-500'} flex items-center justify-center`}>{isRecording ? <Square size={16} /> : <Mic size={16} />}</button>
             {newNotePhotos.map((p, i) => <img key={i} src={p} className="w-12 h-12 rounded-xl object-cover border border-gray-100" />)}
+            {newNoteAudios.map((_, i) => <div key={`na-${i}`} className="px-3 h-12 rounded-xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-600 flex items-center">Voice {i + 1}</div>)}
             <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
           </div>
           <button type="button" onClick={addNote} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-wide">Добавить заметку</button>
@@ -430,6 +505,7 @@ const OrderDetailsScreen: React.FC = () => {
                 <div key={n.id} className="bg-gray-50 border border-gray-100 rounded-xl p-3">
                   {n.text && <p className="text-sm font-semibold text-gray-700">{n.text}</p>}
                   {n.photos && n.photos.length > 0 && <div className="flex gap-2 mt-2 overflow-x-auto no-scrollbar">{n.photos.map((ph, idx) => <button key={idx} type="button" onClick={() => setGallery({ images: n.photos || [], index: idx })} className="w-12 h-12 rounded-lg overflow-hidden"><img src={ph} className="w-full h-full object-cover" /></button>)}</div>}
+                  {n.audios && n.audios.length > 0 && <div className="space-y-2 mt-2">{n.audios.map((audioSrc, idx) => { const audioId = `note-${n.id}-${idx}`; const isPlaying = playingAudioId === audioId; return <div key={audioId} className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-2"><button type="button" onClick={() => toggleAudioPlayback(audioId)} className="w-7 h-7 rounded-full bg-green-600 text-white flex items-center justify-center">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button><div className="h-1 flex-1 rounded-full bg-gray-200"><div className="h-1 w-1/2 rounded-full bg-green-500" /></div><audio id={audioId} src={audioSrc} preload="metadata" /></div>; })}</div>}
                 </div>
               ))}
             </div>

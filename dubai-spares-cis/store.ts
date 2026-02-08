@@ -13,7 +13,13 @@ const normalizeOrder = (order: Order): Order => ({
   ...order,
   isVip: !!order.isVip,
   isPinned: !!order.isPinned,
-  notes: Array.isArray(order.notes) ? order.notes : []
+  isLead: !!order.isLead,
+  notes: Array.isArray(order.notes)
+    ? order.notes.map(note => ({
+        ...note,
+        audios: Array.isArray(note.audios) ? note.audios : []
+      }))
+    : []
 });
 
 // Initialize once on module load
