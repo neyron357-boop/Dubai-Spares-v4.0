@@ -9,10 +9,17 @@ let globalOrders: Order[] = [];
 let globalSuppliers: Supplier[] = [];
 let listeners = new Set<() => void>();
 
+const normalizeOrder = (order: Order): Order => ({
+  ...order,
+  isVip: !!order.isVip,
+  isPinned: !!order.isPinned,
+  notes: Array.isArray(order.notes) ? order.notes : []
+});
+
 // Initialize once on module load
 try {
   const savedOrders = localStorage.getItem(ORDERS_KEY);
-  if (savedOrders) globalOrders = JSON.parse(savedOrders);
+  if (savedOrders) globalOrders = JSON.parse(savedOrders).map(normalizeOrder);
 
   const savedSuppliers = localStorage.getItem(SUPPLIERS_KEY);
   if (savedSuppliers) globalSuppliers = JSON.parse(savedSuppliers);
@@ -59,7 +66,7 @@ export const restoreDataExternal = (data: any) => {
   if (!data || !Array.isArray(data.orders)) {
     throw new Error('Неверный формат данных');
   }
-  globalOrders = data.orders;
+  globalOrders = data.orders.map(normalizeOrder);
   globalSuppliers = Array.isArray(data.suppliers) ? data.suppliers : [];
   notifyListeners();
 };
@@ -76,12 +83,12 @@ export const useStore = () => {
   }, []);
 
   const addOrder = useCallback((order: Order) => {
-    globalOrders = [order, ...globalOrders];
+    globalOrders = [normalizeOrder(order), ...globalOrders];
     notifyListeners();
   }, []);
 
   const updateOrder = useCallback((updatedOrder: Order) => {
-    globalOrders = globalOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o);
+    globalOrders = globalOrders.map(o => o.id === updatedOrder.id ? normalizeOrder(updatedOrder) : o);
     notifyListeners();
   }, []);
 

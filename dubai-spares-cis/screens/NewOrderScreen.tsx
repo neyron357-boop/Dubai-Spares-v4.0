@@ -92,7 +92,10 @@ const NewOrderScreen: React.FC = () => {
       exchangeRate: DEFAULT_RATE,
       createdAt: Date.now(),
       isArchived: false,
-      isSold: false
+      isSold: false,
+      isVip: false,
+      isPinned: false,
+      notes: []
     };
 
     addOrder(newOrder);

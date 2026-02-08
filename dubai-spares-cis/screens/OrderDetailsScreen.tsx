@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { Order, Part, Source } from '../types';
+import { Order, Part, Source, Priority, OrderNote } from '../types';
 import { SOURCES } from '../constants';
 import { 
   ArrowLeft, 
@@ -17,7 +17,10 @@ import {
   AlertTriangle,
   X,
   User,
-  Smartphone
+  Smartphone,
+  Maximize2,
+  Minimize2,
+  Star
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
@@ -32,6 +35,10 @@ const OrderDetailsScreen: React.FC = () => {
   const [isEstimateOpen, setIsEstimateOpen] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [deletePartId, setDeletePartId] = useState<string | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [newNoteText, setNewNoteText] = useState('');
+  const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
+  const noteFileRef = useRef<HTMLInputElement>(null);
   
   // Sell Flow State
   const [showSellConfirm, setShowSellConfirm] = useState(false);
@@ -182,10 +189,40 @@ const OrderDetailsScreen: React.FC = () => {
     setGallery({ images, index: 0 });
   };
 
+  const getCarPhotos = () => {
+    if (order.carPhotos && order.carPhotos.length > 0) return order.carPhotos;
+    if (order.carPhotoUrl) return [order.carPhotoUrl];
+    return [];
+  };
+
+  const handleNotePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = () => setNewNotePhotos(prev => [...prev, reader.result as string]);
+        reader.readAsDataURL(file as Blob);
+      });
+    }
+  };
+
+  const addNote = () => {
+    if (!newNoteText.trim() && newNotePhotos.length === 0) return;
+    const note: OrderNote = {
+      id: Math.random().toString(36).slice(2, 9),
+      text: newNoteText.trim(),
+      photos: newNotePhotos,
+      createdAt: Date.now()
+    };
+    updateOrder({ ...order, notes: [note, ...(order.notes || [])] });
+    setNewNoteText('');
+    setNewNotePhotos([]);
+  };
+
   const MARKUP_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 
   return (
-    <div className="flex flex-col min-h-full bg-gray-50 pb-20 overflow-x-hidden">
+    <div className={`flex flex-col min-h-full bg-gray-50 overflow-x-hidden ${fullscreen ? "pb-0" : "pb-20"}`}>
       <div className="bg-white p-4 border-b border-gray-100 sticky top-0 z-10 shadow-sm">
         <div className="flex items-center justify-between">
           <button type="button" onClick={() => navigate('/')} className="p-3 -ml-2 text-gray-600 active:bg-gray-100 rounded-full transition-colors">
@@ -204,16 +241,27 @@ const OrderDetailsScreen: React.FC = () => {
               />
             </div>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap justify-end">
             {order.isSold && (
               <span className="bg-green-600 text-white text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-tighter shadow-sm">SOLD</span>
             )}
+            <button type="button" onClick={() => updateOrderField('isVip', !order.isVip)} className={`text-[10px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-tight ${order.isVip ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>
+              <span className="inline-flex items-center gap-1"><Star size={12} /> VIP</span>
+            </button>
+            <select value={order.priority} onChange={(e) => updateOrderField('priority', e.target.value as Priority)} className="text-[10px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-tight bg-white border border-gray-200 text-gray-700">
+              <option value={Priority.HIGH}>HIGH</option>
+              <option value={Priority.MEDIUM}>MEDIUM</option>
+              <option value={Priority.LOW}>LOW</option>
+            </select>
             <button 
               type="button"
               onClick={() => updateOrderField('isArchived', !order.isArchived)} 
               className={`text-[10px] font-black px-2.5 py-1.5 rounded-lg active:scale-95 transition-all uppercase tracking-tight ${order.isArchived ? 'bg-gray-100 text-gray-500' : 'bg-blue-100 text-blue-600'}`}
             >
               {order.isArchived ? 'Архив' : 'Актив'}
+            </button>
+            <button type="button" onClick={() => setFullscreen(v => !v)} className="p-2 rounded-lg bg-gray-100 text-gray-600">
+              {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
             </button>
           </div>
         </div>
@@ -245,6 +293,19 @@ const OrderDetailsScreen: React.FC = () => {
              </select>
            </div>
         </div>
+
+        {getCarPhotos().length > 0 && (
+          <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
+            <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Фото авто</div>
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
+              {getCarPhotos().map((ph, i) => (
+                <button key={i} type="button" className="w-20 h-20 rounded-xl overflow-hidden border border-gray-100 shrink-0" onClick={(e) => { e.stopPropagation(); setGallery({ images: getCarPhotos(), index: i }); }}>
+                  <img src={ph} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 relative">
@@ -352,6 +413,27 @@ const OrderDetailsScreen: React.FC = () => {
                 <input type="file" ref={partFileRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
             </div>
           </form>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Заметки</h2>
+          <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
+          <div className="flex gap-2 overflow-x-auto no-scrollbar">
+            <button type="button" onClick={() => noteFileRef.current?.click()} className="w-12 h-12 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 flex items-center justify-center"><ImageIcon size={18} /></button>
+            {newNotePhotos.map((p, i) => <img key={i} src={p} className="w-12 h-12 rounded-xl object-cover border border-gray-100" />)}
+            <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
+          </div>
+          <button type="button" onClick={addNote} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-wide">Добавить заметку</button>
+          {(order.notes || []).length > 0 && (
+            <div className="space-y-2">
+              {(order.notes || []).map(n => (
+                <div key={n.id} className="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                  {n.text && <p className="text-sm font-semibold text-gray-700">{n.text}</p>}
+                  {n.photos && n.photos.length > 0 && <div className="flex gap-2 mt-2 overflow-x-auto no-scrollbar">{n.photos.map((ph, idx) => <button key={idx} type="button" onClick={() => setGallery({ images: n.photos || [], index: idx })} className="w-12 h-12 rounded-lg overflow-hidden"><img src={ph} className="w-full h-full object-cover" /></button>)}</div>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">
