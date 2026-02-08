@@ -85,34 +85,16 @@ export async function startCloudSync() {
   }
 
   // 2️⃣ SAVE on every change (debounced)
-  let changeTimer: any = null;
-
   subscribeStore(() => {
     if (hydrating) return;
 
     if (changeTimer) clearTimeout(changeTimer);
-    changeTimer = setTimeout(async () => {
-      try {
-        const data = exportData();
-        await saveCloudState(data);
-        console.log('☁️ Auto-saved (change)');
-      } catch (e) {
-        console.error('Cloud save failed', e);
-      }
-    }, 800); // сохраняем спустя 0.8 сек после изменений
     changeTimer = setTimeout(() => {
       void triggerSave('change');
     }, SAVE_DEBOUNCE_MS);
   });
 
   // 3️⃣ SAVE every 30 seconds (safety net)
-  setInterval(async () => {
-    try {
-      const data = exportData();
-      await saveCloudState(data);
-      console.log('☁️ Auto-saved (timer)');
-    } catch (e) {
-      console.error('Cloud save failed (timer)', e);
   setInterval(() => {
     void triggerSave('timer');
   }, TIMER_SAVE_MS);
@@ -122,7 +104,6 @@ export async function startCloudSync() {
     if (document.visibilityState === 'hidden') {
       void triggerSave('visibility');
     }
-  }, 30000); // ⏱ 30 секунд
   });
 
   window.addEventListener('beforeunload', () => {
