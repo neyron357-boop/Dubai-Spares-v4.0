@@ -53,6 +53,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [sellError, setSellError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
+  const [audioProgress, setAudioProgress] = useState<Record<string, number>>({});
 
   const [newPartName, setNewPartName] = useState('');
   // Multiple photos for new part
@@ -66,6 +67,24 @@ const OrderDetailsScreen: React.FC = () => {
   useEffect(() => {
     if (order) setRateInput(order.exchangeRate.toString());
   }, [order?.id]);
+
+  useEffect(() => {
+    const urlFs = new URLSearchParams(location.search).get('fs') === '1';
+    setFullscreen(urlFs);
+  }, [location.search]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const hasFs = params.get('fs') === '1';
+    if (fullscreen && !hasFs) {
+      params.set('fs', '1');
+      navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
+    }
+    if (!fullscreen && hasFs) {
+      params.delete('fs');
+      navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
+    }
+  }, [fullscreen, location.pathname, location.search, navigate]);
 
   if (!order) return <div className="p-10 text-center text-gray-400 font-bold">ЗАКАЗ НЕ НАЙДЕН</div>;
 
@@ -239,7 +258,8 @@ const OrderDetailsScreen: React.FC = () => {
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const mimeType = recorder.mimeType || 'audio/webm';
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
         const reader = new FileReader();
         reader.onloadend = () => {
           setNewNoteAudios(prev => [...prev, reader.result as string]);
@@ -269,11 +289,35 @@ const OrderDetailsScreen: React.FC = () => {
     if (playingAudioId) {
       const prev = document.getElementById(playingAudioId) as HTMLAudioElement | null;
       prev?.pause();
+      if (playingAudioId !== id) {
+        setAudioProgress(prevState => ({ ...prevState, [playingAudioId]: 0 }));
+      }
     }
 
     audioEl.play().catch(() => setPlayingAudioId(null));
     setPlayingAudioId(id);
-    audioEl.onended = () => setPlayingAudioId(null);
+    audioEl.ontimeupdate = () => {
+      const progress = audioEl.duration ? Math.min(100, (audioEl.currentTime / audioEl.duration) * 100) : 0;
+      setAudioProgress(prev => ({ ...prev, [id]: progress }));
+    };
+    audioEl.onended = () => {
+      setPlayingAudioId(null);
+      setAudioProgress(prev => ({ ...prev, [id]: 0 }));
+    };
+  };
+
+  const toggleFullscreenMode = async () => {
+    setFullscreen(v => !v);
+
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      } else if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen();
+      }
+    } catch (e) {
+      console.warn('Fullscreen API not available', e);
+    }
   };
 
   const addNote = () => {
@@ -294,15 +338,15 @@ const OrderDetailsScreen: React.FC = () => {
   const MARKUP_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 
   return (
-    <div className={`flex flex-col min-h-full bg-gray-50 overflow-x-hidden ${fullscreen ? "pb-0" : "pb-20"}`}>
-      <div className="bg-white p-4 border-b border-gray-100 sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center justify-between">
-          <button type="button" onClick={() => navigate('/')} className="p-3 -ml-2 text-gray-600 active:bg-gray-100 rounded-full transition-colors">
+    <div className={`flex flex-col min-h-full overflow-x-hidden ${fullscreen ? 'bg-gray-950 pb-0 text-white' : 'bg-gray-50 pb-20'}`}>
+      <div className={`p-4 sticky top-0 z-10 shadow-sm backdrop-blur ${fullscreen ? 'bg-gray-950/95 border-b border-gray-800' : 'bg-white border-b border-gray-100'}`}>
+        <div className="flex items-center justify-between gap-2">
+          <button type="button" onClick={() => navigate('/')} className={`p-3 -ml-2 rounded-full transition-colors ${fullscreen ? 'text-gray-200 active:bg-gray-800' : 'text-gray-600 active:bg-gray-100'}`}>
             <ArrowLeft size={24} />
           </button>
           <div className="text-center flex-1 mx-2">
             <h1 className="font-black text-lg leading-tight truncate uppercase">{order.brand} {order.model}</h1>
-            <div className="mt-1 bg-gray-900 px-3 py-1 rounded-lg inline-flex items-center gap-1 border border-gray-800 max-w-full">
+            <div className={`mt-1 px-3 py-1 rounded-lg inline-flex items-center gap-1 border max-w-full ${fullscreen ? 'bg-gray-900 border-gray-700' : 'bg-gray-900 border-gray-800'}`}>
               <span className="text-[10px] text-gray-500 font-bold">VIN:</span>
               <input 
                 type="text" 
@@ -313,34 +357,32 @@ const OrderDetailsScreen: React.FC = () => {
               />
             </div>
           </div>
-          <div className="flex gap-2 items-center flex-wrap justify-end">
-            {order.isSold && (
-              <span className="bg-green-600 text-white text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-tighter shadow-sm">SOLD</span>
-            )}
-            <button type="button" onClick={() => updateOrderField('isVip', !order.isVip)} className={`text-[10px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-tight ${order.isVip ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>
-              <span className="inline-flex items-center gap-1"><Star size={12} /> VIP</span>
-            </button>
-            <button type="button" onClick={() => updateOrderField('isLead', !order.isLead)} className={`text-[10px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-tight ${order.isLead ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500'}`}>LEAD</button>
-            <select value={order.priority} onChange={(e) => updateOrderField('priority', e.target.value as Priority)} className="text-[10px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-tight bg-white border border-gray-200 text-gray-700">
-              <option value={Priority.HIGH}>HIGH</option>
-              <option value={Priority.MEDIUM}>MEDIUM</option>
-              <option value={Priority.LOW}>LOW</option>
-            </select>
-            <button 
-              type="button"
-              onClick={() => updateOrderField('isArchived', !order.isArchived)} 
-              className={`text-[10px] font-black px-2.5 py-1.5 rounded-lg active:scale-95 transition-all uppercase tracking-tight ${order.isArchived ? 'bg-gray-100 text-gray-500' : 'bg-blue-100 text-blue-600'}`}
-            >
-              {order.isArchived ? 'Архив' : 'Актив'}
-            </button>
-            <button type="button" onClick={() => setFullscreen(v => !v)} className="p-2 rounded-lg bg-gray-100 text-gray-600">
+          <button type="button" onClick={toggleFullscreenMode} className={`p-2 rounded-xl ${fullscreen ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
               {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            </button>
-          </div>
+          </button>
+        </div>
+        <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar pb-1">
+          {order.isSold && <span className="bg-green-600 text-white text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tighter shadow-sm">SOLD</span>}
+          <button type="button" onClick={() => updateOrderField('isVip', !order.isVip)} className={`text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight shrink-0 ${order.isVip ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>
+            <span className="inline-flex items-center gap-1"><Star size={12} /> VIP</span>
+          </button>
+          <button type="button" onClick={() => updateOrderField('isLead', !order.isLead)} className={`text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight shrink-0 ${order.isLead ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500'}`}>LEAD</button>
+          <select value={order.priority} onChange={(e) => updateOrderField('priority', e.target.value as Priority)} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
+            <option value={Priority.HIGH}>HIGH</option>
+            <option value={Priority.MEDIUM}>MEDIUM</option>
+            <option value={Priority.LOW}>LOW</option>
+          </select>
+          <button 
+            type="button"
+            onClick={() => updateOrderField('isArchived', !order.isArchived)} 
+            className={`text-[10px] font-black px-3 py-2 rounded-xl active:scale-95 transition-all uppercase tracking-tight shrink-0 ${order.isArchived ? 'bg-gray-100 text-gray-500' : 'bg-blue-100 text-blue-600'}`}
+          >
+            {order.isArchived ? 'Архив' : 'Актив'}
+          </button>
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
+      <div className={`p-4 space-y-4 ${fullscreen ? 'max-w-3xl w-full mx-auto' : ''}`}>
         
         {/* Client & Source Block */}
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-3">
@@ -505,7 +547,7 @@ const OrderDetailsScreen: React.FC = () => {
                 <div key={n.id} className="bg-gray-50 border border-gray-100 rounded-xl p-3">
                   {n.text && <p className="text-sm font-semibold text-gray-700">{n.text}</p>}
                   {n.photos && n.photos.length > 0 && <div className="flex gap-2 mt-2 overflow-x-auto no-scrollbar">{n.photos.map((ph, idx) => <button key={idx} type="button" onClick={() => setGallery({ images: n.photos || [], index: idx })} className="w-12 h-12 rounded-lg overflow-hidden"><img src={ph} className="w-full h-full object-cover" /></button>)}</div>}
-                  {n.audios && n.audios.length > 0 && <div className="space-y-2 mt-2">{n.audios.map((audioSrc, idx) => { const audioId = `note-${n.id}-${idx}`; const isPlaying = playingAudioId === audioId; return <div key={audioId} className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-2"><button type="button" onClick={() => toggleAudioPlayback(audioId)} className="w-7 h-7 rounded-full bg-green-600 text-white flex items-center justify-center">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button><div className="h-1 flex-1 rounded-full bg-gray-200"><div className="h-1 w-1/2 rounded-full bg-green-500" /></div><audio id={audioId} src={audioSrc} preload="metadata" /></div>; })}</div>}
+                  {n.audios && n.audios.length > 0 && <div className="space-y-2 mt-2">{n.audios.map((audioSrc, idx) => { const audioId = `note-${n.id}-${idx}`; const isPlaying = playingAudioId === audioId; return <div key={audioId} className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-2"><button type="button" onClick={() => toggleAudioPlayback(audioId)} className="w-7 h-7 rounded-full bg-green-600 text-white flex items-center justify-center">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button><div className="h-1 flex-1 rounded-full bg-gray-200"><div className="h-1 rounded-full bg-green-500 transition-all" style={{ width: `${audioProgress[audioId] || 0}%` }} /></div><audio id={audioId} src={audioSrc} preload="metadata" playsInline /></div>; })}</div>}
                 </div>
               ))}
             </div>
