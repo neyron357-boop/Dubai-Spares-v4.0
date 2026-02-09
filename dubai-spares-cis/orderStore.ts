@@ -85,6 +85,17 @@ const serializeError = (error: unknown) => {
   return { value: String(error) };
 };
 
+const isMissingColumnError = (error: unknown, column: string) => {
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  return (
+    anyErr.code === 'PGRST204' &&
+    typeof anyErr.message === 'string' &&
+    anyErr.message.includes(`'${column}'`) &&
+    anyErr.message.includes('Could not find')
+  );
+};
+
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === 'object' && error) {
@@ -220,7 +231,7 @@ const persistOrderGraph = async (order: Order) => {
 
   await logger.info('sync:persist', `Step 1/3 upsert order ${uploadedOrder.id}`);
 
-  const { error: orderError } = await supabase.from('orders').upsert({
+  const baseOrderPayload = {
     id: uploadedOrder.id,
     brand: uploadedOrder.brand,
     model: uploadedOrder.model,
@@ -241,10 +252,20 @@ const persistOrderGraph = async (order: Order) => {
     is_vip: !!uploadedOrder.isVip,
     is_pinned: !!uploadedOrder.isPinned,
     is_lead: !!uploadedOrder.isLead,
-    notes: uploadedOrder.notes || [],
+    notes: uploadedOrder.notes || []
+  };
+
+  let { error: orderError } = await supabase.from('orders').upsert({
+    ...baseOrderPayload,
     sales_status: uploadedOrder.salesStatus || 'Inquiry',
     updated_at: uploadedOrder.updatedAt || Date.now()
   });
+
+  if (orderError && isMissingColumnError(orderError, 'sales_status')) {
+    await logger.warn('sync:persist', 'orders.sales_status is missing in remote schema; retrying upsert without that column');
+    ({ error: orderError } = await supabase.from('orders').upsert(baseOrderPayload));
+  }
+
   if (orderError) {
     await logger.error('sync:persist', `Step 1/3 failed for order ${uploadedOrder.id}`, { error: serializeError(orderError) });
     throw orderError;
