@@ -352,9 +352,9 @@ const PublicOrderFormScreen: React.FC = () => {
           `AI suggestion: ${aiResult.smartSuggestion}`,
           `Language: ${lang}`
         ],
-        sales_status: 'Inquiry',
-        created_at: Date.now(),
-        updated_at: Date.now()
+        sales_status: 'new_inquiry',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       });
 
       if (orderError) throw orderError;
