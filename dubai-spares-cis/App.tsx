@@ -100,11 +100,21 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!error) return;
-    setSyncToast('Offline mode / Sync error');
-    const t = setTimeout(() => setSyncToast(null), 2800);
+    setSyncToast(`Sync error: ${error}`);
+    const t = setTimeout(() => setSyncToast(null), 4500);
     return () => clearTimeout(t);
   }, [error]);
 
+  useEffect(() => {
+    const onSyncError = (event: Event) => {
+      const customEvent = event as CustomEvent<{ message?: string }>;
+      const message = customEvent.detail?.message || 'Unknown sync error';
+      setSyncToast(`Sync failed: ${message}`);
+    };
+
+    window.addEventListener('cloud-sync-error', onSyncError);
+    return () => window.removeEventListener('cloud-sync-error', onSyncError);
+  }, []);
 
   useEffect(() => {
     const onStatus = () => setIsOffline(!navigator.onLine);
