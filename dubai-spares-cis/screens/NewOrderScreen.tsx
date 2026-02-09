@@ -7,7 +7,7 @@ import { Camera, Plus, X, Save, Image as ImageIcon, Trash2, User, Smartphone, St
 import ImagePreview from '../components/ImagePreview';
 
 const NewOrderScreen: React.FC = () => {
-  const { addOrder } = useStore();
+  const { addOrder, isSyncing } = useStore();
   const navigate = useNavigate();
   const carFileRef = useRef<HTMLInputElement>(null);
   const partFileRef = useRef<HTMLInputElement>(null);
@@ -64,7 +64,7 @@ const NewOrderScreen: React.FC = () => {
     setParts(parts.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!brand || !model) {
       alert('Заполните Марку и Модель');
@@ -101,8 +101,14 @@ const NewOrderScreen: React.FC = () => {
       notes: []
     };
 
-    addOrder(newOrder);
-    navigate(`/order/${newOrder.id}`);
+    try {
+      const ok = await addOrder(newOrder);
+      if (ok) {
+        navigate('/');
+      }
+    } catch {
+      // error state is handled globally in store/app toast
+    }
   };
   
   const openGallery = (images: string[], index = 0) => {
@@ -321,9 +327,9 @@ const NewOrderScreen: React.FC = () => {
         </div>
       </div>
 
-      <button type="submit" className="w-full bg-gray-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 sticky bottom-4 shadow-xl active:scale-95 transition-transform">
+      <button type="submit" disabled={isSyncing} className="w-full bg-gray-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 sticky bottom-4 shadow-xl active:scale-95 transition-transform disabled:opacity-60 disabled:cursor-not-allowed">
         <Save size={20} />
-        Создать заказ
+        {isSyncing ? 'Сохранение...' : 'Создать заказ'}
       </button>
 
       {gallery && (

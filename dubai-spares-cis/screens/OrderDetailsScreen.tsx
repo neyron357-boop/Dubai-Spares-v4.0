@@ -179,20 +179,20 @@ const OrderDetailsScreen: React.FC = () => {
     setShowSellConfirm(true);
   };
 
-  const confirmSellOrder = () => {
+  const confirmSellOrder = async () => {
     if (order.isSold) {
-      updateOrder({ ...order, isSold: false, isArchived: false, soldProfitUsd: undefined });
+      await updateOrder({ ...order, isSold: false, isArchived: false, soldProfitUsd: undefined });
       setShowSellConfirm(false);
     } else {
       const finalProfit = calculateCurrentProfit();
-      updateOrder({ 
+      const ok = await updateOrder({ 
         ...order, 
         isSold: true, 
         isArchived: true, 
         soldProfitUsd: finalProfit 
       });
       setShowSellConfirm(false);
-      navigate('/');
+      if (ok) navigate('/');
     }
   };
 
