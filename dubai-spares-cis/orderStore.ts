@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant } from './types';
 import { supabase, isCloudSyncConfigured } from './supabase';
-import { ensurePublicImageUrls } from './storage/photos';
+import { deleteOrderFolderFromStorage, ensurePublicImageUrls, optimizeImageForUpload } from './storage/photos';
 import { offlineDb } from './storage/offlineDb';
 import { logger } from './logging';
 
@@ -64,7 +64,6 @@ let state: OrderState = {
 };
 
 let syncInProgress = false;
-const STORAGE_BUCKET = 'images';
 
 const notify = () => listeners.forEach((l) => l());
 
@@ -108,48 +107,6 @@ const broadcastSyncError = (error: unknown, fallback: string) => {
   window.dispatchEvent(new CustomEvent('cloud-sync-error', { detail: { message } }));
 };
 
-const listStoragePathsRecursive = async (bucket: string, folder: string): Promise<string[]> => {
-  if (!supabase) return [];
-
-  const collected: string[] = [];
-  const walk = async (prefix: string): Promise<void> => {
-    const { data, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 });
-    if (error) throw error;
-    if (!data?.length) return;
-
-    for (const item of data) {
-      const itemPath = `${prefix}/${item.name}`;
-      if (item.id) {
-        collected.push(itemPath);
-      } else {
-        await walk(itemPath);
-      }
-    }
-  };
-
-  await walk(folder);
-  return collected;
-};
-
-const deleteStorageFiles = async (bucket: string, paths: string[]): Promise<void> => {
-  if (!supabase || !paths.length) return;
-
-  const chunkSize = 100;
-  for (let index = 0; index < paths.length; index += chunkSize) {
-    const chunk = paths.slice(index, index + chunkSize);
-    const { error } = await supabase.storage.from(bucket).remove(chunk);
-    if (error) throw error;
-  }
-};
-
-const cleanupOrderStorage = async (orderId: string) => {
-  if (!supabase) return;
-
-  const paths = await listStoragePathsRecursive(STORAGE_BUCKET, `orders/${orderId}`);
-  await deleteStorageFiles(STORAGE_BUCKET, paths);
-  await logger.info('storage:cleanup', `[INFO] Storage cleanup: Deleted ${paths.length} files for order ${orderId}.`);
-};
-
 const deleteRemoteOrderWithStorageCleanup = async (orderId: string) => {
   if (!supabase || !isUuid(orderId)) return;
 
@@ -157,7 +114,7 @@ const deleteRemoteOrderWithStorageCleanup = async (orderId: string) => {
   if (error) throw error;
 
   try {
-    await cleanupOrderStorage(orderId);
+    await deleteOrderFolderFromStorage(orderId);
   } catch (storageError) {
     await logger.warn('storage:cleanup', `Storage cleanup warning for order ${orderId}`, {
       error: serializeError(storageError)
@@ -212,19 +169,21 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
 
 const withUploadedPhotos = async (order: Order): Promise<Order> => {
   const orderId = ensureUuid(order.id);
-  const carPhotos = await ensurePublicImageUrls(order.carPhotos || [], `orders/${orderId}/car`);
+  const skipUpload = !!order.localOnlyPhotos;
+  const carPhotos = await ensurePublicImageUrls(order.carPhotos || [], `orders/${orderId}/car`, { skipUpload });
 
   const parts: Part[] = await Promise.all(
     (order.parts || []).map(async (part) => {
       const partId = ensureUuid(part.id);
-      const partPhotos = await ensurePublicImageUrls(part.photos || [], `orders/${orderId}/parts/${partId}`);
+      const partPhotos = await ensurePublicImageUrls(part.photos || [], `orders/${orderId}/parts/${partId}`, { skipUpload });
 
       const variants = await Promise.all(
         (part.variants || []).map(async (variant) => {
           const variantId = ensureUuid(variant.id);
           const variantPhotos = await ensurePublicImageUrls(
             variant.photos || [],
-            `orders/${orderId}/parts/${partId}/variants/${variantId}`
+            `orders/${orderId}/parts/${partId}/variants/${variantId}`,
+            { skipUpload }
           );
 
           return { ...variant, id: variantId, partId, photos: variantPhotos, photoUrl: variantPhotos[0] };
@@ -241,6 +200,19 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
 const persistOrderGraph = async (order: Order) => {
   if (!supabase) return normalizeOrder(order);
   const uploadedOrder = await withUploadedPhotos(order);
+  const cloudOrder = uploadedOrder.localOnlyPhotos
+    ? {
+        ...uploadedOrder,
+        carPhotoUrl: undefined,
+        carPhotos: [],
+        parts: (uploadedOrder.parts || []).map((part) => ({
+          ...part,
+          photoUrl: undefined,
+          photos: [],
+          variants: (part.variants || []).map((variant) => ({ ...variant, photoUrl: undefined, photos: [] }))
+        }))
+      }
+    : uploadedOrder;
 
   await logger.info('sync:persist', `Step 1/3 upsert order ${uploadedOrder.id}`);
 
@@ -254,8 +226,8 @@ const persistOrderGraph = async (order: Order) => {
     priority: uploadedOrder.priority,
     client_name: uploadedOrder.clientName,
     source: uploadedOrder.source,
-    car_photo_url: uploadedOrder.carPhotoUrl,
-    car_photos: uploadedOrder.carPhotos || [],
+    car_photo_url: cloudOrder.carPhotoUrl,
+    car_photos: cloudOrder.carPhotos || [],
     markup_percent: uploadedOrder.markupPercent,
     exchange_rate: uploadedOrder.exchangeRate,
     created_at: uploadedOrder.createdAt,
@@ -280,7 +252,7 @@ const persistOrderGraph = async (order: Order) => {
     throw deletePartsError;
   }
 
-  for (const part of uploadedOrder.parts || []) {
+  for (const part of cloudOrder.parts || []) {
     await logger.info('sync:persist', `Step 2/3 upsert part ${part.id} (order ${uploadedOrder.id})`);
     const { error: partError } = await supabase.from('parts').upsert({
       id: part.id,
@@ -438,8 +410,40 @@ export const fetchOrders = async () => {
   }
 };
 
+
+const compressOrderImagesForAddFlow = async (order: Order): Promise<Order> => {
+  const compressList = async (images: string[], labelPrefix: string) =>
+    Promise.all(
+      (images || []).map((image, index) => {
+        if (!image.startsWith('data:image')) return Promise.resolve(image);
+        return optimizeImageForUpload(image, `${labelPrefix}[${index}]`);
+      })
+    );
+
+  const carPhotos = await compressList(order.carPhotos || [], `order:${order.id}:car`);
+  const parts = await Promise.all(
+    (order.parts || []).map(async (part) => {
+      const partPhotos = await compressList(part.photos || [], `order:${order.id}:part:${part.id}`);
+      const variants = await Promise.all(
+        (part.variants || []).map(async (variant) => {
+          const variantPhotos = await compressList(
+            variant.photos || [],
+            `order:${order.id}:part:${part.id}:variant:${variant.id}`
+          );
+          return { ...variant, photos: variantPhotos, photoUrl: variantPhotos[0] };
+        })
+      );
+
+      return { ...part, photos: partPhotos, photoUrl: partPhotos[0], variants };
+    })
+  );
+
+  return { ...order, carPhotos, carPhotoUrl: carPhotos[0], parts };
+};
+
 export const addOrderItem = async (order: Order) => {
-  const localOrder = normalizeOrder({ ...order, id: ensureUuid(order.id) });
+  const compressedOrder = await compressOrderImagesForAddFlow(order);
+  const localOrder = normalizeOrder({ ...compressedOrder, id: ensureUuid(compressedOrder.id) });
   const next = [localOrder, ...state.orders.filter((o) => o.id !== localOrder.id)];
   setState({ orders: next, error: null });
   await offlineDb.saveOrder(localOrder);

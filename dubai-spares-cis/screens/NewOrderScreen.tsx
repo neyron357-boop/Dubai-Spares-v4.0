@@ -25,6 +25,7 @@ const NewOrderScreen: React.FC = () => {
   const [vin, setVin] = useState('');
   const [clientName, setClientName] = useState('');
   const [source, setSource] = useState<Source>(Source.OTHER);
+  const [localOnlyPhotos, setLocalOnlyPhotos] = useState(false);
   
   const [partInput, setPartInput] = useState('');
   // Multiple Part Photos (for the current part being added)
@@ -98,6 +99,7 @@ const NewOrderScreen: React.FC = () => {
       isVip,
       isLead,
       isPinned: false,
+      localOnlyPhotos,
       notes: []
     };
 
@@ -185,6 +187,24 @@ const NewOrderScreen: React.FC = () => {
           </div>
         )}
         <input type="file" ref={carFileRef} onChange={e => handlePhotoSelect(e, setCarPhotos)} className="hidden" accept="image/*" multiple />
+      </div>
+
+
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 space-y-2">
+        <label className="flex items-center gap-2 text-sm font-medium text-amber-900">
+          <input
+            type="checkbox"
+            checked={localOnlyPhotos}
+            onChange={(e) => setLocalOnlyPhotos(e.target.checked)}
+            className="rounded border-amber-300"
+          />
+          Сохранять фото только локально (IndexedDB)
+        </label>
+        {localOnlyPhotos && (
+          <p className="text-xs text-amber-700">
+            Внимание: эти фото не будут загружаться в Supabase и не появятся на других устройствах.
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-4">

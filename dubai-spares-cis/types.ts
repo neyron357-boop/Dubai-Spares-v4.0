@@ -59,6 +59,7 @@ export interface Order {
   isVip?: boolean;
   isPinned?: boolean;
   isLead?: boolean;
+  localOnlyPhotos?: boolean;
   notes?: OrderNote[];
 }
 
