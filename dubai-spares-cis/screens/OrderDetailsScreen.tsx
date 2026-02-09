@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, Part, Priority, OrderNote } from '../types';
 import { SOURCES } from '../constants';
@@ -18,8 +18,6 @@ import {
   X,
   User,
   Smartphone,
-  Maximize2,
-  Minimize2,
   Star,
   Mic,
   Square,
@@ -33,14 +31,12 @@ import ConfirmModal from '../components/ConfirmModal';
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const location = useLocation();
   const { orders, updateOrder } = useStore();
   const order = orders.find(o => o.id === id);
 
   const [isEstimateOpen, setIsEstimateOpen] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [deletePartId, setDeletePartId] = useState<string | null>(null);
-  const [fullscreen, setFullscreen] = useState(new URLSearchParams(location.search).get('fs') === '1');
   const [newNoteText, setNewNoteText] = useState('');
   const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
   const [newNoteAudios, setNewNoteAudios] = useState<string[]>([]);
@@ -68,23 +64,6 @@ const OrderDetailsScreen: React.FC = () => {
     if (order) setRateInput(order.exchangeRate.toString());
   }, [order?.id]);
 
-  useEffect(() => {
-    const urlFs = new URLSearchParams(location.search).get('fs') === '1';
-    setFullscreen(urlFs);
-  }, [location.search]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const hasFs = params.get('fs') === '1';
-    if (fullscreen && !hasFs) {
-      params.set('fs', '1');
-      navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
-    }
-    if (!fullscreen && hasFs) {
-      params.delete('fs');
-      navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
-    }
-  }, [fullscreen, location.pathname, location.search, navigate]);
 
   if (!order) return <div className="p-10 text-center text-gray-400 font-bold">ЗАКАЗ НЕ НАЙДЕН</div>;
 
@@ -306,19 +285,6 @@ const OrderDetailsScreen: React.FC = () => {
     };
   };
 
-  const toggleFullscreenMode = async () => {
-    setFullscreen(v => !v);
-
-    try {
-      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen();
-      } else if (document.fullscreenElement && document.exitFullscreen) {
-        await document.exitFullscreen();
-      }
-    } catch (e) {
-      console.warn('Fullscreen API not available', e);
-    }
-  };
 
   const addNote = () => {
     if (!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0) return;
@@ -338,15 +304,15 @@ const OrderDetailsScreen: React.FC = () => {
   const MARKUP_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 
   return (
-    <div className={`flex flex-col min-h-full overflow-x-hidden ${fullscreen ? 'bg-gray-950 pb-0 text-white' : 'bg-gray-50 pb-20'}`}>
-      <div className={`p-4 sticky top-0 z-10 shadow-sm backdrop-blur ${fullscreen ? 'bg-gray-950/95 border-b border-gray-800' : 'bg-white border-b border-gray-100'}`}>
+    <div className="flex flex-col min-h-full overflow-x-hidden bg-gray-50 pb-20">
+      <div className="p-4 sticky top-0 z-10 shadow-sm backdrop-blur bg-white border-b border-gray-100">
         <div className="flex items-center justify-between gap-2">
-          <button type="button" onClick={() => navigate('/')} className={`p-3 -ml-2 rounded-full transition-colors ${fullscreen ? 'text-gray-200 active:bg-gray-800' : 'text-gray-600 active:bg-gray-100'}`}>
+          <button type="button" onClick={() => navigate('/')} className="p-3 -ml-2 rounded-full transition-colors text-gray-600 active:bg-gray-100">
             <ArrowLeft size={24} />
           </button>
           <div className="text-center flex-1 mx-2">
             <h1 className="font-black text-lg leading-tight truncate uppercase">{order.brand} {order.model}</h1>
-            <div className={`mt-1 px-3 py-1 rounded-lg inline-flex items-center gap-1 border max-w-full ${fullscreen ? 'bg-gray-900 border-gray-700' : 'bg-gray-900 border-gray-800'}`}>
+            <div className="mt-1 px-3 py-1 rounded-lg inline-flex items-center gap-1 border max-w-full bg-gray-900 border-gray-800">
               <span className="text-[10px] text-gray-500 font-bold">VIN:</span>
               <input 
                 type="text" 
@@ -357,9 +323,7 @@ const OrderDetailsScreen: React.FC = () => {
               />
             </div>
           </div>
-          <button type="button" onClick={toggleFullscreenMode} className={`p-2 rounded-xl ${fullscreen ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
-              {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          </button>
+          <div className="w-10" />
         </div>
         <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar pb-1">
           {order.isSold && <span className="bg-green-600 text-white text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tighter shadow-sm">SOLD</span>}
@@ -382,7 +346,7 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className={`p-4 space-y-4 ${fullscreen ? 'max-w-3xl w-full mx-auto' : ''}`}>
+      <div className="p-4 space-y-4">
         
         {/* Client & Source Block */}
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-3">

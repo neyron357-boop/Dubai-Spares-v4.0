@@ -53,3 +53,9 @@ create table if not exists public.price_variants (
 create index if not exists idx_orders_brand_model_vin_status on public.orders (brand, model, vin, status);
 create index if not exists idx_parts_order_id on public.parts (order_id);
 create index if not exists idx_price_variants_part_id on public.price_variants (part_id);
+
+create table if not exists public.app_state (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);

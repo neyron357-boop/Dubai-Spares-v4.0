@@ -11,6 +11,18 @@ const priorityWeight = {
   [Priority.LOW]: 1,
 };
 
+type VendorSortType = 'priority' | 'date_desc' | 'date_asc' | 'brand' | 'model' | 'status' | 'parts';
+
+const sortOptions: { value: VendorSortType; label: string }[] = [
+  { value: 'priority', label: 'Приоритет' },
+  { value: 'date_desc', label: 'Дата (новые)' },
+  { value: 'date_asc', label: 'Дата (старые)' },
+  { value: 'brand', label: 'Марка A-Я' },
+  { value: 'model', label: 'Модель A-Я' },
+  { value: 'status', label: 'Статус поиска' },
+  { value: 'parts', label: 'Кол-во деталей' },
+];
+
 const VendorSlider: React.FC = () => {
   const navigate = useNavigate();
   const { orders } = useStore();
@@ -18,7 +30,7 @@ const VendorSlider: React.FC = () => {
   const activeOrders = useMemo(() => orders.filter(o => !o.isArchived && !o.isSold), [orders]);
 
   const [selectedBrand, setSelectedBrand] = useState<string>('All');
-  const [sortBy, setSortBy] = useState<'date' | 'priority'>('priority');
+  const [sortBy, setSortBy] = useState<VendorSortType>('priority');
   const [index, setIndex] = useState(0);
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
@@ -31,11 +43,34 @@ const VendorSlider: React.FC = () => {
 
   const filteredOrders = useMemo(() => {
     const list = selectedBrand === 'All' ? activeOrders : activeOrders.filter(o => o.brand === selectedBrand);
+    const statusScore = (partsCount: number, foundCount: number) => {
+      if (partsCount === 0) return 0;
+      if (foundCount === partsCount) return 3;
+      if (foundCount > 0) return 2;
+      return 1;
+    };
+
     return [...list].sort((a, b) => {
-      if (sortBy === 'priority') {
-        return (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt);
+      switch (sortBy) {
+        case 'date_desc':
+          return b.createdAt - a.createdAt;
+        case 'date_asc':
+          return a.createdAt - b.createdAt;
+        case 'brand':
+          return a.brand.localeCompare(b.brand) || b.createdAt - a.createdAt;
+        case 'model':
+          return a.model.localeCompare(b.model) || b.createdAt - a.createdAt;
+        case 'status': {
+          const aFound = a.parts.filter(p => p.variants.length > 0).length;
+          const bFound = b.parts.filter(p => p.variants.length > 0).length;
+          return statusScore(b.parts.length, bFound) - statusScore(a.parts.length, aFound) || b.createdAt - a.createdAt;
+        }
+        case 'parts':
+          return b.parts.length - a.parts.length || b.createdAt - a.createdAt;
+        case 'priority':
+        default:
+          return (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt);
       }
-      return b.createdAt - a.createdAt;
     });
   }, [activeOrders, selectedBrand, sortBy]);
 
@@ -92,13 +127,20 @@ const VendorSlider: React.FC = () => {
           </select>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setSortBy(prev => prev === 'priority' ? 'date' : 'priority')}
-            className="px-3 py-2 rounded-xl bg-gray-800 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1"
-          >
-            <ArrowUpDown size={12} /> {sortBy === 'priority' ? 'Приоритет' : 'Дата'}
-          </button>
+          <div className="px-3 py-2 rounded-xl bg-gray-800 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
+            <ArrowUpDown size={12} />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as VendorSortType)}
+              className="bg-transparent text-white outline-none border-none"
+            >
+              {sortOptions.map((option) => (
+                <option key={option.value} value={option.value} className="bg-gray-900">
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <button onClick={onClose} className="p-2 text-white bg-gray-800 rounded-full active:scale-90 transition-transform"><X size={24} /></button>
         </div>
       </div>
