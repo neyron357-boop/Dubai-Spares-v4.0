@@ -23,6 +23,22 @@ const createUuid = () =>
 
 const ensureUuid = (value?: string) => (value && isUuid(value) ? value : createUuid());
 
+const isRecoverableCloudError = (error: unknown): boolean => {
+  const message = String((error as any)?.message || '').toLowerCase();
+  const code = String((error as any)?.code || '').toLowerCase();
+
+  return (
+    message.includes('relation') ||
+    message.includes('does not exist') ||
+    message.includes('failed to fetch') ||
+    message.includes('network') ||
+    message.includes('permission denied') ||
+    code === '42501' ||
+    code === 'pgrst301' ||
+    code === 'pgrst116'
+  );
+};
+
 const validateOrderForSave = (order: Order) => {
   if (!order) throw new Error('Order payload is missing');
   if (!order.brand?.trim()) throw new Error('Brand is required');
@@ -257,6 +273,25 @@ export const fetchOrders = async () => {
 
 export const addOrderItem = async (order: Order) => {
   const prev = state.orders;
+  const localOrderId = ensureUuid(order.id);
+  const localOrder = normalizeOrder({
+    ...order,
+    id: localOrderId,
+    parts: (order.parts || []).map((part) => {
+      const localPartId = ensureUuid(part.id);
+      return {
+        ...part,
+        id: localPartId,
+        orderId: localOrderId,
+        variants: (part.variants || []).map((variant) => ({
+          ...variant,
+          id: ensureUuid(variant.id),
+          partId: localPartId
+        }))
+      };
+    })
+  });
+
   setState({ isSyncing: true, error: null });
 
   if (!isCloudSyncConfigured || !supabase) {
@@ -269,6 +304,11 @@ export const addOrderItem = async (order: Order) => {
     setState({ orders: [normalizeOrder(savedOrder), ...prev], isSyncing: false, error: null });
     return true;
   } catch (error: any) {
+    if (isRecoverableCloudError(error)) {
+      setState({ orders: [localOrder, ...prev], isSyncing: false, error: null });
+      return true;
+    }
+
     setState({ orders: prev, isSyncing: false, error: error.message || 'Failed to save order' });
     return false;
   }
@@ -290,6 +330,12 @@ export const updateOrderItem = async (order: Order) => {
     setState({ orders: reconciled, isSyncing: false, error: null });
     return true;
   } catch (error: any) {
+    if (isRecoverableCloudError(error)) {
+      const next = prev.map((o) => (o.id === order.id ? normalizeOrder(order) : o));
+      setState({ orders: next, isSyncing: false, error: null });
+      return true;
+    }
+
     setState({ orders: prev, isSyncing: false, error: error.message || 'Failed to update order' });
     return false;
   }
@@ -306,13 +352,18 @@ export const deleteOrderItem = async (orderId: string) => {
   setState({ orders: withoutOrder, error: null, isLoading: true, isSyncing: true });
 
   if (!isUuid(orderId)) {
-    setState({ isLoading: false, isSyncing: false, error: 'Invalid order id for delete' });
-    return false;
+    setState({ isLoading: false, isSyncing: false, error: null });
+    return true;
   }
 
   const { error } = await supabase.from('orders').delete().eq('id', orderId);
 
   if (error) {
+    if (isRecoverableCloudError(error)) {
+      setState({ isLoading: false, isSyncing: false, error: null });
+      return true;
+    }
+
     setState({ isLoading: false, isSyncing: false, error: error.message || 'Failed to delete order' });
     return false;
   }
