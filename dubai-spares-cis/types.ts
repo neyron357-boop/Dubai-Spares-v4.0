@@ -129,3 +129,14 @@ export interface DbOrderRow {
 export interface DbOrderGraphRow extends DbOrderRow {
   parts?: DbPartRow[];
 }
+
+export type SystemLogLevel = 'info' | 'warn' | 'error';
+
+export interface SystemLogEntry {
+  id: string;
+  level: SystemLogLevel;
+  scope: string;
+  message: string;
+  meta?: unknown;
+  createdAt: number;
+}
