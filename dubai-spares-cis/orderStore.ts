@@ -57,6 +57,11 @@ const parseTimestamp = (value: string | number | null | undefined): number => {
   return Date.now();
 };
 
+const toIsoTimestamp = (value: string | number | null | undefined): string => {
+  const timestamp = parseTimestamp(value);
+  return new Date(timestamp).toISOString();
+};
+
 let state: OrderState = {
   orders: [],
   isLoading: false,
@@ -246,7 +251,7 @@ const persistOrderGraph = async (order: Order) => {
     car_photos: cloudOrder.carPhotos || [],
     markup_percent: uploadedOrder.markupPercent,
     exchange_rate: uploadedOrder.exchangeRate,
-    created_at: uploadedOrder.createdAt,
+    created_at: toIsoTimestamp(uploadedOrder.createdAt),
     is_archived: uploadedOrder.isArchived,
     is_sold: uploadedOrder.isSold,
     sold_profit_usd: uploadedOrder.soldProfitUsd,
@@ -260,7 +265,7 @@ const persistOrderGraph = async (order: Order) => {
   const fallbackOrderPayload = {
     ...baseOrderPayload,
     sales_status: uploadedOrder.salesStatus || 'Inquiry',
-    updated_at: uploadedOrder.updatedAt || Date.now()
+    updated_at: toIsoTimestamp(uploadedOrder.updatedAt || Date.now())
   };
 
   let { error: orderError } = await supabase.from('orders').upsert(fallbackOrderPayload);
@@ -318,7 +323,7 @@ const persistOrderGraph = async (order: Order) => {
         location: variant.location,
         photo_url: variant.photoUrl,
         photos: variant.photos || [],
-        created_at: variant.createdAt
+        created_at: toIsoTimestamp(variant.createdAt)
       });
       if (variantError) {
         await logger.error('sync:persist', `Step 3/3 failed for variant ${variant.id}`, { error: serializeError(variantError) });

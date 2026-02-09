@@ -7,7 +7,7 @@ const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');
 
 const root = ReactDOM.createRoot(rootElement);
-const isPublicOrderFormRoute = window.location.pathname === '/order-form';
+const isPublicOrderFormRoute = window.location.pathname === '/request' || window.location.pathname === '/order-form';
 
 root.render(
   <React.StrictMode>
