@@ -49,6 +49,22 @@
             flex-direction: column;
         }
 
+        html.public-order-form,
+        body.public-order-form {
+            position: static;
+            height: auto;
+            min-height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        #root.public-order-form {
+            height: auto;
+            min-height: 100%;
+            overflow: visible;
+            display: block;
+        }
+
         body {
             user-select: none;
             -webkit-user-select: none;
