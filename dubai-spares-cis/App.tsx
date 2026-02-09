@@ -10,6 +10,12 @@ import { CarFront, PlusCircle, Database, Cloud } from 'lucide-react';
 
 const APP_PIN = '2202';
 
+declare global {
+  interface Window {
+    __cloudSyncReady?: boolean;
+  }
+}
+
 type SyncStatus = {
   status: 'idle' | 'saving' | 'saved' | 'retrying' | 'error';
   message: string;
@@ -71,7 +77,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [minDelayDone, setMinDelayDone] = useState(false);
-  const [cloudReady, setCloudReady] = useState(false);
+  const [cloudReady, setCloudReady] = useState(() => !!window.__cloudSyncReady);
   const [unlocked, setUnlocked] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ status: 'idle', message: '' });
 
@@ -81,6 +87,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (window.__cloudSyncReady) setCloudReady(true);
     const onCloudReady = () => setCloudReady(true);
     window.addEventListener('cloud-sync-ready', onCloudReady);
     return () => window.removeEventListener('cloud-sync-ready', onCloudReady);

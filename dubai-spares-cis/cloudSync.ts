@@ -1,6 +1,12 @@
 import { loadCloudState, saveCloudState } from './cloudState';
 import { exportData, restoreDataExternal, subscribeStore } from './store';
 
+declare global {
+  interface Window {
+    __cloudSyncReady?: boolean;
+  }
+}
+
 const getExportTimestamp = (data: any): number => {
   if (!data?.exportedAt) return 0;
   const ts = Date.parse(data.exportedAt);
@@ -158,6 +164,7 @@ export async function startCloudSync() {
     console.error('Cloud load failed', e);
   } finally {
     isHydrating = false;
+    window.__cloudSyncReady = true;
     window.dispatchEvent(new Event('cloud-sync-ready'));
   }
 
