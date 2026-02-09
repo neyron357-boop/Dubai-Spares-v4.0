@@ -89,7 +89,7 @@ export interface DbPriceVariantRow {
   location: string;
   photo_url: string | null;
   photos: string[];
-  created_at: string;
+  created_at: number | string;
 }
 
 export interface DbPartRow {
@@ -116,7 +116,7 @@ export interface DbOrderRow {
   car_photos: string[];
   markup_percent: number;
   exchange_rate: number;
-  created_at: string;
+  created_at: number | string;
   is_archived: boolean;
   is_sold: boolean;
   sold_profit_usd: number | null;

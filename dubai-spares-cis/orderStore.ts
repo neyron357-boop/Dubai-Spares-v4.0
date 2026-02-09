@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant } from './types';
-import { supabase, isCloudSyncConfigured } from './supabaseClient';
+import { supabase, isCloudSyncConfigured } from './supabase';
 import { ensurePublicImageUrls } from './storage/photos';
 import { offlineDb } from './storage/offlineDb';
 
@@ -41,6 +41,18 @@ const normalizeOrder = (order: Order): Order => ({
   notes: Array.isArray(order.notes) ? order.notes : [],
   parts: Array.isArray(order.parts) ? order.parts : []
 });
+
+
+const parseTimestamp = (value: string | number | null | undefined): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) return asNumber;
+    const asDate = Date.parse(value);
+    if (!Number.isNaN(asDate)) return asDate;
+  }
+  return Date.now();
+};
 
 let state: OrderState = {
   orders: [],
@@ -87,12 +99,12 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
         location: v.location || '',
         photos: v.photos || [],
         photoUrl: v.photo_url || v.photos?.[0],
-        createdAt: Date.parse(v.created_at || '') || Date.now()
+        createdAt: parseTimestamp(v.created_at)
       }))
     })),
     markupPercent: Number(row.markup_percent || 0),
     exchangeRate: Number(row.exchange_rate || 0),
-    createdAt: Date.parse(row.created_at || '') || Date.now(),
+    createdAt: parseTimestamp(row.created_at),
     isArchived: !!row.is_archived,
     isSold: !!row.is_sold,
     soldProfitUsd: row.sold_profit_usd ?? undefined,
@@ -150,7 +162,7 @@ const persistOrderGraph = async (order: Order) => {
     car_photos: uploadedOrder.carPhotos || [],
     markup_percent: uploadedOrder.markupPercent,
     exchange_rate: uploadedOrder.exchangeRate,
-    created_at: new Date(uploadedOrder.createdAt).toISOString(),
+    created_at: uploadedOrder.createdAt,
     is_archived: uploadedOrder.isArchived,
     is_sold: uploadedOrder.isSold,
     sold_profit_usd: uploadedOrder.soldProfitUsd,
@@ -184,7 +196,7 @@ const persistOrderGraph = async (order: Order) => {
         location: variant.location,
         photo_url: variant.photoUrl,
         photos: variant.photos || [],
-        created_at: new Date(variant.createdAt).toISOString()
+        created_at: variant.createdAt
       });
       if (variantError) throw variantError;
     }
@@ -201,6 +213,10 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
     payload: order,
     createdAt: Date.now()
   });
+
+  if (navigator.onLine) {
+    void flushOfflineMutations();
+  }
 };
 
 const flushOfflineMutations = async () => {
@@ -220,6 +236,11 @@ const flushOfflineMutations = async () => {
         const saved = await persistOrderGraph(mutation.payload);
         await offlineDb.saveOrder(saved);
       }
+
+      if (import.meta.env.DEV) {
+        console.log(`☁️ Synced offline mutation ${mutation.id} for order ${mutation.orderId} to Supabase`);
+      }
+
       await offlineDb.removeMutation(mutation.id);
     }
 
@@ -265,6 +286,8 @@ export const fetchOrders = async () => {
   const orders = (data || []).map(mapDbOrder);
   await offlineDb.saveOrders(orders);
   setState({ orders, isLoading: false, isHydrated: true, error: null });
+
+  void flushOfflineMutations();
 };
 
 export const addOrderItem = async (order: Order) => {
@@ -373,6 +396,10 @@ export const useOrderStore = () => {
     const onOnline = () => {
       void flushOfflineMutations();
     };
+
+    if (navigator.onLine) {
+      void flushOfflineMutations();
+    }
 
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
