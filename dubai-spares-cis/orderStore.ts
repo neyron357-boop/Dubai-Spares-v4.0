@@ -260,16 +260,24 @@ export const updateOrderItem = async (order: Order) => {
 };
 
 export const deleteOrderItem = async (orderId: string) => {
-  const prev = state.orders;
-  const optimistic = prev.filter((o) => o.id !== orderId);
-  setState({ orders: optimistic, error: null });
-
-  if (!isCloudSyncConfigured || !supabase) return;
-
-  const { error } = await supabase.from('orders').delete().eq('id', orderId);
-  if (error) {
-    setState({ orders: prev, error: error.message });
+  if (!isCloudSyncConfigured || !supabase) {
+    setState({ orders: state.orders.filter((o) => o.id !== orderId), error: null });
+    return;
   }
+
+  setState({ error: null, isLoading: true });
+  const { error } = await supabase.from('orders').delete().eq('id', orderId);
+
+  if (error) {
+    setState({ isLoading: false, error: error.message || 'Failed to delete order' });
+    return;
+  }
+
+  setState({
+    orders: state.orders.filter((o) => o.id !== orderId),
+    isLoading: false,
+    error: null
+  });
 };
 
 export const updatePartItem = async (orderId: string, part: Part) => {

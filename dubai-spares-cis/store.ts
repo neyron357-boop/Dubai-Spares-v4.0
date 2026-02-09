@@ -52,7 +52,7 @@ export const restoreDataExternal = (data: any) => {
 export const useStore = () => {
   const [_, setVersion] = useState(0);
 
-  const { orders, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, fetchOrders } = useOrderStore();
+  const { orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, fetchOrders } = useOrderStore();
 
   useEffect(() => {
     const listener = () => setVersion((v) => v + 1);
@@ -80,6 +80,8 @@ export const useStore = () => {
 
   return useMemo(() => ({
     orders,
+    isLoading,
+    error,
     suppliers: globalSuppliers,
     addOrder,
     updateOrder,
@@ -92,6 +94,7 @@ export const useStore = () => {
     restoreData,
     updatePart,
     updatePriceVariant,
-    fetchOrders
-  }), [orders, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders]);
+    fetchOrders,
+    syncOrders: fetchOrders
+  }), [orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders]);
 };

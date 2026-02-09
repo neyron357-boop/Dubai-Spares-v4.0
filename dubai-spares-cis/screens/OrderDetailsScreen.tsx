@@ -31,7 +31,7 @@ import ConfirmModal from '../components/ConfirmModal';
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { orders, updateOrder } = useStore();
+  const { orders, isLoading, updateOrder } = useStore();
   const order = orders.find(o => o.id === id);
 
   const [isEstimateOpen, setIsEstimateOpen] = useState(false);
@@ -65,7 +65,19 @@ const OrderDetailsScreen: React.FC = () => {
   }, [order?.id]);
 
 
+  if (!order && isLoading) {
+    return (
+      <div className="p-4 space-y-4 animate-pulse">
+        <div className="h-10 bg-gray-200 rounded-2xl" />
+        <div className="h-24 bg-gray-200 rounded-2xl" />
+        <div className="h-24 bg-gray-100 rounded-2xl" />
+        <div className="h-24 bg-gray-100 rounded-2xl" />
+      </div>
+    );
+  }
+
   if (!order) return <div className="p-10 text-center text-gray-400 font-bold">ЗАКАЗ НЕ НАЙДЕН</div>;
+
 
   const calculateCurrentProfit = () => {
     const totalCostAed = order.parts.reduce((sum, p) => {
