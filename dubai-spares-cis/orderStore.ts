@@ -257,15 +257,24 @@ const persistOrderGraph = async (order: Order) => {
     customer_contact: uploadedOrder.customerContact || ''
   };
 
-  let { error: orderError } = await supabase.from('orders').upsert({
+  const fallbackOrderPayload = {
     ...baseOrderPayload,
     sales_status: uploadedOrder.salesStatus || 'Inquiry',
     updated_at: uploadedOrder.updatedAt || Date.now()
-  });
+  };
+
+  let { error: orderError } = await supabase.from('orders').upsert(fallbackOrderPayload);
 
   if (orderError && isMissingColumnError(orderError, 'sales_status')) {
     await logger.warn('sync:persist', 'orders.sales_status is missing in remote schema; retrying upsert without that column');
-    ({ error: orderError } = await supabase.from('orders').upsert(baseOrderPayload));
+    const { sales_status: _salesStatus, ...payloadWithoutSalesStatus } = fallbackOrderPayload;
+    ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutSalesStatus));
+  }
+
+  if (orderError && isMissingColumnError(orderError, 'customer_contact')) {
+    await logger.warn('sync:persist', 'orders.customer_contact is missing in remote schema; retrying upsert without that column');
+    const { customer_contact: _customerContact, ...payloadWithoutCustomerContact } = fallbackOrderPayload;
+    ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutCustomerContact));
   }
 
   if (orderError) {
