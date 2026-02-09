@@ -6,6 +6,7 @@ import { SOURCES } from '../constants';
 import { 
   ArrowLeft, 
   FileText, 
+  Share2,
   ChevronRight, 
   Package, 
   CheckCircle2,
@@ -27,6 +28,9 @@ import {
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
+import { buildPartShareText, shareMessage } from '../shareUtils';
+
+const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -343,6 +347,9 @@ const OrderDetailsScreen: React.FC = () => {
             <span className="inline-flex items-center gap-1"><Star size={12} /> VIP</span>
           </button>
           <button type="button" onClick={() => updateOrderField('isLead', !order.isLead)} className={`text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight shrink-0 ${order.isLead ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500'}`}>LEAD</button>
+          <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
+            {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
           <select value={order.priority} onChange={(e) => updateOrderField('priority', e.target.value as Priority)} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
             <option value={Priority.HIGH}>HIGH</option>
             <option value={Priority.MEDIUM}>MEDIUM</option>
@@ -568,6 +575,13 @@ const OrderDetailsScreen: React.FC = () => {
                   <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">{part.variants.length} предложений</p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); void shareMessage(buildPartShareText(order, part)); }}
+                    className="p-4 -m-2 text-gray-200 hover:text-emerald-600 transition-all"
+                  >
+                    <Share2 size={18} />
+                  </button>
                   <button 
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setDeletePartId(part.id); }}

@@ -14,6 +14,12 @@ export enum Source {
 }
 
 export type OrderStatus = 'active' | 'archive' | 'sold' | 'vip' | 'lead';
+export type SalesStatus = 'Inquiry' | 'Price Sent' | 'Pending Approval' | 'Paid' | 'Completed';
+
+export interface Coordinates {
+  lat: number;
+  lng: number;
+}
 
 export interface PriceVariant {
   id: string;
@@ -61,6 +67,8 @@ export interface Order {
   isLead?: boolean;
   localOnlyPhotos?: boolean;
   notes?: OrderNote[];
+  salesStatus?: SalesStatus;
+  updatedAt?: number;
 }
 
 export interface OrderNote {
@@ -79,6 +87,7 @@ export interface Supplier {
   brands: string[];
   photoUrl?: string;
   photos?: string[];
+  coordinates?: Coordinates;
 }
 
 export interface DbPriceVariantRow {
@@ -125,6 +134,8 @@ export interface DbOrderRow {
   is_pinned: boolean;
   is_lead: boolean;
   notes: OrderNote[];
+  sales_status?: SalesStatus;
+  updated_at?: number | string;
 }
 
 export interface DbOrderGraphRow extends DbOrderRow {

@@ -15,25 +15,41 @@ import {
   Smartphone,
   Clock,
   Pin,
-  Star
+  Star,
+  Share2,
+  LocateFixed
 } from 'lucide-react';
 import IncomeModal from '../components/IncomeModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
+import { shareMessage, buildOrderShareText } from '../shareUtils';
 
 type TabType = 'active' | 'archive' | 'sold' | 'vip' | 'leads';
 type SortType = 'date' | 'brand' | 'priority' | 'status';
 
 const weights = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
+const toRad = (v: number) => (v * Math.PI) / 180;
+
+const distanceKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const calc =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(calc), Math.sqrt(1 - calc));
+};
 
 const OrdersScreen: React.FC = () => {
-  const { orders, isLoading, isSyncing, syncOrders, deleteOrder, updateOrder } = useStore();
+  const { orders, suppliers, isLoading, isSyncing, syncOrders, deleteOrder, updateOrder } = useStore();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>('active');
   const [sortBy, setSortBy] = useState<SortType>('date');
   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [nearbyFirst, setNearbyFirst] = useState(false);
+  const [currentPosition, setCurrentPosition] = useState<{ lat: number; lng: number } | null>(null);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -60,8 +76,21 @@ const OrdersScreen: React.FC = () => {
       return !o.isArchived && !o.isSold && !o.isVip && !o.isLead;
     });
 
+    const nearestDistance = (order: Order) => {
+      if (!currentPosition) return Number.MAX_SAFE_INTEGER;
+      const shops = suppliers.filter((s) => s.brands.includes(order.brand) && s.coordinates);
+      if (shops.length === 0) return Number.MAX_SAFE_INTEGER;
+      return Math.min(
+        ...shops.map((shop) => distanceKm(currentPosition, { lat: shop.coordinates!.lat, lng: shop.coordinates!.lng }))
+      );
+    };
+
     return [...list].sort((a, b) => {
       if (!!a.isPinned !== !!b.isPinned) return a.isPinned ? -1 : 1;
+      if (nearbyFirst) {
+        const delta = nearestDistance(a) - nearestDistance(b);
+        if (Math.abs(delta) > 0.001) return delta;
+      }
       switch (sortBy) {
         case 'brand': return a.brand.localeCompare(b.brand);
         case 'priority': return weights[b.priority] - weights[a.priority] || b.createdAt - a.createdAt;
@@ -78,7 +107,7 @@ const OrdersScreen: React.FC = () => {
         default: return b.createdAt - a.createdAt;
       }
     });
-  }, [orders, activeTab, sortBy]);
+  }, [orders, activeTab, sortBy, nearbyFirst, currentPosition, suppliers]);
 
   const getStatusColor = (createdAt: number, isSold: boolean) => {
     if (isSold) return 'border-l-4 border-green-700 bg-green-50/50';
@@ -118,6 +147,19 @@ const OrdersScreen: React.FC = () => {
   };
 
   const showSkeleton = isLoading && orders.length === 0;
+
+  const toggleNearbyFirst = () => {
+    if (nearbyFirst) {
+      setNearbyFirst(false);
+      return;
+    }
+
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition((pos) => {
+      setCurrentPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      setNearbyFirst(true);
+    });
+  };
 
   return (
     <div
@@ -183,6 +225,9 @@ const OrdersScreen: React.FC = () => {
             <s.icon size={12} /> {s.label}
           </button>
         ))}
+        <button onClick={toggleNearbyFirst} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg whitespace-nowrap text-[10px] font-bold uppercase tracking-tight ${nearbyFirst ? 'bg-emerald-600 text-white' : 'bg-white text-gray-400 border border-gray-100'}`}>
+          <LocateFixed size={12} /> Nearby First
+        </button>
       </div>
 
       <div className="space-y-3">
@@ -203,6 +248,9 @@ const OrdersScreen: React.FC = () => {
               onClick={() => navigate(`/order/${order.id}`)}
               className={`p-4 rounded-3xl shadow-sm border relative overflow-hidden ${order.isVip ? 'bg-gradient-to-br from-yellow-50 via-amber-50 to-white border-yellow-200' : 'bg-white border-gray-100'} ${getStatusColor(order.createdAt, order.isSold)}`}
             >
+              {order.salesStatus === 'Price Sent' && (Date.now() - (order.updatedAt || order.createdAt)) > 24 * 60 * 60 * 1000 && (
+                <div className="absolute top-2 right-2 z-10 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase">Follow up</div>
+              )}
               <div className="flex justify-between items-start mb-2 gap-2">
                 <div>
                   <h3 className="font-black text-gray-900 text-lg leading-tight uppercase tracking-tight">{order.brand} {order.model}</h3>
@@ -218,6 +266,7 @@ const OrdersScreen: React.FC = () => {
                     {order.isPinned && <Pin size={13} className="text-blue-600" />}
                     {order.isVip && <Star size={13} className="text-yellow-600 fill-yellow-500" />}
                     {order.isLead && <span className="px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-700 text-[9px] font-black uppercase">Lead</span>}
+                    <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[9px] font-black uppercase">{order.salesStatus || 'Inquiry'}</span>
                     {getAgeBadge(order.createdAt)}
                     <div className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-tighter ${order.priority === Priority.HIGH ? 'bg-red-100 text-red-600' : order.priority === Priority.MEDIUM ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600'}`}>{order.priority}</div>
                   </div>
@@ -249,6 +298,7 @@ const OrdersScreen: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1">
+                  <button onClick={(e) => { e.stopPropagation(); void shareMessage(buildOrderShareText(order)); }} className="p-2 text-gray-300 hover:text-emerald-600"><Share2 size={18} /></button>
                   <button onClick={(e) => { e.stopPropagation(); togglePin(order.id); }} className="p-2 text-gray-300 hover:text-blue-600"><Pin size={18} className={order.isPinned ? 'fill-blue-100 text-blue-600' : ''} /></button>
                   <button onClick={(e) => { e.stopPropagation(); setDeleteId(order.id); }} className="p-2 text-gray-200 hover:text-red-500"><Trash2 size={20} /></button>
                   <ChevronRight size={20} className="text-gray-200" />

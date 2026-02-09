@@ -100,7 +100,9 @@ const NewOrderScreen: React.FC = () => {
       isLead,
       isPinned: false,
       localOnlyPhotos,
-      notes: []
+      notes: [],
+      salesStatus: 'Inquiry',
+      updatedAt: Date.now()
     };
 
     try {

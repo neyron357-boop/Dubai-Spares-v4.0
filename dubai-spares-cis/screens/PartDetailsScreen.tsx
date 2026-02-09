@@ -16,6 +16,12 @@ import {
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 
+const extractCoordinates = (value: string) => {
+  const match = value.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+  if (!match) return undefined;
+  return { lat: Number(match[1]), lng: Number(match[2]) };
+};
+
 const PartDetailsScreen: React.FC = () => {
   const { orderId, partId } = useParams<{ orderId: string, partId: string }>();
   const navigate = useNavigate();
@@ -119,12 +125,14 @@ const PartDetailsScreen: React.FC = () => {
         name: shopName,
         phone,
         location,
-        brands: [order.brand]
+        brands: [order.brand],
+        coordinates: extractCoordinates(location)
       });
     } else if (!existingSupplier.brands.includes(order.brand)) {
       updateSupplier({
         ...existingSupplier,
-        brands: [...existingSupplier.brands, order.brand]
+        brands: [...existingSupplier.brands, order.brand],
+        coordinates: existingSupplier.coordinates || extractCoordinates(location)
       });
     }
 

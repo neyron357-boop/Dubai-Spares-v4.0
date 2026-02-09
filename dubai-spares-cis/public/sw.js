@@ -62,3 +62,13 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(fetch(request).catch(() => caches.match(request).then((hit) => hit || caches.match('/index.html'))));
 });
+
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'orders-background-sync') return;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      clients.forEach((client) => client.postMessage({ type: 'flush-offline-mutations' }));
+    })
+  );
+});
