@@ -17,6 +17,15 @@ type AIValidationResult = {
   } | null;
 };
 
+type ValidationInput = {
+  brand: string;
+  model: string;
+  year: string;
+  vin: string;
+  partName: string;
+  customerContact: string;
+};
+
 const AI_CONFIDENCE_THRESHOLD = 0.82;
 
 const i18n: Record<Lang, Record<string, string>> = {
@@ -44,6 +53,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     unavailable: 'Order form is temporarily unavailable.',
     aiKeyMissing: 'AI validator is not configured. Please set VITE_OPENAI_API_KEY.',
     aiFailed: 'AI validation failed. Please try again.',
+    aiFallback: 'AI is temporarily unavailable. Basic validation has been applied.',
     aiLow: 'AI confidence is too low. Please improve details first.',
     aiStale: 'Please run AI validation after updating form fields.'
   },
@@ -71,6 +81,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     unavailable: 'Форма временно недоступна.',
     aiKeyMissing: 'ИИ-валидатор не настроен. Укажите VITE_OPENAI_API_KEY.',
     aiFailed: 'Ошибка проверки ИИ. Попробуйте снова.',
+    aiFallback: 'ИИ временно недоступен. Применена базовая проверка.',
     aiLow: 'Низкая уверенность ИИ. Уточните данные.',
     aiStale: 'После изменений снова запустите проверку ИИ.'
   },
@@ -98,6 +109,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     unavailable: 'Форма муваққатан дастнорас аст.',
     aiKeyMissing: 'AI валидатор танзим нашудааст. VITE_OPENAI_API_KEY лозим аст.',
     aiFailed: 'Санҷиши AI ноком шуд. Аз нав кӯшиш кунед.',
+    aiFallback: 'AI муваққатан дастнорас аст. Санҷиши базавӣ истифода шуд.',
     aiLow: 'Эътимоди AI паст аст. Маълумотро дақиқ кунед.',
     aiStale: 'Баъди тағйирот санҷиши AI-ро такрор кунед.'
   },
@@ -125,6 +137,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     unavailable: 'Forma vaqtincha mavjud emas.',
     aiKeyMissing: 'AI validator sozlanmagan. VITE_OPENAI_API_KEY kiriting.',
     aiFailed: 'AI tekshiruvi xato berdi. Qayta urinib ko‘ring.',
+    aiFallback: 'AI vaqtincha ishlamayapti. Bazaviy tekshiruv qo‘llandi.',
     aiLow: 'AI ishonchi past. Ma’lumotni aniqroq kiriting.',
     aiStale: 'Maydonlar o‘zgarganidan so‘ng AI tekshiruvini qayta ishga tushiring.'
   },
@@ -152,6 +165,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     unavailable: 'Форма уақытша қолжетімсіз.',
     aiKeyMissing: 'AI validator бапталмаған. VITE_OPENAI_API_KEY қажет.',
     aiFailed: 'AI тексерісі сәтсіз. Қайта көріңіз.',
+    aiFallback: 'AI уақытша қолжетімсіз. Негізгі тексеру қолданылды.',
     aiLow: 'AI сенімділігі төмен. Деректерді нақтылаңыз.',
     aiStale: 'Өрістерді өзгерткен соң AI тексерісін қайта іске қосыңыз.'
   }
@@ -161,6 +175,44 @@ const createId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+const buildFallbackValidation = (
+  values: ValidationInput,
+  labels: { brand: string; model: string; year: string; vin: string; partName: string },
+  language: Lang
+): AIValidationResult => {
+  const questions: string[] = [];
+  if (!values.brand.trim()) questions.push(`${labels.brand}: ?`);
+  if (!values.model.trim()) questions.push(`${labels.model}: ?`);
+  if (!values.partName.trim() || values.partName.trim().length < 3) questions.push(`${labels.partName}: ?`);
+  if (!values.year.trim() && !values.vin.trim()) questions.push(`${labels.year} / ${labels.vin}: ?`);
+
+  const filledScore = [
+    values.brand.trim(),
+    values.model.trim(),
+    values.partName.trim(),
+    values.customerContact.trim(),
+    values.year.trim() || values.vin.trim()
+  ].filter(Boolean).length;
+
+  const confidence = Math.min(0.95, 0.55 + filledScore * 0.08 - questions.length * 0.12);
+
+  const suggestionByLang: Record<Lang, string> = {
+    en: 'Specify part side/position and any OEM code to speed up search.',
+    ru: 'Уточните сторону/позицию детали и, если есть, OEM-номер для быстрого подбора.',
+    tg: 'Ҷониб/мавқеи қисм ва агар бошад, рақами OEM-ро барои ҷустуҷӯи зудтар нишон диҳед.',
+    uz: 'Qismning tomoni/joylashuvi va bo‘lsa OEM kodini kiritsangiz, qidiruv tezlashadi.',
+    kk: 'Іздеуді жеделдету үшін бөлшектің жағын/орнын және болса OEM нөмірін нақтылаңыз.'
+  };
+
+  return {
+    confidenceScore: Number(confidence.toFixed(2)),
+    needsClarification: questions.length > 0,
+    clarificationQuestions: questions,
+    smartSuggestion: suggestionByLang[language],
+    vinDecoded: null
+  };
+};
 
 const PublicOrderFormScreen: React.FC = () => {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -205,8 +257,13 @@ const PublicOrderFormScreen: React.FC = () => {
 
   const runAIValidation = async () => {
     const key = import.meta.env.VITE_OPENAI_API_KEY as string | undefined;
+    const fallbackResult = buildFallbackValidation({ brand, model, year, vin, partName, customerContact }, { brand: t.brand, model: t.model, year: t.year, vin: t.vin, partName: t.partName }, lang);
+
     if (!key) {
-      alert(t.aiKeyMissing);
+      setAiResult(fallbackResult);
+      setLastValidatedFingerprint(currentFingerprint);
+      setVinConfirmed(null);
+      alert(t.aiFallback);
       return;
     }
 
@@ -280,7 +337,10 @@ const PublicOrderFormScreen: React.FC = () => {
       setLastValidatedFingerprint(currentFingerprint);
       setVinConfirmed(null);
     } catch {
-      alert(t.aiFailed);
+      setAiResult(fallbackResult);
+      setLastValidatedFingerprint(currentFingerprint);
+      setVinConfirmed(null);
+      alert(t.aiFallback);
     } finally {
       setIsValidating(false);
     }
