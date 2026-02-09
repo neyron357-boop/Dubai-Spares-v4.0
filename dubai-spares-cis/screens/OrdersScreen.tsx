@@ -61,6 +61,8 @@ const OrdersScreen: React.FC = () => {
   const [nearbyFirst, setNearbyFirst] = useState(false);
   const [currentPosition, setCurrentPosition] = useState<{ lat: number; lng: number } | null>(null);
   const notifiedRef = useRef<Set<string>>(new Set());
+  const prevLeadIdsRef = useRef<string[] | null>(null);
+  const [seenLeadIds, setSeenLeadIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     try {
@@ -69,6 +71,16 @@ const OrdersScreen: React.FC = () => {
       notifiedRef.current = new Set(JSON.parse(saved));
     } catch {
       notifiedRef.current = new Set();
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('seen_new_inquiry_ids');
+      if (!saved) return;
+      setSeenLeadIds(new Set(JSON.parse(saved)));
+    } catch {
+      setSeenLeadIds(new Set());
     }
   }, []);
 
@@ -130,6 +142,13 @@ const OrdersScreen: React.FC = () => {
       }
     });
   }, [orders, activeTab, sortBy, nearbyFirst, currentPosition, suppliers]);
+
+  const unseenNewLeadCount = useMemo(() => {
+    const currentNewLeadIds = orders
+      .filter((order) => order.status === 'new_inquiry')
+      .map((order) => order.id);
+    return currentNewLeadIds.filter((id) => !seenLeadIds.has(id)).length;
+  }, [orders, seenLeadIds]);
 
   const getStatusColor = (createdAt: number, isSold: boolean) => {
     if (isSold) return 'border-l-4 border-green-700 bg-green-50/50';
@@ -214,6 +233,65 @@ const OrdersScreen: React.FC = () => {
     });
   }, [orders, suppliers]);
 
+  useEffect(() => {
+    const currentLeadIds = orders
+      .filter((order) => order.status === 'new_inquiry')
+      .map((order) => order.id)
+      .sort();
+
+    if (!prevLeadIdsRef.current) {
+      prevLeadIdsRef.current = currentLeadIds;
+      return;
+    }
+
+    const prevIds = new Set(prevLeadIdsRef.current);
+    const hasNewLead = currentLeadIds.some((id) => !prevIds.has(id));
+
+    if (hasNewLead) {
+      try {
+        const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AudioContextClass) {
+          const audioContext = new AudioContextClass();
+          const oscillator = audioContext.createOscillator();
+          const gain = audioContext.createGain();
+
+          oscillator.type = 'sine';
+          oscillator.frequency.setValueAtTime(880, audioContext.currentTime);
+          oscillator.connect(gain);
+          gain.connect(audioContext.destination);
+
+          gain.gain.setValueAtTime(0.001, audioContext.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.2, audioContext.currentTime + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.35);
+
+          oscillator.start();
+          oscillator.stop(audioContext.currentTime + 0.36);
+          window.setTimeout(() => void audioContext.close(), 450);
+        }
+      } catch {
+        // ignore browsers that block autoplay without interaction
+      }
+    }
+
+    prevLeadIdsRef.current = currentLeadIds;
+  }, [orders]);
+
+  useEffect(() => {
+    if (activeTab !== 'new_leads') return;
+    const currentNewLeadIds = orders
+      .filter((order) => order.status === 'new_inquiry')
+      .map((order) => order.id);
+
+    if (currentNewLeadIds.length === 0) return;
+
+    setSeenLeadIds((current) => {
+      const updated = new Set(current);
+      currentNewLeadIds.forEach((id) => updated.add(id));
+      localStorage.setItem('seen_new_inquiry_ids', JSON.stringify(Array.from(updated)));
+      return updated;
+    });
+  }, [activeTab, orders]);
+
   return (
     <div
       className="p-4 space-y-4 pb-20 overflow-x-hidden"
@@ -263,9 +341,25 @@ const OrdersScreen: React.FC = () => {
           ['new_leads', 'New Leads'],
           ['leads', 'Лиды'],
           ['sold', 'Продано']
-        ] as [TabType, string][]).map(([tab, title]) => (
-          <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg ${activeTab === tab ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'}`}>{title}</button>
-        ))}
+        ] as [TabType, string][]).map(([tab, title]) => {
+          const isNewLeadsTab = tab === 'new_leads';
+          const hasUnseenLeads = isNewLeadsTab && unseenNewLeadCount > 0;
+          return (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={`relative flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg ${activeTab === tab ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'} ${hasUnseenLeads ? 'animate-pulse text-rose-600' : ''}`}
+            >
+              {title}
+              {hasUnseenLeads && (
+                <span className="absolute -top-1.5 right-1 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] text-white">
+                  {unseenNewLeadCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
