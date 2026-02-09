@@ -8,16 +8,16 @@ const getExportTimestamp = (data: any): number => {
 };
 
 const mergeState = (local: any, cloud: any) => {
-  if (!cloud?.orders) return local;
-  if (!local?.orders) return cloud;
+  const hasCloudOrders = Array.isArray(cloud?.orders);
+  const hasLocalOrders = Array.isArray(local?.orders);
 
-  const localTs = getExportTimestamp(local);
-  const cloudTs = getExportTimestamp(cloud);
+  if (!hasCloudOrders) return local;
+  if (!hasLocalOrders) return cloud;
 
-  // IMPORTANT: Do not union lists by id here.
-  // Union merge resurrects deleted entities on the next sync cycle.
-  // We treat the newest snapshot as source of truth.
-  return cloudTs > localTs ? cloud : local;
+  // Server snapshot is source of truth.
+  // Local storage is treated as offline cache and must never overwrite cloud data on app start.
+  // This prevents data loss after reloads when local cache is stale/empty.
+  return cloud;
 };
 
 let started = false;

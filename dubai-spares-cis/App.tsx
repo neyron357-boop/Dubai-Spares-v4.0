@@ -8,7 +8,6 @@ import SuppliersScreen from './screens/SuppliersScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database } from 'lucide-react';
 import { startCloudSync, isCloudSyncReady, isCloudSyncStarted } from './cloudSync';
-import { useOrderStore } from './orderStore';
 
 const APP_PIN = '2202';
 
@@ -76,7 +75,6 @@ const App: React.FC = () => {
   const [unlocked, setUnlocked] = useState(false);
   const [loading, setLoading] = useState(false);
   const [savePulse, setSavePulse] = useState(false);
-  const { fetchOrders } = useOrderStore();
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -120,7 +118,6 @@ const App: React.FC = () => {
           });
         }
 
-        await fetchOrders();
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -130,7 +127,7 @@ const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [unlocked, fetchOrders]);
+  }, [unlocked]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
