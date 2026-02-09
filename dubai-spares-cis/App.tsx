@@ -7,7 +7,6 @@ import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database } from 'lucide-react';
-import { startCloudSync, isCloudSyncReady, isCloudSyncStarted } from './cloudSync';
 import { useStore } from './store';
 
 const APP_PIN = '2202';
@@ -47,7 +46,7 @@ const PinGate: React.FC<{ onUnlock: () => void; isEntering: boolean }> = ({ onUn
   );
 };
 
-const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ children, isSyncing }) => {
+const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOffline: boolean }> = ({ children, isSyncing, isOffline }) => {
   const location = useLocation();
   const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
 
@@ -56,7 +55,14 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ c
       <div className="h-0.5 bg-transparent">
         <div className={`h-full bg-blue-500 transition-all duration-300 ${isSyncing ? 'w-full opacity-100 animate-pulse' : 'w-0 opacity-0'}`} />
       </div>
-      <main className="flex-1 overflow-y-auto no-scrollbar relative">{children}</main>
+      <main className="flex-1 overflow-y-auto no-scrollbar relative">
+        {isOffline && (
+          <div className="fixed top-3 left-3 z-[90] px-2.5 py-1 rounded-full bg-amber-500 text-white text-[10px] font-black uppercase tracking-wide shadow">
+            Offline Mode
+          </div>
+        )}
+        {children}
+      </main>
       {!hideNav && (
         <nav className="h-16 bg-white border-t border-gray-200 flex items-center justify-around px-2 pb-safe shrink-0 z-50">
           <NavLink to="/" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
@@ -74,6 +80,7 @@ const App: React.FC = () => {
   const [savePulse, setSavePulse] = useState(false);
   const [syncToast, setSyncToast] = useState<string | null>(null);
   const { syncOrders, isLoading, error } = useStore();
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -98,33 +105,16 @@ const App: React.FC = () => {
     return () => clearTimeout(t);
   }, [error]);
 
+
   useEffect(() => {
-    if (!unlocked) return;
-
-    const init = async () => {
-      try {
-        if (!isCloudSyncStarted()) await startCloudSync();
-        if (!isCloudSyncReady()) {
-          await new Promise<void>((resolve) => {
-            const onReady = () => {
-              window.removeEventListener('cloud-sync-ready', onReady);
-              resolve();
-            };
-            window.addEventListener('cloud-sync-ready', onReady);
-            setTimeout(() => {
-              window.removeEventListener('cloud-sync-ready', onReady);
-              resolve();
-            }, 5000);
-          });
-        }
-      } finally {
-        setEntering(false);
-      }
+    const onStatus = () => setIsOffline(!navigator.onLine);
+    window.addEventListener('online', onStatus);
+    window.addEventListener('offline', onStatus);
+    return () => {
+      window.removeEventListener('online', onStatus);
+      window.removeEventListener('offline', onStatus);
     };
-
-    void init();
-  }, [unlocked]);
-
+  }, []);
   const onUnlock = () => {
     setEntering(true);
     void syncOrders();
@@ -165,7 +155,7 @@ const App: React.FC = () => {
         )}
 
         <HashRouter>
-          <Layout isSyncing={isLoading}>
+          <Layout isSyncing={isLoading} isOffline={isOffline}>
             <Routes>
               <Route path="/" element={<OrdersScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />

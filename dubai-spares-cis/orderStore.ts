@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant } from './types';
 import { supabase, isCloudSyncConfigured } from './supabaseClient';
 import { ensurePublicImageUrls } from './storage/photos';
+import { offlineDb } from './storage/offlineDb';
 
 type OrderState = {
   orders: Order[];
@@ -22,30 +23,6 @@ const createUuid = () =>
     : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 const ensureUuid = (value?: string) => (value && isUuid(value) ? value : createUuid());
-
-const isRecoverableCloudError = (error: unknown): boolean => {
-  const message = String((error as any)?.message || '').toLowerCase();
-  const code = String((error as any)?.code || '').toLowerCase();
-
-  return (
-    message.includes('relation') ||
-    message.includes('does not exist') ||
-    message.includes('failed to fetch') ||
-    message.includes('network') ||
-    message.includes('permission denied') ||
-    code === '42501' ||
-    code === 'pgrst301' ||
-    code === 'pgrst116'
-  );
-};
-
-const validateOrderForSave = (order: Order) => {
-  if (!order) throw new Error('Order payload is missing');
-  if (!order.brand?.trim()) throw new Error('Brand is required');
-  if (!order.model?.trim()) throw new Error('Model is required');
-  if (!order.priority) throw new Error('Priority is required');
-  if (!Array.isArray(order.parts)) throw new Error('Parts must be an array');
-};
 
 const getStatus = (order: Pick<Order, 'isSold' | 'isArchived' | 'isVip' | 'isLead'>): OrderStatus => {
   if (order.isSold) return 'sold';
@@ -73,37 +50,17 @@ let state: OrderState = {
   error: null
 };
 
-const notify = () => {
-  listeners.forEach((l) => l());
-};
+let syncInProgress = false;
+
+const notify = () => listeners.forEach((l) => l());
 
 const setState = (patch: Partial<OrderState>) => {
   state = { ...state, ...patch };
   notify();
 };
 
-const mapDbOrder = (row: DbOrderGraphRow): Order => {
-  const parts: Part[] = (row.parts || []).map((part) => ({
-    id: String(part.id),
-    orderId: String(part.order_id),
-    name: part.name,
-    photos: part.photos || [],
-    photoUrl: part.photo_url || part.photos?.[0],
-    isFound: !!part.is_found,
-    variants: (part.price_variants || []).map((v): PriceVariant => ({
-      id: String(v.id),
-      partId: String(v.part_id),
-      priceAed: Number(v.price_aed || 0),
-      shopName: v.shop_name || '',
-      phone: v.phone || '',
-      location: v.location || '',
-      photos: v.photos || [],
-      photoUrl: v.photo_url || v.photos?.[0],
-      createdAt: Date.parse(v.created_at || '') || Date.now()
-    }))
-  }));
-
-  return normalizeOrder({
+const mapDbOrder = (row: DbOrderGraphRow): Order => ({
+  ...normalizeOrder({
     id: String(row.id),
     brand: row.brand,
     model: row.model,
@@ -114,7 +71,25 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => {
     source: row.source || 'Другое',
     carPhotos: row.car_photos || [],
     carPhotoUrl: row.car_photo_url || row.car_photos?.[0],
-    parts,
+    parts: (row.parts || []).map((part) => ({
+      id: String(part.id),
+      orderId: String(part.order_id),
+      name: part.name,
+      photos: part.photos || [],
+      photoUrl: part.photo_url || part.photos?.[0],
+      isFound: !!part.is_found,
+      variants: (part.price_variants || []).map((v): PriceVariant => ({
+        id: String(v.id),
+        partId: String(v.part_id),
+        priceAed: Number(v.price_aed || 0),
+        shopName: v.shop_name || '',
+        phone: v.phone || '',
+        location: v.location || '',
+        photos: v.photos || [],
+        photoUrl: v.photo_url || v.photos?.[0],
+        createdAt: Date.parse(v.created_at || '') || Date.now()
+      }))
+    })),
     markupPercent: Number(row.markup_percent || 0),
     exchangeRate: Number(row.exchange_rate || 0),
     createdAt: Date.parse(row.created_at || '') || Date.now(),
@@ -126,17 +101,18 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => {
     isLead: !!row.is_lead,
     notes: row.notes || [],
     status: row.status || 'active'
-  });
-};
+  })
+});
 
 const withUploadedPhotos = async (order: Order): Promise<Order> => {
   const orderId = ensureUuid(order.id);
   const carPhotos = await ensurePublicImageUrls(order.carPhotos || [], `orders/${orderId}/car`);
 
-  const parts = await Promise.all(
+  const parts: Part[] = await Promise.all(
     (order.parts || []).map(async (part) => {
       const partId = ensureUuid(part.id);
       const partPhotos = await ensurePublicImageUrls(part.photos || [], `orders/${orderId}/parts/${partId}`);
+
       const variants = await Promise.all(
         (part.variants || []).map(async (variant) => {
           const variantId = ensureUuid(variant.id);
@@ -145,40 +121,19 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
             `orders/${orderId}/parts/${partId}/variants/${variantId}`
           );
 
-          return {
-            ...variant,
-            id: variantId,
-            partId,
-            photos: variantPhotos,
-            photoUrl: variantPhotos[0]
-          };
+          return { ...variant, id: variantId, partId, photos: variantPhotos, photoUrl: variantPhotos[0] };
         })
       );
 
-      return {
-        ...part,
-        id: partId,
-        orderId,
-        photos: partPhotos,
-        photoUrl: partPhotos[0],
-        variants
-      };
+      return { ...part, id: partId, orderId, photos: partPhotos, photoUrl: partPhotos[0], variants };
     })
   );
 
-  return {
-    ...order,
-    id: orderId,
-    carPhotos,
-    carPhotoUrl: carPhotos[0],
-    parts
-  };
+  return { ...order, id: orderId, carPhotos, carPhotoUrl: carPhotos[0], parts };
 };
 
 const persistOrderGraph = async (order: Order) => {
-  if (!supabase) return;
-
-  validateOrderForSave(order);
+  if (!supabase) return normalizeOrder(order);
   const uploadedOrder = await withUploadedPhotos(order);
 
   const { error: orderError } = await supabase.from('orders').upsert({
@@ -204,10 +159,7 @@ const persistOrderGraph = async (order: Order) => {
     is_lead: !!uploadedOrder.isLead,
     notes: uploadedOrder.notes || []
   });
-
-  if (orderError) {
-    throw orderError;
-  }
+  if (orderError) throw orderError;
 
   await supabase.from('parts').delete().eq('order_id', uploadedOrder.id);
 
@@ -220,7 +172,6 @@ const persistOrderGraph = async (order: Order) => {
       photos: part.photos || [],
       is_found: !!part.isFound
     });
-
     if (partError) throw partError;
 
     for (const variant of part.variants || []) {
@@ -235,12 +186,50 @@ const persistOrderGraph = async (order: Order) => {
         photos: variant.photos || [],
         created_at: new Date(variant.createdAt).toISOString()
       });
-
       if (variantError) throw variantError;
     }
   }
 
-  return uploadedOrder;
+  return normalizeOrder(uploadedOrder);
+};
+
+const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined, orderId: string) => {
+  await offlineDb.enqueueMutation({
+    id: createUuid(),
+    type,
+    orderId,
+    payload: order,
+    createdAt: Date.now()
+  });
+};
+
+const flushOfflineMutations = async () => {
+  if (syncInProgress || !navigator.onLine || !isCloudSyncConfigured || !supabase) return;
+  syncInProgress = true;
+  setState({ isSyncing: true });
+
+  try {
+    const pending = await offlineDb.getMutations();
+    for (const mutation of pending) {
+      if (mutation.type === 'delete') {
+        if (isUuid(mutation.orderId)) {
+          const { error } = await supabase.from('orders').delete().eq('id', mutation.orderId);
+          if (error) throw error;
+        }
+      } else if (mutation.payload) {
+        const saved = await persistOrderGraph(mutation.payload);
+        await offlineDb.saveOrder(saved);
+      }
+      await offlineDb.removeMutation(mutation.id);
+    }
+
+    await fetchOrders();
+  } catch (error: any) {
+    setState({ error: error.message || 'Offline sync failed' });
+  } finally {
+    syncInProgress = false;
+    setState({ isSyncing: false });
+  }
 };
 
 export const subscribeOrderStore = (listener: () => void) => {
@@ -253,7 +242,12 @@ export const getOrderState = () => state;
 export const fetchOrders = async () => {
   setState({ isLoading: true, error: null });
 
-  if (!isCloudSyncConfigured || !supabase) {
+  const localOrders = await offlineDb.getOrders();
+  if (localOrders.length) {
+    setState({ orders: localOrders.map(normalizeOrder), isHydrated: true });
+  }
+
+  if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
     setState({ isLoading: false, isHydrated: true });
     return;
   }
@@ -268,179 +262,106 @@ export const fetchOrders = async () => {
     return;
   }
 
-  setState({ orders: (data || []).map(mapDbOrder), isLoading: false, isHydrated: true });
+  const orders = (data || []).map(mapDbOrder);
+  await offlineDb.saveOrders(orders);
+  setState({ orders, isLoading: false, isHydrated: true, error: null });
 };
 
 export const addOrderItem = async (order: Order) => {
-  const prev = state.orders;
-  const localOrderId = ensureUuid(order.id);
-  const localOrder = normalizeOrder({
-    ...order,
-    id: localOrderId,
-    parts: (order.parts || []).map((part) => {
-      const localPartId = ensureUuid(part.id);
-      return {
-        ...part,
-        id: localPartId,
-        orderId: localOrderId,
-        variants: (part.variants || []).map((variant) => ({
-          ...variant,
-          id: ensureUuid(variant.id),
-          partId: localPartId
-        }))
-      };
-    })
-  });
+  const localOrder = normalizeOrder({ ...order, id: ensureUuid(order.id) });
+  const next = [localOrder, ...state.orders.filter((o) => o.id !== localOrder.id)];
+  setState({ orders: next, error: null });
+  await offlineDb.saveOrder(localOrder);
+  window.dispatchEvent(new CustomEvent('cloud-save-success'))
 
-  setState({ isSyncing: true, error: null });
-
-  if (!isCloudSyncConfigured || !supabase) {
-    setState({ orders: [normalizeOrder(order), ...prev], isSyncing: false, error: null });
+  if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
+    await queueMutation('upsert', localOrder, localOrder.id);
     return true;
   }
 
   try {
-    const savedOrder = await persistOrderGraph(order);
-    setState({ orders: [normalizeOrder(savedOrder), ...prev], isSyncing: false, error: null });
+    const saved = await persistOrderGraph(localOrder);
+    const merged = [saved, ...state.orders.filter((o) => o.id !== localOrder.id && o.id !== saved.id)];
+    setState({ orders: merged, error: null });
+    await offlineDb.saveOrders(merged);
     return true;
-  } catch (error: any) {
-    if (isRecoverableCloudError(error)) {
-      setState({ orders: [localOrder, ...prev], isSyncing: false, error: null });
-      return true;
-    }
-
-    setState({ orders: prev, isSyncing: false, error: error.message || 'Failed to save order' });
-    return false;
+  } catch {
+    await queueMutation('upsert', localOrder, localOrder.id);
+    return true;
   }
 };
 
 export const updateOrderItem = async (order: Order) => {
-  const prev = state.orders;
-  setState({ isSyncing: true, error: null });
+  const normalized = normalizeOrder(order);
+  const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
+  setState({ orders: next, error: null });
+  await offlineDb.saveOrder(normalized);
+  window.dispatchEvent(new CustomEvent('cloud-save-success'))
 
-  if (!isCloudSyncConfigured || !supabase) {
-    const next = prev.map((o) => (o.id === order.id ? normalizeOrder(order) : o));
-    setState({ orders: next, isSyncing: false, error: null });
+  if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
+    await queueMutation('upsert', normalized, normalized.id);
     return true;
   }
 
   try {
-    const savedOrder = await persistOrderGraph(order);
-    const reconciled = prev.map((o) => (o.id === order.id ? normalizeOrder(savedOrder) : o));
-    setState({ orders: reconciled, isSyncing: false, error: null });
+    await persistOrderGraph(normalized);
     return true;
-  } catch (error: any) {
-    if (isRecoverableCloudError(error)) {
-      const next = prev.map((o) => (o.id === order.id ? normalizeOrder(order) : o));
-      setState({ orders: next, isSyncing: false, error: null });
-      return true;
-    }
-
-    setState({ orders: prev, isSyncing: false, error: error.message || 'Failed to update order' });
-    return false;
+  } catch {
+    await queueMutation('upsert', normalized, normalized.id);
+    return true;
   }
 };
 
 export const deleteOrderItem = async (orderId: string) => {
-  const withoutOrder = state.orders.filter((o) => o.id !== orderId);
+  const next = state.orders.filter((o) => o.id !== orderId);
+  setState({ orders: next, error: null });
+  await offlineDb.deleteOrder(orderId);
+  window.dispatchEvent(new CustomEvent('cloud-save-success'))
 
-  if (!isCloudSyncConfigured || !supabase) {
-    setState({ orders: withoutOrder, error: null });
+  if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
+    await queueMutation('delete', undefined, orderId);
     return true;
   }
 
-  setState({ orders: withoutOrder, error: null, isLoading: true, isSyncing: true });
-
-  if (!isUuid(orderId)) {
-    setState({ isLoading: false, isSyncing: false, error: null });
-    return true;
-  }
-
-  const { error } = await supabase.from('orders').delete().eq('id', orderId);
-
-  if (error) {
-    if (isRecoverableCloudError(error)) {
-      setState({ isLoading: false, isSyncing: false, error: null });
-      return true;
+  try {
+    if (isUuid(orderId)) {
+      const { error } = await supabase.from('orders').delete().eq('id', orderId);
+      if (error) throw error;
     }
-
-    setState({ isLoading: false, isSyncing: false, error: error.message || 'Failed to delete order' });
-    return false;
+    return true;
+  } catch {
+    await queueMutation('delete', undefined, orderId);
+    return true;
   }
-
-  setState({ isLoading: false, isSyncing: false, error: null });
-  return true;
 };
 
 export const updatePartItem = async (orderId: string, part: Part) => {
-  const prev = state.orders;
-  const optimistic = prev.map((order) => {
-    if (order.id !== orderId) return order;
+  const order = state.orders.find((item) => item.id === orderId);
+  if (!order) return;
 
-    const exists = order.parts.some((p) => p.id === part.id);
-    const parts = exists ? order.parts.map((p) => (p.id === part.id ? part : p)) : [...order.parts, part];
-    return { ...order, parts };
-  });
-
-  setState({ orders: optimistic, error: null });
-
-  if (!isCloudSyncConfigured || !supabase) return;
-
-  try {
-    const photos = await ensurePublicImageUrls(part.photos || [], `orders/${orderId}/parts/${part.id}`);
-    const payload = {
-      id: part.id,
-      order_id: orderId,
-      name: part.name,
-      photo_url: photos[0],
-      photos,
-      is_found: !!part.isFound
-    };
-
-    const { error } = await supabase.from('parts').upsert(payload);
-    if (error) throw error;
-  } catch (error: any) {
-    setState({ orders: prev, error: error.message || 'Failed to update part' });
-  }
+  const exists = order.parts.some((p) => p.id === part.id);
+  const parts = exists ? order.parts.map((p) => (p.id === part.id ? part : p)) : [...order.parts, part];
+  await updateOrderItem({ ...order, parts });
 };
 
 export const updatePriceVariantItem = async (partId: string, variant: PriceVariant) => {
-  const prev = state.orders;
-  const optimistic = prev.map((o) => ({
-    ...o,
-    parts: o.parts.map((p) => {
-      if (p.id !== partId) return p;
-      const exists = p.variants.some((v) => v.id === variant.id);
-      const variants = exists ? p.variants.map((v) => (v.id === variant.id ? variant : v)) : [...p.variants, variant];
-      return { ...p, variants };
-    })
-  }));
-  setState({ orders: optimistic, error: null });
+  const order = state.orders.find((o) => o.parts.some((p) => p.id === partId));
+  if (!order) return;
 
-  if (!isCloudSyncConfigured || !supabase) return;
+  const parts = order.parts.map((p) => {
+    if (p.id !== partId) return p;
+    const exists = p.variants.some((v) => v.id === variant.id);
+    const variants = exists ? p.variants.map((v) => (v.id === variant.id ? variant : v)) : [...p.variants, variant];
+    return { ...p, variants };
+  });
 
-  try {
-    const photos = await ensurePublicImageUrls(variant.photos || [], `parts/${partId}/variants/${variant.id}`);
-    const { error } = await supabase.from('price_variants').upsert({
-      id: variant.id,
-      part_id: partId,
-      price_aed: variant.priceAed,
-      shop_name: variant.shopName,
-      phone: variant.phone,
-      location: variant.location,
-      photo_url: photos[0],
-      photos,
-      created_at: new Date(variant.createdAt).toISOString()
-    });
-
-    if (error) throw error;
-  } catch (error: any) {
-    setState({ orders: prev, error: error.message || 'Failed to update price variant' });
-  }
+  await updateOrderItem({ ...order, parts });
 };
 
 export const restoreOrdersExternal = (orders: Order[]) => {
-  setState({ orders: orders.map(normalizeOrder), isHydrated: true });
+  const normalized = orders.map(normalizeOrder);
+  setState({ orders: normalized, isHydrated: true });
+  void offlineDb.saveOrders(normalized);
 };
 
 export const useOrderStore = () => {
@@ -448,20 +369,25 @@ export const useOrderStore = () => {
 
   useEffect(() => subscribeOrderStore(() => setVersion((v) => v + 1)), []);
 
+  useEffect(() => {
+    const onOnline = () => {
+      void flushOfflineMutations();
+    };
+
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
+
   const fetchOrdersCb = useCallback(fetchOrders, []);
-  const addCb = useCallback(addOrderItem, []);
-  const updateCb = useCallback(updateOrderItem, []);
-  const deleteCb = useCallback(deleteOrderItem, []);
-  const updatePartCb = useCallback(updatePartItem, []);
-  const updateVariantCb = useCallback(updatePriceVariantItem, []);
 
   return {
     ...state,
     fetchOrders: fetchOrdersCb,
-    addOrder: addCb,
-    updateOrder: updateCb,
-    deleteOrder: deleteCb,
-    updatePart: updatePartCb,
-    updatePriceVariant: updateVariantCb
+    addOrder: useCallback(addOrderItem, []),
+    updateOrder: useCallback(updateOrderItem, []),
+    deleteOrder: useCallback(deleteOrderItem, []),
+    updatePart: useCallback(updatePartItem, []),
+    updatePriceVariant: useCallback(updatePriceVariantItem, []),
+    flushOfflineMutations: useCallback(flushOfflineMutations, [])
   };
 };
