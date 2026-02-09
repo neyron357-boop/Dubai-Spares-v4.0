@@ -9,6 +9,11 @@ type AIValidationResult = {
   needsClarification: boolean;
   clarificationQuestions: string[];
   smartSuggestion: string;
+  normalizedBrand: string;
+  translatedPartName: string;
+  translatedDescription: string;
+  photoMatchesPart: boolean;
+  photoMatchReason: string;
   vinDecoded: {
     make: string;
     model: string;
@@ -23,8 +28,17 @@ type ValidationInput = {
   year: string;
   vin: string;
   partName: string;
+  description: string;
   customerContact: string;
 };
+
+const MAJOR_CAR_BRANDS = [
+  'Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Honda', 'Hyundai', 'Kia', 'Ford', 'Chevrolet', 'Lexus', 'Audi',
+  'Volkswagen', 'Porsche', 'Mitsubishi', 'Mazda', 'Subaru', 'Suzuki', 'Land Rover', 'Jeep', 'Volvo', 'Peugeot',
+  'Renault', 'Skoda', 'Fiat', 'Changan', 'Geely', 'BYD', 'Chery', 'Infiniti', 'Cadillac'
+];
+
+const YEARS = Array.from({ length: 2026 - 1990 + 1 }, (_, index) => String(1990 + index));
 
 const AI_CONFIDENCE_THRESHOLD = 0.82;
 
@@ -37,6 +51,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     year: 'Year',
     vin: 'VIN',
     partName: 'Part Name',
+    description: 'Description',
     contact: 'Phone or Handle',
     uploadPhoto: 'Upload Photo',
     runAi: 'Run AI Validation',
@@ -65,6 +80,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     year: 'Год',
     vin: 'VIN',
     partName: 'Название детали',
+    description: 'Описание',
     contact: 'Телефон или контакт',
     uploadPhoto: 'Загрузить фото',
     runAi: 'Проверить через ИИ',
@@ -93,6 +109,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     year: 'Сол',
     vin: 'VIN',
     partName: 'Номи қисм',
+    description: 'Тавсиф',
     contact: 'Телефон ё контакт',
     uploadPhoto: 'Боркунии акс',
     runAi: 'Санҷиши AI',
@@ -121,6 +138,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     year: 'Yil',
     vin: 'VIN',
     partName: 'Qism nomi',
+    description: 'Tavsif',
     contact: 'Telefon yoki kontakt',
     uploadPhoto: 'Rasm yuklash',
     runAi: 'AI tekshiruvi',
@@ -149,6 +167,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     year: 'Жыл',
     vin: 'VIN',
     partName: 'Бөлшек атауы',
+    description: 'Сипаттама',
     contact: 'Телефон немесе контакт',
     uploadPhoto: 'Фото жүктеу',
     runAi: 'AI тексеруі',
@@ -210,6 +229,11 @@ const buildFallbackValidation = (
     needsClarification: questions.length > 0,
     clarificationQuestions: questions,
     smartSuggestion: suggestionByLang[language],
+    normalizedBrand: values.brand.trim(),
+    translatedPartName: values.partName.trim(),
+    translatedDescription: values.description.trim(),
+    photoMatchesPart: true,
+    photoMatchReason: 'Photo check was skipped due to AI fallback mode.',
     vinDecoded: null
   };
 };
@@ -222,6 +246,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [year, setYear] = useState('');
   const [vin, setVin] = useState('');
   const [partName, setPartName] = useState('');
+  const [description, setDescription] = useState('');
   const [customerContact, setCustomerContact] = useState('');
   const [photoData, setPhotoData] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -235,8 +260,8 @@ const PublicOrderFormScreen: React.FC = () => {
   const t = i18n[lang];
 
   const currentFingerprint = useMemo(
-    () => JSON.stringify({ brand, model, year, vin, partName, customerContact, lang }),
-    [brand, model, year, vin, partName, customerContact, lang]
+    () => JSON.stringify({ brand, model, year, vin, partName, description, customerContact, lang }),
+    [brand, model, year, vin, partName, description, customerContact, lang]
   );
 
   const needsRevalidation = currentFingerprint !== lastValidatedFingerprint;
@@ -257,7 +282,7 @@ const PublicOrderFormScreen: React.FC = () => {
 
   const runAIValidation = async () => {
     const key = import.meta.env.VITE_OPENAI_API_KEY as string | undefined;
-    const fallbackResult = buildFallbackValidation({ brand, model, year, vin, partName, customerContact }, { brand: t.brand, model: t.model, year: t.year, vin: t.vin, partName: t.partName }, lang);
+    const fallbackResult = buildFallbackValidation({ brand, model, year, vin, partName, description, customerContact }, { brand: t.brand, model: t.model, year: t.year, vin: t.vin, partName: t.partName }, lang);
 
     if (!key) {
       setAiResult(fallbackResult);
@@ -269,66 +294,97 @@ const PublicOrderFormScreen: React.FC = () => {
 
     setIsValidating(true);
     try {
+      const userContent: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = [
+        {
+          type: 'text',
+          text: JSON.stringify({ brand, model, year, vin, partName, description, customerContact, language: lang })
+        }
+      ];
+
+      if (photoData) {
+        userContent.push({ type: 'image_url', image_url: { url: photoData } });
+      }
+
+      const openAiRequestBody = {
+        model: 'gpt-4o-mini',
+        temperature: 0.2,
+        messages: [
+          {
+            role: 'system',
+            content:
+              `You are an expert auto parts consultant. Analyze the customer's request and image. Translate partName and description into English. Normalize brand to common canonical format in English (e.g., бмв => BMW). Validate if the image appears to match the requested part and explain briefly. Respond in ${lang}. Return strict JSON only with keys: confidenceScore (0..1), needsClarification (boolean), clarificationQuestions (string[]), smartSuggestion (string), normalizedBrand (string), translatedPartName (string), translatedDescription (string), photoMatchesPart (boolean), photoMatchReason (string), vinDecoded ({make,model,engine,year} | null).`
+          },
+          {
+            role: 'user',
+            content: userContent
+          }
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'public_order_validation',
+            strict: true,
+            schema: {
+              type: 'object',
+              properties: {
+                confidenceScore: { type: 'number' },
+                needsClarification: { type: 'boolean' },
+                clarificationQuestions: { type: 'array', items: { type: 'string' } },
+                smartSuggestion: { type: 'string' },
+                normalizedBrand: { type: 'string' },
+                translatedPartName: { type: 'string' },
+                translatedDescription: { type: 'string' },
+                photoMatchesPart: { type: 'boolean' },
+                photoMatchReason: { type: 'string' },
+                vinDecoded: {
+                  anyOf: [
+                    {
+                      type: 'object',
+                      properties: {
+                        make: { type: 'string' },
+                        model: { type: 'string' },
+                        engine: { type: 'string' },
+                        year: { type: 'string' }
+                      },
+                      required: ['make', 'model', 'engine', 'year'],
+                      additionalProperties: false
+                    },
+                    { type: 'null' }
+                  ]
+                }
+              },
+              required: [
+                'confidenceScore',
+                'needsClarification',
+                'clarificationQuestions',
+                'smartSuggestion',
+                'normalizedBrand',
+                'translatedPartName',
+                'translatedDescription',
+                'photoMatchesPart',
+                'photoMatchReason',
+                'vinDecoded'
+              ],
+              additionalProperties: false
+            }
+          }
+        }
+      };
+
+      console.log('[PublicOrderForm] OpenAI request', openAiRequestBody);
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${key}`
         },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          temperature: 0.2,
-          messages: [
-            {
-              role: 'system',
-              content:
-                `You are an expert auto parts consultant. Your goal is to ensure the customer provides: Exact Car Model, Year, VIN (if possible), and specific Part Name. If data is vague (e.g., 'engine part'), ask for clarification. Be polite and professional. Respond in ${lang}. Return strict JSON only with keys: confidenceScore (0..1), needsClarification (boolean), clarificationQuestions (string[]), smartSuggestion (string), vinDecoded ({make,model,engine,year} | null).`
-            },
-            {
-              role: 'user',
-              content: JSON.stringify({ brand, model, year, vin, partName, customerContact, language: lang })
-            }
-          ],
-          response_format: {
-            type: 'json_schema',
-            json_schema: {
-              name: 'public_order_validation',
-              strict: true,
-              schema: {
-                type: 'object',
-                properties: {
-                  confidenceScore: { type: 'number' },
-                  needsClarification: { type: 'boolean' },
-                  clarificationQuestions: { type: 'array', items: { type: 'string' } },
-                  smartSuggestion: { type: 'string' },
-                  vinDecoded: {
-                    anyOf: [
-                      {
-                        type: 'object',
-                        properties: {
-                          make: { type: 'string' },
-                          model: { type: 'string' },
-                          engine: { type: 'string' },
-                          year: { type: 'string' }
-                        },
-                        required: ['make', 'model', 'engine', 'year'],
-                        additionalProperties: false
-                      },
-                      { type: 'null' }
-                    ]
-                  }
-                },
-                required: ['confidenceScore', 'needsClarification', 'clarificationQuestions', 'smartSuggestion', 'vinDecoded'],
-                additionalProperties: false
-              }
-            }
-          }
-        })
+        body: JSON.stringify(openAiRequestBody)
       });
 
       if (!response.ok) throw new Error(`OpenAI error ${response.status}`);
 
       const data = await response.json();
+      console.log('[PublicOrderForm] OpenAI response', data);
       const content = data?.choices?.[0]?.message?.content as string;
       if (!content) throw new Error('Empty AI response');
 
@@ -336,7 +392,8 @@ const PublicOrderFormScreen: React.FC = () => {
       setAiResult(parsed);
       setLastValidatedFingerprint(currentFingerprint);
       setVinConfirmed(null);
-    } catch {
+    } catch (error) {
+      console.error('[PublicOrderForm] OpenAI validation failed', error);
       setAiResult(fallbackResult);
       setLastValidatedFingerprint(currentFingerprint);
       setVinConfirmed(null);
@@ -357,6 +414,7 @@ const PublicOrderFormScreen: React.FC = () => {
 
   const submitOrder = async () => {
     if (!brand || !model || !partName || !customerContact) {
+      console.error('[PublicOrderForm] Validation error: missing required fields', { brand, model, partName, customerContact });
       alert(t.missingFields);
       return;
     }
@@ -367,6 +425,7 @@ const PublicOrderFormScreen: React.FC = () => {
     }
 
     if (!isAiApproved) {
+      console.error('[PublicOrderForm] Validation error: AI not approved', { aiResult, needsRevalidation, vinConfirmed });
       alert(t.aiLow);
       return;
     }
@@ -388,9 +447,11 @@ const PublicOrderFormScreen: React.FC = () => {
         partPhotos = await ensurePublicImageUrls([compressed], `orders/${orderId}/parts/${partId}`);
       }
 
-      const { error: orderError } = await supabase.from('orders').insert({
+      const normalizedBrand = aiResult.normalizedBrand || brand;
+
+      const { error: orderError } = await supabase.from('orders').upsert({
         id: orderId,
-        brand,
+        brand: normalizedBrand,
         model,
         year,
         vin,
@@ -410,6 +471,11 @@ const PublicOrderFormScreen: React.FC = () => {
         notes: [
           `AI confidence: ${aiResult.confidenceScore}`,
           `AI suggestion: ${aiResult.smartSuggestion}`,
+          `AI photo matched: ${aiResult.photoMatchesPart ? 'yes' : 'no'} (${aiResult.photoMatchReason})`,
+          `Original part name: ${partName}`,
+          `English part name: ${aiResult.translatedPartName || partName}`,
+          `Original description: ${description || '-'}`,
+          `English description: ${aiResult.translatedDescription || description || '-'}`,
           `Language: ${lang}`
         ],
         sales_status: 'new_inquiry',
@@ -418,17 +484,19 @@ const PublicOrderFormScreen: React.FC = () => {
       });
 
       if (orderError) throw orderError;
+      console.log('[PublicOrderForm] Supabase upsert confirmation: orders', { orderId, normalizedBrand });
 
-      const { error: partError } = await supabase.from('parts').insert({
+      const { error: partError } = await supabase.from('parts').upsert({
         id: partId,
         order_id: orderId,
-        name: partName,
+        name: aiResult.translatedPartName || partName,
         photos: partPhotos,
         photo_url: partPhotos[0] || null,
         is_found: false
       });
 
       if (partError) throw partError;
+      console.log('[PublicOrderForm] Supabase upsert confirmation: parts', { partId, orderId });
 
       setSuccess(true);
       setBrand('');
@@ -436,6 +504,7 @@ const PublicOrderFormScreen: React.FC = () => {
       setYear('');
       setVin('');
       setPartName('');
+      setDescription('');
       setCustomerContact('');
       setPhotoData(null);
       resetAi();
@@ -460,10 +529,10 @@ const PublicOrderFormScreen: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-md mx-auto bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
-        <h1 className="text-xl font-black">{t.title}</h1>
-        <p className="text-xs text-gray-500">{t.subtitle}</p>
+    <div className="min-h-screen bg-slate-100 px-3 py-4 sm:px-4 sm:py-8">
+      <div className="mx-auto w-full max-w-md rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 space-y-4">
+        <h1 className="text-2xl font-black tracking-tight text-slate-900">{t.title}</h1>
+        <p className="text-sm leading-5 text-slate-500">{t.subtitle}</p>
 
         <div className="flex flex-wrap gap-2">
           {(['en', 'ru', 'tg', 'uz', 'kk'] as Lang[]).map((code) => (
@@ -474,25 +543,33 @@ const PublicOrderFormScreen: React.FC = () => {
                 setLang(code);
                 resetAi();
               }}
-              className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase border ${lang === code ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
+              className={`rounded-full border px-3 py-2 text-xs font-bold uppercase ${lang === code ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600'}`}
             >
               {code}
             </button>
           ))}
         </div>
 
-        {success && <div className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 p-3 rounded-xl">{t.success}</div>}
+        {success && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{t.success}</div>}
 
         <form onSubmit={onSubmit} className="space-y-3">
-          <input value={brand} onChange={(e) => { setBrand(e.target.value); resetAi(); }} placeholder={t.brand} className="w-full p-3 rounded-xl border border-gray-200" />
-          <input value={model} onChange={(e) => { setModel(e.target.value); resetAi(); }} placeholder={t.model} className="w-full p-3 rounded-xl border border-gray-200" />
-          <input value={year} onChange={(e) => { setYear(e.target.value); resetAi(); }} placeholder={t.year} className="w-full p-3 rounded-xl border border-gray-200" />
-          <input value={vin} onChange={(e) => { setVin(e.target.value.toUpperCase()); resetAi(); }} placeholder={t.vin} className="w-full p-3 rounded-xl border border-gray-200 uppercase" />
-          <input value={partName} onChange={(e) => { setPartName(e.target.value); resetAi(); }} placeholder={t.partName} className="w-full p-3 rounded-xl border border-gray-200" />
-          <input value={customerContact} onChange={(e) => { setCustomerContact(e.target.value); resetAi(); }} placeholder={t.contact} className="w-full p-3 rounded-xl border border-gray-200" />
+          <input list="car-brands" value={brand} onChange={(e) => { setBrand(e.target.value); resetAi(); }} placeholder={t.brand} className="min-h-12 w-full rounded-2xl border border-slate-300 px-4 text-base" />
+          <datalist id="car-brands">
+            {MAJOR_CAR_BRANDS.map((item) => <option key={item} value={item} />)}
+          </datalist>
+
+          <input value={model} onChange={(e) => { setModel(e.target.value); resetAi(); }} placeholder={t.model} className="min-h-12 w-full rounded-2xl border border-slate-300 px-4 text-base" />
+          <select value={year} onChange={(e) => { setYear(e.target.value); resetAi(); }} className="min-h-12 w-full rounded-2xl border border-slate-300 px-4 text-base text-slate-700">
+            <option value="">{t.year}</option>
+            {YEARS.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <input value={vin} onChange={(e) => { setVin(e.target.value.toUpperCase()); resetAi(); }} placeholder={t.vin} className="min-h-12 w-full rounded-2xl border border-slate-300 px-4 text-base uppercase" />
+          <input value={partName} onChange={(e) => { setPartName(e.target.value); resetAi(); }} placeholder={t.partName} className="min-h-12 w-full rounded-2xl border border-slate-300 px-4 text-base" />
+          <textarea value={description} onChange={(e) => { setDescription(e.target.value); resetAi(); }} placeholder={t.description} rows={3} className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-base" />
+          <input value={customerContact} onChange={(e) => { setCustomerContact(e.target.value); resetAi(); }} placeholder={t.contact} className="min-h-12 w-full rounded-2xl border border-slate-300 px-4 text-base" />
 
           <div className="space-y-2">
-            <button type="button" onClick={() => fileRef.current?.click()} className="w-full p-3 rounded-xl border border-dashed border-gray-300 text-sm font-bold text-gray-500">{t.uploadPhoto}</button>
+            <button type="button" onClick={() => fileRef.current?.click()} className="min-h-12 w-full rounded-2xl border border-dashed border-slate-300 p-3 text-sm font-bold text-slate-500">{t.uploadPhoto}</button>
             <input ref={fileRef} type="file" accept="image/*" onChange={onPickPhoto} className="hidden" />
             {photoData && <img src={photoData} className="w-24 h-24 object-cover rounded-lg border border-gray-100" />}
           </div>
@@ -501,13 +578,13 @@ const PublicOrderFormScreen: React.FC = () => {
             type="button"
             disabled={isValidating}
             onClick={runAIValidation}
-            className="w-full py-3 rounded-xl bg-violet-600 text-white font-bold disabled:opacity-60"
+            className="min-h-12 w-full rounded-2xl bg-violet-600 py-3 text-base font-bold text-white disabled:opacity-60"
           >
             {isValidating ? '...' : t.runAi}
           </button>
 
           {aiResult && (
-            <div className={`p-3 rounded-xl border text-xs space-y-2 ${isAiApproved ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+            <div className={`space-y-2 rounded-2xl border p-3 text-sm ${isAiApproved ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
               <p className="font-bold">{t.smartSuggestion}</p>
               <p>{aiResult.smartSuggestion}</p>
               {!isAiApproved && <p className="font-semibold">{t.aiWarning}</p>}
@@ -524,8 +601,8 @@ const PublicOrderFormScreen: React.FC = () => {
                       .replace('{engine}', aiResult.vinDecoded.engine)}
                   </p>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => setVinConfirmed(true)} className={`flex-1 py-2 rounded-lg border ${vinConfirmed === true ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-gray-300'}`}>{t.yes}</button>
-                    <button type="button" onClick={() => setVinConfirmed(false)} className={`flex-1 py-2 rounded-lg border ${vinConfirmed === false ? 'bg-red-600 text-white border-red-600' : 'bg-white border-gray-300'}`}>{t.no}</button>
+                    <button type="button" onClick={() => setVinConfirmed(true)} className={`flex-1 rounded-xl border py-3 ${vinConfirmed === true ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white'}`}>{t.yes}</button>
+                    <button type="button" onClick={() => setVinConfirmed(false)} className={`flex-1 rounded-xl border py-3 ${vinConfirmed === false ? 'border-red-600 bg-red-600 text-white' : 'border-gray-300 bg-white'}`}>{t.no}</button>
                   </div>
                 </div>
               )}
@@ -533,7 +610,7 @@ const PublicOrderFormScreen: React.FC = () => {
             </div>
           )}
 
-          <button disabled={isSubmitting || !isAiApproved} className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold disabled:opacity-50">
+          <button disabled={isSubmitting || !isAiApproved} className="min-h-12 w-full rounded-2xl bg-blue-600 py-3 text-base font-bold text-white disabled:opacity-50">
             {isSubmitting ? t.submitting : t.submit}
           </button>
         </form>
