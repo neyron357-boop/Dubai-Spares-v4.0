@@ -7,6 +7,8 @@ import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database } from 'lucide-react';
+import { startCloudSync, isCloudSyncReady, isCloudSyncStarted } from './cloudSync';
+import { useOrderStore } from './orderStore';
 
 const APP_PIN = '2202';
 
@@ -20,9 +22,13 @@ const Loader: React.FC = () => (
 const PinGate: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => {
   const [value, setValue] = useState('');
   const [error, setError] = useState(false);
+
   const submit = () => {
     if (value === APP_PIN) onUnlock();
-    else { setError(true); setValue(''); }
+    else {
+      setError(true);
+      setValue('');
+    }
   };
 
   return (
@@ -35,7 +41,10 @@ const PinGate: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => {
         maxLength={4}
         inputMode="numeric"
         value={value}
-        onChange={(e) => { setError(false); setValue(e.target.value.replace(/\D/g, '')); }}
+        onChange={(e) => {
+          setError(false);
+          setValue(e.target.value.replace(/\D/g, ''));
+        }}
         onKeyDown={(e) => e.key === 'Enter' && submit()}
         className="w-full max-w-[220px] text-center text-3xl tracking-[0.6em] font-black bg-gray-900 border border-gray-700 rounded-2xl p-4 outline-none"
       />
@@ -64,26 +73,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 const App: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [minDelayDone, setMinDelayDone] = useState(false);
-  const [cloudReady, setCloudReady] = useState(false);
-  const [unlocked, setUnlocked] = useState(() => localStorage.getItem('app_unlocked') === '1');
+  const [unlocked, setUnlocked] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [savePulse, setSavePulse] = useState(false);
-
-  useEffect(() => {
-    const t = setTimeout(() => setMinDelayDone(true), 1400);
-    return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    const onCloudReady = () => setCloudReady(true);
-    window.addEventListener('cloud-sync-ready', onCloudReady);
-    return () => window.removeEventListener('cloud-sync-ready', onCloudReady);
-  }, []);
-
-  useEffect(() => {
-    if (minDelayDone && cloudReady) setLoading(false);
-  }, [minDelayDone, cloudReady]);
+  const { fetchOrders } = useOrderStore();
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -101,10 +94,43 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const handleUnlock = () => {
-    localStorage.setItem('app_unlocked', '1');
-    setUnlocked(true);
-  };
+  useEffect(() => {
+    if (!unlocked) return;
+
+    let cancelled = false;
+    setLoading(true);
+
+    const init = async () => {
+      try {
+        if (!isCloudSyncStarted()) {
+          await startCloudSync();
+        }
+
+        if (!isCloudSyncReady()) {
+          await new Promise<void>((resolve) => {
+            const onReady = () => {
+              window.removeEventListener('cloud-sync-ready', onReady);
+              resolve();
+            };
+            window.addEventListener('cloud-sync-ready', onReady);
+            setTimeout(() => {
+              window.removeEventListener('cloud-sync-ready', onReady);
+              resolve();
+            }, 5000);
+          });
+        }
+
+        await fetchOrders();
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void init();
+    return () => {
+      cancelled = true;
+    };
+  }, [unlocked, fetchOrders]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -122,8 +148,8 @@ const App: React.FC = () => {
     }
   };
 
+  if (!unlocked) return <PinGate onUnlock={() => setUnlocked(true)} />;
   if (loading) return <Loader />;
-  if (!unlocked) return <PinGate onUnlock={handleUnlock} />;
 
   return (
     <div onKeyDown={handleKeyDown}>

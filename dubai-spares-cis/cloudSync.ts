@@ -36,6 +36,7 @@ const mergeState = (local: any, cloud: any) => {
 };
 
 let started = false;
+let ready = false;
 
 const SAVE_DEBOUNCE_MS = 800;
 const TIMER_SAVE_MS = 30000;
@@ -125,6 +126,7 @@ export async function startCloudSync() {
     console.error('Cloud load failed', e);
   } finally {
     hydrating = false;
+    ready = true;
     window.dispatchEvent(new Event('cloud-sync-ready'));
   }
 
@@ -159,3 +161,7 @@ export async function startCloudSync() {
     void triggerSave('online');
   });
 }
+
+
+export const isCloudSyncReady = () => ready;
+export const isCloudSyncStarted = () => started;
