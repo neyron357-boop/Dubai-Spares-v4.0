@@ -6,49 +6,30 @@ import { ensurePublicImageUrls } from './storage/photos';
 type OrderState = {
   orders: Order[];
   isLoading: boolean;
+  isSyncing: boolean;
   isHydrated: boolean;
   error: string | null;
 };
 
 const listeners = new Set<() => void>();
-const PENDING_DELETE_KEY = 'dubai_spares_pending_order_deletes';
-
-const parsePendingDeletes = (): Set<string> => {
-  try {
-    const raw = localStorage.getItem(PENDING_DELETE_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((id) => typeof id === 'string'));
-  } catch {
-    return new Set();
-  }
-};
-
-const pendingDeleteIds = parsePendingDeletes();
-
-const persistPendingDeletes = () => {
-  try {
-    localStorage.setItem(PENDING_DELETE_KEY, JSON.stringify(Array.from(pendingDeleteIds)));
-  } catch {
-    // noop: local cache is best-effort
-  }
-};
-
-const markOrderPendingDelete = (orderId: string) => {
-  pendingDeleteIds.add(orderId);
-  persistPendingDeletes();
-};
-
-const unmarkOrderPendingDelete = (orderId: string) => {
-  if (!pendingDeleteIds.delete(orderId)) return;
-  persistPendingDeletes();
-};
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
-const applyPendingDeletes = (orders: Order[]) => orders.filter((order) => !pendingDeleteIds.has(order.id));
+const createUuid = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+const ensureUuid = (value?: string) => (value && isUuid(value) ? value : createUuid());
+
+const validateOrderForSave = (order: Order) => {
+  if (!order) throw new Error('Order payload is missing');
+  if (!order.brand?.trim()) throw new Error('Brand is required');
+  if (!order.model?.trim()) throw new Error('Model is required');
+  if (!order.priority) throw new Error('Priority is required');
+  if (!Array.isArray(order.parts)) throw new Error('Parts must be an array');
+};
 
 const getStatus = (order: Pick<Order, 'isSold' | 'isArchived' | 'isVip' | 'isLead'>): OrderStatus => {
   if (order.isSold) return 'sold';
@@ -71,6 +52,7 @@ const normalizeOrder = (order: Order): Order => ({
 let state: OrderState = {
   orders: [],
   isLoading: false,
+  isSyncing: false,
   isHydrated: false,
   error: null
 };
@@ -132,21 +114,25 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => {
 };
 
 const withUploadedPhotos = async (order: Order): Promise<Order> => {
-  const carPhotos = await ensurePublicImageUrls(order.carPhotos || [], `orders/${order.id}/car`);
+  const orderId = ensureUuid(order.id);
+  const carPhotos = await ensurePublicImageUrls(order.carPhotos || [], `orders/${orderId}/car`);
 
   const parts = await Promise.all(
     (order.parts || []).map(async (part) => {
-      const partPhotos = await ensurePublicImageUrls(part.photos || [], `orders/${order.id}/parts/${part.id}`);
+      const partId = ensureUuid(part.id);
+      const partPhotos = await ensurePublicImageUrls(part.photos || [], `orders/${orderId}/parts/${partId}`);
       const variants = await Promise.all(
         (part.variants || []).map(async (variant) => {
+          const variantId = ensureUuid(variant.id);
           const variantPhotos = await ensurePublicImageUrls(
             variant.photos || [],
-            `orders/${order.id}/parts/${part.id}/variants/${variant.id}`
+            `orders/${orderId}/parts/${partId}/variants/${variantId}`
           );
 
           return {
             ...variant,
-            partId: part.id,
+            id: variantId,
+            partId,
             photos: variantPhotos,
             photoUrl: variantPhotos[0]
           };
@@ -155,7 +141,8 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
 
       return {
         ...part,
-        orderId: order.id,
+        id: partId,
+        orderId,
         photos: partPhotos,
         photoUrl: partPhotos[0],
         variants
@@ -165,6 +152,7 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
 
   return {
     ...order,
+    id: orderId,
     carPhotos,
     carPhotoUrl: carPhotos[0],
     parts
@@ -174,6 +162,7 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
 const persistOrderGraph = async (order: Order) => {
   if (!supabase) return;
 
+  validateOrderForSave(order);
   const uploadedOrder = await withUploadedPhotos(order);
 
   const { error: orderError } = await supabase.from('orders').upsert({
@@ -263,67 +252,73 @@ export const fetchOrders = async () => {
     return;
   }
 
-  setState({ orders: applyPendingDeletes((data || []).map(mapDbOrder)), isLoading: false, isHydrated: true });
+  setState({ orders: (data || []).map(mapDbOrder), isLoading: false, isHydrated: true });
 };
 
 export const addOrderItem = async (order: Order) => {
   const prev = state.orders;
-  const optimistic = [normalizeOrder(order), ...prev];
-  setState({ orders: optimistic, error: null });
+  setState({ isSyncing: true, error: null });
 
-  if (!isCloudSyncConfigured || !supabase) return;
+  if (!isCloudSyncConfigured || !supabase) {
+    setState({ orders: [normalizeOrder(order), ...prev], isSyncing: false, error: null });
+    return true;
+  }
 
   try {
     const savedOrder = await persistOrderGraph(order);
-    setState({ orders: [normalizeOrder(savedOrder), ...prev], error: null });
+    setState({ orders: [normalizeOrder(savedOrder), ...prev], isSyncing: false, error: null });
+    return true;
   } catch (error: any) {
-    setState({ orders: prev, error: error.message || 'Failed to save order' });
+    setState({ orders: prev, isSyncing: false, error: error.message || 'Failed to save order' });
+    return false;
   }
 };
 
 export const updateOrderItem = async (order: Order) => {
   const prev = state.orders;
-  const optimistic = prev.map((o) => (o.id === order.id ? normalizeOrder(order) : o));
-  setState({ orders: optimistic, error: null });
+  setState({ isSyncing: true, error: null });
 
-  if (!isCloudSyncConfigured || !supabase) return;
+  if (!isCloudSyncConfigured || !supabase) {
+    const next = prev.map((o) => (o.id === order.id ? normalizeOrder(order) : o));
+    setState({ orders: next, isSyncing: false, error: null });
+    return true;
+  }
 
   try {
     const savedOrder = await persistOrderGraph(order);
     const reconciled = prev.map((o) => (o.id === order.id ? normalizeOrder(savedOrder) : o));
-    setState({ orders: reconciled, error: null });
+    setState({ orders: reconciled, isSyncing: false, error: null });
+    return true;
   } catch (error: any) {
-    setState({ orders: prev, error: error.message || 'Failed to update order' });
+    setState({ orders: prev, isSyncing: false, error: error.message || 'Failed to update order' });
+    return false;
   }
 };
 
 export const deleteOrderItem = async (orderId: string) => {
   const withoutOrder = state.orders.filter((o) => o.id !== orderId);
-  markOrderPendingDelete(orderId);
 
   if (!isCloudSyncConfigured || !supabase) {
     setState({ orders: withoutOrder, error: null });
-    unmarkOrderPendingDelete(orderId);
-    return;
+    return true;
   }
 
-  setState({ orders: withoutOrder, error: null, isLoading: true });
+  setState({ orders: withoutOrder, error: null, isLoading: true, isSyncing: true });
 
   if (!isUuid(orderId)) {
-    setState({ isLoading: false, error: null });
-    unmarkOrderPendingDelete(orderId);
-    return;
+    setState({ isLoading: false, isSyncing: false, error: 'Invalid order id for delete' });
+    return false;
   }
 
   const { error } = await supabase.from('orders').delete().eq('id', orderId);
 
   if (error) {
-    setState({ isLoading: false, error: error.message || 'Failed to delete order' });
-    return;
+    setState({ isLoading: false, isSyncing: false, error: error.message || 'Failed to delete order' });
+    return false;
   }
 
-  setState({ isLoading: false, error: null });
-  unmarkOrderPendingDelete(orderId);
+  setState({ isLoading: false, isSyncing: false, error: null });
+  return true;
 };
 
 export const updatePartItem = async (orderId: string, part: Part) => {

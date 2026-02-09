@@ -27,7 +27,7 @@ type SortType = 'date' | 'brand' | 'priority' | 'status';
 const weights = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
 
 const OrdersScreen: React.FC = () => {
-  const { orders, isLoading, syncOrders, deleteOrder, updateOrder } = useStore();
+  const { orders, isLoading, isSyncing, syncOrders, deleteOrder, updateOrder } = useStore();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>('active');
   const [sortBy, setSortBy] = useState<SortType>('date');
@@ -111,11 +111,10 @@ const OrdersScreen: React.FC = () => {
     updateOrder({ ...target, isPinned: !target.isPinned });
   };
 
-  const confirmDelete = () => {
-    if (deleteId) {
-      deleteOrder(deleteId);
-      setDeleteId(null);
-    }
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    const ok = await deleteOrder(deleteId);
+    if (ok) setDeleteId(null);
   };
 
   const showSkeleton = isLoading && orders.length === 0;
@@ -260,7 +259,7 @@ const OrdersScreen: React.FC = () => {
         )}
       </div>
 
-      <ConfirmModal isOpen={!!deleteId} message="Вы уверены, что хотите удалить этот заказ?" onConfirm={confirmDelete} onCancel={() => setDeleteId(null)} />
+      <ConfirmModal isOpen={!!deleteId} message={isSyncing ? 'Удаление...' : 'Вы уверены, что хотите удалить этот заказ?'} onConfirm={confirmDelete} onCancel={() => setDeleteId(null)} />
       {isIncomeOpen && <IncomeModal isOpen={isIncomeOpen} onClose={() => setIsIncomeOpen(false)} orders={orders} />}
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
     </div>
