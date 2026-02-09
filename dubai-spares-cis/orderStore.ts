@@ -62,6 +62,24 @@ const toIsoTimestamp = (value: string | number | null | undefined): string => {
   return new Date(timestamp).toISOString();
 };
 
+type TimestampFormat = 'iso' | 'unix';
+let remoteTimestampFormat: TimestampFormat | null = null;
+
+const serializeTimestampForDb = (value: string | number | null | undefined, format: TimestampFormat): string | number => {
+  const timestamp = parseTimestamp(value);
+  return format === 'unix' ? timestamp : new Date(timestamp).toISOString();
+};
+
+const getTimestampFormatHint = (error: unknown): TimestampFormat | null => {
+  if (typeof error !== 'object' || !error) return null;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  const message = typeof anyErr.message === 'string' ? anyErr.message : '';
+
+  if (anyErr.code === '22P02' && message.includes('type bigint')) return 'unix';
+  if (anyErr.code === '22008' || message.includes('date/time field value out of range')) return 'iso';
+  return null;
+};
+
 let state: OrderState = {
   orders: [],
   isLoading: false,
@@ -237,7 +255,7 @@ const persistOrderGraph = async (order: Order) => {
 
   await logger.info('sync:persist', `Step 1/3 upsert order ${uploadedOrder.id}`);
 
-  const baseOrderPayload = {
+  const buildOrderPayload = (format: TimestampFormat) => ({
     id: uploadedOrder.id,
     brand: uploadedOrder.brand,
     model: uploadedOrder.model,
@@ -251,7 +269,7 @@ const persistOrderGraph = async (order: Order) => {
     car_photos: cloudOrder.carPhotos || [],
     markup_percent: uploadedOrder.markupPercent,
     exchange_rate: uploadedOrder.exchangeRate,
-    created_at: toIsoTimestamp(uploadedOrder.createdAt),
+    created_at: serializeTimestampForDb(uploadedOrder.createdAt, format),
     is_archived: uploadedOrder.isArchived,
     is_sold: uploadedOrder.isSold,
     sold_profit_usd: uploadedOrder.soldProfitUsd,
@@ -260,27 +278,43 @@ const persistOrderGraph = async (order: Order) => {
     is_lead: !!uploadedOrder.isLead,
     notes: uploadedOrder.notes || [],
     customer_contact: uploadedOrder.customerContact || ''
-  };
+  });
 
-  const fallbackOrderPayload = {
-    ...baseOrderPayload,
+  const upsertOrderWithSchemaFallbacks = async (format: TimestampFormat) => {
+    const fallbackOrderPayload = {
+      ...buildOrderPayload(format),
     sales_status: uploadedOrder.salesStatus || 'Inquiry',
-    updated_at: toIsoTimestamp(uploadedOrder.updatedAt || Date.now())
+      updated_at: serializeTimestampForDb(uploadedOrder.updatedAt || Date.now(), format)
+    };
+
+    let { error: orderError } = await supabase.from('orders').upsert(fallbackOrderPayload);
+
+    if (orderError && isMissingColumnError(orderError, 'sales_status')) {
+      await logger.warn('sync:persist', 'orders.sales_status is missing in remote schema; retrying upsert without that column');
+      const { sales_status: _salesStatus, ...payloadWithoutSalesStatus } = fallbackOrderPayload;
+      ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutSalesStatus));
+    }
+
+    if (orderError && isMissingColumnError(orderError, 'customer_contact')) {
+      await logger.warn('sync:persist', 'orders.customer_contact is missing in remote schema; retrying upsert without that column');
+      const { customer_contact: _customerContact, ...payloadWithoutCustomerContact } = fallbackOrderPayload;
+      ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutCustomerContact));
+    }
+
+    return orderError;
   };
 
-  let { error: orderError } = await supabase.from('orders').upsert(fallbackOrderPayload);
+  let timestampFormat: TimestampFormat = remoteTimestampFormat ?? 'iso';
+  let orderError = await upsertOrderWithSchemaFallbacks(timestampFormat);
 
-  if (orderError && isMissingColumnError(orderError, 'sales_status')) {
-    await logger.warn('sync:persist', 'orders.sales_status is missing in remote schema; retrying upsert without that column');
-    const { sales_status: _salesStatus, ...payloadWithoutSalesStatus } = fallbackOrderPayload;
-    ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutSalesStatus));
+  const hintedFormat = getTimestampFormatHint(orderError);
+  if (orderError && hintedFormat && hintedFormat !== timestampFormat) {
+    await logger.warn('sync:persist', `orders timestamp format mismatch; retrying with ${hintedFormat}`);
+    timestampFormat = hintedFormat;
+    orderError = await upsertOrderWithSchemaFallbacks(timestampFormat);
   }
 
-  if (orderError && isMissingColumnError(orderError, 'customer_contact')) {
-    await logger.warn('sync:persist', 'orders.customer_contact is missing in remote schema; retrying upsert without that column');
-    const { customer_contact: _customerContact, ...payloadWithoutCustomerContact } = fallbackOrderPayload;
-    ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutCustomerContact));
-  }
+  if (!orderError) remoteTimestampFormat = timestampFormat;
 
   if (orderError) {
     await logger.error('sync:persist', `Step 1/3 failed for order ${uploadedOrder.id}`, { error: serializeError(orderError) });
@@ -323,9 +357,31 @@ const persistOrderGraph = async (order: Order) => {
         location: variant.location,
         photo_url: variant.photoUrl,
         photos: variant.photos || [],
-        created_at: toIsoTimestamp(variant.createdAt)
+        created_at: serializeTimestampForDb(variant.createdAt, remoteTimestampFormat ?? 'iso')
       });
       if (variantError) {
+        const hintedVariantFormat = getTimestampFormatHint(variantError);
+        if (hintedVariantFormat && hintedVariantFormat !== (remoteTimestampFormat ?? 'iso')) {
+          await logger.warn('sync:persist', `variants timestamp format mismatch; retrying with ${hintedVariantFormat}`);
+          const { error: retriedVariantError } = await supabase.from('price_variants').upsert({
+            id: variant.id,
+            part_id: part.id,
+            price_aed: variant.priceAed,
+            shop_name: variant.shopName,
+            phone: variant.phone,
+            location: variant.location,
+            photo_url: variant.photoUrl,
+            photos: variant.photos || [],
+            created_at: serializeTimestampForDb(variant.createdAt, hintedVariantFormat)
+          });
+          if (!retriedVariantError) {
+            remoteTimestampFormat = hintedVariantFormat;
+            await logger.info('sync:persist', `Step 3/3 success for variant ${variant.id}`);
+            continue;
+          }
+          await logger.error('sync:persist', `Step 3/3 failed for variant ${variant.id}`, { error: serializeError(retriedVariantError) });
+          throw retriedVariantError;
+        }
         await logger.error('sync:persist', `Step 3/3 failed for variant ${variant.id}`, { error: serializeError(variantError) });
         throw variantError;
       }
