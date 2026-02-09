@@ -7,8 +7,10 @@ import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database } from 'lucide-react';
+import { startCloudSync, isCloudSyncReady, isCloudSyncStarted } from './cloudSync';
+import { useOrderStore } from './orderStore';
 
-const APP_PIN = '1234';
+const APP_PIN = '2202';
 
 const Loader: React.FC = () => (
   <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-950 flex flex-col items-center justify-center text-white gap-4">
@@ -20,9 +22,13 @@ const Loader: React.FC = () => (
 const PinGate: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => {
   const [value, setValue] = useState('');
   const [error, setError] = useState(false);
+
   const submit = () => {
     if (value === APP_PIN) onUnlock();
-    else { setError(true); setValue(''); }
+    else {
+      setError(true);
+      setValue('');
+    }
   };
 
   return (
@@ -35,7 +41,10 @@ const PinGate: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => {
         maxLength={4}
         inputMode="numeric"
         value={value}
-        onChange={(e) => { setError(false); setValue(e.target.value.replace(/\D/g, '')); }}
+        onChange={(e) => {
+          setError(false);
+          setValue(e.target.value.replace(/\D/g, ''));
+        }}
         onKeyDown={(e) => e.key === 'Enter' && submit()}
         className="w-full max-w-[220px] text-center text-3xl tracking-[0.6em] font-black bg-gray-900 border border-gray-700 rounded-2xl p-4 outline-none"
       />
@@ -47,7 +56,7 @@ const PinGate: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => {
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
-  const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor') || (location.pathname.includes('/order/') && new URLSearchParams(location.search).get('fs') === '1');
+  const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-50 flex flex-col overflow-hidden">
@@ -64,30 +73,64 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 const App: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [minDelayDone, setMinDelayDone] = useState(false);
-  const [cloudReady, setCloudReady] = useState(false);
-  const [unlocked, setUnlocked] = useState(() => localStorage.getItem('app_unlocked') === '1');
+  const [unlocked, setUnlocked] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [savePulse, setSavePulse] = useState(false);
+  const { fetchOrders } = useOrderStore();
 
   useEffect(() => {
-    const t = setTimeout(() => setMinDelayDone(true), 900);
-    return () => clearTimeout(t);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const onSave = () => {
+      setSavePulse(true);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setSavePulse(false), 950);
+    };
+
+    window.addEventListener('cloud-save-success', onSave);
+    return () => {
+      window.removeEventListener('cloud-save-success', onSave);
+      if (timer) clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {
-    const onCloudReady = () => setCloudReady(true);
-    window.addEventListener('cloud-sync-ready', onCloudReady);
-    return () => window.removeEventListener('cloud-sync-ready', onCloudReady);
-  }, []);
+    if (!unlocked) return;
 
-  useEffect(() => {
-    if (minDelayDone && cloudReady) setLoading(false);
-  }, [minDelayDone, cloudReady]);
+    let cancelled = false;
+    setLoading(true);
 
-  const handleUnlock = () => {
-    localStorage.setItem('app_unlocked', '1');
-    setUnlocked(true);
-  };
+    const init = async () => {
+      try {
+        if (!isCloudSyncStarted()) {
+          await startCloudSync();
+        }
+
+        if (!isCloudSyncReady()) {
+          await new Promise<void>((resolve) => {
+            const onReady = () => {
+              window.removeEventListener('cloud-sync-ready', onReady);
+              resolve();
+            };
+            window.addEventListener('cloud-sync-ready', onReady);
+            setTimeout(() => {
+              window.removeEventListener('cloud-sync-ready', onReady);
+              resolve();
+            }, 5000);
+          });
+        }
+
+        await fetchOrders();
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void init();
+    return () => {
+      cancelled = true;
+    };
+  }, [unlocked, fetchOrders]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -105,11 +148,16 @@ const App: React.FC = () => {
     }
   };
 
+  if (!unlocked) return <PinGate onUnlock={() => setUnlocked(true)} />;
   if (loading) return <Loader />;
-  if (!unlocked) return <PinGate onUnlock={handleUnlock} />;
 
   return (
     <div onKeyDown={handleKeyDown}>
+      <div className={`fixed top-3 right-3 z-[90] pointer-events-none transition-all duration-700 ${savePulse ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
+        <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-lg">
+          Сохранено
+        </div>
+      </div>
       <HashRouter>
         <Layout>
           <Routes>

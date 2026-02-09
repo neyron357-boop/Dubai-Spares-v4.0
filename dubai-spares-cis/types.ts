@@ -13,22 +13,26 @@ export enum Source {
   OTHER = 'Другое'
 }
 
+export type OrderStatus = 'active' | 'archive' | 'sold' | 'vip' | 'lead';
+
 export interface PriceVariant {
   id: string;
   priceAed: number;
   shopName: string;
   phone: string;
   location: string;
-  photoUrl?: string; // Deprecated, use photos
-  photos?: string[]; // New
+  partId?: string;
+  photoUrl?: string;
+  photos?: string[];
   createdAt: number;
 }
 
 export interface Part {
   id: string;
+  orderId?: string;
   name: string;
-  photoUrl?: string; // Deprecated, use photos
-  photos?: string[]; // New
+  photoUrl?: string;
+  photos?: string[];
   variants: PriceVariant[];
   isFound: boolean;
 }
@@ -39,18 +43,19 @@ export interface Order {
   model: string;
   year: string;
   vin: string;
+  status?: OrderStatus;
   priority: Priority;
   clientName: string;
   source: Source;
-  carPhotoUrl?: string; // Deprecated, use carPhotos
-  carPhotos?: string[]; // New
+  carPhotoUrl?: string;
+  carPhotos?: string[];
   parts: Part[];
   markupPercent: number;
   exchangeRate: number;
   createdAt: number;
   isArchived: boolean;
   isSold: boolean;
-  soldProfitUsd?: number; 
+  soldProfitUsd?: number;
   isVip?: boolean;
   isPinned?: boolean;
   isLead?: boolean;
@@ -73,4 +78,49 @@ export interface Supplier {
   brands: string[];
   photoUrl?: string;
   photos?: string[];
+}
+
+export interface DbOrderRow {
+  id: string;
+  brand: string;
+  model: string;
+  year: string;
+  vin: string;
+  status: OrderStatus;
+  priority: Priority;
+  client_name: string;
+  source: Source;
+  car_photo_url: string | null;
+  car_photos: string[];
+  markup_percent: number;
+  exchange_rate: number;
+  created_at: string;
+  is_archived: boolean;
+  is_sold: boolean;
+  sold_profit_usd: number | null;
+  is_vip: boolean;
+  is_pinned: boolean;
+  is_lead: boolean;
+  notes: OrderNote[];
+}
+
+export interface DbPartRow {
+  id: string;
+  order_id: string;
+  name: string;
+  photo_url: string | null;
+  photos: string[];
+  is_found: boolean;
+}
+
+export interface DbPriceVariantRow {
+  id: string;
+  part_id: string;
+  price_aed: number;
+  shop_name: string;
+  phone: string;
+  location: string;
+  photo_url: string | null;
+  photos: string[];
+  created_at: string;
 }

@@ -15,8 +15,7 @@ import {
   Smartphone,
   Clock,
   Pin,
-  Star,
-  Maximize2
+  Star
 } from 'lucide-react';
 import IncomeModal from '../components/IncomeModal';
 import ImagePreview from '../components/ImagePreview';
@@ -35,8 +34,6 @@ const OrdersScreen: React.FC = () => {
   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [swipe, setSwipe] = useState<{ id: string; startX: number } | null>(null);
-  const [swipeAnimId, setSwipeAnimId] = useState<string | null>(null);
 
   const filteredOrders = useMemo(() => {
     let list = orders.filter(o => {
@@ -105,17 +102,6 @@ const OrdersScreen: React.FC = () => {
     }
   };
 
-  const onTouchStart = (id: string, x: number) => setSwipe({ id, startX: x });
-  const onTouchEnd = (id: string, x: number) => {
-    if (!swipe || swipe.id !== id) return;
-    if (x - swipe.startX > 60) {
-      togglePin(id);
-      setSwipeAnimId(id);
-      window.setTimeout(() => setSwipeAnimId(prev => (prev === id ? null : prev)), 280);
-    }
-    setSwipe(null);
-  };
-
   return (
     <div className="p-4 space-y-4 pb-20 overflow-x-hidden">
       <div className="flex items-center justify-between">
@@ -159,9 +145,7 @@ const OrdersScreen: React.FC = () => {
             <div
               key={order.id}
               onClick={() => navigate(`/order/${order.id}`)}
-              onTouchStart={(e) => onTouchStart(order.id, e.targetTouches[0].clientX)}
-              onTouchEnd={(e) => onTouchEnd(order.id, e.changedTouches[0].clientX)}
-              className={`p-4 rounded-3xl shadow-sm border relative overflow-hidden transition-transform duration-300 ${order.isVip ? 'bg-gradient-to-br from-yellow-50 via-amber-50 to-white border-yellow-200' : 'bg-white border-gray-100'} ${swipeAnimId === order.id ? 'translate-x-3' : ''} ${getStatusColor(order.createdAt, order.isSold)}`}
+              className={`p-4 rounded-3xl shadow-sm border relative overflow-hidden ${order.isVip ? 'bg-gradient-to-br from-yellow-50 via-amber-50 to-white border-yellow-200' : 'bg-white border-gray-100'} ${getStatusColor(order.createdAt, order.isSold)}`}
             >
               <div className="flex justify-between items-start mb-2 gap-2">
                 <div>
@@ -209,7 +193,6 @@ const OrdersScreen: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1">
-                  <button onClick={(e) => { e.stopPropagation(); navigate(`/order/${order.id}?fs=1`); }} className="p-2 text-gray-300 hover:text-gray-600"><Maximize2 size={17} /></button>
                   <button onClick={(e) => { e.stopPropagation(); togglePin(order.id); }} className="p-2 text-gray-300 hover:text-blue-600"><Pin size={18} className={order.isPinned ? 'fill-blue-100 text-blue-600' : ''} /></button>
                   <button onClick={(e) => { e.stopPropagation(); setDeleteId(order.id); }} className="p-2 text-gray-200 hover:text-red-500"><Trash2 size={20} /></button>
                   <ChevronRight size={20} className="text-gray-200" />
