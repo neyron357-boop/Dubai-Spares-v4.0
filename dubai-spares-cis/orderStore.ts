@@ -178,6 +178,7 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     notes: row.notes || [],
     status: row.status || 'active',
     salesStatus: row.sales_status || 'Inquiry',
+    customerContact: row.customer_contact || '',
     updatedAt: parseTimestamp(row.updated_at ?? row.created_at)
   })
 });
@@ -252,7 +253,8 @@ const persistOrderGraph = async (order: Order) => {
     is_vip: !!uploadedOrder.isVip,
     is_pinned: !!uploadedOrder.isPinned,
     is_lead: !!uploadedOrder.isLead,
-    notes: uploadedOrder.notes || []
+    notes: uploadedOrder.notes || [],
+    customer_contact: uploadedOrder.customerContact || ''
   };
 
   let { error: orderError } = await supabase.from('orders').upsert({

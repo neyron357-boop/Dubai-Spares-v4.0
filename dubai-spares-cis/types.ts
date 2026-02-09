@@ -13,7 +13,7 @@ export enum Source {
   OTHER = 'Другое'
 }
 
-export type OrderStatus = 'active' | 'archive' | 'sold' | 'vip' | 'lead';
+export type OrderStatus = 'active' | 'archive' | 'sold' | 'vip' | 'lead' | 'new_inquiry';
 export type SalesStatus = 'Inquiry' | 'Price Sent' | 'Pending Approval' | 'Paid' | 'Completed';
 
 export interface Coordinates {
@@ -68,6 +68,7 @@ export interface Order {
   localOnlyPhotos?: boolean;
   notes?: OrderNote[];
   salesStatus?: SalesStatus;
+  customerContact?: string;
   updatedAt?: number;
 }
 
@@ -135,6 +136,7 @@ export interface DbOrderRow {
   is_lead: boolean;
   notes: OrderNote[];
   sales_status?: SalesStatus;
+  customer_contact?: string;
   updated_at?: number | string;
 }
 

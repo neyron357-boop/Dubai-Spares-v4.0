@@ -1,14 +1,17 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');
 
 const root = ReactDOM.createRoot(rootElement);
+const isPublicOrderFormRoute = window.location.pathname === '/order-form';
+
 root.render(
   <React.StrictMode>
-    <App />
+    {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : <App />}
   </React.StrictMode>
 );
 

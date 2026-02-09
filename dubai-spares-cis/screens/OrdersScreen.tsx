@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, Priority, Part } from '../types';
@@ -24,7 +24,7 @@ import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 import { shareMessage, buildOrderShareText } from '../shareUtils';
 
-type TabType = 'active' | 'archive' | 'sold' | 'vip' | 'leads';
+type TabType = 'active' | 'archive' | 'sold' | 'vip' | 'leads' | 'new_leads';
 type SortType = 'date' | 'brand' | 'priority' | 'status';
 
 const weights = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
@@ -40,6 +40,16 @@ const distanceKm = (a: { lat: number; lng: number }, b: { lat: number; lng: numb
   return 2 * R * Math.atan2(Math.sqrt(calc), Math.sqrt(1 - calc));
 };
 
+const normalizeBrand = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const isBrandMatch = (orderBrand: string, supplierBrand: string) => {
+  const a = normalizeBrand(orderBrand);
+  const b = normalizeBrand(supplierBrand);
+  if (!a || !b) return false;
+  if (a.includes(b) || b.includes(a)) return true;
+  return (a.includes('mercedes') && b.includes('mercedes')) || (a.includes('benz') && b.includes('mercedes'));
+};
+
 const OrdersScreen: React.FC = () => {
   const { orders, suppliers, isLoading, isSyncing, syncOrders, deleteOrder, updateOrder } = useStore();
   const navigate = useNavigate();
@@ -50,6 +60,17 @@ const OrdersScreen: React.FC = () => {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [nearbyFirst, setNearbyFirst] = useState(false);
   const [currentPosition, setCurrentPosition] = useState<{ lat: number; lng: number } | null>(null);
+  const notifiedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('notified_new_inquiry_ids');
+      if (!saved) return;
+      notifiedRef.current = new Set(JSON.parse(saved));
+    } catch {
+      notifiedRef.current = new Set();
+    }
+  }, []);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -73,12 +94,13 @@ const OrdersScreen: React.FC = () => {
       if (activeTab === 'archive') return o.isArchived && !o.isSold;
       if (activeTab === 'vip') return !!o.isVip && !o.isSold;
       if (activeTab === 'leads') return !!o.isLead && !o.isSold;
+      if (activeTab === 'new_leads') return o.status === 'new_inquiry';
       return !o.isArchived && !o.isSold && !o.isVip && !o.isLead;
     });
 
     const nearestDistance = (order: Order) => {
       if (!currentPosition) return Number.MAX_SAFE_INTEGER;
-      const shops = suppliers.filter((s) => s.brands.includes(order.brand) && s.coordinates);
+      const shops = suppliers.filter((s) => s.brands.some((brand) => isBrandMatch(order.brand, brand)) && s.coordinates);
       if (shops.length === 0) return Number.MAX_SAFE_INTEGER;
       return Math.min(
         ...shops.map((shop) => distanceKm(currentPosition, { lat: shop.coordinates!.lat, lng: shop.coordinates!.lng }))
@@ -161,6 +183,37 @@ const OrdersScreen: React.FC = () => {
     });
   };
 
+  useEffect(() => {
+    const leads = orders.filter((order) => order.status === 'new_inquiry');
+    if (leads.length === 0 || suppliers.length === 0 || !navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      setCurrentPosition(current);
+
+      const nearLead = leads.find((order) => {
+        const nearbyShop = suppliers.find((supplier) =>
+          supplier.coordinates &&
+          supplier.brands.some((brand) => isBrandMatch(order.brand, brand)) &&
+          distanceKm(current, { lat: supplier.coordinates.lat, lng: supplier.coordinates.lng }) <= 2
+        );
+        return Boolean(nearbyShop) && !notifiedRef.current.has(order.id);
+      });
+
+      if (!nearLead || typeof Notification === 'undefined') return;
+
+      if (Notification.permission === 'granted') {
+        new Notification('New lead nearby', {
+          body: `${nearLead.brand} ${nearLead.model}: ${nearLead.parts.map((p) => p.name).join(', ')}`
+        });
+        notifiedRef.current.add(nearLead.id);
+        localStorage.setItem('notified_new_inquiry_ids', JSON.stringify(Array.from(notifiedRef.current)));
+      } else if (Notification.permission === 'default') {
+        void Notification.requestPermission();
+      }
+    });
+  }, [orders, suppliers]);
+
   return (
     <div
       className="p-4 space-y-4 pb-20 overflow-x-hidden"
@@ -207,6 +260,7 @@ const OrdersScreen: React.FC = () => {
           ['active', 'Актив'],
           ['vip', 'VIP'],
           ['archive', 'Архив'],
+          ['new_leads', 'New Leads'],
           ['leads', 'Лиды'],
           ['sold', 'Продано']
         ] as [TabType, string][]).map(([tab, title]) => (
@@ -257,6 +311,7 @@ const OrdersScreen: React.FC = () => {
                   <div className="flex flex-wrap gap-2 mt-1">
                     <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100"><p className="text-[10px] text-gray-700 font-mono font-black uppercase tracking-tight">VIN: {order.vin}</p></div>
                     {order.clientName && <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1"><User size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold uppercase tracking-tight">{order.clientName}</p></div>}
+                    {order.customerContact && <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1"><Smartphone size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold tracking-tight">{order.customerContact}</p></div>}
                     <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1"><Smartphone size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold uppercase tracking-tight">{order.source}</p></div>
                   </div>
                 </div>
