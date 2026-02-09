@@ -93,6 +93,7 @@ export async function startCloudSync() {
         lastSavedSnapshot = currentSnapshot;
         retryAttempt = 0;
         console.log(`☁️ Auto-saved (${reason})`);
+        window.dispatchEvent(new CustomEvent('cloud-save-success', { detail: { reason } }));
       } catch (e) {
         console.error('Cloud save failed', e);
         pendingSave = true;
@@ -116,6 +117,7 @@ export async function startCloudSync() {
     if (!cloud || !Array.isArray(cloud.orders)) {
       await saveCloudState(hydrated);
       console.log('☁️ Cloud initialized from local data');
+      window.dispatchEvent(new CustomEvent('cloud-save-success', { detail: { reason: 'init' } }));
     } else {
       console.log('☁️ Cloud data merged and restored');
     }

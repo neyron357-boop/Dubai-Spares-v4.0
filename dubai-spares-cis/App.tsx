@@ -8,7 +8,7 @@ import SuppliersScreen from './screens/SuppliersScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database } from 'lucide-react';
 
-const APP_PIN = '1234';
+const APP_PIN = '2202';
 
 const Loader: React.FC = () => (
   <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-950 flex flex-col items-center justify-center text-white gap-4">
@@ -47,7 +47,7 @@ const PinGate: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => {
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
-  const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor') || (location.pathname.includes('/order/') && new URLSearchParams(location.search).get('fs') === '1');
+  const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-50 flex flex-col overflow-hidden">
@@ -68,9 +68,10 @@ const App: React.FC = () => {
   const [minDelayDone, setMinDelayDone] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
   const [unlocked, setUnlocked] = useState(() => localStorage.getItem('app_unlocked') === '1');
+  const [savePulse, setSavePulse] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setMinDelayDone(true), 900);
+    const t = setTimeout(() => setMinDelayDone(true), 1400);
     return () => clearTimeout(t);
   }, []);
 
@@ -83,6 +84,22 @@ const App: React.FC = () => {
   useEffect(() => {
     if (minDelayDone && cloudReady) setLoading(false);
   }, [minDelayDone, cloudReady]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const onSave = () => {
+      setSavePulse(true);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setSavePulse(false), 950);
+    };
+
+    window.addEventListener('cloud-save-success', onSave);
+    return () => {
+      window.removeEventListener('cloud-save-success', onSave);
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   const handleUnlock = () => {
     localStorage.setItem('app_unlocked', '1');
@@ -110,6 +127,11 @@ const App: React.FC = () => {
 
   return (
     <div onKeyDown={handleKeyDown}>
+      <div className={`fixed top-3 right-3 z-[90] pointer-events-none transition-all duration-700 ${savePulse ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
+        <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-lg">
+          Сохранено
+        </div>
+      </div>
       <HashRouter>
         <Layout>
           <Routes>
