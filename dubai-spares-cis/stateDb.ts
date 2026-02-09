@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient'
+import { supabase } from './supabase'
 
 export async function loadJsonState(): Promise<any> {
   if (!supabase) return {}
