@@ -11,6 +11,17 @@ const priorityWeight = {
   [Priority.LOW]: 1,
 };
 
+type SortType = 'priority' | 'date' | 'vip' | 'lead';
+
+const sortLabels: Record<SortType, string> = {
+  priority: 'Приоритет',
+  date: 'Дата',
+  vip: 'VIP',
+  lead: 'Lead'
+};
+
+const sortOrder: SortType[] = ['priority', 'date', 'vip', 'lead'];
+
 const VendorSlider: React.FC = () => {
   const navigate = useNavigate();
   const { orders } = useStore();
@@ -18,7 +29,7 @@ const VendorSlider: React.FC = () => {
   const activeOrders = useMemo(() => orders.filter(o => !o.isArchived && !o.isSold), [orders]);
 
   const [selectedBrand, setSelectedBrand] = useState<string>('All');
-  const [sortBy, setSortBy] = useState<'date' | 'priority'>('priority');
+  const [sortBy, setSortBy] = useState<SortType>('priority');
   const [index, setIndex] = useState(0);
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
@@ -34,6 +45,12 @@ const VendorSlider: React.FC = () => {
     return [...list].sort((a, b) => {
       if (sortBy === 'priority') {
         return (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt);
+      }
+      if (sortBy === 'vip') {
+        return Number(!!b.isVip) - Number(!!a.isVip) || (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt);
+      }
+      if (sortBy === 'lead') {
+        return Number(!!b.isLead) - Number(!!a.isLead) || (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt);
       }
       return b.createdAt - a.createdAt;
     });
@@ -94,10 +111,13 @@ const VendorSlider: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setSortBy(prev => prev === 'priority' ? 'date' : 'priority')}
+            onClick={() => {
+              const nextIndex = (sortOrder.indexOf(sortBy) + 1) % sortOrder.length;
+              setSortBy(sortOrder[nextIndex]);
+            }}
             className="px-3 py-2 rounded-xl bg-gray-800 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1"
           >
-            <ArrowUpDown size={12} /> {sortBy === 'priority' ? 'Приоритет' : 'Дата'}
+            <ArrowUpDown size={12} /> {sortLabels[sortBy]}
           </button>
           <button onClick={onClose} className="p-2 text-white bg-gray-800 rounded-full active:scale-90 transition-transform"><X size={24} /></button>
         </div>

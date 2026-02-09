@@ -35,17 +35,24 @@ const NewOrderScreen: React.FC = () => {
   // Gallery State
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
 
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<string[]>>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const files = Array.from(e.target.files);
-      files.forEach(file => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setter(prev => [...prev, reader.result as string]);
-        };
-        reader.readAsDataURL(file as Blob);
-      });
-    }
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<string[]>>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+
+    const files = Array.from(e.target.files);
+    const loaded = await Promise.all(
+      files.map(
+        file =>
+          new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(file as Blob);
+          })
+      )
+    );
+
+    setter(prev => [...prev, ...loaded]);
+    setGallery({ images: loaded, index: 0 });
+    e.target.value = '';
   };
 
   const removePhoto = (index: number, setter: React.Dispatch<React.SetStateAction<string[]>>) => {

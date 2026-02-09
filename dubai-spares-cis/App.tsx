@@ -6,9 +6,14 @@ import OrderDetailsScreen from './screens/OrderDetailsScreen';
 import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
 import VendorSlider from './components/VendorSlider';
-import { CarFront, PlusCircle, Database } from 'lucide-react';
+import { CarFront, PlusCircle, Database, Cloud } from 'lucide-react';
 
-const APP_PIN = '1234';
+const APP_PIN = '2202';
+
+type SyncStatus = {
+  status: 'idle' | 'saving' | 'saved' | 'retrying' | 'error';
+  message: string;
+};
 
 const Loader: React.FC = () => (
   <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-950 flex flex-col items-center justify-center text-white gap-4">
@@ -67,7 +72,8 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [minDelayDone, setMinDelayDone] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
-  const [unlocked, setUnlocked] = useState(() => localStorage.getItem('app_unlocked') === '1');
+  const [unlocked, setUnlocked] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ status: 'idle', message: '' });
 
   useEffect(() => {
     const t = setTimeout(() => setMinDelayDone(true), 900);
@@ -84,8 +90,44 @@ const App: React.FC = () => {
     if (minDelayDone && cloudReady) setLoading(false);
   }, [minDelayDone, cloudReady]);
 
+  useEffect(() => {
+    let clearTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const onStatus = (evt: Event) => {
+      const detail = (evt as CustomEvent<{ status: 'saving' | 'saved' | 'retrying' | 'error'; countdownSec?: number; delayMs?: number }>).detail;
+      if (!detail) return;
+
+      if (clearTimer) clearTimeout(clearTimer);
+
+      if (detail.status === 'saving') {
+        const sec = typeof detail.countdownSec === 'number' ? detail.countdownSec : 1;
+        setSyncStatus({ status: 'saving', message: `Сохранение в облако… ~${sec} сек` });
+        return;
+      }
+
+      if (detail.status === 'saved') {
+        setSyncStatus({ status: 'saved', message: 'Данные сохранены в базе' });
+        clearTimer = setTimeout(() => setSyncStatus({ status: 'idle', message: '' }), 2200);
+        return;
+      }
+
+      if (detail.status === 'retrying') {
+        const retrySec = Math.ceil((detail.delayMs || 0) / 1000);
+        setSyncStatus({ status: 'retrying', message: `Ошибка сети. Повтор через ${retrySec} сек` });
+        return;
+      }
+
+      setSyncStatus({ status: 'error', message: 'Не удалось сохранить сейчас' });
+    };
+
+    window.addEventListener('cloud-sync-status', onStatus as EventListener);
+    return () => {
+      if (clearTimer) clearTimeout(clearTimer);
+      window.removeEventListener('cloud-sync-status', onStatus as EventListener);
+    };
+  }, []);
+
   const handleUnlock = () => {
-    localStorage.setItem('app_unlocked', '1');
     setUnlocked(true);
   };
 
@@ -122,6 +164,13 @@ const App: React.FC = () => {
           </Routes>
         </Layout>
       </HashRouter>
+
+      {syncStatus.status !== 'idle' && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] px-3 py-2 rounded-xl text-xs font-bold border shadow-lg backdrop-blur bg-white/95 flex items-center gap-2">
+          <Cloud size={14} className={syncStatus.status === 'saved' ? 'text-green-600' : syncStatus.status === 'error' ? 'text-red-600' : 'text-blue-600'} />
+          <span>{syncStatus.message}</span>
+        </div>
+      )}
     </div>
   );
 };

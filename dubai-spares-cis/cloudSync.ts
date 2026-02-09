@@ -42,67 +42,102 @@ const TIMER_SAVE_MS = 30000;
 const RETRY_BASE_MS = 1500;
 const RETRY_MAX_MS = 15000;
 
+let pendingChanges = false;
+let inFlight = false;
+let isHydrating = true;
+let retryAttempt = 0;
+let changeTimer: ReturnType<typeof setTimeout> | null = null;
+let lastSavedSnapshot = '';
+let flushPromise: Promise<boolean> | null = null;
+
+const dispatchSyncStatus = (status: 'saving' | 'saved' | 'retrying' | 'error', payload: Record<string, unknown> = {}) => {
+  window.dispatchEvent(new CustomEvent('cloud-sync-status', { detail: { status, ...payload } }));
+};
+
+const saveNow = async (reason: string): Promise<boolean> => {
+  const currentData = exportData();
+  const currentSnapshot = JSON.stringify(currentData);
+  if (currentSnapshot === lastSavedSnapshot) {
+    dispatchSyncStatus('saved', { reason, countdownSec: 0 });
+    return true;
+  }
+
+  dispatchSyncStatus('saving', { reason });
+  await saveCloudState(currentData);
+  lastSavedSnapshot = currentSnapshot;
+  retryAttempt = 0;
+  dispatchSyncStatus('saved', { reason, countdownSec: 0 });
+  console.log(`☁️ Auto-saved (${reason})`);
+  return true;
+};
+
+const scheduleRetry = () => {
+  const delay = Math.min(RETRY_BASE_MS * 2 ** retryAttempt, RETRY_MAX_MS);
+  retryAttempt += 1;
+
+  if (changeTimer) clearTimeout(changeTimer);
+  dispatchSyncStatus('retrying', { delayMs: delay });
+
+  changeTimer = setTimeout(() => {
+    void triggerSave('retry');
+  }, delay);
+
+  console.warn(`☁️ Retry scheduled in ${delay}ms`);
+};
+
+const triggerSave = async (reason: string): Promise<boolean> => {
+  if (isHydrating) return false;
+
+  pendingChanges = true;
+  if (inFlight) return false;
+
+  inFlight = true;
+  let ok = true;
+
+  while (pendingChanges) {
+    pendingChanges = false;
+
+    try {
+      await saveNow(reason);
+    } catch (e) {
+      console.error('Cloud save failed', e);
+      dispatchSyncStatus('error', { reason });
+      pendingChanges = true;
+      scheduleRetry();
+      ok = false;
+      break;
+    }
+  }
+
+  inFlight = false;
+  return ok;
+};
+
+export const flushCloudSync = async (): Promise<boolean> => {
+  if (flushPromise) return flushPromise;
+
+  flushPromise = (async () => {
+    if (changeTimer) {
+      clearTimeout(changeTimer);
+      changeTimer = null;
+    }
+
+    const ok = await triggerSave('manual-flush');
+    return ok;
+  })();
+
+  try {
+    return await flushPromise;
+  } finally {
+    flushPromise = null;
+  }
+};
+
 export async function startCloudSync() {
   if (started) return;
   started = true;
 
   console.log('☁️ Cloud sync started');
-
-  let hydrating = true;
-  let changeTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingSave = false;
-  let inFlight = false;
-  let lastSavedSnapshot = '';
-  let retryAttempt = 0;
-
-  const scheduleRetry = () => {
-    const delay = Math.min(RETRY_BASE_MS * 2 ** retryAttempt, RETRY_MAX_MS);
-    retryAttempt += 1;
-
-    if (changeTimer) clearTimeout(changeTimer);
-    changeTimer = setTimeout(() => {
-      void triggerSave('retry');
-    }, delay);
-
-    console.warn(`☁️ Retry scheduled in ${delay}ms`);
-  };
-
-  const triggerSave = async (reason: string) => {
-    if (hydrating) return;
-
-    const data = exportData();
-    const snapshot = JSON.stringify(data);
-
-    if (snapshot === lastSavedSnapshot && reason !== 'retry') {
-      return;
-    }
-
-    pendingSave = true;
-    if (inFlight) return;
-
-    inFlight = true;
-    while (pendingSave) {
-      pendingSave = false;
-
-      const currentData = exportData();
-      const currentSnapshot = JSON.stringify(currentData);
-      if (currentSnapshot === lastSavedSnapshot) continue;
-
-      try {
-        await saveCloudState(currentData);
-        lastSavedSnapshot = currentSnapshot;
-        retryAttempt = 0;
-        console.log(`☁️ Auto-saved (${reason})`);
-      } catch (e) {
-        console.error('Cloud save failed', e);
-        pendingSave = true;
-        scheduleRetry();
-        break;
-      }
-    }
-
-    inFlight = false;
-  };
 
   // 1️⃣ LOAD from cloud once on start
   try {
@@ -122,15 +157,16 @@ export async function startCloudSync() {
   } catch (e) {
     console.error('Cloud load failed', e);
   } finally {
-    hydrating = false;
+    isHydrating = false;
     window.dispatchEvent(new Event('cloud-sync-ready'));
   }
 
   // 2️⃣ SAVE on every change (debounced)
   subscribeStore(() => {
-    if (hydrating) return;
+    if (isHydrating) return;
 
     if (changeTimer) clearTimeout(changeTimer);
+    dispatchSyncStatus('saving', { reason: 'change-debounce', countdownSec: Math.ceil(SAVE_DEBOUNCE_MS / 1000) });
     changeTimer = setTimeout(() => {
       void triggerSave('change');
     }, SAVE_DEBOUNCE_MS);
@@ -144,12 +180,12 @@ export async function startCloudSync() {
   // 4️⃣ SAVE when tab is hidden / user leaves app
   window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
-      void triggerSave('visibility');
+      void flushCloudSync();
     }
   });
 
   window.addEventListener('beforeunload', () => {
-    void triggerSave('beforeunload');
+    void flushCloudSync();
   });
 
   // 5️⃣ SAVE after reconnect

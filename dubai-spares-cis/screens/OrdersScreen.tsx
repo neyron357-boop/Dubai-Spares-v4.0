@@ -15,8 +15,7 @@ import {
   Smartphone,
   Clock,
   Pin,
-  Star,
-  Maximize2
+  Star
 } from 'lucide-react';
 import IncomeModal from '../components/IncomeModal';
 import ImagePreview from '../components/ImagePreview';
@@ -209,7 +208,6 @@ const OrdersScreen: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1">
-                  <button onClick={(e) => { e.stopPropagation(); navigate(`/order/${order.id}?fs=1`); }} className="p-2 text-gray-300 hover:text-gray-600"><Maximize2 size={17} /></button>
                   <button onClick={(e) => { e.stopPropagation(); togglePin(order.id); }} className="p-2 text-gray-300 hover:text-blue-600"><Pin size={18} className={order.isPinned ? 'fill-blue-100 text-blue-600' : ''} /></button>
                   <button onClick={(e) => { e.stopPropagation(); setDeleteId(order.id); }} className="p-2 text-gray-200 hover:text-red-500"><Trash2 size={20} /></button>
                   <ChevronRight size={20} className="text-gray-200" />
