@@ -7,12 +7,6 @@ const getExportTimestamp = (data: any): number => {
   return Number.isNaN(ts) ? 0 : ts;
 };
 
-const mergeById = <T extends { id: string }>(localItems: T[] = [], cloudItems: T[] = []) => {
-  const map = new Map<string, T>();
-  [...cloudItems, ...localItems].forEach(item => map.set(item.id, item));
-  return Array.from(map.values());
-};
-
 const mergeState = (local: any, cloud: any) => {
   if (!cloud?.orders) return local;
   if (!local?.orders) return cloud;
@@ -20,19 +14,10 @@ const mergeState = (local: any, cloud: any) => {
   const localTs = getExportTimestamp(local);
   const cloudTs = getExportTimestamp(cloud);
 
-  if (cloudTs > localTs) {
-    return {
-      ...cloud,
-      orders: mergeById(local.orders, cloud.orders),
-      suppliers: mergeById(local.suppliers || [], cloud.suppliers || [])
-    };
-  }
-
-  return {
-    ...local,
-    orders: mergeById(cloud.orders, local.orders),
-    suppliers: mergeById(cloud.suppliers || [], local.suppliers || [])
-  };
+  // IMPORTANT: Do not union lists by id here.
+  // Union merge resurrects deleted entities on the next sync cycle.
+  // We treat the newest snapshot as source of truth.
+  return cloudTs > localTs ? cloud : local;
 };
 
 let started = false;
