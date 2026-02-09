@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, Priority, Part } from '../types';
@@ -27,13 +27,29 @@ type SortType = 'date' | 'brand' | 'priority' | 'status';
 const weights = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
 
 const OrdersScreen: React.FC = () => {
-  const { orders, deleteOrder, updateOrder } = useStore();
+  const { orders, isLoading, syncOrders, deleteOrder, updateOrder } = useStore();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>('active');
   const [sortBy, setSortBy] = useState<SortType>('date');
   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const pullStartY = useRef<number | null>(null);
+  const pullTriggered = useRef(false);
+
+  const refreshOrders = async () => {
+    setIsRefreshing(true);
+    try {
+      await syncOrders();
+    } finally {
+      setIsRefreshing(false);
+      setPullDistance(0);
+      pullTriggered.current = false;
+    }
+  };
 
   const filteredOrders = useMemo(() => {
     let list = orders.filter(o => {
@@ -102,8 +118,38 @@ const OrdersScreen: React.FC = () => {
     }
   };
 
+  const showSkeleton = isLoading && orders.length === 0;
+
   return (
-    <div className="p-4 space-y-4 pb-20 overflow-x-hidden">
+    <div
+      className="p-4 space-y-4 pb-20 overflow-x-hidden"
+      onTouchStart={(e) => {
+        if (window.scrollY > 0) return;
+        pullStartY.current = e.touches[0].clientY;
+      }}
+      onTouchMove={(e) => {
+        if (pullTriggered.current || pullStartY.current === null || window.scrollY > 0) return;
+        const delta = e.touches[0].clientY - pullStartY.current;
+        if (delta > 0) {
+          setPullDistance(Math.min(80, delta * 0.45));
+        }
+      }}
+      onTouchEnd={() => {
+        if (pullDistance >= 56 && !isRefreshing) {
+          pullTriggered.current = true;
+          if (navigator.vibrate) navigator.vibrate(12);
+          void refreshOrders();
+          return;
+        }
+        pullStartY.current = null;
+        setPullDistance(0);
+      }}
+    >
+      <div className="transition-all duration-200 overflow-hidden" style={{ height: pullDistance ? `${pullDistance}px` : 0 }}>
+        <div className="h-full flex items-center justify-center text-[10px] font-bold text-gray-500">
+          {isRefreshing ? 'Обновление…' : pullDistance >= 56 ? 'Отпустите для обновления' : 'Потяните для обновления'}
+        </div>
+      </div>
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Мои Заказы</h1>
         <div className="flex gap-2">
@@ -111,6 +157,7 @@ const OrdersScreen: React.FC = () => {
           <button type="button" onClick={() => navigate('/vendor')} className="px-4 py-2 bg-gray-900 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
             <Users size={16} /> Склад
           </button>
+          <button type="button" disabled={isRefreshing} onClick={() => void refreshOrders()} className="px-3 py-2 bg-white border border-gray-200 text-[10px] font-black rounded-xl">{isRefreshing ? '...' : 'Sync'}</button>
         </div>
       </div>
 
@@ -140,7 +187,17 @@ const OrdersScreen: React.FC = () => {
       </div>
 
       <div className="space-y-3">
-        {filteredOrders.length === 0 ? <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-100 text-gray-300 text-xs font-bold uppercase tracking-widest">Заказов нет</div> : (
+        {showSkeleton ? (
+          Array.from({ length: 4 }).map((_, idx) => (
+            <div key={`skeleton-${idx}`} className="p-4 rounded-3xl bg-white border border-gray-100 animate-pulse space-y-3">
+              <div className="h-5 w-40 bg-gray-200 rounded" />
+              <div className="h-3 w-52 bg-gray-100 rounded" />
+              <div className="h-16 w-16 bg-gray-100 rounded-xl" />
+              <div className="h-3 w-full bg-gray-100 rounded" />
+              <div className="h-3 w-2/3 bg-gray-100 rounded" />
+            </div>
+          ))
+        ) : filteredOrders.length === 0 ? <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-100 text-gray-300 text-xs font-bold uppercase tracking-widest">Заказов нет</div> : (
           filteredOrders.map((order) => (
             <div
               key={order.id}

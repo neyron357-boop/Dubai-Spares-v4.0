@@ -8,17 +8,11 @@ import SuppliersScreen from './screens/SuppliersScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database } from 'lucide-react';
 import { startCloudSync, isCloudSyncReady, isCloudSyncStarted } from './cloudSync';
+import { useStore } from './store';
 
 const APP_PIN = '2202';
 
-const Loader: React.FC = () => (
-  <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-950 flex flex-col items-center justify-center text-white gap-4">
-    <div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin" />
-    <p className="text-xs font-bold uppercase tracking-[0.2em]">Загрузка данных...</p>
-  </div>
-);
-
-const PinGate: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => {
+const PinGate: React.FC<{ onUnlock: () => void; isEntering: boolean }> = ({ onUnlock, isEntering }) => {
   const [value, setValue] = useState('');
   const [error, setError] = useState(false);
 
@@ -31,7 +25,7 @@ const PinGate: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => {
   };
 
   return (
-    <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-950 flex flex-col items-center justify-center p-6 text-white">
+    <div className={`fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-950 flex flex-col items-center justify-center p-6 text-white transition-opacity duration-500 ${isEntering ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
       <h1 className="text-xl font-black mb-2">Введите PIN</h1>
       <p className="text-xs text-gray-400 mb-4">Простой код доступа к приложению</p>
       <input
@@ -53,12 +47,15 @@ const PinGate: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => {
   );
 };
 
-const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ children, isSyncing }) => {
   const location = useLocation();
   const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-50 flex flex-col overflow-hidden">
+      <div className="h-0.5 bg-transparent">
+        <div className={`h-full bg-blue-500 transition-all duration-300 ${isSyncing ? 'w-full opacity-100 animate-pulse' : 'w-0 opacity-0'}`} />
+      </div>
       <main className="flex-1 overflow-y-auto no-scrollbar relative">{children}</main>
       {!hideNav && (
         <nav className="h-16 bg-white border-t border-gray-200 flex items-center justify-around px-2 pb-safe shrink-0 z-50">
@@ -73,8 +70,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const App: React.FC = () => {
   const [unlocked, setUnlocked] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [entering, setEntering] = useState(false);
   const [savePulse, setSavePulse] = useState(false);
+  const [syncToast, setSyncToast] = useState<string | null>(null);
+  const { syncOrders, isLoading, error } = useStore();
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -93,17 +92,18 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!unlocked) return;
+    if (!error) return;
+    setSyncToast('Offline mode / Sync error');
+    const t = setTimeout(() => setSyncToast(null), 2800);
+    return () => clearTimeout(t);
+  }, [error]);
 
-    let cancelled = false;
-    setLoading(true);
+  useEffect(() => {
+    if (!unlocked) return;
 
     const init = async () => {
       try {
-        if (!isCloudSyncStarted()) {
-          await startCloudSync();
-        }
-
+        if (!isCloudSyncStarted()) await startCloudSync();
         if (!isCloudSyncReady()) {
           await new Promise<void>((resolve) => {
             const onReady = () => {
@@ -117,17 +117,19 @@ const App: React.FC = () => {
             }, 5000);
           });
         }
-
       } finally {
-        if (!cancelled) setLoading(false);
+        setEntering(false);
       }
     };
 
     void init();
-    return () => {
-      cancelled = true;
-    };
   }, [unlocked]);
+
+  const onUnlock = () => {
+    setEntering(true);
+    void syncOrders();
+    setTimeout(() => setUnlocked(true), 140);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -145,28 +147,36 @@ const App: React.FC = () => {
     }
   };
 
-  if (!unlocked) return <PinGate onUnlock={() => setUnlocked(true)} />;
-  if (loading) return <Loader />;
-
   return (
     <div onKeyDown={handleKeyDown}>
-      <div className={`fixed top-3 right-3 z-[90] pointer-events-none transition-all duration-700 ${savePulse ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
-        <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-lg">
-          Сохранено
+      <PinGate onUnlock={onUnlock} isEntering={entering || unlocked} />
+
+      <div className={`transition-opacity duration-500 ${unlocked ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        <div className={`fixed top-3 right-3 z-[90] pointer-events-none transition-all duration-700 ${savePulse ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
+          <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-lg">
+            Сохранено
+          </div>
         </div>
+
+        {syncToast && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-wide shadow">
+            {syncToast}
+          </div>
+        )}
+
+        <HashRouter>
+          <Layout isSyncing={isLoading}>
+            <Routes>
+              <Route path="/" element={<OrdersScreen />} />
+              <Route path="/new" element={<NewOrderScreen />} />
+              <Route path="/vendor" element={<VendorSlider />} />
+              <Route path="/order/:id" element={<OrderDetailsScreen />} />
+              <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
+              <Route path="/database" element={<SuppliersScreen />} />
+            </Routes>
+          </Layout>
+        </HashRouter>
       </div>
-      <HashRouter>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<OrdersScreen />} />
-            <Route path="/new" element={<NewOrderScreen />} />
-            <Route path="/vendor" element={<VendorSlider />} />
-            <Route path="/order/:id" element={<OrderDetailsScreen />} />
-            <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
-            <Route path="/database" element={<SuppliersScreen />} />
-          </Routes>
-        </Layout>
-      </HashRouter>
     </div>
   );
 };
