@@ -7,6 +7,10 @@ export const isCloudSyncConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
 if (!isCloudSyncConfigured) {
   console.warn('☁️ Cloud sync disabled: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY');
+  console.error('Supabase env vars are undefined', {
+    hasUrl: Boolean(supabaseUrl),
+    hasAnonKey: Boolean(supabaseAnonKey)
+  });
 }
 
 export const supabase = isCloudSyncConfigured ? createClient(supabaseUrl!, supabaseAnonKey!) : null;

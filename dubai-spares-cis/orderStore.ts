@@ -71,6 +71,21 @@ const setState = (patch: Partial<OrderState>) => {
   notify();
 };
 
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'object' && error && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message) return message;
+  }
+  return fallback;
+};
+
+const broadcastSyncError = (error: unknown, fallback: string) => {
+  const message = getErrorMessage(error, fallback);
+  setState({ error: message });
+  window.dispatchEvent(new CustomEvent('cloud-sync-error', { detail: { message } }));
+};
+
 const mapDbOrder = (row: DbOrderGraphRow): Order => ({
   ...normalizeOrder({
     id: String(row.id),
@@ -173,7 +188,8 @@ const persistOrderGraph = async (order: Order) => {
   });
   if (orderError) throw orderError;
 
-  await supabase.from('parts').delete().eq('order_id', uploadedOrder.id);
+  const { error: deletePartsError } = await supabase.from('parts').delete().eq('order_id', uploadedOrder.id);
+  if (deletePartsError) throw deletePartsError;
 
   for (const part of uploadedOrder.parts || []) {
     const { error: partError } = await supabase.from('parts').upsert({
@@ -244,9 +260,8 @@ const flushOfflineMutations = async () => {
       await offlineDb.removeMutation(mutation.id);
     }
 
-    await fetchOrders();
-  } catch (error: any) {
-    setState({ error: error.message || 'Offline sync failed' });
+  } catch (error: unknown) {
+    broadcastSyncError(error, 'Offline sync failed');
   } finally {
     syncInProgress = false;
     setState({ isSyncing: false });
@@ -264,9 +279,7 @@ export const fetchOrders = async () => {
   setState({ isLoading: true, error: null });
 
   const localOrders = await offlineDb.getOrders();
-  if (localOrders.length) {
-    setState({ orders: localOrders.map(normalizeOrder), isHydrated: true });
-  }
+  setState({ orders: localOrders.map(normalizeOrder), isHydrated: true });
 
   if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
     setState({ isLoading: false, isHydrated: true });
@@ -279,15 +292,26 @@ export const fetchOrders = async () => {
     .order('created_at', { ascending: false });
 
   if (error) {
-    setState({ isLoading: false, isHydrated: true, error: error.message });
+    broadcastSyncError(error, error.message || 'Failed to load orders from Supabase');
+    setState({ isLoading: false, isHydrated: true });
     return;
   }
 
   const orders = (data || []).map(mapDbOrder);
+  const pendingMutations = await offlineDb.getMutations();
+
+  if (orders.length === 0 && localOrders.length > 0 && pendingMutations.length > 0) {
+    setState({ orders: localOrders.map(normalizeOrder), isLoading: false, isHydrated: true, error: null });
+    void flushOfflineMutations();
+    return;
+  }
+
   await offlineDb.saveOrders(orders);
   setState({ orders, isLoading: false, isHydrated: true, error: null });
 
-  void flushOfflineMutations();
+  if (pendingMutations.length > 0) {
+    void flushOfflineMutations();
+  }
 };
 
 export const addOrderItem = async (order: Order) => {
@@ -295,7 +319,9 @@ export const addOrderItem = async (order: Order) => {
   const next = [localOrder, ...state.orders.filter((o) => o.id !== localOrder.id)];
   setState({ orders: next, error: null });
   await offlineDb.saveOrder(localOrder);
-  window.dispatchEvent(new CustomEvent('cloud-save-success'))
+  window.dispatchEvent(new CustomEvent('cloud-save-success'));
+
+  const directWriteMode = import.meta.env.VITE_DIRECT_SUPABASE_WRITE === 'true';
 
   if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
     await queueMutation('upsert', localOrder, localOrder.id);
@@ -308,7 +334,13 @@ export const addOrderItem = async (order: Order) => {
     setState({ orders: merged, error: null });
     await offlineDb.saveOrders(merged);
     return true;
-  } catch {
+  } catch (error: unknown) {
+    if (directWriteMode) {
+      broadcastSyncError(error, 'Direct Supabase write failed');
+      return false;
+    }
+
+    broadcastSyncError(error, 'Supabase write failed, queued for retry');
     await queueMutation('upsert', localOrder, localOrder.id);
     return true;
   }
@@ -319,7 +351,7 @@ export const updateOrderItem = async (order: Order) => {
   const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
   setState({ orders: next, error: null });
   await offlineDb.saveOrder(normalized);
-  window.dispatchEvent(new CustomEvent('cloud-save-success'))
+  window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
   if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
     await queueMutation('upsert', normalized, normalized.id);
@@ -329,7 +361,8 @@ export const updateOrderItem = async (order: Order) => {
   try {
     await persistOrderGraph(normalized);
     return true;
-  } catch {
+  } catch (error: unknown) {
+    broadcastSyncError(error, 'Supabase update failed, queued for retry');
     await queueMutation('upsert', normalized, normalized.id);
     return true;
   }
@@ -339,7 +372,7 @@ export const deleteOrderItem = async (orderId: string) => {
   const next = state.orders.filter((o) => o.id !== orderId);
   setState({ orders: next, error: null });
   await offlineDb.deleteOrder(orderId);
-  window.dispatchEvent(new CustomEvent('cloud-save-success'))
+  window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
   if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
     await queueMutation('delete', undefined, orderId);
@@ -352,7 +385,8 @@ export const deleteOrderItem = async (orderId: string) => {
       if (error) throw error;
     }
     return true;
-  } catch {
+  } catch (error: unknown) {
+    broadcastSyncError(error, 'Supabase delete failed, queued for retry');
     await queueMutation('delete', undefined, orderId);
     return true;
   }
