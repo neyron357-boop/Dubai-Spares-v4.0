@@ -65,12 +65,24 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
+  const [minDelayDone, setMinDelayDone] = useState(false);
+  const [cloudReady, setCloudReady] = useState(false);
   const [unlocked, setUnlocked] = useState(() => localStorage.getItem('app_unlocked') === '1');
 
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 900);
+    const t = setTimeout(() => setMinDelayDone(true), 900);
     return () => clearTimeout(t);
   }, []);
+
+  useEffect(() => {
+    const onCloudReady = () => setCloudReady(true);
+    window.addEventListener('cloud-sync-ready', onCloudReady);
+    return () => window.removeEventListener('cloud-sync-ready', onCloudReady);
+  }, []);
+
+  useEffect(() => {
+    if (minDelayDone && cloudReady) setLoading(false);
+  }, [minDelayDone, cloudReady]);
 
   const handleUnlock = () => {
     localStorage.setItem('app_unlocked', '1');

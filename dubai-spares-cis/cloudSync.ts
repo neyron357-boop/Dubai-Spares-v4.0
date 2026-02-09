@@ -123,6 +123,7 @@ export async function startCloudSync() {
     console.error('Cloud load failed', e);
   } finally {
     hydrating = false;
+    window.dispatchEvent(new Event('cloud-sync-ready'));
   }
 
   // 2️⃣ SAVE on every change (debounced)
