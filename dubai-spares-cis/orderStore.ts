@@ -40,7 +40,9 @@ const normalizeOrder = (order: Order): Order => ({
   isPinned: !!order.isPinned,
   isLead: !!order.isLead,
   notes: Array.isArray(order.notes) ? order.notes : [],
-  parts: Array.isArray(order.parts) ? order.parts : []
+  parts: Array.isArray(order.parts) ? order.parts : [],
+  salesStatus: order.salesStatus ?? 'Inquiry',
+  updatedAt: order.updatedAt ?? order.createdAt ?? Date.now()
 });
 
 
@@ -163,7 +165,9 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     isPinned: !!row.is_pinned,
     isLead: !!row.is_lead,
     notes: row.notes || [],
-    status: row.status || 'active'
+    status: row.status || 'active',
+    salesStatus: row.sales_status || 'Inquiry',
+    updatedAt: parseTimestamp(row.updated_at ?? row.created_at)
   })
 });
 
@@ -237,7 +241,9 @@ const persistOrderGraph = async (order: Order) => {
     is_vip: !!uploadedOrder.isVip,
     is_pinned: !!uploadedOrder.isPinned,
     is_lead: !!uploadedOrder.isLead,
-    notes: uploadedOrder.notes || []
+    notes: uploadedOrder.notes || [],
+    sales_status: uploadedOrder.salesStatus || 'Inquiry',
+    updated_at: uploadedOrder.updatedAt || Date.now()
   });
   if (orderError) {
     await logger.error('sync:persist', `Step 1/3 failed for order ${uploadedOrder.id}`, { error: serializeError(orderError) });
@@ -310,6 +316,17 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
 
   if (navigator.onLine) {
     void flushOfflineMutations();
+  }
+
+  if ('serviceWorker' in navigator) {
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      if ('sync' in registration) {
+        await (registration as ServiceWorkerRegistration & { sync: { register: (tag: string) => Promise<void> } }).sync.register('orders-background-sync');
+      }
+    } catch (error) {
+      await logger.warn('sync:queue', 'Background sync registration failed', { error: serializeError(error) });
+    }
   }
 };
 
@@ -475,7 +492,7 @@ export const addOrderItem = async (order: Order) => {
 };
 
 export const updateOrderItem = async (order: Order) => {
-  const normalized = normalizeOrder(order);
+  const normalized = normalizeOrder({ ...order, updatedAt: Date.now() });
   const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
   setState({ orders: next, error: null });
   await offlineDb.saveOrder(normalized);
@@ -556,12 +573,22 @@ export const useOrderStore = () => {
       void flushOfflineMutations();
     };
 
+    const onSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'flush-offline-mutations') {
+        void flushOfflineMutations();
+      }
+    };
+
     if (navigator.onLine) {
       void flushOfflineMutations();
     }
 
     window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
+    navigator.serviceWorker?.addEventListener?.('message', onSwMessage);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      navigator.serviceWorker?.removeEventListener?.('message', onSwMessage);
+    };
   }, []);
 
   const fetchOrdersCb = useCallback(fetchOrders, []);

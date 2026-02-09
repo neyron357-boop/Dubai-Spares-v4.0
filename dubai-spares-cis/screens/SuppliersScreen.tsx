@@ -18,6 +18,12 @@ import {
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 
+const extractCoordinates = (value: string) => {
+  const match = value.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+  if (!match) return undefined;
+  return { lat: Number(match[1]), lng: Number(match[2]) };
+};
+
 const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, getBackupData, restoreData } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
@@ -48,7 +54,8 @@ const SuppliersScreen: React.FC = () => {
       name,
       phone,
       location,
-      brands: []
+      brands: [],
+      coordinates: extractCoordinates(location)
     });
     setName(''); setPhone(''); setLocation('');
     setIsAdding(false);
