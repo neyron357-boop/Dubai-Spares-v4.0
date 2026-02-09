@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { optimizeImageForUpload, ensurePublicImageUrls } from '../storage/photos';
 import { isCloudSyncConfigured, supabase } from '../supabase';
 
@@ -178,6 +178,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [isValidating, setIsValidating] = useState(false);
   const [lastValidatedFingerprint, setLastValidatedFingerprint] = useState('');
   const [vinConfirmed, setVinConfirmed] = useState<boolean | null>(null);
+  const [lastAutoSubmitFingerprint, setLastAutoSubmitFingerprint] = useState('');
 
   const t = i18n[lang];
 
@@ -294,8 +295,7 @@ const PublicOrderFormScreen: React.FC = () => {
       !needsRevalidation
   );
 
-  const onSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submitOrder = async () => {
     if (!brand || !model || !partName || !customerContact) {
       alert(t.missingFields);
       return;
@@ -385,6 +385,18 @@ const PublicOrderFormScreen: React.FC = () => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  useEffect(() => {
+    if (!isAiApproved || isSubmitting || success) return;
+    if (lastAutoSubmitFingerprint === currentFingerprint) return;
+    setLastAutoSubmitFingerprint(currentFingerprint);
+    void submitOrder();
+  }, [isAiApproved, isSubmitting, success, lastAutoSubmitFingerprint, currentFingerprint]);
+
+  const onSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await submitOrder();
   };
 
   return (
