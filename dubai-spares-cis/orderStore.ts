@@ -64,6 +64,7 @@ let state: OrderState = {
 };
 
 let syncInProgress = false;
+const STORAGE_BUCKET = 'images';
 
 const notify = () => listeners.forEach((l) => l());
 
@@ -105,6 +106,63 @@ const broadcastSyncError = (error: unknown, fallback: string) => {
   void logger.error('sync:error', message, { fallback, error: serializeError(error) });
   setState({ error: message });
   window.dispatchEvent(new CustomEvent('cloud-sync-error', { detail: { message } }));
+};
+
+const listStoragePathsRecursive = async (bucket: string, folder: string): Promise<string[]> => {
+  if (!supabase) return [];
+
+  const collected: string[] = [];
+  const walk = async (prefix: string): Promise<void> => {
+    const { data, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 });
+    if (error) throw error;
+    if (!data?.length) return;
+
+    for (const item of data) {
+      const itemPath = `${prefix}/${item.name}`;
+      if (item.id) {
+        collected.push(itemPath);
+      } else {
+        await walk(itemPath);
+      }
+    }
+  };
+
+  await walk(folder);
+  return collected;
+};
+
+const deleteStorageFiles = async (bucket: string, paths: string[]): Promise<void> => {
+  if (!supabase || !paths.length) return;
+
+  const chunkSize = 100;
+  for (let index = 0; index < paths.length; index += chunkSize) {
+    const chunk = paths.slice(index, index + chunkSize);
+    const { error } = await supabase.storage.from(bucket).remove(chunk);
+    if (error) throw error;
+  }
+};
+
+const cleanupOrderStorage = async (orderId: string) => {
+  if (!supabase) return;
+
+  const paths = await listStoragePathsRecursive(STORAGE_BUCKET, `orders/${orderId}`);
+  await deleteStorageFiles(STORAGE_BUCKET, paths);
+  await logger.info('storage:cleanup', `[INFO] Storage cleanup: Deleted ${paths.length} files for order ${orderId}.`);
+};
+
+const deleteRemoteOrderWithStorageCleanup = async (orderId: string) => {
+  if (!supabase || !isUuid(orderId)) return;
+
+  const { error } = await supabase.from('orders').delete().eq('id', orderId);
+  if (error) throw error;
+
+  try {
+    await cleanupOrderStorage(orderId);
+  } catch (storageError) {
+    await logger.warn('storage:cleanup', `Storage cleanup warning for order ${orderId}`, {
+      error: serializeError(storageError)
+    });
+  }
 };
 
 const mapDbOrder = (row: DbOrderGraphRow): Order => ({
@@ -296,8 +354,9 @@ const flushOfflineMutations = async () => {
       if (mutation.type === 'delete') {
         await logger.info('sync:flush', `Delete order ${mutation.orderId}`);
         if (isUuid(mutation.orderId)) {
-          const { error } = await supabase.from('orders').delete().eq('id', mutation.orderId);
-          if (error) {
+          try {
+            await deleteRemoteOrderWithStorageCleanup(mutation.orderId);
+          } catch (error) {
             await logger.error('sync:flush', `Delete failed for order ${mutation.orderId}`, { error: serializeError(error) });
             throw error;
           }
@@ -445,10 +504,7 @@ export const deleteOrderItem = async (orderId: string) => {
   }
 
   try {
-    if (isUuid(orderId)) {
-      const { error } = await supabase.from('orders').delete().eq('id', orderId);
-      if (error) throw error;
-    }
+    await deleteRemoteOrderWithStorageCleanup(orderId);
     return true;
   } catch (error: unknown) {
     broadcastSyncError(error, 'Supabase delete failed, queued for retry');
