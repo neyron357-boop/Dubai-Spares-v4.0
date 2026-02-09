@@ -1,6 +1,11 @@
--- Normalized schema for orders -> parts -> price_variants
+-- Single Source of Truth migration
+-- 1) normalize order graph
+-- 2) remove legacy JSONB payload shape
+-- 3) provision storage bucket for image URLs
+
 create extension if not exists pgcrypto;
 
+-- Legacy cleanup (safe / idempotent)
 alter table if exists public.orders drop column if exists data;
 drop table if exists public.app_state;
 
@@ -55,8 +60,9 @@ create table if not exists public.price_variants (
 
 create index if not exists idx_orders_created_at on public.orders (created_at desc);
 create index if not exists idx_parts_order_id on public.parts (order_id);
-create index if not exists idx_price_variants_part_id on public.price_variants (part_id);
+create index if not exists idx_variants_part_id on public.price_variants (part_id);
 
+-- Supabase Storage bucket for uploaded image files.
 insert into storage.buckets (id, name, public)
 values ('images', 'images', true)
 on conflict (id) do nothing;
