@@ -10,6 +10,7 @@ create table if not exists public.orders (
   priority text not null,
   client_name text not null,
   source text not null,
+  customer_contact text not null default '',
   car_photo_url text,
   car_photos text[] not null default '{}',
   markup_percent decimal(10,2) not null default 0,
