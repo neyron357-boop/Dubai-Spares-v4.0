@@ -11,6 +11,44 @@ type OrderState = {
 };
 
 const listeners = new Set<() => void>();
+const PENDING_DELETE_KEY = 'dubai_spares_pending_order_deletes';
+
+const parsePendingDeletes = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(PENDING_DELETE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((id) => typeof id === 'string'));
+  } catch {
+    return new Set();
+  }
+};
+
+const pendingDeleteIds = parsePendingDeletes();
+
+const persistPendingDeletes = () => {
+  try {
+    localStorage.setItem(PENDING_DELETE_KEY, JSON.stringify(Array.from(pendingDeleteIds)));
+  } catch {
+    // noop: local cache is best-effort
+  }
+};
+
+const markOrderPendingDelete = (orderId: string) => {
+  pendingDeleteIds.add(orderId);
+  persistPendingDeletes();
+};
+
+const unmarkOrderPendingDelete = (orderId: string) => {
+  if (!pendingDeleteIds.delete(orderId)) return;
+  persistPendingDeletes();
+};
+
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+const applyPendingDeletes = (orders: Order[]) => orders.filter((order) => !pendingDeleteIds.has(order.id));
 
 const getStatus = (order: Pick<Order, 'isSold' | 'isArchived' | 'isVip' | 'isLead'>): OrderStatus => {
   if (order.isSold) return 'sold';
@@ -225,7 +263,7 @@ export const fetchOrders = async () => {
     return;
   }
 
-  setState({ orders: (data || []).map(mapDbOrder), isLoading: false, isHydrated: true });
+  setState({ orders: applyPendingDeletes((data || []).map(mapDbOrder)), isLoading: false, isHydrated: true });
 };
 
 export const addOrderItem = async (order: Order) => {
@@ -260,12 +298,23 @@ export const updateOrderItem = async (order: Order) => {
 };
 
 export const deleteOrderItem = async (orderId: string) => {
+  const withoutOrder = state.orders.filter((o) => o.id !== orderId);
+  markOrderPendingDelete(orderId);
+
   if (!isCloudSyncConfigured || !supabase) {
-    setState({ orders: state.orders.filter((o) => o.id !== orderId), error: null });
+    setState({ orders: withoutOrder, error: null });
+    unmarkOrderPendingDelete(orderId);
     return;
   }
 
-  setState({ error: null, isLoading: true });
+  setState({ orders: withoutOrder, error: null, isLoading: true });
+
+  if (!isUuid(orderId)) {
+    setState({ isLoading: false, error: null });
+    unmarkOrderPendingDelete(orderId);
+    return;
+  }
+
   const { error } = await supabase.from('orders').delete().eq('id', orderId);
 
   if (error) {
@@ -273,11 +322,8 @@ export const deleteOrderItem = async (orderId: string) => {
     return;
   }
 
-  setState({
-    orders: state.orders.filter((o) => o.id !== orderId),
-    isLoading: false,
-    error: null
-  });
+  setState({ isLoading: false, error: null });
+  unmarkOrderPendingDelete(orderId);
 };
 
 export const updatePartItem = async (orderId: string, part: Part) => {
