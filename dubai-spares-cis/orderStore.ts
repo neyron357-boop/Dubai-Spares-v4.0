@@ -3,6 +3,7 @@ import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant } from './types
 import { supabase, isCloudSyncConfigured } from './supabase';
 import { ensurePublicImageUrls } from './storage/photos';
 import { offlineDb } from './storage/offlineDb';
+import { logger } from './logging';
 
 type OrderState = {
   orders: Order[];
@@ -71,17 +72,37 @@ const setState = (patch: Partial<OrderState>) => {
   notify();
 };
 
+
+const serializeError = (error: unknown) => {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message, stack: error.stack };
+  }
+  if (typeof error === 'object' && error) {
+    return error;
+  }
+  return { value: String(error) };
+};
+
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error && error.message) return error.message;
-  if (typeof error === 'object' && error && 'message' in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === 'string' && message) return message;
+  if (typeof error === 'object' && error) {
+    const anyErr = error as { message?: unknown; code?: unknown; status?: unknown };
+    const baseMessage = typeof anyErr.message === 'string' && anyErr.message ? anyErr.message : fallback;
+    const code = typeof anyErr.code === 'string' ? anyErr.code : null;
+    const status = typeof anyErr.status === 'number' || typeof anyErr.status === 'string' ? String(anyErr.status) : null;
+
+    if (code || status) {
+      return `${baseMessage}${status ? ` (status: ${status})` : ''}${code ? ` [code: ${code}]` : ''}`;
+    }
+
+    return baseMessage;
   }
   return fallback;
 };
 
 const broadcastSyncError = (error: unknown, fallback: string) => {
   const message = getErrorMessage(error, fallback);
+  void logger.error('sync:error', message, { fallback, error: serializeError(error) });
   setState({ error: message });
   window.dispatchEvent(new CustomEvent('cloud-sync-error', { detail: { message } }));
 };
@@ -163,6 +184,8 @@ const persistOrderGraph = async (order: Order) => {
   if (!supabase) return normalizeOrder(order);
   const uploadedOrder = await withUploadedPhotos(order);
 
+  await logger.info('sync:persist', `Step 1/3 upsert order ${uploadedOrder.id}`);
+
   const { error: orderError } = await supabase.from('orders').upsert({
     id: uploadedOrder.id,
     brand: uploadedOrder.brand,
@@ -186,12 +209,21 @@ const persistOrderGraph = async (order: Order) => {
     is_lead: !!uploadedOrder.isLead,
     notes: uploadedOrder.notes || []
   });
-  if (orderError) throw orderError;
+  if (orderError) {
+    await logger.error('sync:persist', `Step 1/3 failed for order ${uploadedOrder.id}`, { error: serializeError(orderError) });
+    throw orderError;
+  }
+
+  await logger.info('sync:persist', `Step 1/3 success for order ${uploadedOrder.id}`);
 
   const { error: deletePartsError } = await supabase.from('parts').delete().eq('order_id', uploadedOrder.id);
-  if (deletePartsError) throw deletePartsError;
+  if (deletePartsError) {
+    await logger.error('sync:persist', `Cleanup parts failed for order ${uploadedOrder.id}`, { error: serializeError(deletePartsError) });
+    throw deletePartsError;
+  }
 
   for (const part of uploadedOrder.parts || []) {
+    await logger.info('sync:persist', `Step 2/3 upsert part ${part.id} (order ${uploadedOrder.id})`);
     const { error: partError } = await supabase.from('parts').upsert({
       id: part.id,
       order_id: uploadedOrder.id,
@@ -200,9 +232,15 @@ const persistOrderGraph = async (order: Order) => {
       photos: part.photos || [],
       is_found: !!part.isFound
     });
-    if (partError) throw partError;
+    if (partError) {
+      await logger.error('sync:persist', `Step 2/3 failed for part ${part.id}`, { error: serializeError(partError) });
+      throw partError;
+    }
+
+    await logger.info('sync:persist', `Step 2/3 success for part ${part.id}`);
 
     for (const variant of part.variants || []) {
+      await logger.info('sync:persist', `Step 3/3 upsert variant ${variant.id} (part ${part.id})`);
       const { error: variantError } = await supabase.from('price_variants').upsert({
         id: variant.id,
         part_id: part.id,
@@ -214,14 +252,21 @@ const persistOrderGraph = async (order: Order) => {
         photos: variant.photos || [],
         created_at: variant.createdAt
       });
-      if (variantError) throw variantError;
+      if (variantError) {
+        await logger.error('sync:persist', `Step 3/3 failed for variant ${variant.id}`, { error: serializeError(variantError) });
+        throw variantError;
+      }
+
+      await logger.info('sync:persist', `Step 3/3 success for variant ${variant.id}`);
     }
   }
 
+  await logger.info('sync:persist', `Order graph persisted ${uploadedOrder.id}`);
   return normalizeOrder(uploadedOrder);
 };
 
 const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined, orderId: string) => {
+  await logger.warn('sync:queue', `Queueing ${type} for order ${orderId}`);
   await offlineDb.enqueueMutation({
     id: createUuid(),
     type,
@@ -229,6 +274,9 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
     payload: order,
     createdAt: Date.now()
   });
+
+  const queueCount = await offlineDb.getMutationCount();
+  await logger.info('sync:queue', `Queue size is now ${queueCount}`);
 
   if (navigator.onLine) {
     void flushOfflineMutations();
@@ -242,24 +290,35 @@ const flushOfflineMutations = async () => {
 
   try {
     const pending = await offlineDb.getMutations();
+    await logger.info('sync:flush', `Flush started with ${pending.length} pending mutations`);
     for (const mutation of pending) {
+      await logger.info('sync:flush', `Processing mutation ${mutation.id}`, { type: mutation.type, orderId: mutation.orderId });
       if (mutation.type === 'delete') {
+        await logger.info('sync:flush', `Delete order ${mutation.orderId}`);
         if (isUuid(mutation.orderId)) {
           const { error } = await supabase.from('orders').delete().eq('id', mutation.orderId);
-          if (error) throw error;
+          if (error) {
+            await logger.error('sync:flush', `Delete failed for order ${mutation.orderId}`, { error: serializeError(error) });
+            throw error;
+          }
         }
       } else if (mutation.payload) {
         const saved = await persistOrderGraph(mutation.payload);
         await offlineDb.saveOrder(saved);
       }
 
+      await logger.info('sync:flush', `Mutation ${mutation.id} synced`);
+
       if (import.meta.env.DEV) {
         console.log(`☁️ Synced offline mutation ${mutation.id} for order ${mutation.orderId} to Supabase`);
       }
 
       await offlineDb.removeMutation(mutation.id);
+      const queueCount = await offlineDb.getMutationCount();
+      await logger.info('sync:flush', `Mutation ${mutation.id} removed from queue`, { queueCount });
     }
 
+    await logger.info('sync:flush', 'Flush completed');
   } catch (error: unknown) {
     broadcastSyncError(error, 'Offline sync failed');
   } finally {
@@ -277,11 +336,14 @@ export const getOrderState = () => state;
 
 export const fetchOrders = async () => {
   setState({ isLoading: true, error: null });
+  await logger.info('sync:fetch', 'Starting order hydration');
 
   const localOrders = await offlineDb.getOrders();
+  await logger.info('sync:fetch', `Loaded ${localOrders.length} local orders`);
   setState({ orders: localOrders.map(normalizeOrder), isHydrated: true });
 
   if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
+    await logger.warn('sync:fetch', 'Skipping cloud fetch (offline or missing supabase config)');
     setState({ isLoading: false, isHydrated: true });
     return;
   }
@@ -292,13 +354,16 @@ export const fetchOrders = async () => {
     .order('created_at', { ascending: false });
 
   if (error) {
+    await logger.error('sync:fetch', 'Cloud orders fetch failed', { error: serializeError(error) });
     broadcastSyncError(error, error.message || 'Failed to load orders from Supabase');
     setState({ isLoading: false, isHydrated: true });
     return;
   }
 
   const orders = (data || []).map(mapDbOrder);
+  await logger.info('sync:fetch', `Loaded ${orders.length} cloud orders`);
   const pendingMutations = await offlineDb.getMutations();
+  await logger.info('sync:fetch', `Queue currently has ${pendingMutations.length} mutations`);
 
   if (orders.length === 0 && localOrders.length > 0 && pendingMutations.length > 0) {
     setState({ orders: localOrders.map(normalizeOrder), isLoading: false, isHydrated: true, error: null });

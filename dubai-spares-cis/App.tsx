@@ -5,8 +5,9 @@ import NewOrderScreen from './screens/NewOrderScreen';
 import OrderDetailsScreen from './screens/OrderDetailsScreen';
 import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
+import DebugLogsScreen from './screens/DebugLogsScreen';
 import VendorSlider from './components/VendorSlider';
-import { CarFront, PlusCircle, Database } from 'lucide-react';
+import { CarFront, PlusCircle, Database, Bug } from 'lucide-react';
 import { useStore } from './store';
 
 const APP_PIN = '2202';
@@ -67,7 +68,8 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOfflin
         <nav className="h-16 bg-white border-t border-gray-200 flex items-center justify-around px-2 pb-safe shrink-0 z-50">
           <NavLink to="/" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
           <NavLink to="/new" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">Новый</span></NavLink>
-          <NavLink to="/database" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Database size={24} /><span className="text-[10px] font-medium">База</span></NavLink>
+          <NavLink to="/database" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">База</span></NavLink>
+          <NavLink to="/debug" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Bug size={22} /><span className="text-[10px] font-medium">Логи</span></NavLink>
         </nav>
       )}
     </div>
@@ -173,6 +175,7 @@ const App: React.FC = () => {
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
               <Route path="/database" element={<SuppliersScreen />} />
+              <Route path="/debug" element={<DebugLogsScreen />} />
             </Routes>
           </Layout>
         </HashRouter>
