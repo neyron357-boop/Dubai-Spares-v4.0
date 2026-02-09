@@ -80,6 +80,28 @@ export interface Supplier {
   photos?: string[];
 }
 
+export interface DbPriceVariantRow {
+  id: string;
+  part_id: string;
+  price_aed: number;
+  shop_name: string;
+  phone: string;
+  location: string;
+  photo_url: string | null;
+  photos: string[];
+  created_at: string;
+}
+
+export interface DbPartRow {
+  id: string;
+  order_id: string;
+  name: string;
+  photo_url: string | null;
+  photos: string[];
+  is_found: boolean;
+  price_variants?: DbPriceVariantRow[];
+}
+
 export interface DbOrderRow {
   id: string;
   brand: string;
@@ -104,23 +126,6 @@ export interface DbOrderRow {
   notes: OrderNote[];
 }
 
-export interface DbPartRow {
-  id: string;
-  order_id: string;
-  name: string;
-  photo_url: string | null;
-  photos: string[];
-  is_found: boolean;
-}
-
-export interface DbPriceVariantRow {
-  id: string;
-  part_id: string;
-  price_aed: number;
-  shop_name: string;
-  phone: string;
-  location: string;
-  photo_url: string | null;
-  photos: string[];
-  created_at: string;
+export interface DbOrderGraphRow extends DbOrderRow {
+  parts?: DbPartRow[];
 }

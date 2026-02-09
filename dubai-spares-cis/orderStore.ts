@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Order, OrderStatus, Part, PriceVariant } from './types';
+import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant } from './types';
 import { supabase, isCloudSyncConfigured } from './supabaseClient';
-
-const ORDERS_KEY = 'dubai_spares_orders';
+import { ensurePublicImageUrls } from './storage/photos';
 
 type OrderState = {
   orders: Order[];
@@ -31,29 +30,14 @@ const normalizeOrder = (order: Order): Order => ({
   parts: Array.isArray(order.parts) ? order.parts : []
 });
 
-const safeLocalOrders = (): Order[] => {
-  try {
-    const raw = localStorage.getItem(ORDERS_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw).map(normalizeOrder);
-  } catch {
-    return [];
-  }
-};
-
 let state: OrderState = {
-  orders: safeLocalOrders(),
+  orders: [],
   isLoading: false,
   isHydrated: false,
   error: null
 };
 
 const notify = () => {
-  try {
-    localStorage.setItem(ORDERS_KEY, JSON.stringify(state.orders));
-  } catch (e) {
-    console.error('persist order local failed', e);
-  }
   listeners.forEach((l) => l());
 };
 
@@ -62,15 +46,17 @@ const setState = (patch: Partial<OrderState>) => {
   notify();
 };
 
-const mapDbOrder = (row: any): Order => {
-  const parts: Part[] = (row.parts || []).map((part: any) => ({
+const mapDbOrder = (row: DbOrderGraphRow): Order => {
+  const parts: Part[] = (row.parts || []).map((part) => ({
     id: String(part.id),
+    orderId: String(part.order_id),
     name: part.name,
     photos: part.photos || [],
     photoUrl: part.photo_url || part.photos?.[0],
     isFound: !!part.is_found,
-    variants: (part.price_variants || []).map((v: any): PriceVariant => ({
+    variants: (part.price_variants || []).map((v): PriceVariant => ({
       id: String(v.id),
+      partId: String(v.part_id),
       priceAed: Number(v.price_aed || 0),
       shopName: v.shop_name || '',
       phone: v.phone || '',
@@ -107,6 +93,113 @@ const mapDbOrder = (row: any): Order => {
   });
 };
 
+const withUploadedPhotos = async (order: Order): Promise<Order> => {
+  const carPhotos = await ensurePublicImageUrls(order.carPhotos || [], `orders/${order.id}/car`);
+
+  const parts = await Promise.all(
+    (order.parts || []).map(async (part) => {
+      const partPhotos = await ensurePublicImageUrls(part.photos || [], `orders/${order.id}/parts/${part.id}`);
+      const variants = await Promise.all(
+        (part.variants || []).map(async (variant) => {
+          const variantPhotos = await ensurePublicImageUrls(
+            variant.photos || [],
+            `orders/${order.id}/parts/${part.id}/variants/${variant.id}`
+          );
+
+          return {
+            ...variant,
+            partId: part.id,
+            photos: variantPhotos,
+            photoUrl: variantPhotos[0]
+          };
+        })
+      );
+
+      return {
+        ...part,
+        orderId: order.id,
+        photos: partPhotos,
+        photoUrl: partPhotos[0],
+        variants
+      };
+    })
+  );
+
+  return {
+    ...order,
+    carPhotos,
+    carPhotoUrl: carPhotos[0],
+    parts
+  };
+};
+
+const persistOrderGraph = async (order: Order) => {
+  if (!supabase) return;
+
+  const uploadedOrder = await withUploadedPhotos(order);
+
+  const { error: orderError } = await supabase.from('orders').upsert({
+    id: uploadedOrder.id,
+    brand: uploadedOrder.brand,
+    model: uploadedOrder.model,
+    year: uploadedOrder.year,
+    vin: uploadedOrder.vin,
+    status: getStatus(uploadedOrder),
+    priority: uploadedOrder.priority,
+    client_name: uploadedOrder.clientName,
+    source: uploadedOrder.source,
+    car_photo_url: uploadedOrder.carPhotoUrl,
+    car_photos: uploadedOrder.carPhotos || [],
+    markup_percent: uploadedOrder.markupPercent,
+    exchange_rate: uploadedOrder.exchangeRate,
+    created_at: new Date(uploadedOrder.createdAt).toISOString(),
+    is_archived: uploadedOrder.isArchived,
+    is_sold: uploadedOrder.isSold,
+    sold_profit_usd: uploadedOrder.soldProfitUsd,
+    is_vip: !!uploadedOrder.isVip,
+    is_pinned: !!uploadedOrder.isPinned,
+    is_lead: !!uploadedOrder.isLead,
+    notes: uploadedOrder.notes || []
+  });
+
+  if (orderError) {
+    throw orderError;
+  }
+
+  await supabase.from('parts').delete().eq('order_id', uploadedOrder.id);
+
+  for (const part of uploadedOrder.parts || []) {
+    const { error: partError } = await supabase.from('parts').upsert({
+      id: part.id,
+      order_id: uploadedOrder.id,
+      name: part.name,
+      photo_url: part.photoUrl,
+      photos: part.photos || [],
+      is_found: !!part.isFound
+    });
+
+    if (partError) throw partError;
+
+    for (const variant of part.variants || []) {
+      const { error: variantError } = await supabase.from('price_variants').upsert({
+        id: variant.id,
+        part_id: part.id,
+        price_aed: variant.priceAed,
+        shop_name: variant.shopName,
+        phone: variant.phone,
+        location: variant.location,
+        photo_url: variant.photoUrl,
+        photos: variant.photos || [],
+        created_at: new Date(variant.createdAt).toISOString()
+      });
+
+      if (variantError) throw variantError;
+    }
+  }
+
+  return uploadedOrder;
+};
+
 export const subscribeOrderStore = (listener: () => void) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -136,82 +229,78 @@ export const fetchOrders = async () => {
 };
 
 export const addOrderItem = async (order: Order) => {
-  const optimistic = [normalizeOrder(order), ...state.orders];
-  setState({ orders: optimistic });
+  const prev = state.orders;
+  const optimistic = [normalizeOrder(order), ...prev];
+  setState({ orders: optimistic, error: null });
 
   if (!isCloudSyncConfigured || !supabase) return;
 
-  const { error } = await supabase.from('orders').upsert({
-    id: order.id,
-    brand: order.brand,
-    model: order.model,
-    year: order.year,
-    vin: order.vin,
-    status: getStatus(order),
-    priority: order.priority,
-    client_name: order.clientName,
-    source: order.source,
-    car_photo_url: order.carPhotoUrl,
-    car_photos: order.carPhotos || [],
-    markup_percent: order.markupPercent,
-    exchange_rate: order.exchangeRate,
-    created_at: new Date(order.createdAt).toISOString(),
-    is_archived: order.isArchived,
-    is_sold: order.isSold,
-    sold_profit_usd: order.soldProfitUsd,
-    is_vip: !!order.isVip,
-    is_pinned: !!order.isPinned,
-    is_lead: !!order.isLead,
-    notes: order.notes || []
-  });
-
-  if (error) setState({ error: error.message });
+  try {
+    const savedOrder = await persistOrderGraph(order);
+    setState({ orders: [normalizeOrder(savedOrder), ...prev], error: null });
+  } catch (error: any) {
+    setState({ orders: prev, error: error.message || 'Failed to save order' });
+  }
 };
 
 export const updateOrderItem = async (order: Order) => {
   const prev = state.orders;
   const optimistic = prev.map((o) => (o.id === order.id ? normalizeOrder(order) : o));
-  setState({ orders: optimistic });
+  setState({ orders: optimistic, error: null });
 
   if (!isCloudSyncConfigured || !supabase) return;
 
-  const { error } = await supabase.from('orders').update({
-    brand: order.brand,
-    model: order.model,
-    year: order.year,
-    vin: order.vin,
-    status: getStatus(order),
-    priority: order.priority,
-    client_name: order.clientName,
-    source: order.source,
-    car_photo_url: order.carPhotoUrl,
-    car_photos: order.carPhotos || [],
-    markup_percent: order.markupPercent,
-    exchange_rate: order.exchangeRate,
-    is_archived: order.isArchived,
-    is_sold: order.isSold,
-    sold_profit_usd: order.soldProfitUsd,
-    is_vip: !!order.isVip,
-    is_pinned: !!order.isPinned,
-    is_lead: !!order.isLead,
-    notes: order.notes || []
-  }).eq('id', order.id);
+  try {
+    const savedOrder = await persistOrderGraph(order);
+    const reconciled = prev.map((o) => (o.id === order.id ? normalizeOrder(savedOrder) : o));
+    setState({ orders: reconciled, error: null });
+  } catch (error: any) {
+    setState({ orders: prev, error: error.message || 'Failed to update order' });
+  }
+};
 
+export const deleteOrderItem = async (orderId: string) => {
+  const prev = state.orders;
+  const optimistic = prev.filter((o) => o.id !== orderId);
+  setState({ orders: optimistic, error: null });
+
+  if (!isCloudSyncConfigured || !supabase) return;
+
+  const { error } = await supabase.from('orders').delete().eq('id', orderId);
   if (error) {
     setState({ orders: prev, error: error.message });
   }
 };
 
-export const deleteOrderItem = async (id: string) => {
+export const updatePartItem = async (orderId: string, part: Part) => {
   const prev = state.orders;
-  const optimistic = prev.filter((o) => o.id !== id);
-  setState({ orders: optimistic });
+  const optimistic = prev.map((order) => {
+    if (order.id !== orderId) return order;
+
+    const exists = order.parts.some((p) => p.id === part.id);
+    const parts = exists ? order.parts.map((p) => (p.id === part.id ? part : p)) : [...order.parts, part];
+    return { ...order, parts };
+  });
+
+  setState({ orders: optimistic, error: null });
 
   if (!isCloudSyncConfigured || !supabase) return;
 
-  const { error } = await supabase.from('orders').delete().eq('id', id);
-  if (error) {
-    setState({ orders: prev, error: error.message });
+  try {
+    const photos = await ensurePublicImageUrls(part.photos || [], `orders/${orderId}/parts/${part.id}`);
+    const payload = {
+      id: part.id,
+      order_id: orderId,
+      name: part.name,
+      photo_url: photos[0],
+      photos,
+      is_found: !!part.isFound
+    };
+
+    const { error } = await supabase.from('parts').upsert(payload);
+    if (error) throw error;
+  } catch (error: any) {
+    setState({ orders: prev, error: error.message || 'Failed to update part' });
   }
 };
 
@@ -219,29 +308,36 @@ export const updatePriceVariantItem = async (partId: string, variant: PriceVaria
   const prev = state.orders;
   const optimistic = prev.map((o) => ({
     ...o,
-    parts: o.parts.map((p) => p.id !== partId ? p : {
-      ...p,
-      variants: p.variants.map((v) => v.id === variant.id ? variant : v)
+    parts: o.parts.map((p) => {
+      if (p.id !== partId) return p;
+      const exists = p.variants.some((v) => v.id === variant.id);
+      const variants = exists ? p.variants.map((v) => (v.id === variant.id ? variant : v)) : [...p.variants, variant];
+      return { ...p, variants };
     })
   }));
-  setState({ orders: optimistic });
+  setState({ orders: optimistic, error: null });
 
   if (!isCloudSyncConfigured || !supabase) return;
 
-  const { error } = await supabase.from('price_variants').update({
-    price_aed: variant.priceAed,
-    shop_name: variant.shopName,
-    phone: variant.phone,
-    location: variant.location,
-    photo_url: variant.photoUrl,
-    photos: variant.photos || []
-  }).eq('id', variant.id).eq('part_id', partId);
+  try {
+    const photos = await ensurePublicImageUrls(variant.photos || [], `parts/${partId}/variants/${variant.id}`);
+    const { error } = await supabase.from('price_variants').upsert({
+      id: variant.id,
+      part_id: partId,
+      price_aed: variant.priceAed,
+      shop_name: variant.shopName,
+      phone: variant.phone,
+      location: variant.location,
+      photo_url: photos[0],
+      photos,
+      created_at: new Date(variant.createdAt).toISOString()
+    });
 
-  if (error) {
-    setState({ orders: prev, error: error.message });
+    if (error) throw error;
+  } catch (error: any) {
+    setState({ orders: prev, error: error.message || 'Failed to update price variant' });
   }
 };
-
 
 export const restoreOrdersExternal = (orders: Order[]) => {
   setState({ orders: orders.map(normalizeOrder), isHydrated: true });
@@ -256,6 +352,7 @@ export const useOrderStore = () => {
   const addCb = useCallback(addOrderItem, []);
   const updateCb = useCallback(updateOrderItem, []);
   const deleteCb = useCallback(deleteOrderItem, []);
+  const updatePartCb = useCallback(updatePartItem, []);
   const updateVariantCb = useCallback(updatePriceVariantItem, []);
 
   return {
@@ -264,6 +361,7 @@ export const useOrderStore = () => {
     addOrder: addCb,
     updateOrder: updateCb,
     deleteOrder: deleteCb,
+    updatePart: updatePartCb,
     updatePriceVariant: updateVariantCb
   };
 };
