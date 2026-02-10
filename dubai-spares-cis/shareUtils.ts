@@ -50,11 +50,17 @@ const slugify = (value: string) =>
 
 export const buildPublicQuoteSlug = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'>) => {
   const readable = slugify([order.brand, order.model, order.year].filter(Boolean).join(' '));
-  return readable ? `${readable}-${order.id}` : order.id;
+  return readable ? `${readable}--${order.id}` : order.id;
 };
 
 export const extractOrderIdFromQuoteSlug = (slugOrId: string) => {
-  const trimmed = slugOrId.trim();
+  const trimmed = decodeURIComponent(slugOrId.trim().replace(/^\/+|\/+$/g, ''));
+  const separated = trimmed.lastIndexOf('--');
+  if (separated > -1) return trimmed.slice(separated + 2);
+
+  const uuidAtEnd = trimmed.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  if (uuidAtEnd) return uuidAtEnd[0];
+
   if (!trimmed.includes('-')) return trimmed;
   const chunks = trimmed.split('-').filter(Boolean);
   return chunks[chunks.length - 1] || trimmed;
