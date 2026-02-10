@@ -87,6 +87,8 @@ export interface Supplier {
   phone: string;
   location: string;
   brands: string[];
+  models?: string[];
+  years?: number[];
   photoUrl?: string;
   photos?: string[];
   coordinates?: Coordinates;

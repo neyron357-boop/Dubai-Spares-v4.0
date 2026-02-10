@@ -31,6 +31,7 @@ import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 import { buildPartShareText, shareMessage } from '../shareUtils';
 import { supabase } from '../supabase';
+import { fetchRadarShops } from '../radarShops';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -90,48 +91,27 @@ const OrderDetailsScreen: React.FC = () => {
 
   useEffect(() => {
     let active = true;
+
     const loadShops = async () => {
-      if (!supabase) {
-        const fallback = suppliers
-          .filter((s) => s.coordinates)
-          .map((s) => ({ id: s.id, name: s.name, phone: s.phone, location: s.location, latitude: s.coordinates!.lat, longitude: s.coordinates!.lng, specialization: s.brands || [] }));
-        setShops(fallback);
-        return;
-      }
-      let data: any[] | null = null;
-      const baseShopFields = 'id,name,phone,location,latitude,longitude,specialization';
-      const expandedShopFields = `${baseShopFields},specialization_models,specialization_years`;
-      const primary = await supabase.from('shops').select(expandedShopFields);
-
-      if (primary.error && primary.error.code === '42703') {
-        const fallback = await supabase.from('shops').select(baseShopFields);
-        data = Array.isArray(fallback.data) ? fallback.data : null;
-      } else {
-        data = Array.isArray(primary.data) ? primary.data : null;
-      }
-
+      const loadedShops = await fetchRadarShops(suppliers);
       if (!active) return;
-      if (Array.isArray(data) && data.length > 0) {
-        setShops(data.map((row: any) => ({
-          id: String(row.id),
-          name: row.name || 'Shop',
-          phone: row.phone || '',
-          location: row.location || '',
-          latitude: Number(row.latitude),
-          longitude: Number(row.longitude),
-          specialization: Array.isArray(row.specialization) ? row.specialization : [],
-          specializationModels: Array.isArray(row.specialization_models) ? row.specialization_models : [],
-          specializationYears: Array.isArray(row.specialization_years) ? row.specialization_years.map((y: any) => Number(y)).filter((y: number) => Number.isFinite(y)) : []
-        })));
-      } else {
-        const fallback = suppliers
-          .filter((s) => s.coordinates)
-          .map((s) => ({ id: s.id, name: s.name, phone: s.phone, location: s.location, latitude: s.coordinates!.lat, longitude: s.coordinates!.lng, specialization: s.brands || [] }));
-        setShops(fallback);
+      setShops(loadedShops);
+    };
+
+    const shopsChannel = supabase
+      ?.channel('order-details-radar-shops')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shops' }, () => {
+        void loadShops();
+      })
+      .subscribe();
+
+    void loadShops();
+    return () => {
+      active = false;
+      if (shopsChannel) {
+        void supabase?.removeChannel(shopsChannel);
       }
     };
-    void loadShops();
-    return () => { active = false; };
   }, [suppliers]);
 
   useEffect(() => {

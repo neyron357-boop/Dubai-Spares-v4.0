@@ -40,12 +40,20 @@ const SuppliersScreen: React.FC = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [location, setLocation] = useState('');
+  const [brandsInput, setBrandsInput] = useState('');
+  const [modelsInput, setModelsInput] = useState('');
+  const [yearsInput, setYearsInput] = useState('');
 
-  const filtered = suppliers.filter(s => 
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.phone.includes(searchTerm) ||
-    s.brands.some(b => b.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const parseCsv = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
+
+  const filtered = suppliers.filter(s => {
+    const normalized = searchTerm.toLowerCase();
+    return s.name.toLowerCase().includes(normalized)
+      || s.phone.includes(searchTerm)
+      || (s.brands || []).some((b) => b.toLowerCase().includes(normalized))
+      || (s.models || []).some((m) => m.toLowerCase().includes(normalized))
+      || (s.years || []).some((y) => String(y).includes(searchTerm));
+  });
 
   const handleSave = () => {
     if (!name) return;
@@ -54,10 +62,19 @@ const SuppliersScreen: React.FC = () => {
       name,
       phone,
       location,
-      brands: [],
+      brands: parseCsv(brandsInput),
+      models: parseCsv(modelsInput),
+      years: parseCsv(yearsInput)
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value)),
       coordinates: extractCoordinates(location)
     });
-    setName(''); setPhone(''); setLocation('');
+    setName('');
+    setPhone('');
+    setLocation('');
+    setBrandsInput('');
+    setModelsInput('');
+    setYearsInput('');
     setIsAdding(false);
   };
 
@@ -234,6 +251,36 @@ const SuppliersScreen: React.FC = () => {
                   className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
                 />
               </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Марки (через запятую)</label>
+                <input
+                  placeholder="Toyota, Lexus"
+                  value={brandsInput}
+                  onChange={(e) => setBrandsInput(e.target.value)}
+                  autoComplete="off"
+                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Модели (через запятую)</label>
+                <input
+                  placeholder="Camry, ES350"
+                  value={modelsInput}
+                  onChange={(e) => setModelsInput(e.target.value)}
+                  autoComplete="off"
+                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Годы (через запятую)</label>
+                <input
+                  placeholder="2018, 2019, 2020"
+                  value={yearsInput}
+                  onChange={(e) => setYearsInput(e.target.value)}
+                  autoComplete="off"
+                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
+                />
+              </div>
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold active:bg-gray-200 transition-colors uppercase text-xs">Отмена</button>
@@ -293,11 +340,21 @@ const SuppliersScreen: React.FC = () => {
                 </div>
               </div>
 
-              {s.brands.length > 0 && (
+              {(s.brands.length > 0 || (s.models || []).length > 0 || (s.years || []).length > 0) && (
                 <div className="pt-2 flex flex-wrap gap-1.5 border-t border-gray-50">
                   {s.brands.map(b => (
-                    <span key={b} className="bg-gray-50 text-gray-500 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase border border-gray-100 flex items-center gap-1">
+                    <span key={`brand-${b}`} className="bg-gray-50 text-gray-500 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase border border-gray-100 flex items-center gap-1">
                       <Tag size={8} /> {b}
+                    </span>
+                  ))}
+                  {(s.models || []).map((model) => (
+                    <span key={`model-${model}`} className="bg-blue-50 text-blue-600 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase border border-blue-100">
+                      MODEL: {model}
+                    </span>
+                  ))}
+                  {(s.years || []).map((year) => (
+                    <span key={`year-${year}`} className="bg-amber-50 text-amber-700 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase border border-amber-100">
+                      YEAR: {year}
                     </span>
                   ))}
                 </div>

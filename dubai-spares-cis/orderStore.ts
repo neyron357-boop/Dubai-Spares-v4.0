@@ -648,6 +648,7 @@ export const useOrderStore = () => {
   useEffect(() => {
     const onOnline = () => {
       void flushOfflineMutations();
+      void fetchOrders();
     };
 
     const onSwMessage = (event: MessageEvent) => {
@@ -656,6 +657,21 @@ export const useOrderStore = () => {
       }
     };
 
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        void fetchOrders();
+      }, 350);
+    };
+
+    const ordersChannel = supabase
+      ?.channel('orders-live-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'parts' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'price_variants' }, scheduleRefresh)
+      .subscribe();
+
     if (navigator.onLine) {
       void flushOfflineMutations();
     }
@@ -663,8 +679,12 @@ export const useOrderStore = () => {
     window.addEventListener('online', onOnline);
     navigator.serviceWorker?.addEventListener?.('message', onSwMessage);
     return () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
       window.removeEventListener('online', onOnline);
       navigator.serviceWorker?.removeEventListener?.('message', onSwMessage);
+      if (ordersChannel) {
+        void supabase?.removeChannel(ordersChannel);
+      }
     };
   }, []);
 
