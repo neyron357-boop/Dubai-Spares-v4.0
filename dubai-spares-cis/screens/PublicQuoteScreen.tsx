@@ -107,7 +107,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const heroPhoto = useMemo(() => {
     if (!order) return '';
-    return order.vinPhotoUrl || order.carPhotoUrl || order.carPhotos[0] || order.parts.find((part) => (part.photos || []).length > 0)?.photos?.[0] || '';
+    return order.carPhotoUrl || order.carPhotos[0] || order.vinPhotoUrl || order.parts.find((part) => (part.photos || []).length > 0)?.photos?.[0] || '';
   }, [order]);
 
   const partCards = useMemo(() => {

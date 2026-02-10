@@ -113,6 +113,8 @@ const hasMapsCoordinatesOrPlace = (value: string) => {
   );
 };
 
+const hasAtCoordinates = (value: string) => /@-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/i.test(value);
+
 const isRedirectProxyUrl = (raw: string): boolean => {
   if (!raw || !raw.startsWith('http')) return false;
   return isGoogleShortMapsUrl(raw) || isGoogleUserContentUrl(raw);
@@ -193,24 +195,57 @@ interface ResolveCoordinatesOptions {
 
 const expandLocationUrlChain = async (raw: string, maxHops = 8): Promise<string> => {
   let current = raw;
-  for (let i = 0; i < maxHops; i += 1) {
-    if (hasMapsCoordinatesOrPlace(current) && !isRedirectProxyUrl(current)) break;
+  let hops = 0;
+  while (hops < maxHops) {
+    const shouldContinue = !hasAtCoordinates(current) && (isGoogleUserContentUrl(current) || isGoogleShortMapsUrl(current) || isRedirectProxyUrl(current));
+    if (!shouldContinue) break;
+
     const next = await expandGoogleRedirectUrl(current);
     if (!next || next === current) break;
     current = next;
+    hops += 1;
   }
   return current;
 };
 
 const dedupe = (values: string[]) => Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 
-const buildDubaiSharjahFallbackQueries = (values: string[]) => {
+const cleanFallbackQuery = (value: string): string => {
+  const withoutLinks = value
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/www\.[^\s]+/gi, ' ')
+    .replace(/\b(?:maps\.app\.goo\.gl|goo\.gl|googleusercontent\.com|google\.com\/maps)\S*/gi, ' ');
+
+  return withoutLinks
+    .replace(/[\\/_|#?&=%:+~*.,;()[\]{}<>"'`!-]+/g, ' ')
+    .replace(/\b[a-z0-9]{8,}\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const buildSanitizedFallbackQueries = (values: string[]) => {
   return dedupe(values).flatMap((value) => {
-    const normalized = value.toLowerCase();
-    const hasCityHint = normalized.includes('dubai') || normalized.includes('sharjah');
-    if (hasCityHint) return [value];
-    return [`${value} Dubai`, `${value} Sharjah`];
+    const cleaned = cleanFallbackQuery(value);
+    if (!cleaned) return [];
+
+    const lowered = cleaned.toLowerCase();
+    const hasDubai = lowered.includes('dubai');
+    const hasSharjah = lowered.includes('sharjah');
+    const shopOnly = cleaned
+      .replace(/\bdubai\b/gi, ' ')
+      .replace(/\bsharjah\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!shopOnly) return [];
+    if (hasDubai) return [`${shopOnly} Dubai`];
+    if (hasSharjah) return [`${shopOnly} Sharjah`];
+    return [`${shopOnly} Dubai`, `${shopOnly} Sharjah`];
   });
+};
+
+const buildDubaiSharjahFallbackQueries = (values: string[]) => {
+  return dedupe(buildSanitizedFallbackQueries(values));
 };
 
 const geocodeFallbackQueries = async (queries: string[]): Promise<Coordinates | null> => {

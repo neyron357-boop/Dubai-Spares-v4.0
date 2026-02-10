@@ -165,6 +165,16 @@ const isBigintTimestampInputError = (error: unknown) => {
   );
 };
 
+const isTimestamptzTimestampInputError = (error: unknown) => {
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  return (
+    anyErr.code === '22007' &&
+    typeof anyErr.message === 'string' &&
+    (anyErr.message.includes('timestamp with time zone') || anyErr.message.includes('date/time field value'))
+  );
+};
+
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === 'object' && error) {
@@ -413,10 +423,21 @@ const persistOrderGraph = async (order: Order) => {
         location: variant.location,
         photo_url: variant.photoUrl,
         photos: variant.photos || [],
-        created_at: toIsoTimestamp(variant.createdAt)
+        created_at: parseTimestamp(variant.createdAt)
       };
 
       let { error: variantError } = await supabase.from('price_variants').upsert(variantPayload);
+
+      if (variantError && isTimestamptzTimestampInputError(variantError)) {
+        await logger.warn(
+          'sync:persist',
+          'price_variants.created_at expects timestamptz in remote schema; retrying upsert with ISO string timestamp'
+        );
+        ({ error: variantError } = await supabase.from('price_variants').upsert({
+          ...variantPayload,
+          created_at: toIsoTimestamp(variant.createdAt)
+        }));
+      }
 
       if (variantError && isBigintTimestampInputError(variantError)) {
         await logger.warn(

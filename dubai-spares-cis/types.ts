@@ -105,6 +105,7 @@ export interface Shop {
   location?: string;
   latitude: number;
   longitude: number;
+  needsManualFix?: boolean;
   specialization: string[];
   specializationModels?: string[];
   specializationYears?: number[];
