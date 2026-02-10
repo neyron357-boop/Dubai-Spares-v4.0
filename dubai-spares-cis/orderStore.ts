@@ -103,6 +103,16 @@ const isMissingColumnError = (error: unknown, column: string) => {
   );
 };
 
+const isBigintTimestampInputError = (error: unknown) => {
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  return (
+    anyErr.code === '22P02' &&
+    typeof anyErr.message === 'string' &&
+    anyErr.message.includes('invalid input syntax for type bigint')
+  );
+};
+
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === 'object' && error) {
@@ -330,7 +340,7 @@ const persistOrderGraph = async (order: Order) => {
 
     for (const variant of part.variants || []) {
       await logger.info('sync:persist', `Step 3/3 upsert variant ${variant.id} (part ${part.id})`);
-      const { error: variantError } = await supabase.from('price_variants').upsert({
+      const variantPayload = {
         id: variant.id,
         part_id: part.id,
         price_aed: variant.priceAed,
@@ -340,7 +350,21 @@ const persistOrderGraph = async (order: Order) => {
         photo_url: variant.photoUrl,
         photos: variant.photos || [],
         created_at: toIsoTimestamp(variant.createdAt)
-      });
+      };
+
+      let { error: variantError } = await supabase.from('price_variants').upsert(variantPayload);
+
+      if (variantError && isBigintTimestampInputError(variantError)) {
+        await logger.warn(
+          'sync:persist',
+          'price_variants.created_at expects bigint in remote schema; retrying upsert with epoch milliseconds'
+        );
+        ({ error: variantError } = await supabase.from('price_variants').upsert({
+          ...variantPayload,
+          created_at: parseTimestamp(variant.createdAt)
+        }));
+      }
+
       if (variantError) {
         await logger.error('sync:persist', `Step 3/3 failed for variant ${variant.id}`, { error: serializeError(variantError) });
         throw variantError;
