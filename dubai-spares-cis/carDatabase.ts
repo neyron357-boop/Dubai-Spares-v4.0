@@ -5,7 +5,7 @@ export interface CarBrandCatalog {
 
 export const CAR_DATABASE: Record<string, CarBrandCatalog> = {
   Audi: { models: ['A1', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'Q2', 'Q3', 'Q5', 'Q7', 'Q8', 'RS3', 'RS4', 'RS5', 'RS6', 'RS7', 'TT', 'R8', 'e-tron'], bodyTypes: ['Sedan', 'SUV', 'Coupe', 'Hatchback', 'Wagon', 'Convertible'] },
-  BMW: { models: ['1 Series', '2 Series', '3 Series', '4 Series', '5 Series', '6 Series', '7 Series', '8 Series', 'i3', 'i4', 'i5', 'i7', 'i8', 'iX', 'iX1', 'iX3', 'M2', 'M3', 'M4', 'M5', 'M8', 'X1', 'X2', 'X3', 'X4', 'X5', 'X6', 'X7', 'XM', 'Z4'], bodyTypes: ['Sedan', 'SUV', 'Coupe', 'Hatchback', 'Wagon', 'Convertible'] },
+  BMW: { models: ['1 Series', '2 Series', '3 Series', '4 Series', '5 Series', '6 Series', '7 Series', '8 Series', 'i3', 'i4', 'i5', 'i7', 'i8', 'iX', 'iX1', 'iX3', 'M2', 'M3', 'M4', 'M5', 'M8', 'X1', 'X2', 'X3', 'X4', 'X5', 'X6', 'X7', 'XM', 'Z4'], bodyTypes: ['Sedan', 'SUV', 'Coupe', 'Hatchback', 'Wagon', 'Convertible', 'E30', 'E34', 'E36', 'E38', 'E39', 'E46', 'E53', 'E60', 'E65', 'E70', 'E71', 'E82', 'E83', 'E87', 'E90', 'E91', 'E92', 'E93', 'F10', 'F15', 'F20', 'F22', 'F25', 'F30', 'F32', 'G20', 'G30'] },
   Chevrolet: { models: ['Aveo', 'Camaro', 'Captiva', 'Cruze', 'Equinox', 'Impala', 'Malibu', 'Silverado', 'Suburban', 'Tahoe', 'Trailblazer'], bodyTypes: ['Sedan', 'SUV', 'Pickup', 'Coupe'] },
   Ford: { models: ['Bronco', 'EcoSport', 'Edge', 'Escape', 'Everest', 'Explorer', 'Expedition', 'F-150', 'Focus', 'Fusion', 'Mustang', 'Ranger', 'Taurus'], bodyTypes: ['Sedan', 'SUV', 'Pickup', 'Coupe', 'Hatchback'] },
   Honda: { models: ['Accord', 'City', 'Civic', 'CR-V', 'HR-V', 'Odyssey', 'Pilot'], bodyTypes: ['Sedan', 'SUV', 'Hatchback', 'MPV'] },
@@ -27,4 +27,4 @@ export const CAR_DATABASE: Record<string, CarBrandCatalog> = {
   Volkswagen: { models: ['Arteon', 'Atlas', 'Golf', 'ID.4', 'Jetta', 'Passat', 'Polo', 'Tiguan', 'Touareg'], bodyTypes: ['Sedan', 'SUV', 'Hatchback', 'Wagon'] }
 };
 
-export const CAR_BODY_TYPES = ['Sedan', 'SUV', 'Coupe', 'Hatchback', 'Wagon', 'Pickup', 'Convertible', 'Van', 'MPV'];
+export const CAR_BODY_TYPES = ['Sedan', 'SUV', 'Coupe', 'Hatchback', 'Wagon', 'Pickup', 'Convertible', 'Van', 'MPV', 'E30', 'E34', 'E36', 'E38', 'E39', 'E46', 'E53', 'E60', 'E65', 'E70', 'E71', 'E82', 'E83', 'E87', 'E90', 'E91', 'E92', 'E93', 'F10', 'F15', 'F20', 'F22', 'F25', 'F30', 'F32', 'G20', 'G30'];

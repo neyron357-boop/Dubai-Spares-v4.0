@@ -99,8 +99,48 @@ const normalizeMapsInput = (raw: string): string => {
   }
 };
 
+const REDIRECT_QUERY_KEYS = ['url', 'u', 'q', 'target', 'redirect', 'dest', 'destination'];
+
+const decodeUrlCandidate = (value: string): string | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const tryValues = [trimmed];
+  try {
+    const decoded = decodeURIComponent(trimmed);
+    if (decoded && decoded !== trimmed) tryValues.push(decoded);
+  } catch {
+    // noop
+  }
+
+  for (const candidate of tryValues) {
+    if (/^https?:\/\//i.test(candidate)) return candidate;
+  }
+  return null;
+};
+
+const getUrlFromRedirectQuery = (raw: string): string | null => {
+  try {
+    const url = new URL(raw);
+    for (const key of REDIRECT_QUERY_KEYS) {
+      const candidate = decodeUrlCandidate(url.searchParams.get(key) || '');
+      if (candidate) return candidate;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
 const expandGoogleRedirectUrl = async (raw: string): Promise<string | null> => {
   if (!isGoogleShortMapsUrl(raw) && !isGoogleUserContentUrl(raw)) return null;
+
+  const queryExpanded = getUrlFromRedirectQuery(raw);
+  if (queryExpanded && queryExpanded !== raw) {
+    return queryExpanded;
+  }
+
   try {
     const response = await fetch(raw, { method: 'HEAD', redirect: 'follow' });
     return response?.url && response.url !== raw ? response.url : null;
@@ -118,6 +158,16 @@ const expandGoogleRedirectUrl = async (raw: string): Promise<string | null> => {
 interface ResolveCoordinatesOptions {
   fallbackQueries?: string[];
 }
+
+const expandLocationUrlChain = async (raw: string, maxHops = 3): Promise<string> => {
+  let current = raw;
+  for (let i = 0; i < maxHops; i += 1) {
+    const next = await expandGoogleRedirectUrl(current);
+    if (!next || next === current) break;
+    current = next;
+  }
+  return current;
+};
 
 const dedupe = (values: string[]) => Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 
@@ -166,9 +216,8 @@ export const resolveCoordinatesFromLocation = async (
 
     try {
       if (isGoogleMapsUrl(normalizedRaw)) {
-        const expandedUrl = await expandGoogleRedirectUrl(normalizedRaw);
-        const redirectTarget = expandedUrl || normalizedRaw;
-        if (expandedUrl) {
+        const redirectTarget = await expandLocationUrlChain(normalizedRaw);
+        if (redirectTarget !== normalizedRaw) {
           await logger.info('RADAR_GEO', 'Google redirect URL expanded', { rawLocation: normalizedRaw, redirectTarget });
         }
 

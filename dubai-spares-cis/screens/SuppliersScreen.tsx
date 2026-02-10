@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { Supplier } from '../types';
 import { 
@@ -20,6 +20,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
+import { BRAND_BODY_TYPES, BRAND_MODELS, BRANDS, YEARS } from '../constants';
 
 const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, getBackupData, restoreData } = useStore();
@@ -41,6 +42,10 @@ const SuppliersScreen: React.FC = () => {
   const [modelsInput, setModelsInput] = useState('');
   const [yearsInput, setYearsInput] = useState('');
   const [bodyTypesInput, setBodyTypesInput] = useState('');
+  const [selectedBrand, setSelectedBrand] = useState('');
+  const [selectedModel, setSelectedModel] = useState('');
+  const [selectedYear, setSelectedYear] = useState('');
+  const [selectedBodyType, setSelectedBodyType] = useState('');
   const [isSavingSupplier, setIsSavingSupplier] = useState(false);
 
   const parseCsv = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
@@ -54,6 +59,28 @@ const SuppliersScreen: React.FC = () => {
       || (s.years || []).some((y) => String(y).includes(searchTerm))
       || (s.bodyTypes || []).some((bodyType) => bodyType.toLowerCase().includes(normalized));
   });
+
+  const selectedBrands = useMemo(() => parseCsv(brandsInput), [brandsInput]);
+  const selectedModels = useMemo(() => parseCsv(modelsInput), [modelsInput]);
+  const selectedYears = useMemo(() => parseCsv(yearsInput), [yearsInput]);
+  const selectedBodyTypes = useMemo(() => parseCsv(bodyTypesInput), [bodyTypesInput]);
+
+  const modelsOptions = useMemo(() => {
+    const fromSelectedBrands = selectedBrands.flatMap((brand) => BRAND_MODELS[brand] || []);
+    return Array.from(new Set(fromSelectedBrands)).sort((a, b) => a.localeCompare(b));
+  }, [selectedBrands]);
+
+  const bodyTypeOptions = useMemo(() => {
+    const fromSelectedBrands = selectedBrands.flatMap((brand) => BRAND_BODY_TYPES[brand] || []);
+    return Array.from(new Set(fromSelectedBrands)).sort((a, b) => a.localeCompare(b));
+  }, [selectedBrands]);
+
+  const addCsvValue = (rawInput: string, value: string, setter: (next: string) => void) => {
+    const normalized = value.trim();
+    if (!normalized) return;
+    const nextValues = Array.from(new Set([...parseCsv(rawInput), normalized]));
+    setter(nextValues.join(', '));
+  };
 
   const handleSave = async () => {
     if (!name) return;
@@ -85,6 +112,10 @@ const SuppliersScreen: React.FC = () => {
       setModelsInput('');
       setYearsInput('');
       setBodyTypesInput('');
+      setSelectedBrand('');
+      setSelectedModel('');
+      setSelectedYear('');
+      setSelectedBodyType('');
       setIsAdding(false);
     } finally {
       setIsSavingSupplier(false);
@@ -232,7 +263,7 @@ const SuppliersScreen: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <form 
             onSubmit={(e) => { e.preventDefault(); handleSave(); }}
-            className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200 space-y-5" 
+            className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200 space-y-5 max-h-[92vh] overflow-y-auto" 
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-xl font-bold">Новый Поставщик</h2>
@@ -266,6 +297,26 @@ const SuppliersScreen: React.FC = () => {
               </div>
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Марки (через запятую)</label>
+                <div className="flex gap-2 mt-1">
+                  <select
+                    value={selectedBrand}
+                    onChange={(e) => setSelectedBrand(e.target.value)}
+                    className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="">Выберите марку</option>
+                    {BRANDS.map((brand) => (<option key={brand} value={brand}>{brand}</option>))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      addCsvValue(brandsInput, selectedBrand, setBrandsInput);
+                      setSelectedBrand('');
+                    }}
+                    className="px-3 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase"
+                  >
+                    +
+                  </button>
+                </div>
                 <input
                   placeholder="Toyota, Lexus"
                   value={brandsInput}
@@ -276,6 +327,28 @@ const SuppliersScreen: React.FC = () => {
               </div>
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Модели (через запятую)</label>
+                <div className="flex gap-2 mt-1">
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="">Выберите модель</option>
+                    {(modelsOptions.length > 0 ? modelsOptions : Object.values(BRAND_MODELS).flat()).map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      addCsvValue(modelsInput, selectedModel, setModelsInput);
+                      setSelectedModel('');
+                    }}
+                    className="px-3 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase"
+                  >
+                    +
+                  </button>
+                </div>
                 <input
                   placeholder="Camry, ES350"
                   value={modelsInput}
@@ -286,6 +359,26 @@ const SuppliersScreen: React.FC = () => {
               </div>
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Годы (через запятую)</label>
+                <div className="flex gap-2 mt-1">
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(e.target.value)}
+                    className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="">Выберите год</option>
+                    {YEARS.map((year) => (<option key={year} value={year}>{year}</option>))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      addCsvValue(yearsInput, selectedYear, setYearsInput);
+                      setSelectedYear('');
+                    }}
+                    className="px-3 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase"
+                  >
+                    +
+                  </button>
+                </div>
                 <input
                   placeholder="2018, 2019, 2020"
                   value={yearsInput}
@@ -297,8 +390,30 @@ const SuppliersScreen: React.FC = () => {
 
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Типы кузова (через запятую)</label>
+                <div className="flex gap-2 mt-1">
+                  <select
+                    value={selectedBodyType}
+                    onChange={(e) => setSelectedBodyType(e.target.value)}
+                    className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="">Выберите кузов</option>
+                    {(bodyTypeOptions.length > 0 ? bodyTypeOptions : Object.values(BRAND_BODY_TYPES).flat()).map((bodyType) => (
+                      <option key={bodyType} value={bodyType}>{bodyType}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      addCsvValue(bodyTypesInput, selectedBodyType, setBodyTypesInput);
+                      setSelectedBodyType('');
+                    }}
+                    className="px-3 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase"
+                  >
+                    +
+                  </button>
+                </div>
                 <input
-                  placeholder="Sedan, SUV"
+                  placeholder="Sedan, SUV, E39, E82"
                   value={bodyTypesInput}
                   onChange={(e) => setBodyTypesInput(e.target.value)}
                   autoComplete="off"
