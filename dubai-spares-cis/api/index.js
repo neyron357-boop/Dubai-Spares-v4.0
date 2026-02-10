@@ -33,23 +33,48 @@ webpush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY
 );
 
-const sanitizeOrderPayload = (payload) => {
-  const record = payload?.record ?? payload?.new ?? {};
+const normalize = (value = '') => value.toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
+const brandMatch = (orderBrand, shopBrand) => {
+  const a = normalize(orderBrand);
+  const b = normalize(shopBrand);
+  if (!a || !b) return false;
+  return a.includes(b) || b.includes(a);
+};
+const modelMatch = (orderModel, shopModel) => {
+  const a = normalize(orderModel);
+  const b = normalize(shopModel);
+  if (!a || !b) return false;
+  return a.includes(b) || b.includes(a);
+};
+const tierForOrderAndShop = (order, shop) => {
+  const brands = Array.isArray(shop.specialization) ? shop.specialization : [];
+  const models = Array.isArray(shop.specialization_models) ? shop.specialization_models : [];
+  const years = Array.isArray(shop.specialization_years) ? shop.specialization_years.map(Number) : [];
+  const brandMatched = brands.some((brand) => brandMatch(order.brand, brand));
+  if (!brandMatched) return 'none';
+  const modelMatched = models.some((model) => modelMatch(order.model, model));
+  const yearMatched = years.includes(Number(order.year));
+  if (modelMatched && yearMatched) return 'high';
+  if (modelMatched) return 'medium';
+  return 'low';
+};
+
+const sanitizeOrderPayload = (record, matchStats) => {
   const orderId = record.id ?? 'New Order';
-  const customerName = record.customer_name ?? record.customer ?? 'Unknown customer';
-  const orderTotal = record.total_amount ?? record.total ?? null;
+  const title = `Новая заявка: ${record.brand || '-'} ${record.model || ''}`.trim();
 
   return {
-    title: 'New order received',
-    body: orderTotal
-      ? `Order #${orderId} from ${customerName}. Total: ${orderTotal}`
-      : `Order #${orderId} from ${customerName}.`,
+    title,
+    body: `Совпадения магазинов → High: ${matchStats.high}, Medium: ${matchStats.medium}, Low: ${matchStats.low}`,
     icon: '/icons/notification-icon-192.png',
     vibrate: [200, 100, 200],
     data: {
       orderId,
-      customerName,
-      createdAt: record.created_at ?? new Date().toISOString()
+      brand: record.brand || '',
+      model: record.model || '',
+      year: record.year || '',
+      createdAt: record.created_at ?? new Date().toISOString(),
+      matchStats
     }
   };
 };
@@ -115,6 +140,24 @@ const sendPushToAdmins = async (notificationPayload) => {
   return { delivered, failed, total: subscriptions.length };
 };
 
+const fetchMatchingShops = async (order) => {
+  const { data, error } = await supabase
+    .from('shops')
+    .select('id,name,specialization,specialization_models,specialization_years');
+
+  if (error) {
+    throw new Error(`Failed to fetch shops: ${error.message}`);
+  }
+
+  const tiered = { high: [], medium: [], low: [] };
+  (data || []).forEach((shop) => {
+    const tier = tierForOrderAndShop(order, shop);
+    if (tier !== 'none') tiered[tier].push(shop);
+  });
+
+  return tiered;
+};
+
 const validateWebhookKey = (req, res, next) => {
   const providedKey = req.header('x-api-key');
   if (!providedKey || providedKey !== process.env.WEBHOOK_API_KEY) {
@@ -137,12 +180,25 @@ app.post('/webhooks/orders', validateWebhookKey, async (req, res) => {
       return res.status(202).json({ message: 'Ignored non-orders event' });
     }
 
-    const notification = sanitizeOrderPayload(payload);
+    const record = payload.record ?? payload.new ?? {};
+    const tieredMatches = await fetchMatchingShops(record);
+    const matchStats = {
+      high: tieredMatches.high.length,
+      medium: tieredMatches.medium.length,
+      low: tieredMatches.low.length
+    };
+
+    if (matchStats.high + matchStats.medium + matchStats.low === 0) {
+      return res.status(202).json({ message: 'Order has no shop specialization matches', matchStats });
+    }
+
+    const notification = sanitizeOrderPayload(record, matchStats);
     const result = await sendPushToAdmins(notification);
 
     return res.status(200).json({
       message: 'Webhook processed',
       notification,
+      matchStats,
       result
     });
   } catch (error) {

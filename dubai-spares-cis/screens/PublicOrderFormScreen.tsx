@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
 import { isCloudSyncConfigured, supabase } from '../supabase';
 import { Source } from '../types';
+import { BRAND_MODELS, SOCIAL_SOURCES } from '../constants';
 
 type Lang = 'en' | 'ru';
 
@@ -12,13 +13,7 @@ const MAJOR_CAR_BRANDS = [
 
 const YEARS = Array.from({ length: 2026 - 1990 + 1 }, (_, index) => String(2026 - index));
 
-const CHANNEL_OPTIONS: Source[] = [
-  Source.INSTAGRAM,
-  Source.TIKTOK,
-  Source.WHATSAPP,
-  Source.TELEGRAM,
-  Source.FACEBOOK
-];
+const CHANNEL_OPTIONS: Source[] = SOCIAL_SOURCES;
 
 const i18n: Record<Lang, Record<string, string>> = {
   en: {
@@ -31,8 +26,10 @@ const i18n: Record<Lang, Record<string, string>> = {
     partName: 'Part Name',
     description: 'Comment (optional)',
     contact: 'Phone Number / Contact',
-    channel: 'Where did you contact us from?',
-    uploadPhoto: 'Add Photo (optional)',
+    channel: 'Where are you writing from?',
+    uploadPhoto: 'Add car/part photo (optional)',
+    uploadVinPhoto: 'Add VIN photo (optional)',
+    socialNickname: 'Your nickname (optional)',
     submit: 'Send Request',
     submitting: 'Sending…',
     success: 'Request sent successfully.',
@@ -52,8 +49,10 @@ const i18n: Record<Lang, Record<string, string>> = {
     partName: 'Название детали',
     description: 'Комментарий (необязательно)',
     contact: 'Телефон / контакт',
-    channel: 'Откуда клиент пишет?',
-    uploadPhoto: 'Добавить фото (необязательно)',
+    channel: 'Откуда вы пишете?',
+    uploadPhoto: 'Добавить фото авто/детали (необязательно)',
+    uploadVinPhoto: 'Добавить фото VIN (необязательно)',
+    socialNickname: 'Ваш никнейм',
     submit: 'Отправить заявку',
     submitting: 'Отправка…',
     success: 'Заявка успешно отправлена.',
@@ -81,12 +80,15 @@ const PublicOrderFormScreen: React.FC = () => {
   const [customerContact, setCustomerContact] = useState('');
   const [source, setSource] = useState<Source | ''>('');
   const [photoData, setPhotoData] = useState<string | null>(null);
+  const [vinPhotoData, setVinPhotoData] = useState<string | null>(null);
+  const [socialNickname, setSocialNickname] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
 
   const t = i18n[lang];
 
   const filteredBrands = useMemo(() => MAJOR_CAR_BRANDS, []);
+  const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
 
   const submitOrder = async () => {
     if (!partName.trim() || !customerContact.trim() || !source) {
@@ -105,10 +107,16 @@ const PublicOrderFormScreen: React.FC = () => {
       const orderId = createId();
       const partId = createId();
       let uploadedPhotos: string[] = [];
+      let uploadedVinPhotos: string[] = [];
 
       if (photoData) {
         const compressed = await optimizeImageForUpload(photoData, `public-order:${orderId}:${partId}`);
         uploadedPhotos = await ensurePublicImageUrls([compressed], `orders/${orderId}/parts/${partId}`);
+      }
+
+      if (vinPhotoData) {
+        const compressedVin = await optimizeImageForUpload(vinPhotoData, `public-order:${orderId}:vin`);
+        uploadedVinPhotos = await ensurePublicImageUrls([compressedVin], `orders/${orderId}/vin`);
       }
 
       const now = new Date().toISOString();
@@ -117,11 +125,13 @@ const PublicOrderFormScreen: React.FC = () => {
         brand: brand.trim(),
         model: model.trim(),
         year: year.trim(),
-        vin: vin.trim().toUpperCase(),
+        vin: vin.trim(),
+        vin_photo_url: uploadedVinPhotos[0] || null,
         status: 'new_inquiry',
         sales_status: 'Inquiry',
         client_name: 'Public Lead',
         customer_contact: customerContact.trim(),
+        social_nickname: socialNickname.trim(),
         source,
         priority: 'MEDIUM',
         car_photos: uploadedPhotos,
@@ -155,8 +165,10 @@ const PublicOrderFormScreen: React.FC = () => {
       setYear('');
       setVin('');
       setPartName('');
+      setSocialNickname('');
       setDescription('');
       setPhotoData(null);
+      setVinPhotoData(null);
       setCustomerContact('');
       setSource('');
     } catch (error) {
@@ -189,20 +201,27 @@ const PublicOrderFormScreen: React.FC = () => {
         {success && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">✓ {t.success}</div>}
 
         <form onSubmit={onSubmit} className="mt-4 space-y-3">
-          <select value={brand} onChange={(e) => setBrand(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
+          <select value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); }} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
             <option value="">{t.selectBrand}</option>
             {filteredBrands.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
 
           <div className="grid grid-cols-2 gap-2">
-            <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t.model} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" />
+            {modelOptions.length > 0 ? (
+              <select value={model} onChange={(e) => setModel(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
+                <option value="">{t.model}</option>
+                {modelOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            ) : (
+              <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t.model} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" />
+            )}
             <select value={year} onChange={(e) => setYear(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
               <option value="">{t.chooseYear}</option>
               {YEARS.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </div>
 
-          <input value={vin} onChange={(e) => setVin(e.target.value.toUpperCase())} placeholder={t.vin} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base uppercase outline-none focus:border-blue-500" />
+          <input type="text" value={vin} onChange={(e) => setVin(e.target.value)} placeholder={t.vin} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" />
           <input value={partName} onChange={(e) => setPartName(e.target.value)} placeholder={t.partName} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" required />
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder={t.description} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-base outline-none focus:border-blue-500" />
           <input value={customerContact} onChange={(e) => setCustomerContact(e.target.value)} placeholder={t.contact} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" required />
@@ -212,11 +231,27 @@ const PublicOrderFormScreen: React.FC = () => {
             {CHANNEL_OPTIONS.map((channel) => <option key={channel} value={channel}>{channel}</option>)}
           </select>
 
+
+          {source && (
+            <input value={socialNickname} onChange={(e) => setSocialNickname(e.target.value)} placeholder={t.socialNickname} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" />
+          )}
+
+          <label className="text-xs font-semibold text-slate-500">{t.uploadPhoto}</label>
           <input type="file" accept="image/*" onChange={(e) => {
             const file = e.target.files?.[0];
             if (!file) return;
             const reader = new FileReader();
             reader.onloadend = () => setPhotoData(String(reader.result || ''));
+            reader.readAsDataURL(file);
+          }} className="min-h-11 w-full rounded-xl border border-slate-300 p-2 text-sm" />
+
+
+          <label className="text-xs font-semibold text-slate-500">{t.uploadVinPhoto}</label>
+          <input type="file" accept="image/*" onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onloadend = () => setVinPhotoData(String(reader.result || ''));
             reader.readAsDataURL(file);
           }} className="min-h-11 w-full rounded-xl border border-slate-300 p-2 text-sm" />
 

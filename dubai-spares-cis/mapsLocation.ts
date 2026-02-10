@@ -9,7 +9,9 @@ const MAPS_URL_HOSTS = new Set([
   'www.google.com',
   'google.com',
   'maps.app.goo.gl',
-  'www.maps.app.goo.gl'
+  'www.maps.app.goo.gl',
+  'goo.gl',
+  'www.goo.gl'
 ]);
 
 const PLACE_ID_REGEXES = [
@@ -107,6 +109,19 @@ const geocodeAddress = async (address: string): Promise<Coordinates | null> => {
   return { lat, lng };
 };
 
+
+const geocodeByUrl = async (urlValue: string): Promise<Coordinates | null> => {
+  if (!GOOGLE_MAPS_API_KEY) return null;
+  const url = `${GOOGLE_HOST}/geocode/json?address=${encodeURIComponent(urlValue)}&key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}`;
+  const data = await fetchJson(url);
+  const location = data?.results?.[0]?.geometry?.location;
+  if (!location) return null;
+  const lat = Number(location.lat);
+  const lng = Number(location.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+};
+
 export const resolveCoordinatesFromLocation = async (location: string): Promise<Coordinates | undefined> => {
   const raw = (location || '').trim();
   if (!raw) return undefined;
@@ -123,6 +138,11 @@ export const resolveCoordinatesFromLocation = async (location: string): Promise<
 
   try {
     if (isGoogleMapsUrl(raw)) {
+      const fromUrlGeocode = await geocodeByUrl(raw);
+      if (fromUrlGeocode) {
+        await logger.info('RADAR_GEO', 'Google URL geocoding result: Success', { coordinates: [fromUrlGeocode.lat, fromUrlGeocode.lng] });
+        return fromUrlGeocode;
+      }
       const parsedPlaceId = extractPlaceIdFromLink(raw);
       const placeId = parsedPlaceId || await findPlaceIdByInput(raw);
       if (placeId) {

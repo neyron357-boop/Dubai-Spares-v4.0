@@ -10,11 +10,13 @@ create table if not exists public.orders (
   model text not null,
   year text not null default '',
   vin text not null default '',
+  vin_photo_url text,
   status text not null default 'active' check (status in ('active','archive','sold','vip','lead','new_inquiry','in_progress')),
   priority text not null default 'MEDIUM' check (priority in ('LOW','MEDIUM','HIGH')),
   client_name text not null default '',
   source text not null default 'Другое',
   customer_contact text not null default '',
+  social_nickname text not null default '',
   car_photo_url text,
   car_photos text[] not null default '{}',
   markup_percent numeric not null default 20,
@@ -79,3 +81,16 @@ create table if not exists public.shops (
 );
 
 create index if not exists idx_shops_geo on public.shops (latitude, longitude);
+
+alter table if exists public.shops enable row level security;
+
+create policy "anon_read_shops"
+  on public.shops
+  for select
+  using (true);
+
+create policy "anon_write_shops"
+  on public.shops
+  for all
+  using (true)
+  with check (true);

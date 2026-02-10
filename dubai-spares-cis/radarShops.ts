@@ -94,6 +94,9 @@ export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> =>
   } else {
     if (primary.error) {
       await logDatabaseIntegrity('shops:fetch', primary.error, { table: 'shops', phase: 'base-select' });
+      if (primary.error.code === '42501') {
+        await logger.error('shops:fetch', 'RLS denied access to shops table', { hint: 'Check shops select policy for anon/authenticated roles' });
+      }
       toast('Ошибка загрузки магазинов радара', 'error');
     }
     data = Array.isArray(primary.data) ? primary.data : null;

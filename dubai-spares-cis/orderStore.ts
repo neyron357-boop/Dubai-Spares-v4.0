@@ -41,6 +41,7 @@ const normalizeOrder = (order: Order): Order => ({
   isPinned: !!order.isPinned,
   isLead: !!order.isLead,
   notes: Array.isArray(order.notes) ? order.notes : [],
+  vinPhotoUrl: order.vinPhotoUrl || '',
   parts: Array.isArray(order.parts) ? order.parts : [],
   salesStatus: order.salesStatus ?? 'Inquiry',
   updatedAt: order.updatedAt ?? order.createdAt ?? Date.now(),
@@ -161,6 +162,7 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     model: row.model,
     year: row.year || '',
     vin: row.vin || '',
+    vinPhotoUrl: row.vin_photo_url || '',
     priority: row.priority,
     clientName: row.client_name || '',
     source: row.source || 'Другое',
@@ -198,6 +200,7 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     status: row.status || 'active',
     salesStatus: row.sales_status || 'Inquiry',
     customerContact: row.customer_contact || '',
+    socialNickname: row.social_nickname || '',
     updatedAt: parseTimestamp(row.updated_at ?? row.created_at),
     recommendedShopIds: Array.isArray(row.recommended_shop_ids) ? row.recommended_shop_ids : []
   })
@@ -258,6 +261,7 @@ const persistOrderGraph = async (order: Order) => {
     model: uploadedOrder.model,
     year: uploadedOrder.year,
     vin: uploadedOrder.vin,
+    vin_photo_url: uploadedOrder.vinPhotoUrl || null,
     status: getStatus(uploadedOrder),
     priority: uploadedOrder.priority,
     client_name: uploadedOrder.clientName,
@@ -275,6 +279,7 @@ const persistOrderGraph = async (order: Order) => {
     is_lead: !!uploadedOrder.isLead,
     notes: uploadedOrder.notes || [],
     customer_contact: uploadedOrder.customerContact || '',
+    social_nickname: uploadedOrder.socialNickname || '',
     recommended_shop_ids: uploadedOrder.recommendedShopIds || []
   });
 
@@ -294,11 +299,25 @@ const persistOrderGraph = async (order: Order) => {
       ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutSalesStatus));
     }
 
+    if (orderError && isMissingColumnError(orderError, 'vin_photo_url')) {
+      await logger.warn('sync:persist', 'orders.vin_photo_url is missing in remote schema; retrying upsert without that column');
+      await logDatabaseIntegrity('sync:persist', orderError, { column: 'vin_photo_url' });
+      const { vin_photo_url: _vinPhotoUrl, ...payloadWithoutVinPhotoUrl } = fallbackOrderPayload;
+      ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutVinPhotoUrl));
+    }
+
     if (orderError && isMissingColumnError(orderError, 'customer_contact')) {
       await logger.warn('sync:persist', 'orders.customer_contact is missing in remote schema; retrying upsert without that column');
       await logDatabaseIntegrity('sync:persist', orderError, { column: 'customer_contact' });
       const { customer_contact: _customerContact, ...payloadWithoutCustomerContact } = fallbackOrderPayload;
       ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutCustomerContact));
+    }
+
+    if (orderError && isMissingColumnError(orderError, 'social_nickname')) {
+      await logger.warn('sync:persist', 'orders.social_nickname is missing in remote schema; retrying upsert without that column');
+      await logDatabaseIntegrity('sync:persist', orderError, { column: 'social_nickname' });
+      const { social_nickname: _socialNickname, ...payloadWithoutSocialNickname } = fallbackOrderPayload;
+      ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutSocialNickname));
     }
 
     if (orderError && isMissingColumnError(orderError, 'recommended_shop_ids')) {
