@@ -1,63 +1,14 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { ArrowRight, Check, ChevronLeft, Upload, Camera } from 'lucide-react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
 import { isCloudSyncConfigured, supabase } from '../supabase';
+import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
 import { Source } from '../types';
-import { BRAND_MODELS, SOCIAL_SOURCES, BRANDS, YEARS, BODY_TYPES, BRAND_BODY_TYPES } from '../constants';
 
-type Lang = 'en' | 'ru';
+type FormStep = 1 | 2 | 3 | 4;
 
-const CHANNEL_OPTIONS: Source[] = SOCIAL_SOURCES;
-
-const i18n: Record<Lang, Record<string, string>> = {
-  en: {
-    title: 'Quick Order Request',
-    subtitle: 'Fill in a short form and we will contact you shortly.',
-    brand: 'Car Brand',
-    model: 'Model',
-    year: 'Year',
-    bodyType: 'Body Type',
-    vin: 'VIN (optional)',
-    partName: 'Part Name',
-    description: 'Comment (optional)',
-    contact: 'Phone Number / Contact',
-    channel: 'Where are you writing from?',
-    uploadPhoto: 'Add car/part photo (optional)',
-    uploadVinPhoto: 'Add VIN photo (optional)',
-    socialNickname: 'Your nickname (optional)',
-    submit: 'Send Request',
-    submitting: 'Sending…',
-    success: 'Request sent successfully.',
-    missingFields: 'Please fill required fields: Part Name, Phone, Channel.',
-    unavailable: 'Order form is temporarily unavailable.',
-    selectBrand: 'Select or search brand',
-    chooseYear: 'Select year',
-    chooseChannel: 'Select a channel'
-  },
-  ru: {
-    title: 'Быстрая заявка',
-    subtitle: 'Заполните короткую форму — мы скоро свяжемся с вами.',
-    brand: 'Марка авто',
-    model: 'Модель',
-    year: 'Год',
-    bodyType: 'Тип кузова',
-    vin: 'VIN (необязательно)',
-    partName: 'Название детали',
-    description: 'Комментарий (необязательно)',
-    contact: 'Телефон / контакт',
-    channel: 'Откуда вы пишете?',
-    uploadPhoto: 'Добавить фото авто/детали (необязательно)',
-    uploadVinPhoto: 'Добавить фото VIN (необязательно)',
-    socialNickname: 'Ваш никнейм',
-    submit: 'Отправить заявку',
-    submitting: 'Отправка…',
-    success: 'Заявка успешно отправлена.',
-    missingFields: 'Заполните обязательные поля: деталь, телефон, канал.',
-    unavailable: 'Форма временно недоступна.',
-    selectBrand: 'Выберите или найдите марку',
-    chooseYear: 'Выберите год',
-    chooseChannel: 'Выберите канал'
-  }
-};
+const TOTAL_STEPS = 4;
+const DEFAULT_SOURCE: Source = Source.WHATSAPP;
 
 const createId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -65,36 +16,62 @@ const createId = () =>
     : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 const PublicOrderFormScreen: React.FC = () => {
-  const [lang, setLang] = useState<Lang>('ru');
+  const [step, setStep] = useState<FormStep>(1);
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
-  const [bodyType, setBodyType] = useState('');
+  const [partList, setPartList] = useState('');
   const [vin, setVin] = useState('');
-  const [partName, setPartName] = useState('');
-  const [description, setDescription] = useState('');
-  const [customerContact, setCustomerContact] = useState('');
-  const [source, setSource] = useState<Source | ''>('');
-  const [photoData, setPhotoData] = useState<string | null>(null);
+  const [carPhotoData, setCarPhotoData] = useState<string | null>(null);
   const [vinPhotoData, setVinPhotoData] = useState<string | null>(null);
-  const [socialNickname, setSocialNickname] = useState('');
+  const [customerContact, setCustomerContact] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [showThanks, setShowThanks] = useState(false);
 
-  const t = i18n[lang];
+  const carInputRef = useRef<HTMLInputElement | null>(null);
+  const vinInputRef = useRef<HTMLInputElement | null>(null);
 
-  const filteredBrands = useMemo(() => BRANDS, []);
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
-  const bodyTypeOptions = useMemo(() => BRAND_BODY_TYPES[brand] || BODY_TYPES, [brand]);
+
+  const handleFileToDataUrl = (file: File, onLoad: (value: string) => void) => {
+    const reader = new FileReader();
+    reader.onloadend = () => onLoad(String(reader.result || ''));
+    reader.readAsDataURL(file);
+  };
+
+  const canContinue =
+    (step === 1 && Boolean(brand.trim() && model.trim() && year.trim())) ||
+    (step === 2 && Boolean(partList.trim())) ||
+    step === 3 ||
+    (step === 4 && Boolean(customerContact.trim()));
+
+  const goNext = () => {
+    if (!canContinue) return;
+    setStep((current) => Math.min(TOTAL_STEPS, current + 1) as FormStep);
+  };
+
+  const goBack = () => setStep((current) => Math.max(1, current - 1) as FormStep);
+
+  const resetForm = () => {
+    setStep(1);
+    setBrand('');
+    setModel('');
+    setYear('');
+    setPartList('');
+    setVin('');
+    setCarPhotoData(null);
+    setVinPhotoData(null);
+    setCustomerContact('');
+  };
 
   const submitOrder = async () => {
-    if (!partName.trim() || !customerContact.trim() || !source) {
-      alert(t.missingFields);
+    if (!brand.trim() || !model.trim() || !year.trim() || !partList.trim() || !customerContact.trim()) {
+      alert('Please complete the required fields before submitting.');
       return;
     }
 
     if (!isCloudSyncConfigured || !supabase) {
-      alert(t.unavailable);
+      alert('Order form is temporarily unavailable.');
       return;
     }
 
@@ -103,12 +80,14 @@ const PublicOrderFormScreen: React.FC = () => {
     try {
       const orderId = createId();
       const partId = createId();
-      let uploadedPhotos: string[] = [];
+      const now = new Date().toISOString();
+
+      let uploadedCarPhotos: string[] = [];
       let uploadedVinPhotos: string[] = [];
 
-      if (photoData) {
-        const compressed = await optimizeImageForUpload(photoData, `public-order:${orderId}:${partId}`);
-        uploadedPhotos = await ensurePublicImageUrls([compressed], `orders/${orderId}/parts/${partId}`);
+      if (carPhotoData) {
+        const compressed = await optimizeImageForUpload(carPhotoData, `public-order:${orderId}:${partId}:car`);
+        uploadedCarPhotos = await ensurePublicImageUrls([compressed], `orders/${orderId}/parts/${partId}`);
       }
 
       if (vinPhotoData) {
@@ -116,23 +95,30 @@ const PublicOrderFormScreen: React.FC = () => {
         uploadedVinPhotos = await ensurePublicImageUrls([compressedVin], `orders/${orderId}/vin`);
       }
 
-      const now = new Date().toISOString();
-      const { error } = await supabase.from('orders').upsert({
+      const notes = [
+        {
+          id: createId(),
+          text: `Public Request Part List:\n${partList.trim()}`,
+          photos: [],
+          audios: [],
+          createdAt: Date.now()
+        }
+      ];
+
+      const { error: orderError } = await supabase.from('orders').insert({
         id: orderId,
         brand: brand.trim(),
         model: model.trim(),
         year: year.trim(),
-        body_type: bodyType.trim() || null,
         vin: vin.trim(),
         vin_photo_url: uploadedVinPhotos[0] || null,
         status: 'new_inquiry',
         sales_status: 'Inquiry',
         client_name: 'Public Lead',
         customer_contact: customerContact.trim(),
-        social_nickname: socialNickname.trim(),
-        source,
+        source: DEFAULT_SOURCE,
         priority: 'MEDIUM',
-        car_photos: uploadedPhotos,
+        car_photos: uploadedCarPhotos,
         markup_percent: 20,
         exchange_rate: 3.67,
         is_archived: false,
@@ -140,36 +126,26 @@ const PublicOrderFormScreen: React.FC = () => {
         is_vip: false,
         is_pinned: false,
         is_lead: true,
-        notes: [`Part: ${partName.trim()} | ${description.trim() || '-'}`, `Language: ${lang}`],
+        notes,
         created_at: now,
         updated_at: now
       });
 
-      if (error) throw error;
+      if (orderError) throw orderError;
 
-      const { error: partsError } = await supabase.from('parts').upsert({
+      const { error: partError } = await supabase.from('parts').insert({
         id: partId,
         order_id: orderId,
-        name: partName.trim(),
-        photos: uploadedPhotos,
-        photo_url: uploadedPhotos[0] || null,
+        name: 'Requested parts list',
+        photos: uploadedCarPhotos,
+        photo_url: uploadedCarPhotos[0] || null,
         is_found: false
       });
-      if (partsError) throw partsError;
 
-      setSuccess(true);
-      setBrand('');
-      setModel('');
-      setYear('');
-      setBodyType('');
-      setVin('');
-      setPartName('');
-      setSocialNickname('');
-      setDescription('');
-      setPhotoData(null);
-      setVinPhotoData(null);
-      setCustomerContact('');
-      setSource('');
+      if (partError) throw partError;
+
+      setShowThanks(true);
+      resetForm();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to submit request.';
       alert(message);
@@ -178,90 +154,231 @@ const PublicOrderFormScreen: React.FC = () => {
     }
   };
 
-  const onSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    await submitOrder();
-  };
+  const progress = (step / TOTAL_STEPS) * 100;
+
+  if (showThanks) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black px-4 py-10 text-white">
+        <div className="mx-auto w-full max-w-xl rounded-[32px] border border-white/10 bg-white/5 p-8 shadow-[0_40px_120px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+          <div className="mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400/20 text-emerald-300">
+            <Check className="h-8 w-8" />
+          </div>
+          <h1 className="text-3xl font-semibold tracking-tight">Request Received!</h1>
+          <p className="mt-3 text-base text-slate-200">
+            We are searching for your parts now. We will contact you on WhatsApp shortly.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowThanks(false)}
+            className="mt-8 rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-900 transition hover:scale-[1.02]"
+          >
+            Submit another request
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-100 px-3 py-4 sm:px-4 sm:py-8 font-sans">
-      <div className="mx-auto w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.title}</h1>
-        <p className="mt-1 text-sm leading-5 text-slate-500">{t.subtitle}</p>
-
-        <div className="mt-4 flex gap-2">
-          {(['ru', 'en'] as Lang[]).map((code) => (
-            <button key={code} type="button" onClick={() => setLang(code)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase ${lang === code ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600'}`}>
-              {code}
-            </button>
-          ))}
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black px-4 py-6 text-white sm:py-10">
+      <div className="mx-auto w-full max-w-2xl rounded-[32px] border border-white/10 bg-white/5 p-5 shadow-[0_25px_80px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-8">
+        <div className="mb-6">
+          <p className="text-xs uppercase tracking-[0.26em] text-slate-300">Dubai Spares Concierge</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Tell us what your car needs.</h1>
+          <p className="mt-2 text-sm text-slate-300 sm:text-base">
+            Tell us what your car needs, and our experts will find the best options in Dubai.
+          </p>
         </div>
 
-        {success && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">✓ {t.success}</div>}
-
-        <form onSubmit={onSubmit} className="mt-4 space-y-3">
-          <select value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); setBodyType(''); }} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
-            <option value="">{t.selectBrand}</option>
-            {filteredBrands.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
-
-          <div className="grid grid-cols-3 gap-2">
-            {modelOptions.length > 0 ? (
-              <select value={model} onChange={(e) => setModel(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
-                <option value="">{t.model}</option>
-                {modelOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-            ) : (
-              <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t.model} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" />
-            )}
-            <select value={year} onChange={(e) => setYear(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
-              <option value="">{t.chooseYear}</option>
-              {YEARS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-            <select value={bodyType} onChange={(e) => setBodyType(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
-              <option value="">{t.bodyType}</option>
-              {bodyTypeOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
+        <div className="mb-8">
+          <div className="mb-2 flex items-center justify-between text-xs text-slate-300">
+            <span>Step {step} of {TOTAL_STEPS}</span>
+            <span>{Math.round(progress)}%</span>
           </div>
+          <div className="h-2 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full rounded-full bg-gradient-to-r from-amber-300 via-orange-300 to-yellow-100 transition-all duration-500" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
 
-          <input type="text" value={vin} onChange={(e) => setVin(e.target.value)} placeholder={t.vin} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" />
-          <input value={partName} onChange={(e) => setPartName(e.target.value)} placeholder={t.partName} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" required />
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder={t.description} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-base outline-none focus:border-blue-500" />
-          <input value={customerContact} onChange={(e) => setCustomerContact(e.target.value)} placeholder={t.contact} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" required />
+        <div className="space-y-4 transition-all duration-500">
+          {step === 1 && (
+            <div className="space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Brand</span>
+                <select
+                  value={brand}
+                  onChange={(e) => {
+                    setBrand(e.target.value);
+                    setModel('');
+                  }}
+                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition focus:border-white/50"
+                >
+                  <option value="">Select brand</option>
+                  {BRANDS.map((item) => (
+                    <option key={item} value={item} className="text-slate-900">
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          <select value={source} onChange={(e) => setSource(e.target.value as Source | '')} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500" required>
-            <option value="">{t.chooseChannel}</option>
-            {CHANNEL_OPTIONS.map((channel) => <option key={channel} value={channel}>{channel}</option>)}
-          </select>
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Model</span>
+                {modelOptions.length > 0 ? (
+                  <select
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition focus:border-white/50"
+                  >
+                    <option value="">Select model</option>
+                    {modelOptions.map((item) => (
+                      <option key={item} value={item} className="text-slate-900">
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="Type model"
+                    className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition placeholder:text-slate-400 focus:border-white/50"
+                  />
+                )}
+              </label>
 
-
-          {source && (
-            <input value={socialNickname} onChange={(e) => setSocialNickname(e.target.value)} placeholder={t.socialNickname} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" />
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Year</span>
+                <select
+                  value={year}
+                  onChange={(e) => setYear(e.target.value)}
+                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition focus:border-white/50"
+                >
+                  <option value="">Select year</option>
+                  {YEARS.map((item) => (
+                    <option key={item} value={item} className="text-slate-900">
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           )}
 
-          <label className="text-xs font-semibold text-slate-500">{t.uploadPhoto}</label>
-          <input type="file" accept="image/*" onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onloadend = () => setPhotoData(String(reader.result || ''));
-            reader.readAsDataURL(file);
-          }} className="min-h-11 w-full rounded-xl border border-slate-300 p-2 text-sm" />
+          {step === 2 && (
+            <label className="block">
+              <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">What parts are you looking for?</span>
+              <textarea
+                value={partList}
+                onChange={(e) => setPartList(e.target.value)}
+                rows={9}
+                placeholder="Brake pads front + rear\nEngine mounts\nLeft mirror cover..."
+                className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
+              />
+            </label>
+          )}
 
+          {step === 3 && (
+            <div className="space-y-4">
+              <button
+                type="button"
+                onClick={() => vinInputRef.current?.click()}
+                className="flex h-14 w-full items-center justify-center gap-2 rounded-3xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
+              >
+                <Camera className="h-4 w-4" />
+                Scan/Upload VIN Photo {vinPhotoData ? '✓' : ''}
+              </button>
+              <input
+                ref={vinInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileToDataUrl(file, setVinPhotoData);
+                }}
+              />
 
-          <label className="text-xs font-semibold text-slate-500">{t.uploadVinPhoto}</label>
-          <input type="file" accept="image/*" onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onloadend = () => setVinPhotoData(String(reader.result || ''));
-            reader.readAsDataURL(file);
-          }} className="min-h-11 w-full rounded-xl border border-slate-300 p-2 text-sm" />
+              <button
+                type="button"
+                onClick={() => carInputRef.current?.click()}
+                className="flex h-14 w-full items-center justify-center gap-2 rounded-3xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
+              >
+                <Upload className="h-4 w-4" />
+                Upload Car Photo {carPhotoData ? '✓' : ''}
+              </button>
+              <input
+                ref={carInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileToDataUrl(file, setCarPhotoData);
+                }}
+              />
 
-          <button disabled={isSubmitting} className="min-h-11 w-full rounded-xl bg-blue-600 py-2.5 text-base font-semibold text-white disabled:opacity-50">
-            {isSubmitting ? t.submitting : t.submit}
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Manual VIN entry</span>
+                <input
+                  type="text"
+                  value={vin}
+                  onChange={(e) => setVin(e.target.value)}
+                  placeholder="WDB123456789..."
+                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
+                />
+              </label>
+            </div>
+          )}
+
+          {step === 4 && (
+            <label className="block">
+              <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Phone Number / WhatsApp</span>
+              <input
+                type="tel"
+                value={customerContact}
+                onChange={(e) => setCustomerContact(e.target.value)}
+                placeholder="+971..."
+                className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition placeholder:text-slate-400 focus:border-white/50"
+              />
+            </label>
+          )}
+        </div>
+
+        <div className="mt-8 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={goBack}
+            disabled={step === 1 || isSubmitting}
+            className="flex h-12 min-w-[120px] items-center justify-center gap-2 rounded-full border border-white/20 px-4 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back
           </button>
-        </form>
+
+          {step < TOTAL_STEPS ? (
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={!canContinue || isSubmitting}
+              className="flex h-12 min-w-[140px] items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-semibold text-slate-950 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Continue
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={submitOrder}
+              disabled={!canContinue || isSubmitting}
+              className="h-12 min-w-[160px] rounded-full bg-gradient-to-r from-amber-200 to-white px-6 text-sm font-semibold text-slate-950 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isSubmitting ? 'Submitting...' : 'Submit Request'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
