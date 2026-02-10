@@ -42,6 +42,7 @@ const PartDetailsScreen: React.FC = () => {
   const [variantPhotos, setVariantPhotos] = useState<string[]>([]);
   const [isLocating, setIsLocating] = useState(false);
   const [isResolvingLocation, setIsResolvingLocation] = useState(false);
+  const [locationParseNotice, setLocationParseNotice] = useState<string | null>(null);
 
   // LOGIC: Find the most recently added variant within THIS order
   const latestOrderVariant = useMemo(() => {
@@ -66,10 +67,12 @@ const PartDetailsScreen: React.FC = () => {
         setShopName(v?.shopName ?? '');
         setPhone(v?.phone ?? '');
         setLocation(v?.location ?? '');
+        setLocationParseNotice(null);
       } else {
         setShopName('');
         setPhone('');
         setLocation('');
+        setLocationParseNotice(null);
       }
     }
   }, [isAdding, latestOrderVariant]);
@@ -145,7 +148,10 @@ const PartDetailsScreen: React.FC = () => {
     setIsResolvingLocation(true);
     try {
       const existingSupplier = suppliers.find(s => s.name.toLowerCase() === shopName.toLowerCase());
-      const resolvedCoordinates = await resolveCoordinatesFromLocation(location, { fallbackQueries: buildShopFallbackQueries() });
+      const resolvedCoordinates = await resolveCoordinatesFromLocation(location, {
+        fallbackQueries: buildShopFallbackQueries(),
+        onManualLocationRequired: setLocationParseNotice
+      });
 
       if (!existingSupplier) {
         const newSupplier = {
@@ -204,6 +210,7 @@ const PartDetailsScreen: React.FC = () => {
       setIsAdding(false);
       setPriceAed('');
       setVariantPhotos([]);
+      setLocationParseNotice(null);
     } finally {
       setIsResolvingLocation(false);
     }
@@ -335,6 +342,11 @@ const PartDetailsScreen: React.FC = () => {
                     <Phone size={20} className="text-gray-400" />
                     <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="flex-1 bg-transparent outline-none font-bold text-base" placeholder="+971..." />
                   </div>
+                  {locationParseNotice && (
+                    <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+                      {locationParseNotice}
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -342,7 +354,7 @@ const PartDetailsScreen: React.FC = () => {
                   <div className="flex gap-2 mt-1">
                     <div className="flex-1 flex items-center gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-100 shadow-inner">
                       <MapPin size={20} className="text-gray-400" />
-                      <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} className="flex-1 bg-transparent outline-none font-bold text-base" placeholder="Ряд / Рядом с..." />
+                      <input type="text" value={location} onChange={(e) => { setLocation(e.target.value); setLocationParseNotice(null); }} className="flex-1 bg-transparent outline-none font-bold text-base" placeholder="Ряд / Рядом с..." />
                     </div>
                     <button 
                       type="button"

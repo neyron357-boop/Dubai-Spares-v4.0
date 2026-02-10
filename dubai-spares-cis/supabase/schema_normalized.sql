@@ -11,6 +11,7 @@ create table if not exists public.orders (
   year text not null default '',
   vin text not null default '',
   vin_photo_url text,
+  body_type text,
   status text not null default 'active' check (status in ('active','archive','sold','vip','lead','new_inquiry','in_progress')),
   priority text not null default 'MEDIUM' check (priority in ('LOW','MEDIUM','HIGH')),
   client_name text not null default '',
@@ -53,7 +54,7 @@ create table if not exists public.price_variants (
   location text not null default '',
   photo_url text,
   photos text[] not null default '{}',
-  created_at timestamptz not null default now(),
+  created_at bigint not null default (extract(epoch from now()) * 1000)::bigint,
   updated_at timestamptz not null default now()
 );
 
