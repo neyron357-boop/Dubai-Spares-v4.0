@@ -12,8 +12,9 @@ const root = ReactDOM.createRoot(rootElement);
 const isPublicOrderFormRoute = window.location.pathname === '/request' || window.location.pathname === '/order-form';
 const publicQuoteMatch = window.location.pathname.match(/^\/(?:order\/([^/]+)\/quote|quote\/([^/]+))\/?$/i);
 const publicQuoteOrderId = publicQuoteMatch ? extractOrderIdFromQuoteSlug(publicQuoteMatch[2] || publicQuoteMatch[1] || '') : null;
+const isPublicScrollableRoute = isPublicOrderFormRoute || !!publicQuoteOrderId;
 
-if (isPublicOrderFormRoute) {
+if (isPublicScrollableRoute) {
   document.documentElement.classList.add('public-order-form');
   document.body.classList.add('public-order-form');
   rootElement.classList.add('public-order-form');

@@ -1,17 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, BadgeCheck, CheckCircle2, ChevronRight, MessageCircle } from 'lucide-react';
+import { AlertCircle, BadgeCheck, CheckCircle2, ChevronRight, MessageCircle, RefreshCcw } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Order, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
+import { DEFAULT_QUOTE_RATES, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 
-type Currency = 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT';
-
-const CURRENCY_RATES: Record<Currency, number> = {
-  AED: 1,
-  USD: 3.67,
-  RUB: 0.04,
-  TJS: 0.34,
-  KZT: 0.008
+const CURRENCY_LABELS: Record<QuoteCurrency, string> = {
+  AED: 'Dirham',
+  USD: 'Dollar',
+  RUB: 'Ruble',
+  TJS: 'Somoni'
 };
 
 const parseTimestamp = (value: string | number | null | undefined): number => {
@@ -80,12 +78,56 @@ const getPartCondition = (variant?: PriceVariant) => {
   return 'New';
 };
 
+const fetchLiveQuoteRates = async (): Promise<QuoteRates> => {
+  const response = await fetch('https://open.er-api.com/v6/latest/AED');
+  if (!response.ok) throw new Error(`Rate API error: ${response.status}`);
+  const payload = await response.json();
+  const rates = payload?.rates || {};
+
+  return {
+    AED: 1,
+    USD: Number(rates.USD) > 0 ? Number(rates.USD) : DEFAULT_QUOTE_RATES.USD,
+    RUB: Number(rates.RUB) > 0 ? Number(rates.RUB) : DEFAULT_QUOTE_RATES.RUB,
+    TJS: Number(rates.TJS) > 0 ? Number(rates.TJS) : DEFAULT_QUOTE_RATES.TJS
+  };
+};
+
 const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currency, setCurrency] = useState<Currency>('AED');
+  const [currency, setCurrency] = useState<QuoteCurrency>('AED');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
+  const [rates, setRates] = useState<QuoteRates>(DEFAULT_QUOTE_RATES);
+  const [rateSource, setRateSource] = useState('Live market rates');
+  const [isRefreshingRates, setIsRefreshingRates] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sharedRates = parseQuoteRates(params.get('rates'));
+    const sharedCurrency = (params.get('currency') || '').toUpperCase() as QuoteCurrency;
+
+    if (sharedCurrency in DEFAULT_QUOTE_RATES) setCurrency(sharedCurrency);
+
+    if (sharedRates) {
+      setRates(sharedRates);
+      setRateSource('Manager custom rates');
+      return;
+    }
+
+    void (async () => {
+      setIsRefreshingRates(true);
+      try {
+        setRates(await fetchLiveQuoteRates());
+        setRateSource('Live market rates');
+      } catch {
+        setRates(DEFAULT_QUOTE_RATES);
+        setRateSource('Default rates');
+      } finally {
+        setIsRefreshingRates(false);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     const loadQuote = async () => {
@@ -124,7 +166,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
       const supplierAed = best?.priceAed || 0;
       const clientAed = supplierAed * (1 + order.markupPercent / 100);
-      const converted = clientAed * CURRENCY_RATES[currency];
+      const converted = clientAed * rates[currency];
       const photos = [...(part.photos || []), ...(best?.photos || []), part.photoUrl || '', best?.photoUrl || ''].filter(Boolean) as string[];
       const isReady = !!best && part.isFound;
       return {
@@ -139,7 +181,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         availability: isReady ? 'In stock' : 'In progress'
       };
     });
-  }, [order, currency]);
+  }, [order, currency, rates]);
 
   const { foundParts, pendingParts } = useMemo(() => ({
     foundParts: partCards.filter((item) => item.isReady),
@@ -150,9 +192,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     const totalSellAed = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
     return {
       totalAed: totalSellAed,
-      totalConverted: totalSellAed * CURRENCY_RATES[currency]
+      totalConverted: totalSellAed * rates[currency]
     };
-  }, [foundParts, currency]);
+  }, [foundParts, currency, rates]);
 
   const selectedPartNames = foundParts.map(({ part }) => part.name).join(', ');
   const whatsappText = encodeURIComponent(
@@ -178,20 +220,47 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   return (
     <div className="min-h-screen bg-[#f5f5f7] text-slate-900">
       <div className="sticky top-0 z-40 border-b border-black/5 bg-white/90 px-3 py-2 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-2 overflow-x-auto">
-          <p className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Currency</p>
-          <div className="flex gap-2">
-            {(Object.keys(CURRENCY_RATES) as Currency[]).map((code) => (
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+            <p className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Currency</p>
+            {(Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[]).map((code) => (
               <button
                 key={code}
                 type="button"
                 onClick={() => setCurrency(code)}
-                className={`min-h-10 min-w-[62px] rounded-full px-3 text-sm font-semibold transition ${currency === code ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
+                className={`min-h-9 min-w-[62px] rounded-full px-3 text-sm font-semibold transition ${currency === code ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
               >
                 {code}
               </button>
             ))}
           </div>
+          <div className="flex items-center gap-2 text-[11px] text-slate-500">
+            <span>Source: {rateSource}</span>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-slate-700"
+              onClick={() => {
+                void (async () => {
+                  setIsRefreshingRates(true);
+                  try {
+                    setRates(await fetchLiveQuoteRates());
+                    setRateSource('Live market rates');
+                  } catch {
+                    setRateSource('Default rates');
+                  } finally {
+                    setIsRefreshingRates(false);
+                  }
+                })();
+              }}
+            >
+              <RefreshCcw size={12} className={isRefreshingRates ? 'animate-spin' : ''} /> Refresh
+            </button>
+          </div>
+        </div>
+        <div className="mx-auto mt-2 grid w-full max-w-4xl grid-cols-2 gap-1 text-[10px] text-slate-500 sm:grid-cols-4">
+          {(Object.keys(rates) as QuoteCurrency[]).map((code) => (
+            <div key={code} className="rounded-lg bg-slate-100 px-2 py-1">1 AED = {rates[code].toFixed(4)} {code} · {CURRENCY_LABELS[code]}</div>
+          ))}
         </div>
       </div>
 

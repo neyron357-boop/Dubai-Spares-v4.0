@@ -29,7 +29,7 @@ import {
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
-import { buildPartShareText, shareMessage, shareQuoteLink } from '../shareUtils';
+import { QuoteCurrency, QuoteRates, buildPartShareText, shareMessage, shareQuoteLink } from '../shareUtils';
 import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
 import { logger } from '../logging';
@@ -179,10 +179,10 @@ const OrderDetailsScreen: React.FC = () => {
     );
   }
 
-  const shareQuote = async () => {
+  const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency }) => {
     if (!order) return;
     try {
-      await shareQuoteLink(order);
+      await shareQuoteLink(order, options);
     } catch {
       // ignore share cancel/failure in modal flow
     }
