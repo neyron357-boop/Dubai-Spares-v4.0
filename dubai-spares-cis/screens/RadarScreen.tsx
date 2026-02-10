@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { Shop } from '../types';
 import { buildShopMapLink, isShopCompatibleWithOrder } from '../shopMatching';
 import { supabase } from '../supabase';
+import { toast } from '../feedback';
 
 const toRad = (v: number) => (v * Math.PI) / 180;
 const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
@@ -20,25 +21,33 @@ const RadarScreen: React.FC = () => {
   const navigate = useNavigate();
   const [shops, setShops] = useState<Shop[]>([]);
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
+  const [isFetchingShops, setIsFetchingShops] = useState(true);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
+      setIsFetchingShops(true);
       if (!supabase) {
         const fallback = suppliers
           .filter((s) => s.coordinates)
           .map((s) => ({ id: s.id, name: s.name, phone: s.phone, location: s.location, latitude: s.coordinates!.lat, longitude: s.coordinates!.lng, specialization: s.brands || [] }));
         setShops(fallback);
+        setIsFetchingShops(false);
         return;
       }
-      const { data } = await supabase.from('shops').select('id,name,phone,location,latitude,longitude,specialization,specialization_models,specialization_years');
-      if (!active || !Array.isArray(data)) return;
+      const { data, error } = await supabase.from('shops').select('id,name,phone,location,latitude,longitude,specialization,specialization_models,specialization_years');
+      if (error) toast('Ошибка загрузки магазинов радара', 'error');
+      if (!active || !Array.isArray(data)) {
+        setIsFetchingShops(false);
+        return;
+      }
       setShops(data.map((row: any) => ({
         id: String(row.id), name: row.name || 'Shop', phone: row.phone || '', location: row.location || '',
         latitude: Number(row.latitude), longitude: Number(row.longitude), specialization: Array.isArray(row.specialization) ? row.specialization : [],
         specializationModels: Array.isArray(row.specialization_models) ? row.specialization_models : [],
         specializationYears: Array.isArray(row.specialization_years) ? row.specialization_years.map((y: any) => Number(y)).filter((y: number) => Number.isFinite(y)) : []
       })));
+      setIsFetchingShops(false);
     };
     void load();
     return () => { active = false; };
@@ -46,7 +55,10 @@ const RadarScreen: React.FC = () => {
 
   useEffect(() => {
     if (!navigator.geolocation) return;
-    const id = navigator.geolocation.watchPosition((pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }));
+    const id = navigator.geolocation.watchPosition(
+      (pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => toast('GPS отключен — радар ограничен', 'error')
+    );
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
@@ -64,7 +76,15 @@ const RadarScreen: React.FC = () => {
         <div className="flex items-center gap-2 text-emerald-300"><Radar size={18} className="animate-pulse" /><span className="text-sm font-black uppercase tracking-wider">Radar Live</span></div>
         <p className="mt-1 text-xs text-emerald-100/80">Отдельный экран радара: ближайшие релевантные магазины по активным заявкам.</p>
       </div>
-      {entries.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Релевантных магазинов рядом пока нет.</div> : entries.slice(0, 30).map(({ order, shop, distance }) => (
+      {isFetchingShops ? (
+        Array.from({ length: 3 }).map((_, idx) => (
+          <div key={`radar-skeleton-${idx}`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2 animate-pulse">
+            <div className="h-4 w-28 rounded bg-slate-700" />
+            <div className="h-3 w-44 rounded bg-slate-800" />
+            <div className="h-8 w-full rounded-xl bg-slate-800" />
+          </div>
+        ))
+      ) : entries.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Релевантных магазинов рядом пока нет.</div> : entries.slice(0, 30).map(({ order, shop, distance }) => (
         <div key={`${order.id}-${shop.id}`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">

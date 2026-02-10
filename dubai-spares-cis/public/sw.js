@@ -1,11 +1,22 @@
-const APP_SHELL_CACHE = 'dubai-spares-shell-v2';
-const RUNTIME_CACHE = 'dubai-spares-runtime-v2';
-const APP_SHELL_FILES = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png'];
+const APP_SHELL_CACHE = 'dubai-spares-shell-v3';
+const RUNTIME_CACHE = 'dubai-spares-runtime-v3';
+const APP_SHELL_FILES = ['/', '/index.html', '/manifest.json', '/icon-32.png', '/icon-180.png', '/icon-192.png', '/icon-512.png'];
 const NEW_LEAD_NOTIFY_TAG = 'new-inquiry-leads';
 const LEAD_CHECK_INTERVAL_MS = 60 * 1000;
 let supabaseConfig = null;
 let latestLeadIds = new Set();
 let leadPollingTimer = null;
+
+const showTaggedNotification = async (title, options = {}) => {
+  await self.registration.showNotification(title, {
+    badge: '/icon-192.png',
+    icon: '/icon-192.png',
+    renotify: true,
+    requireInteraction: true,
+    vibrate: [220, 120, 220],
+    ...options
+  });
+};
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(APP_SHELL_CACHE).then((cache) => cache.addAll(APP_SHELL_FILES)));
@@ -32,6 +43,28 @@ self.addEventListener('message', (event) => {
     startLeadPolling();
   }
   if (data.type === 'start-lead-polling') startLeadPolling();
+
+  if (data.type === 'notify-order') {
+    event.waitUntil(
+      showTaggedNotification(data.title || 'Новый заказ', {
+        body: data.body || 'Появился новый заказ',
+        tag: data.tag || 'order-alert',
+        data: { url: data.url || '/', route: data.route || '/' },
+        vibrate: [250, 120, 250, 120, 250]
+      })
+    );
+  }
+
+  if (data.type === 'notify-radar') {
+    event.waitUntil(
+      showTaggedNotification(data.title || 'Радар', {
+        body: data.body || 'Рядом найден совместимый магазин',
+        tag: data.tag || 'radar-alert',
+        data: { url: data.url || '/', route: data.route || '/' },
+        vibrate: [180, 80, 180]
+      })
+    );
+  }
 });
 
 const fetchLeadIds = async () => {
@@ -55,7 +88,7 @@ const notifyAboutNewLeads = async () => {
   if (latestLeadIds.size > 0 && newRows.length > 0) {
     const top = newRows[0];
     const title = `Новый лид: ${top.brand || ''} ${top.model || ''}`.trim();
-    await self.registration.showNotification(title || 'Новый лид', {
+    await showTaggedNotification(title || 'Новый лид', {
       body: `Поступило новых заявок: ${newRows.length}`,
       tag: NEW_LEAD_NOTIFY_TAG,
       requireInteraction: true,
@@ -123,7 +156,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  event.respondWith(fetch(request).catch(() => caches.match(request).then((hit) => hit || caches.match('/index.html'))));
+  event.respondWith(
+    fetch(request).catch(() => caches.match(request).then((hit) => hit || caches.match('/index.html')))
+  );
 });
 
 self.addEventListener('sync', (event) => {
@@ -149,15 +184,16 @@ self.addEventListener('periodicsync', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const route = event.notification.data?.route || '/';
   const url = event.notification.data?.url || '/';
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       const existing = clients.find((client) => 'focus' in client);
       if (existing) {
-        existing.navigate(url);
+        existing.navigate(route.startsWith('#') ? route : `/#${route}`);
         return existing.focus();
       }
-      return self.clients.openWindow(url);
+      return self.clients.openWindow(route.startsWith('#') ? route : `/#${route}`);
     })
   );
 });

@@ -7,7 +7,7 @@ const BUCKET_CANDIDATES = [configuredBucket, 'images', 'order-images'].filter(
 );
 
 const MAX_IMAGE_DIMENSION = 1200;
-const JPEG_QUALITY = 0.7;
+const WEBP_QUALITY = 0.72;
 
 const isBucketNotFoundError = (error: unknown): boolean => {
   if (!error || typeof error !== 'object') return false;
@@ -29,6 +29,7 @@ const toBlob = async (source: File | Blob | string): Promise<Blob> => {
 };
 
 const extensionFromBlob = (blob: Blob): string => {
+  if (blob.type === 'image/webp') return 'webp';
   const [, ext] = (blob.type || '').split('/');
   return ext || 'jpg';
 };
@@ -84,7 +85,7 @@ const compressBlob = async (blob: Blob): Promise<Blob> => {
     if (!context) return blob;
 
     context.drawImage(image, 0, 0, width, height);
-    return await canvasToBlob(canvas, 'image/jpeg', JPEG_QUALITY);
+    return await canvasToBlob(canvas, 'image/webp', WEBP_QUALITY);
   } finally {
     URL.revokeObjectURL(imageUrl);
   }
@@ -125,7 +126,7 @@ export const uploadImageToStorage = async (
   for (const bucket of BUCKET_CANDIDATES) {
     const { error } = await supabase.storage.from(bucket).upload(path, blob, {
       upsert: true,
-      contentType: blob.type || 'image/jpeg'
+      contentType: blob.type || 'image/webp'
     });
 
     if (!error) {
