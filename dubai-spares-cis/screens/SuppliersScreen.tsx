@@ -37,6 +37,7 @@ const SuppliersScreen: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [location, setLocation] = useState('');
   const [isSavingSupplier, setIsSavingSupplier] = useState(false);
+  const [locationParseNotice, setLocationParseNotice] = useState<string | null>(null);
 
 
   const filtered = suppliers.filter(s => {
@@ -72,7 +73,10 @@ const SuppliersScreen: React.FC = () => {
 
     setIsSavingSupplier(true);
     try {
-      const coordinates = await resolveCoordinatesFromLocation(location, { fallbackQueries: buildSupplierFallbackQueries() });
+      const coordinates = await resolveCoordinatesFromLocation(location, {
+        fallbackQueries: buildSupplierFallbackQueries(),
+        onManualLocationRequired: setLocationParseNotice
+      });
       const newSupplier: Supplier = {
         id: createUuid(),
         name,
@@ -91,6 +95,7 @@ const SuppliersScreen: React.FC = () => {
       setName('');
       setPhone('');
       setLocation('');
+      setLocationParseNotice(null);
       setIsAdding(false);
     } finally {
       setIsSavingSupplier(false);
@@ -265,11 +270,16 @@ const SuppliersScreen: React.FC = () => {
                 <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Локация / Карта</label>
                 <input 
                   placeholder="Ссылка или описание..." 
-                  value={location} onChange={e => setLocation(e.target.value)}
+                  value={location} onChange={e => { setLocation(e.target.value); setLocationParseNotice(null); }}
                   autoComplete="off"
                   className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
                 />
               </div>
+              {locationParseNotice && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+                  {locationParseNotice}
+                </div>
+              )}
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold active:bg-gray-200 transition-colors uppercase text-xs">Отмена</button>

@@ -78,17 +78,6 @@ const isGoogleShortMapsUrl = (raw: string): boolean => {
     return false;
   }
 };
-
-const isGoogleUserContentUrl = (raw: string): boolean => {
-  if (!raw || !raw.startsWith('http')) return false;
-  try {
-    const host = new URL(raw).hostname.toLowerCase();
-    return host === 'googleusercontent.com' || host === 'www.googleusercontent.com' || host.endsWith('.googleusercontent.com');
-  } catch {
-    return false;
-  }
-};
-
 const normalizeMapsInput = (raw: string): string => {
   try {
     const url = new URL(raw);
@@ -112,14 +101,6 @@ const hasMapsCoordinatesOrPlace = (value: string) => {
     || Boolean(extractCoordinates(value))
   );
 };
-
-const hasAtCoordinates = (value: string) => /@-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/i.test(value);
-
-const isRedirectProxyUrl = (raw: string): boolean => {
-  if (!raw || !raw.startsWith('http')) return false;
-  return isGoogleShortMapsUrl(raw) || isGoogleUserContentUrl(raw);
-};
-
 const decodeUrlCandidate = (value: string): string | null => {
   if (!value) return null;
   const trimmed = value.trim();
@@ -152,79 +133,66 @@ const getUrlFromRedirectQuery = (raw: string): string | null => {
   return null;
 };
 
-const expandGoogleRedirectUrl = async (raw: string): Promise<string | null> => {
-  if (!isGoogleMapsUrl(raw)) return null;
+interface ExpandLocationResult {
+  url: string;
+  exhaustedAttempts: boolean;
+}
 
-  const queryExpandedFirst = getUrlFromRedirectQuery(raw);
-  if (queryExpandedFirst && queryExpandedFirst !== raw) {
-    return queryExpandedFirst;
-  }
-
-  try {
-    const manual = await fetch(raw, { method: 'GET', redirect: 'manual' });
-    const location = manual.headers.get('location');
-    if (location) {
-      const next = new URL(location, raw).toString();
-      if (next !== raw) return next;
-    }
-  } catch {
-    // noop, continue to follow-based fallbacks
-  }
-
-  try {
-    const response = await fetch(raw, { method: 'HEAD', redirect: 'follow' });
-    if (response?.url && response.url !== raw) {
-      return response.url;
-    }
-  } catch {
-    // noop, continue to fallbacks below
-  }
-
-  try {
-    // Browser fallback: opaque response can still expose final URL after redirects.
-    const response = await fetch(raw, { method: 'GET', redirect: 'follow', mode: 'no-cors' });
-    return response?.url && response.url !== raw ? response.url : null;
-  } catch {
-    return null;
-  }
-};
-
-const getLocationHeaderRedirect = async (raw: string): Promise<string | null> => {
-  try {
-    const manual = await fetch(raw, { method: 'GET', redirect: 'manual' });
-    const location = manual.headers.get('location');
-    if (!location) return null;
-    return new URL(location, raw).toString();
-  } catch {
-    return null;
-  }
-};
+const FOLLOW_COORDINATE_REGEX = /@(-?\d+\.\d+),(-?\d+\.\d+)/;
 
 interface ResolveCoordinatesOptions {
   fallbackQueries?: string[];
+  onManualLocationRequired?: (message: string) => void;
 }
 
-const expandLocationUrlChain = async (raw: string, maxHops = 8): Promise<string> => {
+const expandLocationUrlChain = async (raw: string, maxAttempts = 3): Promise<ExpandLocationResult> => {
   let current = raw;
-  let hops = 0;
+  let attempts = 0;
 
-  while (hops < maxHops) {
-    const shouldContinue = !hasAtCoordinates(current)
-      && (isGoogleUserContentUrl(current) || isGoogleShortMapsUrl(current) || isRedirectProxyUrl(current));
-    if (!shouldContinue) break;
-
-    const next = await getLocationHeaderRedirect(current) || await expandGoogleRedirectUrl(current);
-    if (!next || next === current) break;
-
-    current = next;
-    hops += 1;
-
-    if (!current.includes('googleusercontent.com') && !isGoogleShortMapsUrl(current) && hasMapsCoordinatesOrPlace(current)) {
-      break;
+  while (attempts < maxAttempts) {
+    const queryExpandedFirst = getUrlFromRedirectQuery(current);
+    if (queryExpandedFirst && queryExpandedFirst !== current) {
+      current = queryExpandedFirst;
+      if (FOLLOW_COORDINATE_REGEX.test(current) || !current.includes('googleusercontent.com')) {
+        return { url: current, exhaustedAttempts: false };
+      }
+      attempts += 1;
+      continue;
     }
+
+    let response: Response;
+    try {
+      response = await fetch(current, { method: 'HEAD', redirect: 'manual' });
+    } catch {
+      attempts += 1;
+      continue;
+    }
+
+    if (response.status === 200) {
+      return { url: response.url || current, exhaustedAttempts: false };
+    }
+
+    const location = response.headers.get('location');
+    if (!location) {
+      attempts += 1;
+      continue;
+    }
+
+    const next = new URL(location, current).toString();
+    current = next;
+
+    if (FOLLOW_COORDINATE_REGEX.test(next)) {
+      return { url: next, exhaustedAttempts: false };
+    }
+
+    if (!next.includes('googleusercontent.com') && !isGoogleShortMapsUrl(next) && hasMapsCoordinatesOrPlace(next)) {
+      return { url: next, exhaustedAttempts: false };
+    }
+
+    attempts += 1;
   }
 
-  return current;
+  return { url: current, exhaustedAttempts: true };
 };
 
 const dedupe = (values: string[]) => Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
@@ -292,7 +260,7 @@ export const resolveCoordinatesFromLocation = async (
   location: string,
   options: ResolveCoordinatesOptions = {}
 ): Promise<Coordinates | undefined> => {
-  const { fallbackQueries = [] } = options;
+  const { fallbackQueries = [], onManualLocationRequired } = options;
   const raw = (location || '').trim();
   if (!raw && fallbackQueries.length === 0) return undefined;
   const normalizedRaw = normalizeMapsInput(raw);
@@ -302,9 +270,19 @@ export const resolveCoordinatesFromLocation = async (
   if (normalizedRaw) {
     try {
       if (isGoogleMapsUrl(normalizedRaw)) {
-        const redirectTarget = await expandLocationUrlChain(normalizedRaw);
+        const { url: redirectTarget, exhaustedAttempts } = await expandLocationUrlChain(normalizedRaw);
         if (redirectTarget !== normalizedRaw) {
           await logger.info('RADAR_GEO', 'Google redirect URL expanded', { rawLocation: normalizedRaw, redirectTarget });
+        }
+
+        const finalCoordinateMatch = redirectTarget.match(FOLLOW_COORDINATE_REGEX);
+        if (finalCoordinateMatch) {
+          const lat = Number(finalCoordinateMatch[1]);
+          const lng = Number(finalCoordinateMatch[2]);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            await logger.info('RADAR_GEO', 'Google redirect URL parsed', { coordinates: [lat, lng] });
+            return { lat, lng };
+          }
         }
 
         const fromExpandedCoordinates = extractCoordinates(redirectTarget);
@@ -317,6 +295,17 @@ export const resolveCoordinatesFromLocation = async (
         if (fromDirectGoogleCoordinates) {
           await logger.info('RADAR_GEO', 'Manual location parsing result: Success', { coordinates: [fromDirectGoogleCoordinates.lat, fromDirectGoogleCoordinates.lng] });
           return fromDirectGoogleCoordinates;
+        }
+
+        if (exhaustedAttempts) {
+          const manualPrompt = 'Could not parse link. Please tap on the map to set shop location manually.';
+          onManualLocationRequired?.(manualPrompt);
+          await logger.warn('RADAR_GEO', 'Manual location parsing result: Manual map required', {
+            reason: 'Redirect resolution failed after 3 attempts',
+            rawLocation: raw,
+            expandedLocation: redirectTarget
+          });
+          return undefined;
         }
 
         const fromUrlGeocode = isGoogleShortMapsUrl(normalizedRaw) ? null : await geocodeByUrl(redirectTarget);
@@ -341,7 +330,10 @@ export const resolveCoordinatesFromLocation = async (
         }
       }
 
-      await logger.warn('RADAR_GEO', 'Manual location parsing result: Fail', { reason: 'Regex mismatch', rawLocation: raw, expandedLocation: isGoogleMapsUrl(normalizedRaw) ? await expandLocationUrlChain(normalizedRaw) : normalizedRaw });
+      const expandedForLog = isGoogleMapsUrl(normalizedRaw)
+        ? (await expandLocationUrlChain(normalizedRaw)).url
+        : normalizedRaw;
+      await logger.warn('RADAR_GEO', 'Manual location parsing result: Fail', { reason: 'Regex mismatch', rawLocation: raw, expandedLocation: expandedForLog });
 
       const geocoded = await geocodeAddress(normalizedRaw);
       if (geocoded) {

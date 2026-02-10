@@ -212,7 +212,7 @@ const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: 
 
 export interface RadarShopMatch {
   shop: Shop;
-  distance: number;
+  distance: number | null;
   matchScore: number;
   radarScore: number;
   isRecommended: boolean;
@@ -288,8 +288,8 @@ export const getRadarShopMatches = (
       const hasValidPosition = !!currentPosition && hasValidCoordinates(currentPosition.lat, currentPosition.lng);
       const distance = hasShopCoords && hasValidPosition
         ? distanceMeters(currentPosition!, { lat: shop.latitude, lng: shop.longitude })
-        : Number.POSITIVE_INFINITY;
-      const distanceBonus = Number.isFinite(distance)
+        : null;
+      const distanceBonus = distance !== null
         ? distance <= 300 ? 6 : distance <= 800 ? 4 : distance <= 2000 ? 2 : 0
         : 0;
       const radarScore = matchScore + distanceBonus + (isCompatible ? 4 : 0);
@@ -302,5 +302,5 @@ export const getRadarShopMatches = (
 
       return { shop, distance, matchScore, radarScore, isRecommended, isCompatible, confidence };
     })
-    .sort((a, b) => (a.distance - b.distance) || (b.radarScore - a.radarScore));
+    .sort((a, b) => ((a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY)) || (b.radarScore - a.radarScore));
 };
