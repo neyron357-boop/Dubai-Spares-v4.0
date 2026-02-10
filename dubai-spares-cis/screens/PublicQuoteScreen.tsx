@@ -1,25 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, MessageCircle, PhoneCall } from 'lucide-react';
+import { AlertCircle, BadgeCheck, CheckCircle2, ChevronRight, MessageCircle } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Order, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
 
-type Currency = 'AED' | 'USD' | 'TJS' | 'KZT' | 'RUB';
+type Currency = 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT';
 
 const CURRENCY_RATES: Record<Currency, number> = {
   AED: 1,
-  USD: 0.27,
-  TJS: 2.95,
-  KZT: 133,
-  RUB: 24.5
-};
-
-const CURRENCY_LABELS: Record<Currency, string> = {
-  AED: 'AED',
-  USD: 'USD',
-  TJS: 'Сомони',
-  KZT: 'Тенге',
-  RUB: '₽'
+  USD: 3.67,
+  RUB: 0.04,
+  TJS: 0.34,
+  KZT: 0.008
 };
 
 const parseTimestamp = (value: string | number | null | undefined): number => {
@@ -42,6 +34,8 @@ const mapDbOrder = (row: any): Order => ({
   vin: row.vin || '',
   vinPhotoUrl: row.vin_photo_url || '',
   priority: row.priority || 'MEDIUM',
+  status: row.status || 'in_progress',
+  salesStatus: row.sales_status,
   clientName: row.client_name || '',
   source: row.source || 'WhatsApp',
   carPhotoUrl: row.car_photo_url || row.car_photos?.[0] || row.vin_photo_url || '',
@@ -72,6 +66,27 @@ const mapDbOrder = (row: any): Order => ({
   isSold: !!row.is_sold
 });
 
+const quoteStatus = (order: Order) => {
+  if (order.salesStatus === 'Pending Approval') return 'Ready for Review';
+  if (order.salesStatus === 'Price Sent') return 'Best Price Found';
+  if (order.salesStatus === 'Paid') return 'Awaiting Delivery';
+  if (order.salesStatus === 'Completed' || order.isSold) return 'Order Confirmed';
+  return 'Best Price Found';
+};
+
+const getPartCondition = (variant?: PriceVariant) => {
+  const hint = `${variant?.shopName || ''} ${variant?.location || ''}`.toLowerCase();
+  if (hint.includes('used') || hint.includes('разбор') || hint.includes('б/у')) return 'Used';
+  return 'New';
+};
+
+const getPartAvailability = (partFound: boolean, variant?: PriceVariant) => {
+  if (!partFound || !variant) return 'On request';
+  const hint = `${variant.location || ''}`.toLowerCase();
+  if (hint.includes('day') || hint.includes('дн')) return variant.location;
+  return 'In stock';
+};
+
 const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -89,7 +104,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
       const { data, error: loadError } = await supabase
         .from('orders')
-        .select('id,brand,model,year,body_type,vin,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,created_at,is_archived,is_sold,parts(*,price_variants(*))')
+        .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,created_at,is_archived,is_sold,parts(*,price_variants(*))')
         .eq('id', orderId)
         .maybeSingle();
 
@@ -122,105 +137,128 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         best,
         photos,
         converted,
-        baseAed
+        baseAed,
+        condition: getPartCondition(best),
+        availability: getPartAvailability(part.isFound, best)
       };
     });
   }, [order, currency]);
 
-  const totalAed = partCards.reduce((sum, item) => sum + item.baseAed, 0);
-  const totalConverted = totalAed * CURRENCY_RATES[currency];
-  const whatsappText = encodeURIComponent(`Hello! I reviewed the quote for ${order?.brand || ''} ${order?.model || ''}.`);
+  const totals = useMemo(() => {
+    const totalAed = partCards.reduce((sum, item) => sum + item.baseAed, 0);
+    return {
+      totalAed,
+      totalConverted: totalAed * CURRENCY_RATES[currency]
+    };
+  }, [partCards, currency]);
+
+  const selectedPartNames = partCards.map(({ part }) => part.name).join(', ');
+  const whatsappText = encodeURIComponent(
+    `Hello! I reviewed the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''} and I want to proceed with ${selectedPartNames || 'the selected parts'}.`
+  );
   const whatsappUrl = `https://wa.me/?text=${whatsappText}`;
 
   if (loading) {
-    return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">Loading quotation…</div>;
+    return <div className="min-h-screen bg-[#f5f5f7] text-slate-900 flex items-center justify-center">Loading quotation…</div>;
   }
 
   if (error || !order) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center px-4 text-center">
-        <div className="max-w-sm rounded-3xl border border-white/10 bg-white/5 p-6">
-          <AlertCircle className="mx-auto mb-3 text-rose-300" />
-          <p className="text-sm text-white/90">{error || 'Quote not available.'}</p>
+      <div className="min-h-screen bg-[#f5f5f7] text-slate-900 flex items-center justify-center px-4 text-center">
+        <div className="max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <AlertCircle className="mx-auto mb-3 text-rose-500" />
+          <p className="text-sm text-slate-700">{error || 'Quote not available.'}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
-      <header className="relative min-h-[44vh] overflow-hidden">
-        {heroPhoto ? (
-          <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="absolute inset-0 h-full w-full object-cover" />
-        ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/55 to-slate-950" />
-        <div className="relative px-4 pt-8 pb-6">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-white/70">Public quotation</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">{order.brand} {order.model}</h1>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full bg-white/15 px-3 py-1">Year: {order.year || '—'}</span>
-            <span className="rounded-full bg-white/15 px-3 py-1">Body: {order.bodyType || '—'}</span>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto -mt-4 w-full max-w-3xl space-y-4 px-3 pb-24">
-        <section className="rounded-3xl border border-white/10 bg-white/[0.05] p-4 backdrop-blur-xl">
-          <div className="flex flex-wrap gap-2">
+    <div className="min-h-screen bg-[#f5f5f7] text-slate-900">
+      <div className="sticky top-0 z-40 border-b border-black/5 bg-white/90 px-3 py-2 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-2 overflow-x-auto">
+          <p className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Currency</p>
+          <div className="flex gap-2">
             {(Object.keys(CURRENCY_RATES) as Currency[]).map((code) => (
               <button
                 key={code}
                 type="button"
                 onClick={() => setCurrency(code)}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${currency === code ? 'bg-white text-slate-900' : 'bg-white/10 text-white/80'}`}
+                className={`min-h-10 min-w-[62px] rounded-full px-3 text-sm font-semibold transition ${currency === code ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
               >
-                {code} · {CURRENCY_LABELS[code]}
+                {code}
               </button>
             ))}
           </div>
-          <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-3 text-sm">
-            <p className="text-white/70">Total</p>
-            <p className="text-2xl font-semibold">{totalConverted.toFixed(2)} {currency}</p>
-            <p className="text-xs text-white/60">Base: {totalAed.toFixed(2)} AED</p>
+        </div>
+      </div>
+
+      <header className="relative min-h-[45vh] overflow-hidden">
+        {heroPhoto ? (
+          <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="absolute inset-0 h-full w-full object-cover" />
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-200 to-slate-400" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/45 to-black/65" />
+        <div className="relative mx-auto flex h-full w-full max-w-4xl flex-col justify-between px-4 pb-6 pt-8 text-white">
+          <div className="w-fit rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold backdrop-blur">
+            VIN: {order.vin || 'Not provided'}
           </div>
+
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{order.brand} {order.model} {order.year}</h1>
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-500/90 px-4 py-2 text-sm font-semibold shadow-lg shadow-emerald-900/40">
+              <BadgeCheck size={16} />
+              {quoteStatus(order)}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto -mt-8 w-full max-w-4xl space-y-4 px-3 pb-28 sm:px-5">
+        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Quote total</p>
+          <p className="mt-2 text-3xl font-semibold">{totals.totalConverted.toFixed(2)} {currency}</p>
+          <p className="mt-1 text-sm text-slate-500">Base total: {totals.totalAed.toFixed(2)} AED · Rate: {CURRENCY_RATES[currency]}</p>
         </section>
 
         <section className="space-y-3">
-          {partCards.map(({ part, best, converted, photos }) => (
-            <article key={part.id} className="rounded-3xl border border-white/10 bg-white/[0.05] p-4 backdrop-blur-xl">
-              <div className="flex items-start justify-between gap-3">
+          {partCards.map(({ part, best, converted, photos, condition, availability }) => (
+            <article key={part.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-lg font-semibold">{part.name}</h2>
-                  <p className="mt-1 text-xs text-white/65">Condition: {best ? 'Checked by supplier' : 'On request'}</p>
-                  <p className="text-xs text-white/65">Status: {part.isFound ? 'Available' : 'Searching'}</p>
+                  <h2 className="text-xl font-semibold text-slate-900">{part.name}</h2>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs font-medium">
+                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">Condition: {condition}</span>
+                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">Availability: {availability}</span>
+                  </div>
                 </div>
+
                 <div className="text-right">
-                  <p className="text-xl font-semibold">{converted.toFixed(2)} {currency}</p>
-                  <p className="text-[11px] text-white/60">{(best?.priceAed || 0).toFixed(2)} AED</p>
+                  <p className="text-2xl font-semibold text-slate-900">{converted.toFixed(2)} {currency}</p>
+                  <p className="text-xs text-slate-500">{(best?.priceAed || 0).toFixed(2)} AED</p>
                 </div>
               </div>
 
               {photos.length > 0 && (
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {photos.slice(0, 6).map((photo, idx) => (
+                <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {photos.slice(0, 8).map((photo, idx) => (
                     <button
                       key={`${part.id}-${idx}`}
                       type="button"
                       onClick={() => setGallery({ images: photos, index: idx })}
-                      className="overflow-hidden rounded-xl border border-white/10"
+                      className="min-h-20 overflow-hidden rounded-2xl border border-slate-200"
                     >
-                      <img src={photo} alt={`${part.name} ${idx + 1}`} className="h-20 w-full object-cover" />
+                      <img src={photo} alt={`${part.name} ${idx + 1}`} className="h-24 w-full object-cover" />
                     </button>
                   ))}
                 </div>
               )}
 
               {best?.shopName && (
-                <div className="mt-3 flex items-center gap-2 text-xs text-white/70">
-                  <CheckCircle2 size={14} className="text-emerald-300" />
-                  Supplier: {best.shopName}
+                <div className="mt-4 inline-flex items-center gap-2 text-sm text-slate-600">
+                  <CheckCircle2 size={16} className="text-emerald-500" />
+                  Best source: {best.shopName}
                 </div>
               )}
             </article>
@@ -228,13 +266,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         </section>
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-slate-950/95 p-3 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-3xl gap-2">
-          <a href={whatsappUrl} target="_blank" rel="noreferrer" className="flex min-h-14 flex-[2] items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 text-base font-bold text-white shadow-[0_10px_40px_rgba(16,185,129,0.35)]">
-            <MessageCircle size={18} /> WhatsApp Support
-          </a>
-          <a href={bestPhoneLink(order.parts)} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-white/20 px-4 text-sm font-semibold text-white/90">
-            <PhoneCall size={16} /> Approve
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-black/5 bg-white/95 p-3 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur-xl">
+        <div className="mx-auto w-full max-w-4xl">
+          <a
+            href={whatsappUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 text-base font-bold text-white shadow-[0_12px_40px_rgba(16,185,129,0.35)]"
+          >
+            <MessageCircle size={18} /> Confirm Order via WhatsApp <ChevronRight size={18} />
           </a>
         </div>
       </div>
@@ -242,12 +282,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
     </div>
   );
-};
-
-const bestPhoneLink = (parts: Order['parts']) => {
-  const phone = parts.flatMap((part) => part.variants).find((variant) => variant.phone)?.phone || '';
-  const normalized = phone.replace(/[^\d+]/g, '');
-  return normalized ? `tel:${normalized}` : '#';
 };
 
 export default PublicQuoteScreen;
