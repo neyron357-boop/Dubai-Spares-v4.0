@@ -13,7 +13,7 @@ export enum Source {
   OTHER = 'Другое'
 }
 
-export type OrderStatus = 'active' | 'archive' | 'sold' | 'vip' | 'lead' | 'new_inquiry';
+export type OrderStatus = 'active' | 'archive' | 'sold' | 'vip' | 'lead' | 'new_inquiry' | 'in_progress';
 export type SalesStatus = 'Inquiry' | 'Price Sent' | 'Pending Approval' | 'Paid' | 'Completed';
 
 export interface Coordinates {
@@ -89,6 +89,16 @@ export interface Supplier {
   photoUrl?: string;
   photos?: string[];
   coordinates?: Coordinates;
+}
+
+export interface Shop {
+  id: string;
+  name: string;
+  phone?: string;
+  location?: string;
+  latitude: number;
+  longitude: number;
+  specialization: string[];
 }
 
 export interface DbPriceVariantRow {

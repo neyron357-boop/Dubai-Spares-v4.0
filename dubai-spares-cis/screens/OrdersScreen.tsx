@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { Order, Priority, Part } from '../types';
+import { Order, Priority, Part, Shop } from '../types';
 import {
   Calendar,
   Tag,
@@ -23,6 +23,7 @@ import IncomeModal from '../components/IncomeModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 import { shareMessage, buildOrderShareText } from '../shareUtils';
+import { supabase } from '../supabase';
 
 type TabType = 'active' | 'archive' | 'sold' | 'vip' | 'leads' | 'new_leads';
 type SortType = 'date' | 'brand' | 'priority' | 'status';
@@ -30,8 +31,8 @@ type SortType = 'date' | 'brand' | 'priority' | 'status';
 const weights = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
 const toRad = (v: number) => (v * Math.PI) / 180;
 
-const distanceKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
-  const R = 6371;
+const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const R = 6371000;
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);
   const calc =
@@ -60,6 +61,8 @@ const OrdersScreen: React.FC = () => {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [nearbyFirst, setNearbyFirst] = useState(false);
   const [currentPosition, setCurrentPosition] = useState<{ lat: number; lng: number } | null>(null);
+  const [shops, setShops] = useState<Shop[]>([]);
+  const [radarMessage, setRadarMessage] = useState<string | null>(null);
   const notifiedRef = useRef<Set<string>>(new Set());
   const prevLeadIdsRef = useRef<string[] | null>(null);
   const [seenLeadIds, setSeenLeadIds] = useState<Set<string>>(new Set());
@@ -112,10 +115,10 @@ const OrdersScreen: React.FC = () => {
 
     const nearestDistance = (order: Order) => {
       if (!currentPosition) return Number.MAX_SAFE_INTEGER;
-      const shops = suppliers.filter((s) => s.brands.some((brand) => isBrandMatch(order.brand, brand)) && s.coordinates);
-      if (shops.length === 0) return Number.MAX_SAFE_INTEGER;
+      const matchedShops = shops.filter((shop) => shop.specialization.some((brand) => isBrandMatch(order.brand, brand)));
+      if (matchedShops.length === 0) return Number.MAX_SAFE_INTEGER;
       return Math.min(
-        ...shops.map((shop) => distanceKm(currentPosition, { lat: shop.coordinates!.lat, lng: shop.coordinates!.lng }))
+        ...matchedShops.map((shop) => distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }))
       );
     };
 
@@ -203,35 +206,83 @@ const OrdersScreen: React.FC = () => {
   };
 
   useEffect(() => {
-    const leads = orders.filter((order) => order.status === 'new_inquiry');
-    if (leads.length === 0 || suppliers.length === 0 || !navigator.geolocation) return;
-
-    navigator.geolocation.getCurrentPosition((pos) => {
-      const current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      setCurrentPosition(current);
-
-      const nearLead = leads.find((order) => {
-        const nearbyShop = suppliers.find((supplier) =>
-          supplier.coordinates &&
-          supplier.brands.some((brand) => isBrandMatch(order.brand, brand)) &&
-          distanceKm(current, { lat: supplier.coordinates.lat, lng: supplier.coordinates.lng }) <= 2
-        );
-        return Boolean(nearbyShop) && !notifiedRef.current.has(order.id);
-      });
-
-      if (!nearLead || typeof Notification === 'undefined') return;
-
-      if (Notification.permission === 'granted') {
-        new Notification('New lead nearby', {
-          body: `${nearLead.brand} ${nearLead.model}: ${nearLead.parts.map((p) => p.name).join(', ')}`
-        });
-        notifiedRef.current.add(nearLead.id);
-        localStorage.setItem('notified_new_inquiry_ids', JSON.stringify(Array.from(notifiedRef.current)));
-      } else if (Notification.permission === 'default') {
-        void Notification.requestPermission();
+    let active = true;
+    const loadShops = async () => {
+      if (!supabase) {
+        const fallback = suppliers
+          .filter((s) => s.coordinates)
+          .map((s) => ({ id: s.id, name: s.name, phone: s.phone, location: s.location, latitude: s.coordinates!.lat, longitude: s.coordinates!.lng, specialization: s.brands || [] }));
+        setShops(fallback);
+        return;
       }
+      const { data } = await supabase.from('shops').select('id,name,phone,location,latitude,longitude,specialization');
+      if (!active) return;
+      if (Array.isArray(data) && data.length > 0) {
+        setShops(data.map((row: any) => ({
+          id: String(row.id),
+          name: row.name || 'Shop',
+          phone: row.phone || '',
+          location: row.location || '',
+          latitude: Number(row.latitude),
+          longitude: Number(row.longitude),
+          specialization: Array.isArray(row.specialization) ? row.specialization : []
+        })));
+      } else {
+        const fallback = suppliers
+          .filter((s) => s.coordinates)
+          .map((s) => ({ id: s.id, name: s.name, phone: s.phone, location: s.location, latitude: s.coordinates!.lat, longitude: s.coordinates!.lng, specialization: s.brands || [] }));
+        setShops(fallback);
+      }
+    };
+    void loadShops();
+    return () => {
+      active = false;
+    };
+  }, [suppliers]);
+
+  useEffect(() => {
+    if (!navigator.geolocation || shops.length === 0) return;
+    const watchId = navigator.geolocation.watchPosition((pos) => {
+      setCurrentPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
     });
-  }, [orders, suppliers]);
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [shops.length]);
+
+  useEffect(() => {
+    if (!currentPosition || shops.length === 0) return;
+
+    const runRadar = () => {
+      const activeOrders = orders.filter((order) => order.status === 'new_inquiry' || order.status === 'in_progress');
+      for (const order of activeOrders) {
+        const matched = shops.find((shop) => {
+          const isNearby = distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }) <= 300;
+          const hasBrand = shop.specialization.some((brand) => isBrandMatch(order.brand, brand));
+          return isNearby && hasBrand;
+        });
+
+        if (matched && !notifiedRef.current.has(`${order.id}:${matched.id}`)) {
+          const meters = Math.round(distanceMeters(currentPosition, { lat: matched.latitude, lng: matched.longitude }));
+          const message = `🎯 Shop '${matched.name}' is ${meters}m away! Check parts for: ${order.model || order.brand} (Order #${order.id.slice(0, 6)}).`;
+          setRadarMessage(message);
+          setTimeout(() => setRadarMessage(null), 6000);
+          if (typeof Notification !== 'undefined') {
+            if (Notification.permission === 'granted') {
+              new Notification('Active Radar', { body: message });
+            } else if (Notification.permission === 'default') {
+              void Notification.requestPermission();
+            }
+          }
+          notifiedRef.current.add(`${order.id}:${matched.id}`);
+          localStorage.setItem('notified_new_inquiry_ids', JSON.stringify(Array.from(notifiedRef.current)));
+          break;
+        }
+      }
+    };
+
+    runRadar();
+    const intervalId = window.setInterval(runRadar, 45000);
+    return () => window.clearInterval(intervalId);
+  }, [currentPosition, orders, shops]);
 
   useEffect(() => {
     const currentLeadIds = orders
@@ -333,6 +384,8 @@ const OrdersScreen: React.FC = () => {
         </div>
       </div>
 
+      {radarMessage && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">{radarMessage}</div>}
+
       <div className="flex p-1 bg-gray-100 rounded-xl shadow-inner gap-1">
         {([
           ['active', 'Актив'],
@@ -404,9 +457,9 @@ const OrdersScreen: React.FC = () => {
                   <h3 className="font-black text-gray-900 text-lg leading-tight uppercase tracking-tight">{order.brand} {order.model}</h3>
                   <div className="flex flex-wrap gap-2 mt-1">
                     <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100"><p className="text-[10px] text-gray-700 font-mono font-black uppercase tracking-tight">VIN: {order.vin}</p></div>
-                    {order.clientName && <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1"><User size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold uppercase tracking-tight">{order.clientName}</p></div>}
-                    {order.customerContact && <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1"><Smartphone size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold tracking-tight">{order.customerContact}</p></div>}
-                    <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1"><Smartphone size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold uppercase tracking-tight">{order.source}</p></div>
+                    {order.clientName && <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1 max-w-full"><User size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold uppercase tracking-tight truncate">{order.clientName}</p></div>}
+                    {order.customerContact && <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1 max-w-full"><Smartphone size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold tracking-tight truncate">{order.customerContact}</p></div>}
+                    <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1 max-w-full"><Smartphone size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold uppercase tracking-tight truncate">{order.source}</p></div>
                   </div>
                 </div>
 
