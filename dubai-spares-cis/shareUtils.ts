@@ -39,3 +39,30 @@ export const buildPartShareText = (order: Order, part: Part) => {
   const photos = [...(part.photos || []), ...(bestVariant?.photos || []), part.photoUrl || '', bestVariant?.photoUrl || ''].filter(Boolean) as string[];
   return getShareText(order.brand, part.name, price, firstHttpPhoto(photos) || 'No cloud link yet');
 };
+
+export const buildPublicQuoteLink = (orderId: string) => `${window.location.origin}/order/${orderId}/quote`;
+
+export const buildQuoteShareText = (order: Order) =>
+  `Hello! We found the parts for your ${order.brand} ${order.model}. View details and prices here: ${buildPublicQuoteLink(order.id)}`;
+
+export const copyToClipboard = async (text: string) => {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fallback below
+  }
+
+  const temp = document.createElement('textarea');
+  temp.value = text;
+  temp.setAttribute('readonly', '');
+  temp.style.position = 'absolute';
+  temp.style.left = '-9999px';
+  document.body.appendChild(temp);
+  temp.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(temp);
+  return copied;
+};
