@@ -23,7 +23,7 @@ import {
 import IncomeModal from '../components/IncomeModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
-import { shareMessage, buildOrderShareText } from '../shareUtils';
+import { shareMessage, buildOrderShareText, buildQuoteShareText, copyToClipboard } from '../shareUtils';
 import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
 import { isNotificationSignatureRead, pushNotification, sendBrowserNotification } from '../notificationCenter';
@@ -185,6 +185,12 @@ const OrdersScreen: React.FC = () => {
     const target = orders.find(o => o.id === id);
     if (!target) return;
     updateOrder({ ...target, isPinned: !target.isPinned });
+  };
+
+  const shareQuote = async (order: Order) => {
+    const copied = await copyToClipboard(buildQuoteShareText(order));
+    if (copied) toast.success('Quote link copied');
+    else toast.error('Failed to copy quote link');
   };
 
   const confirmDelete = async () => {
@@ -611,7 +617,7 @@ const OrdersScreen: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1">
-                  <button onClick={(e) => { e.stopPropagation(); navigate(`/order/${order.id}#manual-link`); }} className="px-2 py-1 rounded-md text-[9px] font-black uppercase bg-indigo-50 text-indigo-600">Manual Link</button>
+                  <button onClick={(e) => { e.stopPropagation(); void shareQuote(order); }} className="px-2 py-1 rounded-md text-[9px] font-black uppercase bg-indigo-50 text-indigo-600">Share Quote</button>
                   <button onClick={(e) => { e.stopPropagation(); void shareMessage(buildOrderShareText(order)); }} className="p-2 text-gray-300 hover:text-emerald-600"><Share2 size={18} /></button>
                   <button onClick={(e) => { e.stopPropagation(); togglePin(order.id); }} className="p-2 text-gray-300 hover:text-blue-600"><Pin size={18} className={order.isPinned ? 'fill-blue-100 text-blue-600' : ''} /></button>
                   <button onClick={(e) => { e.stopPropagation(); setDeleteId(order.id); }} className="p-2 text-gray-200 hover:text-red-500"><Trash2 size={20} /></button>
