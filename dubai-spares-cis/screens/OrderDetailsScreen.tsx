@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, Part, Priority, OrderNote, Shop } from '../types';
+import { buildShopMapLink, isShopCompatibleWithOrder } from '../shopMatching';
 import { SOURCES } from '../constants';
 import { 
   ArrowLeft, 
@@ -90,7 +91,7 @@ const OrderDetailsScreen: React.FC = () => {
     let active = true;
     const loadShops = async () => {
       if (!supabase) return;
-      const { data } = await supabase.from('shops').select('id,name,phone,location,latitude,longitude,specialization');
+      const { data } = await supabase.from('shops').select('id,name,phone,location,latitude,longitude,specialization,specialization_models,specialization_years');
       if (!active || !Array.isArray(data)) return;
       setShops(data.map((row: any) => ({
         id: String(row.id),
@@ -99,7 +100,9 @@ const OrderDetailsScreen: React.FC = () => {
         location: row.location || '',
         latitude: Number(row.latitude),
         longitude: Number(row.longitude),
-        specialization: Array.isArray(row.specialization) ? row.specialization : []
+        specialization: Array.isArray(row.specialization) ? row.specialization : [],
+        specializationModels: Array.isArray(row.specialization_models) ? row.specialization_models : [],
+        specializationYears: Array.isArray(row.specialization_years) ? row.specialization_years.map((y: any) => Number(y)).filter((y: number) => Number.isFinite(y)) : []
       })));
     };
     void loadShops();
@@ -143,8 +146,11 @@ const OrderDetailsScreen: React.FC = () => {
     : calculateCurrentProfit().toFixed(2);
 
 
-  const recommendedShops = shops
-    .filter((shop) => shop.specialization.some((brand) => brand.toLowerCase() === order.brand.toLowerCase()))
+  const manuallyRecommendedShops = shops.filter((shop) => (order.recommendedShopIds || []).includes(shop.id));
+
+  const autoRecommendedShops = shops.filter((shop) => isShopCompatibleWithOrder(shop, order));
+
+  const recommendedShops = Array.from(new Map([...manuallyRecommendedShops, ...autoRecommendedShops].map((shop) => [shop.id, shop])).values())
     .map((shop) => ({
       ...shop,
       distance: currentPosition ? distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }) : Number.MAX_SAFE_INTEGER
@@ -152,7 +158,19 @@ const OrderDetailsScreen: React.FC = () => {
     .sort((a, b) => a.distance - b.distance);
 
   const navigateToShop = (shop: Shop) => {
-    window.open(`https://www.google.com/maps/search/?api=1&query=${shop.latitude},${shop.longitude}`, '_blank');
+    window.open(buildShopMapLink(shop), '_blank');
+  };
+
+  const addManualRecommendation = (shopId: string) => {
+    if (!shopId) return;
+    const current = new Set(order.recommendedShopIds || []);
+    current.add(shopId);
+    updateOrder({ ...order, recommendedShopIds: Array.from(current) });
+  };
+
+  const removeManualRecommendation = (shopId: string) => {
+    const next = (order.recommendedShopIds || []).filter((id) => id !== shopId);
+    updateOrder({ ...order, recommendedShopIds: next });
   };
 
   const updateOrderField = (field: keyof Order, value: any) => {
@@ -597,6 +615,18 @@ const OrderDetailsScreen: React.FC = () => {
 
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-2">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Recommended Shops</h2>
+          <div className="flex items-center gap-2">
+            <select
+              onChange={(e) => { addManualRecommendation(e.target.value); e.currentTarget.value = ''; }}
+              className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs font-semibold"
+              defaultValue=""
+            >
+              <option value="" disabled>Добавить магазин вручную…</option>
+              {shops
+                .filter((shop) => !(order.recommendedShopIds || []).includes(shop.id))
+                .map((shop) => <option key={shop.id} value={shop.id}>{shop.name}</option>)}
+            </select>
+          </div>
           {recommendedShops.length === 0 ? (
             <p className="text-xs text-gray-400">Нет подходящих магазинов для бренда {order.brand || '—'}.</p>
           ) : (
@@ -607,9 +637,16 @@ const OrderDetailsScreen: React.FC = () => {
                     <p className="text-sm font-bold text-gray-800 truncate">{shop.name}</p>
                     <p className="text-[11px] text-gray-500 truncate">{Number.isFinite(shop.distance) ? `${Math.round(shop.distance)}m` : 'distance unavailable'}</p>
                   </div>
-                  <button type="button" onClick={() => navigateToShop(shop)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white">
-                    Navigate
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {(order.recommendedShopIds || []).includes(shop.id) && (
+                      <button type="button" onClick={() => removeManualRecommendation(shop.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-bold text-rose-600">
+                        Remove
+                      </button>
+                    )}
+                    <button type="button" onClick={() => navigateToShop(shop)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white">
+                      Navigate
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

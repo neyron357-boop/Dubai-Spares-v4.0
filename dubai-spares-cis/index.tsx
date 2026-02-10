@@ -23,6 +23,35 @@ root.render(
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    void navigator.serviceWorker.register('/sw.js');
+    void navigator.serviceWorker.register('/sw.js').then(async (registration) => {
+      const swUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+      const swKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+      if (swUrl && swKey) {
+        registration.active?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
+        registration.waiting?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
+        registration.installing?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
+      }
+
+      if ('periodicSync' in registration) {
+        try {
+          await (registration as ServiceWorkerRegistration & { periodicSync: { register: (tag: string, options: { minInterval: number }) => Promise<void> } }).periodicSync.register('leads-periodic-sync', { minInterval: 15 * 60 * 1000 });
+        } catch {
+          // unsupported by browser permissions/policy
+        }
+      }
+
+      if ('sync' in registration) {
+        try {
+          await (registration as ServiceWorkerRegistration & { sync: { register: (tag: string) => Promise<void> } }).sync.register('leads-background-poll');
+        } catch {
+          // fallback to in-memory timer in SW
+        }
+      }
+
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        void Notification.requestPermission();
+      }
+    });
   });
 }
