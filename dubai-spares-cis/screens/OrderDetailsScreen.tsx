@@ -541,6 +541,38 @@ const OrderDetailsScreen: React.FC = () => {
            </div>
         </div>
 
+
+        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-3 gap-3">
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Модель</label>
+            <input
+              type="text"
+              value={order.model || ''}
+              onChange={(e) => updateOrderField('model', e.target.value)}
+              className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Год</label>
+            <input
+              type="text"
+              value={order.year || ''}
+              onChange={(e) => updateOrderField('year', e.target.value)}
+              className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Тип кузова</label>
+            <input
+              type="text"
+              value={order.bodyType || ''}
+              onChange={(e) => updateOrderField('bodyType', e.target.value)}
+              placeholder="Sedan / SUV"
+              className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+            />
+          </div>
+        </div>
+
         {getCarPhotos().length > 0 && (
           <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
             <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Фото авто</div>
@@ -728,6 +760,9 @@ const OrderDetailsScreen: React.FC = () => {
                             ))}
                             {Array.from(new Set([...(shop.specializationYears || []).map(String), ...((shopTagMap[shop.id]?.years) || [])])).slice(0, 6).map((yearTag) => (
                               <span key={`${shop.id}-year-${yearTag}`} className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-violet-700">{yearTag}</span>
+                            ))}
+                            {(shop.specializationBodyTypes || []).slice(0, 4).map((bodyTypeTag) => (
+                              <span key={`${shop.id}-body-${bodyTypeTag}`} className="rounded-md bg-fuchsia-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-fuchsia-700">{bodyTypeTag}</span>
                             ))}
                           </div>
                         </div>

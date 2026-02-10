@@ -2,16 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
 import { isCloudSyncConfigured, supabase } from '../supabase';
 import { Source } from '../types';
-import { BRAND_MODELS, SOCIAL_SOURCES } from '../constants';
+import { BRAND_MODELS, SOCIAL_SOURCES, BRANDS, YEARS, BODY_TYPES, BRAND_BODY_TYPES } from '../constants';
 
 type Lang = 'en' | 'ru';
-
-const MAJOR_CAR_BRANDS = [
-  'Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Honda', 'Hyundai', 'Kia', 'Ford', 'Chevrolet', 'Lexus', 'Audi',
-  'Volkswagen', 'Porsche', 'Mitsubishi', 'Mazda', 'Subaru', 'Suzuki', 'Land Rover', 'Jeep', 'Volvo'
-];
-
-const YEARS = Array.from({ length: 2026 - 1990 + 1 }, (_, index) => String(2026 - index));
 
 const CHANNEL_OPTIONS: Source[] = SOCIAL_SOURCES;
 
@@ -22,6 +15,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     brand: 'Car Brand',
     model: 'Model',
     year: 'Year',
+    bodyType: 'Body Type',
     vin: 'VIN (optional)',
     partName: 'Part Name',
     description: 'Comment (optional)',
@@ -45,6 +39,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     brand: 'Марка авто',
     model: 'Модель',
     year: 'Год',
+    bodyType: 'Тип кузова',
     vin: 'VIN (необязательно)',
     partName: 'Название детали',
     description: 'Комментарий (необязательно)',
@@ -74,6 +69,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
+  const [bodyType, setBodyType] = useState('');
   const [vin, setVin] = useState('');
   const [partName, setPartName] = useState('');
   const [description, setDescription] = useState('');
@@ -87,8 +83,9 @@ const PublicOrderFormScreen: React.FC = () => {
 
   const t = i18n[lang];
 
-  const filteredBrands = useMemo(() => MAJOR_CAR_BRANDS, []);
+  const filteredBrands = useMemo(() => BRANDS, []);
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
+  const bodyTypeOptions = useMemo(() => BRAND_BODY_TYPES[brand] || BODY_TYPES, [brand]);
 
   const submitOrder = async () => {
     if (!partName.trim() || !customerContact.trim() || !source) {
@@ -125,6 +122,7 @@ const PublicOrderFormScreen: React.FC = () => {
         brand: brand.trim(),
         model: model.trim(),
         year: year.trim(),
+        body_type: bodyType.trim() || null,
         vin: vin.trim(),
         vin_photo_url: uploadedVinPhotos[0] || null,
         status: 'new_inquiry',
@@ -163,6 +161,7 @@ const PublicOrderFormScreen: React.FC = () => {
       setBrand('');
       setModel('');
       setYear('');
+      setBodyType('');
       setVin('');
       setPartName('');
       setSocialNickname('');
@@ -201,12 +200,12 @@ const PublicOrderFormScreen: React.FC = () => {
         {success && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">✓ {t.success}</div>}
 
         <form onSubmit={onSubmit} className="mt-4 space-y-3">
-          <select value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); }} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
+          <select value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); setBodyType(''); }} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
             <option value="">{t.selectBrand}</option>
             {filteredBrands.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {modelOptions.length > 0 ? (
               <select value={model} onChange={(e) => setModel(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
                 <option value="">{t.model}</option>
@@ -218,6 +217,10 @@ const PublicOrderFormScreen: React.FC = () => {
             <select value={year} onChange={(e) => setYear(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
               <option value="">{t.chooseYear}</option>
               {YEARS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <select value={bodyType} onChange={(e) => setBodyType(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
+              <option value="">{t.bodyType}</option>
+              {bodyTypeOptions.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </div>
 

@@ -15,7 +15,8 @@ const normalizeSupplier = (supplier: Supplier): Supplier => ({
   models: Array.isArray(supplier.models) ? supplier.models : [],
   years: Array.isArray(supplier.years)
     ? supplier.years.map((year) => Number(year)).filter((year) => Number.isFinite(year))
-    : []
+    : [],
+  bodyTypes: Array.isArray(supplier.bodyTypes) ? supplier.bodyTypes : []
 });
 
 try {

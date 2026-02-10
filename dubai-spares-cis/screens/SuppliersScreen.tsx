@@ -40,6 +40,7 @@ const SuppliersScreen: React.FC = () => {
   const [brandsInput, setBrandsInput] = useState('');
   const [modelsInput, setModelsInput] = useState('');
   const [yearsInput, setYearsInput] = useState('');
+  const [bodyTypesInput, setBodyTypesInput] = useState('');
   const [isSavingSupplier, setIsSavingSupplier] = useState(false);
 
   const parseCsv = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
@@ -50,7 +51,8 @@ const SuppliersScreen: React.FC = () => {
       || s.phone.includes(searchTerm)
       || (s.brands || []).some((b) => b.toLowerCase().includes(normalized))
       || (s.models || []).some((m) => m.toLowerCase().includes(normalized))
-      || (s.years || []).some((y) => String(y).includes(searchTerm));
+      || (s.years || []).some((y) => String(y).includes(searchTerm))
+      || (s.bodyTypes || []).some((bodyType) => bodyType.toLowerCase().includes(normalized));
   });
 
   const handleSave = async () => {
@@ -69,6 +71,7 @@ const SuppliersScreen: React.FC = () => {
         years: parseCsv(yearsInput)
           .map((value) => Number(value))
           .filter((value) => Number.isFinite(value)),
+        bodyTypes: parseCsv(bodyTypesInput),
         coordinates
       };
 
@@ -81,6 +84,7 @@ const SuppliersScreen: React.FC = () => {
       setBrandsInput('');
       setModelsInput('');
       setYearsInput('');
+      setBodyTypesInput('');
       setIsAdding(false);
     } finally {
       setIsSavingSupplier(false);
@@ -290,6 +294,17 @@ const SuppliersScreen: React.FC = () => {
                   className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
                 />
               </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Типы кузова (через запятую)</label>
+                <input
+                  placeholder="Sedan, SUV"
+                  value={bodyTypesInput}
+                  onChange={(e) => setBodyTypesInput(e.target.value)}
+                  autoComplete="off"
+                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
+                />
+              </div>
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold active:bg-gray-200 transition-colors uppercase text-xs">Отмена</button>
@@ -349,7 +364,7 @@ const SuppliersScreen: React.FC = () => {
                 </div>
               </div>
 
-              {(s.brands.length > 0 || (s.models || []).length > 0 || (s.years || []).length > 0) && (
+              {(s.brands.length > 0 || (s.models || []).length > 0 || (s.years || []).length > 0 || (s.bodyTypes || []).length > 0) && (
                 <div className="pt-2 flex flex-wrap gap-1.5 border-t border-gray-50">
                   {s.brands.map(b => (
                     <span key={`brand-${b}`} className="bg-gray-50 text-gray-500 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase border border-gray-100 flex items-center gap-1">
@@ -364,6 +379,11 @@ const SuppliersScreen: React.FC = () => {
                   {(s.years || []).map((year) => (
                     <span key={`year-${year}`} className="bg-amber-50 text-amber-700 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase border border-amber-100">
                       YEAR: {year}
+                    </span>
+                  ))}
+                  {(s.bodyTypes || []).map((bodyType) => (
+                    <span key={`body-${bodyType}`} className="bg-purple-50 text-purple-700 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase border border-purple-100">
+                      BODY: {bodyType}
                     </span>
                   ))}
                 </div>
