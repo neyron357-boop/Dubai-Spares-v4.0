@@ -1,5 +1,5 @@
 import { Source } from './types';
-import { CAR_BODY_TYPES, CAR_DATABASE } from './carDatabase';
+import { CAR_BODY_TYPES, CAR_DATABASE, CHASSIS_BODY_TYPES_BY_BRAND } from './carDatabase';
 
 export const BRANDS = Object.keys(CAR_DATABASE).sort();
 
@@ -18,7 +18,7 @@ export const BRAND_MODELS: Record<string, string[]> = Object.fromEntries(
 );
 
 export const BRAND_BODY_TYPES: Record<string, string[]> = Object.fromEntries(
-  Object.entries(CAR_DATABASE).map(([brand, catalog]) => [brand, catalog.bodyTypes])
+  Object.entries(CHASSIS_BODY_TYPES_BY_BRAND).map(([brand, bodyTypes]) => [brand, bodyTypes])
 );
 
 export const BODY_TYPES = CAR_BODY_TYPES;

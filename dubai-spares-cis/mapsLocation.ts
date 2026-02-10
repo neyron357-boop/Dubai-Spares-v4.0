@@ -136,22 +136,26 @@ const getUrlFromRedirectQuery = (raw: string): string | null => {
 const expandGoogleRedirectUrl = async (raw: string): Promise<string | null> => {
   if (!isGoogleShortMapsUrl(raw) && !isGoogleUserContentUrl(raw)) return null;
 
+  try {
+    const response = await fetch(raw, { method: 'HEAD', redirect: 'follow' });
+    if (response?.url && response.url !== raw) {
+      return response.url;
+    }
+  } catch {
+    // noop, continue to fallbacks below
+  }
+
   const queryExpanded = getUrlFromRedirectQuery(raw);
   if (queryExpanded && queryExpanded !== raw) {
     return queryExpanded;
   }
 
   try {
-    const response = await fetch(raw, { method: 'HEAD', redirect: 'follow' });
+    // Browser fallback: opaque response can still expose final URL after redirects.
+    const response = await fetch(raw, { method: 'GET', redirect: 'follow', mode: 'no-cors' });
     return response?.url && response.url !== raw ? response.url : null;
   } catch {
-    try {
-      // Browser fallback: opaque response can still expose final URL after redirects.
-      const response = await fetch(raw, { method: 'GET', redirect: 'follow', mode: 'no-cors' });
-      return response?.url && response.url !== raw ? response.url : null;
-    } catch {
-      return null;
-    }
+    return null;
   }
 };
 
@@ -206,14 +210,6 @@ export const resolveCoordinatesFromLocation = async (
   await logger.debug('RADAR_GEO', 'Manual location input received', { rawLocation: raw, fallbackQueries });
 
   if (normalizedRaw) {
-    const direct = extractCoordinates(normalizedRaw);
-    if (direct) {
-      await logger.info('RADAR_GEO', 'Manual location parsing result: Success', { coordinates: [direct.lat, direct.lng] });
-      return direct;
-    }
-
-    await logger.warn('RADAR_GEO', 'Manual location parsing result: Fail', { reason: 'Regex mismatch', rawLocation: raw });
-
     try {
       if (isGoogleMapsUrl(normalizedRaw)) {
         const redirectTarget = await expandLocationUrlChain(normalizedRaw);
@@ -225,6 +221,12 @@ export const resolveCoordinatesFromLocation = async (
         if (fromExpandedCoordinates) {
           await logger.info('RADAR_GEO', 'Google redirect URL parsed', { coordinates: [fromExpandedCoordinates.lat, fromExpandedCoordinates.lng] });
           return fromExpandedCoordinates;
+        }
+
+        const fromDirectGoogleCoordinates = extractCoordinates(normalizedRaw);
+        if (fromDirectGoogleCoordinates) {
+          await logger.info('RADAR_GEO', 'Manual location parsing result: Success', { coordinates: [fromDirectGoogleCoordinates.lat, fromDirectGoogleCoordinates.lng] });
+          return fromDirectGoogleCoordinates;
         }
 
         const fromUrlGeocode = isGoogleShortMapsUrl(normalizedRaw) ? null : await geocodeByUrl(redirectTarget);
@@ -241,7 +243,15 @@ export const resolveCoordinatesFromLocation = async (
             return fromPlace;
           }
         }
+      } else {
+        const direct = extractCoordinates(normalizedRaw);
+        if (direct) {
+          await logger.info('RADAR_GEO', 'Manual location parsing result: Success', { coordinates: [direct.lat, direct.lng] });
+          return direct;
+        }
       }
+
+      await logger.warn('RADAR_GEO', 'Manual location parsing result: Fail', { reason: 'Regex mismatch', rawLocation: raw });
 
       const geocoded = await geocodeAddress(normalizedRaw);
       if (geocoded) {

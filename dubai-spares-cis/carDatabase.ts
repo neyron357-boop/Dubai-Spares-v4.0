@@ -27,4 +27,27 @@ export const CAR_DATABASE: Record<string, CarBrandCatalog> = {
   Volkswagen: { models: ['Arteon', 'Atlas', 'Golf', 'ID.4', 'Jetta', 'Passat', 'Polo', 'Tiguan', 'Touareg'], bodyTypes: ['Sedan', 'SUV', 'Hatchback', 'Wagon'] }
 };
 
-export const CAR_BODY_TYPES = ['Sedan', 'SUV', 'Coupe', 'Hatchback', 'Wagon', 'Pickup', 'Convertible', 'Van', 'MPV', 'E30', 'E34', 'E36', 'E38', 'E39', 'E46', 'E53', 'E60', 'E65', 'E70', 'E71', 'E82', 'E83', 'E87', 'E90', 'E91', 'E92', 'E93', 'F10', 'F15', 'F20', 'F22', 'F25', 'F30', 'F32', 'G20', 'G30'];
+const GENERIC_BODY_TYPES = new Set([
+  'sedan',
+  'suv',
+  'coupe',
+  'hatchback',
+  'wagon',
+  'pickup',
+  'convertible',
+  'van',
+  'mpv'
+]);
+
+const isChassisBodyType = (value: string) => !GENERIC_BODY_TYPES.has(value.trim().toLowerCase());
+
+export const CHASSIS_BODY_TYPES_BY_BRAND: Record<string, string[]> = Object.fromEntries(
+  Object.entries(CAR_DATABASE).map(([brand, catalog]) => [
+    brand,
+    catalog.bodyTypes.filter(isChassisBodyType)
+  ])
+);
+
+export const CAR_BODY_TYPES = Array.from(
+  new Set(Object.values(CHASSIS_BODY_TYPES_BY_BRAND).flat())
+).sort((a, b) => a.localeCompare(b));
