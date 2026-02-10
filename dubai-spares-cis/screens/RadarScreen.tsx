@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LocateFixed, Radar, Navigation, ShieldCheck, Telescope } from 'lucide-react';
+import { LocateFixed, Radar, Navigation, ShieldCheck, Telescope, Loader2 } from 'lucide-react';
 import { useStore } from '../store';
 import { Shop } from '../types';
 import { buildNearestShopsChain, buildRoutePlanMapLink, buildShopMapLink, getRadarShopMatches, getShopRecommendationLevel } from '../shopMatching';
@@ -139,6 +139,9 @@ const RadarScreen: React.FC = () => {
           <button type="button" onClick={openPlannedRoute} className="inline-flex items-center gap-1 rounded-xl bg-emerald-400 px-3 py-2 text-[11px] font-black uppercase text-slate-950">
             <Navigation size={12} /> Chain Route
           </button>
+        </div>
+        <div className="mt-2 flex items-center gap-2 text-[11px] text-emerald-100/90">
+          {isFetchingShops ? <><Loader2 size={12} className="animate-spin" /> Обновляем радар и разворачиваем локации…</> : <span>Данные радара актуальны.</span>}
         </div>
         <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
           <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 px-2 py-1 text-emerald-200"><ShieldCheck size={11} /> high confidence</span>

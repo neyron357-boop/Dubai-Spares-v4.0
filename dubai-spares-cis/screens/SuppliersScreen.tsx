@@ -1,13 +1,11 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useStore } from '../store';
 import { Supplier } from '../types';
 import { 
   Search, 
   Phone, 
   MapPin, 
-  MessageSquare, 
   Store,
-  ChevronRight,
   UserPlus,
   Download,
   Upload,
@@ -21,7 +19,6 @@ import ConfirmModal from '../components/ConfirmModal';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
-import { BRAND_BODY_TYPES, BRAND_MODELS, BRANDS, YEARS } from '../constants';
 
 const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, getBackupData, restoreData } = useStore();
@@ -39,17 +36,8 @@ const SuppliersScreen: React.FC = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [location, setLocation] = useState('');
-  const [brandsInput, setBrandsInput] = useState('');
-  const [modelsInput, setModelsInput] = useState('');
-  const [yearsInput, setYearsInput] = useState('');
-  const [bodyTypesInput, setBodyTypesInput] = useState('');
-  const [selectedBrand, setSelectedBrand] = useState('');
-  const [selectedModel, setSelectedModel] = useState('');
-  const [selectedYear, setSelectedYear] = useState('');
-  const [selectedBodyType, setSelectedBodyType] = useState('');
   const [isSavingSupplier, setIsSavingSupplier] = useState(false);
 
-  const parseCsv = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
 
   const filtered = suppliers.filter(s => {
     const normalized = searchTerm.toLowerCase();
@@ -61,25 +49,8 @@ const SuppliersScreen: React.FC = () => {
       || (s.bodyTypes || []).some((bodyType) => bodyType.toLowerCase().includes(normalized));
   });
 
-  const selectedBrands = useMemo(() => parseCsv(brandsInput), [brandsInput]);
-  const selectedModels = useMemo(() => parseCsv(modelsInput), [modelsInput]);
-  const selectedYears = useMemo(() => parseCsv(yearsInput), [yearsInput]);
-  const selectedBodyTypes = useMemo(() => parseCsv(bodyTypesInput), [bodyTypesInput]);
-
-  const modelsOptions = useMemo(() => {
-    const fromSelectedBrands = selectedBrands.flatMap((brand) => BRAND_MODELS[brand] || []);
-    return Array.from(new Set(fromSelectedBrands)).sort((a, b) => a.localeCompare(b));
-  }, [selectedBrands]);
-
-  const bodyTypeOptions = useMemo(() => {
-    const fromSelectedBrands = selectedBrands.flatMap((brand) => BRAND_BODY_TYPES[brand] || []);
-    return Array.from(new Set(fromSelectedBrands)).sort((a, b) => a.localeCompare(b));
-  }, [selectedBrands]);
-
 
   const buildSupplierFallbackQueries = () => {
-    const cityHints = ['Dubai', 'Sharjah'].filter((city) => location.toLowerCase().includes(city.toLowerCase()));
-    const specializations = parseCsv(brandsInput);
     const queries = new Set<string>();
 
     if (name.trim()) {
@@ -88,27 +59,13 @@ const SuppliersScreen: React.FC = () => {
       queries.add(`${name.trim()} Sharjah`);
     }
 
-    for (const spec of specializations.slice(0, 3)) {
-      const base = `${name.trim()} ${spec}`.trim();
-      if (!base) continue;
-      queries.add(base);
-      if (cityHints.length === 0) {
-        queries.add(`${base} Dubai`);
-        queries.add(`${base} Sharjah`);
-      } else {
-        cityHints.forEach((city) => queries.add(`${base} ${city}`.trim()));
-      }
+    if (location.trim() && name.trim()) {
+      queries.add(`${name.trim()} ${location.trim()}`.trim());
     }
 
     return Array.from(queries);
   };
 
-  const addCsvValue = (rawInput: string, value: string, setter: (next: string) => void) => {
-    const normalized = value.trim();
-    if (!normalized) return;
-    const nextValues = Array.from(new Set([...parseCsv(rawInput), normalized]));
-    setter(nextValues.join(', '));
-  };
 
   const handleSave = async () => {
     if (!name) return;
@@ -121,12 +78,10 @@ const SuppliersScreen: React.FC = () => {
         name,
         phone,
         location,
-        brands: parseCsv(brandsInput),
-        models: parseCsv(modelsInput),
-        years: parseCsv(yearsInput)
-          .map((value) => Number(value))
-          .filter((value) => Number.isFinite(value)),
-        bodyTypes: parseCsv(bodyTypesInput),
+        brands: [],
+        models: [],
+        years: [],
+        bodyTypes: [],
         coordinates
       };
 
@@ -136,14 +91,6 @@ const SuppliersScreen: React.FC = () => {
       setName('');
       setPhone('');
       setLocation('');
-      setBrandsInput('');
-      setModelsInput('');
-      setYearsInput('');
-      setBodyTypesInput('');
-      setSelectedBrand('');
-      setSelectedModel('');
-      setSelectedYear('');
-      setSelectedBodyType('');
       setIsAdding(false);
     } finally {
       setIsSavingSupplier(false);
@@ -267,7 +214,7 @@ const SuppliersScreen: React.FC = () => {
           type="text" 
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Поиск магазина, телефона или марки..."
+          placeholder="Поиск магазина, телефона или локации..."
           autoComplete="off"
           className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-200 rounded-2xl shadow-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-base"
         />
@@ -319,131 +266,6 @@ const SuppliersScreen: React.FC = () => {
                 <input 
                   placeholder="Ссылка или описание..." 
                   value={location} onChange={e => setLocation(e.target.value)}
-                  autoComplete="off"
-                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Марки (через запятую)</label>
-                <div className="flex gap-2 mt-1">
-                  <select
-                    value={selectedBrand}
-                    onChange={(e) => setSelectedBrand(e.target.value)}
-                    className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="">Выберите марку</option>
-                    {BRANDS.map((brand) => (<option key={brand} value={brand}>{brand}</option>))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      addCsvValue(brandsInput, selectedBrand, setBrandsInput);
-                      setSelectedBrand('');
-                    }}
-                    className="px-3 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase"
-                  >
-                    +
-                  </button>
-                </div>
-                <input
-                  placeholder="Toyota, Lexus"
-                  value={brandsInput}
-                  onChange={(e) => setBrandsInput(e.target.value)}
-                  autoComplete="off"
-                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Модели (через запятую)</label>
-                <div className="flex gap-2 mt-1">
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="">Выберите модель</option>
-                    {(modelsOptions.length > 0 ? modelsOptions : Object.values(BRAND_MODELS).flat()).map((model) => (
-                      <option key={model} value={model}>{model}</option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      addCsvValue(modelsInput, selectedModel, setModelsInput);
-                      setSelectedModel('');
-                    }}
-                    className="px-3 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase"
-                  >
-                    +
-                  </button>
-                </div>
-                <input
-                  placeholder="Camry, ES350"
-                  value={modelsInput}
-                  onChange={(e) => setModelsInput(e.target.value)}
-                  autoComplete="off"
-                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Годы (через запятую)</label>
-                <div className="flex gap-2 mt-1">
-                  <select
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(e.target.value)}
-                    className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="">Выберите год</option>
-                    {YEARS.map((year) => (<option key={year} value={year}>{year}</option>))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      addCsvValue(yearsInput, selectedYear, setYearsInput);
-                      setSelectedYear('');
-                    }}
-                    className="px-3 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase"
-                  >
-                    +
-                  </button>
-                </div>
-                <input
-                  placeholder="2018, 2019, 2020"
-                  value={yearsInput}
-                  onChange={(e) => setYearsInput(e.target.value)}
-                  autoComplete="off"
-                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Типы кузова (через запятую)</label>
-                <div className="flex gap-2 mt-1">
-                  <select
-                    value={selectedBodyType}
-                    onChange={(e) => setSelectedBodyType(e.target.value)}
-                    className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="">Выберите кузов</option>
-                    {(bodyTypeOptions.length > 0 ? bodyTypeOptions : Object.values(BRAND_BODY_TYPES).flat()).map((bodyType) => (
-                      <option key={bodyType} value={bodyType}>{bodyType}</option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      addCsvValue(bodyTypesInput, selectedBodyType, setBodyTypesInput);
-                      setSelectedBodyType('');
-                    }}
-                    className="px-3 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase"
-                  >
-                    +
-                  </button>
-                </div>
-                <input
-                  placeholder="E39, F10, S-Class"
-                  value={bodyTypesInput}
-                  onChange={(e) => setBodyTypesInput(e.target.value)}
                   autoComplete="off"
                   className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
                 />
