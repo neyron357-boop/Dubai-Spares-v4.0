@@ -11,26 +11,45 @@ export const isBrandMatch = (orderBrand: string, supplierBrand: string) => {
 };
 
 const isModelMatch = (orderModel: string, modelHint?: string) => {
-  if (!modelHint || !orderModel) return true;
+  if (!modelHint || !orderModel) return false;
   const a = normalize(orderModel);
   const b = normalize(modelHint);
-  if (!a || !b) return true;
+  if (!a || !b) return false;
   return a.includes(b) || b.includes(a);
 };
 
 const isYearMatch = (orderYear: string, years: number[] = []) => {
-  if (!orderYear || years.length === 0) return true;
+  if (!orderYear || years.length === 0) return false;
   const parsed = Number(orderYear);
-  if (!Number.isFinite(parsed)) return true;
+  if (!Number.isFinite(parsed)) return false;
   return years.includes(parsed);
+};
+
+export const getShopRecommendationLevel = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year'>): 'high' | 'medium' | 'low' | 'none' => {
+  const brands = shop.specialization || [];
+  const models = shop.specializationModels || [];
+  const years = shop.specializationYears || [];
+
+  const brandMatched = brands.some((brand) => isBrandMatch(order.brand, brand));
+  if (!brandMatched) return 'none';
+
+  const hasModelMeta = models.length > 0;
+  const hasYearMeta = years.length > 0;
+  const modelMatched = hasModelMeta && models.some((model) => isModelMatch(order.model, model));
+  const yearMatched = hasYearMeta && isYearMatch(order.year, years);
+
+  if (modelMatched && (!hasYearMeta || yearMatched)) return 'high';
+  if (modelMatched) return 'medium';
+  return 'low';
 };
 
 export const isShopCompatibleWithOrder = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year'>) => {
   const hasBrand = (shop.specialization || []).some((brand) => isBrandMatch(order.brand, brand));
   if (!hasBrand) return false;
-  const hasModel = isModelMatch(order.model, shop.specializationModels?.[0] || undefined)
-    || (shop.specializationModels || []).some((model) => isModelMatch(order.model, model));
-  const hasYear = isYearMatch(order.year, shop.specializationYears || []);
+  const modelMeta = shop.specializationModels || [];
+  const yearsMeta = shop.specializationYears || [];
+  const hasModel = modelMeta.length === 0 || modelMeta.some((model) => isModelMatch(order.model, model));
+  const hasYear = yearsMeta.length === 0 || isYearMatch(order.year, yearsMeta);
   return hasModel && hasYear;
 };
 
@@ -44,6 +63,7 @@ export const getShopOrderMatchScore = (shop: Shop, order: Pick<Order, 'brand' | 
   if (!hasAnyMeta) return 1;
 
   const brandMatched = brands.some((brand) => isBrandMatch(order.brand, brand));
+  if (!brandMatched && brands.length > 0) return -1;
   if (brandMatched) score += 6;
 
   const modelMatched = models.some((model) => isModelMatch(order.model, model));
@@ -93,6 +113,53 @@ export interface RadarShopMatch {
   confidence: 'high' | 'medium' | 'low';
 }
 
+export const buildRoutePlanMapLink = (
+  chain: Array<Pick<Shop, 'location' | 'latitude' | 'longitude'>>,
+  origin?: { lat: number; lng: number } | null
+) => {
+  const withCoords = chain.filter((shop) => Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude));
+  if (withCoords.length === 0) return 'https://www.google.com/maps';
+
+  const destination = withCoords[withCoords.length - 1];
+  const originQuery = origin
+    ? `${origin.lat},${origin.lng}`
+    : `${withCoords[0].latitude},${withCoords[0].longitude}`;
+  const waypointShops = origin ? withCoords.slice(0, -1) : withCoords.slice(1, -1);
+  const waypoints = waypointShops.map((shop) => `${shop.latitude},${shop.longitude}`).join('|');
+
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(originQuery)}&destination=${encodeURIComponent(`${destination.latitude},${destination.longitude}`)}${waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : ''}`;
+};
+
+export const buildNearestShopsChain = (
+  shops: Shop[],
+  origin: { lat: number; lng: number } | null
+) => {
+  const pending = shops.filter((shop) => Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude));
+  if (pending.length <= 1) return pending;
+
+  const chain: Shop[] = [];
+  let cursor = origin
+    ? { lat: origin.lat, lng: origin.lng }
+    : { lat: pending[0].latitude, lng: pending[0].longitude };
+
+  while (pending.length > 0) {
+    let bestIndex = 0;
+    let bestDistance = Number.MAX_SAFE_INTEGER;
+    pending.forEach((shop, index) => {
+      const d = distanceMeters(cursor, { lat: shop.latitude, lng: shop.longitude });
+      if (d < bestDistance) {
+        bestDistance = d;
+        bestIndex = index;
+      }
+    });
+    const [nearest] = pending.splice(bestIndex, 1);
+    chain.push(nearest);
+    cursor = { lat: nearest.latitude, lng: nearest.longitude };
+  }
+
+  return chain;
+};
+
 export const getRadarShopMatches = (
   order: Pick<Order, 'brand' | 'model' | 'year' | 'recommendedShopIds'>,
   shops: Shop[],
@@ -108,13 +175,14 @@ export const getRadarShopMatches = (
         ? distance <= 300 ? 6 : distance <= 800 ? 4 : distance <= 2000 ? 2 : 0
         : 0;
       const radarScore = matchScore + distanceBonus + (isCompatible ? 4 : 0);
-      const confidence: RadarShopMatch['confidence'] = isRecommended || isCompatible || matchScore >= 9
+      const level = getShopRecommendationLevel(shop, order);
+      const confidence: RadarShopMatch['confidence'] = isRecommended || level === 'high' || isCompatible || matchScore >= 9
         ? 'high'
-        : matchScore >= 3
+        : level === 'medium' || matchScore >= 3
           ? 'medium'
           : 'low';
 
       return { shop, distance, matchScore, radarScore, isRecommended, isCompatible, confidence };
     })
-    .sort((a, b) => (b.radarScore - a.radarScore) || (a.distance - b.distance));
+    .sort((a, b) => (a.distance - b.distance) || (b.radarScore - a.radarScore));
 };
