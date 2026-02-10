@@ -73,7 +73,6 @@ const createId = () =>
 const PublicOrderFormScreen: React.FC = () => {
   const [lang, setLang] = useState<Lang>('ru');
   const [brand, setBrand] = useState('');
-  const [brandQuery, setBrandQuery] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
   const [vin, setVin] = useState('');
@@ -87,11 +86,7 @@ const PublicOrderFormScreen: React.FC = () => {
 
   const t = i18n[lang];
 
-  const filteredBrands = useMemo(() => {
-    const query = brandQuery.trim().toLowerCase();
-    if (!query) return MAJOR_CAR_BRANDS;
-    return MAJOR_CAR_BRANDS.filter((item) => item.toLowerCase().includes(query));
-  }, [brandQuery]);
+  const filteredBrands = useMemo(() => MAJOR_CAR_BRANDS, []);
 
   const submitOrder = async () => {
     if (!partName.trim() || !customerContact.trim() || !source) {
@@ -156,7 +151,6 @@ const PublicOrderFormScreen: React.FC = () => {
 
       setSuccess(true);
       setBrand('');
-      setBrandQuery('');
       setModel('');
       setYear('');
       setVin('');
@@ -195,8 +189,10 @@ const PublicOrderFormScreen: React.FC = () => {
         {success && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">✓ {t.success}</div>}
 
         <form onSubmit={onSubmit} className="mt-4 space-y-3">
-          <input value={brandQuery} onChange={(e) => { setBrandQuery(e.target.value); setBrand(e.target.value); }} placeholder={t.selectBrand} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" list="brand-options" />
-          <datalist id="brand-options">{filteredBrands.map((item) => <option key={item} value={item} />)}</datalist>
+          <select value={brand} onChange={(e) => setBrand(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base text-slate-700 outline-none focus:border-blue-500">
+            <option value="">{t.selectBrand}</option>
+            {filteredBrands.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
 
           <div className="grid grid-cols-2 gap-2">
             <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t.model} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base outline-none focus:border-blue-500" />
