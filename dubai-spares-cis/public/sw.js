@@ -6,6 +6,37 @@ const LEAD_CHECK_INTERVAL_MS = 20 * 1000;
 let supabaseConfig = null;
 let latestLeadIds = new Set();
 let leadPollingTimer = null;
+const SW_STATE_CONFIG_URL = '/__sw_state__/supabase-config';
+const SW_STATE_LEADS_URL = '/__sw_state__/latest-leads';
+
+const saveSwState = async (url, value) => {
+  const cache = await caches.open(RUNTIME_CACHE);
+  await cache.put(url, new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } }));
+};
+
+const readSwState = async (url) => {
+  const cache = await caches.open(RUNTIME_CACHE);
+  const response = await cache.match(url);
+  if (!response) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+};
+
+const restoreLeadPollingState = async () => {
+  if (!supabaseConfig) {
+    const savedConfig = await readSwState(SW_STATE_CONFIG_URL);
+    if (savedConfig?.url && savedConfig?.anonKey) supabaseConfig = savedConfig;
+  }
+  if (latestLeadIds.size === 0) {
+    const savedLeadIds = await readSwState(SW_STATE_LEADS_URL);
+    if (Array.isArray(savedLeadIds) && savedLeadIds.length > 0) {
+      latestLeadIds = new Set(savedLeadIds.map((id) => String(id)));
+    }
+  }
+};
 
 const showTaggedNotification = async (title, options = {}) => {
   await self.registration.showNotification(title, {
@@ -34,13 +65,16 @@ self.addEventListener('activate', (event) => {
     )
   );
   self.clients.claim();
-  startLeadPolling();
+  event.waitUntil(
+    restoreLeadPollingState().then(() => startLeadPolling())
+  );
 });
 
 self.addEventListener('message', (event) => {
   const data = event.data || {};
   if (data.type === 'supabase-config' && data.url && data.anonKey) {
     supabaseConfig = { url: data.url, anonKey: data.anonKey };
+    event.waitUntil(saveSwState(SW_STATE_CONFIG_URL, supabaseConfig));
     startLeadPolling();
   }
   if (data.type === 'start-lead-polling') startLeadPolling();
@@ -82,6 +116,7 @@ const fetchLeadIds = async () => {
 };
 
 const notifyAboutNewLeads = async () => {
+  await restoreLeadPollingState();
   const rows = await fetchLeadIds();
   const current = new Set(rows.map((row) => String(row.id)));
   const newRows = rows.filter((row) => !latestLeadIds.has(String(row.id)));
@@ -100,6 +135,7 @@ const notifyAboutNewLeads = async () => {
   }
 
   latestLeadIds = current;
+  await saveSwState(SW_STATE_LEADS_URL, Array.from(current));
 };
 
 const startLeadPolling = () => {
