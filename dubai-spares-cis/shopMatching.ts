@@ -1,4 +1,5 @@
 import { Order, Shop } from './types';
+import { logger } from './logging';
 
 const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
 
@@ -25,22 +26,69 @@ const isYearMatch = (orderYear: string, years: number[] = []) => {
   return years.includes(parsed);
 };
 
-export const getShopRecommendationLevel = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year'>): 'high' | 'medium' | 'low' | 'none' => {
+
+
+export interface ShopRecommendationDiagnostics {
+  level: 'high' | 'medium' | 'low' | 'none';
+  brandMatched: boolean;
+  modelMatched: boolean;
+  yearMatched: boolean;
+  reason?: string;
+}
+
+export const getShopRecommendationDiagnostics = (
+  shop: Shop,
+  order: Pick<Order, 'brand' | 'model' | 'year'>
+): ShopRecommendationDiagnostics => {
   const brands = shop.specialization || [];
   const models = shop.specializationModels || [];
   const years = shop.specializationYears || [];
 
   const brandMatched = brands.some((brand) => isBrandMatch(order.brand, brand));
-  if (!brandMatched) return 'none';
+  const modelMatched = models.some((model) => isModelMatch(order.model, model));
+  const yearMatched = isYearMatch(order.year, years);
 
-  const hasModelMeta = models.length > 0;
-  const hasYearMeta = years.length > 0;
-  const modelMatched = hasModelMeta && models.some((model) => isModelMatch(order.model, model));
-  const yearMatched = hasYearMeta && isYearMatch(order.year, years);
+  if (!brandMatched) {
+    const normalizedBrand = normalize(order.brand);
+    const caseSensitiveMatch = brands.some((brand) => normalize(brand) === normalizedBrand && brand !== order.brand);
+    return {
+      level: 'none',
+      brandMatched,
+      modelMatched,
+      yearMatched,
+      reason: caseSensitiveMatch
+        ? `Case-sensitivity mismatch: search "${order.brand}" vs shop brands [${brands.join(', ')}]`
+        : `Brand not in array [${brands.join(', ')}]`
+    };
+  }
 
-  if (modelMatched && (!hasYearMeta || yearMatched)) return 'high';
-  if (modelMatched) return 'medium';
-  return 'low';
+  if (modelMatched && yearMatched) {
+    return { level: 'high', brandMatched, modelMatched, yearMatched };
+  }
+
+  if (modelMatched) {
+    return {
+      level: 'medium',
+      brandMatched,
+      modelMatched,
+      yearMatched,
+      reason: years.length > 0 ? `Year ${order.year || '—'} not in array [${years.join(', ')}]` : 'Year metadata missing; downgraded to medium'
+    };
+  }
+
+  return {
+    level: 'low',
+    brandMatched,
+    modelMatched,
+    yearMatched,
+    reason: models.length > 0
+      ? `Model ${order.model || '—'} not in array [${models.join(', ')}]`
+      : 'Model metadata missing; using brand-only match'
+  };
+};
+
+export const getShopRecommendationLevel = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year'>): 'high' | 'medium' | 'low' | 'none' => {
+  return getShopRecommendationDiagnostics(shop, order).level;
 };
 
 export const isShopCompatibleWithOrder = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year'>) => {
@@ -153,6 +201,11 @@ export const buildNearestShopsChain = (
       }
     });
     const [nearest] = pending.splice(bestIndex, 1);
+    void logger.debug('RADAR_GEO', 'Smart route distance calculated', {
+      from: cursor,
+      to: { lat: Number(nearest.latitude), lng: Number(nearest.longitude), shopId: nearest.id, shopName: nearest.name },
+      distanceMeters: bestDistance
+    });
     chain.push(nearest);
     cursor = { lat: nearest.latitude, lng: nearest.longitude };
   }

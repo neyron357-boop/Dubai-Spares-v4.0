@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { logger } from '../logging';
 import { SystemLogEntry } from '../types';
 
+type DiagnosticFilter = 'all' | 'radar' | 'recommendations' | 'sync';
+
 const formatTime = (value: number) => new Date(value).toLocaleString();
 
 const stringifyMeta = (meta: unknown) => {
@@ -20,6 +22,8 @@ const DebugLogsScreen: React.FC = () => {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [showOnlyImportant, setShowOnlyImportant] = useState(true);
   const [showAll, setShowAll] = useState(false);
+  const [tab, setTab] = useState<'overview' | 'diagnostic'>('overview');
+  const [diagnosticFilter, setDiagnosticFilter] = useState<DiagnosticFilter>('all');
 
   const IMPORTANT_LIMIT = 60;
   const FULL_LIMIT = 180;
@@ -51,11 +55,20 @@ const DebugLogsScreen: React.FC = () => {
 
   const importantLogs = useMemo(() => logs.filter(isImportant), [logs]);
 
+  const filterByDiagnosticGroup = (entry: SystemLogEntry) => {
+    if (diagnosticFilter === 'all') return true;
+    const scope = entry.scope.toLowerCase();
+    if (diagnosticFilter === 'radar') return scope.includes('radar');
+    if (diagnosticFilter === 'recommendations') return scope.includes('recommend');
+    if (diagnosticFilter === 'sync') return scope.includes('sync') || scope.includes('database_integrity') || scope.includes('supabase');
+    return true;
+  };
+
   const displayLogs = useMemo(() => {
-    const base = showOnlyImportant ? importantLogs : logs;
-    if (showAll) return base;
-    return base.slice(0, IMPORTANT_LIMIT);
-  }, [importantLogs, logs, showOnlyImportant, showAll]);
+    const byTab = tab === 'diagnostic' ? logs.filter(filterByDiagnosticGroup) : (showOnlyImportant ? importantLogs : logs);
+    if (showAll) return byTab;
+    return byTab.slice(0, IMPORTANT_LIMIT);
+  }, [tab, logs, importantLogs, showOnlyImportant, showAll, diagnosticFilter]);
 
   const exportText = useMemo(
     () =>
@@ -83,30 +96,55 @@ const DebugLogsScreen: React.FC = () => {
     <div className="p-4 pb-24 space-y-3">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-black">Debug / Logs</h1>
-        <div className="text-[11px] text-gray-500">{displayLogs.length}/{showOnlyImportant ? importantLogs.length : logs.length} entries</div>
+        <div className="text-[11px] text-gray-500">{displayLogs.length}/{tab === 'overview' && showOnlyImportant ? importantLogs.length : logs.length} entries</div>
       </div>
 
       <div className="flex gap-2">
-        <button className={`px-3 py-2 rounded-xl text-xs font-black ${showOnlyImportant ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'}`} type="button" onClick={() => { setShowOnlyImportant((current) => !current); setShowAll(false); }}>
-          {showOnlyImportant ? 'Важные' : 'Все'}
+        <button className={`px-3 py-2 rounded-xl text-xs font-black ${tab === 'overview' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700'}`} type="button" onClick={() => { setTab('overview'); setShowAll(false); }}>
+          Overview
         </button>
-        <button className="px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-black" type="button" onClick={() => void loadLogs()}>
-          Refresh
-        </button>
-        <button className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black" type="button" onClick={onCopy}>
-          Copy Logs to Clipboard
-        </button>
-        <button
-          className="px-3 py-2 rounded-xl bg-red-50 text-red-700 text-xs font-black"
-          type="button"
-          onClick={async () => {
-            await logger.clear();
-            await loadLogs();
-          }}
-        >
-          Clear
+        <button className={`px-3 py-2 rounded-xl text-xs font-black ${tab === 'diagnostic' ? 'bg-violet-100 text-violet-800' : 'bg-gray-100 text-gray-700'}`} type="button" onClick={() => { setTab('diagnostic'); setShowAll(false); setShowOnlyImportant(false); }}>
+          Diagnostic
         </button>
       </div>
+
+      {tab === 'overview' ? (
+        <div className="flex gap-2">
+          <button className={`px-3 py-2 rounded-xl text-xs font-black ${showOnlyImportant ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'}`} type="button" onClick={() => { setShowOnlyImportant((current) => !current); setShowAll(false); }}>
+            {showOnlyImportant ? 'Важные' : 'Все'}
+          </button>
+          <button className="px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-black" type="button" onClick={() => void loadLogs()}>
+            Refresh
+          </button>
+          <button className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black" type="button" onClick={onCopy}>
+            Copy Logs to Clipboard
+          </button>
+          <button
+            className="px-3 py-2 rounded-xl bg-red-50 text-red-700 text-xs font-black"
+            type="button"
+            onClick={async () => {
+              await logger.clear();
+              await loadLogs();
+            }}
+          >
+            Clear Logs
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex gap-2 flex-wrap">
+            <button className={`px-3 py-2 rounded-xl text-xs font-black ${diagnosticFilter === 'all' ? 'bg-slate-800 text-white' : 'bg-gray-100 text-gray-700'}`} type="button" onClick={() => { setDiagnosticFilter('all'); setShowAll(false); }}>All</button>
+            <button className={`px-3 py-2 rounded-xl text-xs font-black ${diagnosticFilter === 'radar' ? 'bg-emerald-700 text-white' : 'bg-gray-100 text-gray-700'}`} type="button" onClick={() => { setDiagnosticFilter('radar'); setShowAll(false); }}>Radar</button>
+            <button className={`px-3 py-2 rounded-xl text-xs font-black ${diagnosticFilter === 'recommendations' ? 'bg-indigo-700 text-white' : 'bg-gray-100 text-gray-700'}`} type="button" onClick={() => { setDiagnosticFilter('recommendations'); setShowAll(false); }}>Recommendations</button>
+            <button className={`px-3 py-2 rounded-xl text-xs font-black ${diagnosticFilter === 'sync' ? 'bg-amber-700 text-white' : 'bg-gray-100 text-gray-700'}`} type="button" onClick={() => { setDiagnosticFilter('sync'); setShowAll(false); }}>Sync</button>
+          </div>
+          <div className="flex gap-2">
+            <button className="px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-black" type="button" onClick={() => void loadLogs()}>Refresh</button>
+            <button className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black" type="button" onClick={onCopy}>Copy Logs to Clipboard</button>
+            <button className="px-3 py-2 rounded-xl bg-red-50 text-red-700 text-xs font-black" type="button" onClick={async () => { await logger.clear(); await loadLogs(); }}>Clear Logs</button>
+          </div>
+        </div>
+      )}
 
       {copyStatus && <div className="text-[11px] font-bold text-emerald-600">{copyStatus}</div>}
 
@@ -125,7 +163,7 @@ const DebugLogsScreen: React.FC = () => {
               <div className="text-xs font-bold mt-1">
                 <span
                   className={`mr-2 ${
-                    entry.level === 'error' ? 'text-red-600' : entry.level === 'warn' ? 'text-amber-600' : 'text-blue-600'
+                    entry.level === 'error' ? 'text-red-600' : entry.level === 'warn' ? 'text-amber-600' : entry.level === 'debug' ? 'text-violet-600' : 'text-blue-600'
                   }`}
                 >
                   {entry.level.toUpperCase()}
@@ -138,7 +176,7 @@ const DebugLogsScreen: React.FC = () => {
             </div>
           ))
         )}
-        {!loading && !showAll && ((showOnlyImportant ? importantLogs.length : logs.length) > IMPORTANT_LIMIT) && (
+        {!loading && !showAll && ((tab === 'overview' && showOnlyImportant ? importantLogs.length : tab === 'diagnostic' ? logs.filter(filterByDiagnosticGroup).length : logs.length) > IMPORTANT_LIMIT) && (
           <button
             className="w-full rounded-xl border border-gray-200 bg-white py-2 text-[11px] font-black uppercase text-gray-600"
             type="button"

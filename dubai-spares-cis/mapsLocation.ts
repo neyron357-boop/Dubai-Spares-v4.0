@@ -19,10 +19,23 @@ const PLACE_ID_REGEXES = [
   /\/place\/(?:[^/]+\/)?(ChI[\w-]+)/
 ];
 
+const LAT_LNG_REGEXES = [
+  /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+  /[?&](?:q|query)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+  /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/
+];
+
 const extractCoordinates = (value: string): Coordinates | undefined => {
-  const match = value.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
-  if (!match) return undefined;
-  return { lat: Number(match[1]), lng: Number(match[2]) };
+  for (const regex of LAT_LNG_REGEXES) {
+    const match = value.match(regex);
+    if (!match) continue;
+    const lat = Number(match[1]);
+    const lng = Number(match[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { lat, lng };
+    }
+  }
+  return undefined;
 };
 
 const normalizePlaceId = (value: string) => {
@@ -98,8 +111,15 @@ export const resolveCoordinatesFromLocation = async (location: string): Promise<
   const raw = (location || '').trim();
   if (!raw) return undefined;
 
+  await logger.debug('RADAR_GEO', 'Manual location input received', { rawLocation: raw });
+
   const direct = extractCoordinates(raw);
-  if (direct) return direct;
+  if (direct) {
+    await logger.info('RADAR_GEO', 'Manual location parsing result: Success', { coordinates: [direct.lat, direct.lng] });
+    return direct;
+  }
+
+  await logger.warn('RADAR_GEO', 'Manual location parsing result: Fail', { reason: 'Regex mismatch', rawLocation: raw });
 
   try {
     if (isGoogleMapsUrl(raw)) {
@@ -107,12 +127,20 @@ export const resolveCoordinatesFromLocation = async (location: string): Promise<
       const placeId = parsedPlaceId || await findPlaceIdByInput(raw);
       if (placeId) {
         const fromPlace = await fetchPlaceCoordinates(placeId);
-        if (fromPlace) return fromPlace;
+        if (fromPlace) {
+          await logger.info('RADAR_GEO', 'Google place coordinates resolved', { placeId, coordinates: [fromPlace.lat, fromPlace.lng] });
+          return fromPlace;
+        }
       }
     }
 
     const geocoded = await geocodeAddress(raw);
-    return geocoded || undefined;
+    if (geocoded) {
+      await logger.info('RADAR_GEO', 'Address geocoding result: Success', { coordinates: [geocoded.lat, geocoded.lng] });
+      return geocoded;
+    }
+    await logger.warn('RADAR_GEO', 'Address geocoding result: Fail', { reason: 'No results', rawLocation: raw });
+    return undefined;
   } catch (error) {
     void logger.warn('maps:resolve', 'Unable to resolve coordinates from location input', {
       location: raw,

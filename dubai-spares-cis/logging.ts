@@ -21,6 +21,8 @@ const emit = async (level: SystemLogLevel, scope: string, message: string, meta?
     console.error(`[${scope}] ${message}`, meta ?? '');
   } else if (level === 'warn') {
     console.warn(`[${scope}] ${message}`, meta ?? '');
+  } else if (level === 'debug') {
+    console.debug(`[${scope}] ${message}`, meta ?? '');
   } else {
     console.log(`[${scope}] ${message}`, meta ?? '');
   }
@@ -34,6 +36,7 @@ const emit = async (level: SystemLogLevel, scope: string, message: string, meta?
 };
 
 export const logger = {
+  debug: (scope: string, message: string, meta?: unknown) => emit('debug', scope, message, meta),
   info: (scope: string, message: string, meta?: unknown) => emit('info', scope, message, meta),
   warn: (scope: string, message: string, meta?: unknown) => emit('warn', scope, message, meta),
   error: (scope: string, message: string, meta?: unknown) => emit('error', scope, message, meta),

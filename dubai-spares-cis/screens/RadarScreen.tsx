@@ -7,6 +7,7 @@ import { buildNearestShopsChain, buildRoutePlanMapLink, buildShopMapLink, getRad
 import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
 import { toast } from '../feedback';
+import { logger } from '../logging';
 
 const GEO_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
@@ -96,6 +97,12 @@ const RadarScreen: React.FC = () => {
 
   const openPlannedRoute = () => {
     const routeLink = buildRoutePlanMapLink(routeChain, position);
+    void logger.info('RADAR_GEO', 'Opening smart chain route', {
+      origin: position,
+      shopCount: routeChain.length,
+      shopIds: routeChain.map((shop) => shop.id),
+      routeLink
+    });
     window.open(routeLink, '_blank');
   };
 
@@ -106,7 +113,7 @@ const RadarScreen: React.FC = () => {
         <p className="mt-1 text-xs text-emerald-100/80">Полевой режим: сначала рекомендуемые и совместимые магазины, затем ближайшие резервные точки.</p>
         <div className="mt-2">
           <button type="button" onClick={openPlannedRoute} className="inline-flex items-center gap-1 rounded-xl bg-emerald-400 px-3 py-2 text-[11px] font-black uppercase text-slate-950">
-            <Navigation size={12} /> План маршрута по магазинам
+            <Navigation size={12} /> Chain Route
           </button>
         </div>
         <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
