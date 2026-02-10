@@ -25,7 +25,8 @@ import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 import { shareMessage, buildOrderShareText } from '../shareUtils';
 import { supabase } from '../supabase';
-import { pushNotification } from '../notificationCenter';
+import { pushNotification, sendBrowserNotification } from '../notificationCenter';
+import { toast, vibrate } from '../feedback';
 
 type TabType = 'active' | 'archive' | 'sold' | 'vip' | 'leads' | 'new_leads';
 type SortType = 'date' | 'brand' | 'priority' | 'status';
@@ -85,6 +86,7 @@ const OrdersScreen: React.FC = () => {
   const pullTriggered = useRef(false);
   const swipeStartXRef = useRef<Record<string, number>>({});
   const [swipeOffsets, setSwipeOffsets] = useState<Record<string, number>>({});
+  const swipedIdsRef = useRef<Record<string, boolean>>({});
 
   const refreshOrders = async () => {
     setIsRefreshing(true);
@@ -192,11 +194,19 @@ const OrdersScreen: React.FC = () => {
       return;
     }
 
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition((pos) => {
-      setCurrentPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-      setNearbyFirst(true);
-    });
+    if (!navigator.geolocation) {
+      toast('Геолокация не поддерживается на этом устройстве', 'error');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCurrentPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setNearbyFirst(true);
+      },
+      () => {
+        toast('Включите GPS для сортировки Nearby First', 'error');
+      }
+    );
   };
 
   useEffect(() => {
@@ -284,18 +294,14 @@ const OrdersScreen: React.FC = () => {
           if (navigator.vibrate) navigator.vibrate([240, 120, 240]);
           if (typeof Notification !== 'undefined') {
             if (Notification.permission === 'granted') {
-              const notification = new Notification('Active Radar', {
+              void sendBrowserNotification('Active Radar', {
                 body: message,
                 tag: `radar-${order.id}-${matched.id}`,
-                vibrate: [200, 100, 200],
                 requireInteraction: true,
-                data: { route: `/order/${order.id}#shop-${matched.id}`, url: buildShopMapLink(matched), orderId: order.id }
+                route: `/order/${order.id}#shop-${matched.id}`,
+                url: buildShopMapLink(matched),
+                data: { orderId: order.id, shopId: matched.id }
               });
-              notification.onclick = () => {
-                window.focus();
-                window.location.hash = `#/order/${order.id}#shop-${matched.id}`;
-                notification.close();
-              };
             } else if (Notification.permission === 'default') {
               void Notification.requestPermission();
             }
@@ -327,6 +333,24 @@ const OrdersScreen: React.FC = () => {
     const hasNewLead = currentLeadIds.some((id) => !prevIds.has(id));
 
     if (hasNewLead) {
+      const newLead = orders.find((order) => order.status === 'new_inquiry' && !prevIds.has(order.id));
+      if (newLead) {
+        pushNotification({
+          type: 'order',
+          title: `Новый заказ: ${newLead.brand} ${newLead.model}`,
+          body: `Источник: ${newLead.source || 'не указан'}`,
+          route: `/order/${newLead.id}`,
+          orderId: newLead.id
+        });
+        void sendBrowserNotification('Новый заказ', {
+          body: `${newLead.brand} ${newLead.model} • ${newLead.source || 'Без источника'}`,
+          tag: `new-order-${newLead.id}`,
+          route: `/order/${newLead.id}`,
+          requireInteraction: true,
+          vibrate: [260, 100, 260]
+        });
+      }
+      vibrate([200, 60, 140]);
       try {
         const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (AudioContextClass) {
@@ -375,8 +399,16 @@ const OrdersScreen: React.FC = () => {
   const archiveBySwipe = (order: Order) => {
     if (order.isArchived) return;
     void updateOrder({ ...order, isArchived: true });
-    if (navigator.vibrate) navigator.vibrate(15);
+    vibrate([12, 40, 20]);
+    toast('Заказ перемещён в архив', 'success');
   };
+
+  const emptyStateMessage =
+    activeTab === 'archive'
+      ? { title: 'Архив пока пуст', subtitle: 'Смахните карточку влево на вкладке «Актив», чтобы архивировать заказ.', cta: 'Открыть активные' }
+      : activeTab === 'sold'
+      ? { title: 'Нет проданных заказов', subtitle: 'Отмечайте сделки как проданные, чтобы считать прибыль и аналитику.', cta: 'Перейти к активным' }
+      : { title: 'Заказы не найдены', subtitle: 'Добавьте новый заказ, чтобы начать подбор и отслеживание.', cta: 'Создать заказ' };
 
   return (
     <div
@@ -477,17 +509,41 @@ const OrdersScreen: React.FC = () => {
               <div className="h-3 w-2/3 bg-gray-100 rounded" />
             </div>
           ))
-        ) : filteredOrders.length === 0 ? <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-100 text-gray-300 text-xs font-bold uppercase tracking-widest">Заказов нет</div> : (
+        ) : filteredOrders.length === 0 ? (
+          <div className="text-center py-14 px-5 bg-white rounded-3xl border border-gray-100 shadow-sm">
+            <p className="text-base font-black text-gray-700">{emptyStateMessage.title}</p>
+            <p className="mt-2 text-xs text-gray-400">{emptyStateMessage.subtitle}</p>
+            <button
+              type="button"
+              onClick={() => (activeTab === 'active' ? navigate('/new') : setActiveTab('active'))}
+              className="mt-4 inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-[11px] font-black uppercase tracking-wide text-white"
+            >
+              {emptyStateMessage.cta}
+            </button>
+          </div>
+        ) : (
           filteredOrders.map((order) => (
             <div
               key={order.id}
-              onClick={() => navigate(`/order/${order.id}`)}
-              onTouchStart={(e) => { swipeStartXRef.current[order.id] = e.touches[0].clientX; }}
+              onClick={() => {
+                if (swipedIdsRef.current[order.id]) {
+                  swipedIdsRef.current[order.id] = false;
+                  return;
+                }
+                navigate(`/order/${order.id}`);
+              }}
+              onTouchStart={(e) => {
+                swipeStartXRef.current[order.id] = e.touches[0].clientX;
+                swipedIdsRef.current[order.id] = false;
+              }}
               onTouchMove={(e) => {
                 const startX = swipeStartXRef.current[order.id];
                 if (typeof startX !== 'number') return;
                 const delta = e.touches[0].clientX - startX;
-                if (delta < 0) setSwipeOffsets((prev) => ({ ...prev, [order.id]: Math.max(delta, -132) }));
+                if (delta < 0) {
+                  swipedIdsRef.current[order.id] = Math.abs(delta) > 24;
+                  setSwipeOffsets((prev) => ({ ...prev, [order.id]: Math.max(delta, -132) }));
+                }
               }}
               onTouchEnd={() => {
                 const offset = swipeOffsets[order.id] || 0;
@@ -550,6 +606,7 @@ const OrdersScreen: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1">
+                  <button onClick={(e) => { e.stopPropagation(); navigate(`/order/${order.id}#manual-link`); }} className="px-2 py-1 rounded-md text-[9px] font-black uppercase bg-indigo-50 text-indigo-600">Manual Link</button>
                   <button onClick={(e) => { e.stopPropagation(); void shareMessage(buildOrderShareText(order)); }} className="p-2 text-gray-300 hover:text-emerald-600"><Share2 size={18} /></button>
                   <button onClick={(e) => { e.stopPropagation(); togglePin(order.id); }} className="p-2 text-gray-300 hover:text-blue-600"><Pin size={18} className={order.isPinned ? 'fill-blue-100 text-blue-600' : ''} /></button>
                   <button onClick={(e) => { e.stopPropagation(); setDeleteId(order.id); }} className="p-2 text-gray-200 hover:text-red-500"><Trash2 size={20} /></button>

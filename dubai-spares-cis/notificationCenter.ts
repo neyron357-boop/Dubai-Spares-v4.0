@@ -1,4 +1,4 @@
-export type AppNotificationType = 'radar' | 'sync' | 'system';
+export type AppNotificationType = 'radar' | 'sync' | 'system' | 'order';
 
 export interface AppNotification {
   id: string;
@@ -35,6 +35,37 @@ export const getNotifications = (): AppNotification[] => {
 const persist = (list: AppNotification[]) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0, MAX_ITEMS)));
   window.dispatchEvent(new CustomEvent('notifications:changed'));
+};
+
+export const sendBrowserNotification = async (
+  title: string,
+  options: NotificationOptions & { route?: string; url?: string }
+) => {
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission !== 'granted') return;
+
+  const data = { ...(options.data || {}), route: options.route, url: options.url };
+
+  if ('serviceWorker' in navigator) {
+    const registration = await navigator.serviceWorker.ready;
+    await registration.showNotification(title, {
+      ...options,
+      data,
+      vibrate: options.vibrate || [220, 120, 220],
+      badge: '/icon-192.png'
+    });
+    return;
+  }
+
+  const notification = new Notification(title, { ...options, data, vibrate: options.vibrate || [220, 120, 220] });
+  notification.onclick = () => {
+    if (options.route) {
+      window.location.hash = `#${options.route}`;
+    } else if (options.url) {
+      window.open(options.url, '_blank');
+    }
+    notification.close();
+  };
 };
 
 export const pushNotification = (payload: Omit<AppNotification, 'id' | 'createdAt'>) => {

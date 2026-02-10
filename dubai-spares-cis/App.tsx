@@ -90,6 +90,7 @@ const App: React.FC = () => {
   const [entering, setEntering] = useState(false);
   const [savePulse, setSavePulse] = useState(false);
   const [syncToast, setSyncToast] = useState<string | null>(null);
+  const [appToast, setAppToast] = useState<{ message: string; tone: 'error' | 'success' | 'info' } | null>(null);
   const { syncOrders, isLoading, error } = useStore();
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
@@ -107,6 +108,19 @@ const App: React.FC = () => {
       window.removeEventListener('cloud-save-success', onSave);
       if (timer) clearTimeout(timer);
     };
+  }, []);
+
+  useEffect(() => {
+    const onAppToast = (event: Event) => {
+      const custom = event as CustomEvent<{ message?: string; tone?: 'error' | 'success' | 'info' }>;
+      const message = custom.detail?.message;
+      if (!message) return;
+      setAppToast({ message, tone: custom.detail?.tone || 'info' });
+      window.setTimeout(() => setAppToast(null), 3200);
+    };
+
+    window.addEventListener('app-toast', onAppToast);
+    return () => window.removeEventListener('app-toast', onAppToast);
   }, []);
 
   useEffect(() => {
@@ -188,6 +202,20 @@ const App: React.FC = () => {
         {syncToast && (
           <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-wide shadow">
             {syncToast}
+          </div>
+        )}
+
+        {appToast && (
+          <div
+            className={`fixed top-14 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide shadow ${
+              appToast.tone === 'error'
+                ? 'bg-rose-100 text-rose-700'
+                : appToast.tone === 'success'
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-slate-100 text-slate-700'
+            }`}
+          >
+            {appToast.message}
           </div>
         )}
 
