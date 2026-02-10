@@ -72,12 +72,6 @@ const quoteStatus = (order: Order) => {
   return 'Best Price Found';
 };
 
-const getPartCondition = (variant?: PriceVariant) => {
-  const hint = `${variant?.shopName || ''} ${variant?.location || ''}`.toLowerCase();
-  if (hint.includes('used') || hint.includes('разбор') || hint.includes('б/у')) return 'Used';
-  return 'New';
-};
-
 const fetchLiveQuoteRates = async (): Promise<QuoteRates> => {
   const response = await fetch('https://open.er-api.com/v6/latest/AED');
   if (!response.ok) throw new Error(`Rate API error: ${response.status}`);
@@ -174,10 +168,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         best,
         photos,
         converted,
-        supplierAed,
         clientAed,
         isReady,
-        condition: isReady ? getPartCondition(best) : 'Searching',
         availability: isReady ? 'In stock' : 'In progress'
       };
     });
@@ -198,9 +190,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const selectedPartNames = foundParts.map(({ part }) => part.name).join(', ');
   const whatsappText = encodeURIComponent(
-    `Hello! I reviewed the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''} and I want to proceed with ${selectedPartNames || 'the selected parts'}.`
+    `Hello! I confirmed the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''} and want to proceed with ${selectedPartNames || 'the selected parts'}.`
   );
-  const whatsappUrl = `https://wa.me/?text=${whatsappText}`;
+  const whatsappUrl = `https://wa.me/971521574546?text=${whatsappText}`;
 
   if (loading) {
     return <div className="min-h-screen bg-[#f5f5f7] text-slate-900 flex items-center justify-center">Loading quotation…</div>;
@@ -284,28 +276,27 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       </header>
 
       <main className="mx-auto -mt-8 w-full max-w-4xl space-y-4 px-3 pb-28 sm:px-5">
-        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
+        <section className="rounded-3xl border border-black/5 bg-gradient-to-br from-white via-white to-slate-50 p-4 shadow-[0_16px_45px_rgba(15,23,42,0.08)] sm:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Quote total</p>
-          <p className="mt-2 text-3xl font-semibold">{totals.totalConverted.toFixed(2)} {currency}</p>
-          <p className="mt-1 text-sm text-slate-500">Includes markup: {order.markupPercent}% · {totals.totalAed.toFixed(2)} AED</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900 sm:text-4xl">{totals.totalConverted.toFixed(2)} {currency}</p>
+          <p className="mt-1 text-sm text-slate-500">Final client price · {totals.totalAed.toFixed(2)} AED</p>
         </section>
 
         <section className="space-y-3">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Found parts ({foundParts.length})</p>
-          {foundParts.map(({ part, best, converted, photos, condition, availability, supplierAed, clientAed }) => (
+          {foundParts.map(({ part, best, converted, photos, availability }) => (
             <article key={part.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-semibold text-slate-900">{part.name}</h2>
                   <div className="mt-2 flex flex-wrap gap-2 text-xs font-medium">
-                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">Condition: {condition}</span>
-                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">Status: {availability}</span>
+                    <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-emerald-700">Status: {availability}</span>
                   </div>
                 </div>
 
                 <div className="text-right">
                   <p className="text-2xl font-semibold text-slate-900">{converted.toFixed(2)} {currency}</p>
-                  <p className="text-xs text-slate-500">Supplier: {supplierAed.toFixed(2)} AED · Client: {clientAed.toFixed(2)} AED</p>
+                  <p className="text-xs text-slate-500">Final price</p>
                 </div>
               </div>
 
@@ -322,7 +313,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               {best?.shopName && (
                 <div className="mt-4 inline-flex items-center gap-2 text-sm text-slate-600">
                   <CheckCircle2 size={16} className="text-emerald-500" />
-                  Best source: {best.shopName}
+                  Premium source: {best.shopName}
                 </div>
               )}
             </article>
@@ -343,8 +334,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-black/5 bg-white/95 p-3 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur-xl">
         <div className="mx-auto w-full max-w-4xl">
-          <a href={whatsappUrl} target="_blank" rel="noreferrer" className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 text-base font-bold text-white shadow-[0_12px_40px_rgba(16,185,129,0.35)]">
-            <MessageCircle size={18} /> Confirm Order via WhatsApp <ChevronRight size={18} />
+          <a href={whatsappUrl} target="_blank" rel="noreferrer" className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 via-emerald-500 to-green-500 px-5 text-base font-bold text-white shadow-[0_14px_42px_rgba(16,185,129,0.42)] transition hover:brightness-105">
+            <MessageCircle size={18} /> Confirm & Open WhatsApp Chat <ChevronRight size={18} />
           </a>
         </div>
       </div>
