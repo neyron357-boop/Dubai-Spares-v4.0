@@ -224,7 +224,7 @@ const PublicOrderFormScreen: React.FC = () => {
         {
           id: createId(),
           text: `${locale.publicRequest}\n${locale.language}: ${preferredLanguageLabel.trim()}\n\n${locale.requestedPartsLabel}:\n${requestedPartsSummary}\n\n${locale.delivery}:\n${deliverySummary}`,
-          photos: [],
+          photos: uploadedVinPhotos,
           audios: [],
           createdAt: Date.now()
         }
@@ -243,6 +243,7 @@ const PublicOrderFormScreen: React.FC = () => {
         customer_contact: customerContact.trim(),
         source: DEFAULT_SOURCE,
         priority: 'MEDIUM',
+        car_photo_url: uploadedCarPhotos[0] || null,
         car_photos: uploadedCarPhotos,
         markup_percent: 20,
         exchange_rate: 3.67,
