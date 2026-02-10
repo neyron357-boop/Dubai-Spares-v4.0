@@ -69,6 +69,37 @@ const isGoogleMapsUrl = (raw: string): boolean => {
   }
 };
 
+const isGoogleShortMapsUrl = (raw: string): boolean => {
+  if (!raw || !raw.startsWith('http')) return false;
+  try {
+    const host = new URL(raw).hostname.toLowerCase();
+    return host === 'maps.app.goo.gl' || host === 'www.maps.app.goo.gl' || host === 'goo.gl' || host === 'www.goo.gl';
+  } catch {
+    return false;
+  }
+};
+
+const normalizeMapsInput = (raw: string): string => {
+  try {
+    const url = new URL(raw);
+    ['g_st', 'g_ep', 'gws_rd', 'pli'].forEach((key) => url.searchParams.delete(key));
+    return url.toString();
+  } catch {
+    return raw;
+  }
+};
+
+const expandShortGoogleMapsUrl = async (raw: string): Promise<string | null> => {
+  if (!isGoogleShortMapsUrl(raw)) return null;
+  try {
+    // Use no-cors to allow following redirects in the browser and then parse the final URL.
+    const response = await fetch(raw, { method: 'GET', redirect: 'follow', mode: 'no-cors' });
+    return response?.url && response.url !== raw ? response.url : null;
+  } catch {
+    return null;
+  }
+};
+
 const extractPlaceIdFromLink = (raw: string): string | null => {
   for (const regex of PLACE_ID_REGEXES) {
     const match = raw.match(regex);
@@ -136,10 +167,11 @@ const geocodeByUrl = async (urlValue: string): Promise<Coordinates | null> => {
 export const resolveCoordinatesFromLocation = async (location: string): Promise<Coordinates | undefined> => {
   const raw = (location || '').trim();
   if (!raw) return undefined;
+  const normalizedRaw = normalizeMapsInput(raw);
 
   await logger.debug('RADAR_GEO', 'Manual location input received', { rawLocation: raw });
 
-  const direct = extractCoordinates(raw);
+  const direct = extractCoordinates(normalizedRaw);
   if (direct) {
     await logger.info('RADAR_GEO', 'Manual location parsing result: Success', { coordinates: [direct.lat, direct.lng] });
     return direct;
@@ -148,14 +180,23 @@ export const resolveCoordinatesFromLocation = async (location: string): Promise<
   await logger.warn('RADAR_GEO', 'Manual location parsing result: Fail', { reason: 'Regex mismatch', rawLocation: raw });
 
   try {
-    if (isGoogleMapsUrl(raw)) {
-      const fromUrlGeocode = await geocodeByUrl(raw);
+    if (isGoogleMapsUrl(normalizedRaw)) {
+      const expandedUrl = await expandShortGoogleMapsUrl(normalizedRaw);
+      if (expandedUrl) {
+        const fromExpandedCoordinates = extractCoordinates(expandedUrl);
+        if (fromExpandedCoordinates) {
+          await logger.info('RADAR_GEO', 'Google short URL expanded and parsed', { coordinates: [fromExpandedCoordinates.lat, fromExpandedCoordinates.lng] });
+          return fromExpandedCoordinates;
+        }
+      }
+
+      const fromUrlGeocode = isGoogleShortMapsUrl(normalizedRaw) ? null : await geocodeByUrl(normalizedRaw);
       if (fromUrlGeocode) {
         await logger.info('RADAR_GEO', 'Google URL geocoding result: Success', { coordinates: [fromUrlGeocode.lat, fromUrlGeocode.lng] });
         return fromUrlGeocode;
       }
-      const parsedPlaceId = extractPlaceIdFromLink(raw);
-      const placeId = parsedPlaceId || await findPlaceIdByInput(raw);
+      const parsedPlaceId = extractPlaceIdFromLink(expandedUrl || normalizedRaw);
+      const placeId = parsedPlaceId || await findPlaceIdByInput(expandedUrl || normalizedRaw);
       if (placeId) {
         const fromPlace = await fetchPlaceCoordinates(placeId);
         if (fromPlace) {
@@ -165,7 +206,7 @@ export const resolveCoordinatesFromLocation = async (location: string): Promise<
       }
     }
 
-    const geocoded = await geocodeAddress(raw);
+    const geocoded = await geocodeAddress(normalizedRaw);
     if (geocoded) {
       await logger.info('RADAR_GEO', 'Address geocoding result: Success', { coordinates: [geocoded.lat, geocoded.lng] });
       return geocoded;
