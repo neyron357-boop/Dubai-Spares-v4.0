@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, Part, Priority, OrderNote, Shop } from '../types';
-import { buildShopMapLink, getShopOrderMatchScore, isShopCompatibleWithOrder } from '../shopMatching';
+import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationLevel, isShopCompatibleWithOrder } from '../shopMatching';
 import { SOURCES } from '../constants';
 import { 
   ArrowLeft, 
@@ -182,6 +182,13 @@ const OrderDetailsScreen: React.FC = () => {
     distance: currentPosition ? distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }) : Number.MAX_SAFE_INTEGER
   })), ...(mergedRecommendations.length > 0 ? [] : fallbackNearest)]
     .sort((a, b) => a.distance - b.distance);
+
+  const groupedRecommendations = {
+    high: recommendedShops.filter((shop) => getShopRecommendationLevel(shop, order) === 'high'),
+    medium: recommendedShops.filter((shop) => getShopRecommendationLevel(shop, order) === 'medium'),
+    low: recommendedShops.filter((shop) => getShopRecommendationLevel(shop, order) === 'low'),
+    none: recommendedShops.filter((shop) => getShopRecommendationLevel(shop, order) === 'none')
+  };
 
   const navigateToShop = (shop: Shop) => {
     window.open(buildShopMapLink(shop), '_blank');
@@ -661,33 +668,48 @@ const OrderDetailsScreen: React.FC = () => {
           {recommendedShops.length === 0 ? (
             <p className="text-xs text-gray-400">Пока нет магазинов с координатами. Добавьте локации в справочник поставщиков.</p>
           ) : (
-            <div className="space-y-2">
-              {recommendedShops.slice(0, 6).map((shop) => (
-                <div key={shop.id} id={`shop-${shop.id}`} className="flex items-center justify-between rounded-xl border border-gray-100 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-gray-800 truncate">{shop.name}</p>
-                    <p className="text-[11px] text-gray-500 truncate">{Number.isFinite(shop.distance) ? `${Math.round(shop.distance)}m` : 'distance unavailable'}</p>
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {Array.from(new Set([...(shop.specializationModels || []), ...((shopTagMap[shop.id]?.models) || [])])).slice(0, 6).map((modelTag) => (
-                        <span key={`${shop.id}-${modelTag}`} className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-blue-700">{modelTag}</span>
-                      ))}
-                      {Array.from(new Set([...(shop.specializationYears || []).map(String), ...((shopTagMap[shop.id]?.years) || [])])).slice(0, 6).map((yearTag) => (
-                        <span key={`${shop.id}-year-${yearTag}`} className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-violet-700">{yearTag}</span>
-                      ))}
-                    </div>
+            <div className="space-y-3">
+              {([
+                { key: 'high', title: 'Высокая рекомендация', tone: 'text-emerald-700 bg-emerald-50 border-emerald-100' },
+                { key: 'medium', title: 'Средняя рекомендация', tone: 'text-amber-700 bg-amber-50 border-amber-100' },
+                { key: 'low', title: 'Низкая рекомендация', tone: 'text-blue-700 bg-blue-50 border-blue-100' },
+                { key: 'none', title: 'Резервные магазины', tone: 'text-slate-700 bg-slate-50 border-slate-100' }
+              ] as const).map((section) => {
+                const items = groupedRecommendations[section.key];
+                if (items.length === 0) return null;
+
+                return (
+                  <div key={section.key} className="space-y-2">
+                    <p className={`inline-flex rounded-md border px-2 py-1 text-[10px] font-black uppercase ${section.tone}`}>{section.title}</p>
+                    {items.slice(0, 6).map((shop) => (
+                      <div key={shop.id} id={`shop-${shop.id}`} className="flex items-center justify-between rounded-xl border border-gray-100 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-gray-800 truncate">{shop.name}</p>
+                          <p className="text-[11px] text-gray-500 truncate">{Number.isFinite(shop.distance) ? `${Math.round(shop.distance)}m` : 'distance unavailable'}</p>
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {Array.from(new Set([...(shop.specializationModels || []), ...((shopTagMap[shop.id]?.models) || [])])).slice(0, 6).map((modelTag) => (
+                              <span key={`${shop.id}-${modelTag}`} className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-blue-700">{modelTag}</span>
+                            ))}
+                            {Array.from(new Set([...(shop.specializationYears || []).map(String), ...((shopTagMap[shop.id]?.years) || [])])).slice(0, 6).map((yearTag) => (
+                              <span key={`${shop.id}-year-${yearTag}`} className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-violet-700">{yearTag}</span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {(order.recommendedShopIds || []).includes(shop.id) && (
+                            <button type="button" onClick={() => removeManualRecommendation(shop.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-bold text-rose-600">
+                              Remove
+                            </button>
+                          )}
+                          <button type="button" onClick={() => navigateToShop(shop)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white">
+                            Navigate
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex items-center gap-2">
-                    {(order.recommendedShopIds || []).includes(shop.id) && (
-                      <button type="button" onClick={() => removeManualRecommendation(shop.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-bold text-rose-600">
-                        Remove
-                      </button>
-                    )}
-                    <button type="button" onClick={() => navigateToShop(shop)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white">
-                      Navigate
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
