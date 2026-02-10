@@ -40,10 +40,33 @@ export const buildPartShareText = (order: Order, part: Part) => {
   return getShareText(order.brand, part.name, price, firstHttpPhoto(photos) || 'No cloud link yet');
 };
 
-export const buildPublicQuoteLink = (orderId: string) => `${window.location.origin}/order/${orderId}/quote`;
+const slugify = (value: string) =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+
+export const buildPublicQuoteSlug = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'>) => {
+  const readable = slugify([order.brand, order.model, order.year].filter(Boolean).join(' '));
+  return readable ? `${readable}-${order.id}` : order.id;
+};
+
+export const extractOrderIdFromQuoteSlug = (slugOrId: string) => {
+  const trimmed = slugOrId.trim();
+  if (!trimmed.includes('-')) return trimmed;
+  const chunks = trimmed.split('-').filter(Boolean);
+  return chunks[chunks.length - 1] || trimmed;
+};
+
+export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string) => {
+  const slug = typeof order === 'string' ? order : buildPublicQuoteSlug(order);
+  return `${window.location.origin}/quote/${slug}`;
+};
 
 export const buildQuoteShareText = (order: Order) =>
-  `Hello! We found the parts for your ${order.brand} ${order.model}. View details and prices here: ${buildPublicQuoteLink(order.id)}`;
+  `Hello! We found the parts for your ${order.brand} ${order.model}. View details and prices here: ${buildPublicQuoteLink(order)}`;
 
 export const copyToClipboard = async (text: string) => {
   try {
