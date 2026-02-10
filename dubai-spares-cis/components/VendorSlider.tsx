@@ -164,15 +164,15 @@ const VendorSlider: React.FC = () => {
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-gray-950 to-transparent pointer-events-none" />
                 <div className="absolute bottom-6 left-0 right-0 text-center px-4 pointer-events-none">
-                  <h1 className="text-3xl font-black text-white leading-none">{order.brand} {order.model}</h1>
-                  <p className="text-gray-400 font-bold mt-2">{order.year} год выпуска</p>
+                  <h1 className="text-3xl font-black text-white leading-none line-clamp-2 break-words">{order.brand || '—'} {order.model || ''}</h1>
+                  <p className="text-gray-400 font-bold mt-2 truncate">{order.year || 'Год не указан'} год выпуска</p>
                 </div>
               </div>
 
               <div className="p-6 space-y-8">
                 <div className="bg-blue-600/10 border border-blue-500/20 p-6 rounded-3xl text-center">
                   <div className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mb-3">VIN НОМЕР</div>
-                  <div className="text-2xl font-mono font-black text-white break-all tracking-wider">{order.vin}</div>
+                  <div className="text-xl font-mono font-black text-white break-all tracking-wider">{order.vin || '—'}</div>
                 </div>
 
                 <div className="space-y-4">
@@ -184,7 +184,7 @@ const VendorSlider: React.FC = () => {
                         <div key={p.id} className="bg-gray-900 border border-gray-800 p-4 rounded-2xl flex items-center justify-between gap-4">
                           <div className="flex items-center gap-4">
                             <div className={`w-3 h-3 rounded-full shrink-0 ${p.variants.length > 0 ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-gray-700'}`} />
-                            <span className="text-xl font-bold text-gray-200 leading-tight">{p.name}</span>
+                            <span className="text-lg font-bold text-gray-200 leading-tight break-words line-clamp-2">{p.name}</span>
                           </div>
                           {photos.length > 0 && (
                             <button

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { Order, Part, Priority, OrderNote } from '../types';
+import { Order, Part, Priority, OrderNote, Shop } from '../types';
 import { SOURCES } from '../constants';
 import { 
   ArrowLeft, 
@@ -29,8 +29,22 @@ import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 import { buildPartShareText, shareMessage } from '../shareUtils';
+import { supabase } from '../supabase';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
+
+
+const toRad = (v: number) => (v * Math.PI) / 180;
+const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const R = 6371000;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const calc =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(calc), Math.sqrt(1 - calc));
+};
+
 
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -54,6 +68,8 @@ const OrderDetailsScreen: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({});
+  const [shops, setShops] = useState<Shop[]>([]);
+  const [currentPosition, setCurrentPosition] = useState<{ lat: number; lng: number } | null>(null);
 
   const [newPartName, setNewPartName] = useState('');
   // Multiple photos for new part
@@ -68,6 +84,34 @@ const OrderDetailsScreen: React.FC = () => {
     if (order) setRateInput(order.exchangeRate.toString());
   }, [order?.id]);
 
+
+
+  useEffect(() => {
+    let active = true;
+    const loadShops = async () => {
+      if (!supabase) return;
+      const { data } = await supabase.from('shops').select('id,name,phone,location,latitude,longitude,specialization');
+      if (!active || !Array.isArray(data)) return;
+      setShops(data.map((row: any) => ({
+        id: String(row.id),
+        name: row.name || 'Shop',
+        phone: row.phone || '',
+        location: row.location || '',
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        specialization: Array.isArray(row.specialization) ? row.specialization : []
+      })));
+    };
+    void loadShops();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition((pos) => {
+      setCurrentPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+    });
+  }, []);
 
   if (!order && isLoading) {
     return (
@@ -97,6 +141,19 @@ const OrderDetailsScreen: React.FC = () => {
   const profitUsd = order.isSold && order.soldProfitUsd !== undefined 
     ? order.soldProfitUsd.toFixed(2) 
     : calculateCurrentProfit().toFixed(2);
+
+
+  const recommendedShops = shops
+    .filter((shop) => shop.specialization.some((brand) => brand.toLowerCase() === order.brand.toLowerCase()))
+    .map((shop) => ({
+      ...shop,
+      distance: currentPosition ? distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }) : Number.MAX_SAFE_INTEGER
+    }))
+    .sort((a, b) => a.distance - b.distance);
+
+  const navigateToShop = (shop: Shop) => {
+    window.open(`https://www.google.com/maps/search/?api=1&query=${shop.latitude},${shop.longitude}`, '_blank');
+  };
 
   const updateOrderField = (field: keyof Order, value: any) => {
     updateOrder({ ...order, [field]: value });
@@ -531,6 +588,28 @@ const OrderDetailsScreen: React.FC = () => {
                   {n.text && <p className="text-sm font-semibold text-gray-700">{n.text}</p>}
                   {n.photos && n.photos.length > 0 && <div className="flex gap-2 mt-2 overflow-x-auto no-scrollbar">{n.photos.map((ph, idx) => <button key={idx} type="button" onClick={() => setGallery({ images: n.photos || [], index: idx })} className="w-12 h-12 rounded-lg overflow-hidden"><img src={ph} className="w-full h-full object-cover" /></button>)}</div>}
                   {n.audios && n.audios.length > 0 && <div className="space-y-2 mt-2">{n.audios.map((audioSrc, idx) => { const audioId = `note-${n.id}-${idx}`; const isPlaying = playingAudioId === audioId; return <div key={audioId} className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-2"><button type="button" onClick={() => toggleAudioPlayback(audioId)} className="w-7 h-7 rounded-full bg-green-600 text-white flex items-center justify-center">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button><div className="h-1 flex-1 rounded-full bg-gray-200"><div className="h-1 rounded-full bg-green-500 transition-all" style={{ width: `${audioProgress[audioId] || 0}%` }} /></div><audio id={audioId} src={audioSrc} preload="metadata" playsInline /></div>; })}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+
+        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-2">
+          <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Recommended Shops</h2>
+          {recommendedShops.length === 0 ? (
+            <p className="text-xs text-gray-400">Нет подходящих магазинов для бренда {order.brand || '—'}.</p>
+          ) : (
+            <div className="space-y-2">
+              {recommendedShops.slice(0, 6).map((shop) => (
+                <div key={shop.id} className="flex items-center justify-between rounded-xl border border-gray-100 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-gray-800 truncate">{shop.name}</p>
+                    <p className="text-[11px] text-gray-500 truncate">{Number.isFinite(shop.distance) ? `${Math.round(shop.distance)}m` : 'distance unavailable'}</p>
+                  </div>
+                  <button type="button" onClick={() => navigateToShop(shop)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white">
+                    Navigate
+                  </button>
                 </div>
               ))}
             </div>

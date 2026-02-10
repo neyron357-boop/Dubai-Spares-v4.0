@@ -10,7 +10,7 @@ create table if not exists public.orders (
   model text not null,
   year text not null default '',
   vin text not null default '',
-  status text not null default 'active' check (status in ('active','archive','sold','vip','lead','new_inquiry')),
+  status text not null default 'active' check (status in ('active','archive','sold','vip','lead','new_inquiry','in_progress')),
   priority text not null default 'MEDIUM' check (priority in ('LOW','MEDIUM','HIGH')),
   client_name text not null default '',
   source text not null default 'Другое',
@@ -61,3 +61,18 @@ create index if not exists idx_price_variants_part_id on public.price_variants (
 insert into storage.buckets (id, name, public)
 values ('images', 'images', true)
 on conflict (id) do nothing;
+
+
+create table if not exists public.shops (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  phone text not null default '',
+  location text not null default '',
+  latitude double precision,
+  longitude double precision,
+  specialization text[] not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_shops_geo on public.shops (latitude, longitude);
