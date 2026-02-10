@@ -565,7 +565,8 @@ const OrdersScreen: React.FC = () => {
                 <div>
                   <h3 className="font-black text-gray-900 text-lg leading-tight uppercase tracking-tight">{order.brand} {order.model}</h3>
                   <div className="flex flex-wrap gap-2 mt-1">
-                    <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100"><p className="text-[10px] text-gray-700 font-mono font-black uppercase tracking-tight">VIN: {order.vin}</p></div>
+                    {order.year && <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100"><p className="text-[10px] text-gray-700 font-black uppercase tracking-tight">Год выпуска: {order.year}</p></div>}
+                    {order.vin && <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100"><p className="text-[10px] text-gray-700 font-mono font-black uppercase tracking-tight">VIN: {order.vin}</p></div>}
                     {order.clientName && <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1 max-w-full"><User size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold uppercase tracking-tight truncate">{order.clientName}</p></div>}
                     {order.customerContact && <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1 max-w-full"><Smartphone size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold tracking-tight truncate">{order.customerContact}</p></div>}
                     <div className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-flex items-center gap-1 max-w-full"><Smartphone size={10} className="text-gray-400"/><p className="text-[10px] text-gray-700 font-bold uppercase tracking-tight truncate">{order.source}</p></div>

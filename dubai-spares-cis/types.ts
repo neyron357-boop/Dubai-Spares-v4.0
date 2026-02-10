@@ -49,6 +49,7 @@ export interface Order {
   model: string;
   year: string;
   vin: string;
+  vinPhotoUrl?: string;
   status?: OrderStatus;
   priority: Priority;
   clientName: string;
@@ -69,6 +70,7 @@ export interface Order {
   notes?: OrderNote[];
   salesStatus?: SalesStatus;
   customerContact?: string;
+  socialNickname?: string;
   updatedAt?: number;
   recommendedShopIds?: string[];
 }
@@ -134,6 +136,7 @@ export interface DbOrderRow {
   model: string;
   year: string;
   vin: string;
+  vin_photo_url?: string | null;
   status: OrderStatus;
   priority: Priority;
   client_name: string;
@@ -152,6 +155,7 @@ export interface DbOrderRow {
   notes: OrderNote[];
   sales_status?: SalesStatus;
   customer_contact?: string;
+  social_nickname?: string;
   updated_at?: number | string;
   recommended_shop_ids?: string[];
 }

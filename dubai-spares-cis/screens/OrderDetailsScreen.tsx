@@ -72,6 +72,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({});
   const [shops, setShops] = useState<Shop[]>([]);
+  const [shopsLoaded, setShopsLoaded] = useState(false);
   const [currentPosition, setCurrentPosition] = useState<{ lat: number; lng: number } | null>(null);
   const [shopTagMap, setShopTagMap] = useState<Record<string, { models: string[]; years: string[] }>>({});
 
@@ -97,6 +98,7 @@ const OrderDetailsScreen: React.FC = () => {
       const loadedShops = await fetchRadarShops(suppliers);
       if (!active) return;
       setShops(loadedShops);
+      setShopsLoaded(true);
     };
 
     const shopsChannel = supabase
@@ -134,7 +136,7 @@ const OrderDetailsScreen: React.FC = () => {
   }, [order.id, order.model, order.year]);
 
   useEffect(() => {
-    if (!order) return;
+    if (!order || !shopsLoaded) return;
 
     const diagnostics = shops.map((shop) => ({ shop, diagnostics: getShopRecommendationDiagnostics(shop, order) }));
     const includedCount = diagnostics.filter(({ diagnostics: d }) => d.level !== 'none').length;
@@ -164,7 +166,7 @@ const OrderDetailsScreen: React.FC = () => {
           years: shop.specializationYears || []
         });
       });
-  }, [order, shops]);
+  }, [order, shops, shopsLoaded]);
 
   if (!order && isLoading) {
     return (

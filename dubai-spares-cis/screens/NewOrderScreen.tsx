@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Priority, Source, Order } from '../types';
-import { BRANDS, YEARS, DEFAULT_MARKUP, DEFAULT_RATE, SOURCES } from '../constants';
+import { BRANDS, YEARS, DEFAULT_MARKUP, DEFAULT_RATE, SOCIAL_SOURCES, BRAND_MODELS } from '../constants';
 import { Camera, Plus, X, Save, Image as ImageIcon, Trash2, User, Smartphone, Star, Gem } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
 
@@ -11,6 +11,7 @@ const NewOrderScreen: React.FC = () => {
   const navigate = useNavigate();
   const carFileRef = useRef<HTMLInputElement>(null);
   const partFileRef = useRef<HTMLInputElement>(null);
+  const vinFileRef = useRef<HTMLInputElement>(null);
 
   const [isVip, setIsVip] = useState(false);
   const [isLead, setIsLead] = useState(false);
@@ -24,7 +25,9 @@ const NewOrderScreen: React.FC = () => {
   const [year, setYear] = useState(YEARS[0]);
   const [vin, setVin] = useState('');
   const [clientName, setClientName] = useState('');
-  const [source, setSource] = useState<Source>(Source.OTHER);
+  const [source, setSource] = useState<Source>(Source.INSTAGRAM);
+  const [socialNickname, setSocialNickname] = useState('');
+  const [vinPhotoUrl, setVinPhotoUrl] = useState('');
   const [localOnlyPhotos, setLocalOnlyPhotos] = useState(false);
   
   const [partInput, setPartInput] = useState('');
@@ -35,6 +38,8 @@ const NewOrderScreen: React.FC = () => {
   
   // Gallery State
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
+
+  const modelOptions = BRAND_MODELS[brand] || [];
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<string[]>>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -78,6 +83,7 @@ const NewOrderScreen: React.FC = () => {
       model,
       year,
       vin: vin || '', // Allow empty VIN explicitly
+      vinPhotoUrl,
       priority,
       clientName: clientName || '',
       source,
@@ -102,7 +108,8 @@ const NewOrderScreen: React.FC = () => {
       localOnlyPhotos,
       notes: [],
       salesStatus: 'Inquiry',
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      socialNickname
     };
 
     try {
@@ -212,7 +219,7 @@ const NewOrderScreen: React.FC = () => {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="text-xs font-bold uppercase text-gray-400">Марка</label>
-          <select value={brand} onChange={(e) => setBrand(e.target.value)} className="w-full mt-1 bg-white border border-gray-200 p-3 rounded-xl appearance-none outline-none focus:ring-2 focus:ring-blue-500 text-base font-bold">
+          <select value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); }} className="w-full mt-1 bg-white border border-gray-200 p-3 rounded-xl appearance-none outline-none focus:ring-2 focus:ring-blue-500 text-base font-bold">
             <option value="">Выбрать...</option>
             {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
           </select>
@@ -227,7 +234,14 @@ const NewOrderScreen: React.FC = () => {
 
       <div>
         <label className="text-xs font-bold uppercase text-gray-400">Модель</label>
-        <input type="text" value={model} onChange={(e) => setModel(e.target.value)} placeholder="Напр. Camry" className="w-full mt-1 bg-white border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-base font-bold" />
+        {modelOptions.length > 0 ? (
+          <select value={model} onChange={(e) => setModel(e.target.value)} className="w-full mt-1 bg-white border border-gray-200 p-3 rounded-xl appearance-none outline-none focus:ring-2 focus:ring-blue-500 text-base font-bold">
+            <option value="">Выбрать...</option>
+            {modelOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        ) : (
+          <input type="text" value={model} onChange={(e) => setModel(e.target.value)} placeholder="Напр. Camry" className="w-full mt-1 bg-white border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-base font-bold" />
+        )}
       </div>
 
       <div>
@@ -255,7 +269,7 @@ const NewOrderScreen: React.FC = () => {
             <Smartphone size={12} /> Источник
           </label>
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-            {SOURCES.map(s => (
+            {SOCIAL_SOURCES.map(s => (
               <button
                 key={s}
                 type="button"
@@ -271,6 +285,31 @@ const NewOrderScreen: React.FC = () => {
             ))}
           </div>
         </div>
+
+        {source && (
+          <div>
+            <label className="text-xs font-bold uppercase text-gray-400 mb-1 block">Ваш никнейм</label>
+            <input type="text" value={socialNickname} onChange={(e) => setSocialNickname(e.target.value)} placeholder="Необязательно" className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-base font-bold" />
+          </div>
+        )}
+      </div>
+
+      <div>
+        <label className="text-xs font-bold uppercase text-gray-400">Фото VIN</label>
+        {vinPhotoUrl ? (
+          <button type="button" onClick={() => vinFileRef.current?.click()} className="w-full mt-1 h-28 bg-white border border-gray-200 p-2 rounded-2xl">
+            <img src={vinPhotoUrl} className="w-full h-full object-cover rounded-xl" />
+          </button>
+        ) : (
+          <button type="button" onClick={() => vinFileRef.current?.click()} className="w-full mt-1 h-16 bg-white border border-dashed border-gray-200 rounded-xl text-xs font-bold text-gray-400">Добавить фото VIN</button>
+        )}
+        <input ref={vinFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onloadend = () => setVinPhotoUrl(reader.result as string);
+          reader.readAsDataURL(file as Blob);
+        }} />
       </div>
 
       <div className="space-y-3">
