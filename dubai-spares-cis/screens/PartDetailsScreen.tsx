@@ -116,7 +116,7 @@ const PartDetailsScreen: React.FC = () => {
     }
 
     const existingSupplier = suppliers.find(s => s.name.toLowerCase() === shopName.toLowerCase());
-    const resolvedCoordinates = await resolveCoordinatesFromLocation(location);
+    const resolvedCoordinates = await resolveCoordinatesFromLocation(location, { fallbackQueries: [shopName] });
 
     if (!existingSupplier) {
       const newSupplier = {

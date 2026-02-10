@@ -60,7 +60,7 @@ const SuppliersScreen: React.FC = () => {
 
     setIsSavingSupplier(true);
     try {
-      const coordinates = await resolveCoordinatesFromLocation(location);
+      const coordinates = await resolveCoordinatesFromLocation(location, { fallbackQueries: [name] });
       const newSupplier: Supplier = {
         id: createUuid(),
         name,
