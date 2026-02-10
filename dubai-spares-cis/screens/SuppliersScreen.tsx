@@ -14,7 +14,8 @@ import {
   Trash2,
   Tag,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Loader2
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
@@ -81,13 +82,19 @@ const SuppliersScreen: React.FC = () => {
     const specializations = parseCsv(brandsInput);
     const queries = new Set<string>();
 
-    if (name.trim()) queries.add(name.trim());
+    if (name.trim()) {
+      queries.add(name.trim());
+      queries.add(`${name.trim()} Dubai`);
+      queries.add(`${name.trim()} Sharjah`);
+    }
 
     for (const spec of specializations.slice(0, 3)) {
       const base = `${name.trim()} ${spec}`.trim();
       if (!base) continue;
+      queries.add(base);
       if (cityHints.length === 0) {
-        queries.add(base);
+        queries.add(`${base} Dubai`);
+        queries.add(`${base} Sharjah`);
       } else {
         cityHints.forEach((city) => queries.add(`${base} ${city}`.trim()));
       }
@@ -444,7 +451,7 @@ const SuppliersScreen: React.FC = () => {
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold active:bg-gray-200 transition-colors uppercase text-xs">Отмена</button>
-              <button type="submit" disabled={isSavingSupplier} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg active:bg-blue-700 transition-colors uppercase text-xs disabled:opacity-50 disabled:cursor-not-allowed">{isSavingSupplier ? 'Сохранение...' : 'Добавить'}</button>
+              <button type="submit" disabled={isSavingSupplier} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg active:bg-blue-700 transition-colors uppercase text-xs disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2">{isSavingSupplier ? <><Loader2 size={14} className="animate-spin" /> Поиск координат...</> : 'Добавить'}</button>
             </div>
           </form>
         </div>

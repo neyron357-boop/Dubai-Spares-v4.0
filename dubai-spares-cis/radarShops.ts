@@ -43,15 +43,21 @@ const buildShopFallbackQueries = (row: any): string[] => {
   const cities = extractCityHints(String(row?.location || ''));
   const queries = new Set<string>();
 
-  if (name) queries.add(name);
+  if (name) {
+    queries.add(name);
+    queries.add(`${name} Dubai`);
+    queries.add(`${name} Sharjah`);
+  }
   for (const spec of specialization.slice(0, 3)) {
     const base = [name, spec].filter(Boolean).join(' ').trim();
     if (!base) continue;
+    queries.add(base);
     if (cities.length === 0) {
-      queries.add(base);
-      continue;
+      queries.add(`${base} Dubai`);
+      queries.add(`${base} Sharjah`);
+    } else {
+      cities.forEach((city) => queries.add(`${base} ${city}`.trim()));
     }
-    cities.forEach((city) => queries.add(`${base} ${city}`.trim()));
   }
 
   return Array.from(queries);

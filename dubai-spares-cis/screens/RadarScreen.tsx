@@ -153,7 +153,7 @@ const RadarScreen: React.FC = () => {
             <div className="h-8 w-full rounded-xl bg-slate-800" />
           </div>
         ))
-      ) : entries.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Активных заявок или магазинов пока нет. Добавьте магазины в базу — радар продолжит работать автоматически.</div> : tierConfigs.map((tier) => {
+      ) : entries.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Радар пока не нашел подходящих магазинов в выбранном радиусе. Попробуйте увеличить радиус поиска или добавить больше совместимых магазинов.</div> : tierConfigs.map((tier) => {
         const tierEntries = tieredEntries[tier.key];
         if (tierEntries.length === 0) return null;
 
@@ -173,7 +173,7 @@ const RadarScreen: React.FC = () => {
                     <p className="text-sm font-black truncate">{shop.name}</p>
                     <p className="text-[11px] text-slate-400 truncate">{order.brand} {order.model} • {order.year || '—'} {isRecommended ? '• рекомендован' : !isCompatible ? '• ближайший магазин' : '• совместим'}</p>
                   </div>
-                  <div className="text-[11px] font-black text-emerald-300">{(Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude) && shop.latitude !== 0 && shop.longitude !== 0) ? (Number.isFinite(distance) ? `${Math.round(distance)}m` : 'n/a') : 'Location missing'}</div>
+                  <div className="text-[11px] font-black text-emerald-300">{(Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude) && shop.latitude !== 0 && shop.longitude !== 0) ? (Number.isFinite(distance) ? `${Math.round(distance)}m` : 'n/a') : 'Location Unknown'}</div>
                 </div>
                 <div className="flex items-center gap-2 text-[10px]">
                   <span className={`rounded-full px-2 py-1 font-black uppercase ${confidence === 'high' ? 'bg-emerald-500/20 text-emerald-200' : confidence === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-slate-700 text-slate-300'}`}>{confidence}</span>

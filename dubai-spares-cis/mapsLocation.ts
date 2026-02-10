@@ -134,7 +134,7 @@ const getUrlFromRedirectQuery = (raw: string): string | null => {
 };
 
 const expandGoogleRedirectUrl = async (raw: string): Promise<string | null> => {
-  if (!isGoogleShortMapsUrl(raw) && !isGoogleUserContentUrl(raw)) return null;
+  if (!isGoogleMapsUrl(raw)) return null;
 
   try {
     const response = await fetch(raw, { method: 'HEAD', redirect: 'follow' });
@@ -251,7 +251,7 @@ export const resolveCoordinatesFromLocation = async (
         }
       }
 
-      await logger.warn('RADAR_GEO', 'Manual location parsing result: Fail', { reason: 'Regex mismatch', rawLocation: raw });
+      await logger.warn('RADAR_GEO', 'Manual location parsing result: Fail', { reason: 'Regex mismatch', rawLocation: raw, expandedLocation: isGoogleMapsUrl(normalizedRaw) ? await expandLocationUrlChain(normalizedRaw) : normalizedRaw });
 
       const geocoded = await geocodeAddress(normalizedRaw);
       if (geocoded) {
