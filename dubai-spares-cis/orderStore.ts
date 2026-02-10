@@ -169,7 +169,7 @@ const isTimestamptzTimestampInputError = (error: unknown) => {
   if (typeof error !== 'object' || !error) return false;
   const anyErr = error as { code?: unknown; message?: unknown };
   return (
-    anyErr.code === '22007' &&
+    (anyErr.code === '22007' || anyErr.code === '22008') &&
     typeof anyErr.message === 'string' &&
     (anyErr.message.includes('timestamp with time zone') || anyErr.message.includes('date/time field value'))
   );
@@ -179,7 +179,7 @@ const isOrderTimestampInputError = (error: unknown) => {
   if (typeof error !== 'object' || !error) return false;
   const anyErr = error as { code?: unknown; message?: unknown };
   return (
-    (anyErr.code === '22007' || anyErr.code === '22P02')
+    (anyErr.code === '22007' || anyErr.code === '22008' || anyErr.code === '22P02')
     && typeof anyErr.message === 'string'
     && (anyErr.message.includes('timestamp') || anyErr.message.includes('date/time') || anyErr.message.includes('bigint'))
   );
