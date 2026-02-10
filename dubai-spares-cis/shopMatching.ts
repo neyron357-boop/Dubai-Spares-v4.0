@@ -5,6 +5,36 @@ const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9а-я�
 
 const hasValidCoordinates = (latitude: number, longitude: number) => Number.isFinite(latitude) && Number.isFinite(longitude) && latitude !== 0 && longitude !== 0;
 
+const UNIVERSAL_BRAND_TOKENS = new Set(['universal', 'all', 'all brands', 'any', 'multi-brand', 'multibrand']);
+
+const isUniversalBrand = (value: string) => UNIVERSAL_BRAND_TOKENS.has(value.trim().toLowerCase());
+
+const hasUniversalSpecialization = (brands: string[] = []) => brands.some((brand) => isUniversalBrand(brand));
+
+const isBrandEligible = (shop: Shop, orderBrand: string) => {
+  const brands = shop.specialization || [];
+  return hasUniversalSpecialization(brands) || brands.some((brand) => isBrandMatch(orderBrand, brand));
+};
+
+const isZeroCoordinateString = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const coordMatch = trimmed.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+  if (!coordMatch) return false;
+  return Number(coordMatch[1]) === 0 && Number(coordMatch[2]) === 0;
+};
+
+const isZeroCoordinateMapUrl = (value: string) => {
+  if (!value.startsWith('http://') && !value.startsWith('https://')) return false;
+  try {
+    const parsed = new URL(value);
+    const blob = `${parsed.pathname}${parsed.search}`;
+    return isZeroCoordinateString(blob);
+  } catch {
+    return false;
+  }
+};
+
 export const isBrandMatch = (orderBrand: string, supplierBrand: string) => {
   const a = normalize(orderBrand);
   const b = normalize(supplierBrand);
@@ -52,7 +82,7 @@ export const getShopRecommendationDiagnostics = (
   const years = shop.specializationYears || [];
   const bodyTypes = shop.specializationBodyTypes || [];
 
-  const brandMatched = brands.some((brand) => isBrandMatch(order.brand, brand));
+  const brandMatched = isBrandEligible(shop, order.brand);
   const modelMatched = models.some((model) => isModelMatch(order.model, model));
   const yearMatched = isYearMatch(order.year, years);
   const bodyTypeMatched = bodyTypes.length === 0 || bodyTypes.some((bodyType) => isBodyTypeMatch(order.bodyType, bodyType));
@@ -111,7 +141,7 @@ export const getShopRecommendationLevel = (shop: Shop, order: Pick<Order, 'brand
 };
 
 export const isShopCompatibleWithOrder = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year' | 'bodyType'>) => {
-  const hasBrand = (shop.specialization || []).some((brand) => isBrandMatch(order.brand, brand));
+  const hasBrand = isBrandEligible(shop, order.brand);
   if (!hasBrand) return false;
   const modelMeta = shop.specializationModels || [];
   const yearsMeta = shop.specializationYears || [];
@@ -132,7 +162,7 @@ export const getShopOrderMatchScore = (shop: Shop, order: Pick<Order, 'brand' | 
   const hasAnyMeta = brands.length > 0 || models.length > 0 || years.length > 0 || bodyTypes.length > 0;
   if (!hasAnyMeta) return 1;
 
-  const brandMatched = brands.some((brand) => isBrandMatch(order.brand, brand));
+  const brandMatched = isBrandEligible(shop, order.brand);
   if (!brandMatched && brands.length > 0) return -1;
   if (brandMatched) score += 6;
 
@@ -155,10 +185,13 @@ export const getShopOrderMatchScore = (shop: Shop, order: Pick<Order, 'brand' | 
 
 export const buildShopMapLink = (shop: Pick<Shop, 'location' | 'latitude' | 'longitude'>) => {
   const loc = (shop.location || '').trim();
-  if (loc.startsWith('http://') || loc.startsWith('https://')) return loc;
-  if (loc.includes('google.com/maps') || loc.includes('goo.gl/maps')) return loc;
   if (hasValidCoordinates(shop.latitude, shop.longitude)) {
     return `https://www.google.com/maps/search/?api=1&query=${shop.latitude},${shop.longitude}`;
+  }
+  if ((loc.startsWith('http://') || loc.startsWith('https://')) && !isZeroCoordinateMapUrl(loc)) return loc;
+  if ((loc.includes('google.com/maps') || loc.includes('goo.gl/maps')) && !isZeroCoordinateString(loc)) return loc;
+  if (isZeroCoordinateString(loc) || isZeroCoordinateMapUrl(loc)) {
+    return 'https://www.google.com/maps';
   }
   return loc
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc)}`
@@ -246,6 +279,7 @@ export const getRadarShopMatches = (
   currentPosition: { lat: number; lng: number } | null
 ) => {
   return shops
+    .filter((shop) => isBrandEligible(shop, order.brand))
     .map((shop) => {
       const isRecommended = (order.recommendedShopIds || []).includes(shop.id);
       const isCompatible = isShopCompatibleWithOrder(shop, order);

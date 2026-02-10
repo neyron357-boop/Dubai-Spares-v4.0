@@ -11,7 +11,8 @@ import {
   Plus, 
   Store,
   Navigation,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
@@ -40,6 +41,7 @@ const PartDetailsScreen: React.FC = () => {
   // Multiple photos for variant
   const [variantPhotos, setVariantPhotos] = useState<string[]>([]);
   const [isLocating, setIsLocating] = useState(false);
+  const [isResolvingLocation, setIsResolvingLocation] = useState(false);
 
   // LOGIC: Find the most recently added variant within THIS order
   const latestOrderVariant = useMemo(() => {
@@ -113,13 +115,19 @@ const PartDetailsScreen: React.FC = () => {
   const buildShopFallbackQueries = () => {
     const cityHints = ['Dubai', 'Sharjah'].filter((city) => location.toLowerCase().includes(city.toLowerCase()));
     const queries = new Set<string>();
-    if (shopName.trim()) queries.add(shopName.trim());
+    if (shopName.trim()) {
+      queries.add(shopName.trim());
+      queries.add(`${shopName.trim()} Dubai`);
+      queries.add(`${shopName.trim()} Sharjah`);
+    }
 
     const specialization = [order.brand, order.model].filter(Boolean).join(' ').trim();
     if (specialization) {
       const base = `${shopName.trim()} ${specialization}`.trim();
+      queries.add(base);
       if (cityHints.length === 0) {
-        queries.add(base);
+        queries.add(`${base} Dubai`);
+        queries.add(`${base} Sharjah`);
       } else {
         cityHints.forEach((city) => queries.add(`${base} ${city}`.trim()));
       }
@@ -134,66 +142,71 @@ const PartDetailsScreen: React.FC = () => {
       return;
     }
 
-    const existingSupplier = suppliers.find(s => s.name.toLowerCase() === shopName.toLowerCase());
-    const resolvedCoordinates = await resolveCoordinatesFromLocation(location, { fallbackQueries: buildShopFallbackQueries() });
+    setIsResolvingLocation(true);
+    try {
+      const existingSupplier = suppliers.find(s => s.name.toLowerCase() === shopName.toLowerCase());
+      const resolvedCoordinates = await resolveCoordinatesFromLocation(location, { fallbackQueries: buildShopFallbackQueries() });
 
-    if (!existingSupplier) {
-      const newSupplier = {
-        id: createUuid(),
-        name: shopName,
+      if (!existingSupplier) {
+        const newSupplier = {
+          id: createUuid(),
+          name: shopName,
+          phone,
+          location,
+          brands: [order.brand],
+          models: order.model ? [order.model] : [],
+          years: order.year ? [Number(order.year)].filter(Number.isFinite) : [],
+          bodyTypes: order.bodyType ? [order.bodyType] : [],
+          coordinates: resolvedCoordinates
+        };
+        addSupplier(newSupplier);
+        await upsertSupplierToShops(newSupplier);
+      } else if (!existingSupplier.brands.includes(order.brand) || !existingSupplier.coordinates || (!!order.bodyType && !(existingSupplier.bodyTypes || []).includes(order.bodyType))) {
+        const updatedSupplier = {
+          ...existingSupplier,
+          brands: existingSupplier.brands.includes(order.brand)
+            ? existingSupplier.brands
+            : [...existingSupplier.brands, order.brand],
+          bodyTypes: order.bodyType && !(existingSupplier.bodyTypes || []).includes(order.bodyType)
+            ? [...(existingSupplier.bodyTypes || []), order.bodyType]
+            : (existingSupplier.bodyTypes || []),
+          coordinates: existingSupplier.coordinates || resolvedCoordinates
+        };
+        updateSupplier(updatedSupplier);
+        await upsertSupplierToShops(updatedSupplier);
+      }
+
+      const newVariant: PriceVariant = {
+        id: Math.random().toString(36).substr(2, 9),
+        priceAed: parseFloat(priceAed),
+        shopName,
         phone,
         location,
-        brands: [order.brand],
-        models: order.model ? [order.model] : [],
-        years: order.year ? [Number(order.year)].filter(Number.isFinite) : [],
-        bodyTypes: order.bodyType ? [order.bodyType] : [],
-        coordinates: resolvedCoordinates
+        photos: variantPhotos,
+        photoUrl: variantPhotos[0], // Back-compat
+        createdAt: Date.now()
       };
-      addSupplier(newSupplier);
-      await upsertSupplierToShops(newSupplier);
-    } else if (!existingSupplier.brands.includes(order.brand) || !existingSupplier.coordinates || (!!order.bodyType && !(existingSupplier.bodyTypes || []).includes(order.bodyType))) {
-      const updatedSupplier = {
-        ...existingSupplier,
-        brands: existingSupplier.brands.includes(order.brand)
-          ? existingSupplier.brands
-          : [...existingSupplier.brands, order.brand],
-        bodyTypes: order.bodyType && !(existingSupplier.bodyTypes || []).includes(order.bodyType)
-          ? [...(existingSupplier.bodyTypes || []), order.bodyType]
-          : (existingSupplier.bodyTypes || []),
-        coordinates: existingSupplier.coordinates || resolvedCoordinates
-      };
-      updateSupplier(updatedSupplier);
-      await upsertSupplierToShops(updatedSupplier);
+
+      const updatedParts = order.parts.map(p => {
+        if (p.id === partId) {
+          return {
+            ...p,
+            isFound: true,
+            photoUrl: p.photoUrl || variantPhotos[0], // Set main part photo if none
+            photos: (!p.photos || p.photos.length === 0) ? variantPhotos : p.photos,
+            variants: [newVariant, ...p.variants]
+          };
+        }
+        return p;
+      });
+
+      updateOrder({ ...order, parts: updatedParts });
+      setIsAdding(false);
+      setPriceAed('');
+      setVariantPhotos([]);
+    } finally {
+      setIsResolvingLocation(false);
     }
-
-    const newVariant: PriceVariant = {
-      id: Math.random().toString(36).substr(2, 9),
-      priceAed: parseFloat(priceAed),
-      shopName,
-      phone,
-      location,
-      photos: variantPhotos,
-      photoUrl: variantPhotos[0], // Back-compat
-      createdAt: Date.now()
-    };
-
-    const updatedParts = order.parts.map(p => {
-      if (p.id === partId) {
-        return {
-          ...p,
-          isFound: true,
-          photoUrl: p.photoUrl || variantPhotos[0], // Set main part photo if none
-          photos: (!p.photos || p.photos.length === 0) ? variantPhotos : p.photos,
-          variants: [newVariant, ...p.variants]
-        };
-      }
-      return p;
-    });
-
-    updateOrder({ ...order, parts: updatedParts });
-    setIsAdding(false);
-    setPriceAed('');
-    setVariantPhotos([]);
   };
 
   const confirmDeleteVariant = () => {
@@ -343,7 +356,7 @@ const PartDetailsScreen: React.FC = () => {
                 </div>
               </div>
 
-              <button type="submit" className="w-full py-4.5 bg-blue-600 text-white rounded-2xl font-black shadow-xl active:scale-[0.98] transition-all tracking-wider uppercase text-xs">СОХРАНИТЬ ВАРИАНТ</button>
+              <button type="submit" disabled={isResolvingLocation} className="w-full py-4.5 bg-blue-600 text-white rounded-2xl font-black shadow-xl active:scale-[0.98] transition-all tracking-wider uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">{isResolvingLocation ? <><Loader2 size={14} className="animate-spin" /> Поиск координат...</> : 'СОХРАНИТЬ ВАРИАНТ'}</button>
             </div>
           </form>
         )}
