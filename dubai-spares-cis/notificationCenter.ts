@@ -10,9 +10,11 @@ export interface AppNotification {
   shopId?: string;
   orderId?: string;
   read?: boolean;
+  signature?: string;
 }
 
 const STORAGE_KEY = 'dubai_spares_local_notifications';
+const READ_SIGNATURES_KEY = 'dubai_spares_read_notification_signatures';
 const MAX_ITEMS = 300;
 
 const createId = () =>
@@ -35,6 +37,21 @@ export const getNotifications = (): AppNotification[] => {
 const persist = (list: AppNotification[]) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0, MAX_ITEMS)));
   window.dispatchEvent(new CustomEvent('notifications:changed'));
+};
+
+const getReadSignatures = () => {
+  try {
+    const raw = localStorage.getItem(READ_SIGNATURES_KEY);
+    if (!raw) return {} as Record<string, number>;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, number> : {};
+  } catch {
+    return {} as Record<string, number>;
+  }
+};
+
+const persistReadSignatures = (map: Record<string, number>) => {
+  localStorage.setItem(READ_SIGNATURES_KEY, JSON.stringify(map));
 };
 
 export const sendBrowserNotification = async (
@@ -70,8 +87,18 @@ export const sendBrowserNotification = async (
 
 export const pushNotification = (payload: Omit<AppNotification, 'id' | 'createdAt'>) => {
   const list = getNotifications();
+  const signature = payload.signature || `${payload.type}:${payload.orderId || ''}:${payload.shopId || ''}:${payload.title}:${payload.body}`;
+  const signatures = getReadSignatures();
+  if (signatures[signature]) {
+    return null;
+  }
+
+  const existing = list.find((item) => item.signature === signature);
+  if (existing) return existing;
+
   const next: AppNotification = {
     ...payload,
+    signature,
     id: createId(),
     createdAt: Date.now(),
     read: false
@@ -81,11 +108,22 @@ export const pushNotification = (payload: Omit<AppNotification, 'id' | 'createdA
 };
 
 export const markNotificationRead = (id: string) => {
-  const list = getNotifications().map((item) => (item.id === id ? { ...item, read: true } : item));
+  const signatures = getReadSignatures();
+  const list = getNotifications().map((item) => {
+    if (item.id !== id) return item;
+    if (item.signature) signatures[item.signature] = Date.now();
+    return { ...item, read: true };
+  });
+  persistReadSignatures(signatures);
   persist(list);
 };
 
 export const markAllNotificationsRead = () => {
-  const list = getNotifications().map((item) => ({ ...item, read: true }));
+  const signatures = getReadSignatures();
+  const list = getNotifications().map((item) => {
+    if (item.signature) signatures[item.signature] = Date.now();
+    return { ...item, read: true };
+  });
+  persistReadSignatures(signatures);
   persist(list);
 };

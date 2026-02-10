@@ -1,20 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LocateFixed, Radar, Navigation } from 'lucide-react';
+import { LocateFixed, Radar, Navigation, ShieldCheck, Telescope } from 'lucide-react';
 import { useStore } from '../store';
 import { Shop } from '../types';
-import { buildShopMapLink, getShopOrderMatchScore, isShopCompatibleWithOrder } from '../shopMatching';
+import { buildShopMapLink, getRadarShopMatches } from '../shopMatching';
 import { supabase } from '../supabase';
 import { toast } from '../feedback';
-
-const toRad = (v: number) => (v * Math.PI) / 180;
-const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
-  const R = 6371000;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const calc = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.atan2(Math.sqrt(calc), Math.sqrt(1 - calc));
-};
 
 const RadarScreen: React.FC = () => {
   const { orders, suppliers } = useStore();
@@ -63,22 +54,15 @@ const RadarScreen: React.FC = () => {
   }, []);
 
   const entries = useMemo(() => {
-    const activeOrders = orders.filter((o) => o.status === 'new_inquiry' || o.status === 'in_progress');
+    const activeOrders = orders.filter((o) => !o.isArchived && !o.isSold);
     return activeOrders.flatMap((order) => {
-      const ranked = shops
-        .map((shop) => {
-          const distance = position ? distanceMeters(position, { lat: shop.latitude, lng: shop.longitude }) : Number.MAX_SAFE_INTEGER;
-          const isRecommended = (order.recommendedShopIds || []).includes(shop.id);
-          const isCompatible = isShopCompatibleWithOrder(shop, order);
-          const score = isRecommended ? 100 : getShopOrderMatchScore(shop, order);
-          return { order, shop, distance, score, isRecommended, isCompatible };
-        })
-        .sort((a, b) => (b.score - a.score) || (a.distance - b.distance));
+      const ranked = getRadarShopMatches(order, shops, position);
+      const withOrderContext = ranked.map((entry) => ({ ...entry, order }));
 
-      const matched = ranked.filter((entry) => entry.isRecommended || entry.isCompatible || entry.score >= 2);
+      const matched = withOrderContext.filter((entry) => entry.isRecommended || entry.isCompatible || entry.matchScore >= 2);
       if (matched.length > 0) return matched.slice(0, 8);
 
-      return ranked
+      return withOrderContext
         .filter((entry) => Number.isFinite(entry.distance))
         .sort((a, b) => a.distance - b.distance)
         .slice(0, 3);
@@ -90,7 +74,11 @@ const RadarScreen: React.FC = () => {
     <div className="p-4 pb-20 space-y-3 bg-slate-950 min-h-full text-white">
       <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-3">
         <div className="flex items-center gap-2 text-emerald-300"><Radar size={18} className="animate-pulse" /><span className="text-sm font-black uppercase tracking-wider">Radar Live</span></div>
-        <p className="mt-1 text-xs text-emerald-100/80">Отдельный экран радара: ближайшие релевантные магазины по активным заявкам.</p>
+        <p className="mt-1 text-xs text-emerald-100/80">Полевой режим: сначала рекомендуемые и совместимые магазины, затем ближайшие резервные точки.</p>
+        <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 px-2 py-1 text-emerald-200"><ShieldCheck size={11} /> high confidence</span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 px-2 py-1 text-amber-200"><Telescope size={11} /> fallback nearby</span>
+        </div>
       </div>
       {isFetchingShops ? (
         Array.from({ length: 3 }).map((_, idx) => (
@@ -100,14 +88,18 @@ const RadarScreen: React.FC = () => {
             <div className="h-8 w-full rounded-xl bg-slate-800" />
           </div>
         ))
-      ) : entries.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Активных заявок или магазинов пока нет. Добавьте магазины в базу — радар продолжит работать автоматически.</div> : entries.slice(0, 30).map(({ order, shop, distance, isCompatible }) => (
+      ) : entries.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Активных заявок или магазинов пока нет. Добавьте магазины в базу — радар продолжит работать автоматически.</div> : entries.slice(0, 30).map(({ order, shop, distance, isCompatible, isRecommended, confidence, radarScore }) => (
         <div key={`${order.id}-${shop.id}`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <p className="text-sm font-black truncate">{shop.name}</p>
-              <p className="text-[11px] text-slate-400 truncate">{order.brand} {order.model} • {order.year || '—'} {!isCompatible && '• ближайший магазин'}</p>
+              <p className="text-[11px] text-slate-400 truncate">{order.brand} {order.model} • {order.year || '—'} {isRecommended ? '• рекомендован' : !isCompatible ? '• ближайший магазин' : '• совместим'}</p>
             </div>
             <div className="text-[11px] font-black text-emerald-300">{Number.isFinite(distance) ? `${Math.round(distance)}m` : 'n/a'}</div>
+          </div>
+          <div className="flex items-center gap-2 text-[10px]">
+            <span className={`rounded-full px-2 py-1 font-black uppercase ${confidence === 'high' ? 'bg-emerald-500/20 text-emerald-200' : confidence === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-slate-700 text-slate-300'}`}>{confidence}</span>
+            <span className="text-slate-400">Radar score: {Math.round(radarScore)}</span>
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={() => window.open(buildShopMapLink(shop), '_blank')} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>

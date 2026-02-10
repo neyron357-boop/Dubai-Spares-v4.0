@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, Priority, Part, Shop } from '../types';
-import { buildShopMapLink, getShopOrderMatchScore, isShopCompatibleWithOrder } from '../shopMatching';
+import { buildShopMapLink, getRadarShopMatches, getShopOrderMatchScore, isShopCompatibleWithOrder } from '../shopMatching';
 import {
   Calendar,
   Tag,
@@ -33,15 +33,12 @@ type SortType = 'date' | 'brand' | 'priority' | 'status';
 
 const weights = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
 const toRad = (v: number) => (v * Math.PI) / 180;
-
 const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
-  const R = 6371000;
+  const earthRadiusMeters = 6371000;
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);
-  const calc =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.atan2(Math.sqrt(calc), Math.sqrt(1 - calc));
+  const calc = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(calc), Math.sqrt(1 - calc));
 };
 
 const OrdersScreen: React.FC = () => {
@@ -269,20 +266,13 @@ const OrdersScreen: React.FC = () => {
     if (!currentPosition || shops.length === 0) return;
 
     const runRadar = () => {
-      const activeOrders = orders.filter((order) => order.status === 'new_inquiry' || order.status === 'in_progress');
+      const activeOrders = orders.filter((order) => !order.isArchived && !order.isSold);
       for (const order of activeOrders) {
-        const ranked = shops
-          .map((shop) => {
-            const distance = distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude });
-            const isRecommended = (order.recommendedShopIds || []).includes(shop.id);
-            const isCompatible = isShopCompatibleWithOrder(shop, order);
-            const score = isRecommended ? 100 : getShopOrderMatchScore(shop, order);
-            return { shop, distance, score, isCompatible };
-          })
-          .sort((a, b) => (b.score - a.score) || (a.distance - b.distance));
+        const ranked = getRadarShopMatches(order, shops, currentPosition);
 
-        const matchedEntry = ranked.find((entry) => entry.distance <= 500 && (entry.isCompatible || entry.score >= 2))
-          || ranked.find((entry) => entry.distance <= 300);
+        const matchedEntry = ranked.find((entry) => entry.distance <= 800 && (entry.isRecommended || entry.isCompatible || entry.matchScore >= 2))
+          || ranked.find((entry) => entry.distance <= 350)
+          || ranked[0];
 
         const matched = matchedEntry?.shop;
 
@@ -298,7 +288,8 @@ const OrdersScreen: React.FC = () => {
             body: message,
             route: `/order/${order.id}#shop-${matched.id}`,
             orderId: order.id,
-            shopId: matched.id
+            shopId: matched.id,
+            signature: `radar:${order.id}:${matched.id}`
           });
           setTimeout(() => setRadarMessage(null), 9000);
           if (navigator.vibrate) navigator.vibrate([240, 120, 240]);
@@ -350,7 +341,8 @@ const OrdersScreen: React.FC = () => {
           title: `Новый заказ: ${newLead.brand} ${newLead.model}`,
           body: `Источник: ${newLead.source || 'не указан'}`,
           route: `/order/${newLead.id}`,
-          orderId: newLead.id
+          orderId: newLead.id,
+          signature: `lead:${newLead.id}`
         });
         void sendBrowserNotification('Новый заказ', {
           body: `${newLead.brand} ${newLead.model} • ${newLead.source || 'Без источника'}`,
@@ -413,7 +405,15 @@ const OrdersScreen: React.FC = () => {
     toast('Заказ перемещён в архив', 'success');
   };
 
+  const restoreBySwipe = (order: Order) => {
+    if (!order.isArchived) return;
+    void updateOrder({ ...order, isArchived: false });
+    vibrate([12, 30, 12]);
+    toast('Заказ возвращён из архива', 'success');
+  };
+
   const canSwipeToArchive = activeTab === 'active';
+  const canSwipeToRestore = activeTab === 'archive';
 
   const emptyStateMessage =
     activeTab === 'archive'
@@ -545,31 +545,37 @@ const OrdersScreen: React.FC = () => {
                 navigate(`/order/${order.id}`);
               }}
               onTouchStart={(e) => {
-                if (!canSwipeToArchive) return;
+                if (!canSwipeToArchive && !canSwipeToRestore) return;
                 swipeStartXRef.current[order.id] = e.touches[0].clientX;
                 swipedIdsRef.current[order.id] = false;
               }}
               onTouchMove={(e) => {
-                if (!canSwipeToArchive) return;
+                if (!canSwipeToArchive && !canSwipeToRestore) return;
                 const startX = swipeStartXRef.current[order.id];
                 if (typeof startX !== 'number') return;
                 const delta = e.touches[0].clientX - startX;
-                if (delta < 0) {
+                if (canSwipeToArchive && delta < 0) {
                   swipedIdsRef.current[order.id] = Math.abs(delta) > 24;
                   setSwipeOffsets((prev) => ({ ...prev, [order.id]: Math.max(delta, -132) }));
                 }
+                if (canSwipeToRestore && delta > 0) {
+                  swipedIdsRef.current[order.id] = Math.abs(delta) > 24;
+                  setSwipeOffsets((prev) => ({ ...prev, [order.id]: Math.min(delta, 132) }));
+                }
               }}
               onTouchEnd={() => {
-                if (!canSwipeToArchive) return;
+                if (!canSwipeToArchive && !canSwipeToRestore) return;
                 const offset = swipeOffsets[order.id] || 0;
                 if (offset <= -96) archiveBySwipe(order);
+                if (offset >= 96) restoreBySwipe(order);
                 setSwipeOffsets((prev) => ({ ...prev, [order.id]: 0 }));
                 delete swipeStartXRef.current[order.id];
               }}
               className={`p-4 rounded-3xl shadow-sm border relative overflow-hidden transition-transform duration-300 ease-out ${order.isVip ? 'bg-gradient-to-br from-yellow-50 via-amber-50 to-white border-yellow-200' : 'bg-white border-gray-100'} ${getStatusColor(order.createdAt, order.isSold)}`}
-              style={{ transform: `translateX(${canSwipeToArchive ? swipeOffsets[order.id] || 0 : 0}px)` }}
+              style={{ transform: `translateX(${(canSwipeToArchive || canSwipeToRestore) ? swipeOffsets[order.id] || 0 : 0}px)` }}
             >
               {canSwipeToArchive && <div className="absolute inset-y-0 -right-24 w-24 bg-amber-500/90 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center">Архив</div>}
+              {canSwipeToRestore && <div className="absolute inset-y-0 -left-24 w-24 bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center">Вернуть</div>}
               {order.salesStatus === 'Price Sent' && (Date.now() - (order.updatedAt || order.createdAt)) > 24 * 60 * 60 * 1000 && (
                 <div className="absolute top-2 right-2 z-10 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase">Follow up</div>
               )}
