@@ -68,6 +68,28 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
 export const buildQuoteShareText = (order: Order) =>
   `Hello! We found the parts for your ${order.brand} ${order.model}. View details and prices here: ${buildPublicQuoteLink(order)}`;
 
+export const shareQuoteLink = async (order: Order) => {
+  const link = buildPublicQuoteLink(order);
+  const text = `Quote for ${order.brand} ${order.model} ${order.year}`;
+
+  if (navigator.share) {
+    await navigator.share({
+      title: text,
+      text,
+      url: link
+    });
+    return { method: 'native' as const, link };
+  }
+
+  const copied = await copyToClipboard(link);
+  if (copied) {
+    return { method: 'clipboard' as const, link };
+  }
+
+  await shareMessage(buildQuoteShareText(order));
+  return { method: 'fallback' as const, link };
+};
+
 export const copyToClipboard = async (text: string) => {
   try {
     if (navigator.clipboard?.writeText) {

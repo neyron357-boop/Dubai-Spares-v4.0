@@ -1,13 +1,14 @@
 import React from 'react';
 import { Order } from '../types';
-import { X, CheckCircle2 } from 'lucide-react';
+import { X, CheckCircle2, Share2 } from 'lucide-react';
 
 interface Props {
   order: Order;
   onClose: () => void;
+  onShare: () => void | Promise<void>;
 }
 
-const EstimateModal: React.FC<Props> = ({ order, onClose }) => {
+const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const foundParts = order.parts.filter(p => p.isFound && p.variants.length > 0);
   
   const totalUsd = foundParts.reduce((sum, p) => {
@@ -98,6 +99,13 @@ const EstimateModal: React.FC<Props> = ({ order, onClose }) => {
             </div>
           </div>
           <p className="text-[8px] text-gray-400 font-bold uppercase tracking-tighter text-center">Срок доставки уточняется при оформлении</p>
+          <button
+            type="button"
+            onClick={() => void onShare()}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-black uppercase tracking-wider text-white"
+          >
+            <Share2 size={12} /> Share quote link
+          </button>
         </div>
       </div>
     </div>
