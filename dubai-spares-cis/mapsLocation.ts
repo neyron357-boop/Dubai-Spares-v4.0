@@ -189,6 +189,17 @@ const expandGoogleRedirectUrl = async (raw: string): Promise<string | null> => {
   }
 };
 
+const getLocationHeaderRedirect = async (raw: string): Promise<string | null> => {
+  try {
+    const manual = await fetch(raw, { method: 'GET', redirect: 'manual' });
+    const location = manual.headers.get('location');
+    if (!location) return null;
+    return new URL(location, raw).toString();
+  } catch {
+    return null;
+  }
+};
+
 interface ResolveCoordinatesOptions {
   fallbackQueries?: string[];
 }
@@ -196,15 +207,23 @@ interface ResolveCoordinatesOptions {
 const expandLocationUrlChain = async (raw: string, maxHops = 8): Promise<string> => {
   let current = raw;
   let hops = 0;
+
   while (hops < maxHops) {
-    const shouldContinue = !hasAtCoordinates(current) && (isGoogleUserContentUrl(current) || isGoogleShortMapsUrl(current) || isRedirectProxyUrl(current));
+    const shouldContinue = !hasAtCoordinates(current)
+      && (isGoogleUserContentUrl(current) || isGoogleShortMapsUrl(current) || isRedirectProxyUrl(current));
     if (!shouldContinue) break;
 
-    const next = await expandGoogleRedirectUrl(current);
+    const next = await getLocationHeaderRedirect(current) || await expandGoogleRedirectUrl(current);
     if (!next || next === current) break;
+
     current = next;
     hops += 1;
+
+    if (!current.includes('googleusercontent.com') && !isGoogleShortMapsUrl(current) && hasMapsCoordinatesOrPlace(current)) {
+      break;
+    }
   }
+
   return current;
 };
 
@@ -219,29 +238,36 @@ const cleanFallbackQuery = (value: string): string => {
   return withoutLinks
     .replace(/[\\/_|#?&=%:+~*.,;()[\]{}<>"'`!-]+/g, ' ')
     .replace(/\b[a-z0-9]{8,}\b/gi, ' ')
+    .replace(/\b(?:http|https|www|maps|app|goo|gl|google|com|googleusercontent|g|st|ic)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 };
 
+const buildCanonicalShopName = (values: string[]) => {
+  const tokens = dedupe(values)
+    .map((value) => cleanFallbackQuery(value))
+    .flatMap((value) => value.split(/\s+/).map((token) => token.trim()).filter(Boolean))
+    .filter((token) => !['dubai', 'sharjah'].includes(token.toLowerCase()));
+
+  const unique: string[] = [];
+  for (const token of tokens) {
+    if (!unique.some((x) => x.toLowerCase() === token.toLowerCase())) unique.push(token);
+  }
+
+  return unique.slice(0, 3).join(' ').trim();
+};
+
 const buildSanitizedFallbackQueries = (values: string[]) => {
-  return dedupe(values).flatMap((value) => {
-    const cleaned = cleanFallbackQuery(value);
-    if (!cleaned) return [];
+  const merged = dedupe(values.map((value) => cleanFallbackQuery(value)).filter(Boolean));
+  const mergedText = merged.join(' ');
+  const hasDubai = /\bdubai\b/i.test(mergedText);
+  const hasSharjah = /\bsharjah\b/i.test(mergedText);
+  const canonicalShopName = buildCanonicalShopName(values);
 
-    const lowered = cleaned.toLowerCase();
-    const hasDubai = lowered.includes('dubai');
-    const hasSharjah = lowered.includes('sharjah');
-    const shopOnly = cleaned
-      .replace(/\bdubai\b/gi, ' ')
-      .replace(/\bsharjah\b/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    if (!shopOnly) return [];
-    if (hasDubai) return [`${shopOnly} Dubai`];
-    if (hasSharjah) return [`${shopOnly} Sharjah`];
-    return [`${shopOnly} Dubai`, `${shopOnly} Sharjah`];
-  });
+  if (!canonicalShopName) return [];
+  if (hasDubai) return [`${canonicalShopName} Dubai`];
+  if (hasSharjah) return [`${canonicalShopName} Sharjah`];
+  return [`${canonicalShopName} Dubai`, `${canonicalShopName} Sharjah`];
 };
 
 const buildDubaiSharjahFallbackQueries = (values: string[]) => {

@@ -107,7 +107,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const heroPhoto = useMemo(() => {
     if (!order) return '';
-    return order.carPhotoUrl || order.carPhotos[0] || order.vinPhotoUrl || order.parts.find((part) => (part.photos || []).length > 0)?.photos?.[0] || '';
+    return order.vinPhotoUrl || order.carPhotoUrl || order.carPhotos[0] || order.parts.find((part) => (part.photos || []).length > 0)?.photos?.[0] || '';
   }, [order]);
 
   const partCards = useMemo(() => {
@@ -230,8 +230,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
       <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-slate-950/95 p-3 backdrop-blur-xl">
         <div className="mx-auto flex w-full max-w-3xl gap-2">
-          <a href={whatsappUrl} target="_blank" rel="noreferrer" className="flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 text-sm font-semibold text-white">
-            <MessageCircle size={16} /> Contact via WhatsApp
+          <a href={whatsappUrl} target="_blank" rel="noreferrer" className="flex min-h-14 flex-[2] items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 text-base font-bold text-white shadow-[0_10px_40px_rgba(16,185,129,0.35)]">
+            <MessageCircle size={18} /> WhatsApp Support
           </a>
           <a href={bestPhoneLink(order.parts)} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-white/20 px-4 text-sm font-semibold text-white/90">
             <PhoneCall size={16} /> Approve

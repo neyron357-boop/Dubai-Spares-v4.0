@@ -40,46 +40,13 @@ const extractCityHints = (location: string): string[] => {
   return hints;
 };
 
-const extractLocationReferenceHints = (location: string): string[] => {
-  return String(location || '')
-    .split(/[|,/\-]/)
-    .map((chunk) => chunk.trim())
-    .filter((chunk) => chunk.length >= 3)
-    .slice(0, 3);
-};
 
 const buildShopFallbackQueries = (row: any): string[] => {
   const name = String(row?.name || '').trim();
-  const specialization = Array.isArray(row?.specialization)
-    ? row.specialization.map((item: unknown) => String(item || '').trim()).filter(Boolean)
-    : [];
   const cities = extractCityHints(String(row?.location || ''));
-  const locationRefs = extractLocationReferenceHints(String(row?.location || ''));
-  const queries = new Set<string>();
-
-  if (name) {
-    queries.add(name);
-    queries.add(`${name} Dubai`);
-    queries.add(`${name} Sharjah`);
-  }
-  for (const spec of specialization.slice(0, 3)) {
-    const base = [name, spec].filter(Boolean).join(' ').trim();
-    if (!base) continue;
-    queries.add(base);
-    if (cities.length === 0) {
-      queries.add(`${base} Dubai`);
-      queries.add(`${base} Sharjah`);
-    } else {
-      cities.forEach((city) => queries.add(`${base} ${city}`.trim()));
-    }
-    locationRefs.forEach((locationRef) => queries.add(`${base} ${locationRef}`.trim()));
-  }
-
-  locationRefs.forEach((locationRef) => {
-    if (name) queries.add(`${name} ${locationRef}`.trim());
-  });
-
-  return Array.from(queries);
+  if (!name) return [];
+  if (cities.length > 0) return cities.map((city) => `${name} ${city}`.trim());
+  return [`${name} Dubai`, `${name} Sharjah`];
 };
 
 const shouldSkipGeocodeAttempt = (shopId: string) => {
