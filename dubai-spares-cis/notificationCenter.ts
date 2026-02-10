@@ -54,6 +54,11 @@ const persistReadSignatures = (map: Record<string, number>) => {
   localStorage.setItem(READ_SIGNATURES_KEY, JSON.stringify(map));
 };
 
+export const isNotificationSignatureRead = (signature: string) => {
+  const signatures = getReadSignatures();
+  return Boolean(signatures[signature]);
+};
+
 export const sendBrowserNotification = async (
   title: string,
   options: NotificationOptions & { route?: string; url?: string }

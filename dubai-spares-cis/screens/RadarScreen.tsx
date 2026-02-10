@@ -7,6 +7,12 @@ import { buildShopMapLink, getRadarShopMatches } from '../shopMatching';
 import { supabase } from '../supabase';
 import { toast } from '../feedback';
 
+const GEO_OPTIONS: PositionOptions = {
+  enableHighAccuracy: true,
+  maximumAge: 8000,
+  timeout: 15000
+};
+
 const RadarScreen: React.FC = () => {
   const { orders, suppliers } = useStore();
   const navigate = useNavigate();
@@ -26,8 +32,19 @@ const RadarScreen: React.FC = () => {
         setIsFetchingShops(false);
         return;
       }
-      const { data, error } = await supabase.from('shops').select('id,name,phone,location,latitude,longitude,specialization,specialization_models,specialization_years');
-      if (error) toast('Ошибка загрузки магазинов радара', 'error');
+      let data: any[] | null = null;
+      const baseFields = 'id,name,phone,location,latitude,longitude,specialization';
+      const extendedFields = `${baseFields},specialization_models,specialization_years`;
+      const primary = await supabase.from('shops').select(extendedFields);
+
+      if (primary.error && primary.error.code === '42703') {
+        const fallback = await supabase.from('shops').select(baseFields);
+        data = Array.isArray(fallback.data) ? fallback.data : null;
+      } else {
+        if (primary.error) toast('Ошибка загрузки магазинов радара', 'error');
+        data = Array.isArray(primary.data) ? primary.data : null;
+      }
+
       if (!active || !Array.isArray(data)) {
         setIsFetchingShops(false);
         return;
@@ -45,10 +62,23 @@ const RadarScreen: React.FC = () => {
   }, [suppliers]);
 
   useEffect(() => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      toast('Геолокация не поддерживается: радар покажет рейтинг без дистанции', 'error');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {
+        // silently keep fallback mode
+      },
+      GEO_OPTIONS
+    );
+
     const id = navigator.geolocation.watchPosition(
       (pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => toast('GPS отключен — радар ограничен', 'error')
+      () => toast('GPS отключен — радар работает в fallback режиме', 'error'),
+      GEO_OPTIONS
     );
     return () => navigator.geolocation.clearWatch(id);
   }, []);
