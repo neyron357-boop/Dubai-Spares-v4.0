@@ -26,6 +26,37 @@ const hasValidCoordinates = (latitude?: number | null, longitude?: number | null
 
 const CRITICAL_SHOP_NAMES = new Set(['bmw', 'mm']);
 
+
+const extractCityHints = (location: string): string[] => {
+  const normalized = location.toLowerCase();
+  const hints: string[] = [];
+  if (normalized.includes('sharjah')) hints.push('Sharjah');
+  if (normalized.includes('dubai')) hints.push('Dubai');
+  return hints;
+};
+
+const buildShopFallbackQueries = (row: any): string[] => {
+  const name = String(row?.name || '').trim();
+  const specialization = Array.isArray(row?.specialization)
+    ? row.specialization.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+    : [];
+  const cities = extractCityHints(String(row?.location || ''));
+  const queries = new Set<string>();
+
+  if (name) queries.add(name);
+  for (const spec of specialization.slice(0, 3)) {
+    const base = [name, spec].filter(Boolean).join(' ').trim();
+    if (!base) continue;
+    if (cities.length === 0) {
+      queries.add(base);
+      continue;
+    }
+    cities.forEach((city) => queries.add(`${base} ${city}`.trim()));
+  }
+
+  return Array.from(queries);
+};
+
 export const normalizeSupplierMetadata = (supplier: Supplier): Supplier => {
   const models = Array.isArray(supplier.models)
     ? supplier.models
@@ -103,7 +134,7 @@ const rerunCriticalCoordinatesParser = async (rows: any[]) => {
     if (hasValidCoordinates(Number(row?.latitude), Number(row?.longitude))) continue;
 
     const resolved = await resolveCoordinatesFromLocation(String(row?.location || ''), {
-      fallbackQueries: [String(row?.name || '').trim()]
+      fallbackQueries: buildShopFallbackQueries(row)
     });
     if (!resolved || !hasValidCoordinates(resolved.lat, resolved.lng)) continue;
 

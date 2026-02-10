@@ -109,6 +109,25 @@ const PartDetailsScreen: React.FC = () => {
     );
   };
 
+
+  const buildShopFallbackQueries = () => {
+    const cityHints = ['Dubai', 'Sharjah'].filter((city) => location.toLowerCase().includes(city.toLowerCase()));
+    const queries = new Set<string>();
+    if (shopName.trim()) queries.add(shopName.trim());
+
+    const specialization = [order.brand, order.model].filter(Boolean).join(' ').trim();
+    if (specialization) {
+      const base = `${shopName.trim()} ${specialization}`.trim();
+      if (cityHints.length === 0) {
+        queries.add(base);
+      } else {
+        cityHints.forEach((city) => queries.add(`${base} ${city}`.trim()));
+      }
+    }
+
+    return Array.from(queries);
+  };
+
   const saveVariant = async () => {
     if (!priceAed || !shopName) {
       alert('Укажите цену и название магазина');
@@ -116,7 +135,7 @@ const PartDetailsScreen: React.FC = () => {
     }
 
     const existingSupplier = suppliers.find(s => s.name.toLowerCase() === shopName.toLowerCase());
-    const resolvedCoordinates = await resolveCoordinatesFromLocation(location, { fallbackQueries: [shopName] });
+    const resolvedCoordinates = await resolveCoordinatesFromLocation(location, { fallbackQueries: buildShopFallbackQueries() });
 
     if (!existingSupplier) {
       const newSupplier = {

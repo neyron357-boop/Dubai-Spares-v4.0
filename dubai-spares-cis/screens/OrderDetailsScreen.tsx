@@ -567,7 +567,7 @@ const OrderDetailsScreen: React.FC = () => {
               type="text"
               value={order.bodyType || ''}
               onChange={(e) => updateOrderField('bodyType', e.target.value)}
-              placeholder="Sedan / SUV"
+              placeholder="E39 / F10 / S-Class"
               className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
             />
           </div>

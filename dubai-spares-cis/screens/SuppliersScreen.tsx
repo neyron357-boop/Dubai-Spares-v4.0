@@ -75,6 +75,27 @@ const SuppliersScreen: React.FC = () => {
     return Array.from(new Set(fromSelectedBrands)).sort((a, b) => a.localeCompare(b));
   }, [selectedBrands]);
 
+
+  const buildSupplierFallbackQueries = () => {
+    const cityHints = ['Dubai', 'Sharjah'].filter((city) => location.toLowerCase().includes(city.toLowerCase()));
+    const specializations = parseCsv(brandsInput);
+    const queries = new Set<string>();
+
+    if (name.trim()) queries.add(name.trim());
+
+    for (const spec of specializations.slice(0, 3)) {
+      const base = `${name.trim()} ${spec}`.trim();
+      if (!base) continue;
+      if (cityHints.length === 0) {
+        queries.add(base);
+      } else {
+        cityHints.forEach((city) => queries.add(`${base} ${city}`.trim()));
+      }
+    }
+
+    return Array.from(queries);
+  };
+
   const addCsvValue = (rawInput: string, value: string, setter: (next: string) => void) => {
     const normalized = value.trim();
     if (!normalized) return;
@@ -87,7 +108,7 @@ const SuppliersScreen: React.FC = () => {
 
     setIsSavingSupplier(true);
     try {
-      const coordinates = await resolveCoordinatesFromLocation(location, { fallbackQueries: [name] });
+      const coordinates = await resolveCoordinatesFromLocation(location, { fallbackQueries: buildSupplierFallbackQueries() });
       const newSupplier: Supplier = {
         id: createUuid(),
         name,
@@ -413,7 +434,7 @@ const SuppliersScreen: React.FC = () => {
                   </button>
                 </div>
                 <input
-                  placeholder="Sedan, SUV, E39, E82"
+                  placeholder="E39, F10, S-Class"
                   value={bodyTypesInput}
                   onChange={(e) => setBodyTypesInput(e.target.value)}
                   autoComplete="off"
