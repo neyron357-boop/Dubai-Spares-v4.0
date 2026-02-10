@@ -79,6 +79,16 @@ const isGoogleShortMapsUrl = (raw: string): boolean => {
   }
 };
 
+const isGoogleUserContentUrl = (raw: string): boolean => {
+  if (!raw || !raw.startsWith('http')) return false;
+  try {
+    const host = new URL(raw).hostname.toLowerCase();
+    return host === 'googleusercontent.com' || host === 'www.googleusercontent.com' || host.endsWith('.googleusercontent.com');
+  } catch {
+    return false;
+  }
+};
+
 const normalizeMapsInput = (raw: string): string => {
   try {
     const url = new URL(raw);
@@ -89,15 +99,129 @@ const normalizeMapsInput = (raw: string): string => {
   }
 };
 
-const expandShortGoogleMapsUrl = async (raw: string): Promise<string | null> => {
-  if (!isGoogleShortMapsUrl(raw)) return null;
+const expandGoogleRedirectUrl = async (raw: string): Promise<string | null> => {
+  if (!isGoogleShortMapsUrl(raw) && !isGoogleUserContentUrl(raw)) return null;
   try {
-    // Use no-cors to allow following redirects in the browser and then parse the final URL.
-    const response = await fetch(raw, { method: 'GET', redirect: 'follow', mode: 'no-cors' });
+    const response = await fetch(raw, { method: 'HEAD', redirect: 'follow' });
     return response?.url && response.url !== raw ? response.url : null;
   } catch {
-    return null;
+    try {
+      // Browser fallback: opaque response can still expose final URL after redirects.
+      const response = await fetch(raw, { method: 'GET', redirect: 'follow', mode: 'no-cors' });
+      return response?.url && response.url !== raw ? response.url : null;
+    } catch {
+      return null;
+    }
   }
+};
+
+interface ResolveCoordinatesOptions {
+  fallbackQueries?: string[];
+}
+
+const dedupe = (values: string[]) => Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+
+const buildDubaiSharjahFallbackQueries = (values: string[]) => {
+  return dedupe(values).flatMap((value) => {
+    const normalized = value.toLowerCase();
+    const hasCityHint = normalized.includes('dubai') || normalized.includes('sharjah');
+    if (hasCityHint) return [value];
+    return [`${value} Dubai`, `${value} Sharjah`];
+  });
+};
+
+const geocodeFallbackQueries = async (queries: string[]): Promise<Coordinates | null> => {
+  for (const query of buildDubaiSharjahFallbackQueries(queries)) {
+    const geocoded = await geocodeAddress(query);
+    if (geocoded) {
+      await logger.info('RADAR_GEO', 'Fallback shop geocoding result: Success', {
+        query,
+        coordinates: [geocoded.lat, geocoded.lng]
+      });
+      return geocoded;
+    }
+  }
+  return null;
+};
+
+export const resolveCoordinatesFromLocation = async (
+  location: string,
+  options: ResolveCoordinatesOptions = {}
+): Promise<Coordinates | undefined> => {
+  const { fallbackQueries = [] } = options;
+  const raw = (location || '').trim();
+  if (!raw && fallbackQueries.length === 0) return undefined;
+  const normalizedRaw = normalizeMapsInput(raw);
+
+  await logger.debug('RADAR_GEO', 'Manual location input received', { rawLocation: raw, fallbackQueries });
+
+  if (normalizedRaw) {
+    const direct = extractCoordinates(normalizedRaw);
+    if (direct) {
+      await logger.info('RADAR_GEO', 'Manual location parsing result: Success', { coordinates: [direct.lat, direct.lng] });
+      return direct;
+    }
+
+    await logger.warn('RADAR_GEO', 'Manual location parsing result: Fail', { reason: 'Regex mismatch', rawLocation: raw });
+
+    try {
+      if (isGoogleMapsUrl(normalizedRaw)) {
+        const expandedUrl = await expandGoogleRedirectUrl(normalizedRaw);
+        const redirectTarget = expandedUrl || normalizedRaw;
+        if (expandedUrl) {
+          await logger.info('RADAR_GEO', 'Google redirect URL expanded', { rawLocation: normalizedRaw, redirectTarget });
+        }
+
+        const fromExpandedCoordinates = extractCoordinates(redirectTarget);
+        if (fromExpandedCoordinates) {
+          await logger.info('RADAR_GEO', 'Google redirect URL parsed', { coordinates: [fromExpandedCoordinates.lat, fromExpandedCoordinates.lng] });
+          return fromExpandedCoordinates;
+        }
+
+        const fromUrlGeocode = isGoogleShortMapsUrl(normalizedRaw) ? null : await geocodeByUrl(redirectTarget);
+        if (fromUrlGeocode) {
+          await logger.info('RADAR_GEO', 'Google URL geocoding result: Success', { coordinates: [fromUrlGeocode.lat, fromUrlGeocode.lng] });
+          return fromUrlGeocode;
+        }
+        const parsedPlaceId = extractPlaceIdFromLink(redirectTarget);
+        const placeId = parsedPlaceId || await findPlaceIdByInput(redirectTarget);
+        if (placeId) {
+          const fromPlace = await fetchPlaceCoordinates(placeId);
+          if (fromPlace) {
+            await logger.info('RADAR_GEO', 'Google place coordinates resolved', { placeId, coordinates: [fromPlace.lat, fromPlace.lng] });
+            return fromPlace;
+          }
+        }
+      }
+
+      const geocoded = await geocodeAddress(normalizedRaw);
+      if (geocoded) {
+        await logger.info('RADAR_GEO', 'Address geocoding result: Success', { coordinates: [geocoded.lat, geocoded.lng] });
+        return geocoded;
+      }
+      await logger.warn('RADAR_GEO', 'Address geocoding result: Fail', { reason: 'No results', rawLocation: raw });
+    } catch (error) {
+      void logger.warn('maps:resolve', 'Unable to resolve coordinates from location input', {
+        location: raw,
+        error: error instanceof Error ? error.message : String(error),
+        hasGoogleMapsApiKey: Boolean(GOOGLE_MAPS_API_KEY)
+      });
+    }
+  }
+
+  const fallbackGeocoded = await geocodeFallbackQueries(fallbackQueries);
+  if (fallbackGeocoded) {
+    return fallbackGeocoded;
+  }
+
+  if (fallbackQueries.length > 0) {
+    await logger.warn('RADAR_GEO', 'Fallback shop geocoding result: Fail', {
+      reason: 'No results',
+      fallbackQueries: buildDubaiSharjahFallbackQueries(fallbackQueries)
+    });
+  }
+
+  return undefined;
 };
 
 const extractPlaceIdFromLink = (raw: string): string | null => {
@@ -164,63 +288,5 @@ const geocodeByUrl = async (urlValue: string): Promise<Coordinates | null> => {
   return { lat, lng };
 };
 
-export const resolveCoordinatesFromLocation = async (location: string): Promise<Coordinates | undefined> => {
-  const raw = (location || '').trim();
-  if (!raw) return undefined;
-  const normalizedRaw = normalizeMapsInput(raw);
-
-  await logger.debug('RADAR_GEO', 'Manual location input received', { rawLocation: raw });
-
-  const direct = extractCoordinates(normalizedRaw);
-  if (direct) {
-    await logger.info('RADAR_GEO', 'Manual location parsing result: Success', { coordinates: [direct.lat, direct.lng] });
-    return direct;
-  }
-
-  await logger.warn('RADAR_GEO', 'Manual location parsing result: Fail', { reason: 'Regex mismatch', rawLocation: raw });
-
-  try {
-    if (isGoogleMapsUrl(normalizedRaw)) {
-      const expandedUrl = await expandShortGoogleMapsUrl(normalizedRaw);
-      if (expandedUrl) {
-        const fromExpandedCoordinates = extractCoordinates(expandedUrl);
-        if (fromExpandedCoordinates) {
-          await logger.info('RADAR_GEO', 'Google short URL expanded and parsed', { coordinates: [fromExpandedCoordinates.lat, fromExpandedCoordinates.lng] });
-          return fromExpandedCoordinates;
-        }
-      }
-
-      const fromUrlGeocode = isGoogleShortMapsUrl(normalizedRaw) ? null : await geocodeByUrl(normalizedRaw);
-      if (fromUrlGeocode) {
-        await logger.info('RADAR_GEO', 'Google URL geocoding result: Success', { coordinates: [fromUrlGeocode.lat, fromUrlGeocode.lng] });
-        return fromUrlGeocode;
-      }
-      const parsedPlaceId = extractPlaceIdFromLink(expandedUrl || normalizedRaw);
-      const placeId = parsedPlaceId || await findPlaceIdByInput(expandedUrl || normalizedRaw);
-      if (placeId) {
-        const fromPlace = await fetchPlaceCoordinates(placeId);
-        if (fromPlace) {
-          await logger.info('RADAR_GEO', 'Google place coordinates resolved', { placeId, coordinates: [fromPlace.lat, fromPlace.lng] });
-          return fromPlace;
-        }
-      }
-    }
-
-    const geocoded = await geocodeAddress(normalizedRaw);
-    if (geocoded) {
-      await logger.info('RADAR_GEO', 'Address geocoding result: Success', { coordinates: [geocoded.lat, geocoded.lng] });
-      return geocoded;
-    }
-    await logger.warn('RADAR_GEO', 'Address geocoding result: Fail', { reason: 'No results', rawLocation: raw });
-    return undefined;
-  } catch (error) {
-    void logger.warn('maps:resolve', 'Unable to resolve coordinates from location input', {
-      location: raw,
-      error: error instanceof Error ? error.message : String(error),
-      hasGoogleMapsApiKey: Boolean(GOOGLE_MAPS_API_KEY)
-    });
-    return undefined;
-  }
-};
 
 export const hasGoogleMapsApiKey = Boolean(GOOGLE_MAPS_API_KEY);

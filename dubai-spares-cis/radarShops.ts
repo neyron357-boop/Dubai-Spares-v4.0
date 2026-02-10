@@ -102,7 +102,9 @@ const rerunCriticalCoordinatesParser = async (rows: any[]) => {
     if (!CRITICAL_SHOP_NAMES.has(normalizedName)) continue;
     if (hasValidCoordinates(Number(row?.latitude), Number(row?.longitude))) continue;
 
-    const resolved = await resolveCoordinatesFromLocation(String(row?.location || ''));
+    const resolved = await resolveCoordinatesFromLocation(String(row?.location || ''), {
+      fallbackQueries: [String(row?.name || '').trim()]
+    });
     if (!resolved || !hasValidCoordinates(resolved.lat, resolved.lng)) continue;
 
     const { error } = await supabase
