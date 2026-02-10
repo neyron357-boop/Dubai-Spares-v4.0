@@ -1,5 +1,15 @@
 import { Order, Part } from './types';
 
+export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS';
+export type QuoteRates = Record<QuoteCurrency, number>;
+
+export const DEFAULT_QUOTE_RATES: QuoteRates = {
+  AED: 1,
+  USD: 3.67,
+  RUB: 25,
+  TJS: 2.98
+};
+
 const firstHttpPhoto = (images: string[]) => images.find((item) => item.startsWith('http'));
 
 export const getShareText = (brand: string, partName: string, price: string, cloudLink: string) =>
@@ -66,16 +76,53 @@ export const extractOrderIdFromQuoteSlug = (slugOrId: string) => {
   return chunks[chunks.length - 1] || trimmed;
 };
 
-export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string) => {
-  const slug = typeof order === 'string' ? order : buildPublicQuoteSlug(order);
-  return `${window.location.origin}/quote/${slug}`;
+export const serializeQuoteRates = (rates: QuoteRates) => (
+  (Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[])
+    .map((code) => `${code}:${Number(rates[code]).toFixed(6)}`)
+    .join(',')
+);
+
+export const parseQuoteRates = (raw: string | null | undefined): QuoteRates | null => {
+  if (!raw) return null;
+  const parsed = raw.split(',').reduce<Partial<QuoteRates>>((acc, pair) => {
+    const [codeRaw, valueRaw] = pair.split(':');
+    const code = (codeRaw || '').trim().toUpperCase() as QuoteCurrency;
+    const value = Number(valueRaw);
+    if (!(code in DEFAULT_QUOTE_RATES) || !Number.isFinite(value) || value <= 0) return acc;
+    acc[code] = value;
+    return acc;
+  }, {});
+
+  const required = Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[];
+  if (required.some((code) => !parsed[code])) return null;
+
+  return parsed as QuoteRates;
 };
 
-export const buildQuoteShareText = (order: Order) =>
-  `Hello! We found the parts for your ${order.brand} ${order.model}. View details and prices here: ${buildPublicQuoteLink(order)}`;
+interface BuildPublicQuoteLinkOptions {
+  rates?: QuoteRates;
+  currency?: QuoteCurrency;
+}
 
-export const shareQuoteLink = async (order: Order) => {
-  const link = buildPublicQuoteLink(order);
+export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
+  const slug = typeof order === 'string' ? order : buildPublicQuoteSlug(order);
+  const url = new URL(`${window.location.origin}/quote/${slug}`);
+
+  if (options?.rates) {
+    url.searchParams.set('rates', serializeQuoteRates(options.rates));
+  }
+  if (options?.currency) {
+    url.searchParams.set('currency', options.currency);
+  }
+
+  return url.toString();
+};
+
+export const buildQuoteShareText = (order: Order, options?: BuildPublicQuoteLinkOptions) =>
+  `Hello! We found the parts for your ${order.brand} ${order.model}. View details and prices here: ${buildPublicQuoteLink(order, options)}`;
+
+export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
+  const link = buildPublicQuoteLink(order, options);
   const text = `Quote for ${order.brand} ${order.model} ${order.year}`;
 
   if (navigator.share) {
@@ -92,7 +139,7 @@ export const shareQuoteLink = async (order: Order) => {
     return { method: 'clipboard' as const, link };
   }
 
-  await shareMessage(buildQuoteShareText(order));
+  await shareMessage(buildQuoteShareText(order, options));
   return { method: 'fallback' as const, link };
 };
 
