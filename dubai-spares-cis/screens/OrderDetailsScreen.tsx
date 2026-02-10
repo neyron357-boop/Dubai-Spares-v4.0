@@ -91,7 +91,18 @@ const OrderDetailsScreen: React.FC = () => {
     let active = true;
     const loadShops = async () => {
       if (!supabase) return;
-      const { data } = await supabase.from('shops').select('id,name,phone,location,latitude,longitude,specialization,specialization_models,specialization_years');
+      let data: any[] | null = null;
+      const baseShopFields = 'id,name,phone,location,latitude,longitude,specialization';
+      const expandedShopFields = `${baseShopFields},specialization_models,specialization_years`;
+      const primary = await supabase.from('shops').select(expandedShopFields);
+
+      if (primary.error && primary.error.code === '42703') {
+        const fallback = await supabase.from('shops').select(baseShopFields);
+        data = Array.isArray(fallback.data) ? fallback.data : null;
+      } else {
+        data = Array.isArray(primary.data) ? primary.data : null;
+      }
+
       if (!active || !Array.isArray(data)) return;
       setShops(data.map((row: any) => ({
         id: String(row.id),

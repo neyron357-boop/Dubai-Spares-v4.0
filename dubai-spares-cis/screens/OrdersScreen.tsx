@@ -206,7 +206,18 @@ const OrdersScreen: React.FC = () => {
         setShops(fallback);
         return;
       }
-      const { data } = await supabase.from('shops').select('id,name,phone,location,latitude,longitude,specialization,specialization_models,specialization_years');
+      let data: any[] | null = null;
+      const baseShopFields = 'id,name,phone,location,latitude,longitude,specialization';
+      const expandedShopFields = `${baseShopFields},specialization_models,specialization_years`;
+      const primary = await supabase.from('shops').select(expandedShopFields);
+
+      if (primary.error && primary.error.code === '42703') {
+        const fallback = await supabase.from('shops').select(baseShopFields);
+        data = Array.isArray(fallback.data) ? fallback.data : null;
+      } else {
+        data = Array.isArray(primary.data) ? primary.data : null;
+      }
+
       if (!active) return;
       if (Array.isArray(data) && data.length > 0) {
         setShops(data.map((row: any) => ({
