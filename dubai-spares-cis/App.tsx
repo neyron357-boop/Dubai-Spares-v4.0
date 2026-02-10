@@ -125,18 +125,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!unlocked) return;
-    const appRefresh = window.setInterval(() => {
-      void syncOrders();
-    }, 2000);
-
-    const cloudRefresh = window.setInterval(() => {
-      void syncOrders();
-    }, 3000);
-
-    return () => {
-      window.clearInterval(appRefresh);
-      window.clearInterval(cloudRefresh);
-    };
+    void syncOrders();
   }, [unlocked, syncOrders]);
 
   useEffect(() => {

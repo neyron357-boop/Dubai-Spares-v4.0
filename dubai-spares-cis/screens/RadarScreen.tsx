@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { Shop } from '../types';
 import { buildShopMapLink, getRadarShopMatches } from '../shopMatching';
 import { supabase } from '../supabase';
+import { fetchRadarShops } from '../radarShops';
 import { toast } from '../feedback';
 
 const GEO_OPTIONS: PositionOptions = {
@@ -22,43 +23,31 @@ const RadarScreen: React.FC = () => {
 
   useEffect(() => {
     let active = true;
+
     const load = async () => {
       setIsFetchingShops(true);
-      if (!supabase) {
-        const fallback = suppliers
-          .filter((s) => s.coordinates)
-          .map((s) => ({ id: s.id, name: s.name, phone: s.phone, location: s.location, latitude: s.coordinates!.lat, longitude: s.coordinates!.lng, specialization: s.brands || [] }));
-        setShops(fallback);
-        setIsFetchingShops(false);
-        return;
-      }
-      let data: any[] | null = null;
-      const baseFields = 'id,name,phone,location,latitude,longitude,specialization';
-      const extendedFields = `${baseFields},specialization_models,specialization_years`;
-      const primary = await supabase.from('shops').select(extendedFields);
-
-      if (primary.error && primary.error.code === '42703') {
-        const fallback = await supabase.from('shops').select(baseFields);
-        data = Array.isArray(fallback.data) ? fallback.data : null;
-      } else {
-        if (primary.error) toast('Ошибка загрузки магазинов радара', 'error');
-        data = Array.isArray(primary.data) ? primary.data : null;
-      }
-
-      if (!active || !Array.isArray(data)) {
-        setIsFetchingShops(false);
-        return;
-      }
-      setShops(data.map((row: any) => ({
-        id: String(row.id), name: row.name || 'Shop', phone: row.phone || '', location: row.location || '',
-        latitude: Number(row.latitude), longitude: Number(row.longitude), specialization: Array.isArray(row.specialization) ? row.specialization : [],
-        specializationModels: Array.isArray(row.specialization_models) ? row.specialization_models : [],
-        specializationYears: Array.isArray(row.specialization_years) ? row.specialization_years.map((y: any) => Number(y)).filter((y: number) => Number.isFinite(y)) : []
-      })));
+      const loadedShops = await fetchRadarShops(suppliers);
+      if (!active) return;
+      setShops(loadedShops);
       setIsFetchingShops(false);
     };
+
+    const scheduleRefresh = () => {
+      void load();
+    };
+
+    const shopsChannel = supabase
+      ?.channel('radar-live-shops')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shops' }, scheduleRefresh)
+      .subscribe();
+
     void load();
-    return () => { active = false; };
+    return () => {
+      active = false;
+      if (shopsChannel) {
+        void supabase?.removeChannel(shopsChannel);
+      }
+    };
   }, [suppliers]);
 
   useEffect(() => {

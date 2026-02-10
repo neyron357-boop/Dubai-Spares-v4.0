@@ -7,9 +7,18 @@ const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 let globalSuppliers: Supplier[] = [];
 let listeners = new Set<() => void>();
 
+const normalizeSupplier = (supplier: Supplier): Supplier => ({
+  ...supplier,
+  brands: Array.isArray(supplier.brands) ? supplier.brands : [],
+  models: Array.isArray(supplier.models) ? supplier.models : [],
+  years: Array.isArray(supplier.years)
+    ? supplier.years.map((year) => Number(year)).filter((year) => Number.isFinite(year))
+    : []
+});
+
 try {
   const savedSuppliers = localStorage.getItem(SUPPLIERS_KEY);
-  if (savedSuppliers) globalSuppliers = JSON.parse(savedSuppliers);
+  if (savedSuppliers) globalSuppliers = (JSON.parse(savedSuppliers) as Supplier[]).map(normalizeSupplier);
 } catch (e) {
   console.error('Failed to load suppliers:', e);
 }
@@ -45,7 +54,7 @@ export const restoreDataExternal = (data: any) => {
   }
 
   restoreOrdersExternal(data.orders);
-  globalSuppliers = Array.isArray(data.suppliers) ? data.suppliers : [];
+  globalSuppliers = Array.isArray(data.suppliers) ? data.suppliers.map((supplier: Supplier) => normalizeSupplier(supplier)) : [];
   notifySupplierListeners();
 };
 
@@ -61,12 +70,13 @@ export const useStore = () => {
   }, []);
 
   const addSupplier = useCallback((supplier: Supplier) => {
-    globalSuppliers = [supplier, ...globalSuppliers];
+    globalSuppliers = [normalizeSupplier(supplier), ...globalSuppliers];
     notifySupplierListeners();
   }, []);
 
   const updateSupplier = useCallback((updated: Supplier) => {
-    globalSuppliers = globalSuppliers.map((s) => (s.id === updated.id ? updated : s));
+    const normalized = normalizeSupplier(updated);
+    globalSuppliers = globalSuppliers.map((s) => (s.id === normalized.id ? normalized : s));
     notifySupplierListeners();
   }, []);
 
