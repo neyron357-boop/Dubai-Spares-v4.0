@@ -403,6 +403,8 @@ const OrdersScreen: React.FC = () => {
     toast('Заказ перемещён в архив', 'success');
   };
 
+  const canSwipeToArchive = activeTab === 'active';
+
   const emptyStateMessage =
     activeTab === 'archive'
       ? { title: 'Архив пока пуст', subtitle: 'Смахните карточку влево на вкладке «Актив», чтобы архивировать заказ.', cta: 'Открыть активные' }
@@ -533,10 +535,12 @@ const OrdersScreen: React.FC = () => {
                 navigate(`/order/${order.id}`);
               }}
               onTouchStart={(e) => {
+                if (!canSwipeToArchive) return;
                 swipeStartXRef.current[order.id] = e.touches[0].clientX;
                 swipedIdsRef.current[order.id] = false;
               }}
               onTouchMove={(e) => {
+                if (!canSwipeToArchive) return;
                 const startX = swipeStartXRef.current[order.id];
                 if (typeof startX !== 'number') return;
                 const delta = e.touches[0].clientX - startX;
@@ -546,15 +550,16 @@ const OrdersScreen: React.FC = () => {
                 }
               }}
               onTouchEnd={() => {
+                if (!canSwipeToArchive) return;
                 const offset = swipeOffsets[order.id] || 0;
                 if (offset <= -96) archiveBySwipe(order);
                 setSwipeOffsets((prev) => ({ ...prev, [order.id]: 0 }));
                 delete swipeStartXRef.current[order.id];
               }}
               className={`p-4 rounded-3xl shadow-sm border relative overflow-hidden transition-transform duration-300 ease-out ${order.isVip ? 'bg-gradient-to-br from-yellow-50 via-amber-50 to-white border-yellow-200' : 'bg-white border-gray-100'} ${getStatusColor(order.createdAt, order.isSold)}`}
-              style={{ transform: `translateX(${swipeOffsets[order.id] || 0}px)` }}
+              style={{ transform: `translateX(${canSwipeToArchive ? swipeOffsets[order.id] || 0 : 0}px)` }}
             >
-              <div className="absolute inset-y-0 right-0 w-24 bg-amber-500/90 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center">Архив</div>
+              {canSwipeToArchive && <div className="absolute inset-y-0 -right-24 w-24 bg-amber-500/90 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center">Архив</div>}
               {order.salesStatus === 'Price Sent' && (Date.now() - (order.updatedAt || order.createdAt)) > 24 * 60 * 60 * 1000 && (
                 <div className="absolute top-2 right-2 z-10 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase">Follow up</div>
               )}
