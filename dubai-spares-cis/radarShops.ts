@@ -64,9 +64,21 @@ const mapSuppliersToShops = (suppliers: Supplier[]): Shop[] => suppliers
     specializationYears: supplier.years || []
   }));
 
+const mergeShops = (primary: Shop[], fallback: Shop[]): Shop[] => {
+  const merged = new Map<string, Shop>();
+  primary.forEach((shop) => merged.set(shop.id, shop));
+  fallback.forEach((shop) => {
+    if (!merged.has(shop.id)) {
+      merged.set(shop.id, shop);
+    }
+  });
+  return Array.from(merged.values());
+};
+
 export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> => {
+  const supplierShops = mapSuppliersToShops(suppliers);
   if (!supabase) {
-    return mapSuppliersToShops(suppliers);
+    return supplierShops;
   }
 
   const baseFields = 'id,name,phone,location,latitude,longitude,specialization';
@@ -85,10 +97,10 @@ export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> =>
   }
 
   if (Array.isArray(data) && data.length > 0) {
-    return data.map(mapShopRow);
+    return mergeShops(data.map(mapShopRow), supplierShops);
   }
 
-  return mapSuppliersToShops(suppliers);
+  return supplierShops;
 };
 
 export const upsertSupplierToShops = async (supplier: Supplier) => {
