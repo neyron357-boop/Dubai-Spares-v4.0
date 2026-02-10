@@ -26,6 +26,7 @@ create table if not exists public.orders (
   is_pinned boolean not null default false,
   is_lead boolean not null default false,
   notes jsonb not null default '[]'::jsonb,
+  recommended_shop_ids text[] not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -71,6 +72,8 @@ create table if not exists public.shops (
   latitude double precision,
   longitude double precision,
   specialization text[] not null default '{}',
+  specialization_models text[] not null default '{}',
+  specialization_years integer[] not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

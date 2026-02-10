@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, Priority, Part, Shop } from '../types';
+import { buildShopMapLink, isShopCompatibleWithOrder } from '../shopMatching';
 import {
   Calendar,
   Tag,
@@ -39,16 +40,6 @@ const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: 
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.atan2(Math.sqrt(calc), Math.sqrt(1 - calc));
-};
-
-const normalizeBrand = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-const isBrandMatch = (orderBrand: string, supplierBrand: string) => {
-  const a = normalizeBrand(orderBrand);
-  const b = normalizeBrand(supplierBrand);
-  if (!a || !b) return false;
-  if (a.includes(b) || b.includes(a)) return true;
-  return (a.includes('mercedes') && b.includes('mercedes')) || (a.includes('benz') && b.includes('mercedes'));
 };
 
 const OrdersScreen: React.FC = () => {
@@ -115,7 +106,7 @@ const OrdersScreen: React.FC = () => {
 
     const nearestDistance = (order: Order) => {
       if (!currentPosition) return Number.MAX_SAFE_INTEGER;
-      const matchedShops = shops.filter((shop) => shop.specialization.some((brand) => isBrandMatch(order.brand, brand)));
+      const matchedShops = shops.filter((shop) => isShopCompatibleWithOrder(shop, order));
       if (matchedShops.length === 0) return Number.MAX_SAFE_INTEGER;
       return Math.min(
         ...matchedShops.map((shop) => distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }))
@@ -215,7 +206,7 @@ const OrdersScreen: React.FC = () => {
         setShops(fallback);
         return;
       }
-      const { data } = await supabase.from('shops').select('id,name,phone,location,latitude,longitude,specialization');
+      const { data } = await supabase.from('shops').select('id,name,phone,location,latitude,longitude,specialization,specialization_models,specialization_years');
       if (!active) return;
       if (Array.isArray(data) && data.length > 0) {
         setShops(data.map((row: any) => ({
@@ -225,7 +216,9 @@ const OrdersScreen: React.FC = () => {
           location: row.location || '',
           latitude: Number(row.latitude),
           longitude: Number(row.longitude),
-          specialization: Array.isArray(row.specialization) ? row.specialization : []
+          specialization: Array.isArray(row.specialization) ? row.specialization : [],
+          specializationModels: Array.isArray(row.specialization_models) ? row.specialization_models : [],
+          specializationYears: Array.isArray(row.specialization_years) ? row.specialization_years.map((y: any) => Number(y)).filter((y: number) => Number.isFinite(y)) : []
         })));
       } else {
         const fallback = suppliers
@@ -256,18 +249,26 @@ const OrdersScreen: React.FC = () => {
       for (const order of activeOrders) {
         const matched = shops.find((shop) => {
           const isNearby = distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }) <= 300;
-          const hasBrand = shop.specialization.some((brand) => isBrandMatch(order.brand, brand));
-          return isNearby && hasBrand;
+          const isCompatible = isShopCompatibleWithOrder(shop, order) || (order.recommendedShopIds || []).includes(shop.id);
+          return isNearby && isCompatible;
         });
 
         if (matched && !notifiedRef.current.has(`${order.id}:${matched.id}`)) {
           const meters = Math.round(distanceMeters(currentPosition, { lat: matched.latitude, lng: matched.longitude }));
-          const message = `🎯 Shop '${matched.name}' is ${meters}m away! Check parts for: ${order.model || order.brand} (Order #${order.id.slice(0, 6)}).`;
+          const mapLink = buildShopMapLink(matched);
+          const message = `🎯 ${matched.name} рядом (${meters}м). ${order.brand} ${order.model} • Карта: ${mapLink}`;
           setRadarMessage(message);
-          setTimeout(() => setRadarMessage(null), 6000);
+          setTimeout(() => setRadarMessage(null), 9000);
+          if (navigator.vibrate) navigator.vibrate([240, 120, 240]);
           if (typeof Notification !== 'undefined') {
             if (Notification.permission === 'granted') {
-              new Notification('Active Radar', { body: message });
+              new Notification('Active Radar', {
+                body: message,
+                tag: `radar-${order.id}-${matched.id}`,
+                vibrate: [200, 100, 200],
+                requireInteraction: true,
+                data: { url: buildShopMapLink(matched), orderId: order.id }
+              });
             } else if (Notification.permission === 'default') {
               void Notification.requestPermission();
             }

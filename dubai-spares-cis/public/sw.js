@@ -1,6 +1,11 @@
-const APP_SHELL_CACHE = 'dubai-spares-shell-v1';
-const RUNTIME_CACHE = 'dubai-spares-runtime-v1';
+const APP_SHELL_CACHE = 'dubai-spares-shell-v2';
+const RUNTIME_CACHE = 'dubai-spares-runtime-v2';
 const APP_SHELL_FILES = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png'];
+const NEW_LEAD_NOTIFY_TAG = 'new-inquiry-leads';
+const LEAD_CHECK_INTERVAL_MS = 60 * 1000;
+let supabaseConfig = null;
+let latestLeadIds = new Set();
+let leadPollingTimer = null;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(APP_SHELL_CACHE).then((cache) => cache.addAll(APP_SHELL_FILES)));
@@ -19,6 +24,64 @@ self.addEventListener('activate', (event) => {
   );
   self.clients.claim();
 });
+
+self.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (data.type === 'supabase-config' && data.url && data.anonKey) {
+    supabaseConfig = { url: data.url, anonKey: data.anonKey };
+    startLeadPolling();
+  }
+  if (data.type === 'start-lead-polling') startLeadPolling();
+});
+
+const fetchLeadIds = async () => {
+  if (!supabaseConfig) return [];
+  const endpoint = `${supabaseConfig.url}/rest/v1/orders?status=eq.new_inquiry&select=id,brand,model,created_at&order=created_at.desc&limit=20`;
+  const response = await fetch(endpoint, {
+    headers: {
+      apikey: supabaseConfig.anonKey,
+      Authorization: `Bearer ${supabaseConfig.anonKey}`
+    }
+  });
+  if (!response.ok) throw new Error(`lead poll failed: ${response.status}`);
+  return response.json();
+};
+
+const notifyAboutNewLeads = async () => {
+  const rows = await fetchLeadIds();
+  const current = new Set(rows.map((row) => String(row.id)));
+  const newRows = rows.filter((row) => !latestLeadIds.has(String(row.id)));
+
+  if (latestLeadIds.size > 0 && newRows.length > 0) {
+    const top = newRows[0];
+    const title = `Новый лид: ${top.brand || ''} ${top.model || ''}`.trim();
+    await self.registration.showNotification(title || 'Новый лид', {
+      body: `Поступило новых заявок: ${newRows.length}`,
+      tag: NEW_LEAD_NOTIFY_TAG,
+      requireInteraction: true,
+      vibrate: [250, 120, 250, 120, 250],
+      renotify: true,
+      data: { url: '/' }
+    });
+  }
+
+  latestLeadIds = current;
+};
+
+const startLeadPolling = () => {
+  if (leadPollingTimer || !supabaseConfig) return;
+  const loop = async () => {
+    try {
+      await notifyAboutNewLeads();
+    } catch {
+      // ignore network errors
+    }
+  };
+  void loop();
+  leadPollingTimer = setInterval(() => {
+    void loop();
+  }, LEAD_CHECK_INTERVAL_MS);
+};
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
@@ -64,11 +127,37 @@ self.addEventListener('fetch', (event) => {
 });
 
 self.addEventListener('sync', (event) => {
-  if (event.tag !== 'orders-background-sync') return;
+  if (event.tag === 'orders-background-sync') {
+    event.waitUntil(
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        clients.forEach((client) => client.postMessage({ type: 'flush-offline-mutations' }));
+      })
+    );
+    return;
+  }
 
+  if (event.tag === 'leads-background-poll') {
+    event.waitUntil(notifyAboutNewLeads());
+  }
+});
+
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'leads-periodic-sync') {
+    event.waitUntil(notifyAboutNewLeads());
+  }
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/';
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      clients.forEach((client) => client.postMessage({ type: 'flush-offline-mutations' }));
+      const existing = clients.find((client) => 'focus' in client);
+      if (existing) {
+        existing.navigate(url);
+        return existing.focus();
+      }
+      return self.clients.openWindow(url);
     })
   );
 });

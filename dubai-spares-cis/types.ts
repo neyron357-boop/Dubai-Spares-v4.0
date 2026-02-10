@@ -70,6 +70,7 @@ export interface Order {
   salesStatus?: SalesStatus;
   customerContact?: string;
   updatedAt?: number;
+  recommendedShopIds?: string[];
 }
 
 export interface OrderNote {
@@ -99,6 +100,8 @@ export interface Shop {
   latitude: number;
   longitude: number;
   specialization: string[];
+  specializationModels?: string[];
+  specializationYears?: number[];
 }
 
 export interface DbPriceVariantRow {
@@ -148,6 +151,7 @@ export interface DbOrderRow {
   sales_status?: SalesStatus;
   customer_contact?: string;
   updated_at?: number | string;
+  recommended_shop_ids?: string[];
 }
 
 export interface DbOrderGraphRow extends DbOrderRow {

@@ -42,7 +42,8 @@ const normalizeOrder = (order: Order): Order => ({
   notes: Array.isArray(order.notes) ? order.notes : [],
   parts: Array.isArray(order.parts) ? order.parts : [],
   salesStatus: order.salesStatus ?? 'Inquiry',
-  updatedAt: order.updatedAt ?? order.createdAt ?? Date.now()
+  updatedAt: order.updatedAt ?? order.createdAt ?? Date.now(),
+  recommendedShopIds: Array.isArray(order.recommendedShopIds) ? order.recommendedShopIds : []
 });
 
 
@@ -185,7 +186,8 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     status: row.status || 'active',
     salesStatus: row.sales_status || 'Inquiry',
     customerContact: row.customer_contact || '',
-    updatedAt: parseTimestamp(row.updated_at ?? row.created_at)
+    updatedAt: parseTimestamp(row.updated_at ?? row.created_at),
+    recommendedShopIds: Array.isArray(row.recommended_shop_ids) ? row.recommended_shop_ids : []
   })
 });
 
@@ -260,7 +262,8 @@ const persistOrderGraph = async (order: Order) => {
     is_pinned: !!uploadedOrder.isPinned,
     is_lead: !!uploadedOrder.isLead,
     notes: uploadedOrder.notes || [],
-    customer_contact: uploadedOrder.customerContact || ''
+    customer_contact: uploadedOrder.customerContact || '',
+    recommended_shop_ids: uploadedOrder.recommendedShopIds || []
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -282,6 +285,12 @@ const persistOrderGraph = async (order: Order) => {
       await logger.warn('sync:persist', 'orders.customer_contact is missing in remote schema; retrying upsert without that column');
       const { customer_contact: _customerContact, ...payloadWithoutCustomerContact } = fallbackOrderPayload;
       ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutCustomerContact));
+    }
+
+    if (orderError && isMissingColumnError(orderError, 'recommended_shop_ids')) {
+      await logger.warn('sync:persist', 'orders.recommended_shop_ids is missing in remote schema; retrying upsert without that column');
+      const { recommended_shop_ids: _recommendedShopIds, ...payloadWithoutRecommendedShopIds } = fallbackOrderPayload;
+      ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutRecommendedShopIds));
     }
 
     return orderError;
