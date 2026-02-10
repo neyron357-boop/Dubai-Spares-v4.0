@@ -11,7 +11,7 @@ const priorityWeight = {
   [Priority.LOW]: 1,
 };
 
-type VendorSortType = 'priority' | 'date_desc' | 'date_asc' | 'brand' | 'model' | 'status' | 'parts';
+type VendorSortType = 'priority' | 'date_desc' | 'date_asc' | 'brand' | 'model' | 'status' | 'parts' | 'type';
 
 const sortOptions: { value: VendorSortType; label: string }[] = [
   { value: 'priority', label: 'Приоритет' },
@@ -21,6 +21,7 @@ const sortOptions: { value: VendorSortType; label: string }[] = [
   { value: 'model', label: 'Модель A-Я' },
   { value: 'status', label: 'Статус поиска' },
   { value: 'parts', label: 'Кол-во деталей' },
+  { value: 'type', label: 'Тип заказа' },
 ];
 
 const VendorSlider: React.FC = () => {
@@ -50,6 +51,14 @@ const VendorSlider: React.FC = () => {
       return 1;
     };
 
+    const orderTypeScore = (order: typeof list[number]) => {
+      if (order.status === 'new_inquiry') return 5;
+      if (order.isLead) return 4;
+      if (order.isVip) return 3;
+      if (order.isArchived) return 1;
+      return 2;
+    };
+
     return [...list].sort((a, b) => {
       switch (sortBy) {
         case 'date_desc':
@@ -67,6 +76,8 @@ const VendorSlider: React.FC = () => {
         }
         case 'parts':
           return b.parts.length - a.parts.length || b.createdAt - a.createdAt;
+        case 'type':
+          return orderTypeScore(b) - orderTypeScore(a) || b.createdAt - a.createdAt;
         case 'priority':
         default:
           return (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt);
@@ -166,6 +177,18 @@ const VendorSlider: React.FC = () => {
                 <div className="absolute bottom-6 left-0 right-0 text-center px-4 pointer-events-none">
                   <h1 className="text-3xl font-black text-white leading-none line-clamp-2 break-words">{order.brand || '—'} {order.model || ''}</h1>
                   <p className="text-gray-400 font-bold mt-2 truncate">{order.year || 'Год не указан'} год выпуска</p>
+                  <div className="mt-3 flex items-center justify-center gap-2">
+                    <span className="rounded-full bg-white/15 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white">{order.salesStatus || 'Inquiry'}</span>
+                    {order.status === 'new_inquiry' ? (
+                      <span className="rounded-full bg-rose-500/85 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white animate-pulse">NEW LEAD</span>
+                    ) : order.isLead ? (
+                      <span className="rounded-full bg-purple-500/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white">LEAD</span>
+                    ) : order.isVip ? (
+                      <span className="rounded-full bg-amber-500/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white">VIP</span>
+                    ) : (
+                      <span className="rounded-full bg-sky-500/75 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white">ACTIVE</span>
+                    )}
+                  </div>
                 </div>
               </div>
 

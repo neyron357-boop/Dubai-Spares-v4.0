@@ -25,10 +25,10 @@ import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 import { shareMessage, buildOrderShareText } from '../shareUtils';
 import { supabase } from '../supabase';
-import { pushNotification, sendBrowserNotification } from '../notificationCenter';
+import { isNotificationSignatureRead, pushNotification, sendBrowserNotification } from '../notificationCenter';
 import { toast, vibrate } from '../feedback';
 
-type TabType = 'active' | 'archive' | 'sold' | 'vip' | 'leads' | 'new_leads';
+type TabType = 'active' | 'archive' | 'sold' | 'vip' | 'leads';
 type SortType = 'date' | 'brand' | 'priority' | 'status';
 
 const weights = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
@@ -101,8 +101,7 @@ const OrdersScreen: React.FC = () => {
       if (activeTab === 'sold') return o.isSold;
       if (activeTab === 'archive') return o.isArchived && !o.isSold;
       if (activeTab === 'vip') return !!o.isVip && !o.isSold;
-      if (activeTab === 'leads') return !!o.isLead && !o.isSold;
-      if (activeTab === 'new_leads') return o.status === 'new_inquiry';
+      if (activeTab === 'leads') return (!!o.isLead || o.status === 'new_inquiry') && !o.isSold;
       return !o.isArchived && !o.isSold && !o.isVip && !o.isLead;
     });
 
@@ -164,6 +163,16 @@ const OrdersScreen: React.FC = () => {
   const getPartPhoto = (part: Part) => (part.photos && part.photos.length > 0 ? part.photos[0] : part.photoUrl);
   const getPartPhotos = (part: Part) => (part.photos && part.photos.length > 0 ? part.photos : part.photoUrl ? [part.photoUrl] : []);
   const getCarPhotos = (order: Order) => (order.carPhotos && order.carPhotos.length > 0 ? order.carPhotos : order.carPhotoUrl ? [order.carPhotoUrl] : []);
+
+  const markLeadAsSeen = (orderId: string) => {
+    setSeenLeadIds((current) => {
+      if (current.has(orderId)) return current;
+      const updated = new Set(current);
+      updated.add(orderId);
+      localStorage.setItem('seen_new_inquiry_ids', JSON.stringify(Array.from(updated)));
+      return updated;
+    });
+  };
 
   const openGallery = (e: React.MouseEvent, images: string[]) => {
     e.stopPropagation();
@@ -335,25 +344,32 @@ const OrdersScreen: React.FC = () => {
 
     if (hasNewLead) {
       const newLead = orders.find((order) => order.status === 'new_inquiry' && !prevIds.has(order.id));
+      let shouldSignal = false;
       if (newLead) {
-        pushNotification({
+        const signature = `lead:${newLead.id}`;
+        const isReadSignature = isNotificationSignatureRead(signature);
+        const createdNotification = pushNotification({
           type: 'order',
           title: `Новый заказ: ${newLead.brand} ${newLead.model}`,
           body: `Источник: ${newLead.source || 'не указан'}`,
           route: `/order/${newLead.id}`,
           orderId: newLead.id,
-          signature: `lead:${newLead.id}`
+          signature
         });
-        void sendBrowserNotification('Новый заказ', {
-          body: `${newLead.brand} ${newLead.model} • ${newLead.source || 'Без источника'}`,
-          tag: `new-order-${newLead.id}`,
-          route: `/order/${newLead.id}`,
-          requireInteraction: true,
-          vibrate: [260, 100, 260]
-        });
+        shouldSignal = Boolean(!isReadSignature && createdNotification);
+        if (shouldSignal) {
+          void sendBrowserNotification('Новый заказ', {
+            body: `${newLead.brand} ${newLead.model} • ${newLead.source || 'Без источника'}`,
+            tag: `new-order-${newLead.id}`,
+            route: `/order/${newLead.id}`,
+            requireInteraction: true,
+            vibrate: [260, 100, 260]
+          });
+        }
       }
-      vibrate([200, 60, 140]);
-      try {
+      if (shouldSignal) {
+        vibrate([200, 60, 140]);
+        try {
         const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (AudioContextClass) {
           const audioContext = new AudioContextClass();
@@ -373,30 +389,14 @@ const OrdersScreen: React.FC = () => {
           oscillator.stop(audioContext.currentTime + 0.36);
           window.setTimeout(() => void audioContext.close(), 450);
         }
-      } catch {
-        // ignore browsers that block autoplay without interaction
+        } catch {
+          // ignore browsers that block autoplay without interaction
+        }
       }
     }
 
     prevLeadIdsRef.current = currentLeadIds;
   }, [orders]);
-
-  useEffect(() => {
-    if (activeTab !== 'new_leads') return;
-    const currentNewLeadIds = orders
-      .filter((order) => order.status === 'new_inquiry')
-      .map((order) => order.id);
-
-    if (currentNewLeadIds.length === 0) return;
-
-    setSeenLeadIds((current) => {
-      const updated = new Set(current);
-      currentNewLeadIds.forEach((id) => updated.add(id));
-      localStorage.setItem('seen_new_inquiry_ids', JSON.stringify(Array.from(updated)));
-      return updated;
-    });
-  }, [activeTab, orders]);
-
 
   const archiveBySwipe = (order: Order) => {
     if (order.isArchived) return;
@@ -470,12 +470,11 @@ const OrdersScreen: React.FC = () => {
           ['active', 'Актив'],
           ['vip', 'VIP'],
           ['archive', 'Архив'],
-          ['new_leads', 'New Leads'],
           ['leads', 'Лиды'],
           ['sold', 'Продано']
         ] as [TabType, string][]).map(([tab, title]) => {
-          const isNewLeadsTab = tab === 'new_leads';
-          const hasUnseenLeads = isNewLeadsTab && unseenNewLeadCount > 0;
+          const isLeadsTab = tab === 'leads';
+          const hasUnseenLeads = isLeadsTab && unseenNewLeadCount > 0;
           return (
             <button
               key={tab}
@@ -534,13 +533,18 @@ const OrdersScreen: React.FC = () => {
             </button>
           </div>
         ) : (
-          filteredOrders.map((order) => (
+          filteredOrders.map((order) => {
+            const isUnseenNewLead = order.status === 'new_inquiry' && !seenLeadIds.has(order.id);
+            return (
             <div
               key={order.id}
               onClick={() => {
                 if (swipedIdsRef.current[order.id]) {
                   swipedIdsRef.current[order.id] = false;
                   return;
+                }
+                if (order.status === 'new_inquiry') {
+                  markLeadAsSeen(order.id);
                 }
                 navigate(`/order/${order.id}`);
               }}
@@ -571,7 +575,7 @@ const OrdersScreen: React.FC = () => {
                 setSwipeOffsets((prev) => ({ ...prev, [order.id]: 0 }));
                 delete swipeStartXRef.current[order.id];
               }}
-              className={`p-4 rounded-3xl shadow-sm border relative overflow-hidden transition-transform duration-300 ease-out ${order.isVip ? 'bg-gradient-to-br from-yellow-50 via-amber-50 to-white border-yellow-200' : 'bg-white border-gray-100'} ${getStatusColor(order.createdAt, order.isSold)}`}
+              className={`p-4 rounded-3xl shadow-sm border relative overflow-hidden transition-transform duration-300 ease-out ${order.isVip ? 'bg-gradient-to-br from-yellow-50 via-amber-50 to-white border-yellow-200' : 'bg-white border-gray-100'} ${getStatusColor(order.createdAt, order.isSold)} ${isUnseenNewLead ? 'ring-2 ring-rose-400 animate-pulse' : ''}`}
               style={{ transform: `translateX(${(canSwipeToArchive || canSwipeToRestore) ? swipeOffsets[order.id] || 0 : 0}px)` }}
             >
               {canSwipeToArchive && <div className="absolute inset-y-0 -right-24 w-24 bg-amber-500/90 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center">Архив</div>}
@@ -635,7 +639,8 @@ const OrdersScreen: React.FC = () => {
                 </div>
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
