@@ -2,7 +2,7 @@ const APP_SHELL_CACHE = 'dubai-spares-shell-v3';
 const RUNTIME_CACHE = 'dubai-spares-runtime-v3';
 const APP_SHELL_FILES = ['/', '/index.html', '/manifest.json', '/icon-32.png', '/icon-180.png', '/icon-192.png', '/icon-512.png'];
 const NEW_LEAD_NOTIFY_TAG = 'new-inquiry-leads';
-const LEAD_CHECK_INTERVAL_MS = 60 * 1000;
+const LEAD_CHECK_INTERVAL_MS = 20 * 1000;
 let supabaseConfig = null;
 let latestLeadIds = new Set();
 let leadPollingTimer = null;
@@ -34,6 +34,7 @@ self.addEventListener('activate', (event) => {
     )
   );
   self.clients.claim();
+  startLeadPolling();
 });
 
 self.addEventListener('message', (event) => {
@@ -102,7 +103,8 @@ const notifyAboutNewLeads = async () => {
 };
 
 const startLeadPolling = () => {
-  if (leadPollingTimer || !supabaseConfig) return;
+  if (!supabaseConfig) return;
+  if (leadPollingTimer) clearInterval(leadPollingTimer);
   const loop = async () => {
     try {
       await notifyAboutNewLeads();
@@ -172,7 +174,7 @@ self.addEventListener('sync', (event) => {
   }
 
   if (event.tag === 'leads-background-poll') {
-    event.waitUntil(notifyAboutNewLeads());
+    event.waitUntil(notifyAboutNewLeads().then(() => startLeadPolling()));
   }
 });
 
