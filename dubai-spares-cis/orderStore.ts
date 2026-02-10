@@ -165,6 +165,26 @@ const isBigintTimestampInputError = (error: unknown) => {
   );
 };
 
+const isTimestamptzTimestampInputError = (error: unknown) => {
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  return (
+    anyErr.code === '22007' &&
+    typeof anyErr.message === 'string' &&
+    (anyErr.message.includes('timestamp with time zone') || anyErr.message.includes('date/time field value'))
+  );
+};
+
+const isOrderTimestampInputError = (error: unknown) => {
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  return (
+    (anyErr.code === '22007' || anyErr.code === '22P02')
+    && typeof anyErr.message === 'string'
+    && (anyErr.message.includes('timestamp') || anyErr.message.includes('date/time') || anyErr.message.includes('bigint'))
+  );
+};
+
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === 'object' && error) {
@@ -322,7 +342,7 @@ const persistOrderGraph = async (order: Order) => {
     car_photos: cloudOrder.carPhotos || [],
     markup_percent: uploadedOrder.markupPercent,
     exchange_rate: uploadedOrder.exchangeRate,
-    created_at: toIsoTimestamp(uploadedOrder.createdAt),
+    created_at: parseTimestamp(uploadedOrder.createdAt),
     is_archived: uploadedOrder.isArchived,
     is_sold: uploadedOrder.isSold,
     sold_profit_usd: uploadedOrder.soldProfitUsd,
@@ -339,7 +359,7 @@ const persistOrderGraph = async (order: Order) => {
     const fallbackOrderPayload: Record<string, unknown> = {
       ...buildOrderPayload(),
       sales_status: uploadedOrder.salesStatus || 'Inquiry',
-      updated_at: toIsoTimestamp(uploadedOrder.updatedAt || Date.now())
+      updated_at: parseTimestamp(uploadedOrder.updatedAt || Date.now())
     };
 
     const fallbackColumns = new Set([
@@ -353,6 +373,16 @@ const persistOrderGraph = async (order: Order) => {
 
     let payload: Record<string, unknown> = { ...fallbackOrderPayload };
     let { error: orderError } = await supabase.from('orders').upsert(payload);
+
+    if (orderError && isOrderTimestampInputError(orderError)) {
+      const isoPayload: Record<string, unknown> = {
+        ...payload,
+        created_at: toIsoTimestamp(uploadedOrder.createdAt),
+        updated_at: toIsoTimestamp(uploadedOrder.updatedAt || Date.now())
+      };
+      ({ error: orderError } = await supabase.from('orders').upsert(isoPayload));
+      if (!orderError) payload = isoPayload;
+    }
 
     while (orderError) {
       const missingColumn = getMissingColumnName(orderError);
@@ -413,10 +443,21 @@ const persistOrderGraph = async (order: Order) => {
         location: variant.location,
         photo_url: variant.photoUrl,
         photos: variant.photos || [],
-        created_at: toIsoTimestamp(variant.createdAt)
+        created_at: parseTimestamp(variant.createdAt)
       };
 
       let { error: variantError } = await supabase.from('price_variants').upsert(variantPayload);
+
+      if (variantError && isTimestamptzTimestampInputError(variantError)) {
+        await logger.warn(
+          'sync:persist',
+          'price_variants.created_at expects timestamptz in remote schema; retrying upsert with ISO string timestamp'
+        );
+        ({ error: variantError } = await supabase.from('price_variants').upsert({
+          ...variantPayload,
+          created_at: toIsoTimestamp(variant.createdAt)
+        }));
+      }
 
       if (variantError && isBigintTimestampInputError(variantError)) {
         await logger.warn(

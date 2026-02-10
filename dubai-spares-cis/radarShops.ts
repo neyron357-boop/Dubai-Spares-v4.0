@@ -29,6 +29,7 @@ const GEO_RETRY_LIMIT = 3;
 const GEO_FAIL_COOLDOWN_MS = 60 * 60 * 1000;
 
 const failedGeocodeCache = new Map<string, { failCount: number; blockedUntil: number }>();
+const manualFixShops = new Set<string>();
 
 
 const extractCityHints = (location: string): string[] => {
@@ -39,46 +40,13 @@ const extractCityHints = (location: string): string[] => {
   return hints;
 };
 
-const extractLocationReferenceHints = (location: string): string[] => {
-  return String(location || '')
-    .split(/[|,/\-]/)
-    .map((chunk) => chunk.trim())
-    .filter((chunk) => chunk.length >= 3)
-    .slice(0, 3);
-};
 
 const buildShopFallbackQueries = (row: any): string[] => {
   const name = String(row?.name || '').trim();
-  const specialization = Array.isArray(row?.specialization)
-    ? row.specialization.map((item: unknown) => String(item || '').trim()).filter(Boolean)
-    : [];
   const cities = extractCityHints(String(row?.location || ''));
-  const locationRefs = extractLocationReferenceHints(String(row?.location || ''));
-  const queries = new Set<string>();
-
-  if (name) {
-    queries.add(name);
-    queries.add(`${name} Dubai`);
-    queries.add(`${name} Sharjah`);
-  }
-  for (const spec of specialization.slice(0, 3)) {
-    const base = [name, spec].filter(Boolean).join(' ').trim();
-    if (!base) continue;
-    queries.add(base);
-    if (cities.length === 0) {
-      queries.add(`${base} Dubai`);
-      queries.add(`${base} Sharjah`);
-    } else {
-      cities.forEach((city) => queries.add(`${base} ${city}`.trim()));
-    }
-    locationRefs.forEach((locationRef) => queries.add(`${base} ${locationRef}`.trim()));
-  }
-
-  locationRefs.forEach((locationRef) => {
-    if (name) queries.add(`${name} ${locationRef}`.trim());
-  });
-
-  return Array.from(queries);
+  if (!name) return [];
+  if (cities.length > 0) return cities.map((city) => `${name} ${city}`.trim());
+  return [`${name} Dubai`, `${name} Sharjah`];
 };
 
 const shouldSkipGeocodeAttempt = (shopId: string) => {
@@ -97,6 +65,30 @@ const markGeocodeFailure = (shopId: string) => {
   const blockedUntil = failCount >= GEO_RETRY_LIMIT ? Date.now() + GEO_FAIL_COOLDOWN_MS : 0;
   failedGeocodeCache.set(shopId, { failCount, blockedUntil });
   return { failCount, blockedUntil };
+};
+
+const isMissingNeedsManualFixColumn = (error: unknown) => {
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  return anyErr.code === 'PGRST204' && typeof anyErr.message === 'string' && anyErr.message.includes("'needs_manual_fix' column");
+};
+
+const markShopNeedsManualFix = async (shopId: string, row: any) => {
+  manualFixShops.add(shopId);
+  if (!supabase) return;
+
+  const { error } = await supabase
+    .from('shops')
+    .update({ needs_manual_fix: true })
+    .eq('id', row.id);
+
+  if (error && !isMissingNeedsManualFixColumn(error)) {
+    await logger.warn('shops:repair', 'Failed to mark shop as needs_manual_fix', {
+      shopId: row.id,
+      name: row.name,
+      error: error.message
+    });
+  }
 };
 
 const clearGeocodeFailure = (shopId: string) => {
@@ -138,6 +130,7 @@ const mapShopRow = (row: any): Shop => ({
   location: row.location || '',
   latitude: Number(row.latitude),
   longitude: Number(row.longitude),
+  needsManualFix: !!row.needs_manual_fix,
   specialization: Array.isArray(row.specialization) ? row.specialization : [],
   specializationModels: Array.isArray(row.specialization_models) ? row.specialization_models : [],
   specializationYears: toNumberArray(row.specialization_years),
@@ -180,6 +173,7 @@ const rerunCriticalCoordinatesParser = async (rows: any[]) => {
     if (hasValidCoordinates(Number(row?.latitude), Number(row?.longitude))) continue;
     const shopId = String(row?.id || '');
     if (!shopId) continue;
+    if (manualFixShops.has(shopId) || row?.needs_manual_fix === true) continue;
 
     if (shouldSkipGeocodeAttempt(shopId)) {
       await logger.debug('shops:repair', 'Skipping geocode retry due to cooldown', { shopId, name: row?.name });
@@ -197,6 +191,16 @@ const rerunCriticalCoordinatesParser = async (rows: any[]) => {
         failCount: failState.failCount,
         blockedUntil: failState.blockedUntil || null
       });
+
+      if (failState.failCount >= GEO_RETRY_LIMIT) {
+        row.needs_manual_fix = true;
+        await markShopNeedsManualFix(shopId, row);
+        await logger.warn('shops:repair', 'Shop marked as needs_manual_fix after retry limit', {
+          shopId,
+          name: row?.name,
+          failCount: failState.failCount
+        });
+      }
       continue;
     }
 
@@ -224,7 +228,7 @@ export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> =>
   }
 
   const baseFields = 'id,name,phone,location,latitude,longitude,specialization';
-  const extendedFields = `${baseFields},specialization_models,specialization_years,specialization_body_types`;
+  const extendedFields = `${baseFields},specialization_models,specialization_years,specialization_body_types,needs_manual_fix`;
   const primary = await supabase.from('shops').select(extendedFields);
 
   let data: any[] | null = null;
@@ -264,6 +268,7 @@ export const upsertSupplierToShops = async (supplier: Supplier) => {
     location: normalized.location,
     latitude: normalized.coordinates?.lat ?? null,
     longitude: normalized.coordinates?.lng ?? null,
+    needs_manual_fix: false,
     specialization: normalized.brands || [],
     specialization_models: normalized.models || [],
     specialization_years: normalized.years || [],

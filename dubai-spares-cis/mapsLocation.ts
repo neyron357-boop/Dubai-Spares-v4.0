@@ -113,6 +113,8 @@ const hasMapsCoordinatesOrPlace = (value: string) => {
   );
 };
 
+const hasAtCoordinates = (value: string) => /@-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/i.test(value);
+
 const isRedirectProxyUrl = (raw: string): boolean => {
   if (!raw || !raw.startsWith('http')) return false;
   return isGoogleShortMapsUrl(raw) || isGoogleUserContentUrl(raw);
@@ -187,30 +189,89 @@ const expandGoogleRedirectUrl = async (raw: string): Promise<string | null> => {
   }
 };
 
+const getLocationHeaderRedirect = async (raw: string): Promise<string | null> => {
+  try {
+    const manual = await fetch(raw, { method: 'GET', redirect: 'manual' });
+    const location = manual.headers.get('location');
+    if (!location) return null;
+    return new URL(location, raw).toString();
+  } catch {
+    return null;
+  }
+};
+
 interface ResolveCoordinatesOptions {
   fallbackQueries?: string[];
 }
 
 const expandLocationUrlChain = async (raw: string, maxHops = 8): Promise<string> => {
   let current = raw;
-  for (let i = 0; i < maxHops; i += 1) {
-    if (hasMapsCoordinatesOrPlace(current) && !isRedirectProxyUrl(current)) break;
-    const next = await expandGoogleRedirectUrl(current);
+  let hops = 0;
+
+  while (hops < maxHops) {
+    const shouldContinue = !hasAtCoordinates(current)
+      && (isGoogleUserContentUrl(current) || isGoogleShortMapsUrl(current) || isRedirectProxyUrl(current));
+    if (!shouldContinue) break;
+
+    const next = await getLocationHeaderRedirect(current) || await expandGoogleRedirectUrl(current);
     if (!next || next === current) break;
+
     current = next;
+    hops += 1;
+
+    if (!current.includes('googleusercontent.com') && !isGoogleShortMapsUrl(current) && hasMapsCoordinatesOrPlace(current)) {
+      break;
+    }
   }
+
   return current;
 };
 
 const dedupe = (values: string[]) => Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 
+const cleanFallbackQuery = (value: string): string => {
+  const withoutLinks = value
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/www\.[^\s]+/gi, ' ')
+    .replace(/\b(?:maps\.app\.goo\.gl|goo\.gl|googleusercontent\.com|google\.com\/maps)\S*/gi, ' ');
+
+  return withoutLinks
+    .replace(/[\\/_|#?&=%:+~*.,;()[\]{}<>"'`!-]+/g, ' ')
+    .replace(/\b[a-z0-9]{8,}\b/gi, ' ')
+    .replace(/\b(?:http|https|www|maps|app|goo|gl|google|com|googleusercontent|g|st|ic)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const buildCanonicalShopName = (values: string[]) => {
+  const tokens = dedupe(values)
+    .map((value) => cleanFallbackQuery(value))
+    .flatMap((value) => value.split(/\s+/).map((token) => token.trim()).filter(Boolean))
+    .filter((token) => !['dubai', 'sharjah'].includes(token.toLowerCase()));
+
+  const unique: string[] = [];
+  for (const token of tokens) {
+    if (!unique.some((x) => x.toLowerCase() === token.toLowerCase())) unique.push(token);
+  }
+
+  return unique.slice(0, 3).join(' ').trim();
+};
+
+const buildSanitizedFallbackQueries = (values: string[]) => {
+  const merged = dedupe(values.map((value) => cleanFallbackQuery(value)).filter(Boolean));
+  const mergedText = merged.join(' ');
+  const hasDubai = /\bdubai\b/i.test(mergedText);
+  const hasSharjah = /\bsharjah\b/i.test(mergedText);
+  const canonicalShopName = buildCanonicalShopName(values);
+
+  if (!canonicalShopName) return [];
+  if (hasDubai) return [`${canonicalShopName} Dubai`];
+  if (hasSharjah) return [`${canonicalShopName} Sharjah`];
+  return [`${canonicalShopName} Dubai`, `${canonicalShopName} Sharjah`];
+};
+
 const buildDubaiSharjahFallbackQueries = (values: string[]) => {
-  return dedupe(values).flatMap((value) => {
-    const normalized = value.toLowerCase();
-    const hasCityHint = normalized.includes('dubai') || normalized.includes('sharjah');
-    if (hasCityHint) return [value];
-    return [`${value} Dubai`, `${value} Sharjah`];
-  });
+  return dedupe(buildSanitizedFallbackQueries(values));
 };
 
 const geocodeFallbackQueries = async (queries: string[]): Promise<Coordinates | null> => {

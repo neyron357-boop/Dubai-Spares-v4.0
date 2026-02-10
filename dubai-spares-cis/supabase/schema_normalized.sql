@@ -73,6 +73,7 @@ create table if not exists public.shops (
   location text not null default '',
   latitude double precision,
   longitude double precision,
+  needs_manual_fix boolean not null default false,
   specialization text[] not null default '{}',
   specialization_models text[] not null default '{}',
   specialization_years integer[] not null default '{}',
