@@ -19,6 +19,7 @@ import {
 import ConfirmModal from '../components/ConfirmModal';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops } from '../radarShops';
+import { createUuid } from '../id';
 
 const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, getBackupData, restoreData } = useStore();
@@ -59,7 +60,7 @@ const SuppliersScreen: React.FC = () => {
     try {
       const coordinates = await resolveCoordinatesFromLocation(location);
       const newSupplier: Supplier = {
-        id: Date.now().toString(),
+        id: createUuid(),
         name,
         phone,
         location,

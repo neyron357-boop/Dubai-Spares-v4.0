@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { Supplier } from './types';
 import { useOrderStore, subscribeOrderStore, getOrderState, restoreOrdersExternal } from './orderStore';
+import { ensureUuid } from './id';
 
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
@@ -9,6 +10,7 @@ let listeners = new Set<() => void>();
 
 const normalizeSupplier = (supplier: Supplier): Supplier => ({
   ...supplier,
+  id: ensureUuid(supplier.id),
   brands: Array.isArray(supplier.brands) ? supplier.brands : [],
   models: Array.isArray(supplier.models) ? supplier.models : [],
   years: Array.isArray(supplier.years)

@@ -17,6 +17,7 @@ import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops } from '../radarShops';
+import { createUuid } from '../id';
 
 const PartDetailsScreen: React.FC = () => {
   const { orderId, partId } = useParams<{ orderId: string, partId: string }>();
@@ -119,7 +120,7 @@ const PartDetailsScreen: React.FC = () => {
 
     if (!existingSupplier) {
       const newSupplier = {
-        id: Date.now().toString(),
+        id: createUuid(),
         name: shopName,
         phone,
         location,
