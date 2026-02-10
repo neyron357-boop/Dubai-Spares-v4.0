@@ -101,6 +101,23 @@ const normalizeMapsInput = (raw: string): string => {
 
 const REDIRECT_QUERY_KEYS = ['url', 'u', 'q', 'target', 'redirect', 'dest', 'destination'];
 
+const hasMapsCoordinatesOrPlace = (value: string) => {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  return (
+    normalized.includes('google.com/maps/place')
+    || normalized.includes('/maps/place/')
+    || normalized.includes('/maps/search/')
+    || normalized.includes('/maps/dir/')
+    || Boolean(extractCoordinates(value))
+  );
+};
+
+const isRedirectProxyUrl = (raw: string): boolean => {
+  if (!raw || !raw.startsWith('http')) return false;
+  return isGoogleShortMapsUrl(raw) || isGoogleUserContentUrl(raw);
+};
+
 const decodeUrlCandidate = (value: string): string | null => {
   if (!value) return null;
   const trimmed = value.trim();
@@ -136,6 +153,22 @@ const getUrlFromRedirectQuery = (raw: string): string | null => {
 const expandGoogleRedirectUrl = async (raw: string): Promise<string | null> => {
   if (!isGoogleMapsUrl(raw)) return null;
 
+  const queryExpandedFirst = getUrlFromRedirectQuery(raw);
+  if (queryExpandedFirst && queryExpandedFirst !== raw) {
+    return queryExpandedFirst;
+  }
+
+  try {
+    const manual = await fetch(raw, { method: 'GET', redirect: 'manual' });
+    const location = manual.headers.get('location');
+    if (location) {
+      const next = new URL(location, raw).toString();
+      if (next !== raw) return next;
+    }
+  } catch {
+    // noop, continue to follow-based fallbacks
+  }
+
   try {
     const response = await fetch(raw, { method: 'HEAD', redirect: 'follow' });
     if (response?.url && response.url !== raw) {
@@ -143,11 +176,6 @@ const expandGoogleRedirectUrl = async (raw: string): Promise<string | null> => {
     }
   } catch {
     // noop, continue to fallbacks below
-  }
-
-  const queryExpanded = getUrlFromRedirectQuery(raw);
-  if (queryExpanded && queryExpanded !== raw) {
-    return queryExpanded;
   }
 
   try {
@@ -163,9 +191,10 @@ interface ResolveCoordinatesOptions {
   fallbackQueries?: string[];
 }
 
-const expandLocationUrlChain = async (raw: string, maxHops = 3): Promise<string> => {
+const expandLocationUrlChain = async (raw: string, maxHops = 8): Promise<string> => {
   let current = raw;
   for (let i = 0; i < maxHops; i += 1) {
+    if (hasMapsCoordinatesOrPlace(current) && !isRedirectProxyUrl(current)) break;
     const next = await expandGoogleRedirectUrl(current);
     if (!next || next === current) break;
     current = next;

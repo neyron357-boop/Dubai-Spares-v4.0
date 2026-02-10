@@ -25,6 +25,10 @@ const hasValidCoordinates = (latitude?: number | null, longitude?: number | null
 };
 
 const CRITICAL_SHOP_NAMES = new Set(['bmw', 'mm']);
+const GEO_RETRY_LIMIT = 3;
+const GEO_FAIL_COOLDOWN_MS = 60 * 60 * 1000;
+
+const failedGeocodeCache = new Map<string, { failCount: number; blockedUntil: number }>();
 
 
 const extractCityHints = (location: string): string[] => {
@@ -35,12 +39,21 @@ const extractCityHints = (location: string): string[] => {
   return hints;
 };
 
+const extractLocationReferenceHints = (location: string): string[] => {
+  return String(location || '')
+    .split(/[|,/\-]/)
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk.length >= 3)
+    .slice(0, 3);
+};
+
 const buildShopFallbackQueries = (row: any): string[] => {
   const name = String(row?.name || '').trim();
   const specialization = Array.isArray(row?.specialization)
     ? row.specialization.map((item: unknown) => String(item || '').trim()).filter(Boolean)
     : [];
   const cities = extractCityHints(String(row?.location || ''));
+  const locationRefs = extractLocationReferenceHints(String(row?.location || ''));
   const queries = new Set<string>();
 
   if (name) {
@@ -58,9 +71,36 @@ const buildShopFallbackQueries = (row: any): string[] => {
     } else {
       cities.forEach((city) => queries.add(`${base} ${city}`.trim()));
     }
+    locationRefs.forEach((locationRef) => queries.add(`${base} ${locationRef}`.trim()));
   }
 
+  locationRefs.forEach((locationRef) => {
+    if (name) queries.add(`${name} ${locationRef}`.trim());
+  });
+
   return Array.from(queries);
+};
+
+const shouldSkipGeocodeAttempt = (shopId: string) => {
+  const entry = failedGeocodeCache.get(shopId);
+  if (!entry) return false;
+  if (entry.blockedUntil <= Date.now()) {
+    failedGeocodeCache.delete(shopId);
+    return false;
+  }
+  return true;
+};
+
+const markGeocodeFailure = (shopId: string) => {
+  const prev = failedGeocodeCache.get(shopId) || { failCount: 0, blockedUntil: 0 };
+  const failCount = prev.failCount + 1;
+  const blockedUntil = failCount >= GEO_RETRY_LIMIT ? Date.now() + GEO_FAIL_COOLDOWN_MS : 0;
+  failedGeocodeCache.set(shopId, { failCount, blockedUntil });
+  return { failCount, blockedUntil };
+};
+
+const clearGeocodeFailure = (shopId: string) => {
+  failedGeocodeCache.delete(shopId);
 };
 
 export const normalizeSupplierMetadata = (supplier: Supplier): Supplier => {
@@ -138,11 +178,27 @@ const rerunCriticalCoordinatesParser = async (rows: any[]) => {
     const normalizedName = String(row?.name || '').trim().toLowerCase();
     if (!CRITICAL_SHOP_NAMES.has(normalizedName)) continue;
     if (hasValidCoordinates(Number(row?.latitude), Number(row?.longitude))) continue;
+    const shopId = String(row?.id || '');
+    if (!shopId) continue;
+
+    if (shouldSkipGeocodeAttempt(shopId)) {
+      await logger.debug('shops:repair', 'Skipping geocode retry due to cooldown', { shopId, name: row?.name });
+      continue;
+    }
 
     const resolved = await resolveCoordinatesFromLocation(String(row?.location || ''), {
       fallbackQueries: buildShopFallbackQueries(row)
     });
-    if (!resolved || !hasValidCoordinates(resolved.lat, resolved.lng)) continue;
+    if (!resolved || !hasValidCoordinates(resolved.lat, resolved.lng)) {
+      const failState = markGeocodeFailure(shopId);
+      await logger.warn('shops:repair', 'Failed to resolve coordinates for critical shop', {
+        shopId,
+        name: row?.name,
+        failCount: failState.failCount,
+        blockedUntil: failState.blockedUntil || null
+      });
+      continue;
+    }
 
     const { error } = await supabase
       .from('shops')
@@ -154,6 +210,7 @@ const rerunCriticalCoordinatesParser = async (rows: any[]) => {
       continue;
     }
 
+    clearGeocodeFailure(shopId);
     row.latitude = resolved.lat;
     row.longitude = resolved.lng;
     await logger.info('shops:repair', 'Re-ran location parser for critical shop', { shopId: row.id, name: row.name, coordinates: resolved });

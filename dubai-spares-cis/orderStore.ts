@@ -102,6 +102,59 @@ const getMissingColumnName = (error: unknown): string | null => {
   return match?.[1] || null;
 };
 
+
+const fetchOrdersGraphWithSchemaFallbacks = async () => {
+  if (!supabase) return { data: null, error: null };
+
+  let orderColumns = [
+    'id',
+    'brand',
+    'model',
+    'year',
+    'body_type',
+    'vin',
+    'vin_photo_url',
+    'priority',
+    'client_name',
+    'source',
+    'car_photo_url',
+    'car_photos',
+    'markup_percent',
+    'exchange_rate',
+    'created_at',
+    'is_archived',
+    'is_sold',
+    'sold_profit_usd',
+    'is_vip',
+    'is_pinned',
+    'is_lead',
+    'notes',
+    'status',
+    'sales_status',
+    'customer_contact',
+    'social_nickname',
+    'updated_at',
+    'recommended_shop_ids'
+  ];
+
+  while (true) {
+    const query = `${orderColumns.join(',')}, parts(*, price_variants(*))`;
+    const response = await supabase
+      .from('orders')
+      .select(query)
+      .order('created_at', { ascending: false });
+
+    if (!response.error) return response;
+
+    const missingColumn = getMissingColumnName(response.error);
+    if (!missingColumn || !orderColumns.includes(missingColumn)) return response;
+
+    await logger.warn('sync:fetch', `orders.${missingColumn} is missing in remote schema; retrying fetch without that column`);
+    await logDatabaseIntegrity('sync:fetch', response.error, { column: missingColumn });
+    orderColumns = orderColumns.filter((column) => column !== missingColumn);
+  }
+};
+
 const isBigintTimestampInputError = (error: unknown) => {
   if (typeof error !== 'object' || !error) return false;
   const anyErr = error as { code?: unknown; message?: unknown };
@@ -484,10 +537,7 @@ export const fetchOrders = async () => {
     return;
   }
 
-  const { data, error } = await supabase
-    .from('orders')
-    .select('*, parts(*, price_variants(*))')
-    .order('created_at', { ascending: false });
+  const { data, error } = await fetchOrdersGraphWithSchemaFallbacks();
 
   if (error) {
     await logger.error('sync:fetch', 'Cloud orders fetch failed', { error: serializeError(error) });
