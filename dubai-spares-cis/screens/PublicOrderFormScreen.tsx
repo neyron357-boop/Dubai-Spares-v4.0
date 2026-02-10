@@ -26,7 +26,8 @@ const translations = {
     title: 'Tell us what your car needs.', subtitle: 'Tell us what your car needs, and our experts will find the best options in Dubai.',
     step: 'Step', of: 'of', brand: 'Brand', selectBrand: 'Select brand', model: 'Model', selectModel: 'Select model', typeModel: 'Type model', year: 'Year', selectYear: 'Select year',
     preferredLanguage: 'Preferred Language', selectLanguage: 'Select language', requestedParts: 'Requested parts (up to 3)', part: 'Part', partExample: 'Example: Front brake pads', partPhoto: 'Part photo (optional)',
-    vinStepTitle: 'VIN and vehicle photos (optional)', vinPhoto: 'Scan/Upload VIN Photo', carPhoto: 'Upload Car Photo', vinManual: 'Manual VIN entry',
+    chooseFromGallery: 'Choose from gallery', takePhoto: 'Take a photo', photoSelected: 'Photo selected ✓',
+    vinStepTitle: 'VIN and vehicle photos (optional)', vinPhoto: 'VIN photo', carPhoto: 'Car photo', vinManual: 'Manual VIN entry',
     phone: 'Phone Number / WhatsApp', deliveryCountry: 'Delivery Country', country: 'Country', deliveryCity: 'Delivery City (optional)', city: 'City', deliveryDetails: 'Delivery details (optional)', detailsPlaceholder: 'Area, address notes, preferred delivery info',
     back: 'Back', next: 'Continue', submit: 'Submit Request', submitting: 'Submitting...',
     completeRequired: 'Please complete the required fields before submitting.', unavailable: 'Order form is temporarily unavailable.', failed: 'Failed to submit request.',
@@ -37,12 +38,49 @@ const translations = {
     title: 'Расскажите, что нужно вашему авто.', subtitle: 'Опишите нужные запчасти, и наши эксперты подберут лучшие варианты в Дубае.',
     step: 'Шаг', of: 'из', brand: 'Марка', selectBrand: 'Выберите марку', model: 'Модель', selectModel: 'Выберите модель', typeModel: 'Введите модель', year: 'Год', selectYear: 'Выберите год',
     preferredLanguage: 'Предпочитаемый язык', selectLanguage: 'Выберите язык', requestedParts: 'Нужные запчасти (до 3)', part: 'Деталь', partExample: 'Например: передние тормозные колодки', partPhoto: 'Фото детали (необязательно)',
-    vinStepTitle: 'VIN и фото автомобиля (необязательно)', vinPhoto: 'Скан/загрузка фото VIN', carPhoto: 'Загрузить фото авто', vinManual: 'VIN вручную',
+    chooseFromGallery: 'Выбрать из галереи', takePhoto: 'Сделать фото', photoSelected: 'Фото выбрано ✓',
+    vinStepTitle: 'VIN и фото автомобиля (необязательно)', vinPhoto: 'Фото VIN', carPhoto: 'Фото авто', vinManual: 'VIN вручную',
     phone: 'Телефон / WhatsApp', deliveryCountry: 'Страна доставки', country: 'Страна', deliveryCity: 'Город доставки (необязательно)', city: 'Город', deliveryDetails: 'Детали доставки (необязательно)', detailsPlaceholder: 'Район, адрес и другая информация для доставки',
     back: 'Назад', next: 'Далее', submit: 'Отправить заявку', submitting: 'Отправка...',
     completeRequired: 'Пожалуйста, заполните обязательные поля перед отправкой.', unavailable: 'Форма заявки временно недоступна.', failed: 'Не удалось отправить заявку.',
     requestReceived: 'Заявка получена!', thanks: 'Мы уже ищем ваши запчасти. Скоро свяжемся с вами в WhatsApp.', another: 'Отправить еще одну заявку',
     publicRequest: 'Публичная заявка', language: 'Язык', requestedPartsLabel: 'Запрошенные запчасти', delivery: 'Доставка', details: 'Детали'
+  },
+  tg: {
+    title: 'Ба мо бигӯед, ки ба мошини шумо чӣ лозим аст.', subtitle: 'Қисмҳои лозимиро нависед, ва коршиносони мо беҳтарин вариантҳоро дар Дубай пайдо мекунанд.',
+    step: 'Қадам', of: 'аз', brand: 'Бренд', selectBrand: 'Брендро интихоб кунед', model: 'Модел', selectModel: 'Моделро интихоб кунед', typeModel: 'Моделро ворид кунед', year: 'Сол', selectYear: 'Солро интихоб кунед',
+    preferredLanguage: 'Забони бартаридошта', selectLanguage: 'Забонро интихоб кунед', requestedParts: 'Қисмҳои дархостшуда (то 3)', part: 'Қисм', partExample: 'Мисол: колодкаҳои пеши тормоз', partPhoto: 'Акси қисм (ихтиёрӣ)',
+    chooseFromGallery: 'Аз галерея интихоб кунед', takePhoto: 'Сурат гиред', photoSelected: 'Сурат интихоб шуд ✓',
+    vinStepTitle: 'VIN ва аксҳои мошин (ихтиёрӣ)', vinPhoto: 'Акси VIN', carPhoto: 'Акси мошин', vinManual: 'Воридкунии VIN дастӣ',
+    phone: 'Телефон / WhatsApp', deliveryCountry: 'Кишвари таҳвил', country: 'Кишвар', deliveryCity: 'Шаҳри таҳвил (ихтиёрӣ)', city: 'Шаҳр', deliveryDetails: 'Тафсилоти таҳвил (ихтиёрӣ)', detailsPlaceholder: 'Ноҳия, суроға ва маълумоти иловагӣ барои таҳвил',
+    back: 'Бозгашт', next: 'Давом', submit: 'Фиристодани дархост', submitting: 'Дар ҳоли фиристодан...',
+    completeRequired: 'Лутфан майдонҳои ҳатмиро пеш аз фиристодан пур кунед.', unavailable: 'Формаи дархост муваққатан дастрас нест.', failed: 'Фиристодани дархост ноком шуд.',
+    requestReceived: 'Дархост қабул шуд!', thanks: 'Мо аллакай қисмҳои шуморо ҷустуҷӯ мекунем. Ба наздикӣ дар WhatsApp бо шумо тамос мегирем.', another: 'Фиристодани дархости дигар',
+    publicRequest: 'Дархости оммавӣ', language: 'Забон', requestedPartsLabel: 'Қисмҳои дархостшуда', delivery: 'Таҳвил', details: 'Тафсилот'
+  },
+  ky: {
+    title: 'Унааңызга эмне керек экенин айтып бериңиз.', subtitle: 'Керектүү тетиктерди жазыңыз, биздин адистер Дубайдан эң жакшы варианттарды табышат.',
+    step: 'Кадам', of: 'дан', brand: 'Бренд', selectBrand: 'Брендди тандаңыз', model: 'Модель', selectModel: 'Моделди тандаңыз', typeModel: 'Моделди жазыңыз', year: 'Жылы', selectYear: 'Жылды тандаңыз',
+    preferredLanguage: 'Тандалган тил', selectLanguage: 'Тилди тандаңыз', requestedParts: 'Суралган тетиктер (3кө чейин)', part: 'Тетик', partExample: 'Мисалы: алдыңкы тормоз колодкалары', partPhoto: 'Тетиктин сүрөтү (милдеттүү эмес)',
+    chooseFromGallery: 'Галереядан тандаңыз', takePhoto: 'Сүрөткө тартыңыз', photoSelected: 'Сүрөт тандалды ✓',
+    vinStepTitle: 'VIN жана унаанын сүрөттөрү (милдеттүү эмес)', vinPhoto: 'VIN сүрөтү', carPhoto: 'Унаа сүрөтү', vinManual: 'VIN кол менен киргизүү',
+    phone: 'Телефон / WhatsApp', deliveryCountry: 'Жеткирүү өлкөсү', country: 'Өлкө', deliveryCity: 'Жеткирүү шаары (милдеттүү эмес)', city: 'Шаар', deliveryDetails: 'Жеткирүү чоо-жайы (милдеттүү эмес)', detailsPlaceholder: 'Район, дарек жана жеткирүү боюнча кошумча маалымат',
+    back: 'Артка', next: 'Улантуу', submit: 'Сурам жөнөтүү', submitting: 'Жөнөтүлүүдө...',
+    completeRequired: 'Сураныч, жөнөтүүдөн мурун милдеттүү талааларды толтуруңуз.', unavailable: 'Сурам формасы убактылуу жеткиликсиз.', failed: 'Сурам жөнөтүүдө ката кетти.',
+    requestReceived: 'Сурам кабыл алынды!', thanks: 'Биз сиздин тетиктерди издеп жатабыз. Жакында WhatsApp аркылуу байланышабыз.', another: 'Дагы сурам жөнөтүү',
+    publicRequest: 'Ачык сурам', language: 'Тил', requestedPartsLabel: 'Суралган тетиктер', delivery: 'Жеткирүү', details: 'Чоо-жай'
+  },
+  uz: {
+    title: 'Mashinangizga nima kerakligini ayting.', subtitle: 'Kerakli ehtiyot qismlarni yozing, mutaxassislarimiz Dubaydan eng yaxshi variantlarni topadi.',
+    step: 'Qadam', of: 'dan', brand: 'Brend', selectBrand: 'Brendni tanlang', model: 'Model', selectModel: 'Modelni tanlang', typeModel: 'Modelni kiriting', year: 'Yil', selectYear: 'Yilni tanlang',
+    preferredLanguage: 'Afzal til', selectLanguage: 'Tilni tanlang', requestedParts: 'So‘ralgan qismlar (3 tagacha)', part: 'Qism', partExample: 'Masalan: old tormoz kolodkalari', partPhoto: 'Qism rasmi (ixtiyoriy)',
+    chooseFromGallery: 'Galereyadan tanlang', takePhoto: 'Rasmga oling', photoSelected: 'Rasm tanlandi ✓',
+    vinStepTitle: 'VIN va avtomobil rasmlari (ixtiyoriy)', vinPhoto: 'VIN rasmi', carPhoto: 'Avtomobil rasmi', vinManual: 'VINni qo‘lda kiritish',
+    phone: 'Telefon / WhatsApp', deliveryCountry: 'Yetkazib berish davlati', country: 'Davlat', deliveryCity: 'Yetkazib berish shahri (ixtiyoriy)', city: 'Shahar', deliveryDetails: 'Yetkazib berish tafsilotlari (ixtiyoriy)', detailsPlaceholder: 'Hudud, manzil va yetkazib berish bo‘yicha qo‘shimcha ma’lumot',
+    back: 'Orqaga', next: 'Davom etish', submit: 'So‘rov yuborish', submitting: 'Yuborilmoqda...',
+    completeRequired: 'Iltimos, yuborishdan oldin majburiy maydonlarni to‘ldiring.', unavailable: 'So‘rov formasi vaqtincha mavjud emas.', failed: 'So‘rov yuborilmadi.',
+    requestReceived: 'So‘rov qabul qilindi!', thanks: 'Biz hozir ehtiyot qismlaringizni qidirmoqdamiz. Tez orada WhatsApp orqali bog‘lanamiz.', another: 'Yana bir so‘rov yuborish',
+    publicRequest: 'Ochiq so‘rov', language: 'Til', requestedPartsLabel: 'So‘ralgan qismlar', delivery: 'Yetkazib berish', details: 'Tafsilotlar'
   }
 } as const;
 
@@ -82,11 +120,13 @@ const PublicOrderFormScreen: React.FC = () => {
   const [showThanks, setShowThanks] = useState(false);
 
   const carInputRef = useRef<HTMLInputElement | null>(null);
+  const carCameraInputRef = useRef<HTMLInputElement | null>(null);
   const vinInputRef = useRef<HTMLInputElement | null>(null);
+  const vinCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
   const selectedLanguage: LanguageCode = preferredLanguage || 'en';
-  const locale = selectedLanguage === 'ru' ? translations.ru : translations.en;
+  const locale = translations[selectedLanguage] || translations.en;
   const preferredLanguageLabel = LANGUAGE_OPTIONS.find((item) => item.value === preferredLanguage)?.label || preferredLanguage;
 
   const handleFileToDataUrl = (file: File, onLoad: (value: string) => void) => {
@@ -394,9 +434,20 @@ const PublicOrderFormScreen: React.FC = () => {
                       className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
                     />
                   </label>
-                  <label className="block">
+                  <div className="block">
                     <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.partPhoto}</span>
                     <input
+                      id={`${part.id}-gallery`}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileToDataUrl(file, (value) => updateRequestedPart(index, { photoData: value }));
+                      }}
+                      className="hidden"
+                    />
+                    <input
+                      id={`${part.id}-camera`}
                       type="file"
                       accept="image/*"
                       capture="environment"
@@ -404,10 +455,20 @@ const PublicOrderFormScreen: React.FC = () => {
                         const file = e.target.files?.[0];
                         if (file) handleFileToDataUrl(file, (value) => updateRequestedPart(index, { photoData: value }));
                       }}
-                      className="block w-full rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2 file:text-xs file:font-semibold file:text-slate-900"
+                      className="hidden"
                     />
-                    {part.photoData && <span className="mt-2 block text-xs text-emerald-300">{selectedLanguage === 'ru' ? 'Фото выбрано ✓' : 'Photo selected ✓'}</span>}
-                  </label>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label htmlFor={`${part.id}-gallery`} className="flex h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 text-sm font-semibold text-slate-100 transition hover:bg-white/15">
+                        <Upload className="h-4 w-4" />
+                        {locale.chooseFromGallery}
+                      </label>
+                      <label htmlFor={`${part.id}-camera`} className="flex h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 text-sm font-semibold text-slate-100 transition hover:bg-white/15">
+                        <Camera className="h-4 w-4" />
+                        {locale.takePhoto}
+                      </label>
+                    </div>
+                    {part.photoData && <span className="mt-2 block text-xs text-emerald-300">{locale.photoSelected}</span>}
+                  </div>
                 </div>
               ))}
             </div>
@@ -416,16 +477,38 @@ const PublicOrderFormScreen: React.FC = () => {
           {step === 3 && (
             <div className="space-y-4">
               <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.vinStepTitle}</span>
-              <button
-                type="button"
-                onClick={() => vinInputRef.current?.click()}
-                className="flex h-14 w-full items-center justify-center gap-2 rounded-3xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
-              >
-                <Camera className="h-4 w-4" />
-                {locale.vinPhoto} {vinPhotoData ? '✓' : ''}
-              </button>
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.vinPhoto}</span>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => vinInputRef.current?.click()}
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
+                >
+                  <Upload className="h-4 w-4" />
+                  {locale.chooseFromGallery}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => vinCameraInputRef.current?.click()}
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
+                >
+                  <Camera className="h-4 w-4" />
+                  {locale.takePhoto}
+                </button>
+              </div>
+              {vinPhotoData && <span className="mt-2 block text-xs text-emerald-300">{locale.photoSelected}</span>}
               <input
                 ref={vinInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileToDataUrl(file, setVinPhotoData);
+                }}
+              />
+              <input
+                ref={vinCameraInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
@@ -436,16 +519,38 @@ const PublicOrderFormScreen: React.FC = () => {
                 }}
               />
 
-              <button
-                type="button"
-                onClick={() => carInputRef.current?.click()}
-                className="flex h-14 w-full items-center justify-center gap-2 rounded-3xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
-              >
-                <Upload className="h-4 w-4" />
-                {locale.carPhoto} {carPhotoData ? '✓' : ''}
-              </button>
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.carPhoto}</span>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => carInputRef.current?.click()}
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
+                >
+                  <Upload className="h-4 w-4" />
+                  {locale.chooseFromGallery}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => carCameraInputRef.current?.click()}
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
+                >
+                  <Camera className="h-4 w-4" />
+                  {locale.takePhoto}
+                </button>
+              </div>
+              {carPhotoData && <span className="mt-2 block text-xs text-emerald-300">{locale.photoSelected}</span>}
               <input
                 ref={carInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileToDataUrl(file, setCarPhotoData);
+                }}
+              />
+              <input
+                ref={carCameraInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
