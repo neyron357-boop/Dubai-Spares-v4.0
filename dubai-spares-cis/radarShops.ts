@@ -286,3 +286,26 @@ export const upsertSupplierToShops = async (supplier: Supplier) => {
     });
   }
 };
+
+export const deleteSupplierFromShops = async (supplierId: string) => {
+  if (!supabase) return;
+
+  const normalizedShopId = ensureUuid(supplierId);
+  const { error } = await supabase
+    .from('shops')
+    .delete()
+    .eq('id', normalizedShopId);
+
+  if (error) {
+    await logDatabaseIntegrity('shops:delete', error, {
+      supplierId,
+      normalizedShopId,
+      supplierIdIsUuid: isUuid(supplierId)
+    });
+    await logger.warn('shops:delete', 'Failed to delete supplier from shops table', {
+      supplierId,
+      normalizedShopId,
+      error: error.message
+    });
+  }
+};

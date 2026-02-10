@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useCallback } from 'react';
 import { Supplier } from './types';
 import { useOrderStore, subscribeOrderStore, getOrderState, restoreOrdersExternal } from './orderStore';
 import { ensureUuid } from './id';
+import { deleteSupplierFromShops } from './radarShops';
 
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
@@ -83,10 +84,21 @@ export const useStore = () => {
     notifySupplierListeners();
   }, []);
 
-  const deleteSupplier = useCallback((id: string) => {
-    globalSuppliers = globalSuppliers.filter((s) => s.id !== id);
+  const deleteSupplier = useCallback(async (id: string) => {
+    const normalizedId = ensureUuid(id);
+    globalSuppliers = globalSuppliers.filter((s) => s.id !== normalizedId);
     notifySupplierListeners();
-  }, []);
+
+    await deleteSupplierFromShops(normalizedId);
+
+    const ordersWithManualRecommendation = orders.filter((order) => (order.recommendedShopIds || []).includes(normalizedId));
+    await Promise.all(
+      ordersWithManualRecommendation.map((order) => {
+        const nextRecommended = (order.recommendedShopIds || []).filter((shopId) => shopId !== normalizedId);
+        return updateOrder({ ...order, recommendedShopIds: nextRecommended });
+      })
+    );
+  }, [orders, updateOrder]);
 
   const getBackupData = useCallback(() => exportData(), []);
   const restoreData = useCallback((data: any) => restoreDataExternal(data), []);
