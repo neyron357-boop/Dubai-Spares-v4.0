@@ -11,7 +11,10 @@ const MAPS_URL_HOSTS = new Set([
   'maps.app.goo.gl',
   'www.maps.app.goo.gl',
   'goo.gl',
-  'www.goo.gl'
+  'www.goo.gl',
+  'googleusercontent.com',
+  'www.googleusercontent.com',
+  'lh3.googleusercontent.com'
 ]);
 
 const PLACE_ID_REGEXES = [
@@ -23,7 +26,9 @@ const PLACE_ID_REGEXES = [
 
 const LAT_LNG_REGEXES = [
   /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
-  /[?&](?:q|query)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+  /[?&](?:q|query|ll|center)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
+  /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/i,
+  /\/dir\/(?:[^/]*\/)*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i,
   /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/
 ];
 
@@ -52,7 +57,13 @@ const isGoogleMapsUrl = (raw: string): boolean => {
   if (!raw || !raw.startsWith('http')) return false;
   try {
     const url = new URL(raw);
-    return MAPS_URL_HOSTS.has(url.hostname.toLowerCase()) || url.hostname.toLowerCase().endsWith('.google.com');
+    const host = url.hostname.toLowerCase();
+    return (
+      MAPS_URL_HOSTS.has(host)
+      || host.endsWith('.google.com')
+      || host.endsWith('.googleusercontent.com')
+      || host.endsWith('.goo.gl')
+    );
   } catch {
     return false;
   }

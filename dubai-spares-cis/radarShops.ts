@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 import { toast } from './feedback';
 import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
+import { ensureUuid, isUuid } from './id';
 
 const toNumberArray = (values: unknown): number[] => {
   if (!Array.isArray(values)) return [];
@@ -113,8 +114,10 @@ export const upsertSupplierToShops = async (supplier: Supplier) => {
   if (!supabase) return;
 
   const normalized = normalizeSupplierMetadata(supplier);
+  const shopId = ensureUuid(normalized.id);
+
   const payload = {
-    id: normalized.id,
+    id: shopId,
     name: normalized.name,
     phone: normalized.phone,
     location: normalized.location,
@@ -127,9 +130,10 @@ export const upsertSupplierToShops = async (supplier: Supplier) => {
 
   const { error } = await supabase.from('shops').upsert(payload, { onConflict: 'id' });
   if (error) {
-    await logDatabaseIntegrity('shops:upsert', error, { supplierId: supplier.id });
+    await logDatabaseIntegrity('shops:upsert', error, { supplierId: supplier.id, normalizedShopId: shopId, supplierIdIsUuid: isUuid(supplier.id) });
     void logger.warn('shops:upsert', 'Failed to upsert supplier into shops table', {
       supplierId: supplier.id,
+      normalizedShopId: shopId,
       supplierName: supplier.name,
       error: error.message
     });

@@ -95,6 +95,30 @@ const RadarScreen: React.FC = () => {
     return buildNearestShopsChain(uniqueShops, position).slice(0, 8);
   }, [entries, position]);
 
+
+  const tieredEntries = useMemo(() => {
+    const grouped = {
+      high: [] as typeof entries,
+      medium: [] as typeof entries,
+      low: [] as typeof entries
+    };
+
+    entries.forEach((entry) => {
+      const level = getShopRecommendationLevel(entry.shop, entry.order);
+      if (level === 'high') grouped.high.push(entry);
+      else if (level === 'medium') grouped.medium.push(entry);
+      else grouped.low.push(entry);
+    });
+
+    return grouped;
+  }, [entries]);
+
+  const tierConfigs: Array<{ key: keyof typeof tieredEntries; title: string; tone: string }> = [
+    { key: 'high', title: 'High Tier', tone: 'text-emerald-300 border-emerald-400/30' },
+    { key: 'medium', title: 'Medium Tier', tone: 'text-amber-300 border-amber-400/30' },
+    { key: 'low', title: 'Low Tier', tone: 'text-slate-300 border-slate-700' }
+  ];
+
   const openPlannedRoute = () => {
     const routeLink = buildRoutePlanMapLink(routeChain, position);
     void logger.info('RADAR_GEO', 'Opening smart chain route', {
@@ -129,30 +153,42 @@ const RadarScreen: React.FC = () => {
             <div className="h-8 w-full rounded-xl bg-slate-800" />
           </div>
         ))
-      ) : entries.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Активных заявок или магазинов пока нет. Добавьте магазины в базу — радар продолжит работать автоматически.</div> : entries.slice(0, 30).map(({ order, shop, distance, isCompatible, isRecommended, confidence, radarScore }) => {
-        const level = getShopRecommendationLevel(shop, order);
-        const levelLabel = level === 'high' ? 'Высокая рекомендация' : level === 'medium' ? 'Средняя рекомендация' : level === 'low' ? 'Низкая рекомендация' : 'Резервная точка';
+      ) : entries.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Активных заявок или магазинов пока нет. Добавьте магазины в базу — радар продолжит работать автоматически.</div> : tierConfigs.map((tier) => {
+        const tierEntries = tieredEntries[tier.key];
+        if (tierEntries.length === 0) return null;
 
         return (
-        <div key={`${order.id}-${shop.id}`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-sm font-black truncate">{shop.name}</p>
-              <p className="text-[11px] text-slate-400 truncate">{order.brand} {order.model} • {order.year || '—'} {isRecommended ? '• рекомендован' : !isCompatible ? '• ближайший магазин' : '• совместим'}</p>
+          <section key={tier.key} className="space-y-2">
+            <div className={`rounded-xl border px-3 py-2 text-[11px] font-black uppercase tracking-widest ${tier.tone}`}>
+              {tier.title} · {tierEntries.length}
             </div>
-            <div className="text-[11px] font-black text-emerald-300">{Number.isFinite(distance) ? `${Math.round(distance)}m` : 'n/a'}</div>
-          </div>
-          <div className="flex items-center gap-2 text-[10px]">
-            <span className={`rounded-full px-2 py-1 font-black uppercase ${confidence === 'high' ? 'bg-emerald-500/20 text-emerald-200' : confidence === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-slate-700 text-slate-300'}`}>{confidence}</span>
-            <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-300">{levelLabel}</span>
-            <span className="text-slate-400">Radar score: {Math.round(radarScore)}</span>
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => window.open(buildShopMapLink(shop), '_blank')} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
-            <button type="button" onClick={() => navigate(`/order/${order.id}`)} className="inline-flex items-center gap-1 rounded-xl border border-slate-700 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><LocateFixed size={12} /> Карточка</button>
-          </div>
-        </div>
-      );})}
+            {tierEntries.slice(0, 14).map(({ order, shop, distance, isCompatible, isRecommended, confidence, radarScore }) => {
+              const level = getShopRecommendationLevel(shop, order);
+              const levelLabel = level === 'high' ? 'Высокая рекомендация' : level === 'medium' ? 'Средняя рекомендация' : level === 'low' ? 'Низкая рекомендация' : 'Резервная точка';
+
+              return (
+              <div key={`${order.id}-${shop.id}`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-black truncate">{shop.name}</p>
+                    <p className="text-[11px] text-slate-400 truncate">{order.brand} {order.model} • {order.year || '—'} {isRecommended ? '• рекомендован' : !isCompatible ? '• ближайший магазин' : '• совместим'}</p>
+                  </div>
+                  <div className="text-[11px] font-black text-emerald-300">{Number.isFinite(distance) ? `${Math.round(distance)}m` : 'n/a'}</div>
+                </div>
+                <div className="flex items-center gap-2 text-[10px]">
+                  <span className={`rounded-full px-2 py-1 font-black uppercase ${confidence === 'high' ? 'bg-emerald-500/20 text-emerald-200' : confidence === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-slate-700 text-slate-300'}`}>{confidence}</span>
+                  <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-300">{levelLabel}</span>
+                  <span className="text-slate-400">Radar score: {Math.round(radarScore)}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => window.open(buildShopMapLink(shop), '_blank')} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
+                  <button type="button" onClick={() => navigate(`/order/${order.id}`)} className="inline-flex items-center gap-1 rounded-xl border border-slate-700 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><LocateFixed size={12} /> Карточка</button>
+                </div>
+              </div>
+            );})}
+          </section>
+        );
+      })}
     </div>
   );
 };
