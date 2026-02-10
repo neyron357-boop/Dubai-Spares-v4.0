@@ -29,7 +29,7 @@ import {
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
-import { buildPartShareText, shareMessage } from '../shareUtils';
+import { buildPartShareText, shareMessage, shareQuoteLink } from '../shareUtils';
 import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
 import { logger } from '../logging';
@@ -178,6 +178,15 @@ const OrderDetailsScreen: React.FC = () => {
       </div>
     );
   }
+
+  const shareQuote = async () => {
+    if (!order) return;
+    try {
+      await shareQuoteLink(order);
+    } catch {
+      // ignore share cancel/failure in modal flow
+    }
+  };
 
   if (!order) return <div className="p-10 text-center text-gray-400 font-bold">ЗАКАЗ НЕ НАЙДЕН</div>;
 
@@ -861,7 +870,7 @@ const OrderDetailsScreen: React.FC = () => {
         onCancel={() => setShowSellConfirm(false)}
       />
 
-      {isEstimateOpen && <EstimateModal order={order} onClose={() => setIsEstimateOpen(false)} />}
+      {isEstimateOpen && <EstimateModal order={order} onClose={() => setIsEstimateOpen(false)} onShare={shareQuote} />}
       {gallery && (
         <ImagePreview 
           images={gallery.images} 

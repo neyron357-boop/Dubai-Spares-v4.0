@@ -23,7 +23,7 @@ import {
 import IncomeModal from '../components/IncomeModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
-import { shareMessage, buildOrderShareText, buildQuoteShareText, copyToClipboard } from '../shareUtils';
+import { shareMessage, buildOrderShareText, shareQuoteLink } from '../shareUtils';
 import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
 import { isNotificationSignatureRead, pushNotification, sendBrowserNotification } from '../notificationCenter';
@@ -188,9 +188,18 @@ const OrdersScreen: React.FC = () => {
   };
 
   const shareQuote = async (order: Order) => {
-    const copied = await copyToClipboard(buildQuoteShareText(order));
-    if (copied) toast.success('Quote link copied');
-    else toast.error('Failed to copy quote link');
+    try {
+      const result = await shareQuoteLink(order);
+      if (result.method === 'native') {
+        toast.success('Quote shared');
+      } else if (result.method === 'clipboard') {
+        toast.success('Quote link copied');
+      } else {
+        toast.success('Quote opened in messenger');
+      }
+    } catch {
+      toast.error('Failed to share quote');
+    }
   };
 
   const confirmDelete = async () => {

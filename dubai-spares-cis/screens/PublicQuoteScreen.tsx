@@ -80,13 +80,6 @@ const getPartCondition = (variant?: PriceVariant) => {
   return 'New';
 };
 
-const getPartAvailability = (partFound: boolean, variant?: PriceVariant) => {
-  if (!partFound || !variant) return 'On request';
-  const hint = `${variant.location || ''}`.toLowerCase();
-  if (hint.includes('day') || hint.includes('дн')) return variant.location;
-  return 'In stock';
-};
-
 const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -129,30 +122,39 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     if (!order) return [];
     return order.parts.map((part) => {
       const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
-      const baseAed = best?.priceAed || 0;
-      const converted = baseAed * CURRENCY_RATES[currency];
+      const supplierAed = best?.priceAed || 0;
+      const clientAed = supplierAed * (1 + order.markupPercent / 100);
+      const converted = clientAed * CURRENCY_RATES[currency];
       const photos = [...(part.photos || []), ...(best?.photos || []), part.photoUrl || '', best?.photoUrl || ''].filter(Boolean) as string[];
+      const isReady = !!best && part.isFound;
       return {
         part,
         best,
         photos,
         converted,
-        baseAed,
-        condition: getPartCondition(best),
-        availability: getPartAvailability(part.isFound, best)
+        supplierAed,
+        clientAed,
+        isReady,
+        condition: isReady ? getPartCondition(best) : 'Searching',
+        availability: isReady ? 'In stock' : 'In progress'
       };
     });
   }, [order, currency]);
 
-  const totals = useMemo(() => {
-    const totalAed = partCards.reduce((sum, item) => sum + item.baseAed, 0);
-    return {
-      totalAed,
-      totalConverted: totalAed * CURRENCY_RATES[currency]
-    };
-  }, [partCards, currency]);
+  const { foundParts, pendingParts } = useMemo(() => ({
+    foundParts: partCards.filter((item) => item.isReady),
+    pendingParts: partCards.filter((item) => !item.isReady)
+  }), [partCards]);
 
-  const selectedPartNames = partCards.map(({ part }) => part.name).join(', ');
+  const totals = useMemo(() => {
+    const totalSellAed = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
+    return {
+      totalAed: totalSellAed,
+      totalConverted: totalSellAed * CURRENCY_RATES[currency]
+    };
+  }, [foundParts, currency]);
+
+  const selectedPartNames = foundParts.map(({ part }) => part.name).join(', ');
   const whatsappText = encodeURIComponent(
     `Hello! I reviewed the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''} and I want to proceed with ${selectedPartNames || 'the selected parts'}.`
   );
@@ -201,10 +203,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/45 to-black/65" />
         <div className="relative mx-auto flex h-full w-full max-w-4xl flex-col justify-between px-4 pb-6 pt-8 text-white">
-          <div className="w-fit rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold backdrop-blur">
-            VIN: {order.vin || 'Not provided'}
-          </div>
-
+          <div className="w-fit rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold backdrop-blur">VIN: {order.vin || 'Not provided'}</div>
           <div>
             <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{order.brand} {order.model} {order.year}</h1>
             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-500/90 px-4 py-2 text-sm font-semibold shadow-lg shadow-emerald-900/40">
@@ -219,36 +218,32 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Quote total</p>
           <p className="mt-2 text-3xl font-semibold">{totals.totalConverted.toFixed(2)} {currency}</p>
-          <p className="mt-1 text-sm text-slate-500">Base total: {totals.totalAed.toFixed(2)} AED · Rate: {CURRENCY_RATES[currency]}</p>
+          <p className="mt-1 text-sm text-slate-500">Includes markup: {order.markupPercent}% · {totals.totalAed.toFixed(2)} AED</p>
         </section>
 
         <section className="space-y-3">
-          {partCards.map(({ part, best, converted, photos, condition, availability }) => (
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Found parts ({foundParts.length})</p>
+          {foundParts.map(({ part, best, converted, photos, condition, availability, supplierAed, clientAed }) => (
             <article key={part.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-semibold text-slate-900">{part.name}</h2>
                   <div className="mt-2 flex flex-wrap gap-2 text-xs font-medium">
                     <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">Condition: {condition}</span>
-                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">Availability: {availability}</span>
+                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">Status: {availability}</span>
                   </div>
                 </div>
 
                 <div className="text-right">
                   <p className="text-2xl font-semibold text-slate-900">{converted.toFixed(2)} {currency}</p>
-                  <p className="text-xs text-slate-500">{(best?.priceAed || 0).toFixed(2)} AED</p>
+                  <p className="text-xs text-slate-500">Supplier: {supplierAed.toFixed(2)} AED · Client: {clientAed.toFixed(2)} AED</p>
                 </div>
               </div>
 
               {photos.length > 0 && (
                 <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
                   {photos.slice(0, 8).map((photo, idx) => (
-                    <button
-                      key={`${part.id}-${idx}`}
-                      type="button"
-                      onClick={() => setGallery({ images: photos, index: idx })}
-                      className="min-h-20 overflow-hidden rounded-2xl border border-slate-200"
-                    >
+                    <button key={`${part.id}-${idx}`} type="button" onClick={() => setGallery({ images: photos, index: idx })} className="min-h-20 overflow-hidden rounded-2xl border border-slate-200">
                       <img src={photo} alt={`${part.name} ${idx + 1}`} className="h-24 w-full object-cover" />
                     </button>
                   ))}
@@ -263,17 +258,23 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               )}
             </article>
           ))}
+
+          {pendingParts.length > 0 && (
+            <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-4 sm:p-5">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Parts in progress ({pendingParts.length})</p>
+              <div className="flex flex-wrap gap-2">
+                {pendingParts.map(({ part }) => (
+                  <span key={part.id} className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">{part.name}</span>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-black/5 bg-white/95 p-3 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur-xl">
         <div className="mx-auto w-full max-w-4xl">
-          <a
-            href={whatsappUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 text-base font-bold text-white shadow-[0_12px_40px_rgba(16,185,129,0.35)]"
-          >
+          <a href={whatsappUrl} target="_blank" rel="noreferrer" className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 text-base font-bold text-white shadow-[0_12px_40px_rgba(16,185,129,0.35)]">
             <MessageCircle size={18} /> Confirm Order via WhatsApp <ChevronRight size={18} />
           </a>
         </div>
