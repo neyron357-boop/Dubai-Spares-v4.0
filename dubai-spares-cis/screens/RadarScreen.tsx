@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LocateFixed, Radar, Navigation, ShieldCheck, Telescope, Loader2 } from 'lucide-react';
+import { LocateFixed, Radar, Navigation, ShieldCheck, Telescope, Loader2, EyeOff, RotateCcw } from 'lucide-react';
 import { useStore } from '../store';
 import { Shop } from '../types';
 import { buildNearestShopsChain, buildRoutePlanMapLink, buildShopMapLink, getRadarShopMatches, getShopRecommendationLevel } from '../shopMatching';
@@ -15,12 +15,40 @@ const GEO_OPTIONS: PositionOptions = {
   timeout: 15000
 };
 
+const RADAR_DISMISSED_SHOPS_KEY = 'radar_dismissed_shop_keys';
+
+const getRadarDismissKey = (shop: Shop) => {
+  const location = (shop.location || '').trim().toLowerCase();
+  if (location) return `location:${location}`;
+  return `id:${shop.id}`;
+};
+
+const readDismissedRadarShops = () => {
+  try {
+    const raw = localStorage.getItem(RADAR_DISMISSED_SHOPS_KEY);
+    if (!raw) return new Set<string>();
+    const parsed = JSON.parse(raw);
+    return new Set<string>(Array.isArray(parsed) ? parsed.map((item) => String(item)) : []);
+  } catch {
+    return new Set<string>();
+  }
+};
+
+const saveDismissedRadarShops = (keys: Set<string>) => {
+  try {
+    localStorage.setItem(RADAR_DISMISSED_SHOPS_KEY, JSON.stringify(Array.from(keys)));
+  } catch {
+    // ignore private mode/localStorage failures
+  }
+};
+
 const RadarScreen: React.FC = () => {
   const { orders, suppliers } = useStore();
   const navigate = useNavigate();
   const [shops, setShops] = useState<Shop[]>([]);
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
   const [isFetchingShops, setIsFetchingShops] = useState(true);
+  const [dismissedShopKeys, setDismissedShopKeys] = useState<Set<string>>(() => readDismissedRadarShops());
 
   useEffect(() => {
     let active = true;
@@ -87,8 +115,9 @@ const RadarScreen: React.FC = () => {
         .sort((a, b) => a.distance - b.distance)
         .slice(0, 3);
     })
+      .filter((entry) => !dismissedShopKeys.has(getRadarDismissKey(entry.shop)))
       .sort((a, b) => a.distance - b.distance);
-  }, [orders, shops, position]);
+  }, [orders, shops, position, dismissedShopKeys]);
 
   const routeChain = useMemo(() => {
     const uniqueShops = Array.from(new Map(entries.map((entry) => [entry.shop.id, entry.shop])).values());
@@ -130,6 +159,22 @@ const RadarScreen: React.FC = () => {
     window.open(routeLink, '_blank');
   };
 
+  const dismissShopFromRadar = (shop: Shop) => {
+    const key = getRadarDismissKey(shop);
+    const next = new Set(dismissedShopKeys);
+    next.add(key);
+    setDismissedShopKeys(next);
+    saveDismissedRadarShops(next);
+    toast(`Локация ${shop.name} отмечена как проверенная`, 'success');
+  };
+
+  const resetDismissedShops = () => {
+    const next = new Set<string>();
+    setDismissedShopKeys(next);
+    saveDismissedRadarShops(next);
+    toast('Скрытые точки радара восстановлены', 'success');
+  };
+
   return (
     <div className="p-4 pb-20 space-y-3 bg-slate-950 min-h-full text-white">
       <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-3">
@@ -142,6 +187,11 @@ const RadarScreen: React.FC = () => {
         </div>
         <div className="mt-2 flex items-center gap-2 text-[11px] text-emerald-100/90">
           {isFetchingShops ? <><Loader2 size={12} className="animate-spin" /> Обновляем радар и разворачиваем локации…</> : <span>Данные радара актуальны.</span>}
+          {dismissedShopKeys.size > 0 && (
+            <button type="button" onClick={resetDismissedShops} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300/40 px-2 py-1 text-[10px] font-black uppercase text-emerald-100">
+              <RotateCcw size={10} /> Вернуть скрытые ({dismissedShopKeys.size})
+            </button>
+          )}
         </div>
         <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
           <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 px-2 py-1 text-emerald-200"><ShieldCheck size={11} /> high confidence</span>
@@ -186,6 +236,7 @@ const RadarScreen: React.FC = () => {
                 <div className="flex gap-2">
                   <button type="button" onClick={() => window.open(buildShopMapLink(shop), '_blank')} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
                   <button type="button" onClick={() => navigate(`/order/${order.id}`)} className="inline-flex items-center gap-1 rounded-xl border border-slate-700 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><LocateFixed size={12} /> Карточка</button>
+                  <button type="button" onClick={() => dismissShopFromRadar(shop)} className="inline-flex items-center gap-1 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[11px] font-black uppercase text-amber-200"><EyeOff size={12} /> Проверено</button>
                 </div>
               </div>
             );})}

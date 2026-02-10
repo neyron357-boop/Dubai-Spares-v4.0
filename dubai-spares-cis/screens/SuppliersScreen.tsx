@@ -168,11 +168,10 @@ const SuppliersScreen: React.FC = () => {
     }
   };
 
-  const confirmDeleteSupplier = () => {
-    if (deleteSupplierId) {
-      deleteSupplier(deleteSupplierId);
-      setDeleteSupplierId(null);
-    }
+  const confirmDeleteSupplier = async () => {
+    if (!deleteSupplierId) return;
+    await deleteSupplier(deleteSupplierId);
+    setDeleteSupplierId(null);
   };
 
   return (
