@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, Part, Priority, OrderNote, Shop } from '../types';
-import { buildShopMapLink, isShopCompatibleWithOrder } from '../shopMatching';
+import { buildShopMapLink, getShopOrderMatchScore, isShopCompatibleWithOrder } from '../shopMatching';
 import { SOURCES } from '../constants';
 import { 
   ArrowLeft, 
@@ -50,7 +50,7 @@ const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: 
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { orders, isLoading, updateOrder } = useStore();
+  const { orders, isLoading, updateOrder, suppliers } = useStore();
   const order = orders.find(o => o.id === id);
 
   const [isEstimateOpen, setIsEstimateOpen] = useState(false);
@@ -91,7 +91,13 @@ const OrderDetailsScreen: React.FC = () => {
   useEffect(() => {
     let active = true;
     const loadShops = async () => {
-      if (!supabase) return;
+      if (!supabase) {
+        const fallback = suppliers
+          .filter((s) => s.coordinates)
+          .map((s) => ({ id: s.id, name: s.name, phone: s.phone, location: s.location, latitude: s.coordinates!.lat, longitude: s.coordinates!.lng, specialization: s.brands || [] }));
+        setShops(fallback);
+        return;
+      }
       let data: any[] | null = null;
       const baseShopFields = 'id,name,phone,location,latitude,longitude,specialization';
       const expandedShopFields = `${baseShopFields},specialization_models,specialization_years`;
@@ -104,22 +110,29 @@ const OrderDetailsScreen: React.FC = () => {
         data = Array.isArray(primary.data) ? primary.data : null;
       }
 
-      if (!active || !Array.isArray(data)) return;
-      setShops(data.map((row: any) => ({
-        id: String(row.id),
-        name: row.name || 'Shop',
-        phone: row.phone || '',
-        location: row.location || '',
-        latitude: Number(row.latitude),
-        longitude: Number(row.longitude),
-        specialization: Array.isArray(row.specialization) ? row.specialization : [],
-        specializationModels: Array.isArray(row.specialization_models) ? row.specialization_models : [],
-        specializationYears: Array.isArray(row.specialization_years) ? row.specialization_years.map((y: any) => Number(y)).filter((y: number) => Number.isFinite(y)) : []
-      })));
+      if (!active) return;
+      if (Array.isArray(data) && data.length > 0) {
+        setShops(data.map((row: any) => ({
+          id: String(row.id),
+          name: row.name || 'Shop',
+          phone: row.phone || '',
+          location: row.location || '',
+          latitude: Number(row.latitude),
+          longitude: Number(row.longitude),
+          specialization: Array.isArray(row.specialization) ? row.specialization : [],
+          specializationModels: Array.isArray(row.specialization_models) ? row.specialization_models : [],
+          specializationYears: Array.isArray(row.specialization_years) ? row.specialization_years.map((y: any) => Number(y)).filter((y: number) => Number.isFinite(y)) : []
+        })));
+      } else {
+        const fallback = suppliers
+          .filter((s) => s.coordinates)
+          .map((s) => ({ id: s.id, name: s.name, phone: s.phone, location: s.location, latitude: s.coordinates!.lat, longitude: s.coordinates!.lng, specialization: s.brands || [] }));
+        setShops(fallback);
+      }
     };
     void loadShops();
     return () => { active = false; };
-  }, []);
+  }, [suppliers]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -171,13 +184,23 @@ const OrderDetailsScreen: React.FC = () => {
 
   const manuallyRecommendedShops = shops.filter((shop) => (order.recommendedShopIds || []).includes(shop.id));
 
-  const autoRecommendedShops = shops.filter((shop) => isShopCompatibleWithOrder(shop, order));
+  const autoRecommendedShops = shops.filter((shop) => isShopCompatibleWithOrder(shop, order) || getShopOrderMatchScore(shop, order) >= 2);
 
-  const recommendedShops = Array.from(new Map([...manuallyRecommendedShops, ...autoRecommendedShops].map((shop) => [shop.id, shop])).values())
+  const mergedRecommendations = Array.from(new Map([...manuallyRecommendedShops, ...autoRecommendedShops].map((shop) => [shop.id, shop])).values());
+  const fallbackNearest = shops
     .map((shop) => ({
       ...shop,
+      score: getShopOrderMatchScore(shop, order),
       distance: currentPosition ? distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }) : Number.MAX_SAFE_INTEGER
     }))
+    .filter((shop) => !mergedRecommendations.some((selected) => selected.id === shop.id))
+    .sort((a, b) => (b.score - a.score) || (a.distance - b.distance))
+    .slice(0, 4);
+
+  const recommendedShops = [...mergedRecommendations.map((shop) => ({
+    ...shop,
+    distance: currentPosition ? distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }) : Number.MAX_SAFE_INTEGER
+  })), ...(mergedRecommendations.length > 0 ? [] : fallbackNearest)]
     .sort((a, b) => a.distance - b.distance);
 
   const navigateToShop = (shop: Shop) => {
@@ -656,7 +679,7 @@ const OrderDetailsScreen: React.FC = () => {
             </select>
           </div>
           {recommendedShops.length === 0 ? (
-            <p className="text-xs text-gray-400">Нет подходящих магазинов для бренда {order.brand || '—'}.</p>
+            <p className="text-xs text-gray-400">Пока нет магазинов с координатами. Добавьте локации в справочник поставщиков.</p>
           ) : (
             <div className="space-y-2">
               {recommendedShops.slice(0, 6).map((shop) => (

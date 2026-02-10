@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { LocateFixed, Radar, Navigation } from 'lucide-react';
 import { useStore } from '../store';
 import { Shop } from '../types';
-import { buildShopMapLink, isShopCompatibleWithOrder } from '../shopMatching';
+import { buildShopMapLink, getShopOrderMatchScore, isShopCompatibleWithOrder } from '../shopMatching';
 import { supabase } from '../supabase';
 import { toast } from '../feedback';
 
@@ -64,9 +64,25 @@ const RadarScreen: React.FC = () => {
 
   const entries = useMemo(() => {
     const activeOrders = orders.filter((o) => o.status === 'new_inquiry' || o.status === 'in_progress');
-    return activeOrders.flatMap((order) => shops
-      .filter((shop) => isShopCompatibleWithOrder(shop, order) || (order.recommendedShopIds || []).includes(shop.id))
-      .map((shop) => ({ order, shop, distance: position ? distanceMeters(position, { lat: shop.latitude, lng: shop.longitude }) : Number.MAX_SAFE_INTEGER })))
+    return activeOrders.flatMap((order) => {
+      const ranked = shops
+        .map((shop) => {
+          const distance = position ? distanceMeters(position, { lat: shop.latitude, lng: shop.longitude }) : Number.MAX_SAFE_INTEGER;
+          const isRecommended = (order.recommendedShopIds || []).includes(shop.id);
+          const isCompatible = isShopCompatibleWithOrder(shop, order);
+          const score = isRecommended ? 100 : getShopOrderMatchScore(shop, order);
+          return { order, shop, distance, score, isRecommended, isCompatible };
+        })
+        .sort((a, b) => (b.score - a.score) || (a.distance - b.distance));
+
+      const matched = ranked.filter((entry) => entry.isRecommended || entry.isCompatible || entry.score >= 2);
+      if (matched.length > 0) return matched.slice(0, 8);
+
+      return ranked
+        .filter((entry) => Number.isFinite(entry.distance))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 3);
+    })
       .sort((a, b) => a.distance - b.distance);
   }, [orders, shops, position]);
 
@@ -84,12 +100,12 @@ const RadarScreen: React.FC = () => {
             <div className="h-8 w-full rounded-xl bg-slate-800" />
           </div>
         ))
-      ) : entries.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Релевантных магазинов рядом пока нет.</div> : entries.slice(0, 30).map(({ order, shop, distance }) => (
+      ) : entries.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Активных заявок или магазинов пока нет. Добавьте магазины в базу — радар продолжит работать автоматически.</div> : entries.slice(0, 30).map(({ order, shop, distance, isCompatible }) => (
         <div key={`${order.id}-${shop.id}`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <p className="text-sm font-black truncate">{shop.name}</p>
-              <p className="text-[11px] text-slate-400 truncate">{order.brand} {order.model} • {order.year || '—'}</p>
+              <p className="text-[11px] text-slate-400 truncate">{order.brand} {order.model} • {order.year || '—'} {!isCompatible && '• ближайший магазин'}</p>
             </div>
             <div className="text-[11px] font-black text-emerald-300">{Number.isFinite(distance) ? `${Math.round(distance)}m` : 'n/a'}</div>
           </div>

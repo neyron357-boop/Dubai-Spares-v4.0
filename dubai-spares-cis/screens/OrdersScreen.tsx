@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, Priority, Part, Shop } from '../types';
-import { buildShopMapLink, isShopCompatibleWithOrder } from '../shopMatching';
+import { buildShopMapLink, getShopOrderMatchScore, isShopCompatibleWithOrder } from '../shopMatching';
 import {
   Calendar,
   Tag,
@@ -271,16 +271,26 @@ const OrdersScreen: React.FC = () => {
     const runRadar = () => {
       const activeOrders = orders.filter((order) => order.status === 'new_inquiry' || order.status === 'in_progress');
       for (const order of activeOrders) {
-        const matched = shops.find((shop) => {
-          const isNearby = distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }) <= 300;
-          const isCompatible = isShopCompatibleWithOrder(shop, order) || (order.recommendedShopIds || []).includes(shop.id);
-          return isNearby && isCompatible;
-        });
+        const ranked = shops
+          .map((shop) => {
+            const distance = distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude });
+            const isRecommended = (order.recommendedShopIds || []).includes(shop.id);
+            const isCompatible = isShopCompatibleWithOrder(shop, order);
+            const score = isRecommended ? 100 : getShopOrderMatchScore(shop, order);
+            return { shop, distance, score, isCompatible };
+          })
+          .sort((a, b) => (b.score - a.score) || (a.distance - b.distance));
+
+        const matchedEntry = ranked.find((entry) => entry.distance <= 500 && (entry.isCompatible || entry.score >= 2))
+          || ranked.find((entry) => entry.distance <= 300);
+
+        const matched = matchedEntry?.shop;
 
         if (matched && !notifiedRef.current.has(`${order.id}:${matched.id}`)) {
           const meters = Math.round(distanceMeters(currentPosition, { lat: matched.latitude, lng: matched.longitude }));
           const mapLink = buildShopMapLink(matched);
-          const message = `🎯 ${matched.name} рядом (${meters}м). ${order.brand} ${order.model} • Карта: ${mapLink}`;
+          const tagHint = matchedEntry?.isCompatible ? 'релевантный' : 'ближайший';
+          const message = `🎯 ${matched.name} рядом (${meters}м, ${tagHint}). ${order.brand} ${order.model} • Карта: ${mapLink}`;
           setRadarMessage(message);
           pushNotification({
             type: 'radar',
@@ -314,7 +324,7 @@ const OrdersScreen: React.FC = () => {
     };
 
     runRadar();
-    const intervalId = window.setInterval(runRadar, 45000);
+    const intervalId = window.setInterval(runRadar, 20000);
     return () => window.clearInterval(intervalId);
   }, [currentPosition, orders, shops]);
 

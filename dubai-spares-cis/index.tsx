@@ -28,14 +28,19 @@ if ('serviceWorker' in navigator) {
       const swKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
       if (swUrl && swKey) {
-        registration.active?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
-        registration.waiting?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
-        registration.installing?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
+        const pushConfig = () => {
+          registration.active?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
+          registration.waiting?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
+          registration.installing?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
+          registration.active?.postMessage({ type: 'start-lead-polling' });
+        };
+        pushConfig();
+        window.setInterval(pushConfig, 60 * 1000);
       }
 
       if ('periodicSync' in registration) {
         try {
-          await (registration as ServiceWorkerRegistration & { periodicSync: { register: (tag: string, options: { minInterval: number }) => Promise<void> } }).periodicSync.register('leads-periodic-sync', { minInterval: 15 * 60 * 1000 });
+          await (registration as ServiceWorkerRegistration & { periodicSync: { register: (tag: string, options: { minInterval: number }) => Promise<void> } }).periodicSync.register('leads-periodic-sync', { minInterval: 5 * 60 * 1000 });
         } catch {
           // unsupported by browser permissions/policy
         }

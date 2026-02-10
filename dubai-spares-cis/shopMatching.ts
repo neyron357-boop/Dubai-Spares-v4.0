@@ -34,6 +34,31 @@ export const isShopCompatibleWithOrder = (shop: Shop, order: Pick<Order, 'brand'
   return hasModel && hasYear;
 };
 
+export const getShopOrderMatchScore = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year'>) => {
+  let score = 0;
+  const brands = shop.specialization || [];
+  const models = shop.specializationModels || [];
+  const years = shop.specializationYears || [];
+
+  const hasAnyMeta = brands.length > 0 || models.length > 0 || years.length > 0;
+  if (!hasAnyMeta) return 1;
+
+  const brandMatched = brands.some((brand) => isBrandMatch(order.brand, brand));
+  if (brandMatched) score += 6;
+
+  const modelMatched = models.some((model) => isModelMatch(order.model, model));
+  if (modelMatched) score += 3;
+
+  const yearMatched = isYearMatch(order.year, years);
+  if (yearMatched && years.length > 0) score += 2;
+
+  if (score === 0 && (brands.length > 0 || models.length > 0)) {
+    return -1;
+  }
+
+  return score;
+};
+
 export const buildShopMapLink = (shop: Pick<Shop, 'location' | 'latitude' | 'longitude'>) => {
   const loc = (shop.location || '').trim();
   if (loc.startsWith('http://') || loc.startsWith('https://')) return loc;
