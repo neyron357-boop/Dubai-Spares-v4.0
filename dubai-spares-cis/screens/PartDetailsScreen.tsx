@@ -15,12 +15,8 @@ import {
 } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
-
-const extractCoordinates = (value: string) => {
-  const match = value.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
-  if (!match) return undefined;
-  return { lat: Number(match[1]), lng: Number(match[2]) };
-};
+import { resolveCoordinatesFromLocation } from '../mapsLocation';
+import { upsertSupplierToShops } from '../radarShops';
 
 const PartDetailsScreen: React.FC = () => {
   const { orderId, partId } = useParams<{ orderId: string, partId: string }>();
@@ -112,28 +108,36 @@ const PartDetailsScreen: React.FC = () => {
     );
   };
 
-  const saveVariant = () => {
+  const saveVariant = async () => {
     if (!priceAed || !shopName) {
       alert('Укажите цену и название магазина');
       return;
     }
 
     const existingSupplier = suppliers.find(s => s.name.toLowerCase() === shopName.toLowerCase());
+    const resolvedCoordinates = await resolveCoordinatesFromLocation(location);
+
     if (!existingSupplier) {
-      addSupplier({
+      const newSupplier = {
         id: Date.now().toString(),
         name: shopName,
         phone,
         location,
         brands: [order.brand],
-        coordinates: extractCoordinates(location)
-      });
-    } else if (!existingSupplier.brands.includes(order.brand)) {
-      updateSupplier({
+        coordinates: resolvedCoordinates
+      };
+      addSupplier(newSupplier);
+      await upsertSupplierToShops(newSupplier);
+    } else if (!existingSupplier.brands.includes(order.brand) || !existingSupplier.coordinates) {
+      const updatedSupplier = {
         ...existingSupplier,
-        brands: [...existingSupplier.brands, order.brand],
-        coordinates: existingSupplier.coordinates || extractCoordinates(location)
-      });
+        brands: existingSupplier.brands.includes(order.brand)
+          ? existingSupplier.brands
+          : [...existingSupplier.brands, order.brand],
+        coordinates: existingSupplier.coordinates || resolvedCoordinates
+      };
+      updateSupplier(updatedSupplier);
+      await upsertSupplierToShops(updatedSupplier);
     }
 
     const newVariant: PriceVariant = {
@@ -221,7 +225,7 @@ const PartDetailsScreen: React.FC = () => {
           </button>
         ) : (
           <form 
-            onSubmit={(e) => { e.preventDefault(); saveVariant(); }}
+            onSubmit={async (e) => { e.preventDefault(); await saveVariant(); }}
             className="bg-white rounded-3xl shadow-xl overflow-hidden border border-blue-50 animate-in slide-in-from-bottom duration-300"
           >
             <div className="p-5 space-y-5">

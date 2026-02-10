@@ -17,12 +17,8 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
-
-const extractCoordinates = (value: string) => {
-  const match = value.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
-  if (!match) return undefined;
-  return { lat: Number(match[1]), lng: Number(match[2]) };
-};
+import { resolveCoordinatesFromLocation } from '../mapsLocation';
+import { upsertSupplierToShops } from '../radarShops';
 
 const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, getBackupData, restoreData } = useStore();
@@ -43,6 +39,7 @@ const SuppliersScreen: React.FC = () => {
   const [brandsInput, setBrandsInput] = useState('');
   const [modelsInput, setModelsInput] = useState('');
   const [yearsInput, setYearsInput] = useState('');
+  const [isSavingSupplier, setIsSavingSupplier] = useState(false);
 
   const parseCsv = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
 
@@ -55,27 +52,38 @@ const SuppliersScreen: React.FC = () => {
       || (s.years || []).some((y) => String(y).includes(searchTerm));
   });
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name) return;
-    addSupplier({
-      id: Date.now().toString(),
-      name,
-      phone,
-      location,
-      brands: parseCsv(brandsInput),
-      models: parseCsv(modelsInput),
-      years: parseCsv(yearsInput)
-        .map((value) => Number(value))
-        .filter((value) => Number.isFinite(value)),
-      coordinates: extractCoordinates(location)
-    });
-    setName('');
-    setPhone('');
-    setLocation('');
-    setBrandsInput('');
-    setModelsInput('');
-    setYearsInput('');
-    setIsAdding(false);
+
+    setIsSavingSupplier(true);
+    try {
+      const coordinates = await resolveCoordinatesFromLocation(location);
+      const newSupplier: Supplier = {
+        id: Date.now().toString(),
+        name,
+        phone,
+        location,
+        brands: parseCsv(brandsInput),
+        models: parseCsv(modelsInput),
+        years: parseCsv(yearsInput)
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value)),
+        coordinates
+      };
+
+      addSupplier(newSupplier);
+      await upsertSupplierToShops(newSupplier);
+
+      setName('');
+      setPhone('');
+      setLocation('');
+      setBrandsInput('');
+      setModelsInput('');
+      setYearsInput('');
+      setIsAdding(false);
+    } finally {
+      setIsSavingSupplier(false);
+    }
   };
 
   const handleExport = () => {
@@ -284,7 +292,7 @@ const SuppliersScreen: React.FC = () => {
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold active:bg-gray-200 transition-colors uppercase text-xs">Отмена</button>
-              <button type="submit" className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg active:bg-blue-700 transition-colors uppercase text-xs">Добавить</button>
+              <button type="submit" disabled={isSavingSupplier} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg active:bg-blue-700 transition-colors uppercase text-xs disabled:opacity-50 disabled:cursor-not-allowed">{isSavingSupplier ? 'Сохранение...' : 'Добавить'}</button>
             </div>
           </form>
         </div>

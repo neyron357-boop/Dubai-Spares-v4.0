@@ -1,6 +1,7 @@
 import { Supplier, Shop } from './types';
 import { supabase } from './supabase';
 import { toast } from './feedback';
+import { logger } from './logging';
 
 const toNumberArray = (values: unknown): number[] => {
   if (!Array.isArray(values)) return [];
@@ -88,4 +89,30 @@ export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> =>
   }
 
   return mapSuppliersToShops(suppliers);
+};
+
+export const upsertSupplierToShops = async (supplier: Supplier) => {
+  if (!supabase) return;
+
+  const normalized = normalizeSupplierMetadata(supplier);
+  const payload = {
+    id: normalized.id,
+    name: normalized.name,
+    phone: normalized.phone,
+    location: normalized.location,
+    latitude: normalized.coordinates?.lat ?? null,
+    longitude: normalized.coordinates?.lng ?? null,
+    specialization: normalized.brands || [],
+    specialization_models: normalized.models || [],
+    specialization_years: normalized.years || []
+  };
+
+  const { error } = await supabase.from('shops').upsert(payload, { onConflict: 'id' });
+  if (error) {
+    void logger.warn('shops:upsert', 'Failed to upsert supplier into shops table', {
+      supplierId: supplier.id,
+      supplierName: supplier.name,
+      error: error.message
+    });
+  }
 };
