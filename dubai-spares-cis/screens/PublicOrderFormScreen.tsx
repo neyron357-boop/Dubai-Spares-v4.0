@@ -9,6 +9,28 @@ type FormStep = 1 | 2 | 3 | 4;
 
 const TOTAL_STEPS = 4;
 const DEFAULT_SOURCE: Source = Source.WHATSAPP;
+const REQUEST_PART_FIELDS = 3;
+
+const LANGUAGE_OPTIONS = [
+  { value: 'English', label: 'English' },
+  { value: 'Русский', label: 'Русский' },
+  { value: 'Тоҷикӣ', label: 'Тоҷикӣ' },
+  { value: 'Кыргызча', label: 'Кыргызча' },
+  { value: 'O‘zbekcha', label: 'O‘zbekcha' }
+];
+
+interface RequestedPartInput {
+  id: string;
+  name: string;
+  photoData: string | null;
+}
+
+const createRequestedPartInputs = (): RequestedPartInput[] =>
+  Array.from({ length: REQUEST_PART_FIELDS }, (_, index) => ({
+    id: `requested-part-${index + 1}`,
+    name: '',
+    photoData: null
+  }));
 
 const createId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -20,11 +42,15 @@ const PublicOrderFormScreen: React.FC = () => {
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
-  const [partList, setPartList] = useState('');
+  const [preferredLanguage, setPreferredLanguage] = useState('');
+  const [requestedParts, setRequestedParts] = useState<RequestedPartInput[]>(() => createRequestedPartInputs());
   const [vin, setVin] = useState('');
   const [carPhotoData, setCarPhotoData] = useState<string | null>(null);
   const [vinPhotoData, setVinPhotoData] = useState<string | null>(null);
   const [customerContact, setCustomerContact] = useState('');
+  const [deliveryCountry, setDeliveryCountry] = useState('');
+  const [deliveryCity, setDeliveryCity] = useState('');
+  const [deliveryAddressNote, setDeliveryAddressNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showThanks, setShowThanks] = useState(false);
 
@@ -40,10 +66,10 @@ const PublicOrderFormScreen: React.FC = () => {
   };
 
   const canContinue =
-    (step === 1 && Boolean(brand.trim() && model.trim() && year.trim())) ||
-    (step === 2 && Boolean(partList.trim())) ||
+    (step === 1 && Boolean(brand.trim() && model.trim() && year.trim() && preferredLanguage.trim())) ||
+    (step === 2 && Boolean(requestedParts.some((part) => part.name.trim()))) ||
     step === 3 ||
-    (step === 4 && Boolean(customerContact.trim()));
+    (step === 4 && Boolean(customerContact.trim() && deliveryCountry.trim()));
 
   const goNext = () => {
     if (!canContinue) return;
@@ -57,15 +83,33 @@ const PublicOrderFormScreen: React.FC = () => {
     setBrand('');
     setModel('');
     setYear('');
-    setPartList('');
+    setPreferredLanguage('');
+    setRequestedParts(createRequestedPartInputs());
     setVin('');
     setCarPhotoData(null);
     setVinPhotoData(null);
     setCustomerContact('');
+    setDeliveryCountry('');
+    setDeliveryCity('');
+    setDeliveryAddressNote('');
+  };
+
+  const updateRequestedPart = (index: number, updates: Partial<RequestedPartInput>) => {
+    setRequestedParts((current) => current.map((part, partIndex) => (partIndex === index ? { ...part, ...updates } : part)));
   };
 
   const submitOrder = async () => {
-    if (!brand.trim() || !model.trim() || !year.trim() || !partList.trim() || !customerContact.trim()) {
+    const filledRequestedParts = requestedParts.filter((part) => part.name.trim());
+
+    if (
+      !brand.trim() ||
+      !model.trim() ||
+      !year.trim() ||
+      !preferredLanguage.trim() ||
+      filledRequestedParts.length === 0 ||
+      !customerContact.trim() ||
+      !deliveryCountry.trim()
+    ) {
       alert('Please complete the required fields before submitting.');
       return;
     }
@@ -79,15 +123,14 @@ const PublicOrderFormScreen: React.FC = () => {
 
     try {
       const orderId = createId();
-      const partId = createId();
       const now = new Date().toISOString();
 
       let uploadedCarPhotos: string[] = [];
       let uploadedVinPhotos: string[] = [];
 
       if (carPhotoData) {
-        const compressed = await optimizeImageForUpload(carPhotoData, `public-order:${orderId}:${partId}:car`);
-        uploadedCarPhotos = await ensurePublicImageUrls([compressed], `orders/${orderId}/parts/${partId}`);
+        const compressed = await optimizeImageForUpload(carPhotoData, `public-order:${orderId}:car`);
+        uploadedCarPhotos = await ensurePublicImageUrls([compressed], `orders/${orderId}/car`);
       }
 
       if (vinPhotoData) {
@@ -95,10 +138,22 @@ const PublicOrderFormScreen: React.FC = () => {
         uploadedVinPhotos = await ensurePublicImageUrls([compressedVin], `orders/${orderId}/vin`);
       }
 
+      const requestedPartsSummary = filledRequestedParts
+        .map((part, index) => `${index + 1}. ${part.name.trim()}`)
+        .join('\n');
+
+      const deliverySummary = [
+        `Country: ${deliveryCountry.trim()}`,
+        deliveryCity.trim() ? `City: ${deliveryCity.trim()}` : '',
+        deliveryAddressNote.trim() ? `Details: ${deliveryAddressNote.trim()}` : ''
+      ]
+        .filter(Boolean)
+        .join('\n');
+
       const notes = [
         {
           id: createId(),
-          text: `Public Request Part List:\n${partList.trim()}`,
+          text: `Public Request\nLanguage: ${preferredLanguage.trim()}\n\nRequested Parts:\n${requestedPartsSummary}\n\nDelivery:\n${deliverySummary}`,
           photos: [],
           audios: [],
           createdAt: Date.now()
@@ -133,14 +188,27 @@ const PublicOrderFormScreen: React.FC = () => {
 
       if (orderError) throw orderError;
 
-      const { error: partError } = await supabase.from('parts').insert({
-        id: partId,
-        order_id: orderId,
-        name: 'Requested parts list',
-        photos: uploadedCarPhotos,
-        photo_url: uploadedCarPhotos[0] || null,
-        is_found: false
-      });
+      const partsToInsert = [];
+
+      for (const part of filledRequestedParts) {
+        let uploadedPartPhotos: string[] = [];
+
+        if (part.photoData) {
+          const compressedPartPhoto = await optimizeImageForUpload(part.photoData, `public-order:${orderId}:${part.id}`);
+          uploadedPartPhotos = await ensurePublicImageUrls([compressedPartPhoto], `orders/${orderId}/parts/${part.id}`);
+        }
+
+        partsToInsert.push({
+          id: createId(),
+          order_id: orderId,
+          name: part.name.trim(),
+          photos: uploadedPartPhotos,
+          photo_url: uploadedPartPhotos[0] || null,
+          is_found: false
+        });
+      }
+
+      const { error: partError } = await supabase.from('parts').insert(partsToInsert);
 
       if (partError) throw partError;
 
@@ -262,20 +330,57 @@ const PublicOrderFormScreen: React.FC = () => {
                   ))}
                 </select>
               </label>
+
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Preferred Language</span>
+                <select
+                  value={preferredLanguage}
+                  onChange={(e) => setPreferredLanguage(e.target.value)}
+                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition focus:border-white/50"
+                >
+                  <option value="">Select language</option>
+                  {LANGUAGE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value} className="text-slate-900">
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           )}
 
           {step === 2 && (
-            <label className="block">
-              <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">What parts are you looking for?</span>
-              <textarea
-                value={partList}
-                onChange={(e) => setPartList(e.target.value)}
-                rows={9}
-                placeholder="Brake pads front + rear\nEngine mounts\nLeft mirror cover..."
-                className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
-              />
-            </label>
+            <div className="space-y-4">
+              <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Requested parts (up to 3)</span>
+              {requestedParts.map((part, index) => (
+                <div key={part.id} className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-4">
+                  <label className="block">
+                    <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Part #{index + 1}</span>
+                    <input
+                      type="text"
+                      value={part.name}
+                      onChange={(e) => updateRequestedPart(index, { name: e.target.value })}
+                      placeholder="Example: Front brake pads"
+                      className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Part photo (optional)</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileToDataUrl(file, (value) => updateRequestedPart(index, { photoData: value }));
+                      }}
+                      className="block w-full rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2 file:text-xs file:font-semibold file:text-slate-900"
+                    />
+                    {part.photoData && <span className="mt-2 block text-xs text-emerald-300">Photo selected ✓</span>}
+                  </label>
+                </div>
+              ))}
+            </div>
           )}
 
           {step === 3 && (
@@ -334,16 +439,51 @@ const PublicOrderFormScreen: React.FC = () => {
           )}
 
           {step === 4 && (
-            <label className="block">
-              <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Phone Number / WhatsApp</span>
-              <input
-                type="tel"
-                value={customerContact}
-                onChange={(e) => setCustomerContact(e.target.value)}
-                placeholder="+971..."
-                className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition placeholder:text-slate-400 focus:border-white/50"
-              />
-            </label>
+            <div className="space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Phone Number / WhatsApp</span>
+                <input
+                  type="tel"
+                  value={customerContact}
+                  onChange={(e) => setCustomerContact(e.target.value)}
+                  placeholder="+971..."
+                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition placeholder:text-slate-400 focus:border-white/50"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Delivery Country</span>
+                <input
+                  type="text"
+                  value={deliveryCountry}
+                  onChange={(e) => setDeliveryCountry(e.target.value)}
+                  placeholder="Country"
+                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Delivery City (optional)</span>
+                <input
+                  type="text"
+                  value={deliveryCity}
+                  onChange={(e) => setDeliveryCity(e.target.value)}
+                  placeholder="City"
+                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Delivery details (optional)</span>
+                <textarea
+                  value={deliveryAddressNote}
+                  onChange={(e) => setDeliveryAddressNote(e.target.value)}
+                  rows={3}
+                  placeholder="Area, address notes, preferred delivery info"
+                  className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
+                />
+              </label>
+            </div>
           )}
         </div>
 
