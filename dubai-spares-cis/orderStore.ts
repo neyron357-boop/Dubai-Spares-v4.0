@@ -42,6 +42,7 @@ const normalizeOrder = (order: Order): Order => ({
   isLead: !!order.isLead,
   notes: Array.isArray(order.notes) ? order.notes : [],
   vinPhotoUrl: order.vinPhotoUrl || '',
+  bodyType: order.bodyType || '',
   parts: Array.isArray(order.parts) ? order.parts : [],
   salesStatus: order.salesStatus ?? 'Inquiry',
   updatedAt: order.updatedAt ?? order.createdAt ?? Date.now(),
@@ -157,6 +158,7 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     brand: row.brand,
     model: row.model,
     year: row.year || '',
+    bodyType: row.body_type || '',
     vin: row.vin || '',
     vinPhotoUrl: row.vin_photo_url || '',
     priority: row.priority,
@@ -256,6 +258,7 @@ const persistOrderGraph = async (order: Order) => {
     brand: uploadedOrder.brand,
     model: uploadedOrder.model,
     year: uploadedOrder.year,
+    body_type: uploadedOrder.bodyType || null,
     vin: uploadedOrder.vin,
     vin_photo_url: uploadedOrder.vinPhotoUrl || null,
     status: getStatus(uploadedOrder),
@@ -291,7 +294,8 @@ const persistOrderGraph = async (order: Order) => {
       'vin_photo_url',
       'customer_contact',
       'social_nickname',
-      'recommended_shop_ids'
+      'recommended_shop_ids',
+      'body_type'
     ]);
 
     let payload: Record<string, unknown> = { ...fallbackOrderPayload };

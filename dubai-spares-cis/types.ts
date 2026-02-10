@@ -48,6 +48,7 @@ export interface Order {
   brand: string;
   model: string;
   year: string;
+  bodyType?: string;
   vin: string;
   vinPhotoUrl?: string;
   status?: OrderStatus;
@@ -91,6 +92,7 @@ export interface Supplier {
   brands: string[];
   models?: string[];
   years?: number[];
+  bodyTypes?: string[];
   photoUrl?: string;
   photos?: string[];
   coordinates?: Coordinates;
@@ -106,6 +108,7 @@ export interface Shop {
   specialization: string[];
   specializationModels?: string[];
   specializationYears?: number[];
+  specializationBodyTypes?: string[];
 }
 
 export interface DbPriceVariantRow {
@@ -135,6 +138,7 @@ export interface DbOrderRow {
   brand: string;
   model: string;
   year: string;
+  body_type?: string | null;
   vin: string;
   vin_photo_url?: string | null;
   status: OrderStatus;

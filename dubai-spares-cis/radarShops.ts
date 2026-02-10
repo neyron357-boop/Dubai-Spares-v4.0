@@ -4,6 +4,7 @@ import { toast } from './feedback';
 import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
 import { ensureUuid, isUuid } from './id';
+import { resolveCoordinatesFromLocation } from './mapsLocation';
 
 const toNumberArray = (values: unknown): number[] => {
   if (!Array.isArray(values)) return [];
@@ -18,6 +19,13 @@ const parseCsv = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+const hasValidCoordinates = (latitude?: number | null, longitude?: number | null) => {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+  return Number(latitude) !== 0 && Number(longitude) !== 0;
+};
+
+const CRITICAL_SHOP_NAMES = new Set(['bmw', 'mm']);
+
 export const normalizeSupplierMetadata = (supplier: Supplier): Supplier => {
   const models = Array.isArray(supplier.models)
     ? supplier.models
@@ -31,11 +39,18 @@ export const normalizeSupplierMetadata = (supplier: Supplier): Supplier => {
       ? toNumberArray(parseCsv((supplier as Supplier & { years?: string }).years || ''))
       : [];
 
+  const bodyTypes = Array.isArray(supplier.bodyTypes)
+    ? supplier.bodyTypes
+    : typeof (supplier as Supplier & { bodyTypes?: unknown }).bodyTypes === 'string'
+      ? parseCsv((supplier as Supplier & { bodyTypes?: string }).bodyTypes || '')
+      : [];
+
   return {
     ...supplier,
     brands: Array.isArray(supplier.brands) ? supplier.brands : [],
     models,
-    years
+    years,
+    bodyTypes
   };
 };
 
@@ -48,7 +63,8 @@ const mapShopRow = (row: any): Shop => ({
   longitude: Number(row.longitude),
   specialization: Array.isArray(row.specialization) ? row.specialization : [],
   specializationModels: Array.isArray(row.specialization_models) ? row.specialization_models : [],
-  specializationYears: toNumberArray(row.specialization_years)
+  specializationYears: toNumberArray(row.specialization_years),
+  specializationBodyTypes: Array.isArray(row.specialization_body_types) ? row.specialization_body_types : []
 });
 
 const mapSuppliersToShops = (suppliers: Supplier[]): Shop[] => suppliers
@@ -63,7 +79,8 @@ const mapSuppliersToShops = (suppliers: Supplier[]): Shop[] => suppliers
     longitude: supplier.coordinates!.lng,
     specialization: supplier.brands || [],
     specializationModels: supplier.models || [],
-    specializationYears: supplier.years || []
+    specializationYears: supplier.years || [],
+    specializationBodyTypes: supplier.bodyTypes || []
   }));
 
 const mergeShops = (primary: Shop[], fallback: Shop[]): Shop[] => {
@@ -77,6 +94,33 @@ const mergeShops = (primary: Shop[], fallback: Shop[]): Shop[] => {
   return Array.from(merged.values());
 };
 
+const rerunCriticalCoordinatesParser = async (rows: any[]) => {
+  if (!supabase || !Array.isArray(rows) || rows.length === 0) return;
+
+  for (const row of rows) {
+    const normalizedName = String(row?.name || '').trim().toLowerCase();
+    if (!CRITICAL_SHOP_NAMES.has(normalizedName)) continue;
+    if (hasValidCoordinates(Number(row?.latitude), Number(row?.longitude))) continue;
+
+    const resolved = await resolveCoordinatesFromLocation(String(row?.location || ''));
+    if (!resolved || !hasValidCoordinates(resolved.lat, resolved.lng)) continue;
+
+    const { error } = await supabase
+      .from('shops')
+      .update({ latitude: resolved.lat, longitude: resolved.lng })
+      .eq('id', row.id);
+
+    if (error) {
+      await logger.warn('shops:repair', 'Failed to repair coordinates for critical shop', { shopId: row.id, name: row.name, error: error.message });
+      continue;
+    }
+
+    row.latitude = resolved.lat;
+    row.longitude = resolved.lng;
+    await logger.info('shops:repair', 'Re-ran location parser for critical shop', { shopId: row.id, name: row.name, coordinates: resolved });
+  }
+};
+
 export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> => {
   const supplierShops = mapSuppliersToShops(suppliers);
   if (!supabase) {
@@ -84,7 +128,7 @@ export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> =>
   }
 
   const baseFields = 'id,name,phone,location,latitude,longitude,specialization';
-  const extendedFields = `${baseFields},specialization_models,specialization_years`;
+  const extendedFields = `${baseFields},specialization_models,specialization_years,specialization_body_types`;
   const primary = await supabase.from('shops').select(extendedFields);
 
   let data: any[] | null = null;
@@ -104,6 +148,7 @@ export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> =>
   }
 
   if (Array.isArray(data) && data.length > 0) {
+    await rerunCriticalCoordinatesParser(data);
     return mergeShops(data.map(mapShopRow), supplierShops);
   }
 
@@ -125,7 +170,8 @@ export const upsertSupplierToShops = async (supplier: Supplier) => {
     longitude: normalized.coordinates?.lng ?? null,
     specialization: normalized.brands || [],
     specialization_models: normalized.models || [],
-    specialization_years: normalized.years || []
+    specialization_years: normalized.years || [],
+    specialization_body_types: normalized.bodyTypes || []
   };
 
   const { error } = await supabase.from('shops').upsert(payload, { onConflict: 'id' });

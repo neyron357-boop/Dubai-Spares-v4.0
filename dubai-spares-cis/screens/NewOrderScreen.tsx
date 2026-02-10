@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Priority, Source, Order } from '../types';
-import { BRANDS, YEARS, DEFAULT_MARKUP, DEFAULT_RATE, SOCIAL_SOURCES, BRAND_MODELS } from '../constants';
+import { BRANDS, YEARS, DEFAULT_MARKUP, DEFAULT_RATE, SOCIAL_SOURCES, BRAND_MODELS, BODY_TYPES, BRAND_BODY_TYPES } from '../constants';
 import { Camera, Plus, X, Save, Image as ImageIcon, Trash2, User, Smartphone, Star, Gem } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
 
@@ -23,6 +23,7 @@ const NewOrderScreen: React.FC = () => {
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState(YEARS[0]);
+  const [bodyType, setBodyType] = useState('');
   const [vin, setVin] = useState('');
   const [clientName, setClientName] = useState('');
   const [source, setSource] = useState<Source>(Source.INSTAGRAM);
@@ -40,6 +41,7 @@ const NewOrderScreen: React.FC = () => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
 
   const modelOptions = BRAND_MODELS[brand] || [];
+  const bodyTypeOptions = BRAND_BODY_TYPES[brand] || BODY_TYPES;
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<string[]>>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -82,6 +84,7 @@ const NewOrderScreen: React.FC = () => {
       brand,
       model,
       year,
+      bodyType,
       vin: vin || '', // Allow empty VIN explicitly
       vinPhotoUrl,
       priority,
@@ -219,7 +222,7 @@ const NewOrderScreen: React.FC = () => {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="text-xs font-bold uppercase text-gray-400">Марка</label>
-          <select value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); }} className="w-full mt-1 bg-white border border-gray-200 p-3 rounded-xl appearance-none outline-none focus:ring-2 focus:ring-blue-500 text-base font-bold">
+          <select value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); setBodyType(''); }} className="w-full mt-1 bg-white border border-gray-200 p-3 rounded-xl appearance-none outline-none focus:ring-2 focus:ring-blue-500 text-base font-bold">
             <option value="">Выбрать...</option>
             {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
           </select>
@@ -230,6 +233,14 @@ const NewOrderScreen: React.FC = () => {
             {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
+      </div>
+
+      <div>
+        <label className="text-xs font-bold uppercase text-gray-400">Тип кузова</label>
+        <select value={bodyType} onChange={(e) => setBodyType(e.target.value)} className="w-full mt-1 bg-white border border-gray-200 p-3 rounded-xl appearance-none outline-none focus:ring-2 focus:ring-blue-500 text-base font-bold">
+          <option value="">Выбрать...</option>
+          {bodyTypeOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
       </div>
 
       <div>

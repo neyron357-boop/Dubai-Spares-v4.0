@@ -125,16 +125,22 @@ const PartDetailsScreen: React.FC = () => {
         phone,
         location,
         brands: [order.brand],
+        models: order.model ? [order.model] : [],
+        years: order.year ? [Number(order.year)].filter(Number.isFinite) : [],
+        bodyTypes: order.bodyType ? [order.bodyType] : [],
         coordinates: resolvedCoordinates
       };
       addSupplier(newSupplier);
       await upsertSupplierToShops(newSupplier);
-    } else if (!existingSupplier.brands.includes(order.brand) || !existingSupplier.coordinates) {
+    } else if (!existingSupplier.brands.includes(order.brand) || !existingSupplier.coordinates || (!!order.bodyType && !(existingSupplier.bodyTypes || []).includes(order.bodyType))) {
       const updatedSupplier = {
         ...existingSupplier,
         brands: existingSupplier.brands.includes(order.brand)
           ? existingSupplier.brands
           : [...existingSupplier.brands, order.brand],
+        bodyTypes: order.bodyType && !(existingSupplier.bodyTypes || []).includes(order.bodyType)
+          ? [...(existingSupplier.bodyTypes || []), order.bodyType]
+          : (existingSupplier.bodyTypes || []),
         coordinates: existingSupplier.coordinates || resolvedCoordinates
       };
       updateSupplier(updatedSupplier);

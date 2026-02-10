@@ -173,7 +173,7 @@ const RadarScreen: React.FC = () => {
                     <p className="text-sm font-black truncate">{shop.name}</p>
                     <p className="text-[11px] text-slate-400 truncate">{order.brand} {order.model} • {order.year || '—'} {isRecommended ? '• рекомендован' : !isCompatible ? '• ближайший магазин' : '• совместим'}</p>
                   </div>
-                  <div className="text-[11px] font-black text-emerald-300">{Number.isFinite(distance) ? `${Math.round(distance)}m` : 'n/a'}</div>
+                  <div className="text-[11px] font-black text-emerald-300">{(Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude) && shop.latitude !== 0 && shop.longitude !== 0) ? (Number.isFinite(distance) ? `${Math.round(distance)}m` : 'n/a') : 'Location missing'}</div>
                 </div>
                 <div className="flex items-center gap-2 text-[10px]">
                   <span className={`rounded-full px-2 py-1 font-black uppercase ${confidence === 'high' ? 'bg-emerald-500/20 text-emerald-200' : confidence === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-slate-700 text-slate-300'}`}>{confidence}</span>

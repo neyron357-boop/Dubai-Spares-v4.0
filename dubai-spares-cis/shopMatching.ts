@@ -3,12 +3,13 @@ import { logger } from './logging';
 
 const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
 
+const hasValidCoordinates = (latitude: number, longitude: number) => Number.isFinite(latitude) && Number.isFinite(longitude) && latitude !== 0 && longitude !== 0;
+
 export const isBrandMatch = (orderBrand: string, supplierBrand: string) => {
   const a = normalize(orderBrand);
   const b = normalize(supplierBrand);
   if (!a || !b) return false;
-  if (a.includes(b) || b.includes(a)) return true;
-  return (a.includes('mercedes') && b.includes('mercedes')) || (a.includes('benz') && b.includes('mercedes'));
+  return a === b;
 };
 
 const isModelMatch = (orderModel: string, modelHint?: string) => {
@@ -19,6 +20,13 @@ const isModelMatch = (orderModel: string, modelHint?: string) => {
   return a.includes(b) || b.includes(a);
 };
 
+const isBodyTypeMatch = (orderBodyType?: string, shopBodyType?: string) => {
+  const a = normalize(orderBodyType || '');
+  const b = normalize(shopBodyType || '');
+  if (!a || !b) return false;
+  return a === b;
+};
+
 const isYearMatch = (orderYear: string, years: number[] = []) => {
   if (!orderYear || years.length === 0) return false;
   const parsed = Number(orderYear);
@@ -26,44 +34,53 @@ const isYearMatch = (orderYear: string, years: number[] = []) => {
   return years.includes(parsed);
 };
 
-
-
 export interface ShopRecommendationDiagnostics {
   level: 'high' | 'medium' | 'low' | 'none';
   brandMatched: boolean;
   modelMatched: boolean;
   yearMatched: boolean;
+  bodyTypeMatched: boolean;
   reason?: string;
 }
 
 export const getShopRecommendationDiagnostics = (
   shop: Shop,
-  order: Pick<Order, 'brand' | 'model' | 'year'>
+  order: Pick<Order, 'brand' | 'model' | 'year' | 'bodyType'>
 ): ShopRecommendationDiagnostics => {
   const brands = shop.specialization || [];
   const models = shop.specializationModels || [];
   const years = shop.specializationYears || [];
+  const bodyTypes = shop.specializationBodyTypes || [];
 
   const brandMatched = brands.some((brand) => isBrandMatch(order.brand, brand));
   const modelMatched = models.some((model) => isModelMatch(order.model, model));
   const yearMatched = isYearMatch(order.year, years);
+  const bodyTypeMatched = bodyTypes.length === 0 || bodyTypes.some((bodyType) => isBodyTypeMatch(order.bodyType, bodyType));
 
   if (!brandMatched) {
-    const normalizedBrand = normalize(order.brand);
-    const caseSensitiveMatch = brands.some((brand) => normalize(brand) === normalizedBrand && brand !== order.brand);
     return {
       level: 'none',
       brandMatched,
       modelMatched,
       yearMatched,
-      reason: caseSensitiveMatch
-        ? `Case-sensitivity mismatch: search "${order.brand}" vs shop brands [${brands.join(', ')}]`
-        : `Brand not in array [${brands.join(', ')}]`
+      bodyTypeMatched,
+      reason: `Strict brand mismatch: order=${order.brand}, shop=[${brands.join(', ')}]`
+    };
+  }
+
+  if (!bodyTypeMatched) {
+    return {
+      level: 'none',
+      brandMatched,
+      modelMatched,
+      yearMatched,
+      bodyTypeMatched,
+      reason: `Body type mismatch: order=${order.bodyType || '—'}, shop=[${bodyTypes.join(', ')}]`
     };
   }
 
   if (modelMatched && yearMatched) {
-    return { level: 'high', brandMatched, modelMatched, yearMatched };
+    return { level: 'high', brandMatched, modelMatched, yearMatched, bodyTypeMatched };
   }
 
   if (modelMatched) {
@@ -72,6 +89,7 @@ export const getShopRecommendationDiagnostics = (
       brandMatched,
       modelMatched,
       yearMatched,
+      bodyTypeMatched,
       reason: years.length > 0 ? `Year ${order.year || '—'} not in array [${years.join(', ')}]` : 'Year metadata missing; downgraded to medium'
     };
   }
@@ -81,38 +99,46 @@ export const getShopRecommendationDiagnostics = (
     brandMatched,
     modelMatched,
     yearMatched,
+    bodyTypeMatched,
     reason: models.length > 0
       ? `Model ${order.model || '—'} not in array [${models.join(', ')}]`
       : 'Model metadata missing; using brand-only match'
   };
 };
 
-export const getShopRecommendationLevel = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year'>): 'high' | 'medium' | 'low' | 'none' => {
+export const getShopRecommendationLevel = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year' | 'bodyType'>): 'high' | 'medium' | 'low' | 'none' => {
   return getShopRecommendationDiagnostics(shop, order).level;
 };
 
-export const isShopCompatibleWithOrder = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year'>) => {
+export const isShopCompatibleWithOrder = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year' | 'bodyType'>) => {
   const hasBrand = (shop.specialization || []).some((brand) => isBrandMatch(order.brand, brand));
   if (!hasBrand) return false;
   const modelMeta = shop.specializationModels || [];
   const yearsMeta = shop.specializationYears || [];
+  const bodyTypeMeta = shop.specializationBodyTypes || [];
   const hasModel = modelMeta.length === 0 || modelMeta.some((model) => isModelMatch(order.model, model));
   const hasYear = yearsMeta.length === 0 || isYearMatch(order.year, yearsMeta);
-  return hasModel && hasYear;
+  const hasBodyType = bodyTypeMeta.length === 0 || bodyTypeMeta.some((bodyType) => isBodyTypeMatch(order.bodyType, bodyType));
+  return hasModel && hasYear && hasBodyType;
 };
 
-export const getShopOrderMatchScore = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year'>) => {
+export const getShopOrderMatchScore = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year' | 'bodyType'>) => {
   let score = 0;
   const brands = shop.specialization || [];
   const models = shop.specializationModels || [];
   const years = shop.specializationYears || [];
+  const bodyTypes = shop.specializationBodyTypes || [];
 
-  const hasAnyMeta = brands.length > 0 || models.length > 0 || years.length > 0;
+  const hasAnyMeta = brands.length > 0 || models.length > 0 || years.length > 0 || bodyTypes.length > 0;
   if (!hasAnyMeta) return 1;
 
   const brandMatched = brands.some((brand) => isBrandMatch(order.brand, brand));
   if (!brandMatched && brands.length > 0) return -1;
   if (brandMatched) score += 6;
+
+  const bodyTypeMatched = bodyTypes.length === 0 || bodyTypes.some((bodyType) => isBodyTypeMatch(order.bodyType, bodyType));
+  if (!bodyTypeMatched) return -1;
+  if (bodyTypes.length > 0 && bodyTypeMatched) score += 2;
 
   const modelMatched = models.some((model) => isModelMatch(order.model, model));
   if (modelMatched) score += 3;
@@ -120,7 +146,7 @@ export const getShopOrderMatchScore = (shop: Shop, order: Pick<Order, 'brand' | 
   const yearMatched = isYearMatch(order.year, years);
   if (yearMatched && years.length > 0) score += 2;
 
-  if (score === 0 && (brands.length > 0 || models.length > 0)) {
+  if (score === 0 && (brands.length > 0 || models.length > 0 || bodyTypes.length > 0)) {
     return -1;
   }
 
@@ -131,7 +157,7 @@ export const buildShopMapLink = (shop: Pick<Shop, 'location' | 'latitude' | 'lon
   const loc = (shop.location || '').trim();
   if (loc.startsWith('http://') || loc.startsWith('https://')) return loc;
   if (loc.includes('google.com/maps') || loc.includes('goo.gl/maps')) return loc;
-  if (Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude)) {
+  if (hasValidCoordinates(shop.latitude, shop.longitude)) {
     return `https://www.google.com/maps/search/?api=1&query=${shop.latitude},${shop.longitude}`;
   }
   return loc
@@ -165,14 +191,15 @@ export const buildRoutePlanMapLink = (
   chain: Array<Pick<Shop, 'location' | 'latitude' | 'longitude'>>,
   origin?: { lat: number; lng: number } | null
 ) => {
-  const withCoords = chain.filter((shop) => Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude));
+  const withCoords = chain.filter((shop) => hasValidCoordinates(shop.latitude, shop.longitude));
   if (withCoords.length === 0) return 'https://www.google.com/maps';
 
   const destination = withCoords[withCoords.length - 1];
-  const originQuery = origin
-    ? `${origin.lat},${origin.lng}`
+  const hasValidOrigin = !!origin && hasValidCoordinates(origin.lat, origin.lng);
+  const originQuery = hasValidOrigin
+    ? `${origin!.lat},${origin!.lng}`
     : `${withCoords[0].latitude},${withCoords[0].longitude}`;
-  const waypointShops = origin ? withCoords.slice(0, -1) : withCoords.slice(1, -1);
+  const waypointShops = hasValidOrigin ? withCoords.slice(0, -1) : withCoords.slice(1, -1);
   const waypoints = waypointShops.map((shop) => `${shop.latitude},${shop.longitude}`).join('|');
 
   return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(originQuery)}&destination=${encodeURIComponent(`${destination.latitude},${destination.longitude}`)}${waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : ''}`;
@@ -182,11 +209,11 @@ export const buildNearestShopsChain = (
   shops: Shop[],
   origin: { lat: number; lng: number } | null
 ) => {
-  const pending = shops.filter((shop) => Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude));
+  const pending = shops.filter((shop) => hasValidCoordinates(shop.latitude, shop.longitude));
   if (pending.length <= 1) return pending;
 
   const chain: Shop[] = [];
-  let cursor = origin
+  let cursor = origin && hasValidCoordinates(origin.lat, origin.lng)
     ? { lat: origin.lat, lng: origin.lng }
     : { lat: pending[0].latitude, lng: pending[0].longitude };
 
@@ -214,7 +241,7 @@ export const buildNearestShopsChain = (
 };
 
 export const getRadarShopMatches = (
-  order: Pick<Order, 'brand' | 'model' | 'year' | 'recommendedShopIds'>,
+  order: Pick<Order, 'brand' | 'model' | 'year' | 'recommendedShopIds' | 'bodyType'>,
   shops: Shop[],
   currentPosition: { lat: number; lng: number } | null
 ) => {
@@ -223,7 +250,11 @@ export const getRadarShopMatches = (
       const isRecommended = (order.recommendedShopIds || []).includes(shop.id);
       const isCompatible = isShopCompatibleWithOrder(shop, order);
       const matchScore = isRecommended ? 100 : getShopOrderMatchScore(shop, order);
-      const distance = currentPosition ? distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }) : Number.MAX_SAFE_INTEGER;
+      const hasShopCoords = hasValidCoordinates(shop.latitude, shop.longitude);
+      const hasValidPosition = !!currentPosition && hasValidCoordinates(currentPosition.lat, currentPosition.lng);
+      const distance = hasShopCoords && hasValidPosition
+        ? distanceMeters(currentPosition!, { lat: shop.latitude, lng: shop.longitude })
+        : Number.POSITIVE_INFINITY;
       const distanceBonus = Number.isFinite(distance)
         ? distance <= 300 ? 6 : distance <= 800 ? 4 : distance <= 2000 ? 2 : 0
         : 0;
