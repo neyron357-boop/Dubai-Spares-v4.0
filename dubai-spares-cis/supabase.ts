@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { logger } from './logging';
+import { logDatabaseIntegrity } from './dbIntegrity';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -60,6 +61,16 @@ const instrumentedFetch: typeof fetch = async (input, init) => {
         hasApiKey,
         hasAuthorization
       });
+
+      let parsedBody: unknown = body;
+      if (typeof body === 'string' && body.trim().startsWith('{')) {
+        try {
+          parsedBody = JSON.parse(body);
+        } catch {
+          parsedBody = body;
+        }
+      }
+      await logDatabaseIntegrity('supabase:response', parsedBody, { status: response.status, method, rawUrl });
     }
 
     return response;

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, Part, Priority, OrderNote, Shop } from '../types';
-import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationLevel, isShopCompatibleWithOrder } from '../shopMatching';
+import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationDiagnostics, getShopRecommendationLevel, isShopCompatibleWithOrder } from '../shopMatching';
 import { SOURCES } from '../constants';
 import { 
   ArrowLeft, 
@@ -32,6 +32,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import { buildPartShareText, shareMessage } from '../shareUtils';
 import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
+import { logger } from '../logging';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -131,6 +132,39 @@ const OrderDetailsScreen: React.FC = () => {
       setShopTagMap({});
     }
   }, [order.id, order.model, order.year]);
+
+  useEffect(() => {
+    if (!order) return;
+
+    const diagnostics = shops.map((shop) => ({ shop, diagnostics: getShopRecommendationDiagnostics(shop, order) }));
+    const includedCount = diagnostics.filter(({ diagnostics: d }) => d.level !== 'none').length;
+    const excludedCount = diagnostics.length - includedCount;
+
+    void logger.debug('RECOMMENDATIONS', 'Input criteria', {
+      orderId: order.id,
+      brand: order.brand,
+      model: order.model,
+      year: order.year
+    });
+
+    void logger.info('RECOMMENDATIONS', 'Recommendation scan completed', {
+      totalShops: diagnostics.length,
+      includedCount,
+      excludedCount
+    });
+
+    diagnostics
+      .filter(({ diagnostics: d }) => d.level === 'none')
+      .forEach(({ shop, diagnostics: d }) => {
+        void logger.debug('RECOMMENDATIONS', `Shop '${shop.name}' excluded`, {
+          shopId: shop.id,
+          reason: d.reason || 'No tier criteria matched',
+          brands: shop.specialization || [],
+          models: shop.specializationModels || [],
+          years: shop.specializationYears || []
+        });
+      });
+  }, [order, shops]);
 
   if (!order && isLoading) {
     return (

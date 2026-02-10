@@ -4,6 +4,7 @@ import { supabase, isCloudSyncConfigured } from './supabase';
 import { deleteOrderFolderFromStorage, ensurePublicImageUrls, optimizeImageForUpload } from './storage/photos';
 import { offlineDb } from './storage/offlineDb';
 import { logger } from './logging';
+import { logDatabaseIntegrity } from './dbIntegrity';
 
 type OrderState = {
   orders: Order[];
@@ -133,6 +134,7 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 const broadcastSyncError = (error: unknown, fallback: string) => {
   const message = getErrorMessage(error, fallback);
   void logger.error('sync:error', message, { fallback, error: serializeError(error) });
+  void logDatabaseIntegrity('sync:error', error, { fallback });
   setState({ error: message });
   window.dispatchEvent(new CustomEvent('cloud-sync-error', { detail: { message } }));
 };
@@ -287,18 +289,21 @@ const persistOrderGraph = async (order: Order) => {
 
     if (orderError && isMissingColumnError(orderError, 'sales_status')) {
       await logger.warn('sync:persist', 'orders.sales_status is missing in remote schema; retrying upsert without that column');
+      await logDatabaseIntegrity('sync:persist', orderError, { column: 'sales_status' });
       const { sales_status: _salesStatus, ...payloadWithoutSalesStatus } = fallbackOrderPayload;
       ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutSalesStatus));
     }
 
     if (orderError && isMissingColumnError(orderError, 'customer_contact')) {
       await logger.warn('sync:persist', 'orders.customer_contact is missing in remote schema; retrying upsert without that column');
+      await logDatabaseIntegrity('sync:persist', orderError, { column: 'customer_contact' });
       const { customer_contact: _customerContact, ...payloadWithoutCustomerContact } = fallbackOrderPayload;
       ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutCustomerContact));
     }
 
     if (orderError && isMissingColumnError(orderError, 'recommended_shop_ids')) {
       await logger.warn('sync:persist', 'orders.recommended_shop_ids is missing in remote schema; retrying upsert without that column');
+      await logDatabaseIntegrity('sync:persist', orderError, { column: 'recommended_shop_ids' });
       const { recommended_shop_ids: _recommendedShopIds, ...payloadWithoutRecommendedShopIds } = fallbackOrderPayload;
       ({ error: orderError } = await supabase.from('orders').upsert(payloadWithoutRecommendedShopIds));
     }

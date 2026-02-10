@@ -2,6 +2,7 @@ import { Supplier, Shop } from './types';
 import { supabase } from './supabase';
 import { toast } from './feedback';
 import { logger } from './logging';
+import { logDatabaseIntegrity } from './dbIntegrity';
 
 const toNumberArray = (values: unknown): number[] => {
   if (!Array.isArray(values)) return [];
@@ -87,10 +88,12 @@ export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> =>
 
   let data: any[] | null = null;
   if (primary.error && primary.error.code === '42703') {
+    await logDatabaseIntegrity('shops:fetch', primary.error, { table: 'shops', phase: 'extended-select' });
     const fallback = await supabase.from('shops').select(baseFields);
     data = Array.isArray(fallback.data) ? fallback.data : null;
   } else {
     if (primary.error) {
+      await logDatabaseIntegrity('shops:fetch', primary.error, { table: 'shops', phase: 'base-select' });
       toast('Ошибка загрузки магазинов радара', 'error');
     }
     data = Array.isArray(primary.data) ? primary.data : null;
@@ -121,6 +124,7 @@ export const upsertSupplierToShops = async (supplier: Supplier) => {
 
   const { error } = await supabase.from('shops').upsert(payload, { onConflict: 'id' });
   if (error) {
+    await logDatabaseIntegrity('shops:upsert', error, { supplierId: supplier.id });
     void logger.warn('shops:upsert', 'Failed to upsert supplier into shops table', {
       supplierId: supplier.id,
       supplierName: supplier.name,
