@@ -6,9 +6,12 @@ import OrderDetailsScreen from './screens/OrderDetailsScreen';
 import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
 import DebugLogsScreen from './screens/DebugLogsScreen';
+import NotificationsScreen from './screens/NotificationsScreen';
+import RadarScreen from './screens/RadarScreen';
 import VendorSlider from './components/VendorSlider';
-import { CarFront, PlusCircle, Database, Bug } from 'lucide-react';
+import { CarFront, PlusCircle, Database, Bug, Bell, Radar } from 'lucide-react';
 import { useStore } from './store';
+import { getNotifications } from './notificationCenter';
 
 const APP_PIN = '2202';
 
@@ -50,6 +53,7 @@ const PinGate: React.FC<{ onUnlock: () => void; isEntering: boolean }> = ({ onUn
 const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOffline: boolean }> = ({ children, isSyncing, isOffline }) => {
   const location = useLocation();
   const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
+  const unreadCount = getNotifications().filter((item) => !item.read).length;
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-50 flex flex-col overflow-hidden">
@@ -69,6 +73,11 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOfflin
           <NavLink to="/" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
           <NavLink to="/new" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">Новый</span></NavLink>
           <NavLink to="/database" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">База</span></NavLink>
+          <NavLink to="/radar" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Radar size={22} /><span className="text-[10px] font-medium">Радар</span></NavLink>
+          <NavLink to="/notifications" className={({ isActive }) => `relative flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />
+            {unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{unreadCount}</span>}
+            <span className="text-[10px] font-medium">Оповещ.</span>
+          </NavLink>
           <NavLink to="/debug" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Bug size={22} /><span className="text-[10px] font-medium">Логи</span></NavLink>
         </nav>
       )}
@@ -99,6 +108,22 @@ const App: React.FC = () => {
       if (timer) clearTimeout(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!unlocked) return;
+    const appRefresh = window.setInterval(() => {
+      void syncOrders();
+    }, 2000);
+
+    const cloudRefresh = window.setInterval(() => {
+      void syncOrders();
+    }, 3000);
+
+    return () => {
+      window.clearInterval(appRefresh);
+      window.clearInterval(cloudRefresh);
+    };
+  }, [unlocked, syncOrders]);
 
   useEffect(() => {
     if (!error) return;
@@ -175,6 +200,8 @@ const App: React.FC = () => {
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
               <Route path="/database" element={<SuppliersScreen />} />
+              <Route path="/radar" element={<RadarScreen />} />
+              <Route path="/notifications" element={<NotificationsScreen />} />
               <Route path="/debug" element={<DebugLogsScreen />} />
             </Routes>
           </Layout>

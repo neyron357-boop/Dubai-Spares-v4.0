@@ -71,6 +71,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({});
   const [shops, setShops] = useState<Shop[]>([]);
   const [currentPosition, setCurrentPosition] = useState<{ lat: number; lng: number } | null>(null);
+  const [shopTagMap, setShopTagMap] = useState<Record<string, { models: string[]; years: string[] }>>({});
 
   const [newPartName, setNewPartName] = useState('');
   // Multiple photos for new part
@@ -127,6 +128,17 @@ const OrderDetailsScreen: React.FC = () => {
     });
   }, []);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('shop_order_tags');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') setShopTagMap(parsed);
+    } catch {
+      setShopTagMap({});
+    }
+  }, [order.id, order.model, order.year]);
+
   if (!order && isLoading) {
     return (
       <div className="p-4 space-y-4 animate-pulse">
@@ -177,6 +189,18 @@ const OrderDetailsScreen: React.FC = () => {
     const current = new Set(order.recommendedShopIds || []);
     current.add(shopId);
     updateOrder({ ...order, recommendedShopIds: Array.from(current) });
+
+    try {
+      const raw = localStorage.getItem('shop_order_tags');
+      const map = raw ? JSON.parse(raw) : {};
+      const entry = map[shopId] || { models: [], years: [] };
+      const models = Array.from(new Set([...(entry.models || []), order.model].filter(Boolean)));
+      const years = Array.from(new Set([...(entry.years || []), order.year].filter(Boolean)));
+      map[shopId] = { models, years };
+      localStorage.setItem('shop_order_tags', JSON.stringify(map));
+    } catch {
+      // no-op for private mode
+    }
   };
 
   const removeManualRecommendation = (shopId: string) => {
@@ -441,13 +465,6 @@ const OrderDetailsScreen: React.FC = () => {
             <option value={Priority.MEDIUM}>MEDIUM</option>
             <option value={Priority.LOW}>LOW</option>
           </select>
-          <button 
-            type="button"
-            onClick={() => updateOrderField('isArchived', !order.isArchived)} 
-            className={`text-[10px] font-black px-3 py-2 rounded-xl active:scale-95 transition-all uppercase tracking-tight shrink-0 ${order.isArchived ? 'bg-gray-100 text-gray-500' : 'bg-blue-100 text-blue-600'}`}
-          >
-            {order.isArchived ? 'Архив' : 'Актив'}
-          </button>
         </div>
       </div>
 
@@ -643,10 +660,18 @@ const OrderDetailsScreen: React.FC = () => {
           ) : (
             <div className="space-y-2">
               {recommendedShops.slice(0, 6).map((shop) => (
-                <div key={shop.id} className="flex items-center justify-between rounded-xl border border-gray-100 px-3 py-2">
+                <div key={shop.id} id={`shop-${shop.id}`} className="flex items-center justify-between rounded-xl border border-gray-100 px-3 py-2">
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-gray-800 truncate">{shop.name}</p>
                     <p className="text-[11px] text-gray-500 truncate">{Number.isFinite(shop.distance) ? `${Math.round(shop.distance)}m` : 'distance unavailable'}</p>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {Array.from(new Set([...(shop.specializationModels || []), ...((shopTagMap[shop.id]?.models) || [])])).slice(0, 6).map((modelTag) => (
+                        <span key={`${shop.id}-${modelTag}`} className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-blue-700">{modelTag}</span>
+                      ))}
+                      {Array.from(new Set([...(shop.specializationYears || []).map(String), ...((shopTagMap[shop.id]?.years) || [])])).slice(0, 6).map((yearTag) => (
+                        <span key={`${shop.id}-year-${yearTag}`} className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-violet-700">{yearTag}</span>
+                      ))}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {(order.recommendedShopIds || []).includes(shop.id) && (

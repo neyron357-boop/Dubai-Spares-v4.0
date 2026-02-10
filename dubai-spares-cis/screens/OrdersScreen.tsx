@@ -25,6 +25,7 @@ import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 import { shareMessage, buildOrderShareText } from '../shareUtils';
 import { supabase } from '../supabase';
+import { pushNotification } from '../notificationCenter';
 
 type TabType = 'active' | 'archive' | 'sold' | 'vip' | 'leads' | 'new_leads';
 type SortType = 'date' | 'brand' | 'priority' | 'status';
@@ -82,6 +83,8 @@ const OrdersScreen: React.FC = () => {
   const [pullDistance, setPullDistance] = useState(0);
   const pullStartY = useRef<number | null>(null);
   const pullTriggered = useRef(false);
+  const swipeStartXRef = useRef<Record<string, number>>({});
+  const [swipeOffsets, setSwipeOffsets] = useState<Record<string, number>>({});
 
   const refreshOrders = async () => {
     setIsRefreshing(true);
@@ -269,17 +272,30 @@ const OrdersScreen: React.FC = () => {
           const mapLink = buildShopMapLink(matched);
           const message = `🎯 ${matched.name} рядом (${meters}м). ${order.brand} ${order.model} • Карта: ${mapLink}`;
           setRadarMessage(message);
+          pushNotification({
+            type: 'radar',
+            title: `Радар: ${matched.name}`,
+            body: message,
+            route: `/order/${order.id}#shop-${matched.id}`,
+            orderId: order.id,
+            shopId: matched.id
+          });
           setTimeout(() => setRadarMessage(null), 9000);
           if (navigator.vibrate) navigator.vibrate([240, 120, 240]);
           if (typeof Notification !== 'undefined') {
             if (Notification.permission === 'granted') {
-              new Notification('Active Radar', {
+              const notification = new Notification('Active Radar', {
                 body: message,
                 tag: `radar-${order.id}-${matched.id}`,
                 vibrate: [200, 100, 200],
                 requireInteraction: true,
-                data: { url: buildShopMapLink(matched), orderId: order.id }
+                data: { route: `/order/${order.id}#shop-${matched.id}`, url: buildShopMapLink(matched), orderId: order.id }
               });
+              notification.onclick = () => {
+                window.focus();
+                window.location.hash = `#/order/${order.id}#shop-${matched.id}`;
+                notification.close();
+              };
             } else if (Notification.permission === 'default') {
               void Notification.requestPermission();
             }
@@ -354,6 +370,13 @@ const OrdersScreen: React.FC = () => {
       return updated;
     });
   }, [activeTab, orders]);
+
+
+  const archiveBySwipe = (order: Order) => {
+    if (order.isArchived) return;
+    void updateOrder({ ...order, isArchived: true });
+    if (navigator.vibrate) navigator.vibrate(15);
+  };
 
   return (
     <div
@@ -459,8 +482,23 @@ const OrdersScreen: React.FC = () => {
             <div
               key={order.id}
               onClick={() => navigate(`/order/${order.id}`)}
-              className={`p-4 rounded-3xl shadow-sm border relative overflow-hidden ${order.isVip ? 'bg-gradient-to-br from-yellow-50 via-amber-50 to-white border-yellow-200' : 'bg-white border-gray-100'} ${getStatusColor(order.createdAt, order.isSold)}`}
+              onTouchStart={(e) => { swipeStartXRef.current[order.id] = e.touches[0].clientX; }}
+              onTouchMove={(e) => {
+                const startX = swipeStartXRef.current[order.id];
+                if (typeof startX !== 'number') return;
+                const delta = e.touches[0].clientX - startX;
+                if (delta < 0) setSwipeOffsets((prev) => ({ ...prev, [order.id]: Math.max(delta, -132) }));
+              }}
+              onTouchEnd={() => {
+                const offset = swipeOffsets[order.id] || 0;
+                if (offset <= -96) archiveBySwipe(order);
+                setSwipeOffsets((prev) => ({ ...prev, [order.id]: 0 }));
+                delete swipeStartXRef.current[order.id];
+              }}
+              className={`p-4 rounded-3xl shadow-sm border relative overflow-hidden transition-transform duration-300 ease-out ${order.isVip ? 'bg-gradient-to-br from-yellow-50 via-amber-50 to-white border-yellow-200' : 'bg-white border-gray-100'} ${getStatusColor(order.createdAt, order.isSold)}`}
+              style={{ transform: `translateX(${swipeOffsets[order.id] || 0}px)` }}
             >
+              <div className="absolute inset-y-0 right-0 w-24 bg-amber-500/90 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center">Архив</div>
               {order.salesStatus === 'Price Sent' && (Date.now() - (order.updatedAt || order.createdAt)) > 24 * 60 * 60 * 1000 && (
                 <div className="absolute top-2 right-2 z-10 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase">Follow up</div>
               )}
