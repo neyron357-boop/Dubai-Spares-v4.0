@@ -9,7 +9,8 @@ type FormStep = 1 | 2 | 3 | 4;
 
 const TOTAL_STEPS = 4;
 const DEFAULT_SOURCE: Source = Source.WHATSAPP;
-const REQUEST_PART_FIELDS = 3;
+const INITIAL_REQUEST_PART_FIELDS = 3;
+const MAX_REQUEST_PART_FIELDS = 10;
 
 const LANGUAGE_OPTIONS = [
   { value: 'en', label: 'English' },
@@ -25,7 +26,7 @@ const translations = {
   en: {
     title: 'Tell us what your car needs.', subtitle: 'Tell us what your car needs, and our experts will find the best options in Dubai.',
     step: 'Step', of: 'of', brand: 'Brand', selectBrand: 'Select brand', model: 'Model', selectModel: 'Select model', typeModel: 'Type model', year: 'Year', selectYear: 'Select year',
-    preferredLanguage: 'Preferred Language', selectLanguage: 'Select language', requestedParts: 'Requested parts (up to 3)', part: 'Part', partExample: 'Example: Front brake pads', partPhoto: 'Part photo (optional)',
+    preferredLanguage: 'Preferred Language', selectLanguage: 'Select language', requestedParts: 'Requested parts (up to 10)', part: 'Part', partExample: 'Example: Front brake pads', partPhoto: 'Part photo (optional)', addPart: 'Add another part',
     chooseFromGallery: 'Choose from gallery', takePhoto: 'Take a photo', photoSelected: 'Photo selected ✓',
     vinStepTitle: 'VIN and vehicle photos (optional)', vinPhoto: 'VIN photo', carPhoto: 'Car photo', vinManual: 'Manual VIN entry',
     phone: 'Phone Number / WhatsApp', deliveryCountry: 'Delivery Country', country: 'Country', deliveryCity: 'Delivery City (optional)', city: 'City', deliveryDetails: 'Delivery details (optional)', detailsPlaceholder: 'Area, address notes, preferred delivery info',
@@ -37,7 +38,7 @@ const translations = {
   ru: {
     title: 'Расскажите, что нужно вашему авто.', subtitle: 'Опишите нужные запчасти, и наши эксперты подберут лучшие варианты в Дубае.',
     step: 'Шаг', of: 'из', brand: 'Марка', selectBrand: 'Выберите марку', model: 'Модель', selectModel: 'Выберите модель', typeModel: 'Введите модель', year: 'Год', selectYear: 'Выберите год',
-    preferredLanguage: 'Предпочитаемый язык', selectLanguage: 'Выберите язык', requestedParts: 'Нужные запчасти (до 3)', part: 'Деталь', partExample: 'Например: передние тормозные колодки', partPhoto: 'Фото детали (необязательно)',
+    preferredLanguage: 'Предпочитаемый язык', selectLanguage: 'Выберите язык', requestedParts: 'Нужные запчасти (до 10)', part: 'Деталь', partExample: 'Например: передние тормозные колодки', partPhoto: 'Фото детали (необязательно)', addPart: 'Добавить ещё деталь',
     chooseFromGallery: 'Выбрать из галереи', takePhoto: 'Сделать фото', photoSelected: 'Фото выбрано ✓',
     vinStepTitle: 'VIN и фото автомобиля (необязательно)', vinPhoto: 'Фото VIN', carPhoto: 'Фото авто', vinManual: 'VIN вручную',
     phone: 'Телефон / WhatsApp', deliveryCountry: 'Страна доставки', country: 'Страна', deliveryCity: 'Город доставки (необязательно)', city: 'Город', deliveryDetails: 'Детали доставки (необязательно)', detailsPlaceholder: 'Район, адрес и другая информация для доставки',
@@ -49,7 +50,7 @@ const translations = {
   tg: {
     title: 'Ба мо бигӯед, ки ба мошини шумо чӣ лозим аст.', subtitle: 'Қисмҳои лозимиро нависед, ва коршиносони мо беҳтарин вариантҳоро дар Дубай пайдо мекунанд.',
     step: 'Қадам', of: 'аз', brand: 'Бренд', selectBrand: 'Брендро интихоб кунед', model: 'Модел', selectModel: 'Моделро интихоб кунед', typeModel: 'Моделро ворид кунед', year: 'Сол', selectYear: 'Солро интихоб кунед',
-    preferredLanguage: 'Забони бартаридошта', selectLanguage: 'Забонро интихоб кунед', requestedParts: 'Қисмҳои дархостшуда (то 3)', part: 'Қисм', partExample: 'Мисол: колодкаҳои пеши тормоз', partPhoto: 'Акси қисм (ихтиёрӣ)',
+    preferredLanguage: 'Забони бартаридошта', selectLanguage: 'Забонро интихоб кунед', requestedParts: 'Қисмҳои дархостшуда (то 10)', part: 'Қисм', partExample: 'Мисол: колодкаҳои пеши тормоз', partPhoto: 'Акси қисм (ихтиёрӣ)', addPart: 'Илова кардани қисми дигар',
     chooseFromGallery: 'Аз галерея интихоб кунед', takePhoto: 'Сурат гиред', photoSelected: 'Сурат интихоб шуд ✓',
     vinStepTitle: 'VIN ва аксҳои мошин (ихтиёрӣ)', vinPhoto: 'Акси VIN', carPhoto: 'Акси мошин', vinManual: 'Воридкунии VIN дастӣ',
     phone: 'Телефон / WhatsApp', deliveryCountry: 'Кишвари таҳвил', country: 'Кишвар', deliveryCity: 'Шаҳри таҳвил (ихтиёрӣ)', city: 'Шаҳр', deliveryDetails: 'Тафсилоти таҳвил (ихтиёрӣ)', detailsPlaceholder: 'Ноҳия, суроға ва маълумоти иловагӣ барои таҳвил',
@@ -61,7 +62,7 @@ const translations = {
   ky: {
     title: 'Унааңызга эмне керек экенин айтып бериңиз.', subtitle: 'Керектүү тетиктерди жазыңыз, биздин адистер Дубайдан эң жакшы варианттарды табышат.',
     step: 'Кадам', of: 'дан', brand: 'Бренд', selectBrand: 'Брендди тандаңыз', model: 'Модель', selectModel: 'Моделди тандаңыз', typeModel: 'Моделди жазыңыз', year: 'Жылы', selectYear: 'Жылды тандаңыз',
-    preferredLanguage: 'Тандалган тил', selectLanguage: 'Тилди тандаңыз', requestedParts: 'Суралган тетиктер (3кө чейин)', part: 'Тетик', partExample: 'Мисалы: алдыңкы тормоз колодкалары', partPhoto: 'Тетиктин сүрөтү (милдеттүү эмес)',
+    preferredLanguage: 'Тандалган тил', selectLanguage: 'Тилди тандаңыз', requestedParts: 'Суралган тетиктер (10го чейин)', part: 'Тетик', partExample: 'Мисалы: алдыңкы тормоз колодкалары', partPhoto: 'Тетиктин сүрөтү (милдеттүү эмес)', addPart: 'Дагы тетик кошуу',
     chooseFromGallery: 'Галереядан тандаңыз', takePhoto: 'Сүрөткө тартыңыз', photoSelected: 'Сүрөт тандалды ✓',
     vinStepTitle: 'VIN жана унаанын сүрөттөрү (милдеттүү эмес)', vinPhoto: 'VIN сүрөтү', carPhoto: 'Унаа сүрөтү', vinManual: 'VIN кол менен киргизүү',
     phone: 'Телефон / WhatsApp', deliveryCountry: 'Жеткирүү өлкөсү', country: 'Өлкө', deliveryCity: 'Жеткирүү шаары (милдеттүү эмес)', city: 'Шаар', deliveryDetails: 'Жеткирүү чоо-жайы (милдеттүү эмес)', detailsPlaceholder: 'Район, дарек жана жеткирүү боюнча кошумча маалымат',
@@ -73,7 +74,7 @@ const translations = {
   uz: {
     title: 'Mashinangizga nima kerakligini ayting.', subtitle: 'Kerakli ehtiyot qismlarni yozing, mutaxassislarimiz Dubaydan eng yaxshi variantlarni topadi.',
     step: 'Qadam', of: 'dan', brand: 'Brend', selectBrand: 'Brendni tanlang', model: 'Model', selectModel: 'Modelni tanlang', typeModel: 'Modelni kiriting', year: 'Yil', selectYear: 'Yilni tanlang',
-    preferredLanguage: 'Afzal til', selectLanguage: 'Tilni tanlang', requestedParts: 'So‘ralgan qismlar (3 tagacha)', part: 'Qism', partExample: 'Masalan: old tormoz kolodkalari', partPhoto: 'Qism rasmi (ixtiyoriy)',
+    preferredLanguage: 'Afzal til', selectLanguage: 'Tilni tanlang', requestedParts: 'So‘ralgan qismlar (10 tagacha)', part: 'Qism', partExample: 'Masalan: old tormoz kolodkalari', partPhoto: 'Qism rasmi (ixtiyoriy)', addPart: 'Yana qism qo‘shish',
     chooseFromGallery: 'Galereyadan tanlang', takePhoto: 'Rasmga oling', photoSelected: 'Rasm tanlandi ✓',
     vinStepTitle: 'VIN va avtomobil rasmlari (ixtiyoriy)', vinPhoto: 'VIN rasmi', carPhoto: 'Avtomobil rasmi', vinManual: 'VINni qo‘lda kiritish',
     phone: 'Telefon / WhatsApp', deliveryCountry: 'Yetkazib berish davlati', country: 'Davlat', deliveryCity: 'Yetkazib berish shahri (ixtiyoriy)', city: 'Shahar', deliveryDetails: 'Yetkazib berish tafsilotlari (ixtiyoriy)', detailsPlaceholder: 'Hudud, manzil va yetkazib berish bo‘yicha qo‘shimcha ma’lumot',
@@ -91,11 +92,17 @@ interface RequestedPartInput {
 }
 
 const createRequestedPartInputs = (): RequestedPartInput[] =>
-  Array.from({ length: REQUEST_PART_FIELDS }, (_, index) => ({
+  Array.from({ length: INITIAL_REQUEST_PART_FIELDS }, (_, index) => ({
     id: `requested-part-${index + 1}`,
     name: '',
     photoData: null
   }));
+
+const createRequestedPartInput = (): RequestedPartInput => ({
+  id: createId(),
+  name: '',
+  photoData: null
+});
 
 const createId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -166,6 +173,13 @@ const PublicOrderFormScreen: React.FC = () => {
 
   const updateRequestedPart = (index: number, updates: Partial<RequestedPartInput>) => {
     setRequestedParts((current) => current.map((part, partIndex) => (partIndex === index ? { ...part, ...updates } : part)));
+  };
+
+  const addRequestedPart = () => {
+    setRequestedParts((current) => {
+      if (current.length >= MAX_REQUEST_PART_FIELDS) return current;
+      return [...current, createRequestedPartInput()];
+    });
   };
 
   const submitOrder = async () => {
@@ -472,6 +486,15 @@ const PublicOrderFormScreen: React.FC = () => {
                   </div>
                 </div>
               ))}
+              {requestedParts.length < MAX_REQUEST_PART_FIELDS && (
+                <button
+                  type="button"
+                  onClick={addRequestedPart}
+                  className="flex h-12 w-full items-center justify-center rounded-2xl border border-white/20 bg-white/10 px-4 text-sm font-semibold text-slate-100 transition hover:bg-white/15"
+                >
+                  {locale.addPart}
+                </button>
+              )}
             </div>
           )}
 
