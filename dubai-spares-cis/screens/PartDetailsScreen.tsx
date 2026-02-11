@@ -1,18 +1,29 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { PriceVariant } from '../types';
-import { 
-  ArrowLeft, 
-  Camera, 
-  Phone, 
-  MapPin, 
-  Trash2, 
-  Plus, 
+import { OfferAvailability, OfferCondition, PriceVariant } from '../types';
+import {
+  ArrowLeft,
+  Camera,
+  Phone,
+  MapPin,
+  Trash2,
+  Plus,
   Store,
   Navigation,
   X,
-  Loader2
+  Loader2,
+  MoreHorizontal,
+  Star,
+  Copy,
+  MessageCircle,
+  ClipboardPaste,
+  Clock3,
+  Package,
+  ChevronDown,
+  Check,
+  ExternalLink,
+  Images
 } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
@@ -20,84 +31,168 @@ import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
 
+interface OfferFormState {
+  priceAed: string;
+  shopName: string;
+  phone: string;
+  locationText: string;
+  mapsUrl: string;
+  photos: string[];
+  condition: OfferCondition;
+  availability: OfferAvailability;
+  deliveryEta: 'today' | 'tomorrow' | '2_3_days' | 'week';
+  isBest: boolean;
+}
+
+const DEFAULT_FORM: OfferFormState = {
+  priceAed: '',
+  shopName: '',
+  phone: '+971',
+  locationText: '',
+  mapsUrl: '',
+  photos: [],
+  condition: 'used',
+  availability: 'in_stock',
+  deliveryEta: 'today',
+  isBest: false
+};
+
+const conditionLabels: Record<OfferCondition, string> = {
+  new: 'NEW',
+  used: 'USED',
+  scrapyard: 'SCRAPYARD'
+};
+
+const availabilityLabels: Record<OfferAvailability, string> = {
+  in_stock: 'In stock',
+  '1d': '1 day',
+  '2_3d': '2–3 days',
+  by_order: 'By order'
+};
+
+const etaLabels: Record<OfferFormState['deliveryEta'], string> = {
+  today: 'Сегодня',
+  tomorrow: 'Завтра',
+  '2_3_days': '2-3 дня',
+  week: 'Неделя'
+};
+
 const PartDetailsScreen: React.FC = () => {
-  const { orderId, partId } = useParams<{ orderId: string, partId: string }>();
+  const { orderId, partId } = useParams<{ orderId: string; partId: string }>();
   const navigate = useNavigate();
   const { orders, updateOrder, suppliers, addSupplier, updateSupplier } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const variantsListRef = useRef<HTMLDivElement>(null);
 
-  const order = orders.find(o => o.id === orderId);
-  const part = order?.parts.find(p => p.id === partId);
+  const order = orders.find((o) => o.id === orderId);
+  const part = order?.parts.find((p) => p.id === partId);
 
   const [isAdding, setIsAdding] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [deleteVariantId, setDeleteVariantId] = useState<string | null>(null);
+  const [editingVariantId, setEditingVariantId] = useState<string | null>(null);
+  const [showAfterSaveSheet, setShowAfterSaveSheet] = useState(false);
 
-  const [priceAed, setPriceAed] = useState('');
-  const [shopName, setShopName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [location, setLocation] = useState('');
-  // Multiple photos for variant
-  const [variantPhotos, setVariantPhotos] = useState<string[]>([]);
+  const [form, setForm] = useState<OfferFormState>(DEFAULT_FORM);
   const [isLocating, setIsLocating] = useState(false);
   const [isResolvingLocation, setIsResolvingLocation] = useState(false);
   const [locationParseNotice, setLocationParseNotice] = useState<string | null>(null);
 
-  // LOGIC: Find the most recently added variant within THIS order
+  const isEditing = !!editingVariantId;
+
   const latestOrderVariant = useMemo(() => {
     if (!order) return null;
     let latest: PriceVariant | null = null;
-    
-    order.parts.forEach(p => {
-      p.variants.forEach(v => {
-        if (!latest || v.createdAt > latest.createdAt) {
-          latest = v;
-        }
+    order.parts.forEach((p) => {
+      p.variants.forEach((v) => {
+        if (!latest || v.createdAt > latest.createdAt) latest = v;
       });
     });
     return latest;
   }, [order]);
 
+  const numericPrice = Number(form.priceAed.replace(/\s+/g, ''));
+  const isPriceValid = Number.isFinite(numericPrice) && numericPrice > 0;
+  const canSave = isPriceValid && !!form.shopName.trim();
+
+  const historyPrices = useMemo(() => part?.variants.map((v) => v.priceAed).filter(Boolean) || [], [part?.variants]);
+  const avgHistoryPrice = historyPrices.length ? historyPrices.reduce((a, b) => a + b, 0) / historyPrices.length : 0;
+  const isPriceOutlier = avgHistoryPrice > 0 && isPriceValid && (numericPrice < avgHistoryPrice * 0.6 || numericPrice > avgHistoryPrice * 1.6);
+
+  const approxClientPrice = useMemo(() => {
+    if (!isPriceValid || !order?.exchangeRate) return null;
+    const currency = order.clientCurrency || 'USD';
+    if (currency === 'AED') return `${numericPrice.toFixed(0)} AED`;
+    return `${(numericPrice / order.exchangeRate).toFixed(0)} ${currency}`;
+  }, [isPriceValid, numericPrice, order?.exchangeRate, order?.clientCurrency]);
+
   useEffect(() => {
-    if (isAdding) {
-      if (latestOrderVariant) {
-        // ✅ FIX: guard against TS inferring "never" by reading via any + fallback
-        const v = latestOrderVariant as any;
-        setShopName(v?.shopName ?? '');
-        setPhone(v?.phone ?? '');
-        setLocation(v?.location ?? '');
-        setLocationParseNotice(null);
-      } else {
-        setShopName('');
-        setPhone('');
-        setLocation('');
-        setLocationParseNotice(null);
-      }
+    if (!isAdding) return;
+    if (isEditing && part) {
+      const editable = part.variants.find((v) => v.id === editingVariantId);
+      if (!editable) return;
+      setForm({
+        priceAed: String(editable.priceAed || ''),
+        shopName: editable.shopName || '',
+        phone: editable.phone || '+971',
+        locationText: editable.locationText || editable.location || '',
+        mapsUrl: editable.mapsUrl || '',
+        photos: editable.photos || (editable.photoUrl ? [editable.photoUrl] : []),
+        condition: editable.condition || 'used',
+        availability: editable.availability || 'in_stock',
+        deliveryEta: editable.deliveryEta || 'today',
+        isBest: part.bestOfferId === editable.id
+      });
+      return;
     }
-  }, [isAdding, latestOrderVariant]);
+
+    if (latestOrderVariant) {
+      setForm((prev) => ({
+        ...prev,
+        shopName: latestOrderVariant.shopName ?? '',
+        phone: latestOrderVariant.phone || '+971',
+        locationText: latestOrderVariant.locationText || latestOrderVariant.location || '',
+        mapsUrl: latestOrderVariant.mapsUrl || '',
+        condition: latestOrderVariant.condition || prev.condition,
+        availability: latestOrderVariant.availability || prev.availability
+      }));
+    } else {
+      setForm(DEFAULT_FORM);
+    }
+    setLocationParseNotice(null);
+  }, [isAdding, isEditing, part, editingVariantId, latestOrderVariant]);
 
   if (!order || !part) return <div className="p-10 text-center text-gray-400 font-bold">ДЕТАЛЬ НЕ НАЙДЕНА</div>;
 
+  const handleFormPatch = <T extends keyof OfferFormState>(key: T, value: OfferFormState[T]) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const files = Array.from(e.target.files);
-      files.forEach(file => {
-        const reader = new FileReader();
-        reader.onloadend = () => setVariantPhotos(prev => [...prev, reader.result as string]);
-        reader.readAsDataURL(file as Blob);
-      });
-    }
+    if (!e.target.files || e.target.files.length === 0) return;
+    const files = Array.from(e.target.files);
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setForm((prev) => ({ ...prev, photos: [...prev.photos, reader.result as string] }));
+      };
+      reader.readAsDataURL(file as Blob);
+    });
   };
 
   const removeVariantPhoto = (index: number) => {
-    setVariantPhotos(prev => prev.filter((_, i) => i !== index));
+    setForm((prev) => ({ ...prev, photos: prev.photos.filter((_, i) => i !== index) }));
   };
 
-  const handleShopSelect = (s: any) => {
-    setShopName(s.name);
-    setPhone(s.phone);
-    setLocation(s.location);
+  const handleShopSelect = (supplier: any) => {
+    setForm((prev) => ({
+      ...prev,
+      shopName: supplier.name,
+      phone: supplier.phone || prev.phone,
+      locationText: supplier.location || prev.locationText
+    }));
     setShowSuggestions(false);
   };
 
@@ -106,27 +201,31 @@ const PartDetailsScreen: React.FC = () => {
     setIsLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const link = `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`;
-        setLocation(link);
+        const mapsUrl = `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`;
+        setForm((prev) => ({
+          ...prev,
+          mapsUrl,
+          locationText: prev.locationText || `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`
+        }));
         setIsLocating(false);
       },
       () => setIsLocating(false)
     );
   };
 
-
   const buildShopFallbackQueries = () => {
+    const location = form.locationText;
     const cityHints = ['Dubai', 'Sharjah'].filter((city) => location.toLowerCase().includes(city.toLowerCase()));
     const queries = new Set<string>();
-    if (shopName.trim()) {
-      queries.add(shopName.trim());
-      queries.add(`${shopName.trim()} Dubai`);
-      queries.add(`${shopName.trim()} Sharjah`);
+    if (form.shopName.trim()) {
+      queries.add(form.shopName.trim());
+      queries.add(`${form.shopName.trim()} Dubai`);
+      queries.add(`${form.shopName.trim()} Sharjah`);
     }
 
     const specialization = [order.brand, order.model].filter(Boolean).join(' ').trim();
     if (specialization) {
-      const base = `${shopName.trim()} ${specialization}`.trim();
+      const base = `${form.shopName.trim()} ${specialization}`.trim();
       queries.add(base);
       if (cityHints.length === 0) {
         queries.add(`${base} Dubai`);
@@ -139,16 +238,24 @@ const PartDetailsScreen: React.FC = () => {
     return Array.from(queries);
   };
 
+  const closeEditor = () => {
+    setIsAdding(false);
+    setEditingVariantId(null);
+    setForm(DEFAULT_FORM);
+    setLocationParseNotice(null);
+  };
+
   const saveVariant = async () => {
-    if (!priceAed || !shopName) {
-      alert('Укажите цену и название магазина');
+    if (!canSave) {
+      alert('Введите цену и магазин');
       return;
     }
 
     setIsResolvingLocation(true);
     try {
-      const existingSupplier = suppliers.find(s => s.name.toLowerCase() === shopName.toLowerCase());
-      const resolvedCoordinates = await resolveCoordinatesFromLocation(location, {
+      const existingSupplier = suppliers.find((s) => s.name.toLowerCase() === form.shopName.toLowerCase());
+      const locationSource = form.mapsUrl || form.locationText;
+      const resolvedCoordinates = await resolveCoordinatesFromLocation(locationSource, {
         fallbackQueries: buildShopFallbackQueries(),
         onManualLocationRequired: setLocationParseNotice
       });
@@ -156,9 +263,9 @@ const PartDetailsScreen: React.FC = () => {
       if (!existingSupplier) {
         const newSupplier = {
           id: createUuid(),
-          name: shopName,
-          phone,
-          location,
+          name: form.shopName,
+          phone: form.phone,
+          location: form.locationText,
           brands: [order.brand],
           models: order.model ? [order.model] : [],
           years: order.year ? [Number(order.year)].filter(Number.isFinite) : [],
@@ -167,273 +274,388 @@ const PartDetailsScreen: React.FC = () => {
         };
         addSupplier(newSupplier);
         await upsertSupplierToShops(newSupplier);
-      } else if (!existingSupplier.brands.includes(order.brand) || !existingSupplier.coordinates || (!!order.bodyType && !(existingSupplier.bodyTypes || []).includes(order.bodyType))) {
+      } else {
         const updatedSupplier = {
           ...existingSupplier,
+          phone: existingSupplier.phone || form.phone,
+          location: existingSupplier.location || form.locationText,
           brands: existingSupplier.brands.includes(order.brand)
             ? existingSupplier.brands
             : [...existingSupplier.brands, order.brand],
-          bodyTypes: order.bodyType && !(existingSupplier.bodyTypes || []).includes(order.bodyType)
-            ? [...(existingSupplier.bodyTypes || []), order.bodyType]
-            : (existingSupplier.bodyTypes || []),
           coordinates: existingSupplier.coordinates || resolvedCoordinates
         };
         updateSupplier(updatedSupplier);
         await upsertSupplierToShops(updatedSupplier);
       }
 
+      const variantId = editingVariantId || createUuid();
       const newVariant: PriceVariant = {
-        id: Math.random().toString(36).substr(2, 9),
-        priceAed: parseFloat(priceAed),
-        shopName,
-        phone,
-        location,
-        photos: variantPhotos,
-        photoUrl: variantPhotos[0], // Back-compat
-        createdAt: Date.now()
+        id: variantId,
+        partId: part.id,
+        priceAed: Number(form.priceAed.replace(/\s+/g, '')),
+        currency: 'AED',
+        shopName: form.shopName.trim(),
+        shopNameManual: form.shopName.trim(),
+        phone: form.phone,
+        location: form.locationText,
+        locationText: form.locationText,
+        mapsUrl: form.mapsUrl,
+        lat: resolvedCoordinates?.lat,
+        lng: resolvedCoordinates?.lng,
+        photos: form.photos,
+        photoUrl: form.photos[0],
+        condition: form.condition,
+        availability: form.availability,
+        deliveryEta: form.deliveryEta,
+        isBest: form.isBest,
+        syncStatus: navigator.onLine ? 'synced' : 'pending',
+        createdAt: editingVariantId ? part.variants.find((v) => v.id === editingVariantId)?.createdAt || Date.now() : Date.now(),
+        updatedAt: Date.now()
       };
 
-      const updatedParts = order.parts.map(p => {
-        if (p.id === partId) {
-          return {
-            ...p,
-            isFound: true,
-            photoUrl: p.photoUrl || variantPhotos[0], // Set main part photo if none
-            photos: (!p.photos || p.photos.length === 0) ? variantPhotos : p.photos,
-            variants: [newVariant, ...p.variants]
-          };
-        }
-        return p;
+      const updatedParts = order.parts.map((p) => {
+        if (p.id !== partId) return p;
+        const exists = p.variants.some((v) => v.id === variantId);
+        const variants = exists
+          ? p.variants.map((v) => (v.id === variantId ? newVariant : v))
+          : [newVariant, ...p.variants];
+
+        const bestOfferId = form.isBest ? variantId : p.bestOfferId === variantId ? undefined : p.bestOfferId;
+        return {
+          ...p,
+          isFound: true,
+          bestOfferId,
+          photoUrl: p.photoUrl || form.photos[0],
+          photos: p.photos?.length ? p.photos : form.photos,
+          variants: variants.map((v) => ({ ...v, isBest: form.isBest ? v.id === variantId : v.isBest && v.id !== variantId }))
+        };
       });
 
       updateOrder({ ...order, parts: updatedParts });
-      setIsAdding(false);
-      setPriceAed('');
-      setVariantPhotos([]);
-      setLocationParseNotice(null);
+      setShowAfterSaveSheet(!editingVariantId);
+      closeEditor();
     } finally {
       setIsResolvingLocation(false);
     }
   };
 
   const confirmDeleteVariant = () => {
-    if (deleteVariantId) {
-      const updatedParts = order.parts.map(p => {
-        if (p.id === partId) {
-          const newVariants = p.variants.filter(v => v.id !== deleteVariantId);
-          return { ...p, variants: newVariants, isFound: newVariants.length > 0 };
-        }
-        return p;
-      });
-      updateOrder({ ...order, parts: updatedParts });
-      setDeleteVariantId(null);
-    }
+    if (!deleteVariantId) return;
+    const updatedParts = order.parts.map((p) => {
+      if (p.id !== partId) return p;
+      const newVariants = p.variants.filter((v) => v.id !== deleteVariantId);
+      return {
+        ...p,
+        variants: newVariants,
+        isFound: newVariants.length > 0,
+        bestOfferId: p.bestOfferId === deleteVariantId ? undefined : p.bestOfferId
+      };
+    });
+    updateOrder({ ...order, parts: updatedParts });
+    setDeleteVariantId(null);
   };
 
-  const getVariantPhotos = (v: PriceVariant) => {
-    if (v.photos && v.photos.length > 0) return v.photos;
-    if (v.photoUrl) return [v.photoUrl];
+  const getVariantPhotos = (variant: PriceVariant) => {
+    if (variant.photos?.length) return variant.photos;
+    if (variant.photoUrl) return [variant.photoUrl];
     return [];
   };
 
   const openGallery = (e: React.MouseEvent, variant: PriceVariant) => {
     e.stopPropagation();
     const images = getVariantPhotos(variant);
-    if (images.length === 0) return;
+    if (!images.length) return;
     setGallery({ images, index: 0 });
   };
 
-  const filteredSuppliers = suppliers.filter(s => 
-    s.name.toLowerCase().includes(shopName.toLowerCase())
-  ).slice(0, 3);
+  const filteredSuppliers = suppliers.filter((s) => s.name.toLowerCase().includes(form.shopName.toLowerCase())).slice(0, 5);
 
   const openRoute = (variant: PriceVariant) => {
-    if (!variant.location) return;
-    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(variant.location)}`, '_blank');
+    const query = variant.mapsUrl || variant.locationText || variant.location;
+    if (!query) return;
+    const normalized = query.startsWith('http') ? query : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+    window.open(normalized, '_blank');
   };
 
   const openWhatsapp = (variant: PriceVariant) => {
     const phoneRaw = (variant.phone || '').replace(/[^\d+]/g, '');
     if (!phoneRaw) return;
-    const message = `Hi, do you have ${part.name} for ${order.brand} ${order.model}?`;
+    const message = `Привет! Нужна ${part.name} на ${order.brand} ${order.model} ${order.year}.\nЕсть в наличии? Цена? Состояние?\nМожно фото/номер детали? 🙏${order.vin ? `\nVIN: ${order.vin}` : ''}`;
     window.open(`https://wa.me/${phoneRaw.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
+  const formatPhone = (value: string) => {
+    const cleaned = value.replace(/[^\d+]/g, '');
+    if (cleaned.startsWith('+')) return cleaned;
+    if (!cleaned) return '+971';
+    return `+${cleaned}`;
+  };
+
+  const pasteFromClipboard = async (target: 'priceAed' | 'phone' | 'locationText' | 'mapsUrl') => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      if (target === 'phone') handleFormPatch('phone', formatPhone(text));
+      else handleFormPatch(target, text as never);
+    } catch {
+      alert('Буфер обмена недоступен');
+    }
+  };
+
+  const duplicateTopVariant = () => {
+    const source = part.variants[0];
+    if (!source) return;
+    setIsAdding(true);
+    setEditingVariantId(null);
+    setForm({
+      priceAed: String(source.priceAed || ''),
+      shopName: source.shopName || '',
+      phone: source.phone || '+971',
+      locationText: source.locationText || source.location || '',
+      mapsUrl: source.mapsUrl || '',
+      photos: source.photos || [],
+      condition: source.condition || 'used',
+      availability: source.availability || 'in_stock',
+      deliveryEta: source.deliveryEta || 'today',
+      isBest: false
+    });
+  };
+
   return (
-    <div className="flex flex-col min-h-full bg-gray-50 pb-10 overflow-x-hidden">
-      <div className="bg-white p-4 border-b border-gray-100 sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center justify-between">
-          <button onClick={() => navigate(`/order/${orderId}`)} className="p-3 -ml-2 text-gray-600 active:bg-gray-100 rounded-full transition-colors"><ArrowLeft size={24} /></button>
-          <div className="text-center flex-1 mx-2">
+    <div className="flex flex-col min-h-full bg-gray-50 pb-28 overflow-x-hidden">
+      <div className="bg-white p-4 border-b border-gray-100 sticky top-0 z-20 shadow-sm">
+        <div className="flex items-start justify-between gap-2">
+          <button onClick={() => navigate(`/order/${orderId}`)} className="p-3 -ml-2 text-gray-600 active:bg-gray-100 rounded-full transition-colors"><ArrowLeft size={22} /></button>
+          <div className="text-center flex-1">
             <h1 className="font-black text-lg truncate leading-tight uppercase tracking-tight">{part.name}</h1>
-            <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">{order.brand} {order.model}</p>
+            <p className="text-[11px] text-gray-600 font-bold">{order.brand} {order.model} · {order.year || '—'} {order.vin ? `· VIN ${order.vin}` : ''}</p>
           </div>
-          <div className="w-10" />
+          <div className="relative">
+            <button onClick={() => setShowMenu((prev) => !prev)} className="p-3 text-gray-600 rounded-full active:bg-gray-100"><MoreHorizontal size={20} /></button>
+            {showMenu && (
+              <div className="absolute top-12 right-0 w-56 rounded-2xl bg-white border border-gray-100 shadow-2xl overflow-hidden">
+                <button type="button" onClick={() => { variantsListRef.current?.scrollIntoView({ behavior: 'smooth' }); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm font-bold hover:bg-gray-50">Показать все варианты</button>
+                <button type="button" onClick={() => { alert(historyPrices.length ? `История цен: ${historyPrices.join(', ')} AED` : 'История пока пустая'); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm font-bold hover:bg-gray-50">История цен</button>
+                <button type="button" onClick={() => { duplicateTopVariant(); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm font-bold hover:bg-gray-50">Дублировать вариант</button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="p-4 space-y-4">
         {!isAdding ? (
-          <button 
-            type="button"
-            onClick={() => setIsAdding(true)}
-            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all uppercase text-xs"
-          >
-            <Plus size={22} /> Добавить вариант
-          </button>
+          <div className="space-y-3">
+            <button type="button" onClick={() => { setIsAdding(true); setEditingVariantId(null); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg uppercase text-xs"><Plus size={20} /> Добавить вариант</button>
+            {latestOrderVariant && (
+              <button type="button" onClick={() => setForm((prev) => ({ ...prev, shopName: latestOrderVariant.shopName || '', phone: latestOrderVariant.phone || prev.phone, locationText: latestOrderVariant.locationText || latestOrderVariant.location || '' }))} className="w-full px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-black">Последний магазин: {latestOrderVariant.shopName}</button>
+            )}
+          </div>
         ) : (
-          <form 
-            onSubmit={async (e) => { e.preventDefault(); await saveVariant(); }}
-            className="bg-white rounded-3xl shadow-xl overflow-hidden border border-blue-50 animate-in slide-in-from-bottom duration-300"
-          >
-            <div className="p-5 space-y-5">
+          <form onSubmit={async (e) => { e.preventDefault(); await saveVariant(); }} className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="p-4 space-y-4">
               <div className="flex justify-between items-center">
-                <h3 className="font-black text-blue-600 uppercase tracking-tighter">Новая цена</h3>
-                <button type="button" onClick={() => setIsAdding(false)} className="p-2 text-gray-300 active:text-gray-500"><Trash2 size={22} /></button>
+                <h3 className="font-black text-blue-700">{isEditing ? 'Редактировать вариант' : 'Новая цена'}</h3>
+                <button type="button" onClick={closeEditor} className="p-2 text-gray-400 active:text-gray-600"><X size={20} /></button>
               </div>
 
-              <div className="flex flex-col gap-4">
-                 {/* Multiple Photo Upload UI */}
-                 <div className="flex gap-2 overflow-x-auto no-scrollbar items-center pb-1">
-                     <div 
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-24 h-24 bg-gray-50 rounded-2xl flex flex-col items-center justify-center border-2 border-dashed border-gray-200 shrink-0 cursor-pointer active:bg-gray-100 transition-colors"
-                      >
-                         <Camera size={26} className="text-gray-300" />
-                         <span className="text-[10px] text-gray-400 font-black tracking-tighter uppercase mt-1">ФОТО</span>
-                      </div>
-                      {variantPhotos.map((p, i) => (
-                          <div key={i} className="relative w-24 h-24 shrink-0 rounded-2xl overflow-hidden border border-gray-200">
-                              <img src={p} className="w-full h-full object-cover" />
-                              <button 
-                                  type="button" 
-                                  onClick={() => removeVariantPhoto(i)}
-                                  className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1 backdrop-blur-sm"
-                              >
-                                  <X size={12} />
-                              </button>
-                          </div>
-                      ))}
-                      <input type="file" ref={fileInputRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
-                 </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Цена (AED)</label>
-                  <input 
-                    type="number" 
-                    autoFocus 
-                    value={priceAed} 
-                    onChange={(e) => setPriceAed(e.target.value)} 
-                    placeholder="0" 
-                    className="w-full text-4xl font-black bg-transparent border-b-4 border-blue-500 outline-none p-0 focus:border-blue-600 text-blue-600" 
-                  />
+              <div>
+                <label className="text-xs font-black text-gray-700">Фото</label>
+                <div className="flex gap-2 overflow-x-auto mt-2 pb-1">
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-300 flex flex-col justify-center items-center shrink-0"><Camera size={20} className="text-gray-400" /><span className="text-[10px] font-black text-gray-500">+ Фото</span></button>
+                  {form.photos.map((photo, index) => (
+                    <div key={`${photo}-${index}`} className="relative w-24 h-24 shrink-0 rounded-xl overflow-hidden border border-gray-200">
+                      <img src={photo} className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => removeVariantPhoto(index)} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"><X size={12} /></button>
+                    </div>
+                  ))}
+                  <input type="file" ref={fileInputRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="relative">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Магазин</label>
-                  <div className="flex items-center gap-3 mt-1 bg-gray-50 p-4 rounded-2xl border border-gray-100 shadow-inner">
-                    <Store size={20} className="text-gray-400" />
-                    <input type="text" value={shopName} onChange={(e) => { setShopName(e.target.value); setShowSuggestions(true); }} className="flex-1 bg-transparent outline-none font-bold text-base" placeholder="Dubai Spare..." />
-                  </div>
-                  {showSuggestions && shopName && filteredSuppliers.length > 0 && (
-                    <div className="absolute z-20 top-full left-0 right-0 bg-white shadow-2xl rounded-2xl mt-1 border border-gray-100 overflow-hidden">
-                      {filteredSuppliers.map(s => (
-                        <button key={s.id} type="button" onClick={() => handleShopSelect(s)} className="w-full text-left p-4 border-b border-gray-50 last:border-none flex items-center justify-between active:bg-blue-50">
-                          <div><div className="font-bold text-sm uppercase tracking-tight">{s.name}</div><div className="text-[10px] text-gray-400 font-black">{s.phone}</div></div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+              <div>
+                <label className="text-xs font-black text-gray-700">Цена (AED)</label>
+                <div className="flex items-center gap-2">
+                  <input type="text" autoFocus value={form.priceAed} onChange={(e) => handleFormPatch('priceAed', e.target.value.replace(/[^\d]/g, ''))} placeholder="1250" className="h-12 px-4 text-2xl font-black text-blue-700 w-full border border-gray-200 rounded-xl" />
+                  <button type="button" onClick={() => pasteFromClipboard('priceAed')} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><ClipboardPaste size={16} /></button>
                 </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Телефон</label>
-                  <div className="flex items-center gap-3 mt-1 bg-gray-50 p-4 rounded-2xl border border-gray-100 shadow-inner">
-                    <Phone size={20} className="text-gray-400" />
-                    <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="flex-1 bg-transparent outline-none font-bold text-base" placeholder="+971..." />
-                  </div>
-                  {locationParseNotice && (
-                    <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
-                      {locationParseNotice}
-                    </div>
-                  )}
+                <div className="flex gap-2 mt-2">
+                  {[50, 100, 200].map((delta) => (
+                    <button key={delta} type="button" onClick={() => handleFormPatch('priceAed', String((Number(form.priceAed || 0) + delta)))} className="px-3 h-8 rounded-lg bg-gray-100 text-xs font-black">+{delta}</button>
+                  ))}
                 </div>
+                {approxClientPrice && <p className="text-xs text-gray-600 mt-1">≈ {approxClientPrice}</p>}
+                {isPriceOutlier && <p className="text-xs text-amber-700 mt-1">Проверь цену ⚠️ относительно истории.</p>}
+              </div>
 
+              <div>
+                <label className="text-xs font-black text-gray-700">Состояние</label>
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  {(Object.keys(conditionLabels) as OfferCondition[]).map((condition) => (
+                    <button key={condition} type="button" onClick={() => handleFormPatch('condition', condition)} className={`h-10 rounded-xl text-xs font-black border ${form.condition === condition ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-700'}`}>{conditionLabels[condition]}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Локация</label>
-                  <div className="flex gap-2 mt-1">
-                    <div className="flex-1 flex items-center gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-100 shadow-inner">
-                      <MapPin size={20} className="text-gray-400" />
-                      <input type="text" value={location} onChange={(e) => { setLocation(e.target.value); setLocationParseNotice(null); }} className="flex-1 bg-transparent outline-none font-bold text-base" placeholder="Ряд / Рядом с..." />
-                    </div>
-                    <button 
-                      type="button"
-                      onClick={getCurrentLocation}
-                      disabled={isLocating}
-                      className={`p-4 rounded-2xl flex items-center justify-center shadow-md transition-all ${isLocating ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white active:scale-95'}`}
-                    >
-                      <Navigation size={22} className={isLocating ? 'animate-pulse' : ''} />
-                    </button>
+                  <label className="text-xs font-black text-gray-700">Наличие</label>
+                  <div className="mt-1 space-y-1">
+                    {(Object.keys(availabilityLabels) as OfferAvailability[]).map((value) => (
+                      <button key={value} type="button" onClick={() => handleFormPatch('availability', value)} className={`w-full h-9 rounded-lg border text-xs font-bold ${form.availability === value ? 'border-blue-600 text-blue-700 bg-blue-50' : 'border-gray-200'}`}>{availabilityLabels[value]}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-black text-gray-700">Срок до склада</label>
+                  <div className="mt-1 space-y-1">
+                    {(Object.keys(etaLabels) as OfferFormState['deliveryEta'][]).map((value) => (
+                      <button key={value} type="button" onClick={() => handleFormPatch('deliveryEta', value)} className={`w-full h-9 rounded-lg border text-xs font-bold ${form.deliveryEta === value ? 'border-blue-600 text-blue-700 bg-blue-50' : 'border-gray-200'}`}>{etaLabels[value]}</button>
+                    ))}
                   </div>
                 </div>
               </div>
 
-              <button type="submit" disabled={isResolvingLocation} className="w-full py-4.5 bg-blue-600 text-white rounded-2xl font-black shadow-xl active:scale-[0.98] transition-all tracking-wider uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">{isResolvingLocation ? <><Loader2 size={14} className="animate-spin" /> Поиск координат...</> : 'СОХРАНИТЬ ВАРИАНТ'}</button>
+              <div className="relative">
+                <label className="text-xs font-black text-gray-700">Магазин</label>
+                <div className="flex items-center gap-2 h-12 px-3 mt-1 border border-gray-200 rounded-xl">
+                  <Store size={16} className="text-gray-500" />
+                  <input value={form.shopName} onChange={(e) => { handleFormPatch('shopName', e.target.value); setShowSuggestions(true); }} className="flex-1 bg-transparent outline-none text-sm font-bold" placeholder="Поиск или новый магазин" />
+                </div>
+                {showSuggestions && form.shopName && filteredSuppliers.length > 0 && (
+                  <div className="absolute top-16 left-0 right-0 z-20 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+                    {filteredSuppliers.map((supplier) => (
+                      <button key={supplier.id} type="button" onClick={() => handleShopSelect(supplier)} className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50">
+                        <p className="font-bold">{supplier.name}</p>
+                        <p className="text-xs text-gray-500">{supplier.phone || 'без телефона'} · {supplier.location || 'без локации'}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs font-black text-gray-700">Телефон</label>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 h-12 px-3 border border-gray-200 rounded-xl flex-1">
+                    <Phone size={16} className="text-gray-500" />
+                    <input value={form.phone} onChange={(e) => handleFormPatch('phone', formatPhone(e.target.value))} className="flex-1 bg-transparent outline-none text-sm font-bold" />
+                  </div>
+                  <button type="button" onClick={() => pasteFromClipboard('phone')} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><ClipboardPaste size={16} /></button>
+                  <button type="button" onClick={() => navigator.clipboard.writeText(form.phone)} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><Copy size={16} /></button>
+                  <button type="button" onClick={() => openWhatsapp({ ...DEFAULT_FORM, ...form, id: 'tmp', priceAed: numericPrice, location: form.locationText, createdAt: Date.now() } as PriceVariant)} className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center"><MessageCircle size={16} /></button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-black text-gray-700">Локация</label>
+                <div className="grid grid-cols-[1fr_auto] gap-2 mt-1">
+                  <div className="h-12 px-3 border border-gray-200 rounded-xl flex items-center gap-2">
+                    <MapPin size={16} className="text-gray-500" />
+                    <input value={form.locationText} onChange={(e) => { handleFormPatch('locationText', e.target.value); setLocationParseNotice(null); }} className="flex-1 bg-transparent outline-none text-sm font-bold" placeholder="Ряд / зона / адрес" />
+                  </div>
+                  <button type="button" onClick={getCurrentLocation} disabled={isLocating} className="h-12 w-12 rounded-xl bg-blue-600 text-white flex items-center justify-center disabled:opacity-60"><Navigation size={16} className={isLocating ? 'animate-pulse' : ''} /></button>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <input value={form.mapsUrl} onChange={(e) => handleFormPatch('mapsUrl', e.target.value)} className="h-11 px-3 border border-gray-200 rounded-xl flex-1 text-sm font-bold" placeholder="Google Maps URL" />
+                  <button type="button" onClick={() => pasteFromClipboard('mapsUrl')} className="h-11 w-11 rounded-xl border border-gray-200 flex items-center justify-center"><ClipboardPaste size={15} /></button>
+                </div>
+                {locationParseNotice && <p className="text-xs text-amber-700 mt-1">{locationParseNotice}</p>}
+              </div>
+
+              <button type="button" onClick={() => handleFormPatch('isBest', !form.isBest)} className={`w-full h-11 rounded-xl border font-black text-sm flex items-center justify-center gap-2 ${form.isBest ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-600'}`}><Star size={16} /> Лучший вариант</button>
+
+              {isEditing && (
+                <p className="text-xs text-gray-500">Создан: {new Date(part.variants.find((v) => v.id === editingVariantId)?.createdAt || Date.now()).toLocaleString()}</p>
+              )}
+            </div>
+
+            <div className="sticky bottom-0 bg-white/95 backdrop-blur border-t border-gray-100 p-3">
+              <button type="submit" disabled={!canSave || isResolvingLocation} className="w-full h-12 rounded-xl bg-blue-600 text-white font-black text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2">{isResolvingLocation ? <><Loader2 size={14} className="animate-spin" /> Сохранение...</> : isEditing ? 'Сохранить изменения' : 'Сохранить вариант'}</button>
+              {!canSave && <p className="text-xs text-gray-500 mt-1">Введите цену и магазин.</p>}
+              {!navigator.onLine && <p className="text-xs text-amber-700 mt-1">⏳ Нет интернета: вариант будет синхронизирован позже.</p>}
             </div>
           </form>
         )}
 
-        <div className="space-y-4 pt-4">
-          <h2 className="font-black text-gray-400 px-1 uppercase text-[10px] tracking-[0.2em]">Варианты цен ({part.variants.length})</h2>
+        <div className="space-y-3 pt-2" ref={variantsListRef}>
+          <h2 className="font-black text-gray-500 uppercase text-[11px] tracking-[0.18em]">Варианты ({part.variants.length})</h2>
           {part.variants.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center">
-              <p className="text-sm font-black text-gray-700">Пока нет вариантов. Добавь первый вариант.</p>
-              <button type="button" onClick={() => setIsAdding(true)} className="mt-4 h-11 px-4 rounded-xl bg-blue-600 text-white text-xs font-black uppercase">+ Добавить вариант</button>
+              <p className="text-sm font-black text-gray-700">Пока нет вариантов.</p>
             </div>
-          ) : part.variants.map(variant => {
-             const displayPhotos = getVariantPhotos(variant);
-             return (
-              <div key={variant.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="p-4 flex gap-4">
-                  {displayPhotos.length > 0 && (
-                    <div className="relative w-20 h-20 shrink-0">
-                        <img src={displayPhotos[0]} onClick={(e) => openGallery(e, variant)} className="w-full h-full object-cover rounded-xl cursor-pointer shadow-sm" />
+          ) : part.variants.map((variant) => {
+            const displayPhotos = getVariantPhotos(variant);
+            const isBest = part.bestOfferId === variant.id || !!variant.isBest;
+            return (
+              <div key={variant.id} className={`bg-white rounded-2xl border overflow-hidden ${isBest ? 'border-emerald-300' : 'border-gray-100'}`}>
+                <div className="p-4 flex gap-3">
+                  <button type="button" onClick={(e) => openGallery(e, variant)} className="w-20 h-20 rounded-xl border border-gray-100 overflow-hidden shrink-0 bg-gray-50 flex items-center justify-center">
+                    {displayPhotos[0] ? <img src={displayPhotos[0]} className="w-full h-full object-cover" /> : <Images size={18} className="text-gray-300" />}
+                  </button>
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex justify-between items-start gap-2">
+                      <div>
+                        <p className="text-2xl font-black text-blue-700 leading-none">{variant.priceAed} AED</p>
+                        <p className="text-xs text-gray-500 font-bold">{variant.shopName}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button type="button" onClick={() => {
+                          const updatedParts = order.parts.map((p) => p.id === part.id ? { ...p, bestOfferId: p.bestOfferId === variant.id ? undefined : variant.id, variants: p.variants.map((v) => ({ ...v, isBest: v.id === variant.id && p.bestOfferId !== variant.id })) } : p);
+                          updateOrder({ ...order, parts: updatedParts });
+                        }} className={`p-2 rounded-lg ${isBest ? 'text-emerald-600 bg-emerald-50' : 'text-gray-300'}`}><Star size={16} fill={isBest ? 'currentColor' : 'none'} /></button>
+                        <button type="button" onClick={() => { setIsAdding(true); setEditingVariantId(variant.id); }} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"><ChevronDown size={16} /></button>
+                        <button type="button" onClick={() => setDeleteVariantId(variant.id)} className="p-2 rounded-lg text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
+                      </div>
                     </div>
-                  )}
-                  <div className="flex-1 min-w-0 flex flex-col gap-1">
-                    <div className="flex justify-between items-start">
-                      <div className="text-2xl font-black text-blue-600 tracking-tight">{variant.priceAed} AED</div>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); setDeleteVariantId(variant.id); }} className="p-2 -m-1 text-gray-300 hover:text-red-500"><Trash2 size={18} /></button>
+                    <div className="flex flex-wrap gap-1 text-[11px] font-bold">
+                      <span className="px-2 py-1 rounded-lg bg-gray-100">{conditionLabels[variant.condition || 'used']}</span>
+                      <span className="px-2 py-1 rounded-lg bg-gray-100">{availabilityLabels[variant.availability || 'in_stock']}</span>
+                      {isBest && <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700">Лучший</span>}
                     </div>
-                    <h4 className="font-black text-gray-800 truncate uppercase tracking-tighter text-sm">{variant.shopName}</h4>
-                    <div className="text-xs text-gray-500 font-bold truncate">{variant.location || 'Локация не указана'}</div>
-                    <div className="text-[11px] inline-flex w-fit px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold">{part.isFound ? 'В наличии' : 'Под заказ'}</div>
-                    <div className="flex items-center gap-2 pt-1">
-                      <button type="button" onClick={() => openWhatsapp(variant)} className="h-9 px-3 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-black">WhatsApp</button>
-                      <button type="button" onClick={() => openRoute(variant)} className="h-9 px-3 rounded-lg bg-blue-50 text-blue-700 text-xs font-black">Маршрут</button>
+                    <p className="text-xs text-gray-600 truncate">{variant.locationText || variant.location || 'Локация не указана'}</p>
+                    <div className="flex gap-2 pt-1">
+                      <button type="button" onClick={() => openWhatsapp(variant)} className="h-8 px-3 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-black">WhatsApp</button>
+                      <button type="button" onClick={() => openRoute(variant)} className="h-8 px-3 rounded-lg bg-blue-50 text-blue-700 text-xs font-black">Маршрут</button>
                     </div>
                   </div>
                 </div>
               </div>
-             );
+            );
           })}
         </div>
       </div>
 
-      <ConfirmModal 
-        isOpen={!!deleteVariantId} 
-        message="Вы уверены, что хотите удалить это предложение?" 
-        onConfirm={confirmDeleteVariant} 
-        onCancel={() => setDeleteVariantId(null)} 
+      {showAfterSaveSheet && (
+        <div className="fixed inset-0 z-40 bg-black/30 flex items-end" onClick={() => setShowAfterSaveSheet(false)}>
+          <div className="w-full bg-white rounded-t-3xl p-4 space-y-2" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-black text-gray-900">✅ Вариант добавлен</p>
+            <button type="button" onClick={() => {
+              const newest = part.variants[0];
+              if (!newest) return;
+              const updatedParts = order.parts.map((p) => p.id === part.id ? { ...p, bestOfferId: newest.id } : p);
+              updateOrder({ ...order, parts: updatedParts });
+              setShowAfterSaveSheet(false);
+            }} className="w-full h-11 rounded-xl border border-gray-200 text-sm font-bold">Сделать лучшим</button>
+            <button type="button" onClick={() => { if (part.variants[0]) openWhatsapp(part.variants[0]); }} className="w-full h-11 rounded-xl border border-gray-200 text-sm font-bold">Открыть WhatsApp магазина</button>
+            <button type="button" onClick={() => { setIsAdding(true); setShowAfterSaveSheet(false); }} className="w-full h-11 rounded-xl border border-gray-200 text-sm font-bold">Добавить ещё вариант</button>
+            <button type="button" onClick={() => navigate(`/order/${order.id}`)} className="w-full h-11 rounded-xl bg-blue-600 text-white text-sm font-black">Вернуться к деталям</button>
+          </div>
+        </div>
+      )}
+
+      <ConfirmModal
+        isOpen={!!deleteVariantId}
+        message="Удалить этот вариант?"
+        onConfirm={confirmDeleteVariant}
+        onCancel={() => setDeleteVariantId(null)}
       />
 
       {gallery && (
-        <ImagePreview 
-          images={gallery.images} 
-          initialIndex={gallery.index} 
-          onClose={() => setGallery(null)} 
+        <ImagePreview
+          images={gallery.images}
+          initialIndex={gallery.index}
+          onClose={() => setGallery(null)}
         />
       )}
     </div>
