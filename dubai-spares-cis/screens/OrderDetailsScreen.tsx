@@ -21,6 +21,11 @@ import {
   User,
   Smartphone,
   Star,
+  Copy,
+  MoreVertical,
+  Clock3,
+  Undo2,
+  Check,
   Mic,
   Square,
   Play,
@@ -36,6 +41,21 @@ import { fetchRadarShops } from '../radarShops';
 import { logger } from '../logging';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
+
+const CUSTOMER_STATUSES = ['VIP', 'LEAD', 'INQUIRY'] as const;
+const PRIORITY_HINT: Record<Priority, string> = {
+  [Priority.LOW]: 'можно отвечать позже',
+  [Priority.MEDIUM]: 'обычная срочность',
+  [Priority.HIGH]: 'нужно ускорить'
+};
+const SLA_HOURS = 24;
+const MESSAGE_TEMPLATES = [
+  'Принял заказ ✅ уточняю цены',
+  'Нашёл варианты, отправляю смету',
+  'Нужны уточнения (VIN/фото/комплектация)',
+  'Подтвердите оплату / доставку',
+  'Деталь закончилась — есть замена'
+] as const;
 
 
 const toRad = (v: number) => (v * Math.PI) / 180;
@@ -86,12 +106,25 @@ const OrderDetailsScreen: React.FC = () => {
 
   // Exchange Rate Input State (Controlled)
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState(MESSAGE_TEMPLATES[0]);
+  const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
 
   // Sync local rate input if order changes
   useEffect(() => {
     if (order) setRateInput(order.exchangeRate.toString());
   }, [order?.id]);
 
+  useEffect(() => {
+    setMarkupFixedInput((order?.markupFixedAed || 0).toString());
+  }, [order?.id, order?.markupFixedAed]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
 
   useEffect(() => {
@@ -194,37 +227,89 @@ const OrderDetailsScreen: React.FC = () => {
   if (!order) return <div className="p-10 text-center text-gray-400 font-bold">ЗАКАЗ НЕ НАЙДЕН</div>;
 
 
-  const calculateCurrentProfit = () => {
-    const totalCostAed = order.parts.reduce((sum, p) => {
-      if (p.isFound && p.variants.length > 0) {
-        return sum + p.variants[0].priceAed;
-      }
-      return sum;
-    }, 0);
-    const totalSellAed = totalCostAed * (1 + order.markupPercent / 100);
-    return (totalSellAed - totalCostAed) / order.exchangeRate;
+  const selectedOfferTotal = order.parts.reduce((sum, p) => sum + (p.variants[0]?.priceAed || 0), 0);
+  const logistics = {
+    deliveryType: order.logistics?.deliveryType || 'uae',
+    deliveryAed: Number(order.logistics?.deliveryAed || 0),
+    packingAed: Number(order.logistics?.packingAed || 0),
+    serviceFeeAed: Number(order.logistics?.serviceFeeAed || 0)
+  };
+  const logisticsTotal = logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed;
+  const markupType = order.markupType || 'percent';
+  const markupAed = markupType === 'fixed'
+    ? Number(order.markupFixedAed || 0)
+    : selectedOfferTotal * (order.markupPercent / 100);
+  const sellTotalAed = selectedOfferTotal + logisticsTotal + markupAed;
+  const canComputeProfit = selectedOfferTotal > 0;
+  const netProfitAed = canComputeProfit ? sellTotalAed - selectedOfferTotal - logisticsTotal : null;
+  const lowMargin = canComputeProfit && selectedOfferTotal > 0 && markupAed / selectedOfferTotal < 0.03;
+  const isLoss = canComputeProfit && sellTotalAed < selectedOfferTotal + logisticsTotal;
+
+  const rateByCurrency: Record<string, number> = {
+    AED: 1,
+    USD: order.exchangeRate || 3.67,
+    RUB: 0.04,
+    TJS: 0.34
+  };
+  const clientCurrency = order.clientCurrency || 'USD';
+  const clientRate = rateByCurrency[clientCurrency] || order.exchangeRate || 3.67;
+  const formatMoney = (value: number, currency = 'AED') => {
+    const amount = currency === 'AED' ? value : value / clientRate;
+    return `${amount.toFixed(currency === 'AED' ? 0 : 2)} ${currency}`;
   };
 
-  const profitUsd = order.isSold && order.soldProfitUsd !== undefined 
-    ? order.soldProfitUsd.toFixed(2) 
+  const calculateCurrentProfit = () => {
+    if (!canComputeProfit || netProfitAed === null) return 0;
+    return netProfitAed / (order.exchangeRate || 3.67);
+  };
+
+  const profitUsd = order.isSold && order.soldProfitUsd !== undefined
+    ? order.soldProfitUsd.toFixed(2)
     : calculateCurrentProfit().toFixed(2);
 
-
   const dismissedShopIds = new Set(order.dismissedShopIds || []);
+  const orderAgeHours = Math.floor((Date.now() - order.createdAt) / (1000 * 60 * 60));
+  const isSlaBreached = orderAgeHours >= SLA_HOURS;
+  const vinIsValid = /^[A-HJ-NPR-Z0-9]{17}$/.test((order.vin || '').toUpperCase());
+  const vinIsIncomplete = !!order.vin && !vinIsValid;
 
-
-  const purchaseTotal = order.parts.reduce((sum, p) => sum + (p.variants[0]?.priceAed || 0), 0);
-  const logisticsTotal = Math.round(purchaseTotal * 0.06);
-  const sellTotal = purchaseTotal * (1 + order.markupPercent / 100);
-  const netProfitAed = sellTotal - purchaseTotal - logisticsTotal;
+  const applyTemplate = (template: string) => template
+    .replace('{client_name}', order.clientName || 'клиент')
+    .replace('{car}', `${order.brand} ${order.model}`.trim())
+    .replace('{vin}', order.vin || 'VIN не указан')
+    .replace('{total}', formatMoney(sellTotalAed, clientCurrency))
+    .replace('{currency}', clientCurrency)
+    .replace('{eta}', '1-2 дня')
+    .replace('{order_link}', window.location.href);
 
   const openWhatsappClient = () => {
     const phone = (order.customerContact || '').replace(/[^\d+]/g, '');
-    if (!phone) return;
-    const message = `Hi ${order.clientName || ''}, update for ${order.brand} ${order.model}`;
+    if (!phone || phone.length < 8) return;
+    const message = applyTemplate(selectedTemplate);
     window.open(`https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
+  const updateCustomerStatus = (nextStatus: 'VIP' | 'LEAD' | 'INQUIRY') => {
+    const prevStatus = order.customerStatus || (order.isVip ? 'VIP' : order.isLead ? 'LEAD' : 'INQUIRY');
+    if (prevStatus === nextStatus) return;
+    updateOrder({
+      ...order,
+      customerStatus: nextStatus,
+      isVip: nextStatus === 'VIP',
+      isLead: nextStatus === 'LEAD',
+      statusChangedAt: Date.now(),
+      statusChangedBy: 'current-user'
+    });
+    setToast({
+      message: 'Статус обновлён ✅',
+      undo: () => updateOrder({
+        ...order,
+        customerStatus: prevStatus,
+        isVip: prevStatus === 'VIP',
+        isLead: prevStatus === 'LEAD'
+      })
+    });
+  };
 
   const isStrictBrandShop = (shop: Shop) => {
     const shopBrands = Array.from(new Set([...(shop.specialization || []), ...(shop.mainBrands || [])]));
@@ -317,24 +402,65 @@ const OrderDetailsScreen: React.FC = () => {
     updateOrder({ ...order, [field]: value });
   };
 
+  const updatePriority = (nextPriority: Priority) => {
+    updateOrder({ ...order, priority: nextPriority, priorityChangedAt: Date.now() });
+  };
+
+  const copyText = async (value: string, success = 'Скопировано') => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setToast({ message: success });
+    } catch {
+      setToast({ message: 'Не удалось скопировать' });
+    }
+  };
+
+  const pasteVinFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      updateOrderField('vin', text.toUpperCase().replace(/\s+/g, ''));
+    } catch {
+      setToast({ message: 'Буфер недоступен' });
+    }
+  };
+
+  const updateLogisticsField = (field: 'deliveryType' | 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value: string) => {
+    const numericFields = ['deliveryAed', 'packingAed', 'serviceFeeAed'];
+    const nextLogistics = {
+      ...order.logistics,
+      [field]: numericFields.includes(field) ? Number(value || 0) : value
+    };
+    updateOrder({ ...order, logistics: nextLogistics });
+  };
+
   const handleRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawVal = e.target.value;
     if (!/^[\d]*[.,]?[\d]*$/.test(rawVal)) return;
 
     setRateInput(rawVal);
-    
+
     const normalized = rawVal.replace(',', '.');
     const num = parseFloat(normalized);
-    
+
     if (!isNaN(num) && num > 0) {
-       updateOrderField('exchangeRate', num);
+      updateOrderField('exchangeRate', num);
     }
   };
 
+  const handleMarkupFixedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawVal = e.target.value;
+    if (!/^[\d]*$/.test(rawVal)) return;
+    setMarkupFixedInput(rawVal);
+    updateOrder({ ...order, markupFixedAed: Number(rawVal || 0), markupType: 'fixed' });
+  };
+
   const togglePartFound = (partId: string) => {
-    const updatedParts = order.parts.map(p => 
-      p.id === partId ? { ...p, isFound: !p.isFound } : p
-    );
+    const updatedParts = order.parts.map(p => {
+      if (p.id !== partId) return p;
+      const nextFound = !p.isFound;
+      return { ...p, isFound: nextFound, status: nextFound ? 'found' : 'searching' };
+    });
     updateOrder({ ...order, parts: updatedParts });
   };
 
@@ -371,7 +497,9 @@ const OrderDetailsScreen: React.FC = () => {
       photos: newPartPhotos,
       photoUrl: newPartPhotos[0], // Back-compat
       variants: [],
-      isFound: false
+      isFound: false,
+      status: 'searching',
+      priority: 'normal'
     };
     updateOrder({ ...order, parts: [...order.parts, newPart] });
     setNewPartName('');
@@ -565,70 +693,135 @@ const OrderDetailsScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-full overflow-x-hidden bg-gray-50 pb-20">
-      <div className="p-4 sticky top-0 z-10 shadow-sm backdrop-blur bg-white border-b border-gray-100">
+      <div className="p-4 sticky top-0 z-20 shadow-sm backdrop-blur bg-white/95 border-b border-gray-100 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <button type="button" onClick={() => navigate('/')} className="p-3 -ml-2 rounded-full transition-colors text-gray-600 active:bg-gray-100">
             <ArrowLeft size={24} />
           </button>
-          <div className="text-center flex-1 mx-2">
-            <h1 className="font-black text-lg leading-tight truncate uppercase">{order.brand} {order.model}</h1>
-            <div className="mt-1 px-3 py-1 rounded-lg inline-flex items-center gap-1 border max-w-full bg-gray-900 border-gray-800">
-              <span className="text-[10px] text-gray-500 font-bold">VIN:</span>
-              <input 
-                type="text" 
-                value={order.vin || ''}
-                onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase())}
-                placeholder="УКАЗАТЬ"
-                className="bg-transparent text-xs text-blue-400 font-mono font-black uppercase tracking-widest outline-none w-40 text-left placeholder-gray-700"
-              />
+          <div className="text-center flex-1 mx-2 min-w-0">
+            <h1 className="font-black text-lg leading-tight truncate uppercase">{order.brand} {order.model} {order.year}</h1>
+            <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-gray-500">
+              <span className="font-bold">VIN:</span>
+              <span className="font-mono uppercase">{order.vin || 'не указан'}</span>
+              {!!order.vin && <button type="button" onClick={() => void copyText(order.vin, 'VIN скопирован')} className="text-blue-600"><Copy size={12} /></button>}
             </div>
+            {vinIsIncomplete && <p className="text-[10px] mt-1 text-amber-600 font-bold">VIN неполный</p>}
           </div>
-          <div className="w-10" />
+          <div className="relative">
+            <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-3 rounded-full text-gray-600 active:bg-gray-100">
+              <MoreVertical size={20} />
+            </button>
+            {showActionsMenu && (
+              <div className="absolute right-0 mt-1 w-56 rounded-xl border border-gray-100 bg-white shadow-lg p-1 text-xs font-semibold z-30">
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrder({ ...order, id: `${order.id}-copy-${Date.now()}` })}>Дублировать заказ</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrderField('isArchived', !order.isArchived)}>{order.isArchived ? 'Восстановить' : 'Архивировать'}</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => void copyText(JSON.stringify(order, null, 2), 'JSON заказа скопирован')}>Экспорт JSON</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-red-600" onClick={() => setShowActionsMenu(false)}>Удалить (с подтверждением)</button>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar pb-1">
-          {order.isSold && <span className="bg-green-600 text-white text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tighter shadow-sm">SOLD</span>}
-          <button type="button" onClick={() => updateOrderField('isVip', !order.isVip)} className={`text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight shrink-0 ${order.isVip ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>
-            <span className="inline-flex items-center gap-1"><Star size={12} /> VIP</span>
-          </button>
-          <button type="button" onClick={() => updateOrderField('isLead', !order.isLead)} className={`text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight shrink-0 ${order.isLead ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500'}`}>LEAD</button>
+        <div className="flex items-center justify-between rounded-2xl bg-gray-50 px-3 py-2">
+          <div className="inline-flex rounded-xl bg-white border border-gray-200 p-1">
+            {CUSTOMER_STATUSES.map(status => (
+              <button
+                key={status}
+                type="button"
+                onClick={() => updateCustomerStatus(status)}
+                className={`h-8 min-w-[72px] px-3 rounded-lg text-[11px] font-black ${((order.customerStatus || (order.isVip ? 'VIP' : order.isLead ? 'LEAD' : 'INQUIRY')) === status) ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+          <div className={`inline-flex items-center gap-1 text-xs font-bold ${isSlaBreached ? 'text-amber-700' : 'text-gray-500'}`}>
+            <Clock3 size={14} /> В работе: {orderAgeHours}ч
+          </div>
+        </div>
+        <div className="flex gap-2 items-center overflow-x-auto no-scrollbar">
           <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
             {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
-          <select value={order.priority} onChange={(e) => updateOrderField('priority', e.target.value as Priority)} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
+          <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
             <option value={Priority.HIGH}>HIGH</option>
             <option value={Priority.MEDIUM}>MEDIUM</option>
             <option value={Priority.LOW}>LOW</option>
           </select>
+          <button type="button" onClick={() => void pasteVinFromClipboard()} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">Вставить VIN</button>
         </div>
       </div>
+
+      {toast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 bg-gray-900 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-2 shadow-lg">
+          <Check size={14} /> {toast.message}
+          {toast.undo && (
+            <button type="button" onClick={() => { toast.undo?.(); setToast(null); }} className="inline-flex items-center gap-1 text-blue-300">
+              <Undo2 size={12} /> Undo
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="p-4 space-y-4">
         
         {/* Client & Source Block */}
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-3">
-           <div className="flex-1 min-w-0">
-             <label className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1 mb-1"><User size={10} /> Клиент</label>
-             <input 
-               type="text" 
-               value={order.clientName || ''}
-               onChange={(e) => updateOrderField('clientName', e.target.value)}
-               placeholder="Имя клиента..."
-               className="w-full text-sm font-bold bg-transparent outline-none text-gray-800 placeholder-gray-300"
-             />
-           </div>
-           <div className="w-px h-8 bg-gray-100"></div>
-           <div className="flex-1 min-w-0">
-             <label className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1 mb-1"><Smartphone size={10} /> Источник</label>
-             <select 
-               value={order.source}
-               onChange={(e) => updateOrderField('source', e.target.value)}
-               className="w-full text-sm font-bold bg-transparent outline-none text-blue-600 appearance-none truncate"
-             >
-               {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-             </select>
-           </div>
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <div className="grid grid-cols-1 gap-3">
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1 mb-1"><User size={10} /> Клиент</label>
+              <input
+                type="text"
+                value={order.clientName || ''}
+                onChange={(e) => updateOrderField('clientName', e.target.value)}
+                placeholder="Имя клиента..."
+                className="w-full text-sm font-bold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1 mb-1"><Smartphone size={10} /> Телефон</label>
+              <div className="flex gap-2">
+                <input
+                  type="tel"
+                  value={order.customerContact || ''}
+                  onChange={(e) => updateOrderField('customerContact', e.target.value)}
+                  placeholder="+971..."
+                  className="flex-1 text-sm font-bold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
+                />
+                <button type="button" onClick={() => void copyText(order.customerContact || '', 'Телефон скопирован')} disabled={!order.customerContact} className="h-10 px-3 rounded-xl border border-gray-200 text-gray-600 disabled:opacity-40"><Copy size={14} /></button>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Источник</label>
+              <select
+                value={order.source}
+                onChange={(e) => updateOrderField('source', e.target.value)}
+                className="w-full h-10 text-sm font-bold bg-gray-50 rounded-xl px-2 outline-none border border-gray-100"
+              >
+                {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Шаблон</label>
+              <select
+                value={selectedTemplate}
+                onChange={(e) => setSelectedTemplate(e.target.value)}
+                className="w-full h-10 text-sm font-bold bg-gray-50 rounded-xl px-2 outline-none border border-gray-100"
+              >
+                {MESSAGE_TEMPLATES.map(template => <option key={template} value={template}>{template}</option>)}
+              </select>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={openWhatsappClient}
+            disabled={!(order.customerContact || '').replace(/[^\d]/g, '').length || (order.customerContact || '').replace(/[^\d]/g, '').length < 8}
+            className="h-11 w-full rounded-2xl bg-emerald-600 text-white text-xs font-black uppercase disabled:opacity-50"
+          >
+            WhatsApp: открыть чат
+          </button>
         </div>
-
 
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-3 gap-3">
           <div>
@@ -674,55 +867,87 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 relative">
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Наценка</span>
-            <select 
-              value={order.markupPercent}
-              onChange={(e) => updateOrderField('markupPercent', Number(e.target.value))}
-              className="w-full font-black bg-transparent outline-none border-none p-0 mt-1 text-lg appearance-none relative z-10"
+        <div className="grid grid-cols-1 gap-3">
+          <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Наценка</span>
+              <div className="inline-flex rounded-xl border border-gray-200 p-1">
+                <button type="button" onClick={() => updateOrder({ ...order, markupType: 'percent' })} className={`px-3 py-1 text-xs font-bold rounded-lg ${(order.markupType || 'percent') === 'percent' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>%</button>
+                <button type="button" onClick={() => updateOrder({ ...order, markupType: 'fixed' })} className={`px-3 py-1 text-xs font-bold rounded-lg ${(order.markupType || 'percent') === 'fixed' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>фикс</button>
+              </div>
+            </div>
+            {(order.markupType || 'percent') === 'percent' ? (
+              <select
+                value={order.markupPercent}
+                onChange={(e) => updateOrderField('markupPercent', Number(e.target.value))}
+                className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100"
+              >
+                {MARKUP_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}%</option>)}
+              </select>
+            ) : (
+              <input type="text" inputMode="numeric" value={markupFixedInput} onChange={handleMarkupFixedChange} className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100" placeholder="AED" />
+            )}
+            <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-gray-500">
+              <input type="checkbox" checked={!!order.useMarkupAsDefaultForNewParts} onChange={(e) => updateOrderField('useMarkupAsDefaultForNewParts', e.target.checked)} />
+              По умолчанию для новых деталей
+            </label>
+          </div>
+
+          <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-2 gap-2">
+            <div>
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Валюта клиента</span>
+              <select value={order.clientCurrency || 'USD'} onChange={(e) => updateOrderField('clientCurrency', e.target.value)} className="w-full h-10 mt-1 font-bold bg-gray-50 rounded-xl px-3 border border-gray-100">
+                <option value="AED">AED</option><option value="USD">USD</option><option value="RUB">RUB</option><option value="TJS">TJS</option>
+              </select>
+            </div>
+            <div>
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Курс $</span>
+              <input type="text" inputMode="decimal" value={rateInput} onChange={handleRateChange} onBlur={() => setRateInput(order.exchangeRate.toString())} className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100" />
+            </div>
+            <div>
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Тип доставки</span>
+              <select value={logistics.deliveryType} onChange={(e) => updateLogisticsField('deliveryType', e.target.value)} className="w-full h-10 mt-1 font-bold bg-gray-50 rounded-xl px-3 border border-gray-100">
+                <option value="uae">Внутри UAE</option>
+                <option value="export">Экспорт</option>
+              </select>
+            </div>
+            {(['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).map((field) => (
+              <div key={field}>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{field === 'deliveryAed' ? 'Доставка' : field === 'packingAed' ? 'Упаковка' : 'Комиссия'} AED</span>
+                <input type="number" min="0" value={logistics[field] || 0} onChange={(e) => updateLogisticsField(field, e.target.value)} className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100" />
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-2">
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Закупка</p><p className="font-black text-gray-800">{formatMoney(selectedOfferTotal)}</p></div>
+              <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Логистика</p><p className="font-black text-gray-800">{formatMoney(logisticsTotal)}</p></div>
+              <div className="rounded-xl bg-blue-50 px-3 py-2"><p className="text-blue-500">Наценка</p><p className="font-black text-blue-700">{formatMoney(markupAed)}</p></div>
+              <div className="rounded-xl bg-emerald-50 px-3 py-2"><p className="text-emerald-500">Итого клиенту</p><p className="font-black text-emerald-700">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
+            </div>
+            <div className="rounded-xl bg-emerald-100 px-3 py-2 text-sm font-black text-emerald-800">Чистая прибыль: {canComputeProfit && netProfitAed !== null ? `${formatMoney(netProfitAed)} / ${formatMoney(netProfitAed, clientCurrency)}` : '—'}</div>
+            {!canComputeProfit && <div className="text-xs font-semibold text-gray-500">Добавьте варианты цен.</div>}
+            {isLoss && <div className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">Вы уходите в минус ⚠️</div>}
+            {lowMargin && <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Маржа низкая — проверьте</div>}
+          </div>
+
+          <div className="grid grid-cols-1 gap-2">
+            <button
+              type="button"
+              onClick={() => setIsEstimateOpen(true)}
+              className="h-12 rounded-2xl bg-gray-900 text-white text-xs font-black uppercase tracking-wide"
             >
-              {MARKUP_OPTIONS.map(opt => (
-                <option key={opt} value={opt}>{opt}%</option>
-              ))}
-            </select>
-            <div className="absolute right-3 bottom-4 pointer-events-none text-gray-400">
-              <ChevronRight size={14} className="rotate-90" />
+              {order.parts.some((p) => p.variants.length > 0) ? 'Обновить и отправить смету' : 'Сформировать смету'}
+            </button>
+            <div className="grid grid-cols-3 gap-2">
+              <button type="button" onClick={openWhatsappClient} className="h-11 rounded-2xl bg-emerald-50 text-emerald-700 text-[11px] font-black uppercase">WhatsApp</button>
+              <button type="button" onClick={() => partInputRef.current?.focus()} className="h-11 rounded-2xl bg-blue-50 text-blue-700 text-[11px] font-black uppercase">Деталь +</button>
+              <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-2xl bg-slate-100 text-slate-700 text-[11px] font-black uppercase">Магазин +</button>
             </div>
           </div>
-          <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Курс $</span>
-            <input 
-              type="text" 
-              inputMode="decimal"
-              value={rateInput} 
-              onChange={handleRateChange}
-              onBlur={() => setRateInput(order.exchangeRate.toString())}
-              className="w-full font-black bg-transparent outline-none border-none p-0 mt-1 text-lg" 
-            />
-          </div>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-black uppercase tracking-widest text-gray-500">Маржа</span>
-            <div className="text-xl font-black text-emerald-700">${profitUsd}</div>
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Закупка</p><p className="font-black text-gray-800">{purchaseTotal.toFixed(0)} AED</p></div>
-            <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Логистика</p><p className="font-black text-gray-800">{logisticsTotal.toFixed(0)} AED</p></div>
-            <div className="rounded-xl bg-blue-50 px-3 py-2"><p className="text-blue-500">Наценка</p><p className="font-black text-blue-700">{order.markupPercent}%</p></div>
-            <div className="rounded-xl bg-emerald-50 px-3 py-2"><p className="text-emerald-500">Итого клиенту</p><p className="font-black text-emerald-700">{sellTotal.toFixed(0)} AED</p></div>
-          </div>
-          <div className="rounded-xl bg-emerald-100 px-3 py-2 text-sm font-black text-emerald-800">Чистая прибыль: {netProfitAed.toFixed(0)} AED</div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <button type="button" onClick={openWhatsappClient} className="h-11 rounded-2xl bg-emerald-50 text-emerald-700 text-xs font-black uppercase">WhatsApp клиенту</button>
-          <button type="button" onClick={() => void shareQuote()} className="h-11 rounded-2xl bg-indigo-50 text-indigo-700 text-xs font-black uppercase">Share quote link</button>
-          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-11 rounded-2xl bg-blue-50 text-blue-700 text-xs font-black uppercase">Добавить деталь</button>
-          <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-2xl bg-slate-100 text-slate-700 text-xs font-black uppercase">Добавить магазин</button>
-        </div>
 
         {sellError && (
           <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in slide-in-from-top-2">
@@ -731,23 +956,6 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
-          <button 
-            type="button"
-            onClick={() => setIsEstimateOpen(true)} 
-            className="py-4.5 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-md active:scale-95 transition-all"
-          >
-            <FileText size={18} /> Смета
-          </button>
-          <button 
-            type="button"
-            onClick={handleSellClick} 
-            className={`py-4.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-md active:scale-95 transition-all border-2 ${order.isSold ? 'bg-white border-green-700 text-green-700' : 'bg-green-600 border-green-600 text-white'}`}
-          >
-            <DollarSign size={18} />
-            {order.isSold ? 'Продано' : 'Продать'}
-          </button>
-        </div>
 
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em] mb-3">Добавить деталь</h2>
@@ -927,6 +1135,12 @@ const OrderDetailsScreen: React.FC = () => {
 
         <div className="space-y-2">
           <h2 className="font-black text-gray-400 px-1 text-[10px] uppercase tracking-[0.2em] mb-1">Список запчастей</h2>
+          {order.parts.length === 0 && (
+            <div className="bg-white border border-dashed border-gray-200 rounded-2xl p-4 text-center">
+              <p className="text-sm font-bold text-gray-500">Добавьте детали, чтобы начать поиск</p>
+              <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold">Добавить</button>
+            </div>
+          )}
           {order.parts.map(part => {
              const displayPhotos = getPartPhotos(part);
              return (
@@ -960,7 +1174,10 @@ const OrderDetailsScreen: React.FC = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h4 className="font-black text-sm text-gray-800 truncate leading-none mb-1 uppercase tracking-tight">{part.name}</h4>
-                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">{part.variants.length} предложений</p>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">{part.variants.length} вариантов · {part.priority === 'urgent' ? 'urgent' : 'normal'}</p>
+                  {part.variants[0] && (
+                    <p className="text-[10px] text-emerald-700 font-bold">Лучший: {part.variants[0].priceAed} AED · {part.variants[0].shopName || 'магазин не указан'}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button
@@ -982,6 +1199,22 @@ const OrderDetailsScreen: React.FC = () => {
               </div>
              );
           })}
+        </div>
+      </div>
+
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-3 space-y-2">
+        <div className="grid grid-cols-5 gap-1 text-[10px] font-bold">
+          <div><p className="text-gray-400">Закупка</p><p>{formatMoney(selectedOfferTotal)}</p></div>
+          <div><p className="text-gray-400">Наценка</p><p>{formatMoney(markupAed)}</p></div>
+          <div><p className="text-gray-400">Логистика</p><p>{formatMoney(logisticsTotal)}</p></div>
+          <div><p className="text-gray-400">Итого</p><p>{formatMoney(sellTotalAed, clientCurrency)}</p></div>
+          <div><p className="text-gray-400">Профит</p><p>{netProfitAed === null ? '—' : formatMoney(netProfitAed)}</p></div>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          <button type="button" onClick={openWhatsappClient} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">WhatsApp</button>
+          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-50 text-blue-700 text-[10px] font-black uppercase">Деталь +</button>
+          <button type="button" onClick={() => setIsEstimateOpen(true)} className="h-10 rounded-xl bg-gray-900 text-white text-[10px] font-black uppercase">Смета</button>
+          <button type="button" onClick={handleSellClick} className={`h-10 rounded-xl text-[10px] font-black uppercase ${order.isSold ? 'bg-white border border-green-600 text-green-700' : 'bg-green-600 text-white'}`}>{order.isSold ? 'Продано' : 'Продать'}</button>
         </div>
       </div>
 
