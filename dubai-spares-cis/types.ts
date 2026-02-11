@@ -192,3 +192,19 @@ export interface SystemLogEntry {
   meta?: unknown;
   createdAt: number;
 }
+
+export type RadarInteractionResult = 'found' | 'not_found' | 'follow_up' | 'wrong_info' | 'message_sent';
+
+export interface RadarInteraction {
+  id: string;
+  shopId: string;
+  orderId: string;
+  partId?: string;
+  result: RadarInteractionResult;
+  priceAed?: number;
+  availability?: 'in_stock' | 'order';
+  photoUrl?: string;
+  comment?: string;
+  createdAt: number;
+  syncedAt?: number;
+}

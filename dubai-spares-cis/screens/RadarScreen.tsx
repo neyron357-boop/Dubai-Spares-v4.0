@@ -1,34 +1,29 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LocateFixed, Navigation, ShieldCheck, Telescope, Loader2, EyeOff, RotateCcw, MessageCircle } from 'lucide-react';
+import { CheckCircle2, Clock3, EyeOff, ListChecks, Loader2, MessageCircle, Navigation, PhoneCall, RotateCcw, ShieldAlert, ShieldCheck, Telescope, XCircle } from 'lucide-react';
 import { useStore } from '../store';
-import { Order, Shop } from '../types';
-import { buildNearestShopsChain, buildRoutePlanMapLink, buildShopMapLink, getRadarShopMatches, getShopRecommendationLevel } from '../shopMatching';
-import { supabase } from '../supabase';
+import { Order, RadarInteraction, RadarInteractionResult, Shop } from '../types';
+import { buildNearestShopsChain, buildRoutePlanMapLink, buildShopMapLink, getRadarShopMatches, getShopRecommendationDiagnostics } from '../shopMatching';
 import { fetchRadarShops } from '../radarShops';
 import { toast } from '../feedback';
-import { logger } from '../logging';
+import { createUuid } from '../id';
+import { offlineDb } from '../storage/offlineDb';
 
-const GEO_OPTIONS: PositionOptions = {
-  enableHighAccuracy: true,
-  maximumAge: 8000,
-  timeout: 15000
-};
-
+const GEO_OPTIONS: PositionOptions = { enableHighAccuracy: true, maximumAge: 8000, timeout: 15000 };
 const RADAR_DISMISSED_SHOPS_KEY = 'radar_dismissed_shop_keys';
-const LONG_PRESS_MS = 700;
 
-type RadarFilter = 'all' | 'new_only' | 'used_only' | 'open_now';
+type RadarFilter = 'all' | 'new_only' | 'used_only';
+type RadarMode = 'field' | 'detail';
+type TemplateLanguage = 'ru' | 'en';
+type TemplateLength = 'short' | 'full';
+type BrandMatchMode = 'strict' | 'soft';
 
-type RadarEntry = ReturnType<typeof getRadarShopMatches>[number] & { order: Order };
+type RadarEntry = ReturnType<typeof getRadarShopMatches>[number] & { order: Order; score: number; recommendation: 'high' | 'medium' | 'low'; reasons: string[]; openNow: boolean | null };
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+const RADIUS_STEPS = [2, 5, 10, 20] as const;
 
-const getRadarDismissKey = (shop: Shop) => {
-  const location = (shop.location || '').trim().toLowerCase();
-  if (location) return `location:${location}`;
-  return `id:${shop.id}`;
-};
+const hasValidCoordinates = (latitude: number, longitude: number) => Number.isFinite(latitude) && Number.isFinite(longitude) && latitude !== 0 && longitude !== 0;
 
 const readDismissedRadarShops = () => {
   try {
@@ -45,11 +40,9 @@ const saveDismissedRadarShops = (keys: Set<string>) => {
   try {
     localStorage.setItem(RADAR_DISMISSED_SHOPS_KEY, JSON.stringify(Array.from(keys)));
   } catch {
-    // ignore private mode/localStorage failures
+    // ignore storage failures
   }
 };
-
-const hasValidCoordinates = (latitude: number, longitude: number) => Number.isFinite(latitude) && Number.isFinite(longitude) && latitude !== 0 && longitude !== 0;
 
 const parseHourMinute = (value: string) => {
   const match = value.match(/^(\d{1,2}):(\d{2})$/);
@@ -62,10 +55,8 @@ const parseHourMinute = (value: string) => {
 
 const parseSlotPair = (raw: unknown): Array<{ start: number; end: number }> => {
   if (!raw) return [];
-
   if (typeof raw === 'string') {
-    if (!raw.trim()) return [];
-    if (raw.toLowerCase() === 'closed') return [];
+    if (!raw.trim() || raw.toLowerCase() === 'closed') return [];
     return raw
       .split(',')
       .map((chunk) => chunk.trim())
@@ -78,11 +69,7 @@ const parseSlotPair = (raw: unknown): Array<{ start: number; end: number }> => {
       })
       .filter((slot): slot is { start: number; end: number } => !!slot);
   }
-
-  if (Array.isArray(raw)) {
-    return raw.flatMap((item) => parseSlotPair(item));
-  }
-
+  if (Array.isArray(raw)) return raw.flatMap((item) => parseSlotPair(item));
   if (typeof raw === 'object') {
     const entry = raw as { open?: unknown; close?: unknown; from?: unknown; to?: unknown };
     const from = typeof entry.open === 'string' ? entry.open : typeof entry.from === 'string' ? entry.from : '';
@@ -91,97 +78,40 @@ const parseSlotPair = (raw: unknown): Array<{ start: number; end: number }> => {
     const end = parseHourMinute(to);
     return start !== null && end !== null ? [{ start, end }] : [];
   }
-
   return [];
 };
 
 const getShopTimeContext = (shop: Shop) => {
-  if (!shop.businessHoursTimezone) {
-    return { dayKey: DAY_KEYS[new Date().getDay()], minutes: (new Date().getHours() * 60) + new Date().getMinutes() };
-  }
-
+  if (!shop.businessHoursTimezone) return { dayKey: DAY_KEYS[new Date().getDay()], minutes: (new Date().getHours() * 60) + new Date().getMinutes() };
   try {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: shop.businessHoursTimezone,
-      weekday: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    });
-
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: shop.businessHoursTimezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
     const parts = formatter.formatToParts(new Date());
     const weekday = (parts.find((part) => part.type === 'weekday')?.value || 'sun').toLowerCase();
     const hours = Number(parts.find((part) => part.type === 'hour')?.value || 0);
     const minutes = Number(parts.find((part) => part.type === 'minute')?.value || 0);
-
-    const weekdayMap: Record<string, typeof DAY_KEYS[number]> = {
-      sun: 'sun',
-      mon: 'mon',
-      tue: 'tue',
-      wed: 'wed',
-      thu: 'thu',
-      fri: 'fri',
-      sat: 'sat'
-    };
-
-    return {
-      dayKey: weekdayMap[weekday.slice(0, 3)] || 'sun',
-      minutes: (Number.isFinite(hours) ? hours : 0) * 60 + (Number.isFinite(minutes) ? minutes : 0)
-    };
+    const weekdayMap: Record<string, typeof DAY_KEYS[number]> = { sun: 'sun', mon: 'mon', tue: 'tue', wed: 'wed', thu: 'thu', fri: 'fri', sat: 'sat' };
+    return { dayKey: weekdayMap[weekday.slice(0, 3)] || 'sun', minutes: (Number.isFinite(hours) ? hours : 0) * 60 + (Number.isFinite(minutes) ? minutes : 0) };
   } catch {
     return { dayKey: DAY_KEYS[new Date().getDay()], minutes: (new Date().getHours() * 60) + new Date().getMinutes() };
   }
 };
 
-const isShopOpenNow = (shop: Shop) => {
-  if (!shop.businessHours) return true;
-
+const getOpenState = (shop: Shop): boolean | null => {
+  if (!shop.businessHours) return null;
   const context = getShopTimeContext(shop);
   const daySchedule = (shop.businessHours[context.dayKey] ?? shop.businessHours.default ?? shop.businessHours.all) as unknown;
   const slots = parseSlotPair(daySchedule);
   if (slots.length === 0) return false;
-
-  return slots.some((slot) => {
-    if (slot.start <= slot.end) {
-      return context.minutes >= slot.start && context.minutes <= slot.end;
-    }
-
-    return context.minutes >= slot.start || context.minutes <= slot.end;
-  });
+  return slots.some((slot) => (slot.start <= slot.end ? context.minutes >= slot.start && context.minutes <= slot.end : context.minutes >= slot.start || context.minutes <= slot.end));
 };
 
-const getBearingArrow = (origin: { lat: number; lng: number }, destination: { lat: number; lng: number }) => {
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const toDeg = (value: number) => (value * 180) / Math.PI;
-  const lat1 = toRad(origin.lat);
-  const lat2 = toRad(destination.lat);
-  const dLon = toRad(destination.lng - origin.lng);
-
-  const y = Math.sin(dLon) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-  const bearing = (toDeg(Math.atan2(y, x)) + 360) % 360;
-
-  const arrows = ['↑', '↗️', '→', '↘️', '↓', '↙️', '←', '↖️'];
-  const index = Math.round(bearing / 45) % 8;
-  return arrows[index];
+const getRecommendation = (score: number): 'high' | 'medium' | 'low' => {
+  if (score >= 80) return 'high';
+  if (score >= 50) return 'medium';
+  return 'low';
 };
 
-const formatDistanceWithDirection = (distance: number | null, position: { lat: number; lng: number } | null, shop: Shop) => {
-  if (!Number.isFinite(distance)) return 'n/a';
-  const base = distance! >= 1000 ? `${(distance! / 1000).toFixed(1)}km` : `${Math.round(distance!)}m`;
-  if (!position || !hasValidCoordinates(shop.latitude, shop.longitude)) return base;
-  return `${base} ${getBearingArrow(position, { lat: shop.latitude, lng: shop.longitude })}`;
-};
-
-const getPrimarySpecializationTag = (shop: Shop, order: Order) => {
-  if (shop.specializationTag) return shop.specializationTag;
-  if ((shop.specialization || []).length > 0) {
-    const matchingBrand = shop.specialization.find((brand) => brand.toLowerCase() === order.brand.toLowerCase());
-    if (matchingBrand) return `${matchingBrand} Expert`;
-    return `${shop.specialization[0]} Specialist`;
-  }
-  return shop.type === 'scrapyard' ? 'Used Parts Specialist' : 'New Parts Specialist';
-};
+const km = (distance: number | null) => Number.isFinite(distance) ? (distance || 0) / 1000 : Number.POSITIVE_INFINITY;
 
 const makeWhatsappLink = (shopPhone: string, message: string) => {
   const normalizedPhone = shopPhone.replace(/[^\d+]/g, '');
@@ -189,20 +119,42 @@ const makeWhatsappLink = (shopPhone: string, message: string) => {
   return `https://wa.me/${normalizedPhone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`;
 };
 
+const getDismissKey = (shop: Shop) => shop.location?.trim().toLowerCase() ? `location:${shop.location.trim().toLowerCase()}` : `id:${shop.id}`;
+
+const templateText = (order: Order, lang: TemplateLanguage, length: TemplateLength) => {
+  const part = order.parts[0]?.name || 'part';
+  const baseContext = `${order.brand} ${order.model} ${order.year || ''}`.trim();
+  if (lang === 'ru') {
+    if (length === 'short') return `Salam. Need: ${part} for ${baseContext}. New/Used? Price AED? Availability today?`;
+    return `Salam. Need: ${part} for ${baseContext}.\nVIN: ${order.vin || 'N/A'}.\nQty: 1, urgency: high.\nNew/Used? Price AED? Availability today? Send photo if possible.`;
+  }
+  if (length === 'short') return `Salam. Need ${part} for ${baseContext}. New/Used? Price AED? Available today?`;
+  return `Salam. Need ${part} for ${baseContext}. VIN: ${order.vin || 'N/A'}. Quantity: 1. Urgent. Please confirm New/Used, price AED, availability today, and send photo if possible.`;
+};
+
 const RadarScreen: React.FC = () => {
   const { orders, suppliers } = useStore();
   const navigate = useNavigate();
   const [shops, setShops] = useState<Shop[]>([]);
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
-  const [isFetchingShops, setIsFetchingShops] = useState(true);
-  const [dismissedShopKeys, setDismissedShopKeys] = useState<Set<string>>(() => readDismissedRadarShops());
+  const [mode, setMode] = useState<RadarMode>('field');
   const [activeFilter, setActiveFilter] = useState<RadarFilter>('all');
-  const longPressTimer = useRef<number | null>(null);
-  const longPressTriggered = useRef(false);
+  const [openNowOnly, setOpenNowOnly] = useState(false);
+  const [radiusKm, setRadiusKm] = useState<(typeof RADIUS_STEPS)[number]>(5);
+  const [brandMatchMode, setBrandMatchMode] = useState<BrandMatchMode>('strict');
+  const [fallbackNearby, setFallbackNearby] = useState(true);
+  const [templateLanguage, setTemplateLanguage] = useState<TemplateLanguage>('ru');
+  const [templateLength, setTemplateLength] = useState<TemplateLength>('short');
+  const [dismissedShopKeys, setDismissedShopKeys] = useState<Set<string>>(() => readDismissedRadarShops());
+  const [isFetchingShops, setIsFetchingShops] = useState(true);
+  const [chainMode, setChainMode] = useState(false);
+  const [chainIndex, setChainIndex] = useState(0);
+  const [interactions, setInteractions] = useState<RadarInteraction[]>([]);
+
+  useEffect(() => { void offlineDb.getRadarInteractions().then(setInteractions); }, []);
 
   useEffect(() => {
     let active = true;
-
     const load = async () => {
       setIsFetchingShops(true);
       const loadedShops = await fetchRadarShops(suppliers);
@@ -210,296 +162,246 @@ const RadarScreen: React.FC = () => {
       setShops(loadedShops);
       setIsFetchingShops(false);
     };
-
-    const scheduleRefresh = () => {
-      void load();
-    };
-
-    const shopsChannel = supabase
-      ?.channel('radar-live-shops')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'shops' }, scheduleRefresh)
-      .subscribe();
-
     void load();
-    return () => {
-      active = false;
-      if (shopsChannel) {
-        void supabase?.removeChannel(shopsChannel);
-      }
-    };
+    return () => { active = false; };
   }, [suppliers]);
 
   useEffect(() => {
-    if (!navigator.geolocation) {
-      toast('Геолокация не поддерживается: радар покажет рейтинг без дистанции', 'error');
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {
-        // silently keep fallback mode
-      },
-      GEO_OPTIONS
-    );
-
-    const id = navigator.geolocation.watchPosition(
-      (pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => toast('GPS отключен — радар работает в fallback режиме', 'error'),
-      GEO_OPTIONS
-    );
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition((pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => undefined, GEO_OPTIONS);
+    const id = navigator.geolocation.watchPosition((pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => undefined, GEO_OPTIONS);
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
   const entries = useMemo<RadarEntry[]>(() => {
-    const activeOrders = orders.filter((o) => !o.isArchived && !o.isSold);
-    return activeOrders.flatMap((order) => {
-      const ranked = getRadarShopMatches(order, shops, position);
-      const dismissedShopIds = new Set(order.dismissedShopIds || []);
-      const withOrderContext = ranked
-        .filter((entry) => !dismissedShopIds.has(entry.shop.id))
-        .map((entry) => ({ ...entry, order }));
-
-      const matched = withOrderContext.filter((entry) => entry.isRecommended || entry.isCompatible || entry.matchScore >= 2);
-      if (matched.length > 0) return matched.slice(0, 8);
-
-      return withOrderContext
-        .filter((entry) => Number.isFinite(entry.distance))
-        .sort((a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY))
-        .slice(0, 3);
-    })
-      .filter((entry) => !dismissedShopKeys.has(getRadarDismissKey(entry.shop)))
-      .sort((a, b) => ((a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY)));
-  }, [orders, shops, position, dismissedShopKeys]);
-
-  const filteredEntries = useMemo(() => {
-    return entries.filter((entry) => {
-      if (activeFilter === 'new_only') return entry.shop.type !== 'scrapyard';
-      if (activeFilter === 'used_only') return entry.shop.type === 'scrapyard';
-      if (activeFilter === 'open_now') return isShopOpenNow(entry.shop);
-      return true;
-    });
-  }, [entries, activeFilter]);
-
-  const routeChain = useMemo(() => {
-    const recommendedShops = filteredEntries
-      .filter((entry) => entry.isRecommended)
-      .map((entry) => entry.shop);
-    const uniqueShops = Array.from(new Map(recommendedShops.map((shop) => [shop.id, shop])).values());
-    return buildNearestShopsChain(uniqueShops, position).slice(0, 8);
-  }, [filteredEntries, position]);
-
-  const tieredEntries = useMemo(() => {
-    const grouped = {
-      high: [] as typeof filteredEntries,
-      medium: [] as typeof filteredEntries,
-      low: [] as typeof filteredEntries
-    };
-
-    filteredEntries.forEach((entry) => {
-      const level = getShopRecommendationLevel(entry.shop, entry.order);
-      if (level === 'high') grouped.high.push(entry);
-      else if (level === 'medium') grouped.medium.push(entry);
-      else grouped.low.push(entry);
+    const successfulByShop = new Map<string, number>();
+    const badByShop = new Map<string, number>();
+    interactions.forEach((item) => {
+      if (item.result === 'found') successfulByShop.set(item.shopId, (successfulByShop.get(item.shopId) || 0) + 1);
+      if (item.result === 'wrong_info') badByShop.set(item.shopId, (badByShop.get(item.shopId) || 0) + 1);
     });
 
-    return grouped;
-  }, [filteredEntries]);
+    return orders
+      .filter((o) => !o.isArchived && !o.isSold)
+      .flatMap((order) => {
+        const candidates = getRadarShopMatches(order, shops, position)
+          .filter((item) => brandMatchMode === 'soft' || item.matchScore > 0)
+          .filter((item) => !dismissedShopKeys.has(getDismissKey(item.shop)));
 
-  const tierConfigs: Array<{ key: keyof typeof tieredEntries; title: string; tone: string }> = [
-    { key: 'high', title: 'High Tier', tone: 'text-emerald-300 border-emerald-400/30' },
-    { key: 'medium', title: 'Medium Tier', tone: 'text-amber-300 border-amber-400/30' },
-    { key: 'low', title: 'Low Tier', tone: 'text-slate-300 border-slate-700' }
-  ];
+        const radiusFiltered = candidates.filter((item) => km(item.distance) <= radiusKm);
+        const pool = radiusFiltered.length >= 3 || !fallbackNearby ? radiusFiltered : candidates.filter((item) => km(item.distance) <= radiusKm * 2);
 
-  const openPlannedRoute = () => {
-    if (routeChain.length === 0) {
-      toast('Нет рекомендованных магазинов для построения multi-stop маршрута', 'error');
+        return pool.map((item) => {
+          const openNow = getOpenState(item.shop);
+          const diagnostics = getShopRecommendationDiagnostics(item.shop, order);
+          const brandCategory = diagnostics.brandMatched ? (diagnostics.modelMatched ? 30 : 22) : 8;
+          const distanceFactor = !Number.isFinite(item.distance) ? 5 : Math.max(0, 15 - Math.round((item.distance || 0) / 800));
+          const openFactor = openNow === true ? 10 : openNow === null ? 6 : 1;
+          const historyFactor = Math.min(20, (successfulByShop.get(item.shop.id) || 0) * 5);
+          const responseFactor = interactions.some((x) => x.shopId === item.shop.id && x.result === 'message_sent') ? 8 : 4;
+          const reliabilityFactor = Math.max(0, 15 - ((badByShop.get(item.shop.id) || 0) * 5));
+          const score = Math.max(0, Math.min(100, brandCategory + distanceFactor + openFactor + historyFactor + responseFactor + reliabilityFactor));
+
+          const reasons = [
+            diagnostics.brandMatched ? 'Бренд совпадает' : 'Слабое совпадение по бренду',
+            Number.isFinite(item.distance) ? `Дистанция ${(item.distance! / 1000).toFixed(1)} км` : 'Нет точных координат',
+            openNow === true ? 'Открыт сейчас' : openNow === false ? 'Сейчас закрыт' : 'Часы неизвестны'
+          ];
+
+          return { ...item, order, score, recommendation: getRecommendation(score), reasons, openNow };
+        });
+      })
+      .filter((entry) => {
+        if (activeFilter === 'new_only') return entry.shop.type !== 'scrapyard';
+        if (activeFilter === 'used_only') return entry.shop.type === 'scrapyard';
+        return true;
+      })
+      .filter((entry) => !openNowOnly || entry.openNow === true)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 50);
+  }, [orders, shops, position, activeFilter, openNowOnly, radiusKm, fallbackNearby, dismissedShopKeys, interactions, brandMatchMode]);
+
+  const chainRoute = useMemo(() => {
+    const preferred = entries.filter((entry) => entry.recommendation === 'high' && entry.openNow !== false).map((entry) => entry.shop);
+    const unique = Array.from(new Map(preferred.map((shop) => [shop.id, shop])).values()).slice(0, 12);
+    return buildNearestShopsChain(unique, position);
+  }, [entries, position]);
+
+  useEffect(() => {
+    if (!chainMode || chainRoute.length === 0) {
+      setChainIndex(0);
       return;
     }
+    setChainIndex((current) => Math.min(current, chainRoute.length - 1));
+  }, [chainMode, chainRoute]);
 
-    const routeLink = buildRoutePlanMapLink(routeChain, position);
-    void logger.info('RADAR_GEO', 'Opening smart chain route for recommended shops', {
-      origin: position,
-      shopCount: routeChain.length,
-      shopIds: routeChain.map((shop) => shop.id),
-      routeLink
-    });
-    window.open(routeLink, '_blank');
+  const currentStop = chainRoute[chainIndex] || null;
+
+  const openShopRoute = (shop: Shop) => {
+    if (hasValidCoordinates(shop.latitude, shop.longitude) && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      window.open(`http://maps.apple.com/?daddr=${shop.latitude},${shop.longitude}`, '_blank');
+      return;
+    }
+    window.open(buildShopMapLink(shop), '_blank');
   };
 
-  const dismissShopFromRadar = (shop: Shop) => {
-    const key = getRadarDismissKey(shop);
-    const next = new Set(dismissedShopKeys);
-    next.add(key);
-    setDismissedShopKeys(next);
-    saveDismissedRadarShops(next);
-    toast(`Локация ${shop.name} скрыта из радара`, 'success');
+  const openChainRoute = () => {
+    if (chainRoute.length === 0) {
+      toast('Нет точек для маршрута', 'error');
+      return;
+    }
+    window.open(buildRoutePlanMapLink(chainRoute, position), '_blank');
   };
 
-  const resetDismissedShops = () => {
+  const resetDismissed = () => {
     const next = new Set<string>();
     setDismissedShopKeys(next);
     saveDismissedRadarShops(next);
-    toast('Скрытые точки радара восстановлены', 'success');
   };
 
-  const openWhatsApp = (shop: Shop, order: Order, extendedTemplate: boolean) => {
-    const partList = order.parts.map((part) => `• ${part.name}`).join('\n') || '• Need parts list';
-    const message = extendedTemplate
-      ? `Mission Control inquiry\nBrand/Model: ${order.brand} ${order.model} ${order.year || ''}\nVIN: ${order.vin || 'N/A'}\nVIN Photo: ${order.vinPhotoUrl || 'N/A'}\nRequested parts:\n${partList}`
-      : `Hi! Need parts for ${order.brand} ${order.model} ${order.year || ''}. VIN: ${order.vin || 'N/A'}.`;
+  const hideShop = (shop: Shop) => {
+    const next = new Set(dismissedShopKeys);
+    next.add(getDismissKey(shop));
+    setDismissedShopKeys(next);
+    saveDismissedRadarShops(next);
+  };
 
-    const link = makeWhatsappLink(shop.phone || '', message);
+  const addInteraction = async (payload: Omit<RadarInteraction, 'id' | 'createdAt'>) => {
+    const interaction: RadarInteraction = { id: createUuid(), createdAt: Date.now(), ...payload };
+    await offlineDb.saveRadarInteraction(interaction);
+    setInteractions((prev) => [interaction, ...prev]);
+    if (navigator.onLine) {
+      await offlineDb.markRadarInteractionSynced(interaction.id);
+    }
+  };
+
+  const onWhatsApp = async (entry: RadarEntry) => {
+    const message = templateText(entry.order, templateLanguage, templateLength);
+    const link = makeWhatsappLink(entry.shop.phone || '', message);
     if (!link) {
-      toast('У магазина нет WhatsApp номера', 'error');
+      toast('У точки нет WhatsApp номера', 'error');
       return;
     }
-
     window.open(link, '_blank');
+    await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, result: 'message_sent', comment: 'WhatsApp opened' });
+    toast('Шаблон WhatsApp открыт', 'success');
   };
 
-  const beginLongPress = (shop: Shop, order: Order) => {
-    longPressTriggered.current = false;
-    longPressTimer.current = window.setTimeout(() => {
-      longPressTriggered.current = true;
-      openWhatsApp(shop, order, true);
-      toast('Открыт WhatsApp шаблон с Part List + VIN', 'success');
-    }, LONG_PRESS_MS);
+  const quickResult = async (entry: RadarEntry, result: RadarInteractionResult) => {
+    await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, partId: entry.order.parts[0]?.id, result, availability: result === 'found' ? 'in_stock' : undefined });
+    toast('Результат сохранен (offline-first)', 'success');
   };
 
-  const cancelLongPress = () => {
-    if (longPressTimer.current !== null) {
-      window.clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
+  const openCalls = (phone?: string) => {
+    if (!phone) return;
+    window.open(`tel:${phone}`, '_self');
   };
 
-  const handleWhatsappTap = (shop: Shop, order: Order) => {
-    if (!longPressTriggered.current) {
-      openWhatsApp(shop, order, false);
-    }
-    longPressTriggered.current = false;
-    cancelLongPress();
-  };
-
-  const filterButtons: Array<{ key: RadarFilter; label: string }> = [
-    { key: 'all', label: 'All' },
-    { key: 'new_only', label: 'New Only' },
-    { key: 'used_only', label: 'Used/Scrapyard' },
-    { key: 'open_now', label: 'Open Now' }
-  ];
+  const pendingSync = interactions.filter((item) => !item.syncedAt).length;
 
   return (
     <div className="p-4 pb-20 space-y-3 bg-slate-950 min-h-full text-white">
-      <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-3">
-        <div className="flex items-center gap-2 text-emerald-300">
-          <span className="relative inline-flex h-3 w-3">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-80" />
-            <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-200" />
-          </span>
-          <span className="text-sm font-black uppercase tracking-wider">Radar Live</span>
-        </div>
-        <p className="mt-1 text-xs text-emerald-100/80">Полевой режим: строгий match по бренду + live статус магазинов и multi-stop маршрут для рекомендованных.</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {filterButtons.map((button) => (
-            <button
-              key={button.key}
-              type="button"
-              onClick={() => setActiveFilter(button.key)}
-              className={`rounded-lg border px-3 py-1 text-[10px] font-black uppercase ${activeFilter === button.key ? 'border-emerald-300 bg-emerald-300/20 text-emerald-100' : 'border-emerald-400/30 text-emerald-200/80'}`}
-            >
-              {button.label}
-            </button>
-          ))}
-        </div>
-        <div className="mt-2">
-          <button type="button" onClick={openPlannedRoute} disabled={routeChain.length === 0} className="inline-flex items-center gap-1 rounded-xl bg-emerald-400 px-3 py-2 text-[11px] font-black uppercase text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">
-            <Navigation size={12} /> Chain Route
-          </button>
-        </div>
-        <div className="mt-2 flex items-center gap-2 text-[11px] text-emerald-100/90">
-          {isFetchingShops ? <><Loader2 size={12} className="animate-spin" /> Обновляем радар и разворачиваем локации…</> : <span>Данные радара актуальны.</span>}
-          {dismissedShopKeys.size > 0 && (
-            <button type="button" onClick={resetDismissedShops} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300/40 px-2 py-1 text-[10px] font-black uppercase text-emerald-100">
-              <RotateCcw size={10} /> Вернуть скрытые ({dismissedShopKeys.size})
-            </button>
-          )}
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
-          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 px-2 py-1 text-emerald-200"><ShieldCheck size={11} /> high confidence</span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 px-2 py-1 text-amber-200"><Telescope size={11} /> fallback nearby</span>
-        </div>
-      </div>
-      {isFetchingShops ? (
-        Array.from({ length: 3 }).map((_, idx) => (
-          <div key={`radar-skeleton-${idx}`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2 animate-pulse">
-            <div className="h-4 w-28 rounded bg-slate-700" />
-            <div className="h-3 w-44 rounded bg-slate-800" />
-            <div className="h-8 w-full rounded-xl bg-slate-800" />
+      <section className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="text-sm font-black uppercase tracking-wider text-emerald-300">Radar Live</h1>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setMode('field')} className={`rounded-lg px-3 py-1 text-[10px] font-black uppercase ${mode === 'field' ? 'bg-emerald-400 text-slate-900' : 'border border-emerald-300/50 text-emerald-200'}`}>Field Mode</button>
+            <button type="button" onClick={() => setMode('detail')} className={`rounded-lg px-3 py-1 text-[10px] font-black uppercase ${mode === 'detail' ? 'bg-emerald-400 text-slate-900' : 'border border-emerald-300/50 text-emerald-200'}`}>Detail Mode</button>
           </div>
-        ))
-      ) : filteredEntries.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Радар пока не нашел подходящих магазинов для выбранного фильтра.</div> : tierConfigs.map((tier) => {
-        const tierEntries = tieredEntries[tier.key];
-        if (tierEntries.length === 0) return null;
+        </div>
+        <div className="flex flex-wrap gap-2 text-[10px]">
+          <button type="button" onClick={() => setChainMode((v) => !v)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-400 px-3 py-2 font-black uppercase text-slate-950"><Navigation size={12} /> Chain Route</button>
+          <button type="button" onClick={openChainRoute} className="rounded-xl border border-emerald-300/40 px-3 py-2 font-black uppercase text-emerald-100">Open route</button>
+          <button type="button" onClick={resetDismissed} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 font-black uppercase text-slate-200"><RotateCcw size={12} /> Reset hidden</button>
+        </div>
 
+        <div className="flex flex-wrap gap-2 text-[10px]">
+          {(['all', 'new_only', 'used_only'] as RadarFilter[]).map((item) => (
+            <button key={item} type="button" onClick={() => setActiveFilter(item)} className={`rounded-lg px-3 py-1 font-black uppercase ${activeFilter === item ? 'bg-slate-100 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>{item}</button>
+          ))}
+          <button type="button" onClick={() => setOpenNowOnly((v) => !v)} className={`rounded-lg px-3 py-1 font-black uppercase ${openNowOnly ? 'bg-slate-100 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>Open now</button>
+          <button type="button" onClick={() => setBrandMatchMode((v) => (v === 'strict' ? 'soft' : 'strict'))} className="rounded-lg border border-slate-600 px-3 py-1 font-black uppercase text-slate-300">Brand {brandMatchMode}</button>
+          <button type="button" onClick={() => setFallbackNearby((v) => !v)} className="inline-flex items-center gap-1 rounded-lg border border-amber-400/40 px-3 py-1 font-black uppercase text-amber-200"><Telescope size={11} /> fallback nearby</button>
+        </div>
+
+        <div className="flex items-center flex-wrap gap-2 text-[10px]">
+          <span className="text-slate-300">Radius:</span>
+          {RADIUS_STEPS.map((step) => (
+            <button key={step} type="button" onClick={() => setRadiusKm(step)} className={`rounded px-2 py-1 font-black ${radiusKm === step ? 'bg-emerald-400 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>{step} km</button>
+          ))}
+          <span className="ml-2 text-slate-300">WA:</span>
+          <button type="button" onClick={() => setTemplateLanguage((v) => (v === 'ru' ? 'en' : 'ru'))} className="rounded border border-slate-600 px-2 py-1 text-slate-300 uppercase">{templateLanguage}</button>
+          <button type="button" onClick={() => setTemplateLength((v) => (v === 'short' ? 'full' : 'short'))} className="rounded border border-slate-600 px-2 py-1 text-slate-300 uppercase">{templateLength}</button>
+        </div>
+
+        <p className="text-[11px] text-emerald-100/80">Активных точек: {entries.length}. Очередь offline sync: {pendingSync}.</p>
+      </section>
+
+      {chainMode && currentStop && (
+        <section className="rounded-2xl border border-blue-400/30 bg-blue-500/10 p-3 space-y-2">
+          <p className="text-xs font-black uppercase text-blue-200">Next stop {chainIndex + 1}/{chainRoute.length}</p>
+          <p className="text-sm font-black">{currentStop.name}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => openShopRoute(currentStop)} className="rounded-xl bg-blue-400 px-3 py-2 text-[11px] font-black uppercase text-slate-900">Маршрут</button>
+            <button type="button" onClick={() => setChainIndex((i) => Math.min(i + 1, chainRoute.length - 1))} className="rounded-xl border border-blue-300/40 px-3 py-2 text-[11px] font-black uppercase text-blue-100">Следующая</button>
+          </div>
+        </section>
+      )}
+
+      {isFetchingShops ? (
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 text-center text-slate-300"><Loader2 className="mx-auto mb-2 animate-spin" size={18} /> Загрузка точек...</div>
+      ) : entries.length === 0 ? (
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Радар пока не нашел подходящих точек.</div>
+      ) : entries.map((entry) => {
+        const recTone = entry.recommendation === 'high' ? 'bg-emerald-500/20 text-emerald-200' : entry.recommendation === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-rose-500/20 text-rose-200';
         return (
-          <section key={tier.key} className="space-y-2">
-            <div className={`rounded-xl border px-3 py-2 text-[11px] font-black uppercase tracking-widest ${tier.tone}`}>
-              {tier.title} · {tierEntries.length}
+          <article key={`${entry.order.id}-${entry.shop.id}`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-black truncate">{entry.shop.name}</p>
+                <p className="text-[11px] text-slate-400 truncate">{entry.order.brand} {entry.order.model} {entry.order.year || ''}</p>
+              </div>
+              <div className="text-right">
+                <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${recTone}`}>Рекомендация: {entry.recommendation}</span>
+              </div>
             </div>
-            {tierEntries.slice(0, 14).map(({ order, shop, distance, isCompatible, isRecommended, confidence, radarScore }) => {
-              const level = getShopRecommendationLevel(shop, order);
-              const levelLabel = level === 'high' ? 'Высокая рекомендация' : level === 'medium' ? 'Средняя рекомендация' : level === 'low' ? 'Низкая рекомендация' : 'Резервная точка';
-              const openNow = isShopOpenNow(shop);
-              const specializationTag = getPrimarySpecializationTag(shop, order);
 
-              return (
-                <div key={`${order.id}-${shop.id}`} className={`rounded-2xl border p-3 space-y-2 ${openNow ? 'border-slate-800 bg-slate-900/80' : 'border-slate-700 bg-slate-900/50 grayscale'}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-black truncate">{shop.name}</p>
-                      <p className="text-[11px] text-slate-400 truncate">{order.brand} {order.model} • {order.year || '—'} {isRecommended ? '• рекомендован' : !isCompatible ? '• ближайший магазин' : '• совместим'}</p>
-                    </div>
-                    <div className="text-right">
-                      {!openNow && <span className="mb-1 inline-flex rounded-full border border-rose-400/40 bg-rose-500/20 px-2 py-0.5 text-[10px] font-black uppercase text-rose-200">Closed</span>}
-                      <div className="text-[11px] font-black text-emerald-300">{hasValidCoordinates(shop.latitude, shop.longitude) ? formatDistanceWithDirection(distance, position, shop) : 'Location Unknown'}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] flex-wrap">
-                    <span className={`rounded-full px-2 py-1 font-black uppercase ${confidence === 'high' ? 'bg-emerald-500/20 text-emerald-200' : confidence === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-slate-700 text-slate-300'}`}>{confidence}</span>
-                    <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-300">{levelLabel}</span>
-                    <span className="rounded-full bg-blue-500/20 px-2 py-1 text-blue-200">{specializationTag}</span>
-                    <span className="text-slate-400">ETA: {Number.isFinite(distance) ? `${Math.max(2, Math.round((distance || 0) / 350))} мин` : '—'}</span>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
-                      <div className="h-full rounded-full bg-emerald-400" style={{ width: `${Math.max(8, Math.min(100, Math.round(radarScore)))}%` }} />
-                    </div>
-                    <p className="text-[10px] text-slate-400">Radar score: {Math.round(radarScore)}%</p>
-                  </div>
-                  <div className="flex gap-2 flex-wrap">
-                    <button type="button" onClick={() => window.open(buildShopMapLink(shop), '_blank')} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
-                    <button type="button" onClick={() => navigate(`/order/${order.id}`)} className="inline-flex items-center gap-1 rounded-xl border border-slate-700 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><LocateFixed size={12} /> Карточка</button>
-                    <button
-                      type="button"
-                      onMouseDown={() => beginLongPress(shop, order)}
-                      onMouseUp={() => handleWhatsappTap(shop, order)}
-                      onMouseLeave={cancelLongPress}
-                      onTouchStart={() => beginLongPress(shop, order)}
-                      onTouchEnd={() => handleWhatsappTap(shop, order)}
-                      className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"
-                    >
-                      <MessageCircle size={12} /> WhatsApp
-                    </button>
-                    <button type="button" onClick={() => dismissShopFromRadar(shop)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
-                  </div>
-                </div>
-              );
-            })}
-          </section>
+            <div className="flex items-center flex-wrap gap-2 text-[10px] text-slate-300">
+              <span>{Number.isFinite(entry.distance) ? `${((entry.distance || 0) / 1000).toFixed(1)} км` : 'Distance n/a'}</span>
+              <span>•</span>
+              {entry.openNow === true ? <span className="text-emerald-300">Open now</span> : entry.openNow === false ? <span className="text-rose-300">Closed</span> : <span>hours unknown</span>}
+              <span>•</span>
+              <span>Score {Math.round(entry.score)}/100</span>
+            </div>
+
+            {mode === 'detail' && (
+              <div className="rounded-xl bg-slate-800/70 p-2 text-[11px] text-slate-200 space-y-1">
+                {entry.reasons.slice(0, 3).map((reason) => <p key={`${entry.shop.id}-${reason}`}>• {reason}</p>)}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => openShopRoute(entry.shop)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
+              <button type="button" onClick={() => onWhatsApp(entry)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><MessageCircle size={12} /> WhatsApp</button>
+              <button type="button" onClick={() => openCalls(entry.shop.phone)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
+              <button type="button" onClick={() => hideShop(entry.shop)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
+              {mode === 'detail' && <button type="button" onClick={() => navigate(`/order/${entry.order.id}`)} className="rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">Карточка</button>}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => quickResult(entry, 'found')} className="inline-flex items-center gap-1 rounded-lg border border-emerald-400/40 px-2 py-1 text-[10px] font-black uppercase text-emerald-200"><CheckCircle2 size={11} /> Found</button>
+              <button type="button" onClick={() => quickResult(entry, 'not_found')} className="inline-flex items-center gap-1 rounded-lg border border-rose-400/40 px-2 py-1 text-[10px] font-black uppercase text-rose-200"><XCircle size={11} /> Not found</button>
+              <button type="button" onClick={() => quickResult(entry, 'follow_up')} className="inline-flex items-center gap-1 rounded-lg border border-amber-400/40 px-2 py-1 text-[10px] font-black uppercase text-amber-200"><Clock3 size={11} /> Follow-up</button>
+              <button type="button" onClick={() => quickResult(entry, 'wrong_info')} className="inline-flex items-center gap-1 rounded-lg border border-orange-400/40 px-2 py-1 text-[10px] font-black uppercase text-orange-200"><ShieldAlert size={11} /> Wrong info</button>
+            </div>
+          </article>
         );
       })}
+
+      <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3 text-[11px] text-slate-300 space-y-1">
+        <p className="inline-flex items-center gap-1"><ShieldCheck size={12} /> Offline-first: все результаты пишутся в IndexedDB.</p>
+        <p className="inline-flex items-center gap-1"><ListChecks size={12} /> One-scale recommendation: High (80-100) / Medium (50-79) / Low (&lt;50).</p>
+      </section>
     </div>
   );
 };
