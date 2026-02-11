@@ -285,6 +285,13 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
   const skipUpload = !!order.localOnlyPhotos;
   const carPhotos = await ensurePublicImageUrls(order.carPhotos || [], `orders/${orderId}/car`, { skipUpload });
 
+  const notes = await Promise.all(
+    (order.notes || []).map(async (note, noteIndex) => {
+      const notePhotos = await ensurePublicImageUrls(note.photos || [], `orders/${orderId}/notes/${note.id || noteIndex}`, { skipUpload });
+      return { ...note, photos: notePhotos };
+    })
+  );
+
   const parts: Part[] = await Promise.all(
     (order.parts || []).map(async (part) => {
       const partId = ensureUuid(part.id);
@@ -307,7 +314,7 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
     })
   );
 
-  return { ...order, id: orderId, carPhotos, carPhotoUrl: carPhotos[0], parts };
+  return { ...order, id: orderId, carPhotos, carPhotoUrl: carPhotos[0], notes, parts };
 };
 
 const persistOrderGraph = async (order: Order) => {

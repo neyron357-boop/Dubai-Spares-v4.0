@@ -8,7 +8,6 @@ import { Source } from '../types';
 type FormStep = 1 | 2 | 3 | 4;
 
 const TOTAL_STEPS = 4;
-const DEFAULT_SOURCE: Source = Source.WHATSAPP;
 const INITIAL_REQUEST_PART_FIELDS = 3;
 const MAX_REQUEST_PART_FIELDS = 10;
 
@@ -16,11 +15,32 @@ const LANGUAGE_OPTIONS = [
   { value: 'en', label: 'English' },
   { value: 'ru', label: 'Русский' },
   { value: 'tg', label: 'Тоҷикӣ' },
-  { value: 'ky', label: 'Кыргызча' },
+  { value: 'kk', label: 'Қазақша' },
   { value: 'uz', label: 'O‘zbekcha' }
 ] as const;
 
 type LanguageCode = (typeof LANGUAGE_OPTIONS)[number]['value'];
+
+type MessageSource = 'Instagram' | 'TikTok' | 'Telegram' | 'WhatsApp' | 'Facebook';
+
+const MESSAGE_SOURCES: MessageSource[] = ['Instagram', 'TikTok', 'Telegram', 'WhatsApp', 'Facebook'];
+
+const PHONE_CODES = [
+  { id: 'uae', label: 'ОАЭ', code: '+971' },
+  { id: 'ru', label: 'Россия', code: '+7' },
+  { id: 'tj', label: 'Таджикистан', code: '+992' },
+  { id: 'uz', label: 'Узбекистан', code: '+998' },
+  { id: 'kz', label: 'Казахстан', code: '+7' }
+] as const;
+
+const DELIVERY_COUNTRIES = ['ОАЭ', 'Россия', 'Таджикистан', 'Узбекистан', 'Казахстан'] as const;
+const DELIVERY_CITIES: Record<(typeof DELIVERY_COUNTRIES)[number], string[]> = {
+  'ОАЭ': ['Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman', 'Al Ain'],
+  'Россия': ['Москва', 'Санкт-Петербург', 'Казань', 'Екатеринбург', 'Новосибирск'],
+  'Таджикистан': ['Душанбе', 'Худжанд', 'Куляб'],
+  'Узбекистан': ['Ташкент', 'Самарканд', 'Бухара'],
+  'Казахстан': ['Алматы', 'Астана', 'Шымкент']
+};
 
 const translations = {
   en: {
@@ -59,7 +79,7 @@ const translations = {
     requestReceived: 'Дархост қабул шуд!', thanks: 'Мо аллакай қисмҳои шуморо ҷустуҷӯ мекунем. Ба наздикӣ дар WhatsApp бо шумо тамос мегирем.', another: 'Фиристодани дархости дигар',
     publicRequest: 'Дархости оммавӣ', language: 'Забон', requestedPartsLabel: 'Қисмҳои дархостшуда', delivery: 'Таҳвил', details: 'Тафсилот'
   },
-  ky: {
+  kk: {
     title: 'Унааңызга эмне керек экенин айтып бериңиз.', subtitle: 'Керектүү тетиктерди жазыңыз, биздин адистер Дубайдан эң жакшы варианттарды табышат.',
     step: 'Кадам', of: 'дан', brand: 'Бренд', selectBrand: 'Брендди тандаңыз', model: 'Модель', selectModel: 'Моделди тандаңыз', typeModel: 'Моделди жазыңыз', year: 'Жылы', selectYear: 'Жылды тандаңыз',
     preferredLanguage: 'Тандалган тил', selectLanguage: 'Тилди тандаңыз', requestedParts: 'Суралган тетиктер (10го чейин)', part: 'Тетик', partExample: 'Мисалы: алдыңкы тормоз колодкалары', partPhoto: 'Тетиктин сүрөтү (милдеттүү эмес)', addPart: 'Дагы тетик кошуу',
@@ -114,12 +134,15 @@ const PublicOrderFormScreen: React.FC = () => {
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
-  const [preferredLanguage, setPreferredLanguage] = useState<LanguageCode | ''>('');
+  const [bodyType, setBodyType] = useState('');
+  const [preferredLanguage, setPreferredLanguage] = useState<LanguageCode>('ru');
   const [requestedParts, setRequestedParts] = useState<RequestedPartInput[]>(() => createRequestedPartInputs());
   const [vin, setVin] = useState('');
   const [carPhotoData, setCarPhotoData] = useState<string | null>(null);
   const [vinPhotoData, setVinPhotoData] = useState<string | null>(null);
+  const [contactCountryCode, setContactCountryCode] = useState(PHONE_CODES[0].code);
   const [customerContact, setCustomerContact] = useState('');
+  const [messageSource, setMessageSource] = useState<MessageSource>('WhatsApp');
   const [deliveryCountry, setDeliveryCountry] = useState('');
   const [deliveryCity, setDeliveryCity] = useState('');
   const [deliveryAddressNote, setDeliveryAddressNote] = useState('');
@@ -132,9 +155,10 @@ const PublicOrderFormScreen: React.FC = () => {
   const vinCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
-  const selectedLanguage: LanguageCode = preferredLanguage || 'en';
+  const deliveryCityOptions = useMemo(() => DELIVERY_CITIES[deliveryCountry as keyof typeof DELIVERY_CITIES] || [], [deliveryCountry]);
+  const selectedLanguage: LanguageCode = preferredLanguage || 'ru';
   const locale = translations[selectedLanguage] || translations.en;
-  const preferredLanguageLabel = LANGUAGE_OPTIONS.find((item) => item.value === preferredLanguage)?.label || preferredLanguage;
+  const preferredLanguageLabel = LANGUAGE_OPTIONS.find((item) => item.value === preferredLanguage)?.label || 'Русский';
 
   const handleFileToDataUrl = (file: File, onLoad: (value: string) => void) => {
     const reader = new FileReader();
@@ -143,7 +167,7 @@ const PublicOrderFormScreen: React.FC = () => {
   };
 
   const canContinue =
-    (step === 1 && Boolean(brand.trim() && model.trim() && year.trim() && preferredLanguage.trim())) ||
+    (step === 1 && Boolean(brand.trim() && model.trim() && year.trim())) ||
     (step === 2 && Boolean(requestedParts.some((part) => part.name.trim()))) ||
     step === 3 ||
     (step === 4 && Boolean(customerContact.trim() && deliveryCountry.trim()));
@@ -160,12 +184,15 @@ const PublicOrderFormScreen: React.FC = () => {
     setBrand('');
     setModel('');
     setYear('');
-    setPreferredLanguage('');
+    setPreferredLanguage('ru');
     setRequestedParts(createRequestedPartInputs());
+    setBodyType('');
     setVin('');
     setCarPhotoData(null);
     setVinPhotoData(null);
+    setContactCountryCode(PHONE_CODES[0].code);
     setCustomerContact('');
+    setMessageSource('WhatsApp');
     setDeliveryCountry('');
     setDeliveryCity('');
     setDeliveryAddressNote('');
@@ -189,7 +216,6 @@ const PublicOrderFormScreen: React.FC = () => {
       !brand.trim() ||
       !model.trim() ||
       !year.trim() ||
-      !preferredLanguage.trim() ||
       filledRequestedParts.length === 0 ||
       !customerContact.trim() ||
       !deliveryCountry.trim()
@@ -229,7 +255,7 @@ const PublicOrderFormScreen: React.FC = () => {
       const deliverySummary = [
         `${locale.country}: ${deliveryCountry.trim()}`,
         deliveryCity.trim() ? `${locale.city}: ${deliveryCity.trim()}` : '',
-        deliveryAddressNote.trim() ? `${locale.details}: ${deliveryAddressNote.trim()}` : ''
+        deliveryAddressNote.trim() ? `Заметки к заявке: ${deliveryAddressNote.trim()}` : ''
       ]
         .filter(Boolean)
         .join('\n');
@@ -237,7 +263,7 @@ const PublicOrderFormScreen: React.FC = () => {
       const notes = [
         {
           id: createId(),
-          text: `${locale.publicRequest}\n${locale.language}: ${preferredLanguageLabel.trim()}\n\n${locale.requestedPartsLabel}:\n${requestedPartsSummary}\n\n${locale.delivery}:\n${deliverySummary}`,
+          text: `${locale.publicRequest}\n${locale.language}: ${preferredLanguageLabel.trim()}\nИсточник обращения: ${messageSource}\nТип кузова: ${bodyType.trim() || '—'}\nТелефон: ${contactCountryCode}${customerContact.trim()}\n\n${locale.requestedPartsLabel}:\n${requestedPartsSummary}\n\n${locale.delivery}:\n${deliverySummary}`,
           photos: uploadedVinPhotos,
           audios: [],
           createdAt: Date.now()
@@ -249,13 +275,14 @@ const PublicOrderFormScreen: React.FC = () => {
         brand: brand.trim(),
         model: model.trim(),
         year: year.trim(),
+        body_type: bodyType.trim() || null,
         vin: vin.trim(),
         vin_photo_url: uploadedVinPhotos[0] || null,
         status: 'new_inquiry',
         sales_status: 'Inquiry',
         client_name: 'Public Lead',
-        customer_contact: customerContact.trim(),
-        source: DEFAULT_SOURCE,
+        customer_contact: `${contactCountryCode}${customerContact.trim()}`.trim(),
+        source: messageSource as Source,
         priority: 'MEDIUM',
         car_photo_url: uploadedCarPhotos[0] || null,
         car_photos: uploadedCarPhotos,
@@ -401,6 +428,16 @@ const PublicOrderFormScreen: React.FC = () => {
               </label>
 
               <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Тип кузова (текстом)</span>
+                <input
+                  value={bodyType}
+                  onChange={(e) => setBodyType(e.target.value)}
+                  placeholder="Например: Sedan / SUV / Hatchback"
+                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
+                />
+              </label>
+
+              <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.year}</span>
                 <select
                   value={year}
@@ -420,10 +457,9 @@ const PublicOrderFormScreen: React.FC = () => {
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.preferredLanguage}</span>
                 <select
                   value={preferredLanguage}
-                  onChange={(e) => setPreferredLanguage(e.target.value)}
+                  onChange={(e) => setPreferredLanguage(e.target.value as LanguageCode)}
                   className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition focus:border-white/50"
                 >
-                  <option value="">{locale.selectLanguage}</option>
                   {LANGUAGE_OPTIONS.map((item) => (
                     <option key={item.value} value={item.value} className="text-slate-900">
                       {item.label}
@@ -601,40 +637,79 @@ const PublicOrderFormScreen: React.FC = () => {
           {step === 4 && (
             <div className="space-y-4">
               <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Источник обращения</span>
+                <select
+                  value={messageSource}
+                  onChange={(e) => setMessageSource(e.target.value as MessageSource)}
+                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition focus:border-white/50"
+                >
+                  {MESSAGE_SOURCES.map((item) => (
+                    <option key={item} value={item} className="text-slate-900">
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.phone}</span>
-                <input
-                  type="tel"
-                  value={customerContact}
-                  onChange={(e) => setCustomerContact(e.target.value)}
-                  placeholder="+971..."
-                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition placeholder:text-slate-400 focus:border-white/50"
-                />
+                <div className="grid grid-cols-[130px_1fr] gap-2">
+                  <select
+                    value={contactCountryCode}
+                    onChange={(e) => setContactCountryCode(e.target.value)}
+                    className="h-14 rounded-3xl border border-white/15 bg-white/10 px-3 text-sm outline-none transition focus:border-white/50"
+                  >
+                    {PHONE_CODES.map((item) => (
+                      <option key={item.id} value={item.code} className="text-slate-900">{item.label} {item.code}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="tel"
+                    value={customerContact}
+                    onChange={(e) => setCustomerContact(e.target.value.replace(/\D/g, ''))}
+                    placeholder="555123456"
+                    className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition placeholder:text-slate-400 focus:border-white/50"
+                  />
+                </div>
               </label>
 
               <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.deliveryCountry}</span>
-                <input
-                  type="text"
+                <select
                   value={deliveryCountry}
-                  onChange={(e) => setDeliveryCountry(e.target.value)}
-                  placeholder={locale.country}
-                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
-                />
+                  onChange={(e) => {
+                    setDeliveryCountry(e.target.value);
+                    setDeliveryCity('');
+                  }}
+                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition focus:border-white/50"
+                >
+                  <option value="">{locale.country}</option>
+                  {DELIVERY_COUNTRIES.map((item) => (
+                    <option key={item} value={item} className="text-slate-900">
+                      {item}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.deliveryCity}</span>
-                <input
-                  type="text"
+                <select
                   value={deliveryCity}
                   onChange={(e) => setDeliveryCity(e.target.value)}
-                  placeholder={locale.city}
-                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
-                />
+                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition focus:border-white/50"
+                >
+                  <option value="">{locale.city}</option>
+                  {deliveryCityOptions.map((item) => (
+                    <option key={item} value={item} className="text-slate-900">
+                      {item}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.deliveryDetails}</span>
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Заметки к заявке</span>
                 <textarea
                   value={deliveryAddressNote}
                   onChange={(e) => setDeliveryAddressNote(e.target.value)}

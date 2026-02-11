@@ -279,7 +279,10 @@ export const getRadarShopMatches = (
   currentPosition: { lat: number; lng: number } | null
 ) => {
   return shops
-    .filter((shop) => isBrandEligible(shop, order.brand))
+    .filter((shop) => {
+      const isRecommended = (order.recommendedShopIds || []).includes(shop.id);
+      return isRecommended || isBrandEligible(shop, order.brand);
+    })
     .map((shop) => {
       const isRecommended = (order.recommendedShopIds || []).includes(shop.id);
       const isCompatible = isShopCompatibleWithOrder(shop, order);

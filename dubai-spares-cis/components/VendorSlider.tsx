@@ -118,13 +118,12 @@ const VendorSlider: React.FC = () => {
   const onClose = () => navigate(-1);
   const order = filteredOrders[index];
   const carPhotos = order ? ((order.carPhotos && order.carPhotos.length > 0) ? order.carPhotos : (order.carPhotoUrl ? [order.carPhotoUrl] : [])) : [];
+  const touchHandlers = order ? { onTouchStart, onTouchMove, onTouchEnd } : {};
 
   return (
     <div
-      className="absolute inset-0 z-50 bg-gray-950 flex flex-col h-full w-full"
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
+      className="absolute inset-0 z-50 bg-gray-950 flex flex-col h-full w-full overscroll-none"
+      {...touchHandlers}
     >
       <div className="p-4 flex items-center justify-between border-b border-gray-800 shrink-0">
         <div className="flex items-center gap-2">
@@ -159,7 +158,7 @@ const VendorSlider: React.FC = () => {
       {filteredOrders.length > 0 && order ? (
         <>
           <div className="flex-1 overflow-y-auto no-scrollbar relative">
-            <div key={order.id} className="flex flex-col h-full animate-in slide-in-from-right-10 duration-500">
+            <div key={order.id} className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="relative h-64 bg-gray-900 overflow-hidden shrink-0">
                 {carPhotos.length > 0 ? (
                   <button type="button" onClick={(e) => openGallery(e, carPhotos)} className="w-full h-full block">
@@ -177,6 +176,7 @@ const VendorSlider: React.FC = () => {
                 <div className="absolute bottom-6 left-0 right-0 text-center px-4 pointer-events-none">
                   <h1 className="text-3xl font-black text-white leading-none line-clamp-2 break-words">{order.brand || '—'} {order.model || ''}</h1>
                   <p className="text-gray-400 font-bold mt-2 truncate">{order.year || 'Год не указан'} год выпуска</p>
+                  {order.bodyType && <p className="text-gray-300/90 text-xs font-semibold mt-1">Тип кузова: {order.bodyType}</p>}
                   <div className="mt-3 flex items-center justify-center gap-2">
                     <span className="rounded-full bg-white/15 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white">{order.salesStatus || 'Inquiry'}</span>
                     {order.status === 'new_inquiry' ? (
@@ -238,7 +238,7 @@ const VendorSlider: React.FC = () => {
           {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
         </>
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center text-gray-500 gap-4">
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-gray-500 gap-4">
           <Car size={48} className="opacity-20" />
           <p>Нет заказов для этой марки</p>
         </div>
