@@ -271,10 +271,12 @@ const OrdersScreen: React.FC = () => {
       const activeOrders = orders.filter((order) => !order.isArchived && !order.isSold);
       for (const order of activeOrders) {
         const ranked = getRadarShopMatches(order, shops, currentPosition);
+        const dismissedShopIds = new Set(order.dismissedShopIds || []);
+        const visibleRanked = ranked.filter((entry) => !dismissedShopIds.has(entry.shop.id));
 
-        const matchedEntry = ranked.find((entry) => entry.distance <= 800 && (entry.isRecommended || entry.isCompatible || entry.matchScore >= 2))
-          || ranked.find((entry) => entry.distance <= 350)
-          || ranked[0];
+        const matchedEntry = visibleRanked.find((entry) => entry.distance <= 800 && (entry.isRecommended || entry.isCompatible || entry.matchScore >= 2))
+          || visibleRanked.find((entry) => entry.distance <= 350)
+          || visibleRanked[0];
 
         const matched = matchedEntry?.shop;
 

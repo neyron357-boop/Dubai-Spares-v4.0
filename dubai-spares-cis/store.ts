@@ -91,11 +91,12 @@ export const useStore = () => {
 
     await deleteSupplierFromShops(normalizedId);
 
-    const ordersWithManualRecommendation = orders.filter((order) => (order.recommendedShopIds || []).includes(normalizedId));
+    const ordersWithManualRecommendation = orders.filter((order) => (order.recommendedShopIds || []).includes(normalizedId) || (order.dismissedShopIds || []).includes(normalizedId));
     await Promise.all(
       ordersWithManualRecommendation.map((order) => {
         const nextRecommended = (order.recommendedShopIds || []).filter((shopId) => shopId !== normalizedId);
-        return updateOrder({ ...order, recommendedShopIds: nextRecommended });
+        const nextDismissed = (order.dismissedShopIds || []).filter((shopId) => shopId !== normalizedId);
+        return updateOrder({ ...order, recommendedShopIds: nextRecommended, dismissedShopIds: nextDismissed });
       })
     );
   }, [orders, updateOrder]);

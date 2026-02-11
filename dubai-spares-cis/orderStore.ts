@@ -46,7 +46,8 @@ const normalizeOrder = (order: Order): Order => ({
   parts: Array.isArray(order.parts) ? order.parts : [],
   salesStatus: order.salesStatus ?? 'Inquiry',
   updatedAt: order.updatedAt ?? order.createdAt ?? Date.now(),
-  recommendedShopIds: Array.isArray(order.recommendedShopIds) ? order.recommendedShopIds : []
+  recommendedShopIds: Array.isArray(order.recommendedShopIds) ? order.recommendedShopIds : [],
+  dismissedShopIds: Array.isArray(order.dismissedShopIds) ? order.dismissedShopIds : []
 });
 
 
@@ -134,7 +135,8 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
     'customer_contact',
     'social_nickname',
     'updated_at',
-    'recommended_shop_ids'
+    'recommended_shop_ids',
+    'dismissed_shop_ids'
   ];
 
   while (true) {
@@ -273,7 +275,8 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     customerContact: row.customer_contact || '',
     socialNickname: row.social_nickname || '',
     updatedAt: parseTimestamp(row.updated_at ?? row.created_at),
-    recommendedShopIds: Array.isArray(row.recommended_shop_ids) ? row.recommended_shop_ids : []
+    recommendedShopIds: Array.isArray(row.recommended_shop_ids) ? row.recommended_shop_ids : [],
+    dismissedShopIds: Array.isArray(row.dismissed_shop_ids) ? row.dismissed_shop_ids : []
   })
 });
 
@@ -352,7 +355,8 @@ const persistOrderGraph = async (order: Order) => {
     notes: uploadedOrder.notes || [],
     customer_contact: uploadedOrder.customerContact || '',
     social_nickname: uploadedOrder.socialNickname || '',
-    recommended_shop_ids: uploadedOrder.recommendedShopIds || []
+    recommended_shop_ids: uploadedOrder.recommendedShopIds || [],
+    dismissed_shop_ids: uploadedOrder.dismissedShopIds || []
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -368,6 +372,7 @@ const persistOrderGraph = async (order: Order) => {
       'customer_contact',
       'social_nickname',
       'recommended_shop_ids',
+      'dismissed_shop_ids',
       'body_type'
     ]);
 

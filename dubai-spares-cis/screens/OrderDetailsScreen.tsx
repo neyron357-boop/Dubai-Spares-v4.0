@@ -207,9 +207,10 @@ const OrderDetailsScreen: React.FC = () => {
     : calculateCurrentProfit().toFixed(2);
 
 
-  const manuallyRecommendedShops = shops.filter((shop) => (order.recommendedShopIds || []).includes(shop.id));
+  const dismissedShopIds = new Set(order.dismissedShopIds || []);
+  const manuallyRecommendedShops = shops.filter((shop) => (order.recommendedShopIds || []).includes(shop.id) && !dismissedShopIds.has(shop.id));
 
-  const autoRecommendedShops = shops.filter((shop) => isShopCompatibleWithOrder(shop, order) || getShopOrderMatchScore(shop, order) >= 2);
+  const autoRecommendedShops = shops.filter((shop) => !dismissedShopIds.has(shop.id) && (isShopCompatibleWithOrder(shop, order) || getShopOrderMatchScore(shop, order) >= 2));
 
   const mergedRecommendations = Array.from(new Map([...manuallyRecommendedShops, ...autoRecommendedShops].map((shop) => [shop.id, shop])).values());
   const fallbackNearest = shops
@@ -243,7 +244,8 @@ const OrderDetailsScreen: React.FC = () => {
     if (!shopId) return;
     const current = new Set(order.recommendedShopIds || []);
     current.add(shopId);
-    updateOrder({ ...order, recommendedShopIds: Array.from(current) });
+    const nextDismissed = (order.dismissedShopIds || []).filter((id) => id !== shopId);
+    updateOrder({ ...order, recommendedShopIds: Array.from(current), dismissedShopIds: nextDismissed });
 
     try {
       const raw = localStorage.getItem('shop_order_tags');
@@ -261,6 +263,16 @@ const OrderDetailsScreen: React.FC = () => {
   const removeManualRecommendation = (shopId: string) => {
     const next = (order.recommendedShopIds || []).filter((id) => id !== shopId);
     updateOrder({ ...order, recommendedShopIds: next });
+  };
+
+  const dismissShopRecommendation = (shopId: string) => {
+    const nextDismissed = Array.from(new Set([...(order.dismissedShopIds || []), shopId]));
+    const nextRecommended = (order.recommendedShopIds || []).filter((id) => id !== shopId);
+    updateOrder({ ...order, recommendedShopIds: nextRecommended, dismissedShopIds: nextDismissed });
+  };
+
+  const restoreDismissedRecommendations = () => {
+    updateOrder({ ...order, dismissedShopIds: [] });
   };
 
   const updateOrderField = (field: keyof Order, value: any) => {
@@ -742,6 +754,11 @@ const OrderDetailsScreen: React.FC = () => {
                 .map((shop) => <option key={shop.id} value={shop.id}>{shop.name}</option>)}
             </select>
           </div>
+          {(order.dismissedShopIds || []).length > 0 && (
+            <button type="button" onClick={restoreDismissedRecommendations} className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
+              Вернуть скрытые рекомендации ({(order.dismissedShopIds || []).length})
+            </button>
+          )}
           {recommendedShops.length === 0 ? (
             <p className="text-xs text-gray-400">Пока нет магазинов с координатами. Добавьте локации в справочник поставщиков.</p>
           ) : (
@@ -778,9 +795,12 @@ const OrderDetailsScreen: React.FC = () => {
                         <div className="flex items-center gap-2">
                           {(order.recommendedShopIds || []).includes(shop.id) && (
                             <button type="button" onClick={() => removeManualRecommendation(shop.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-bold text-rose-600">
-                              Remove
+                              Убрать ручную
                             </button>
                           )}
+                          <button type="button" onClick={() => dismissShopRecommendation(shop.id)} className="rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] font-bold text-amber-700">
+                            Скрыть
+                          </button>
                           <button type="button" onClick={() => navigateToShop(shop)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white">
                             Navigate
                           </button>
