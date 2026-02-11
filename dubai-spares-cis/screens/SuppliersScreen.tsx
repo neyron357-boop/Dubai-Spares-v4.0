@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
-import { Supplier } from '../types';
+import { Supplier, SupplierType } from '../types';
 import {
   Search,
   Phone,
@@ -17,7 +17,14 @@ import {
   Wrench,
   Gem,
   Link2,
-  LocateFixed
+  LocateFixed,
+  Sparkles,
+  Heart,
+  Clock3,
+  ChevronDown,
+  Route,
+  MessageCircle,
+  Pencil
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
@@ -25,33 +32,75 @@ import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
 import { CAR_DATABASE } from '../carDatabase';
 
-const KNOWN_ZONES = [
-  { name: 'Sajja Scrapyard', lat: 25.344, lng: 55.54 },
-  { name: 'Al Quoz', lat: 25.142, lng: 55.224 },
-  { name: 'Ras Al Khor', lat: 25.175, lng: 55.371 },
-  { name: 'Umm Ramool', lat: 25.223, lng: 55.364 }
+const FIELD_TYPES: Array<{ value: SupplierType; label: string; icon: React.ReactNode }> = [
+  { value: 'new_parts', label: 'New Parts', icon: <Gem size={12} /> },
+  { value: 'scrapyard', label: 'Scrapyard', icon: <Wrench size={12} /> },
+  { value: 'engine_specialist', label: 'Engine Specialist', icon: <Wrench size={12} /> },
+  { value: 'body_parts', label: 'Body Parts', icon: <Wrench size={12} /> },
+  { value: 'electrical', label: 'Electrical', icon: <Sparkles size={12} /> },
+  { value: 'mixed', label: 'Mixed', icon: <Store size={12} /> },
+  { value: 'dealer', label: 'Dealer', icon: <Store size={12} /> },
+  { value: 'warehouse', label: 'Warehouse', icon: <Store size={12} /> }
 ];
 
-const toRad = (v: number) => (v * Math.PI) / 180;
-const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
-  const R = 6371000;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const calc = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.atan2(Math.sqrt(calc), Math.sqrt(1 - calc));
+const ZONE_GEOFENCES = [
+  { name: 'Sajaa', bounds: { minLat: 25.29, maxLat: 25.37, minLng: 55.48, maxLng: 55.58 } },
+  { name: 'Ras Al Khor', bounds: { minLat: 25.16, maxLat: 25.21, minLng: 55.34, maxLng: 55.4 } },
+  { name: 'Al Qusais', bounds: { minLat: 25.24, maxLat: 25.29, minLng: 55.37, maxLng: 55.44 } },
+  { name: 'Sharjah Industrial', bounds: { minLat: 25.26, maxLat: 25.34, minLng: 55.39, maxLng: 55.47 } }
+];
+
+const normalizePhone = (raw: string) => {
+  const trimmed = raw.replace(/[\s\-()]/g, '');
+  if (!trimmed) return '';
+  if (trimmed.startsWith('+')) return `+${trimmed.slice(1).replace(/\D/g, '')}`;
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.startsWith('971')) return `+${digits}`;
+  if (digits.startsWith('0')) return `+971${digits.slice(1)}`;
+  return `+${digits}`;
 };
 
-const suggestZoneFromCoordinates = (coords?: { lat: number; lng: number }) => {
+const isValidE164 = (phone: string) => /^\+[1-9]\d{7,14}$/.test(phone);
+
+const toTitle = (value: string) => value
+  .split(/\s+/)
+  .filter(Boolean)
+  .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+  .join(' ');
+
+const daysAgoLabel = (ts?: number) => {
+  if (!ts || !Number.isFinite(ts)) return 'нет контактов';
+  const diff = Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24));
+  if (diff <= 0) return 'сегодня';
+  if (diff === 1) return '1 день назад';
+  return `${diff} дней назад`;
+};
+
+const activityLabel = (score: number, lastContactAt?: number) => {
+  const days = lastContactAt ? (Date.now() - lastContactAt) / (1000 * 60 * 60 * 24) : Infinity;
+  if (days > 60) return '⚫ Dormant';
+  if (score >= 14) return '🔥 High';
+  if (score >= 7) return '🟡 Medium';
+  return '⚪ Low';
+};
+
+const inferZoneFromCoords = (coords?: { lat: number; lng: number }) => {
   if (!coords) return '';
-  return KNOWN_ZONES
-    .map((zone) => ({ ...zone, distance: distanceMeters(coords, zone) }))
-    .sort((a, b) => a.distance - b.distance)[0]?.name || '';
+  const matched = ZONE_GEOFENCES.find((zone) => (
+    coords.lat >= zone.bounds.minLat
+      && coords.lat <= zone.bounds.maxLat
+      && coords.lng >= zone.bounds.minLng
+      && coords.lng <= zone.bounds.maxLng
+  ));
+  return matched?.name || '';
 };
 
 const SuppliersScreen: React.FC = () => {
-  const { suppliers, addSupplier, deleteSupplier, getBackupData, restoreData, orders, updateOrder } = useStore();
+  const { suppliers, addSupplier, deleteSupplier, getBackupData, restoreData, orders, updateOrder, updateSupplier } = useStore();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  const [isHeatMapMode, setIsHeatMapMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deleteSupplierId, setDeleteSupplierId] = useState<string | null>(null);
 
@@ -62,12 +111,35 @@ const SuppliersScreen: React.FC = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [location, setLocation] = useState('');
-  const [shopType, setShopType] = useState<'new_parts' | 'scrapyard'>('new_parts');
+  const [shopType, setShopType] = useState<SupplierType>('new_parts');
   const [zone, setZone] = useState('');
   const [mainBrands, setMainBrands] = useState<string[]>([]);
+  const [primaryBrand, setPrimaryBrand] = useState('');
+  const [brandSearch, setBrandSearch] = useState('');
+  const [customBrand, setCustomBrand] = useState('');
+  const [isFastBrandMode, setIsFastBrandMode] = useState(true);
+
+  const [workingHours, setWorkingHours] = useState('');
+  const [trustLevel, setTrustLevel] = useState(3);
+  const [hasDelivery, setHasDelivery] = useState(false);
+  const [whatsappFast, setWhatsappFast] = useState(false);
+  const [comment, setComment] = useState('');
+  const [website, setWebsite] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | undefined>(undefined);
+
   const [isSavingSupplier, setIsSavingSupplier] = useState(false);
   const [locationParseNotice, setLocationParseNotice] = useState<string | null>(null);
   const [activeOrderLinkShopId, setActiveOrderLinkShopId] = useState<string | null>(null);
+  const [activeOrderPartLink, setActiveOrderPartLink] = useState<{ supplierId: string; orderId: string; partId: string } | null>(null);
+
+  const [filterType, setFilterType] = useState<'all' | SupplierType>('all');
+  const [filterActivity, setFilterActivity] = useState<'all' | 'high' | 'medium' | 'low' | 'dormant'>('all');
+  const [filterBrand, setFilterBrand] = useState('all');
+  const [filterGps, setFilterGps] = useState<'all' | 'has' | 'missing'>('all');
+  const [sortBy, setSortBy] = useState<'activity' | 'success' | 'last_contact'>('activity');
 
   const activeOrders = useMemo(
     () => orders.filter((order) => !order.isArchived && !order.isSold),
@@ -76,35 +148,138 @@ const SuppliersScreen: React.FC = () => {
 
   const brandOptions = useMemo(() => Object.keys(CAR_DATABASE).sort((a, b) => a.localeCompare(b)), []);
 
-  const supplierHeatMap = useMemo(() => {
-    const successMap: Record<string, number> = {};
+  const supplierStatsMap = useMemo(() => {
+    const stats: Record<string, { interactions30d: number; found: number; notFound: number; wrongInfo: number; responsePoints: number; lastContactAt: number; avgCheck: number; orderCount: number }> = {};
     const monthAgo = Date.now() - 1000 * 60 * 60 * 24 * 30;
 
+    const ensure = (key: string) => {
+      if (!stats[key]) {
+        stats[key] = { interactions30d: 0, found: 0, notFound: 0, wrongInfo: 0, responsePoints: 0, lastContactAt: 0, avgCheck: 0, orderCount: 0 };
+      }
+      return stats[key];
+    };
+
     orders.forEach((order) => {
-      const normalizedOrderAt = Number(order.createdAt || 0);
-      if (normalizedOrderAt > 0 && normalizedOrderAt < monthAgo) return;
+      const orderTs = Number(order.updatedAt || order.createdAt || 0);
       order.parts.forEach((part) => {
-        const firstVariant = part.variants[0];
-        if (!part.isFound || !firstVariant?.shopName) return;
-        const key = firstVariant.shopName.trim().toLowerCase();
-        if (!key) return;
-        successMap[key] = (successMap[key] || 0) + 1;
+        part.variants.forEach((variant) => {
+          const shopName = (variant.shopName || '').trim().toLowerCase();
+          if (!shopName) return;
+          const item = ensure(shopName);
+          if (orderTs >= monthAgo) item.interactions30d += 1;
+          if (part.isFound) item.found += 1;
+          else item.notFound += 1;
+          item.lastContactAt = Math.max(item.lastContactAt, orderTs);
+          if (variant.priceAed > 0) {
+            item.avgCheck += variant.priceAed;
+            item.orderCount += 1;
+          }
+
+          const ageHours = (Date.now() - orderTs) / (1000 * 60 * 60);
+          if (ageHours < 4) item.responsePoints += 4;
+          else if (ageHours < 24) item.responsePoints += 2;
+          else item.responsePoints += 1;
+        });
       });
     });
 
-    return successMap;
+    return stats;
   }, [orders]);
 
-  const filtered = suppliers.filter((s) => {
+  const existingByName = useMemo(() => suppliers.map((s) => s.name.trim().toLowerCase()), [suppliers]);
+  const nameNormalized = name.trim().toLowerCase();
+  const duplicateWarning = useMemo(() => {
+    if (!nameNormalized) return '';
+    const close = existingByName.find((value) => value.includes(nameNormalized) || nameNormalized.includes(value));
+    return close ? `Похожий поставщик уже есть: ${close}` : '';
+  }, [existingByName, nameNormalized]);
+
+  const currentPhone = normalizePhone(phone);
+  const hasWhatsapp = isValidE164(currentPhone);
+
+  const filteredBrandOptions = useMemo(
+    () => brandOptions.filter((brand) => brand.toLowerCase().includes(brandSearch.toLowerCase())),
+    [brandOptions, brandSearch]
+  );
+
+  const uniqueBrandsForFilter = useMemo(() => {
+    const set = new Set<string>();
+    suppliers.forEach((supplier) => (supplier.mainBrands || supplier.brands || []).forEach((brand) => set.add(brand)));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [suppliers]);
+
+  const suppliersWithStats = useMemo(() => suppliers.map((supplier) => {
+    const key = supplier.name.trim().toLowerCase();
+    const calculated = supplierStatsMap[key] || { interactions30d: 0, found: 0, notFound: 0, wrongInfo: 0, responsePoints: 0, lastContactAt: 0, avgCheck: 0, orderCount: 0 };
+    const foundCount = Number.isFinite(Number(supplier.foundCount)) && Number(supplier.foundCount) > 0 ? Number(supplier.foundCount) : calculated.found;
+    const notFoundCount = Number.isFinite(Number(supplier.notFoundCount)) && Number(supplier.notFoundCount) > 0 ? Number(supplier.notFoundCount) : calculated.notFound;
+    const wrongInfoCount = Number.isFinite(Number(supplier.wrongInfoCount)) ? Number(supplier.wrongInfoCount) : calculated.wrongInfo;
+    const total = foundCount + notFoundCount;
+    const successRate = total > 0 ? Math.round((foundCount / total) * 100) : 0;
+    const activityScore = foundCount * 2 + calculated.interactions30d + calculated.responsePoints;
+    const avgCheck = calculated.orderCount > 0 ? Math.round(calculated.avgCheck / calculated.orderCount) : 0;
+    const lastContactAt = Math.max(Number(supplier.lastContactAt || 0), calculated.lastContactAt || 0);
+
+    return {
+      ...supplier,
+      foundCount,
+      notFoundCount,
+      wrongInfoCount,
+      successRate,
+      activityScore,
+      avgCheck,
+      lastContactAt,
+      activityState: activityLabel(activityScore, lastContactAt)
+    };
+  }), [suppliers, supplierStatsMap]);
+
+  const filtered = useMemo(() => {
     const normalized = searchTerm.toLowerCase();
-    return s.name.toLowerCase().includes(normalized)
-      || s.phone.includes(searchTerm)
-      || (s.brands || []).some((b) => b.toLowerCase().includes(normalized))
-      || (s.mainBrands || []).some((b) => b.toLowerCase().includes(normalized))
-      || (s.models || []).some((m) => m.toLowerCase().includes(normalized))
-      || (s.years || []).some((y) => String(y).includes(searchTerm))
-      || (s.bodyTypes || []).some((bodyType) => bodyType.toLowerCase().includes(normalized));
-  });
+
+    const data = suppliersWithStats.filter((s) => {
+      const matchesSearch = !normalized
+        || s.name.toLowerCase().includes(normalized)
+        || s.phone.includes(searchTerm)
+        || (s.zone || '').toLowerCase().includes(normalized)
+        || (s.brands || []).some((b) => b.toLowerCase().includes(normalized))
+        || (s.mainBrands || []).some((b) => b.toLowerCase().includes(normalized));
+
+      const matchesType = filterType === 'all' || s.type === filterType;
+      const matchesBrand = filterBrand === 'all' || (s.mainBrands || s.brands || []).includes(filterBrand);
+      const hasGps = !!s.coordinates;
+      const matchesGps = filterGps === 'all' || (filterGps === 'has' ? hasGps : !hasGps);
+      const matchesActivity = filterActivity === 'all'
+        || (filterActivity === 'high' && s.activityState.includes('High'))
+        || (filterActivity === 'medium' && s.activityState.includes('Medium'))
+        || (filterActivity === 'low' && s.activityState.includes('Low'))
+        || (filterActivity === 'dormant' && s.activityState.includes('Dormant'));
+
+      return matchesSearch && matchesType && matchesBrand && matchesGps && matchesActivity;
+    });
+
+    return data.sort((a, b) => {
+      if (sortBy === 'success') return (b.successRate || 0) - (a.successRate || 0);
+      if (sortBy === 'last_contact') return (b.lastContactAt || 0) - (a.lastContactAt || 0);
+      return (b.activityScore || 0) - (a.activityScore || 0);
+    });
+  }, [suppliersWithStats, searchTerm, filterType, filterBrand, filterGps, filterActivity, sortBy]);
+
+  const heatMapRows = useMemo(() => {
+    const zoneMap = new Map<string, { total: number; scrap: number; body: number; engine: number }>();
+    suppliersWithStats.forEach((supplier) => {
+      const zoneName = supplier.zone || 'Unknown';
+      const current = zoneMap.get(zoneName) || { total: 0, scrap: 0, body: 0, engine: 0 };
+      current.total += Math.max(1, supplier.foundCount || 0);
+      if (supplier.type === 'scrapyard') current.scrap += 1;
+      if (supplier.type === 'body_parts') current.body += 1;
+      if (supplier.type === 'engine_specialist') current.engine += 1;
+      zoneMap.set(zoneName, current);
+    });
+
+    return Array.from(zoneMap.entries())
+      .map(([zoneName, value]) => ({ zoneName, ...value }))
+      .sort((a, b) => b.total - a.total);
+  }, [suppliersWithStats]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -126,64 +301,126 @@ const SuppliersScreen: React.FC = () => {
     setMainBrands((prev) => prev.includes(brand) ? prev.filter((item) => item !== brand) : [...prev, brand]);
   };
 
+  const importFromSimilar = () => {
+    const query = name.trim().toLowerCase();
+    if (!query) return;
+    const similar = suppliers.find((supplier) => supplier.name.toLowerCase().includes(query) || query.includes(supplier.name.toLowerCase()));
+    if (!similar) return;
+    setMainBrands(similar.mainBrands || similar.brands || []);
+    setPrimaryBrand(similar.primaryBrand || (similar.mainBrands || [])[0] || '');
+  };
+
+  const addCustomBrand = () => {
+    const normalized = toTitle(customBrand.trim());
+    if (!normalized) return;
+    if (!mainBrands.includes(normalized)) setMainBrands((prev) => [...prev, normalized]);
+    if (!primaryBrand) setPrimaryBrand(normalized);
+    setCustomBrand('');
+  };
+
   const autofillLocationFromGps = () => {
     if (!navigator.geolocation) return;
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        const nextCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${nextCoords.lat},${nextCoords.lng}`;
+        setCoords(nextCoords);
+        setGpsAccuracy(Math.round(pos.coords.accuracy));
         if (!location.trim()) {
-          setLocation(`https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`);
+          setLocation(mapsUrl);
         }
-        if (!zone) {
-          setZone(suggestZoneFromCoordinates(coords));
-        }
+        const inferredZone = inferZoneFromCoords(nextCoords);
+        if (!zone && inferredZone) setZone(inferredZone);
       },
       () => {
-        // keep manual mode
+        setLocationParseNotice('GPS недоступен. Вставьте ссылку Google Maps вручную.');
       },
       { enableHighAccuracy: true, timeout: 15000 }
     );
   };
 
+  const resetAddForm = () => {
+    setName('');
+    setPhone('');
+    setLocation('');
+    setMainBrands([]);
+    setPrimaryBrand('');
+    setShopType('new_parts');
+    setZone('');
+    setLocationParseNotice(null);
+    setCoords(undefined);
+    setGpsAccuracy(null);
+    setWorkingHours('');
+    setTrustLevel(3);
+    setHasDelivery(false);
+    setWhatsappFast(false);
+    setComment('');
+    setWebsite('');
+    setShowAdvanced(false);
+  };
+
   const handleSave = async () => {
-    if (!name.trim()) return;
+    const normalizedName = toTitle(name.trim());
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedName || !isValidE164(normalizedPhone) || !location.trim()) return;
 
     setIsSavingSupplier(true);
     try {
-      const coordinates = await resolveCoordinatesFromLocation(location, {
+      const resolvedCoordinates = coords || await resolveCoordinatesFromLocation(location, {
         fallbackQueries: buildSupplierFallbackQueries(),
         onManualLocationRequired: setLocationParseNotice
       });
-      const inferredZone = zone || suggestZoneFromCoordinates(coordinates || undefined);
-      const heatLevel = supplierHeatMap[name.trim().toLowerCase()] || 0;
 
+      const inferredZone = zone || inferZoneFromCoords(resolvedCoordinates || undefined);
+
+      const now = Date.now();
       const newSupplier: Supplier = {
         id: createUuid(),
-        name: name.trim(),
-        phone,
+        name: normalizedName,
+        phone: normalizedPhone,
         location,
         type: shopType,
         zone: inferredZone,
-        heatLevel,
+        heatLevel: 0,
         brands: mainBrands,
         mainBrands,
+        primaryBrand: primaryBrand || mainBrands[0] || '',
         models: [],
         years: [],
         bodyTypes: [],
-        coordinates
+        coordinates: resolvedCoordinates,
+        gpsAccuracyMeters: gpsAccuracy || undefined,
+        workingHours,
+        trustLevel,
+        hasDelivery,
+        hasWhatsapp,
+        whatsappFast,
+        comment,
+        website,
+        foundCount: 0,
+        notFoundCount: 0,
+        wrongInfoCount: 0,
+        successRate: 0,
+        activityScore: 0,
+        lastContactAt: 0,
+        isFavorite: false,
+        createdAt: now,
+        updatedAt: now,
+        syncStatus: navigator.onLine ? 'synced' : 'pending_sync'
       };
 
       addSupplier(newSupplier);
-      await upsertSupplierToShops(newSupplier);
 
-      setName('');
-      setPhone('');
-      setLocation('');
-      setMainBrands([]);
-      setShopType('new_parts');
-      setZone('');
-      setLocationParseNotice(null);
+      if (navigator.onLine) {
+        try {
+          await upsertSupplierToShops(newSupplier);
+        } catch {
+          updateSupplier({ ...newSupplier, syncStatus: 'error' });
+        }
+      }
+
+      resetAddForm();
       setIsAdding(false);
     } finally {
       setIsSavingSupplier(false);
@@ -260,6 +497,10 @@ const SuppliersScreen: React.FC = () => {
     setDeleteSupplierId(null);
   };
 
+  const toggleFavorite = (supplier: Supplier) => {
+    updateSupplier({ ...supplier, isFavorite: !supplier.isFavorite, updatedAt: Date.now() });
+  };
+
   const addSupplierToOrder = (shopId: string, orderId: string) => {
     const order = orders.find((item) => item.id === orderId);
     if (!order) return;
@@ -267,42 +508,56 @@ const SuppliersScreen: React.FC = () => {
     const current = new Set(order.recommendedShopIds || []);
     current.add(shopId);
     const nextDismissed = (order.dismissedShopIds || []).filter((id) => id !== shopId);
-    updateOrder({ ...order, recommendedShopIds: Array.from(current), dismissedShopIds: nextDismissed });
+    updateOrder({ ...order, recommendedShopIds: Array.from(current), dismissedShopIds: nextDismissed, updatedAt: Date.now() });
     setActiveOrderLinkShopId(null);
   };
 
+  const addSupplierToOrderPart = () => {
+    if (!activeOrderPartLink) return;
+    const order = orders.find((item) => item.id === activeOrderPartLink.orderId);
+    if (!order) return;
+    const current = new Set(order.recommendedShopIds || []);
+    current.add(activeOrderPartLink.supplierId);
+    updateOrder({ ...order, recommendedShopIds: Array.from(current), updatedAt: Date.now() });
+    setActiveOrderPartLink(null);
+    alert('Поставщик добавлен в активный заказ. Откройте заказ и добавьте вариант к выбранной детали.');
+  };
+
+  const requiredReady = !!toTitle(name.trim()) && isValidE164(currentPhone) && !!location.trim();
+
   return (
     <div className="p-4 space-y-4 pb-20 overflow-x-hidden">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-bold">База Поставщиков</h1>
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={handleExport}
-            className="p-3 bg-emerald-50 text-emerald-600 rounded-xl active:bg-emerald-100 transition-colors"
-            title="Экспорт"
+            onClick={() => setIsHeatMapMode((prev) => !prev)}
+            className={`px-3 py-2 rounded-xl text-xs font-black ${isHeatMapMode ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}
           >
-            <Download size={18} />
+            🧠 Heat Map Mode
           </button>
+          <button type="button" onClick={handleExport} className="p-3 bg-emerald-50 text-emerald-600 rounded-xl" title="Экспорт"><Download size={18} /></button>
           <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleFileSelect} />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="p-3 bg-violet-50 text-violet-600 rounded-xl active:bg-violet-100 transition-colors"
-            title="Импорт"
-          >
-            <Upload size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsAdding(true)}
-            className="p-3 bg-blue-600 text-white rounded-xl active:bg-blue-700 transition-colors"
-            title="Добавить"
-          >
-            <UserPlus size={20} />
-          </button>
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 bg-violet-50 text-violet-600 rounded-xl" title="Импорт"><Upload size={18} /></button>
+          <button type="button" onClick={() => setIsAdding(true)} className="p-3 bg-blue-600 text-white rounded-xl" title="Добавить"><UserPlus size={20} /></button>
         </div>
       </div>
+
+      {isHeatMapMode && (
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-3 space-y-2">
+          <p className="text-xs font-black uppercase text-orange-700">Heat Map: где чаще находки / scrap / кузовщина / двигатели</p>
+          {heatMapRows.map((row) => (
+            <div key={row.zoneName} className="grid grid-cols-4 gap-2 text-[11px] font-semibold bg-white rounded-xl p-2 border border-orange-100">
+              <span>{row.zoneName}</span>
+              <span>Found: {row.total}</span>
+              <span>Scrap: {row.scrap}</span>
+              <span>Body/Engine: {row.body}/{row.engine}</span>
+            </div>
+          ))}
+          {heatMapRows.length === 0 && <p className="text-xs text-orange-700">Недостаточно данных для heat map.</p>}
+        </div>
+      )}
 
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
@@ -310,103 +565,137 @@ const SuppliersScreen: React.FC = () => {
           type="text"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Поиск магазина, телефона или локации..."
+          placeholder="Поиск: имя / телефон / зона / бренд"
           autoComplete="off"
           className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-200 rounded-2xl shadow-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-base"
         />
       </div>
 
-      {importError && (
-        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in slide-in-from-top-2 border border-red-100">
-          <AlertTriangle size={16} />
-          {importError}
-        </div>
-      )}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={filterType} onChange={(e) => setFilterType(e.target.value as any)}>
+          <option value="all">Тип: все</option>
+          {FIELD_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+        </select>
+        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={filterActivity} onChange={(e) => setFilterActivity(e.target.value as any)}>
+          <option value="all">Активность: все</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+          <option value="dormant">Dormant</option>
+        </select>
+        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={filterBrand} onChange={(e) => setFilterBrand(e.target.value)}>
+          <option value="all">Бренд: все</option>
+          {uniqueBrandsForFilter.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+        </select>
+        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={filterGps} onChange={(e) => setFilterGps(e.target.value as any)}>
+          <option value="all">GPS: все</option>
+          <option value="has">Есть GPS</option>
+          <option value="missing">Нет GPS</option>
+        </select>
+        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+          <option value="activity">Сорт: Активность</option>
+          <option value="success">Сорт: Успешность</option>
+          <option value="last_contact">Сорт: Последний контакт</option>
+        </select>
+      </div>
 
-      {showSuccess && (
-        <div className="bg-green-50 text-green-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in slide-in-from-top-2 border border-green-100">
-          <CheckCircle2 size={16} />
-          Данные успешно восстановлены!
-        </div>
-      )}
+      {importError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-red-100"><AlertTriangle size={16} />{importError}</div>}
+      {showSuccess && <div className="bg-green-50 text-green-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-green-100"><CheckCircle2 size={16} />Данные успешно восстановлены!</div>}
 
       {isAdding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setIsAdding(false)}>
-          <form
-            onSubmit={(e) => { e.preventDefault(); void handleSave(); }}
-            className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200 space-y-5 max-h-[92vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-bold">Field-Add: Новый Поставщик</h2>
-            <div className="space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => { setIsAdding(false); resetAddForm(); }}>
+          <form onSubmit={(e) => { e.preventDefault(); void handleSave(); }} className="bg-white w-full max-w-md rounded-3xl p-5 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between">
               <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Название магазина</label>
-                <input
-                  placeholder="Dubai Parts LTD"
-                  value={name} onChange={(e) => setName(e.target.value)}
-                  autoComplete="off"
-                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
-                />
+                <h2 className="text-xl font-bold">Добавить поставщика</h2>
+                <p className="text-xs text-gray-400 font-semibold">Field Mode</p>
               </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Телефон</label>
-                <input
-                  placeholder="+971..."
-                  value={phone} onChange={(e) => setPhone(e.target.value)}
-                  autoComplete="off"
-                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
-                />
+              <button type="button" onClick={() => { setIsAdding(false); resetAddForm(); }} className="text-xs font-black text-gray-500">Cancel</button>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Название *</label>
+              <input placeholder="Dubai Parts LTD" value={name} onChange={(e) => setName(toTitle(e.target.value))} autoComplete="off" className="w-full bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
+              {duplicateWarning && <p className="text-[11px] text-amber-700 font-semibold mt-1">⚠️ {duplicateWarning}</p>}
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Телефон (E.164) *</label>
+              <div className="flex gap-2">
+                <input placeholder="+971..." value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="off" className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
+                {currentPhone && <a href={`tel:${currentPhone}`} className="px-3 rounded-xl bg-green-50 text-green-700 text-[10px] font-black inline-flex items-center gap-1"><Phone size={12} />Call</a>}
               </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Тип магазина</label>
-                <div className="grid grid-cols-2 gap-2 mt-1">
-                  <button type="button" onClick={() => setShopType('new_parts')} className={`rounded-xl border px-3 py-2 text-xs font-black inline-flex items-center justify-center gap-2 ${shopType === 'new_parts' ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-gray-200 text-gray-500'}`}><Gem size={14} /> New Parts</button>
-                  <button type="button" onClick={() => setShopType('scrapyard')} className={`rounded-xl border px-3 py-2 text-xs font-black inline-flex items-center justify-center gap-2 ${shopType === 'scrapyard' ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-gray-200 text-gray-500'}`}><Wrench size={14} /> Scrapyard</button>
-                </div>
+              <p className={`text-[10px] mt-1 font-semibold ${isValidE164(currentPhone) ? 'text-green-700' : 'text-red-600'}`}>{isValidE164(currentPhone) ? `✔ ${currentPhone} · WhatsApp ${hasWhatsapp ? 'detected' : 'not detected'}` : 'Введите корректный E.164 (+971...)'}</p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">GPS / Maps *</label>
+                <button type="button" onClick={autofillLocationFromGps} className="text-[10px] font-black uppercase text-blue-600 inline-flex items-center gap-1"><LocateFixed size={12} /> Определить местоположение</button>
               </div>
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Локация / Карта</label>
-                  <button type="button" onClick={autofillLocationFromGps} className="text-[10px] font-black uppercase text-blue-600 inline-flex items-center gap-1">
-                    <LocateFixed size={12} /> GPS
-                  </button>
-                </div>
-                <input
-                  placeholder="Ссылка или описание..."
-                  value={location} onChange={(e) => { setLocation(e.target.value); setLocationParseNotice(null); }}
-                  autoComplete="off"
-                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
-                />
+              <input placeholder="Ссылка Google Maps или адрес" value={location} onChange={(e) => { setLocation(e.target.value); setLocationParseNotice(null); }} autoComplete="off" className="w-full bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
+              {gpsAccuracy !== null && <p className="text-[10px] text-blue-700 font-semibold mt-1">Точность: {gpsAccuracy}м</p>}
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Тип магазина</label>
+              <div className="grid grid-cols-2 gap-2 mt-1">
+                {FIELD_TYPES.map((type) => (
+                  <button key={type.value} type="button" onClick={() => setShopType(type.value)} className={`rounded-xl border px-3 py-2 text-[10px] font-black inline-flex items-center justify-center gap-2 ${shopType === type.value ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-gray-200 text-gray-500'}`}>{type.icon} {type.label}</button>
+                ))}
               </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Зона (Geo-Fence)</label>
-                <input
-                  placeholder="Например: Sajja Scrapyard"
-                  value={zone}
-                  onChange={(e) => setZone(e.target.value)}
-                  autoComplete="off"
-                  className="w-full bg-gray-50 border border-gray-100 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base"
-                />
-              </div>
-              <div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Зона (Geo-Fence)</label>
+              <input placeholder="Автоподсказка по GPS" value={zone} onChange={(e) => setZone(e.target.value)} autoComplete="off" className="w-full bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
                 <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Main Brands</label>
-                <div className="max-h-36 overflow-y-auto rounded-xl border border-gray-100 p-2 bg-gray-50 flex flex-wrap gap-1.5">
-                  {brandOptions.map((brand) => (
-                    <button key={brand} type="button" onClick={() => toggleMainBrand(brand)} className={`px-2 py-1 rounded-lg text-[10px] font-black border ${mainBrands.includes(brand) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>
-                      {brand}
-                    </button>
-                  ))}
-                </div>
+                <button type="button" onClick={() => setIsFastBrandMode((prev) => !prev)} className="text-[10px] font-black text-blue-700">Multi-select fast mode: {isFastBrandMode ? 'ON' : 'OFF'}</button>
               </div>
-              {locationParseNotice && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
-                  {locationParseNotice}
+              <input value={brandSearch} onChange={(e) => setBrandSearch(e.target.value)} placeholder="Поиск бренда" className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
+              <div className="max-h-28 overflow-y-auto rounded-xl border border-gray-100 p-2 bg-gray-50 flex flex-wrap gap-1.5">
+                {filteredBrandOptions.map((brand) => (
+                  <button key={brand} type="button" onClick={() => toggleMainBrand(brand)} className={`px-2 py-1 rounded-lg text-[10px] font-black border ${mainBrands.includes(brand) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>
+                    {brand}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input value={customBrand} onChange={(e) => setCustomBrand(e.target.value)} placeholder="Добавить свой бренд" className="flex-1 bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
+                <button type="button" onClick={addCustomBrand} className="px-3 rounded-xl bg-gray-100 text-gray-700 text-xs font-black">+ Add</button>
+                <button type="button" onClick={importFromSimilar} className="px-3 rounded-xl bg-violet-50 text-violet-700 text-xs font-black">Импорт похожего</button>
+              </div>
+              <select className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" value={primaryBrand} onChange={(e) => setPrimaryBrand(e.target.value)}>
+                <option value="">Primary brand</option>
+                {mainBrands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+              </select>
+            </div>
+
+            <div className="rounded-xl border border-gray-100 bg-gray-50">
+              <button type="button" onClick={() => setShowAdvanced((prev) => !prev)} className="w-full p-3 text-left text-xs font-black text-gray-600 inline-flex items-center justify-between">Дополнительно <ChevronDown size={14} className={showAdvanced ? 'rotate-180' : ''} /></button>
+              {showAdvanced && (
+                <div className="p-3 pt-0 space-y-2">
+                  <input value={workingHours} onChange={(e) => setWorkingHours(e.target.value)} placeholder="Рабочие часы" className="w-full bg-white border border-gray-200 p-2 rounded-lg text-xs font-semibold" />
+                  <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="Website (AI suggest)" className="w-full bg-white border border-gray-200 p-2 rounded-lg text-xs font-semibold" />
+                  <label className="text-xs font-semibold text-gray-600">Уровень доверия: {trustLevel}/5</label>
+                  <input type="range" min={1} max={5} value={trustLevel} onChange={(e) => setTrustLevel(Number(e.target.value))} className="w-full" />
+                  <label className="text-xs font-semibold text-gray-700 inline-flex items-center gap-2"><input type="checkbox" checked={hasDelivery} onChange={(e) => setHasDelivery(e.target.checked)} /> Есть доставка</label>
+                  <label className="text-xs font-semibold text-gray-700 inline-flex items-center gap-2"><input type="checkbox" checked={whatsappFast} onChange={(e) => setWhatsappFast(e.target.checked)} /> Быстро отвечает в WhatsApp</label>
+                  <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className="w-full bg-white border border-gray-200 p-2 rounded-lg text-xs font-semibold" rows={2} />
                 </div>
               )}
             </div>
-            <div className="flex gap-3 pt-2">
-              <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold active:bg-gray-200 transition-colors uppercase text-xs">Отмена</button>
-              <button type="submit" disabled={isSavingSupplier} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg active:bg-blue-700 transition-colors uppercase text-xs disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2">{isSavingSupplier ? <><Loader2 size={14} className="animate-spin" /> Поиск координат...</> : 'Добавить'}</button>
+
+            {locationParseNotice && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">{locationParseNotice}</div>}
+            {!navigator.onLine && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">⏳ Offline mode: поставщик будет сохранён как pending sync.</div>}
+
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={() => { setIsAdding(false); resetAddForm(); }} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-2xl font-bold uppercase text-xs">Cancel</button>
+              <button type="submit" disabled={isSavingSupplier || !requiredReady} className="flex-1 py-3 bg-blue-600 text-white rounded-2xl font-bold uppercase text-xs disabled:opacity-40 inline-flex items-center justify-center gap-2">{isSavingSupplier ? <><Loader2 size={14} className="animate-spin" />Сохранение...</> : 'Save'}</button>
             </div>
           </form>
         </div>
@@ -414,84 +703,80 @@ const SuppliersScreen: React.FC = () => {
 
       <div className="space-y-3">
         {filtered.length === 0 ? (
-          <div className="py-20 text-center opacity-30 italic flex flex-col items-center gap-3">
-            <Store size={48} />
-            Поставщики не найдены
-          </div>
+          <div className="py-20 text-center opacity-30 italic flex flex-col items-center gap-3"><Store size={48} />Поставщики не найдены</div>
         ) : (
           filtered.map((s) => {
-            const heatLevel = Number.isFinite(Number(s.heatLevel)) ? Number(s.heatLevel) : (supplierHeatMap[s.name.trim().toLowerCase()] || 0);
             const Icon = s.type === 'scrapyard' ? Wrench : Gem;
+            const brands = s.mainBrands || s.brands || [];
 
             return (
-              <div key={s.id} className="bg-white p-4 rounded-2xl shadow-sm space-y-4 border border-gray-100 active:bg-gray-50 transition-colors">
+              <div key={s.id} className="bg-white p-4 rounded-2xl shadow-sm space-y-3 border border-gray-100">
                 <div className="flex justify-between items-start">
                   <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${s.type === 'scrapyard' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
-                      <Icon size={24} />
-                    </div>
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${s.type === 'scrapyard' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}><Icon size={24} /></div>
                     <div className="min-w-0">
                       <h3 className="font-bold text-lg leading-tight truncate">{s.name}</h3>
-                      <p className="text-xs text-gray-400 flex items-center gap-1 mt-1 truncate">
-                        <MapPin size={12} className="shrink-0" /> {s.location || 'Локация не указана'}
-                      </p>
+                      <p className="text-xs text-gray-500 truncate inline-flex items-center gap-1"><Clock3 size={11} /> Контакт: {daysAgoLabel(s.lastContactAt)}</p>
+                      <p className="text-xs text-gray-400 flex items-center gap-1 mt-1 truncate"><MapPin size={12} className="shrink-0" /> {s.location || 'Локация не указана'}</p>
                     </div>
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    {s.location && (
-                      <button type="button" onClick={() => openMap(s.location)} className="p-3 bg-red-50 text-red-600 rounded-xl active:bg-red-100 transition-colors" title="Карта">
-                        <MapPin size={20} />
-                      </button>
-                    )}
-                    <a href={`tel:${s.phone}`} className="p-3 bg-green-50 text-green-600 rounded-xl active:bg-green-100 transition-colors">
-                      <Phone size={20} />
-                    </a>
-                    <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="p-3 bg-gray-50 text-gray-300 hover:text-red-500 active:bg-red-50 rounded-xl transition-colors">
-                      <Trash2 size={20} />
-                    </button>
+                    <button type="button" onClick={() => toggleFavorite(s)} className={`p-2 rounded-xl ${s.isFavorite ? 'bg-pink-50 text-pink-600' : 'bg-gray-50 text-gray-400'}`}><Heart size={16} fill={s.isFavorite ? 'currentColor' : 'none'} /></button>
+                    <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="p-2 bg-gray-50 text-gray-300 hover:text-red-500 rounded-xl"><Trash2 size={16} /></button>
                   </div>
                 </div>
 
                 <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
-                  <span className={`rounded-full px-2 py-1 border inline-flex items-center gap-1 ${s.type === 'scrapyard' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}><Icon size={11} /> {s.type === 'scrapyard' ? 'Scrapyard' : 'New Parts'}</span>
+                  <span className="rounded-full px-2 py-1 border border-blue-200 bg-blue-50 text-blue-700">{FIELD_TYPES.find((t) => t.value === s.type)?.label || 'New Parts'}</span>
                   {s.zone && <span className="rounded-full px-2 py-1 border border-violet-200 bg-violet-50 text-violet-700">Zone: {s.zone}</span>}
-                  <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">Активность: {heatLevel >= 6 ? 'высокая' : heatLevel >= 3 ? 'средняя' : 'низкая'}</span>
+                  <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{s.activityState}</span>
+                  <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">Success: {s.successRate}%</span>
+                  <span className={`rounded-full px-2 py-1 border ${s.coordinates ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 bg-gray-50 text-gray-500'}`}>{s.coordinates ? 'GPS ✅' : 'GPS ❌'}</span>
+                  {(s.syncStatus === 'pending_sync' || s.syncStatus === 'error') && <span className="rounded-full px-2 py-1 border border-amber-200 bg-amber-50 text-amber-700">⏳ {s.syncStatus}</span>}
                 </div>
 
-                {(s.mainBrands || s.brands || []).length > 0 && (
+                <div className="text-[11px] grid grid-cols-2 md:grid-cols-4 gap-2 text-gray-600 font-semibold">
+                  <span>FOUND/NOT: {s.foundCount}/{s.notFoundCount}</span>
+                  <span>Wrong info: {s.wrongInfoCount}</span>
+                  <span>Avg check: {s.avgCheck || 0} AED</span>
+                  <span>Primary: {s.primaryBrand || '—'}</span>
+                </div>
+
+                {brands.length > 0 && (
                   <div className="pt-2 flex flex-wrap gap-1.5 border-t border-gray-50">
-                    {(s.mainBrands || s.brands || []).map((b) => (
-                      <span key={`brand-${s.id}-${b}`} className="bg-gray-50 text-gray-500 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase border border-gray-100 flex items-center gap-1">
-                        <Tag size={8} /> {b}
-                      </span>
+                    {brands.map((b) => (
+                      <span key={`brand-${s.id}-${b}`} className="bg-gray-50 text-gray-500 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase border border-gray-100 flex items-center gap-1"><Tag size={8} /> {b}</span>
                     ))}
                   </div>
                 )}
 
+                <div className="grid grid-cols-3 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">
+                  <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Маршрут</button>
+                  <a href={`https://wa.me/${(s.phone || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
+                  <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-1.5 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
+                  <button type="button" onClick={() => { setIsAdding(true); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
+                  <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
+                  <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
+                  <button type="button" onClick={() => alert(`Analyze ${s.name}\nContacts: ${s.activityScore || 0}\nFound: ${s.successRate}%\nLast: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 py-1.5 text-[10px] font-black text-blue-700 inline-flex items-center justify-center gap-1"><Sparkles size={12} />Analyze</button>
+                </div>
+
                 <div className="border-t border-gray-100 pt-3 space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveOrderLinkShopId(activeOrderLinkShopId === s.id ? null : s.id)}
-                    className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-center gap-2"
-                  >
-                    <Link2 size={13} /> Add to Active Order
-                  </button>
+                  <button type="button" onClick={() => setActiveOrderLinkShopId(activeOrderLinkShopId === s.id ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-center gap-2"><Link2 size={13} /> Add to Active Order</button>
                   {activeOrderLinkShopId === s.id && (
-                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
-                      <select
-                        className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold"
-                        defaultValue=""
-                        onChange={(e) => {
-                          if (!e.target.value) return;
-                          addSupplierToOrder(s.id, e.target.value);
-                          e.currentTarget.value = '';
-                        }}
-                      >
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-2">
+                      <select className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" defaultValue="" onChange={(e) => { if (!e.target.value) return; addSupplierToOrder(s.id, e.target.value); e.currentTarget.value = ''; }}>
                         <option value="">Выберите активный заказ...</option>
-                        {activeOrders.map((order) => (
-                          <option key={order.id} value={order.id}>{order.brand} {order.model} • {order.vin}</option>
-                        ))}
+                        {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model} • {order.vin}</option>)}
                       </select>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" defaultValue="" onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: e.target.value, partId: prev?.partId || '' }))}>
+                          <option value="">Заказ для детали</option>
+                          {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model}</option>)}
+                        </select>
+                        <input placeholder="ID детали" className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: prev?.orderId || '', partId: e.target.value }))} />
+                      </div>
+                      <button type="button" onClick={addSupplierToOrderPart} className="w-full rounded-lg bg-violet-100 px-2 py-2 text-[11px] font-black text-violet-800">Открыть Add Variant flow</button>
                     </div>
                   )}
                 </div>
@@ -501,13 +786,7 @@ const SuppliersScreen: React.FC = () => {
         )}
       </div>
 
-      <ConfirmModal
-        isOpen={!!deleteSupplierId}
-        message="Вы уверены, что хотите удалить этого поставщика?"
-        onConfirm={confirmDeleteSupplier}
-        onCancel={() => setDeleteSupplierId(null)}
-      />
-
+      <ConfirmModal isOpen={!!deleteSupplierId} message="Вы уверены, что хотите удалить этого поставщика?" onConfirm={confirmDeleteSupplier} onCancel={() => setDeleteSupplierId(null)} />
       <ConfirmModal
         isOpen={!!importFile}
         message={`Восстановить резервную копию?\n\nДата: ${importFile?.exportedAt ? new Date(importFile.exportedAt).toLocaleDateString() : 'Неизвестно'}\nЗаказов: ${importFile?.orders?.length || 0}\nПоставщиков: ${importFile?.suppliers?.length || 0}\n\nВНИМАНИЕ: Все текущие данные будут заменены!`}

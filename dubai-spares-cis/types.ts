@@ -121,22 +121,44 @@ export interface OrderNote {
   createdAt: number;
 }
 
+export type SupplierType = 'new_parts' | 'scrapyard' | 'engine_specialist' | 'body_parts' | 'electrical' | 'mixed' | 'dealer' | 'warehouse';
+export type SupplierSyncStatus = 'synced' | 'pending_sync' | 'error';
+
 export interface Supplier {
   id: string;
   name: string;
   phone: string;
   location: string;
-  type?: 'new_parts' | 'scrapyard';
+  type?: SupplierType;
   zone?: string;
   heatLevel?: number;
   brands: string[];
   mainBrands?: string[];
+  primaryBrand?: string;
   models?: string[];
   years?: number[];
   bodyTypes?: string[];
   photoUrl?: string;
   photos?: string[];
   coordinates?: Coordinates;
+  gpsAccuracyMeters?: number;
+  workingHours?: string;
+  trustLevel?: number;
+  hasDelivery?: boolean;
+  hasWhatsapp?: boolean;
+  whatsappFast?: boolean;
+  comment?: string;
+  website?: string;
+  foundCount?: number;
+  notFoundCount?: number;
+  wrongInfoCount?: number;
+  successRate?: number;
+  activityScore?: number;
+  lastContactAt?: number;
+  isFavorite?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+  syncStatus?: SupplierSyncStatus;
 }
 
 export interface Shop {
@@ -146,7 +168,7 @@ export interface Shop {
   location?: string;
   latitude: number;
   longitude: number;
-  type?: 'new_parts' | 'scrapyard';
+  type?: SupplierType;
   zone?: string;
   heatLevel?: number;
   needsManualFix?: boolean;

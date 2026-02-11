@@ -12,7 +12,7 @@ let listeners = new Set<() => void>();
 const normalizeSupplier = (supplier: Supplier): Supplier => ({
   ...supplier,
   id: ensureUuid(supplier.id),
-  type: supplier.type === 'scrapyard' ? 'scrapyard' : 'new_parts',
+  type: supplier.type || 'new_parts',
   zone: typeof supplier.zone === 'string' ? supplier.zone : '',
   heatLevel: Number.isFinite(Number(supplier.heatLevel)) ? Number(supplier.heatLevel) : 0,
   brands: Array.isArray(supplier.brands) ? supplier.brands : [],
@@ -21,7 +21,26 @@ const normalizeSupplier = (supplier: Supplier): Supplier => ({
   years: Array.isArray(supplier.years)
     ? supplier.years.map((year) => Number(year)).filter((year) => Number.isFinite(year))
     : [],
-  bodyTypes: Array.isArray(supplier.bodyTypes) ? supplier.bodyTypes : []
+  bodyTypes: Array.isArray(supplier.bodyTypes) ? supplier.bodyTypes : [],
+  primaryBrand: typeof supplier.primaryBrand === 'string' ? supplier.primaryBrand : (Array.isArray(supplier.mainBrands) && supplier.mainBrands[0]) || '',
+  gpsAccuracyMeters: Number.isFinite(Number(supplier.gpsAccuracyMeters)) ? Number(supplier.gpsAccuracyMeters) : undefined,
+  workingHours: typeof supplier.workingHours === 'string' ? supplier.workingHours : '',
+  trustLevel: Number.isFinite(Number(supplier.trustLevel)) ? Number(supplier.trustLevel) : 3,
+  hasDelivery: supplier.hasDelivery === true,
+  hasWhatsapp: supplier.hasWhatsapp !== false,
+  whatsappFast: supplier.whatsappFast === true,
+  comment: typeof supplier.comment === 'string' ? supplier.comment : '',
+  website: typeof supplier.website === 'string' ? supplier.website : '',
+  foundCount: Number.isFinite(Number(supplier.foundCount)) ? Number(supplier.foundCount) : 0,
+  notFoundCount: Number.isFinite(Number(supplier.notFoundCount)) ? Number(supplier.notFoundCount) : 0,
+  wrongInfoCount: Number.isFinite(Number(supplier.wrongInfoCount)) ? Number(supplier.wrongInfoCount) : 0,
+  successRate: Number.isFinite(Number(supplier.successRate)) ? Number(supplier.successRate) : 0,
+  activityScore: Number.isFinite(Number(supplier.activityScore)) ? Number(supplier.activityScore) : 0,
+  lastContactAt: Number.isFinite(Number(supplier.lastContactAt)) ? Number(supplier.lastContactAt) : 0,
+  isFavorite: supplier.isFavorite === true,
+  createdAt: Number.isFinite(Number(supplier.createdAt)) ? Number(supplier.createdAt) : Date.now(),
+  updatedAt: Number.isFinite(Number(supplier.updatedAt)) ? Number(supplier.updatedAt) : Date.now(),
+  syncStatus: supplier.syncStatus === 'pending_sync' || supplier.syncStatus === 'error' ? supplier.syncStatus : 'synced',
 });
 
 try {
