@@ -140,9 +140,12 @@ const mapShopRow = (row: any): Shop => ({
   needsManualFix: !!row.needs_manual_fix,
   mainBrands: Array.isArray(row.main_brands) ? row.main_brands : [],
   specialization: Array.isArray(row.specialization) ? row.specialization : [],
+  specializationTag: typeof row.specialization_tag === 'string' ? row.specialization_tag : '',
   specializationModels: Array.isArray(row.specialization_models) ? row.specialization_models : [],
   specializationYears: toNumberArray(row.specialization_years),
-  specializationBodyTypes: Array.isArray(row.specialization_body_types) ? row.specialization_body_types : []
+  specializationBodyTypes: Array.isArray(row.specialization_body_types) ? row.specialization_body_types : [],
+  businessHours: typeof row.business_hours === 'object' && row.business_hours !== null ? row.business_hours : undefined,
+  businessHoursTimezone: typeof row.business_hours_timezone === 'string' ? row.business_hours_timezone : undefined
 });
 
 const mapSuppliersToShops = (suppliers: Supplier[]): Shop[] => suppliers
@@ -239,7 +242,7 @@ export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> =>
     return supplierShops;
   }
 
-  const baseFields = 'id,name,phone,location,latitude,longitude,specialization';
+  const baseFields = 'id,name,phone,location,latitude,longitude,specialization,specialization_tag,business_hours,business_hours_timezone';
   const extendedFields = `${baseFields},specialization_models,specialization_years,specialization_body_types,needs_manual_fix,shop_type,main_brands,zone,heat_level`;
   const primary = await supabase.from('shops').select(extendedFields);
 

@@ -116,9 +116,12 @@ export interface Shop {
   needsManualFix?: boolean;
   mainBrands?: string[];
   specialization: string[];
+  specializationTag?: string;
   specializationModels?: string[];
   specializationYears?: number[];
   specializationBodyTypes?: string[];
+  businessHours?: Record<string, unknown>;
+  businessHoursTimezone?: string;
 }
 
 export interface DbPriceVariantRow {
