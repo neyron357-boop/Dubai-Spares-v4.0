@@ -82,6 +82,7 @@ const OrderDetailsScreen: React.FC = () => {
   // Multiple photos for new part
   const [newPartPhotos, setNewPartPhotos] = useState<string[]>([]);
   const partFileRef = useRef<HTMLInputElement>(null);
+  const partInputRef = useRef<HTMLInputElement>(null);
 
   // Exchange Rate Input State (Controlled)
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
@@ -210,6 +211,20 @@ const OrderDetailsScreen: React.FC = () => {
 
 
   const dismissedShopIds = new Set(order.dismissedShopIds || []);
+
+
+  const purchaseTotal = order.parts.reduce((sum, p) => sum + (p.variants[0]?.priceAed || 0), 0);
+  const logisticsTotal = Math.round(purchaseTotal * 0.06);
+  const sellTotal = purchaseTotal * (1 + order.markupPercent / 100);
+  const netProfitAed = sellTotal - purchaseTotal - logisticsTotal;
+
+  const openWhatsappClient = () => {
+    const phone = (order.customerContact || '').replace(/[^\d+]/g, '');
+    if (!phone) return;
+    const message = `Hi ${order.clientName || ''}, update for ${order.brand} ${order.model}`;
+    window.open(`https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
 
   const isStrictBrandShop = (shop: Shop) => {
     const shopBrands = Array.from(new Set([...(shop.specialization || []), ...(shop.mainBrands || [])]));
@@ -361,6 +376,7 @@ const OrderDetailsScreen: React.FC = () => {
     updateOrder({ ...order, parts: [...order.parts, newPart] });
     setNewPartName('');
     setNewPartPhotos([]);
+    partInputRef.current?.focus();
   };
 
   const handleSellClick = (e: React.MouseEvent) => {
@@ -687,12 +703,25 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </div>
 
-        <div className={`p-5 rounded-3xl shadow-lg flex items-center justify-between transition-all duration-300 ${order.isSold ? 'bg-green-800 text-white' : 'bg-green-600 text-white'}`}>
-          <div>
-            <span className="text-[10px] opacity-80 font-black uppercase tracking-[0.2em]">{order.isSold ? 'Доход (фикс)' : 'Текущая маржа'}</span>
-            <div className="text-4xl font-black mt-1 tracking-tight">${profitUsd}</div>
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-black uppercase tracking-widest text-gray-500">Маржа</span>
+            <div className="text-xl font-black text-emerald-700">${profitUsd}</div>
           </div>
-          <DollarSign size={48} className="opacity-10" />
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Закупка</p><p className="font-black text-gray-800">{purchaseTotal.toFixed(0)} AED</p></div>
+            <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Логистика</p><p className="font-black text-gray-800">{logisticsTotal.toFixed(0)} AED</p></div>
+            <div className="rounded-xl bg-blue-50 px-3 py-2"><p className="text-blue-500">Наценка</p><p className="font-black text-blue-700">{order.markupPercent}%</p></div>
+            <div className="rounded-xl bg-emerald-50 px-3 py-2"><p className="text-emerald-500">Итого клиенту</p><p className="font-black text-emerald-700">{sellTotal.toFixed(0)} AED</p></div>
+          </div>
+          <div className="rounded-xl bg-emerald-100 px-3 py-2 text-sm font-black text-emerald-800">Чистая прибыль: {netProfitAed.toFixed(0)} AED</div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <button type="button" onClick={openWhatsappClient} className="h-11 rounded-2xl bg-emerald-50 text-emerald-700 text-xs font-black uppercase">WhatsApp клиенту</button>
+          <button type="button" onClick={() => void shareQuote()} className="h-11 rounded-2xl bg-indigo-50 text-indigo-700 text-xs font-black uppercase">Share quote link</button>
+          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-11 rounded-2xl bg-blue-50 text-blue-700 text-xs font-black uppercase">Добавить деталь</button>
+          <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-2xl bg-slate-100 text-slate-700 text-xs font-black uppercase">Добавить магазин</button>
         </div>
 
         {sellError && (
@@ -730,7 +759,7 @@ const OrderDetailsScreen: React.FC = () => {
               <div className="flex-1 flex gap-2 items-center bg-gray-50 border border-gray-100 p-2 rounded-xl">
                 <input 
                   type="text" 
-                  value={newPartName} 
+                  ref={partInputRef} value={newPartName} 
                   onChange={(e) => setNewPartName(e.target.value)}
                   placeholder="Что ищем?.."
                   className="flex-1 bg-transparent outline-none p-1 text-base font-bold"

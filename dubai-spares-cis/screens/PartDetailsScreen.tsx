@@ -247,6 +247,18 @@ const PartDetailsScreen: React.FC = () => {
     s.name.toLowerCase().includes(shopName.toLowerCase())
   ).slice(0, 3);
 
+  const openRoute = (variant: PriceVariant) => {
+    if (!variant.location) return;
+    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(variant.location)}`, '_blank');
+  };
+
+  const openWhatsapp = (variant: PriceVariant) => {
+    const phoneRaw = (variant.phone || '').replace(/[^\d+]/g, '');
+    if (!phoneRaw) return;
+    const message = `Hi, do you have ${part.name} for ${order.brand} ${order.model}?`;
+    window.open(`https://wa.me/${phoneRaw.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
   return (
     <div className="flex flex-col min-h-full bg-gray-50 pb-10 overflow-x-hidden">
       <div className="bg-white p-4 border-b border-gray-100 sticky top-0 z-10 shadow-sm">
@@ -374,41 +386,33 @@ const PartDetailsScreen: React.FC = () => {
         )}
 
         <div className="space-y-4 pt-4">
-          <h2 className="font-black text-gray-400 px-1 uppercase text-[10px] tracking-[0.2em]">История цен ({part.variants.length})</h2>
-          {part.variants.map(variant => {
+          <h2 className="font-black text-gray-400 px-1 uppercase text-[10px] tracking-[0.2em]">Варианты цен ({part.variants.length})</h2>
+          {part.variants.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center">
+              <p className="text-sm font-black text-gray-700">Пока нет вариантов. Добавь первый вариант.</p>
+              <button type="button" onClick={() => setIsAdding(true)} className="mt-4 h-11 px-4 rounded-xl bg-blue-600 text-white text-xs font-black uppercase">+ Добавить вариант</button>
+            </div>
+          ) : part.variants.map(variant => {
              const displayPhotos = getVariantPhotos(variant);
              return (
               <div key={variant.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="p-4 flex gap-4">
                   {displayPhotos.length > 0 && (
-                    <div className="relative w-24 h-24 shrink-0">
-                        <img 
-                          src={displayPhotos[0]} 
-                          onClick={(e) => openGallery(e, variant)}
-                          className="w-full h-full object-cover rounded-2xl cursor-pointer shadow-sm" 
-                        />
-                        {displayPhotos.length > 1 && (
-                            <div className="absolute bottom-0 right-0 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-tl-lg">
-                                +{displayPhotos.length - 1}
-                            </div>
-                        )}
+                    <div className="relative w-20 h-20 shrink-0">
+                        <img src={displayPhotos[0]} onClick={(e) => openGallery(e, variant)} className="w-full h-full object-cover rounded-xl cursor-pointer shadow-sm" />
                     </div>
                   )}
-                  <div className="flex-1 min-w-0 flex flex-col">
+                  <div className="flex-1 min-w-0 flex flex-col gap-1">
                     <div className="flex justify-between items-start">
                       <div className="text-2xl font-black text-blue-600 tracking-tight">{variant.priceAed} AED</div>
-                      <button 
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setDeleteVariantId(variant.id); }}
-                        className="p-4 -m-2 text-gray-200 hover:text-red-500 transition-all relative z-20"
-                      >
-                        <Trash2 size={20} />
-                      </button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setDeleteVariantId(variant.id); }} className="p-2 -m-1 text-gray-300 hover:text-red-500"><Trash2 size={18} /></button>
                     </div>
-                    <h4 className="font-black text-gray-800 mt-1 truncate uppercase tracking-tighter text-sm">{variant.shopName}</h4>
-                    <div className="mt-auto pt-2 space-y-1">
-                      <div className="flex items-center gap-2 text-xs text-gray-500 font-bold"><Phone size={12} className="shrink-0" /> {variant.phone || '—'}</div>
-                      <div className="flex items-center gap-2 text-xs text-gray-400 font-bold truncate"><MapPin size={12} className="shrink-0" /> {variant.location || '—'}</div>
+                    <h4 className="font-black text-gray-800 truncate uppercase tracking-tighter text-sm">{variant.shopName}</h4>
+                    <div className="text-xs text-gray-500 font-bold truncate">{variant.location || 'Локация не указана'}</div>
+                    <div className="text-[11px] inline-flex w-fit px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold">{part.isFound ? 'В наличии' : 'Под заказ'}</div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button type="button" onClick={() => openWhatsapp(variant)} className="h-9 px-3 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-black">WhatsApp</button>
+                      <button type="button" onClick={() => openRoute(variant)} className="h-9 px-3 rounded-lg bg-blue-50 text-blue-700 text-xs font-black">Маршрут</button>
                     </div>
                   </div>
                 </div>

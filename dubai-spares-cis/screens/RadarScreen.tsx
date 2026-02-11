@@ -470,7 +470,13 @@ const RadarScreen: React.FC = () => {
                     <span className={`rounded-full px-2 py-1 font-black uppercase ${confidence === 'high' ? 'bg-emerald-500/20 text-emerald-200' : confidence === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-slate-700 text-slate-300'}`}>{confidence}</span>
                     <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-300">{levelLabel}</span>
                     <span className="rounded-full bg-blue-500/20 px-2 py-1 text-blue-200">{specializationTag}</span>
-                    <span className="text-slate-400">Radar score: {Math.round(radarScore)}</span>
+                    <span className="text-slate-400">ETA: {Number.isFinite(distance) ? `${Math.max(2, Math.round((distance || 0) / 350))} мин` : '—'}</span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                      <div className="h-full rounded-full bg-emerald-400" style={{ width: `${Math.max(8, Math.min(100, Math.round(radarScore)))}%` }} />
+                    </div>
+                    <p className="text-[10px] text-slate-400">Radar score: {Math.round(radarScore)}%</p>
                   </div>
                   <div className="flex gap-2 flex-wrap">
                     <button type="button" onClick={() => window.open(buildShopMapLink(shop), '_blank')} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>

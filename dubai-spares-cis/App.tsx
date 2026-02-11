@@ -8,8 +8,9 @@ import SuppliersScreen from './screens/SuppliersScreen';
 import DebugLogsScreen from './screens/DebugLogsScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import RadarScreen from './screens/RadarScreen';
+import SettingsScreen from './screens/SettingsScreen';
 import VendorSlider from './components/VendorSlider';
-import { CarFront, PlusCircle, Database, Bug, Bell, Radar } from 'lucide-react';
+import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-react';
 import { useStore } from './store';
 import { getNotifications } from './notificationCenter';
 
@@ -18,6 +19,27 @@ const APP_PIN = '2202';
 const PinGate: React.FC<{ onUnlock: () => void; isEntering: boolean }> = ({ onUnlock, isEntering }) => {
   const [value, setValue] = useState('');
   const [error, setError] = useState(false);
+
+  const onDigit = (digit: string) => {
+    if (value.length >= 4) return;
+    const next = `${value}${digit}`;
+    setError(false);
+    setValue(next);
+    if (next.length === 4) {
+      setTimeout(() => {
+        if (next === APP_PIN) onUnlock();
+        else {
+          setError(true);
+          setValue('');
+        }
+      }, 120);
+    }
+  };
+
+  const deleteDigit = () => {
+    setError(false);
+    setValue((prev) => prev.slice(0, -1));
+  };
 
   const submit = () => {
     if (value === APP_PIN) onUnlock();
@@ -28,24 +50,33 @@ const PinGate: React.FC<{ onUnlock: () => void; isEntering: boolean }> = ({ onUn
   };
 
   return (
-    <div className={`fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-950 flex flex-col items-center justify-center p-6 text-white transition-opacity duration-500 ${isEntering ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-      <h1 className="text-xl font-black mb-2">Введите PIN</h1>
-      <p className="text-xs text-gray-400 mb-4">Простой код доступа к приложению</p>
-      <input
-        autoFocus
-        type="password"
-        maxLength={4}
-        inputMode="numeric"
-        value={value}
-        onChange={(e) => {
-          setError(false);
-          setValue(e.target.value.replace(/\D/g, ''));
-        }}
-        onKeyDown={(e) => e.key === 'Enter' && submit()}
-        className="w-full max-w-[220px] text-center text-3xl tracking-[0.6em] font-black bg-gray-900 border border-gray-700 rounded-2xl p-4 outline-none"
-      />
-      <button type="button" onClick={submit} className="mt-4 px-6 py-3 bg-blue-600 rounded-xl text-sm font-black uppercase tracking-wide">Открыть</button>
-      {error && <p className="text-red-400 text-xs mt-2">Неверный PIN</p>}
+    <div className={`fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-slate-950 flex flex-col items-center justify-between p-6 pt-14 text-white transition-opacity duration-500 ${isEntering ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+      <style>{`@keyframes pin-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}`}</style>
+      <div className="text-center">
+        <div className="inline-flex h-12 items-center rounded-2xl border border-slate-800 px-4 text-sm font-black tracking-[0.18em] text-slate-200">DUBAI SPARES</div>
+        <h1 className="text-2xl font-black mt-5">Field Mode</h1>
+        <p className="text-sm text-slate-400 mt-1">Введите PIN для быстрого входа</p>
+      </div>
+
+      <div className="w-full max-w-[280px]">
+        <div className={`flex justify-center gap-3 mb-4 ${error ? '[animation:pin-shake_0.25s_linear_2]' : ''}`}>
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <div key={idx} className={`h-4 w-4 rounded-full border ${value.length > idx ? 'bg-blue-500 border-blue-400' : 'border-slate-600 bg-slate-900'}`} />
+          ))}
+        </div>
+        {error && <p className="text-rose-400 text-xs font-bold text-center mb-4">Неверный PIN. Попробуйте ещё раз.</p>}
+        <div className="grid grid-cols-3 gap-3">
+          {[...'123456789'].map((digit) => (
+            <button key={digit} type="button" onClick={() => onDigit(digit)} className="h-12 rounded-2xl bg-slate-900 border border-slate-700 text-lg font-black">{digit}</button>
+          ))}
+          <button type="button" className="h-12 rounded-2xl bg-slate-900 border border-slate-700 text-xs font-black">Face ID</button>
+          <button type="button" onClick={() => onDigit('0')} className="h-12 rounded-2xl bg-slate-900 border border-slate-700 text-lg font-black">0</button>
+          <button type="button" onClick={deleteDigit} className="h-12 rounded-2xl bg-slate-900 border border-slate-700 text-xs font-black">⌫</button>
+        </div>
+        <button type="button" onClick={submit} className="mt-3 w-full h-12 rounded-2xl bg-blue-600 text-sm font-black uppercase tracking-wide">Войти быстрее</button>
+      </div>
+
+      <p className="text-[11px] text-slate-500">Личный рабочий инструмент</p>
     </div>
   );
 };
@@ -78,7 +109,7 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOfflin
             {unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{unreadCount}</span>}
             <span className="text-[10px] font-medium">Оповещ.</span>
           </NavLink>
-          <NavLink to="/debug" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Bug size={22} /><span className="text-[10px] font-medium">Логи</span></NavLink>
+          <NavLink to="/settings" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настр.</span></NavLink>
         </nav>
       )}
     </div>
@@ -130,7 +161,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!error) return;
-    setSyncToast(`Sync error: ${error}`);
+    const readable = String(error).toLowerCase().includes('schema') || String(error).toLowerCase().includes('supabase') ? 'Проблема синхронизации данных. Попробуйте ещё раз.' : `Sync error: ${error}`;
+    setSyncToast(readable);
     const t = setTimeout(() => setSyncToast(null), 4500);
     return () => clearTimeout(t);
   }, [error]);
@@ -139,7 +171,8 @@ const App: React.FC = () => {
     const onSyncError = (event: Event) => {
       const customEvent = event as CustomEvent<{ message?: string }>;
       const message = customEvent.detail?.message || 'Unknown sync error';
-      setSyncToast(`Sync failed: ${message}`);
+      const readable = message.toLowerCase().includes('schema') || message.toLowerCase().includes('supabase') ? 'Сервис данных временно недоступен. Повторите позже.' : `Sync failed: ${message}`;
+      setSyncToast(readable);
     };
 
     window.addEventListener('cloud-sync-error', onSyncError);
@@ -220,6 +253,7 @@ const App: React.FC = () => {
               <Route path="/radar" element={<RadarScreen />} />
               <Route path="/notifications" element={<NotificationsScreen />} />
               <Route path="/debug" element={<DebugLogsScreen />} />
+              <Route path="/settings" element={<SettingsScreen />} />
             </Routes>
           </Layout>
         </HashRouter>
