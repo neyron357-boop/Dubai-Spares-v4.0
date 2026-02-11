@@ -24,7 +24,8 @@ import {
   Mic,
   Square,
   Play,
-  Pause
+  Pause,
+  FileAudio
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
@@ -62,6 +63,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
   const [newNoteAudios, setNewNoteAudios] = useState<string[]>([]);
   const noteFileRef = useRef<HTMLInputElement>(null);
+  const noteAudioFileRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   
@@ -407,6 +409,34 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
+  const handleNoteAudioFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+
+    const files = Array.from(e.target.files);
+    files.forEach((file) => {
+      if (!file.type.startsWith('audio/')) return;
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewNoteAudios((prev) => [...prev, reader.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    e.target.value = '';
+  };
+
+  const getWaveBars = (seed: string) => {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i += 1) {
+      hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    }
+
+    return Array.from({ length: 28 }, (_, index) => {
+      const noise = Math.abs(Math.sin((hash + index * 17) * 0.19));
+      return 28 + Math.round(noise * 70);
+    });
+  };
+
   const toggleRecording = async () => {
     if (isRecording) {
       recorderRef.current?.stop();
@@ -720,10 +750,12 @@ const OrderDetailsScreen: React.FC = () => {
           <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
             <button type="button" onClick={() => noteFileRef.current?.click()} className="w-12 h-12 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 flex items-center justify-center"><ImageIcon size={18} /></button>
+            <button type="button" onClick={() => noteAudioFileRef.current?.click()} className="w-12 h-12 rounded-xl border-2 border-dashed border-gray-200 text-gray-500 flex items-center justify-center"><FileAudio size={18} /></button>
             <button type="button" onClick={toggleRecording} className={`w-12 h-12 rounded-xl border-2 ${isRecording ? 'border-red-300 bg-red-50 text-red-600' : 'border-gray-200 text-gray-500'} flex items-center justify-center`}>{isRecording ? <Square size={16} /> : <Mic size={16} />}</button>
             {newNotePhotos.map((p, i) => <img key={i} src={p} className="w-12 h-12 rounded-xl object-cover border border-gray-100" />)}
-            {newNoteAudios.map((_, i) => <div key={`na-${i}`} className="px-3 h-12 rounded-xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-600 flex items-center">Voice {i + 1}</div>)}
+            {newNoteAudios.map((_, i) => <div key={`na-${i}`} className="px-3 h-12 rounded-xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-600 flex items-center">Audio {i + 1}</div>)}
             <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
+            <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
           </div>
           <button type="button" onClick={addNote} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-wide">Добавить заметку</button>
           {(order.notes || []).length > 0 && (
@@ -732,7 +764,33 @@ const OrderDetailsScreen: React.FC = () => {
                 <div key={n.id} className="bg-gray-50 border border-gray-100 rounded-xl p-3">
                   {n.text && <p className="text-sm font-semibold text-gray-700">{n.text}</p>}
                   {n.photos && n.photos.length > 0 && <div className="flex gap-2 mt-2 overflow-x-auto no-scrollbar">{n.photos.map((ph, idx) => <button key={idx} type="button" onClick={() => setGallery({ images: n.photos || [], index: idx })} className="w-12 h-12 rounded-lg overflow-hidden"><img src={ph} className="w-full h-full object-cover" /></button>)}</div>}
-                  {n.audios && n.audios.length > 0 && <div className="space-y-2 mt-2">{n.audios.map((audioSrc, idx) => { const audioId = `note-${n.id}-${idx}`; const isPlaying = playingAudioId === audioId; return <div key={audioId} className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-2"><button type="button" onClick={() => toggleAudioPlayback(audioId)} className="w-7 h-7 rounded-full bg-green-600 text-white flex items-center justify-center">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button><div className="h-1 flex-1 rounded-full bg-gray-200"><div className="h-1 rounded-full bg-green-500 transition-all" style={{ width: `${audioProgress[audioId] || 0}%` }} /></div><audio id={audioId} src={audioSrc} preload="metadata" playsInline /></div>; })}</div>}
+                  {n.audios && n.audios.length > 0 && <div className="space-y-2 mt-2">{n.audios.map((audioSrc, idx) => {
+                    const audioId = `note-${n.id}-${idx}`;
+                    const isPlaying = playingAudioId === audioId;
+                    const progress = audioProgress[audioId] || 0;
+                    const bars = getWaveBars(audioSrc.slice(0, 120));
+
+                    return (
+                      <div key={audioId} className="flex items-center gap-2 bg-white border border-gray-200 rounded-2xl px-3 py-2">
+                        <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="w-7 h-7 rounded-full bg-green-600 text-white flex items-center justify-center shrink-0">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
+                        <div className="flex-1 h-8 flex items-center gap-0.5">
+                          {bars.map((height, barIndex) => {
+                            const threshold = ((barIndex + 1) / bars.length) * 100;
+                            const isPassed = progress >= threshold;
+
+                            return (
+                              <span
+                                key={`${audioId}-bar-${barIndex}`}
+                                className={`block flex-1 rounded-full transition-colors ${isPassed ? 'bg-green-500' : 'bg-gray-300'} ${isPlaying ? 'animate-pulse' : ''}`}
+                                style={{ height: `${height}%`, animationDelay: `${barIndex * 0.03}s` }}
+                              />
+                            );
+                          })}
+                        </div>
+                        <audio id={audioId} src={audioSrc} preload="metadata" playsInline />
+                      </div>
+                    );
+                  })}</div>}
                 </div>
               ))}
             </div>
