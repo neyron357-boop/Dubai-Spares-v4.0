@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Clock3, EyeOff, ListChecks, Loader2, MessageCircle, Navigation, PhoneCall, RotateCcw, ShieldAlert, ShieldCheck, Telescope, XCircle } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { CheckCircle2, Clock3, EyeOff, HelpCircle, ListChecks, Loader2, MapPinned, MessageCircle, Navigation, PhoneCall, RotateCcw, ShieldAlert, ShieldCheck, Telescope, XCircle } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, RadarInteraction, RadarInteractionResult, Shop } from '../types';
 import { buildNearestShopsChain, buildRoutePlanMapLink, buildShopMapLink, getRadarShopMatches, getShopRecommendationDiagnostics } from '../shopMatching';
@@ -14,7 +14,7 @@ const RADAR_DISMISSED_SHOPS_KEY = 'radar_dismissed_shop_keys';
 
 type RadarFilter = 'all' | 'new_only' | 'used_only';
 type RadarMode = 'field' | 'detail';
-type TemplateLanguage = 'ru' | 'en';
+type TemplateLanguage = 'ru' | 'en' | 'tj';
 type TemplateLength = 'short' | 'full';
 type BrandMatchMode = 'strict' | 'soft';
 
@@ -122,25 +122,34 @@ const makeWhatsappLink = (shopPhone: string, message: string) => {
 const getDismissKey = (shop: Shop) => shop.location?.trim().toLowerCase() ? `location:${shop.location.trim().toLowerCase()}` : `id:${shop.id}`;
 
 const templateText = (order: Order, lang: TemplateLanguage, length: TemplateLength) => {
-  const part = order.parts[0]?.name || 'part';
+  const parts = order.parts.map((item) => item.name).filter(Boolean);
+  const part = parts[0] || 'part';
+  const partSuffix = parts.length > 1 ? `, ${parts.slice(1, 3).join(', ')}${parts.length > 3 ? ' и другие' : ''}` : '';
   const baseContext = `${order.brand} ${order.model} ${order.year || ''}`.trim();
   if (lang === 'ru') {
-    if (length === 'short') return `Salam. Need: ${part} for ${baseContext}. New/Used? Price AED? Availability today?`;
-    return `Salam. Need: ${part} for ${baseContext}.\nVIN: ${order.vin || 'N/A'}.\nQty: 1, urgency: high.\nNew/Used? Price AED? Availability today? Send photo if possible.`;
+    if (length === 'short') return `Привет! Нужна ${part}${partSuffix} на ${baseContext}. Есть в наличии? Цена?`;
+    return `Салам! Нужна ${part}${partSuffix} на ${baseContext}.\nСостояние: new/used. VIN: ${order.vin || 'нет'}.\nЦена? Есть фото? Локация? Ответьте пожалуйста 🙏`;
   }
-  if (length === 'short') return `Salam. Need ${part} for ${baseContext}. New/Used? Price AED? Available today?`;
-  return `Salam. Need ${part} for ${baseContext}. VIN: ${order.vin || 'N/A'}. Quantity: 1. Urgent. Please confirm New/Used, price AED, availability today, and send photo if possible.`;
+  if (lang === 'tj') {
+    if (length === 'short') return `Салом! Ба ман ${part}${partSuffix} барои ${baseContext} лозим. Ҳаст? Нарх?`;
+    return `Салом! Ба ман ${part}${partSuffix} барои ${baseContext} лозим.\nҲолат: new/used. VIN: ${order.vin || 'нест'}.\nНарх? Сурат доред? Локатсия? Раҳмат.`;
+  }
+  if (length === 'short') return `Hi! Need ${part}${partSuffix} for ${baseContext}. Available? Price?`;
+  return `Hi! Need ${part}${partSuffix} for ${baseContext}. VIN: ${order.vin || 'N/A'}. Please share condition (new/used), price, photos, and location.`;
 };
 
 const RadarScreen: React.FC = () => {
   const { orders, suppliers } = useStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const [shops, setShops] = useState<Shop[]>([]);
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
   const [mode, setMode] = useState<RadarMode>('field');
   const [activeFilter, setActiveFilter] = useState<RadarFilter>('all');
   const [openNowOnly, setOpenNowOnly] = useState(false);
-  const [radiusKm, setRadiusKm] = useState<(typeof RADIUS_STEPS)[number]>(5);
+  const [radiusKm, setRadiusKm] = useState<number>(5);
+  const [customRadiusKm, setCustomRadiusKm] = useState('25');
+  const [isCustomRadius, setIsCustomRadius] = useState(false);
   const [brandMatchMode, setBrandMatchMode] = useState<BrandMatchMode>('strict');
   const [fallbackNearby, setFallbackNearby] = useState(true);
   const [templateLanguage, setTemplateLanguage] = useState<TemplateLanguage>('ru');
@@ -150,6 +159,9 @@ const RadarScreen: React.FC = () => {
   const [chainMode, setChainMode] = useState(false);
   const [chainIndex, setChainIndex] = useState(0);
   const [interactions, setInteractions] = useState<RadarInteraction[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedShopIds, setSelectedShopIds] = useState<Set<string>>(new Set());
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => { void offlineDb.getRadarInteractions().then(setInteractions); }, []);
 
@@ -165,6 +177,9 @@ const RadarScreen: React.FC = () => {
     void load();
     return () => { active = false; };
   }, [suppliers]);
+
+  const activeOrderId = useMemo(() => new URLSearchParams(location.search).get('orderId'), [location.search]);
+  const activeOrder = useMemo(() => orders.find((order) => order.id === activeOrderId) || null, [orders, activeOrderId]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -183,6 +198,7 @@ const RadarScreen: React.FC = () => {
 
     return orders
       .filter((o) => !o.isArchived && !o.isSold)
+      .filter((order) => !activeOrder || order.id === activeOrder.id)
       .flatMap((order) => {
         const candidates = getRadarShopMatches(order, shops, position)
           .filter((item) => brandMatchMode === 'soft' || item.matchScore > 0)
@@ -217,15 +233,21 @@ const RadarScreen: React.FC = () => {
         return true;
       })
       .filter((entry) => !openNowOnly || entry.openNow === true)
+      .filter((entry) => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) return true;
+        return [entry.shop.name, entry.shop.location || '', entry.order.brand, entry.order.model].join(' ').toLowerCase().includes(q);
+      })
       .sort((a, b) => b.score - a.score)
       .slice(0, 50);
-  }, [orders, shops, position, activeFilter, openNowOnly, radiusKm, fallbackNearby, dismissedShopKeys, interactions, brandMatchMode]);
+  }, [orders, shops, position, activeFilter, openNowOnly, radiusKm, fallbackNearby, dismissedShopKeys, interactions, brandMatchMode, activeOrder, searchQuery]);
 
   const chainRoute = useMemo(() => {
-    const preferred = entries.filter((entry) => entry.recommendation === 'high' && entry.openNow !== false).map((entry) => entry.shop);
+    const selected = entries.filter((entry) => selectedShopIds.has(entry.shop.id)).map((entry) => entry.shop);
+    const preferred = (selected.length > 0 ? selected : entries.filter((entry) => entry.recommendation === 'high' && entry.openNow !== false).map((entry) => entry.shop));
     const unique = Array.from(new Map(preferred.map((shop) => [shop.id, shop])).values()).slice(0, 12);
     return buildNearestShopsChain(unique, position);
-  }, [entries, position]);
+  }, [entries, position, selectedShopIds]);
 
   useEffect(() => {
     if (!chainMode || chainRoute.length === 0) {
@@ -289,6 +311,10 @@ const RadarScreen: React.FC = () => {
 
   const quickResult = async (entry: RadarEntry, result: RadarInteractionResult) => {
     await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, partId: entry.order.parts[0]?.id, result, availability: result === 'found' ? 'in_stock' : undefined });
+    if (chainMode) {
+      if (result === 'found') toast('Точка закрыла потребность. Можно завершить поиск.', 'success');
+      else setChainIndex((index) => Math.min(index + 1, Math.max(chainRoute.length - 1, 0)));
+    }
     toast('Результат сохранен (offline-first)', 'success');
   };
 
@@ -299,9 +325,48 @@ const RadarScreen: React.FC = () => {
 
   const pendingSync = interactions.filter((item) => !item.syncedAt).length;
 
+  const toggleSelected = (shopId: string) => {
+    setSelectedShopIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(shopId)) next.delete(shopId);
+      else next.add(shopId);
+      return next;
+    });
+  };
+
+  const contactSelectedShops = async () => {
+    const selectedEntries = entries.filter((entry) => selectedShopIds.has(entry.shop.id));
+    if (selectedEntries.length === 0) {
+      toast('Выберите магазины для массового WhatsApp', 'error');
+      return;
+    }
+    for (const entry of selectedEntries.slice(0, 20)) {
+      const message = templateText(entry.order, templateLanguage, templateLength);
+      const link = makeWhatsappLink(entry.shop.phone || '', message);
+      if (!link) continue;
+      window.open(link, '_blank');
+      await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, partId: entry.order.parts[0]?.id, result: 'message_sent', comment: 'Bulk WhatsApp' });
+    }
+    toast(`Открыто WA чатов: ${Math.min(selectedEntries.length, 20)}`, 'success');
+  };
+
+  const syncNow = async () => {
+    try {
+      setSyncError(null);
+      const unsynced = interactions.filter((item) => !item.syncedAt);
+      for (const item of unsynced) await offlineDb.markRadarInteractionSynced(item.id);
+      setInteractions((prev) => prev.map((item) => item.syncedAt ? item : { ...item, syncedAt: Date.now() }));
+      toast('Очередь синхронизирована', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'sync failed';
+      setSyncError(message);
+      toast('Ошибка sync очереди', 'error');
+    }
+  };
+
   return (
     <div className="p-4 pb-20 space-y-3 bg-slate-950 min-h-full text-white">
-      <section className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-3 space-y-2">
+      <section className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-3 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h1 className="text-sm font-black uppercase tracking-wider text-emerald-300">Radar Live</h1>
           <div className="flex items-center gap-2">
@@ -309,41 +374,79 @@ const RadarScreen: React.FC = () => {
             <button type="button" onClick={() => setMode('detail')} className={`rounded-lg px-3 py-1 text-[10px] font-black uppercase ${mode === 'detail' ? 'bg-emerald-400 text-slate-900' : 'border border-emerald-300/50 text-emerald-200'}`}>Detail Mode</button>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 text-[10px]">
-          <button type="button" onClick={() => setChainMode((v) => !v)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-400 px-3 py-2 font-black uppercase text-slate-950"><Navigation size={12} /> Chain Route</button>
-          <button type="button" onClick={openChainRoute} className="rounded-xl border border-emerald-300/40 px-3 py-2 font-black uppercase text-emerald-100">Open route</button>
-          <button type="button" onClick={resetDismissed} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 font-black uppercase text-slate-200"><RotateCcw size={12} /> Reset hidden</button>
+
+        {activeOrder && (
+          <div className="rounded-xl border border-emerald-200/20 bg-slate-900/40 p-2 text-[11px] text-emerald-100">
+            <p className="font-black uppercase">Активный заказ: {activeOrder.brand} {activeOrder.model} {activeOrder.year}</p>
+            <p className="text-emerald-100/80">Цель поиска: {activeOrder.parts.slice(0, 3).map((part) => part.name).join(', ') || 'детали не указаны'}</p>
+          </div>
+        )}
+
+        <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Поиск: магазин / район / бренд" className="w-full rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-white outline-none" />
+
+        <div className="space-y-1 text-[10px]">
+          <p className="text-slate-400 uppercase font-black">A) Маршрут</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setChainMode((v) => !v)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-400 px-3 py-2 font-black uppercase text-slate-950"><Navigation size={12} /> Chain Route</button>
+            <button type="button" onClick={openChainRoute} className="rounded-xl border border-emerald-300/40 px-3 py-2 font-black uppercase text-emerald-100">Open route</button>
+            <button type="button" onClick={resetDismissed} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 font-black uppercase text-slate-200"><RotateCcw size={12} /> Reset hidden</button>
+            <button type="button" onClick={contactSelectedShops} className="rounded-xl border border-emerald-300/40 px-3 py-2 font-black uppercase text-emerald-100">Contact selected</button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 text-[10px]">
-          {(['all', 'new_only', 'used_only'] as RadarFilter[]).map((item) => (
-            <button key={item} type="button" onClick={() => setActiveFilter(item)} className={`rounded-lg px-3 py-1 font-black uppercase ${activeFilter === item ? 'bg-slate-100 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>{item}</button>
-          ))}
-          <button type="button" onClick={() => setOpenNowOnly((v) => !v)} className={`rounded-lg px-3 py-1 font-black uppercase ${openNowOnly ? 'bg-slate-100 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>Open now</button>
-          <button type="button" onClick={() => setBrandMatchMode((v) => (v === 'strict' ? 'soft' : 'strict'))} className="rounded-lg border border-slate-600 px-3 py-1 font-black uppercase text-slate-300">Brand {brandMatchMode}</button>
-          <button type="button" onClick={() => setFallbackNearby((v) => !v)} className="inline-flex items-center gap-1 rounded-lg border border-amber-400/40 px-3 py-1 font-black uppercase text-amber-200"><Telescope size={11} /> fallback nearby</button>
+        <div className="space-y-1 text-[10px]">
+          <p className="text-slate-400 uppercase font-black">B) Фильтры</p>
+          <div className="flex flex-wrap gap-2">
+            {(['all', 'new_only', 'used_only'] as RadarFilter[]).map((item) => (
+              <button key={item} type="button" onClick={() => setActiveFilter(item)} className={`rounded-lg px-3 py-1 font-black uppercase ${activeFilter === item ? 'bg-slate-100 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>{item}</button>
+            ))}
+            <button type="button" onClick={() => setOpenNowOnly((v) => !v)} className={`rounded-lg px-3 py-1 font-black uppercase ${openNowOnly ? 'bg-slate-100 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>Open now</button>
+            <button type="button" onClick={() => setBrandMatchMode((v) => (v === 'strict' ? 'soft' : 'strict'))} className="inline-flex items-center gap-1 rounded-lg border border-slate-600 px-3 py-1 font-black uppercase text-slate-300">Brand strict: {brandMatchMode}<HelpCircle size={11} title="Brand strict = показывать только точки с профилем нужного бренда" /></button>
+            <button type="button" onClick={() => setFallbackNearby((v) => !v)} className="inline-flex items-center gap-1 rounded-lg border border-amber-400/40 px-3 py-1 font-black uppercase text-amber-200"><Telescope size={11} /> fallback nearby<HelpCircle size={11} title="Fallback nearby = если мало совпадений, расширить подбор по типу" /></button>
+          </div>
         </div>
 
-        <div className="flex items-center flex-wrap gap-2 text-[10px]">
-          <span className="text-slate-300">Radius:</span>
-          {RADIUS_STEPS.map((step) => (
-            <button key={step} type="button" onClick={() => setRadiusKm(step)} className={`rounded px-2 py-1 font-black ${radiusKm === step ? 'bg-emerald-400 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>{step} km</button>
-          ))}
-          <span className="ml-2 text-slate-300">WA:</span>
-          <button type="button" onClick={() => setTemplateLanguage((v) => (v === 'ru' ? 'en' : 'ru'))} className="rounded border border-slate-600 px-2 py-1 text-slate-300 uppercase">{templateLanguage}</button>
-          <button type="button" onClick={() => setTemplateLength((v) => (v === 'short' ? 'full' : 'short'))} className="rounded border border-slate-600 px-2 py-1 text-slate-300 uppercase">{templateLength}</button>
+        <div className="space-y-1 text-[10px]">
+          <p className="text-slate-400 uppercase font-black">C) Радиус</p>
+          <div className="flex items-center flex-wrap gap-2">
+            {RADIUS_STEPS.map((step) => (
+              <button key={step} type="button" onClick={() => { setIsCustomRadius(false); setRadiusKm(step); }} className={`rounded px-2 py-1 font-black ${radiusKm === step ? 'bg-emerald-400 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>{step} км</button>
+            ))}
+            <button type="button" onClick={() => { setIsCustomRadius(true); const parsed = Number(customRadiusKm); if (Number.isFinite(parsed) && parsed > 0) setRadiusKm(parsed); }} className={`rounded px-2 py-1 font-black ${isCustomRadius ? 'bg-emerald-400 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>Custom</button>
+            {isCustomRadius && <input value={customRadiusKm} onChange={(event) => { setCustomRadiusKm(event.target.value); const parsed = Number(event.target.value); if (Number.isFinite(parsed) && parsed > 0) setRadiusKm(parsed); }} className="w-16 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-slate-100" placeholder="км" />}
+          </div>
         </div>
 
-        <p className="text-[11px] text-emerald-100/80">Активных точек: {entries.length}. Очередь offline sync: {pendingSync}.</p>
+        <div className="space-y-1 text-[10px]">
+          <p className="text-slate-400 uppercase font-black">D) WA + язык</p>
+          <div className="flex items-center flex-wrap gap-2">
+            {(['ru', 'en', 'tj'] as TemplateLanguage[]).map((lang) => <button key={lang} type="button" onClick={() => setTemplateLanguage(lang)} className={`rounded border px-2 py-1 uppercase ${templateLanguage === lang ? 'border-emerald-300 text-emerald-200' : 'border-slate-600 text-slate-300'}`}>{lang}</button>)}
+            <button type="button" onClick={() => setTemplateLength((v) => (v === 'short' ? 'full' : 'short'))} className="rounded border border-slate-600 px-2 py-1 text-slate-300 uppercase">{templateLength === 'short' ? 'Коротко' : 'Подробно'}</button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] text-emerald-100/80">
+          <p>Активных точек: {entries.length}. Очередь offline sync: {pendingSync > 0 ? `⏳ ${pendingSync}` : '0'}.</p>
+          <button type="button" onClick={syncNow} className="rounded-lg border border-emerald-300/50 px-2 py-1 text-[10px] font-black uppercase text-emerald-200">Sync now</button>
+        </div>
+        {syncError && <p className="text-[10px] text-rose-200">Sync error: {syncError}</p>}
       </section>
+
 
       {chainMode && currentStop && (
         <section className="rounded-2xl border border-blue-400/30 bg-blue-500/10 p-3 space-y-2">
-          <p className="text-xs font-black uppercase text-blue-200">Next stop {chainIndex + 1}/{chainRoute.length}</p>
-          <p className="text-sm font-black">{currentStop.name}</p>
+          <p className="text-xs font-black uppercase text-blue-200">Route sheet · прогресс {chainIndex + 1}/{chainRoute.length}</p>
+          <p className="text-sm font-black">Текущая точка: {currentStop.name}</p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => openShopRoute(currentStop)} className="rounded-xl bg-blue-400 px-3 py-2 text-[11px] font-black uppercase text-slate-900">Маршрут</button>
-            <button type="button" onClick={() => setChainIndex((i) => Math.min(i + 1, chainRoute.length - 1))} className="rounded-xl border border-blue-300/40 px-3 py-2 text-[11px] font-black uppercase text-blue-100">Следующая</button>
+            <button type="button" onClick={() => openShopRoute(currentStop)} className="rounded-xl bg-blue-400 px-3 py-2 text-[11px] font-black uppercase text-slate-900">Navigate</button>
+            <button type="button" onClick={() => setChainIndex((i) => Math.min(i + 1, chainRoute.length - 1))} className="rounded-xl border border-blue-300/40 px-3 py-2 text-[11px] font-black uppercase text-blue-100">Next</button>
+          </div>
+          <div className="max-h-28 overflow-y-auto space-y-1">
+            {chainRoute.map((shop, index) => (
+              <button key={shop.id} type="button" onClick={() => setChainIndex(index)} className={`w-full text-left rounded-lg px-2 py-1 text-[10px] ${index === chainIndex ? 'bg-blue-500/30 text-blue-50' : 'bg-slate-900/40 text-blue-100/80'}`}>
+                {index + 1}. {shop.name}
+              </button>
+            ))}
           </div>
         </section>
       )}
@@ -358,6 +461,9 @@ const RadarScreen: React.FC = () => {
           <article key={`${entry.order.id}-${entry.shop.id}`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
+                <label className="inline-flex items-center gap-1 text-[10px] text-slate-300 mb-1">
+                  <input type="checkbox" checked={selectedShopIds.has(entry.shop.id)} onChange={() => toggleSelected(entry.shop.id)} /> Add to route
+                </label>
                 <p className="text-sm font-black truncate">{entry.shop.name}</p>
                 <p className="text-[11px] text-slate-400 truncate">{entry.order.brand} {entry.order.model} {entry.order.year || ''}</p>
               </div>
@@ -368,6 +474,7 @@ const RadarScreen: React.FC = () => {
 
             <div className="flex items-center flex-wrap gap-2 text-[10px] text-slate-300">
               <span>{Number.isFinite(entry.distance) ? `${((entry.distance || 0) / 1000).toFixed(1)} км` : 'Distance n/a'}</span>
+              <span>• ETA bike ~{Number.isFinite(entry.distance) ? Math.max(3, Math.round((entry.distance || 0) / 230)) : '?'} мин</span>
               <span>•</span>
               {entry.openNow === true ? <span className="text-emerald-300">Open now</span> : entry.openNow === false ? <span className="text-rose-300">Closed</span> : <span>hours unknown</span>}
               <span>•</span>
@@ -377,6 +484,8 @@ const RadarScreen: React.FC = () => {
             {mode === 'detail' && (
               <div className="rounded-xl bg-slate-800/70 p-2 text-[11px] text-slate-200 space-y-1">
                 {entry.reasons.slice(0, 3).map((reason) => <p key={`${entry.shop.id}-${reason}`}>• {reason}</p>)}
+                <p>Тип: {entry.shop.type || 'unknown'} · Зона: {entry.shop.zone || 'n/a'}</p>
+                <p>Последние взаимодействия: {interactions.filter((item) => item.shopId === entry.shop.id).slice(0, 5).map((item) => item.result).join(', ') || 'нет'}</p>
               </div>
             )}
 
@@ -385,6 +494,7 @@ const RadarScreen: React.FC = () => {
               <button type="button" onClick={() => onWhatsApp(entry)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><MessageCircle size={12} /> WhatsApp</button>
               <button type="button" onClick={() => openCalls(entry.shop.phone)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
               <button type="button" onClick={() => hideShop(entry.shop)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
+              <button type="button" onClick={() => quickResult(entry, 'follow_up')} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
               {mode === 'detail' && <button type="button" onClick={() => navigate(`/order/${entry.order.id}`)} className="rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">Карточка</button>}
             </div>
 
@@ -393,6 +503,7 @@ const RadarScreen: React.FC = () => {
               <button type="button" onClick={() => quickResult(entry, 'not_found')} className="inline-flex items-center gap-1 rounded-lg border border-rose-400/40 px-2 py-1 text-[10px] font-black uppercase text-rose-200"><XCircle size={11} /> Not found</button>
               <button type="button" onClick={() => quickResult(entry, 'follow_up')} className="inline-flex items-center gap-1 rounded-lg border border-amber-400/40 px-2 py-1 text-[10px] font-black uppercase text-amber-200"><Clock3 size={11} /> Follow-up</button>
               <button type="button" onClick={() => quickResult(entry, 'wrong_info')} className="inline-flex items-center gap-1 rounded-lg border border-orange-400/40 px-2 py-1 text-[10px] font-black uppercase text-orange-200"><ShieldAlert size={11} /> Wrong info</button>
+              {chainMode && <button type="button" onClick={() => setChainIndex((i) => Math.min(i + 1, chainRoute.length - 1))} className="inline-flex items-center gap-1 rounded-lg border border-blue-400/40 px-2 py-1 text-[10px] font-black uppercase text-blue-200">Next</button>}
             </div>
           </article>
         );
