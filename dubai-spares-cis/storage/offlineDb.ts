@@ -1,4 +1,4 @@
-import { Order, SystemLogEntry } from '../types';
+import { Order, RadarInteraction, SystemLogEntry } from '../types';
 
 type MutationType = 'upsert' | 'delete';
 
@@ -11,10 +11,11 @@ export interface OfflineMutation {
 }
 
 const DB_NAME = 'dubai-spares-offline';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const ORDERS_STORE = 'orders';
 const MUTATIONS_STORE = 'mutations';
 const SYSTEM_LOGS_STORE = 'system_logs';
+const RADAR_INTERACTIONS_STORE = 'radar_interactions';
 
 const openDb = (): Promise<IDBDatabase> =>
   new Promise((resolve, reject) => {
@@ -30,6 +31,9 @@ const openDb = (): Promise<IDBDatabase> =>
       }
       if (!db.objectStoreNames.contains(SYSTEM_LOGS_STORE)) {
         db.createObjectStore(SYSTEM_LOGS_STORE, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(RADAR_INTERACTIONS_STORE)) {
+        db.createObjectStore(RADAR_INTERACTIONS_STORE, { keyPath: 'id' });
       }
     };
 
@@ -141,5 +145,32 @@ export const offlineDb = {
     const db = await openDb();
     const tx = db.transaction(SYSTEM_LOGS_STORE, 'readwrite');
     await txRequest(tx.objectStore(SYSTEM_LOGS_STORE).clear());
+  },
+
+  async saveRadarInteraction(interaction: RadarInteraction): Promise<void> {
+    const db = await openDb();
+    const tx = db.transaction(RADAR_INTERACTIONS_STORE, 'readwrite');
+    await txRequest(tx.objectStore(RADAR_INTERACTIONS_STORE).put(interaction));
+  },
+
+  async getRadarInteractions(): Promise<RadarInteraction[]> {
+    const db = await openDb();
+    const tx = db.transaction(RADAR_INTERACTIONS_STORE, 'readonly');
+    const rows = await txRequest(tx.objectStore(RADAR_INTERACTIONS_STORE).getAll());
+    return (rows as RadarInteraction[]).sort((a, b) => b.createdAt - a.createdAt);
+  },
+
+  async getPendingRadarInteractions(): Promise<RadarInteraction[]> {
+    const all = await this.getRadarInteractions();
+    return all.filter((item) => !item.syncedAt);
+  },
+
+  async markRadarInteractionSynced(id: string, syncedAt = Date.now()): Promise<void> {
+    const db = await openDb();
+    const tx = db.transaction(RADAR_INTERACTIONS_STORE, 'readwrite');
+    const store = tx.objectStore(RADAR_INTERACTIONS_STORE);
+    const current = await txRequest(store.get(id)) as RadarInteraction | undefined;
+    if (!current) return;
+    await txRequest(store.put({ ...current, syncedAt }));
   }
 };
