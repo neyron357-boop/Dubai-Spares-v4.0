@@ -105,7 +105,10 @@ const RadarScreen: React.FC = () => {
     const activeOrders = orders.filter((o) => !o.isArchived && !o.isSold);
     return activeOrders.flatMap((order) => {
       const ranked = getRadarShopMatches(order, shops, position);
-      const withOrderContext = ranked.map((entry) => ({ ...entry, order }));
+      const dismissedShopIds = new Set(order.dismissedShopIds || []);
+      const withOrderContext = ranked
+        .filter((entry) => !dismissedShopIds.has(entry.shop.id))
+        .map((entry) => ({ ...entry, order }));
 
       const matched = withOrderContext.filter((entry) => entry.isRecommended || entry.isCompatible || entry.matchScore >= 2);
       if (matched.length > 0) return matched.slice(0, 8);

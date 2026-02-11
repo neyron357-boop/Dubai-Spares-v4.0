@@ -74,6 +74,7 @@ export interface Order {
   socialNickname?: string;
   updatedAt?: number;
   recommendedShopIds?: string[];
+  dismissedShopIds?: string[];
 }
 
 export interface OrderNote {
@@ -163,6 +164,7 @@ export interface DbOrderRow {
   social_nickname?: string;
   updated_at?: number | string;
   recommended_shop_ids?: string[];
+  dismissed_shop_ids?: string[];
 }
 
 export interface DbOrderGraphRow extends DbOrderRow {
