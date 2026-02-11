@@ -44,8 +44,12 @@ const NotificationsScreen: React.FC = () => {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-sm font-black text-gray-900 truncate">{item.title}</p>
-                  <p className="mt-1 text-xs text-gray-600 leading-relaxed">{item.body}</p>
+                  <p className="mt-1 text-xs text-gray-600 leading-relaxed">{(item.body || '').slice(0, 90)}{(item.body || '').length > 90 ? '…' : ''}</p>
                   <p className="mt-2 text-[10px] font-bold uppercase text-gray-400">{new Date(item.createdAt).toLocaleString()}</p>
+                  <div className="mt-2 flex gap-2">
+                    <span className="inline-flex h-8 items-center rounded-lg bg-blue-600 px-2 text-[10px] font-black uppercase text-white">Открыть заказ</span>
+                    {item.body?.includes('http') && <span className="inline-flex h-8 items-center rounded-lg bg-emerald-50 px-2 text-[10px] font-black uppercase text-emerald-700">Открыть карту</span>}
+                  </div>
                 </div>
                 <div className="flex items-center gap-1 text-gray-300 shrink-0">
                   {!item.read && <Bell size={14} className="text-indigo-500" />}

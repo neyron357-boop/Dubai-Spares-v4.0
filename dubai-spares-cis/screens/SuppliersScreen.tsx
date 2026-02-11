@@ -16,7 +16,6 @@ import {
   Loader2,
   Wrench,
   Gem,
-  Flame,
   Link2,
   LocateFixed
 } from 'lucide-react';
@@ -456,7 +455,7 @@ const SuppliersScreen: React.FC = () => {
                 <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
                   <span className={`rounded-full px-2 py-1 border inline-flex items-center gap-1 ${s.type === 'scrapyard' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}><Icon size={11} /> {s.type === 'scrapyard' ? 'Scrapyard' : 'New Parts'}</span>
                   {s.zone && <span className="rounded-full px-2 py-1 border border-violet-200 bg-violet-50 text-violet-700">Zone: {s.zone}</span>}
-                  <span className="rounded-full px-2 py-1 border border-rose-200 bg-rose-50 text-rose-700 inline-flex items-center gap-1"><Flame size={11} /> Heat {heatLevel}</span>
+                  <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">Активность: {heatLevel >= 6 ? 'высокая' : heatLevel >= 3 ? 'средняя' : 'низкая'}</span>
                 </div>
 
                 {(s.mainBrands || s.brands || []).length > 0 && (
