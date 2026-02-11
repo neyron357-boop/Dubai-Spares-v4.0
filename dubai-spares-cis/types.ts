@@ -21,16 +21,34 @@ export interface Coordinates {
   lng: number;
 }
 
+export type OfferCondition = 'new' | 'used' | 'scrapyard';
+export type OfferAvailability = 'in_stock' | '1d' | '2_3d' | 'by_order';
+export type OfferDeliveryEta = 'today' | 'tomorrow' | '2_3_days' | 'week';
+export type OfferSyncStatus = 'synced' | 'pending' | 'error';
+
 export interface PriceVariant {
   id: string;
+  partId?: string;
   priceAed: number;
+  currency?: 'AED';
+  condition?: OfferCondition;
+  availability?: OfferAvailability;
+  deliveryEta?: OfferDeliveryEta;
   shopName: string;
+  shopId?: string;
+  shopNameManual?: string;
   phone: string;
   location: string;
-  partId?: string;
+  locationText?: string;
+  mapsUrl?: string;
+  lat?: number;
+  lng?: number;
   photoUrl?: string;
   photos?: string[];
+  isBest?: boolean;
+  syncStatus?: OfferSyncStatus;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface Part {
