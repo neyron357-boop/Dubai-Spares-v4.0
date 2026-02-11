@@ -12,7 +12,11 @@ let listeners = new Set<() => void>();
 const normalizeSupplier = (supplier: Supplier): Supplier => ({
   ...supplier,
   id: ensureUuid(supplier.id),
+  type: supplier.type === 'scrapyard' ? 'scrapyard' : 'new_parts',
+  zone: typeof supplier.zone === 'string' ? supplier.zone : '',
+  heatLevel: Number.isFinite(Number(supplier.heatLevel)) ? Number(supplier.heatLevel) : 0,
   brands: Array.isArray(supplier.brands) ? supplier.brands : [],
+  mainBrands: Array.isArray(supplier.mainBrands) ? supplier.mainBrands : (Array.isArray(supplier.brands) ? supplier.brands : []),
   models: Array.isArray(supplier.models) ? supplier.models : [],
   years: Array.isArray(supplier.years)
     ? supplier.years.map((year) => Number(year)).filter((year) => Number.isFinite(year))

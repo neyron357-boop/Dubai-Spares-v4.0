@@ -90,7 +90,11 @@ export interface Supplier {
   name: string;
   phone: string;
   location: string;
+  type?: 'new_parts' | 'scrapyard';
+  zone?: string;
+  heatLevel?: number;
   brands: string[];
+  mainBrands?: string[];
   models?: string[];
   years?: number[];
   bodyTypes?: string[];
@@ -106,7 +110,11 @@ export interface Shop {
   location?: string;
   latitude: number;
   longitude: number;
+  type?: 'new_parts' | 'scrapyard';
+  zone?: string;
+  heatLevel?: number;
   needsManualFix?: boolean;
+  mainBrands?: string[];
   specialization: string[];
   specializationModels?: string[];
   specializationYears?: number[];
