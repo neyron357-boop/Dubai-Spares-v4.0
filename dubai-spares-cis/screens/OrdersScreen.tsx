@@ -103,7 +103,7 @@ const OrdersScreen: React.FC = () => {
       if (activeTab === 'archive') return o.isArchived && !o.isSold;
       if (activeTab === 'vip') return !!o.isVip && !o.isSold;
       if (activeTab === 'leads') return (!!o.isLead || o.status === 'new_inquiry') && !o.isSold;
-      return !o.isArchived && !o.isSold && !o.isVip && !o.isLead;
+      return !o.isArchived && !o.isSold;
     });
 
     const nearestDistance = (order: Order) => {
@@ -463,10 +463,10 @@ const OrdersScreen: React.FC = () => {
       <div className="flex p-1 bg-gray-100 rounded-xl shadow-inner gap-1">
         {([
           ['active', 'Актив'],
-          ['vip', 'VIP'],
-          ['archive', 'Архив'],
           ['leads', 'Лиды'],
-          ['sold', 'Продано']
+          ['vip', 'VIP'],
+          ['sold', 'Продано'],
+          ['archive', 'Архив']
         ] as [TabType, string][]).map(([tab, title]) => {
           const isLeadsTab = tab === 'leads';
           const hasUnseenLeads = isLeadsTab && unseenNewLeadCount > 0;

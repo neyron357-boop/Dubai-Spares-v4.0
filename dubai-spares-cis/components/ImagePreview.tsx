@@ -12,6 +12,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) =>
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [swipeDirection, setSwipeDirection] = useState<0 | 1 | -1>(0);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -50,17 +51,25 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) =>
 
   const nextImage = () => {
     if (currentIndex < images.length - 1) {
-      setCurrentIndex(currentIndex + 1);
+      setSwipeDirection(1);
+      setCurrentIndex((idx) => idx + 1);
       setZoom(1);
     }
   };
 
   const prevImage = () => {
     if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1);
+      setSwipeDirection(-1);
+      setCurrentIndex((idx) => idx - 1);
       setZoom(1);
     }
   };
+
+  useEffect(() => {
+    if (!swipeDirection) return;
+    const timer = window.setTimeout(() => setSwipeDirection(0), 220);
+    return () => window.clearTimeout(timer);
+  }, [swipeDirection]);
 
   if (!images || images.length === 0) return null;
 
@@ -116,7 +125,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) =>
         <img
           src={images[currentIndex]}
           alt={`Preview ${currentIndex + 1}`}
-          className="max-w-full max-h-full object-contain transition-transform duration-200"
+          className={`max-w-full max-h-full object-contain transition-all duration-200 ${swipeDirection === 1 ? '-translate-x-3 opacity-90' : swipeDirection === -1 ? 'translate-x-3 opacity-90' : 'translate-x-0 opacity-100'}`}
           style={{ transform: `scale(${zoom})` }}
           onClick={(e) => {
             e.stopPropagation();
