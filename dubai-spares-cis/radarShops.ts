@@ -116,7 +116,7 @@ export const normalizeSupplierMetadata = (supplier: Supplier): Supplier => {
 
   return {
     ...supplier,
-    type: supplier.type === 'scrapyard' ? 'scrapyard' : 'new_parts',
+    type: supplier.type || 'new_parts',
     zone: typeof supplier.zone === 'string' ? supplier.zone : '',
     heatLevel: Number.isFinite(Number(supplier.heatLevel)) ? Number(supplier.heatLevel) : 0,
     mainBrands: Array.isArray(supplier.mainBrands) ? supplier.mainBrands : (Array.isArray(supplier.brands) ? supplier.brands : []),
@@ -134,7 +134,7 @@ const mapShopRow = (row: any): Shop => ({
   location: row.location || '',
   latitude: Number(row.latitude),
   longitude: Number(row.longitude),
-  type: row.shop_type === 'scrapyard' ? 'scrapyard' : 'new_parts',
+  type: row.shop_type || 'new_parts',
   zone: typeof row.zone === 'string' ? row.zone : '',
   heatLevel: Number.isFinite(Number(row.heat_level)) ? Number(row.heat_level) : 0,
   needsManualFix: !!row.needs_manual_fix,
