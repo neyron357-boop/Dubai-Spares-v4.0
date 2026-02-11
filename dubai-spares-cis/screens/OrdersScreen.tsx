@@ -1,238 +1,218 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Archive, BarChart3, CheckCircle2, Clock3, Filter, Loader2, MessageCircle, Pin, Share2, Smartphone, Star, WifiOff, XCircle } from 'lucide-react';
 import { useStore } from '../store';
-import { Order, Priority, Part, Shop } from '../types';
-import { buildShopMapLink, getRadarShopMatches, getShopOrderMatchScore, isShopCompatibleWithOrder } from '../shopMatching';
-import {
-  Calendar,
-  Tag,
-  AlertCircle,
-  BarChart3,
-  Trash2,
-  PackageSearch,
-  Users,
-  ChevronRight,
-  User,
-  Smartphone,
-  Clock,
-  Pin,
-  Share2,
-  LocateFixed,
-  Search,
-  SlidersHorizontal,
-  ArrowUpDown,
-  MessageCircle,
-  Archive
-} from 'lucide-react';
+import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
-import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
-import { shareMessage, buildOrderShareText, shareQuoteLink } from '../shareUtils';
-import { supabase } from '../supabase';
-import { fetchRadarShops } from '../radarShops';
-import { isNotificationSignatureRead, pushNotification, sendBrowserNotification } from '../notificationCenter';
+import { shareQuoteLink } from '../shareUtils';
 import { toast, vibrate } from '../feedback';
 
-type TabType = 'active' | 'archive' | 'sold' | 'vip' | 'leads';
-type SortType = 'date' | 'brand' | 'priority' | 'status';
+type TabType = 'active' | 'leads' | 'vip' | 'sold' | 'archive';
+type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
+type SearchState = 'searching' | 'waiting_response' | 'found' | 'offer_sent' | 'sold' | 'archived';
 
-const weights = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
-const toRad = (v: number) => (v * Math.PI) / 180;
-const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
-  const earthRadiusMeters = 6371000;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const calc = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(calc), Math.sqrt(1 - calc));
+const priorityWeight = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
+
+const statusLabelMap: Record<SearchState, string> = {
+  searching: 'В поиске',
+  waiting_response: 'Ждём ответ',
+  found: 'Найдено',
+  offer_sent: 'Оффер отправлен',
+  sold: 'Продано',
+  archived: 'Архив'
+};
+
+const isOrderFound = (order: Order) => order.parts.some((part) => part.isFound || part.variants.length > 0);
+const foundPartsCount = (order: Order) => order.parts.filter((part) => part.isFound || part.variants.length > 0).length;
+
+const getCardSearchStatus = (order: Order): SearchState => {
+  if (order.isSold) return 'sold';
+  if (order.isArchived) return 'archived';
+  if (order.salesStatus === 'Price Sent') return 'offer_sent';
+  if (order.salesStatus === 'Pending Approval') return 'waiting_response';
+  if (isOrderFound(order)) return 'found';
+  return 'searching';
+};
+
+const formatAge = (ts: number) => {
+  const hours = (Date.now() - ts) / (1000 * 60 * 60);
+  if (hours < 1) return 'NEW';
+  if (hours < 24) return `${Math.floor(hours)}h`;
+  return `${Math.floor(hours / 24)}d`;
 };
 
 const OrdersScreen: React.FC = () => {
-  const { orders, suppliers, isLoading, isSyncing, syncOrders, deleteOrder, updateOrder } = useStore();
+  const { orders, isLoading, error, syncOrders, updateOrder, deleteOrder } = useStore();
   const navigate = useNavigate();
+
   const [activeTab, setActiveTab] = useState<TabType>('active');
-  const [sortBy, setSortBy] = useState<SortType>('date');
+  const [sortBy, setSortBy] = useState<SortType>('date_desc');
   const [searchText, setSearchText] = useState('');
-  const [showFilter, setShowFilter] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
-  const [brandFilter, setBrandFilter] = useState<string>('all');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
-  const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [nearbyFirst, setNearbyFirst] = useState(false);
-  const [currentPosition, setCurrentPosition] = useState<{ lat: number; lng: number } | null>(null);
-  const [shops, setShops] = useState<Shop[]>([]);
-  const [radarMessage, setRadarMessage] = useState<string | null>(null);
-  const notifiedRef = useRef<Set<string>>(new Set());
-  const prevLeadIdsRef = useRef<string[] | null>(null);
-  const [seenLeadIds, setSeenLeadIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('notified_new_inquiry_ids');
-      if (!saved) return;
-      notifiedRef.current = new Set(JSON.parse(saved));
-    } catch {
-      notifiedRef.current = new Set();
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('seen_new_inquiry_ids');
-      if (!saved) return;
-      setSeenLeadIds(new Set(JSON.parse(saved)));
-    } catch {
-      setSeenLeadIds(new Set());
-    }
-  }, []);
-
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [pullDistance, setPullDistance] = useState(0);
-  const pullStartY = useRef<number | null>(null);
-  const pullTriggered = useRef(false);
-  const swipeStartXRef = useRef<Record<string, number>>({});
-  const [swipeOffsets, setSwipeOffsets] = useState<Record<string, number>>({});
-  const swipedIdsRef = useRef<Record<string, boolean>>({});
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  const [brandFilters, setBrandFilters] = useState<string[]>([]);
+  const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
+  const [statusFilters, setStatusFilters] = useState<SearchState[]>([]);
+  const [noResponseHours, setNoResponseHours] = useState<number>(0);
+  const [issueFilter, setIssueFilter] = useState<'all' | 'missing_price' | 'missing_contact'>('all');
+
+  const touchStartX = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearch(searchText.trim().toLowerCase()), 300);
+    return () => window.clearTimeout(t);
+  }, [searchText]);
+
+  useEffect(() => {
+    const onOnline = () => setIsOffline(false);
+    const onOffline = () => setIsOffline(true);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
 
   const refreshOrders = async () => {
+    if (isOffline) return;
     setIsRefreshing(true);
     try {
       await syncOrders();
     } finally {
       setIsRefreshing(false);
-      setPullDistance(0);
-      pullTriggered.current = false;
     }
   };
 
-  const filteredOrders = useMemo(() => {
-    let list = orders.filter(o => {
-      if (activeTab === 'sold') return o.isSold;
-      if (activeTab === 'archive') return o.isArchived && !o.isSold;
-      if (activeTab === 'vip') return !!o.isVip && !o.isSold;
-      if (activeTab === 'leads') return (!!o.isLead || o.status === 'new_inquiry') && !o.isSold;
-      return !o.isArchived && !o.isSold;
-    });
-
-    const nearestDistance = (order: Order) => {
-      if (!currentPosition) return Number.MAX_SAFE_INTEGER;
-      const matchedShops = shops.filter((shop) => isShopCompatibleWithOrder(shop, order));
-      if (matchedShops.length === 0) return Number.MAX_SAFE_INTEGER;
-      return Math.min(
-        ...matchedShops.map((shop) => distanceMeters(currentPosition, { lat: shop.latitude, lng: shop.longitude }))
-      );
-    };
-
-    const search = searchText.trim().toLowerCase();
-    if (search) {
-      list = list.filter((o) => `${o.brand} ${o.model} ${o.clientName || ''} ${o.customerContact || ''}`.toLowerCase().includes(search));
-    }
-    if (statusFilter !== 'all') {
-      list = list.filter((o) => (o.salesStatus || 'Inquiry') === statusFilter);
-    }
-    if (priorityFilter !== 'all') {
-      list = list.filter((o) => o.priority === priorityFilter);
-    }
-    if (brandFilter !== 'all') {
-      list = list.filter((o) => o.brand === brandFilter);
-    }
-
-    return [...list].sort((a, b) => {
-      if (!!a.isPinned !== !!b.isPinned) return a.isPinned ? -1 : 1;
-      if (nearbyFirst) {
-        const delta = nearestDistance(a) - nearestDistance(b);
-        if (Math.abs(delta) > 0.001) return delta;
-      }
-      switch (sortBy) {
-        case 'brand': return a.brand.localeCompare(b.brand);
-        case 'priority': return weights[b.priority] - weights[a.priority] || b.createdAt - a.createdAt;
-        case 'status': {
-          const score = (o: Order) => {
-            if (o.parts.length === 0) return 0;
-            const found = o.parts.filter(p => p.variants.length > 0).length;
-            if (found === o.parts.length) return 3;
-            if (found > 0) return 2;
-            return 1;
-          };
-          return score(b) - score(a) || b.createdAt - a.createdAt;
-        }
-        default: return b.createdAt - a.createdAt;
-      }
-    });
-  }, [orders, activeTab, sortBy, nearbyFirst, currentPosition, suppliers, searchText, statusFilter, priorityFilter, brandFilter]);
-
-  const availableStatuses = useMemo(() => Array.from(new Set(orders.map((o) => o.salesStatus || 'Inquiry'))), [orders]);
-  const availableBrands = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
-
-  const unseenNewLeadCount = useMemo(() => {
-    const currentNewLeadIds = orders
-      .filter((order) => order.status === 'new_inquiry')
-      .map((order) => order.id);
-    return currentNewLeadIds.filter((id) => !seenLeadIds.has(id)).length;
-  }, [orders, seenLeadIds]);
-
-  const getStatusColor = (createdAt: number, isSold: boolean) => {
-    if (isSold) return 'border-l-4 border-green-700 bg-green-50/50';
-    const diff = (Date.now() - createdAt) / (1000 * 60 * 60);
-    if (diff < 24) return 'border-l-4 border-green-500';
-    if (diff < 48) return 'border-l-4 border-yellow-500';
-    return 'border-l-4 border-red-500';
+  const togglePin = (order: Order) => {
+    void updateOrder({ ...order, isPinned: !order.isPinned });
   };
 
-  const getAgeBadge = (createdAt: number) => {
-    const diff = (Date.now() - createdAt) / (1000 * 60 * 60);
-    const label = diff < 1 ? 'NEW' : diff < 24 ? `${Math.floor(diff)}h` : `${Math.floor(diff / 24)}d`;
-    const style = diff < 24 ? 'bg-green-100 text-green-700' : diff < 48 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700';
-    return <div className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-tighter flex items-center gap-1 ${style}`}><Clock size={8} /> {label}</div>;
+  const archiveOrder = (order: Order) => {
+    if (order.isArchived) return;
+    void updateOrder({ ...order, isArchived: true });
+    toast('Заказ в архиве', 'success');
   };
 
-  const getPartPhoto = (part: Part) => (part.photos && part.photos.length > 0 ? part.photos[0] : part.photoUrl);
-  const getPartPhotos = (part: Part) => (part.photos && part.photos.length > 0 ? part.photos : part.photoUrl ? [part.photoUrl] : []);
-  const getCarPhotos = (order: Order) => (order.carPhotos && order.carPhotos.length > 0 ? order.carPhotos : order.carPhotoUrl ? [order.carPhotoUrl] : []);
-
-  const markLeadAsSeen = (orderId: string) => {
-    setSeenLeadIds((current) => {
-      if (current.has(orderId)) return current;
-      const updated = new Set(current);
-      updated.add(orderId);
-      localStorage.setItem('seen_new_inquiry_ids', JSON.stringify(Array.from(updated)));
-      return updated;
-    });
-  };
-
-  const openGallery = (e: React.MouseEvent, images: string[]) => {
-    e.stopPropagation();
-    if (images.length === 0) return;
-    setGallery({ images, index: 0 });
-  };
-
-  const togglePin = (id: string) => {
-    const target = orders.find(o => o.id === id);
-    if (!target) return;
-    updateOrder({ ...target, isPinned: !target.isPinned });
+  const restoreOrder = (order: Order) => {
+    if (!order.isArchived) return;
+    void updateOrder({ ...order, isArchived: false });
+    toast('Заказ восстановлен', 'success');
   };
 
   const openWhatsapp = (order: Order) => {
     const phone = (order.customerContact || '').replace(/[^\d+]/g, '');
-    if (!phone) return;
-    const message = `Hi ${order.clientName || ''}, update for ${order.brand} ${order.model}`;
+    if (!phone) {
+      toast('Нет контакта клиента', 'error');
+      return;
+    }
+    const message = `Здравствуйте! Апдейт по заказу ${order.brand} ${order.model}`;
     window.open(`https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   const shareQuote = async (order: Order) => {
     try {
-      const result = await shareQuoteLink(order);
-      if (result.method === 'native') {
-        toast.success('Quote shared');
-      } else if (result.method === 'clipboard') {
-        toast.success('Quote link copied');
-      } else {
-        toast.success('Quote opened in messenger');
-      }
+      await shareQuoteLink(order);
+      toast('Ссылка отправлена', 'success');
     } catch {
-      toast.error('Failed to share quote');
+      toast('Не удалось поделиться оффером', 'error');
     }
+  };
+
+  const allBrands = useMemo(() => Array.from(new Set(orders.map((order) => order.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
+
+  const tabCounts = useMemo(() => ({
+    active: orders.filter((o) => !o.isArchived && !o.isSold).length,
+    leads: orders.filter((o) => (o.isLead || o.status === 'new_inquiry') && !o.isSold).length,
+    vip: orders.filter((o) => o.isVip && !o.isSold).length,
+    sold: orders.filter((o) => o.isSold).length,
+    archive: orders.filter((o) => o.isArchived && !o.isSold).length
+  }), [orders]);
+
+  const filteredOrders = useMemo(() => {
+    let list = orders.filter((order) => {
+      if (activeTab === 'sold') return order.isSold;
+      if (activeTab === 'archive') return order.isArchived && !order.isSold;
+      if (activeTab === 'vip') return order.isVip && !order.isSold;
+      if (activeTab === 'leads') return (order.isLead || order.status === 'new_inquiry') && !order.isSold;
+      return !order.isArchived && !order.isSold;
+    });
+
+    if (debouncedSearch) {
+      list = list.filter((order) => `${order.brand} ${order.model} ${order.clientName} ${order.customerContact || ''}`.toLowerCase().includes(debouncedSearch));
+    }
+
+    if (brandFilters.length > 0) {
+      list = list.filter((order) => brandFilters.includes(order.brand));
+    }
+
+    if (priorityFilter !== 'all') {
+      list = list.filter((order) => order.priority === priorityFilter);
+    }
+
+    if (statusFilters.length > 0) {
+      list = list.filter((order) => statusFilters.includes(getCardSearchStatus(order)));
+    }
+
+    if (noResponseHours > 0) {
+      list = list.filter((order) => {
+        const hours = (Date.now() - (order.updatedAt || order.createdAt)) / (1000 * 60 * 60);
+        return hours >= noResponseHours;
+      });
+    }
+
+    if (issueFilter === 'missing_price') {
+      list = list.filter((order) => order.parts.some((part) => part.variants.length === 0));
+    }
+    if (issueFilter === 'missing_contact') {
+      list = list.filter((order) => !order.customerContact?.trim());
+    }
+
+    return [...list].sort((a, b) => {
+      if (!!a.isPinned !== !!b.isPinned) return a.isPinned ? -1 : 1;
+      if (sortBy === 'date_asc') return a.createdAt - b.createdAt;
+      if (sortBy === 'priority') return priorityWeight[b.priority] - priorityWeight[a.priority] || b.createdAt - a.createdAt;
+      if (sortBy === 'brand_asc') return a.brand.localeCompare(b.brand);
+      if (sortBy === 'age') return (a.updatedAt || a.createdAt) - (b.updatedAt || b.createdAt);
+      return b.createdAt - a.createdAt;
+    });
+  }, [orders, activeTab, debouncedSearch, brandFilters, priorityFilter, statusFilters, noResponseHours, issueFilter, sortBy]);
+
+  const emptyStateMessage = useMemo(() => {
+    if (activeTab === 'active') return { title: 'Нет активных заказов', cta: 'Создать заказ', action: () => navigate('/new') };
+    if (activeTab === 'leads') return { title: 'Нет лидов', cta: 'Импортировать / Создать', action: () => navigate('/new') };
+    if (activeTab === 'archive') return { title: 'Архив пуст', cta: 'Показать активные', action: () => setActiveTab('active') };
+    return { title: 'Пока пусто', cta: 'Открыть активные', action: () => setActiveTab('active') };
+  }, [activeTab, navigate]);
+
+  const syncState: 'synced' | 'syncing' | 'error' | 'offline' = isOffline ? 'offline' : isRefreshing ? 'syncing' : error ? 'error' : 'synced';
+
+  const showSkeleton = isLoading && orders.length === 0;
+
+  const onSwipeEnd = (order: Order, deltaX: number) => {
+    if (Math.abs(deltaX) < 70) return;
+    if (deltaX > 0) {
+      openWhatsapp(order);
+      vibrate([12]);
+      return;
+    }
+    if (order.isArchived) {
+      restoreOrder(order);
+      return;
+    }
+    if (order.isPinned) {
+      archiveOrder(order);
+    } else {
+      togglePin(order);
+      toast('Заказ закреплён', 'success');
+    }
+    vibrate([12, 24, 12]);
   };
 
   const confirmDelete = async () => {
@@ -241,443 +221,226 @@ const OrdersScreen: React.FC = () => {
     if (ok) setDeleteId(null);
   };
 
-  const showSkeleton = isLoading && orders.length === 0;
-
-  const toggleNearbyFirst = () => {
-    if (nearbyFirst) {
-      setNearbyFirst(false);
-      return;
-    }
-
-    if (!navigator.geolocation) {
-      toast('Геолокация не поддерживается на этом устройстве', 'error');
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCurrentPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setNearbyFirst(true);
-      },
-      () => {
-        toast('Включите GPS для сортировки Nearby First', 'error');
-      }
-    );
-  };
-
-  useEffect(() => {
-    let active = true;
-
-    const loadShops = async () => {
-      const loadedShops = await fetchRadarShops(suppliers);
-      if (!active) return;
-      setShops(loadedShops);
-    };
-
-    const shopsChannel = supabase
-      ?.channel('orders-radar-shops')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'shops' }, () => {
-        void loadShops();
-      })
-      .subscribe();
-
-    void loadShops();
-    return () => {
-      active = false;
-      if (shopsChannel) {
-        void supabase?.removeChannel(shopsChannel);
-      }
-    };
-  }, [suppliers]);
-
-  useEffect(() => {
-    if (!navigator.geolocation || shops.length === 0) return;
-    const watchId = navigator.geolocation.watchPosition((pos) => {
-      setCurrentPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-    });
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, [shops.length]);
-
-  useEffect(() => {
-    if (!currentPosition || shops.length === 0) return;
-
-    const runRadar = () => {
-      const activeOrders = orders.filter((order) => !order.isArchived && !order.isSold);
-      for (const order of activeOrders) {
-        const ranked = getRadarShopMatches(order, shops, currentPosition);
-        const dismissedShopIds = new Set(order.dismissedShopIds || []);
-        const visibleRanked = ranked.filter((entry) => !dismissedShopIds.has(entry.shop.id));
-
-        const matchedEntry = visibleRanked.find((entry) => entry.distance <= 800 && (entry.isRecommended || entry.isCompatible || entry.matchScore >= 2))
-          || visibleRanked.find((entry) => entry.distance <= 350)
-          || visibleRanked[0];
-
-        const matched = matchedEntry?.shop;
-
-        if (matched && !notifiedRef.current.has(`${order.id}:${matched.id}`)) {
-          const meters = Math.round(distanceMeters(currentPosition, { lat: matched.latitude, lng: matched.longitude }));
-          const mapLink = buildShopMapLink(matched);
-          const tagHint = matchedEntry?.isCompatible ? 'релевантный' : 'ближайший';
-          const message = `🎯 ${matched.name} рядом (${meters}м, ${tagHint}). ${order.brand} ${order.model} • Карта: ${mapLink}`;
-          setRadarMessage(message);
-          pushNotification({
-            type: 'radar',
-            title: `Радар: ${matched.name}`,
-            body: message,
-            route: `/order/${order.id}#shop-${matched.id}`,
-            orderId: order.id,
-            shopId: matched.id,
-            signature: `radar:${order.id}:${matched.id}`
-          });
-          setTimeout(() => setRadarMessage(null), 9000);
-          if (navigator.vibrate) navigator.vibrate([240, 120, 240]);
-          if (typeof Notification !== 'undefined') {
-            if (Notification.permission === 'granted') {
-              void sendBrowserNotification('Active Radar', {
-                body: message,
-                tag: `radar-${order.id}-${matched.id}`,
-                requireInteraction: true,
-                route: `/order/${order.id}#shop-${matched.id}`,
-                url: buildShopMapLink(matched),
-                data: { orderId: order.id, shopId: matched.id }
-              });
-            } else if (Notification.permission === 'default') {
-              void Notification.requestPermission();
-            }
-          }
-          notifiedRef.current.add(`${order.id}:${matched.id}`);
-          localStorage.setItem('notified_new_inquiry_ids', JSON.stringify(Array.from(notifiedRef.current)));
-          break;
-        }
-      }
-    };
-
-    runRadar();
-    const intervalId = window.setInterval(runRadar, 20000);
-    return () => window.clearInterval(intervalId);
-  }, [currentPosition, orders, shops]);
-
-  useEffect(() => {
-    const currentLeadIds = orders
-      .filter((order) => order.status === 'new_inquiry')
-      .map((order) => order.id)
-      .sort();
-
-    if (!prevLeadIdsRef.current) {
-      prevLeadIdsRef.current = currentLeadIds;
-      return;
-    }
-
-    const prevIds = new Set(prevLeadIdsRef.current);
-    const hasNewLead = currentLeadIds.some((id) => !prevIds.has(id));
-
-    if (hasNewLead) {
-      const newLead = orders.find((order) => order.status === 'new_inquiry' && !prevIds.has(order.id));
-      let shouldSignal = false;
-      if (newLead) {
-        const signature = `lead:${newLead.id}`;
-        const isReadSignature = isNotificationSignatureRead(signature);
-        const createdNotification = pushNotification({
-          type: 'order',
-          title: `Новый заказ: ${newLead.brand} ${newLead.model}`,
-          body: `Источник: ${newLead.source || 'не указан'}`,
-          route: `/order/${newLead.id}`,
-          orderId: newLead.id,
-          signature
-        });
-        shouldSignal = Boolean(!isReadSignature && createdNotification);
-        if (shouldSignal) {
-          void sendBrowserNotification('Новый заказ', {
-            body: `${newLead.brand} ${newLead.model} • ${newLead.source || 'Без источника'}`,
-            tag: `new-order-${newLead.id}`,
-            route: `/order/${newLead.id}`,
-            requireInteraction: true,
-            vibrate: [260, 100, 260]
-          });
-        }
-      }
-      if (shouldSignal) {
-        vibrate([200, 60, 140]);
-        try {
-        const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (AudioContextClass) {
-          const audioContext = new AudioContextClass();
-          const oscillator = audioContext.createOscillator();
-          const gain = audioContext.createGain();
-
-          oscillator.type = 'sine';
-          oscillator.frequency.setValueAtTime(880, audioContext.currentTime);
-          oscillator.connect(gain);
-          gain.connect(audioContext.destination);
-
-          gain.gain.setValueAtTime(0.001, audioContext.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.2, audioContext.currentTime + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.35);
-
-          oscillator.start();
-          oscillator.stop(audioContext.currentTime + 0.36);
-          window.setTimeout(() => void audioContext.close(), 450);
-        }
-        } catch {
-          // ignore browsers that block autoplay without interaction
-        }
-      }
-    }
-
-    prevLeadIdsRef.current = currentLeadIds;
-  }, [orders]);
-
-  const archiveBySwipe = (order: Order) => {
-    if (order.isArchived) return;
-    void updateOrder({ ...order, isArchived: true });
-    vibrate([12, 40, 20]);
-    toast('Заказ перемещён в архив', 'success');
-  };
-
-  const restoreBySwipe = (order: Order) => {
-    if (!order.isArchived) return;
-    void updateOrder({ ...order, isArchived: false });
-    vibrate([12, 30, 12]);
-    toast('Заказ возвращён из архива', 'success');
-  };
-
-  const canSwipeToArchive = activeTab === 'active';
-  const canSwipeToRestore = activeTab === 'archive';
-
-  const emptyStateMessage =
-    activeTab === 'archive'
-      ? { title: 'Архив пока пуст', subtitle: 'Смахните карточку влево на вкладке «Актив», чтобы архивировать заказ.', cta: 'Открыть активные' }
-      : activeTab === 'sold'
-      ? { title: 'Нет проданных заказов', subtitle: 'Отмечайте сделки как проданные, чтобы считать прибыль и аналитику.', cta: 'Перейти к активным' }
-      : { title: 'Заказы не найдены', subtitle: 'Добавьте новый заказ, чтобы начать подбор и отслеживание.', cta: 'Создать заказ' };
-
   return (
-    <div
-      className="p-4 space-y-4 pb-20 overflow-x-hidden"
-      onTouchStart={(e) => {
-        if (window.scrollY > 0) return;
-        pullStartY.current = e.touches[0].clientY;
-      }}
-      onTouchMove={(e) => {
-        if (pullTriggered.current || pullStartY.current === null || window.scrollY > 0) return;
-        const delta = e.touches[0].clientY - pullStartY.current;
-        if (delta > 0) {
-          setPullDistance(Math.min(80, delta * 0.45));
-        }
-      }}
-      onTouchEnd={() => {
-        if (pullDistance >= 56 && !isRefreshing) {
-          pullTriggered.current = true;
-          if (navigator.vibrate) navigator.vibrate(12);
-          void refreshOrders();
-          return;
-        }
-        pullStartY.current = null;
-        setPullDistance(0);
-      }}
-    >
-      <div className="transition-all duration-200 overflow-hidden" style={{ height: pullDistance ? `${pullDistance}px` : 0 }}>
-        <div className="h-full flex items-center justify-center text-[10px] font-bold text-gray-500">
-          {isRefreshing ? 'Обновление…' : pullDistance >= 56 ? 'Отпустите для обновления' : 'Потяните для обновления'}
-        </div>
-      </div>
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Мои Заказы</h1>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setIsIncomeOpen(true)} className="p-3 bg-blue-50 text-blue-600 rounded-xl"><BarChart3 size={20} /></button>
-          <button type="button" onClick={() => navigate('/vendor')} className="px-4 py-2 bg-gray-900 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
-            <Users size={16} /> Склад
-          </button>
-          <button type="button" disabled={isRefreshing} onClick={() => void refreshOrders()} className="px-3 py-2 bg-white border border-gray-200 text-[10px] font-black rounded-xl">{isRefreshing ? '...' : 'Sync'}</button>
-        </div>
-      </div>
-
-      <div className="flex gap-2">
-        <label className="flex-1 h-11 rounded-2xl border border-gray-200 bg-white px-3 flex items-center gap-2">
-          <Search size={16} className="text-gray-400" />
-          <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Поиск заказа" className="flex-1 bg-transparent outline-none text-sm" />
-        </label>
-        <button type="button" onClick={() => setShowFilter((v) => !v)} className="h-11 px-3 rounded-2xl border border-gray-200 bg-white text-gray-700 inline-flex items-center gap-1 text-xs font-black uppercase"><SlidersHorizontal size={14} />Фильтр</button>
-        <button type="button" className="h-11 px-3 rounded-2xl border border-gray-200 bg-white text-gray-700 inline-flex items-center gap-1 text-xs font-black uppercase"><ArrowUpDown size={14} />Сорт</button>
-      </div>
-
-      {showFilter && (
-        <div className="rounded-2xl border border-gray-200 bg-white p-3 space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-11 rounded-xl border border-gray-200 px-2 text-sm">
-              <option value="all">Все статусы</option>
-              {availableStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
-            </select>
-            <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as Priority | 'all')} className="h-11 rounded-xl border border-gray-200 px-2 text-sm">
-              <option value="all">Любой приоритет</option>
-              <option value={Priority.HIGH}>High</option>
-              <option value={Priority.MEDIUM}>Medium</option>
-              <option value={Priority.LOW}>Low</option>
-            </select>
-          </div>
-          <select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} className="h-11 rounded-xl border border-gray-200 px-2 text-sm w-full">
-            <option value="all">Все марки</option>
-            {availableBrands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
-          </select>
+    <div className="space-y-4 px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))] overflow-x-hidden">
+      {(isOffline || error) && (
+        <div className={`rounded-xl border px-3 py-2 text-xs font-bold ${isOffline ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-rose-300 bg-rose-50 text-rose-800'} flex items-center justify-between gap-2`}>
+          <span>{isOffline ? 'Офлайн • данные из кеша' : 'Ошибка синхронизации'}</span>
+          {!isOffline && <button type="button" onClick={() => void refreshOrders()} className="rounded-lg bg-white px-2 py-1 text-[10px] uppercase">Повторить</button>}
         </div>
       )}
 
-      {radarMessage && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">{radarMessage}</div>}
-
-      <div className="flex p-1 bg-gray-100 rounded-xl shadow-inner gap-1">
-        {([
-          ['active', 'Актив'],
-          ['leads', 'Лиды'],
-          ['vip', 'VIP'],
-          ['sold', 'Продано'],
-          ['archive', 'Архив']
-        ] as [TabType, string][]).map(([tab, title]) => {
-          const isLeadsTab = tab === 'leads';
-          const hasUnseenLeads = isLeadsTab && unseenNewLeadCount > 0;
-          return (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              className={`relative flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg ${activeTab === tab ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'} ${hasUnseenLeads ? 'animate-pulse text-rose-600' : ''}`}
-            >
-              {title}
-              {hasUnseenLeads && (
-                <span className="absolute -top-1.5 right-1 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] text-white">
-                  {unseenNewLeadCount}
-                </span>
-              )}
+      <header className="sticky top-0 z-20 space-y-3 bg-[#f7f8fc] pt-1 pb-2">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-black tracking-tight text-slate-900">Заказы</h1>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setIsIncomeOpen(true)} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Статистика"><BarChart3 size={18} /></button>
+            <button type="button" onClick={() => navigate('/vendor')} className="h-11 px-3 rounded-xl border border-slate-200 bg-white text-[11px] font-black uppercase">Склад</button>
+            <button type="button" disabled={isOffline || isRefreshing} onClick={() => void refreshOrders()} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center disabled:opacity-50" aria-label="Синхронизация">
+              {syncState === 'synced' && <CheckCircle2 size={18} className="text-emerald-600" />}
+              {syncState === 'syncing' && <Loader2 size={18} className="text-blue-600 animate-spin" />}
+              {syncState === 'error' && <XCircle size={18} className="text-rose-600" />}
+              {syncState === 'offline' && <WifiOff size={18} className="text-amber-600" />}
             </button>
-          );
-        })}
-      </div>
+          </div>
+        </div>
 
-      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-        {[
-          { id: 'date', label: 'Дата', icon: Calendar },
-          { id: 'brand', label: 'Марка', icon: Tag },
-          { id: 'priority', label: 'Приоритет', icon: AlertCircle },
-          { id: 'status', label: 'Статус', icon: PackageSearch },
-        ].map((s) => (
-          <button key={s.id} onClick={() => setSortBy(s.id as SortType)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg whitespace-nowrap text-[10px] font-bold uppercase tracking-tight ${sortBy === s.id ? 'bg-blue-600 text-white' : 'bg-white text-gray-400 border border-gray-100'}`}>
-            <s.icon size={12} /> {s.label}
-          </button>
-        ))}
-        <button onClick={toggleNearbyFirst} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg whitespace-nowrap text-[10px] font-bold uppercase tracking-tight ${nearbyFirst ? 'bg-emerald-600 text-white' : 'bg-white text-gray-400 border border-gray-100'}`}>
-          <LocateFixed size={12} /> Nearby First
-        </button>
-      </div>
+        <div className="flex items-center gap-2">
+          <label className="flex h-11 flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3">
+            <Smartphone size={14} className="text-slate-400" />
+            <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Поиск заказа" className="w-full bg-transparent text-sm outline-none" />
+            {searchText && <button type="button" onClick={() => setSearchText('')} className="text-xs text-slate-500">Очистить</button>}
+          </label>
+          <button type="button" onClick={() => setIsFilterOpen(true)} className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black uppercase inline-flex items-center gap-1"><Filter size={14} />Фильтр</button>
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+          {([
+            ['active', 'Актив'],
+            ['leads', 'Лиды'],
+            ['vip', 'VIP'],
+            ['sold', 'Продано'],
+            ['archive', 'Архив']
+          ] as [TabType, string][]).map(([tab, label]) => (
+            <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`whitespace-nowrap rounded-xl border px-3 py-2 text-[11px] font-black ${activeTab === tab ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>
+              {label} ({tabCounts[tab]})
+            </button>
+          ))}
+        </div>
+      </header>
 
       <div className="space-y-3">
         {showSkeleton ? (
           Array.from({ length: 4 }).map((_, idx) => (
-            <div key={`skeleton-${idx}`} className="p-4 rounded-3xl bg-white border border-gray-100 animate-pulse space-y-3">
-              <div className="h-5 w-40 bg-gray-200 rounded" />
-              <div className="h-3 w-52 bg-gray-100 rounded" />
-              <div className="h-16 w-16 bg-gray-100 rounded-xl" />
-              <div className="h-3 w-full bg-gray-100 rounded" />
-              <div className="h-3 w-2/3 bg-gray-100 rounded" />
+            <div key={idx} className="rounded-2xl border border-slate-200 bg-white p-4 animate-pulse space-y-2">
+              <div className="h-5 w-44 rounded bg-slate-200" />
+              <div className="h-4 w-56 rounded bg-slate-100" />
+              <div className="h-6 w-24 rounded bg-slate-100" />
+              <div className="h-2 w-full rounded bg-slate-100" />
             </div>
           ))
         ) : filteredOrders.length === 0 ? (
-          <div className="text-center py-14 px-5 bg-white rounded-3xl border border-gray-100 shadow-sm">
-            <p className="text-base font-black text-gray-700">{emptyStateMessage.title}</p>
-            <p className="mt-2 text-xs text-gray-400">{emptyStateMessage.subtitle}</p>
-            <button
-              type="button"
-              onClick={() => (activeTab === 'active' ? navigate('/new') : setActiveTab('active'))}
-              className="mt-4 inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-[11px] font-black uppercase tracking-wide text-white"
-            >
-              {emptyStateMessage.cta}
-            </button>
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-12 text-center">
+            <p className="text-base font-black text-slate-800">{emptyStateMessage.title}</p>
+            <button type="button" onClick={emptyStateMessage.action} className="mt-4 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black uppercase text-white">{emptyStateMessage.cta}</button>
           </div>
         ) : (
           filteredOrders.map((order) => {
-            const isUnseenNewLead = order.status === 'new_inquiry' && !seenLeadIds.has(order.id);
+            const totalParts = order.parts.length;
+            const foundParts = foundPartsCount(order);
+            const progress = totalParts > 0 ? Math.round((foundParts / totalParts) * 100) : 0;
+            const status = getCardSearchStatus(order);
+            const contactLabel = order.clientName?.trim() || order.customerContact || 'Без контакта';
+            const ageLabel = formatAge(order.updatedAt || order.createdAt);
+            const profitAed = order.soldProfitUsd === undefined ? null : Math.round(order.soldProfitUsd * (order.exchangeRate || 3.67));
+
             return (
-            <div
-              key={order.id}
-              onClick={() => {
-                if (swipedIdsRef.current[order.id]) {
-                  swipedIdsRef.current[order.id] = false;
-                  return;
-                }
-                if (order.status === 'new_inquiry') {
-                  markLeadAsSeen(order.id);
-                }
-                navigate(`/order/${order.id}`);
-              }}
-              onTouchStart={(e) => {
-                if (!canSwipeToArchive && !canSwipeToRestore) return;
-                swipeStartXRef.current[order.id] = e.touches[0].clientX;
-                swipedIdsRef.current[order.id] = false;
-              }}
-              onTouchMove={(e) => {
-                if (!canSwipeToArchive && !canSwipeToRestore) return;
-                const startX = swipeStartXRef.current[order.id];
-                if (typeof startX !== 'number') return;
-                const delta = e.touches[0].clientX - startX;
-                if (canSwipeToArchive && delta < 0) {
-                  swipedIdsRef.current[order.id] = Math.abs(delta) > 24;
-                  setSwipeOffsets((prev) => ({ ...prev, [order.id]: Math.max(delta, -132) }));
-                }
-                if (canSwipeToRestore && delta > 0) {
-                  swipedIdsRef.current[order.id] = Math.abs(delta) > 24;
-                  setSwipeOffsets((prev) => ({ ...prev, [order.id]: Math.min(delta, 132) }));
-                }
-              }}
-              onTouchEnd={() => {
-                if (!canSwipeToArchive && !canSwipeToRestore) return;
-                const offset = swipeOffsets[order.id] || 0;
-                if (offset <= -96) archiveBySwipe(order);
-                if (offset >= 96) restoreBySwipe(order);
-                setSwipeOffsets((prev) => ({ ...prev, [order.id]: 0 }));
-                delete swipeStartXRef.current[order.id];
-              }}
-              className={`p-4 rounded-2xl shadow-sm border relative overflow-hidden transition-transform duration-300 ease-out bg-white border-gray-200 ${getStatusColor(order.createdAt, order.isSold)} ${isUnseenNewLead ? 'ring-2 ring-rose-400 animate-pulse' : ''}`}
-              style={{ transform: `translateX(${(canSwipeToArchive || canSwipeToRestore) ? swipeOffsets[order.id] || 0 : 0}px)` }}
-            >
-              {canSwipeToArchive && <div className="absolute inset-y-0 -right-24 w-24 bg-amber-500/90 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center">Архив</div>}
-              {canSwipeToRestore && <div className="absolute inset-y-0 -left-24 w-24 bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center">Вернуть</div>}
-              {order.salesStatus === 'Price Sent' && (Date.now() - (order.updatedAt || order.createdAt)) > 24 * 60 * 60 * 1000 && (
-                <div className="absolute top-2 right-2 z-10 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase">Follow up</div>
-              )}
-              <div className="space-y-2">
-                <div className="flex justify-between items-start gap-2">
-                  <div>
-                    <h3 className="font-black text-gray-900 text-lg leading-tight uppercase tracking-tight">{order.brand} {order.model} {order.year && <span className="text-sm text-gray-400">{order.year}</span>}</h3>
-                    <p className="text-sm text-gray-600 inline-flex items-center gap-1"><User size={14} />{order.clientName || 'Без имени'} · {order.source || 'Channel —'}</p>
+              <article
+                key={order.id}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                onClick={() => navigate(`/order/${order.id}`)}
+                onTouchStart={(e) => { touchStartX.current[order.id] = e.touches[0].clientX; }}
+                onTouchEnd={(e) => {
+                  const start = touchStartX.current[order.id];
+                  if (typeof start !== 'number') return;
+                  const deltaX = e.changedTouches[0].clientX - start;
+                  onSwipeEnd(order, deltaX);
+                  delete touchStartX.current[order.id];
+                }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-base font-black text-slate-900">{order.brand} {order.model} <span className="text-sm font-semibold text-slate-500">{order.year}</span></h3>
+                    <p className="mt-0.5 truncate text-sm text-slate-600 inline-flex items-center gap-1">{contactLabel}{order.isVip && <Star size={12} className="text-amber-500" />} • {order.source || 'Источник —'}</p>
                   </div>
-                  {order.isPinned && <Pin size={14} className="text-blue-600" />}
+                  <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-700 inline-flex items-center gap-1"><Clock3 size={11} /> {ageLabel}</span>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className={`px-2 py-1 rounded-lg font-bold ${order.priority === Priority.HIGH ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700'}`}>{order.salesStatus || 'Inquiry'}</span>
-                  {getAgeBadge(order.createdAt)}
-                </div>
-                <div className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">
-                  Маржа: {order.isSold && order.soldProfitUsd !== undefined ? `${order.soldProfitUsd.toFixed(2)} USD` : '—'}
-                </div>
-              </div>
 
-              <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
-                <div className="text-xs text-gray-500">{order.parts.filter(p => p.isFound).length}/{order.parts.length} найдено</div>
-
-                <div className="flex items-center gap-1">
-                  <button onClick={(e) => { e.stopPropagation(); openWhatsapp(order); }} className="h-9 px-2 rounded-lg bg-emerald-50 text-emerald-700"><MessageCircle size={16} /></button>
-                  <button onClick={(e) => { e.stopPropagation(); void shareQuote(order); }} className="h-9 px-2 rounded-lg bg-indigo-50 text-indigo-700"><Share2 size={16} /></button>
-                  <button onClick={(e) => { e.stopPropagation(); togglePin(order.id); }} className="h-9 px-2 rounded-lg bg-blue-50 text-blue-700"><Pin size={16} className={order.isPinned ? 'fill-blue-200' : ''} /></button>
-                  <button onClick={(e) => { e.stopPropagation(); order.isArchived ? restoreBySwipe(order) : archiveBySwipe(order); }} className="h-9 px-2 rounded-lg bg-amber-50 text-amber-700"><Archive size={16} /></button>
-                  <ChevronRight size={18} className="text-gray-300" />
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">{statusLabelMap[status]}</span>
+                  {order.priority === Priority.HIGH && <span className="text-[10px] font-black text-rose-600 uppercase">Срочно</span>}
                 </div>
-              </div>
-            </div>
+
+                <div className="mt-3">
+                  {totalParts === 0 ? (
+                    <div className="flex items-center justify-between rounded-xl border border-dashed border-slate-300 px-3 py-2">
+                      <p className="text-xs text-slate-500">Нет деталей</p>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); navigate(`/order/${order.id}`); }} className="rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-black uppercase text-white">Добавить</button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mb-1 flex items-center justify-between text-xs text-slate-600"><span>Найдено: {foundParts}/{totalParts}</span><span>{progress}%</span></div>
+                      <div className="h-2 w-full rounded bg-slate-100"><div className="h-2 rounded bg-emerald-500" style={{ width: `${progress}%` }} /></div>
+                    </>
+                  )}
+                </div>
+
+                <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold">
+                  {profitAed === null ? (
+                    <span className="text-slate-600">Маржа: не рассчитано</span>
+                  ) : profitAed >= 0 ? (
+                    <span className="text-emerald-700">Прибыль: +{profitAed} AED</span>
+                  ) : (
+                    <span className="text-rose-700">Убыток: {profitAed} AED</span>
+                  )}
+                </div>
+
+                <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
+                  <p className="text-[11px] text-slate-400">Свайп → WhatsApp • Свайп ← Pin/Archive</p>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsapp(order); }} className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-emerald-700" aria-label="WhatsApp"><MessageCircle size={17} /></button>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); void shareQuote(order); }} className="grid h-11 w-11 place-items-center rounded-xl bg-indigo-50 text-indigo-700" aria-label="Share quote"><Share2 size={17} /></button>
+                  </div>
+                </div>
+
+                <div className="mt-2 flex items-center justify-end gap-1 text-[10px] font-black uppercase text-slate-400">
+                  <button type="button" onClick={(e) => { e.stopPropagation(); togglePin(order); }} className="rounded-lg px-2 py-1 hover:bg-slate-100">{order.isPinned ? 'Unpin' : 'Pin'}</button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); order.isArchived ? restoreOrder(order) : archiveOrder(order); }} className="rounded-lg px-2 py-1 hover:bg-slate-100 inline-flex items-center gap-1"><Archive size={12} /> {order.isArchived ? 'Restore' : 'Archive'}</button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); setDeleteId(order.id); }} className="rounded-lg px-2 py-1 text-rose-500 hover:bg-rose-50">Delete</button>
+                </div>
+              </article>
             );
           })
         )}
       </div>
 
-      <ConfirmModal isOpen={!!deleteId} message={isSyncing ? 'Удаление...' : 'Вы уверены, что хотите удалить этот заказ?'} onConfirm={confirmDelete} onCancel={() => setDeleteId(null)} />
+      {isFilterOpen && (
+        <div className="fixed inset-0 z-40 bg-black/35" onClick={() => setIsFilterOpen(false)}>
+          <div className="absolute bottom-0 left-0 right-0 rounded-t-3xl bg-white p-4" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-black text-slate-900">Фильтры и сортировка</h2>
+
+            <div className="mt-3 space-y-2">
+              <label className="text-[11px] font-black uppercase text-slate-500">Сортировка</label>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortType)} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm">
+                <option value="date_desc">Дата: новые</option>
+                <option value="date_asc">Дата: старые</option>
+                <option value="priority">Приоритет</option>
+                <option value="brand_asc">Марка A–Z</option>
+                <option value="age">Срок/давность</option>
+              </select>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <label className="text-[11px] font-black uppercase text-slate-500">Марка (multi)</label>
+              <div className="flex flex-wrap gap-2">
+                {allBrands.map((brand) => (
+                  <button key={brand} type="button" onClick={() => setBrandFilters((current) => current.includes(brand) ? current.filter((b) => b !== brand) : [...current, brand])} className={`rounded-lg border px-2 py-1 text-xs font-bold ${brandFilters.includes(brand) ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}>{brand}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as Priority | 'all')} className="h-11 rounded-xl border border-slate-200 px-2 text-sm">
+                <option value="all">Любой приоритет</option>
+                <option value={Priority.HIGH}>High</option>
+                <option value={Priority.MEDIUM}>Medium</option>
+                <option value={Priority.LOW}>Low</option>
+              </select>
+              <select value={noResponseHours} onChange={(e) => setNoResponseHours(Number(e.target.value))} className="h-11 rounded-xl border border-slate-200 px-2 text-sm">
+                <option value={0}>Без ответа: все</option>
+                <option value={3}>{'>'} 3ч</option>
+                <option value={6}>{'>'} 6ч</option>
+                <option value={12}>{'>'} 12ч</option>
+                <option value={24}>{'>'} 24ч</option>
+              </select>
+            </div>
+
+            <div className="mt-2">
+              <select value={issueFilter} onChange={(e) => setIssueFilter(e.target.value as typeof issueFilter)} className="h-11 w-full rounded-xl border border-slate-200 px-2 text-sm">
+                <option value="all">Ошибки: все</option>
+                <option value="missing_price">Без цены</option>
+                <option value="missing_contact">Без контакта</option>
+              </select>
+            </div>
+
+            <div className="mt-3">
+              <label className="text-[11px] font-black uppercase text-slate-500">Статус поиска</label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {(Object.keys(statusLabelMap) as SearchState[]).map((status) => (
+                  <button key={status} type="button" onClick={() => setStatusFilters((current) => current.includes(status) ? current.filter((item) => item !== status) : [...current, status])} className={`rounded-lg border px-2 py-1 text-xs font-bold ${statusFilters.includes(status) ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}>
+                    {statusLabelMap[status]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button type="button" onClick={() => {
+                setSortBy('date_desc');
+                setBrandFilters([]);
+                setPriorityFilter('all');
+                setStatusFilters([]);
+                setNoResponseHours(0);
+                setIssueFilter('all');
+              }} className="h-11 flex-1 rounded-xl border border-slate-200 text-xs font-black uppercase">Сброс</button>
+              <button type="button" onClick={() => setIsFilterOpen(false)} className="h-11 flex-1 rounded-xl bg-blue-600 text-xs font-black uppercase text-white">Применить</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmModal isOpen={!!deleteId} message="Вы уверены, что хотите удалить этот заказ?" onConfirm={confirmDelete} onCancel={() => setDeleteId(null)} />
       {isIncomeOpen && <IncomeModal isOpen={isIncomeOpen} onClose={() => setIsIncomeOpen(false)} orders={orders} />}
-      {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
     </div>
   );
 };
