@@ -41,6 +41,9 @@ export interface Part {
   photos?: string[];
   variants: PriceVariant[];
   isFound: boolean;
+  status?: 'searching' | 'found' | 'not_found' | 'ordered';
+  priority?: 'normal' | 'urgent';
+  bestOfferId?: string;
 }
 
 export interface Order {
@@ -75,6 +78,21 @@ export interface Order {
   updatedAt?: number;
   recommendedShopIds?: string[];
   dismissedShopIds?: string[];
+  customerStatus?: 'VIP' | 'LEAD' | 'INQUIRY';
+  statusChangedAt?: number;
+  statusChangedBy?: string;
+  priorityChangedAt?: number;
+  markupType?: 'percent' | 'fixed';
+  markupFixedAed?: number;
+  useMarkupAsDefaultForNewParts?: boolean;
+  clientCurrency?: 'AED' | 'USD' | 'RUB' | 'TJS';
+  fxUpdatedAt?: number;
+  logistics?: {
+    deliveryType?: 'uae' | 'export';
+    deliveryAed?: number;
+    packingAed?: number;
+    serviceFeeAed?: number;
+  };
 }
 
 export interface OrderNote {
