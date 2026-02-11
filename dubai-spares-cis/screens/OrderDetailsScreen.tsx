@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, Part, Priority, OrderNote, Shop } from '../types';
-import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationDiagnostics, getShopRecommendationLevel, isShopCompatibleWithOrder } from '../shopMatching';
+import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationDiagnostics, getShopRecommendationLevel, isBrandMatch, isShopCompatibleWithOrder } from '../shopMatching';
 import { SOURCES } from '../constants';
 import { 
   ArrowLeft, 
@@ -210,12 +210,19 @@ const OrderDetailsScreen: React.FC = () => {
 
 
   const dismissedShopIds = new Set(order.dismissedShopIds || []);
-  const manuallyRecommendedShops = shops.filter((shop) => (order.recommendedShopIds || []).includes(shop.id) && !dismissedShopIds.has(shop.id));
 
-  const autoRecommendedShops = shops.filter((shop) => !dismissedShopIds.has(shop.id) && (isShopCompatibleWithOrder(shop, order) || getShopOrderMatchScore(shop, order) >= 2));
+  const isStrictBrandShop = (shop: Shop) => {
+    const shopBrands = Array.from(new Set([...(shop.specialization || []), ...(shop.mainBrands || [])]));
+    return shopBrands.some((brand) => isBrandMatch(order.brand, brand));
+  };
+
+  const strictBrandShops = shops.filter((shop) => isStrictBrandShop(shop));
+  const manuallyRecommendedShops = strictBrandShops.filter((shop) => (order.recommendedShopIds || []).includes(shop.id) && !dismissedShopIds.has(shop.id));
+
+  const autoRecommendedShops = strictBrandShops.filter((shop) => !dismissedShopIds.has(shop.id) && (isShopCompatibleWithOrder(shop, order) || getShopOrderMatchScore(shop, order) >= 2));
 
   const mergedRecommendations = Array.from(new Map([...manuallyRecommendedShops, ...autoRecommendedShops].map((shop) => [shop.id, shop])).values());
-  const fallbackNearest = shops
+  const fallbackNearest = strictBrandShops
     .map((shop) => ({
       ...shop,
       score: getShopOrderMatchScore(shop, order),
@@ -241,6 +248,20 @@ const OrderDetailsScreen: React.FC = () => {
   const navigateToShop = (shop: Shop) => {
     window.open(buildShopMapLink(shop), '_blank');
   };
+
+  const contactAllRecommendedShops = () => {
+    const firstPart = order.parts.find((part) => part.name.trim());
+    const partName = firstPart?.name || 'part';
+    const message = `Hi, do you have ${partName} for ${order.vin}?`;
+
+    recommendedShops.forEach((shop) => {
+      const rawPhone = (shop.phone || '').replace(/[^\d+]/g, '');
+      if (!rawPhone) return;
+      const whatsappUrl = `https://wa.me/${rawPhone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank');
+    });
+  };
+
 
   const addManualRecommendation = (shopId: string) => {
     if (!shopId) return;
@@ -807,11 +828,14 @@ const OrderDetailsScreen: React.FC = () => {
               defaultValue=""
             >
               <option value="" disabled>Добавить магазин вручную…</option>
-              {shops
+              {strictBrandShops
                 .filter((shop) => !(order.recommendedShopIds || []).includes(shop.id))
                 .map((shop) => <option key={shop.id} value={shop.id}>{shop.name}</option>)}
             </select>
           </div>
+          <button type="button" onClick={contactAllRecommendedShops} className="rounded-lg border border-green-200 bg-green-50 px-2 py-1 text-[10px] font-bold text-green-700">
+            Contact all Recommended Shops
+          </button>
           {(order.dismissedShopIds || []).length > 0 && (
             <button type="button" onClick={restoreDismissedRecommendations} className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
               Вернуть скрытые рекомендации ({(order.dismissedShopIds || []).length})

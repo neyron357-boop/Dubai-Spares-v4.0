@@ -116,6 +116,10 @@ export const normalizeSupplierMetadata = (supplier: Supplier): Supplier => {
 
   return {
     ...supplier,
+    type: supplier.type === 'scrapyard' ? 'scrapyard' : 'new_parts',
+    zone: typeof supplier.zone === 'string' ? supplier.zone : '',
+    heatLevel: Number.isFinite(Number(supplier.heatLevel)) ? Number(supplier.heatLevel) : 0,
+    mainBrands: Array.isArray(supplier.mainBrands) ? supplier.mainBrands : (Array.isArray(supplier.brands) ? supplier.brands : []),
     brands: Array.isArray(supplier.brands) ? supplier.brands : [],
     models,
     years,
@@ -130,7 +134,11 @@ const mapShopRow = (row: any): Shop => ({
   location: row.location || '',
   latitude: Number(row.latitude),
   longitude: Number(row.longitude),
+  type: row.shop_type === 'scrapyard' ? 'scrapyard' : 'new_parts',
+  zone: typeof row.zone === 'string' ? row.zone : '',
+  heatLevel: Number.isFinite(Number(row.heat_level)) ? Number(row.heat_level) : 0,
   needsManualFix: !!row.needs_manual_fix,
+  mainBrands: Array.isArray(row.main_brands) ? row.main_brands : [],
   specialization: Array.isArray(row.specialization) ? row.specialization : [],
   specializationModels: Array.isArray(row.specialization_models) ? row.specialization_models : [],
   specializationYears: toNumberArray(row.specialization_years),
@@ -147,6 +155,10 @@ const mapSuppliersToShops = (suppliers: Supplier[]): Shop[] => suppliers
     location: supplier.location,
     latitude: supplier.coordinates!.lat,
     longitude: supplier.coordinates!.lng,
+    type: supplier.type,
+    zone: supplier.zone,
+    heatLevel: supplier.heatLevel,
+    mainBrands: supplier.mainBrands || supplier.brands || [],
     specialization: supplier.brands || [],
     specializationModels: supplier.models || [],
     specializationYears: supplier.years || [],
@@ -228,7 +240,7 @@ export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> =>
   }
 
   const baseFields = 'id,name,phone,location,latitude,longitude,specialization';
-  const extendedFields = `${baseFields},specialization_models,specialization_years,specialization_body_types,needs_manual_fix`;
+  const extendedFields = `${baseFields},specialization_models,specialization_years,specialization_body_types,needs_manual_fix,shop_type,main_brands,zone,heat_level`;
   const primary = await supabase.from('shops').select(extendedFields);
 
   let data: any[] | null = null;
@@ -268,6 +280,10 @@ export const upsertSupplierToShops = async (supplier: Supplier) => {
     location: normalized.location,
     latitude: normalized.coordinates?.lat ?? null,
     longitude: normalized.coordinates?.lng ?? null,
+    shop_type: normalized.type || 'new_parts',
+    main_brands: normalized.mainBrands || normalized.brands || [],
+    zone: normalized.zone || '',
+    heat_level: normalized.heatLevel || 0,
     needs_manual_fix: false,
     specialization: normalized.brands || [],
     specialization_models: normalized.models || [],
