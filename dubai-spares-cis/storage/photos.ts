@@ -9,6 +9,11 @@ const BUCKET_CANDIDATES = [configuredBucket, 'images', 'order-images'].filter(
 const MAX_IMAGE_DIMENSION = 1200;
 const WEBP_QUALITY = 0.72;
 
+type ImageTransformOptions = {
+  width?: number;
+  quality?: number;
+};
+
 const isBucketNotFoundError = (error: unknown): boolean => {
   if (!error || typeof error !== 'object') return false;
 
@@ -108,6 +113,33 @@ export const optimizeImageForUpload = async (
   });
 
   return blobToDataUrl(compressedBlob);
+};
+
+export const getOptimizedImageUrl = (imageUrl: string, options: ImageTransformOptions = {}): string => {
+  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+    return imageUrl;
+  }
+
+  try {
+    const parsed = new URL(imageUrl);
+    const isSupabaseStorage = parsed.pathname.includes('/storage/v1/object/');
+    if (!isSupabaseStorage) return imageUrl;
+
+    const width = Math.round(options.width || 0);
+    const quality = Math.round(options.quality || 0);
+
+    if (width > 0) {
+      parsed.searchParams.set('width', String(width));
+    }
+
+    if (quality > 0) {
+      parsed.searchParams.set('quality', String(Math.min(100, Math.max(1, quality))));
+    }
+
+    return parsed.toString();
+  } catch {
+    return imageUrl;
+  }
 };
 
 export const uploadImageToStorage = async (

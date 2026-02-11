@@ -4,6 +4,7 @@ import { supabase } from '../supabase';
 import { Order, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
 import { DEFAULT_QUOTE_RATES, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
+import { getOptimizedImageUrl } from '../storage/photos';
 
 const CURRENCY_LABELS: Record<QuoteCurrency, string> = {
   AED: 'Dirham',
@@ -151,7 +152,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const heroPhoto = useMemo(() => {
     if (!order) return '';
-    return order.carPhotoUrl || order.carPhotos[0] || order.vinPhotoUrl || order.parts.find((part) => (part.photos || []).length > 0)?.photos?.[0] || '';
+    const photo = order.carPhotoUrl || order.carPhotos[0] || order.vinPhotoUrl || order.parts.find((part) => (part.photos || []).length > 0)?.photos?.[0] || '';
+    return getOptimizedImageUrl(photo, { width: 1600, quality: 74 });
   }, [order]);
 
   const partCards = useMemo(() => {
@@ -163,10 +165,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const converted = clientAed * rates[currency];
       const photos = [...(part.photos || []), ...(best?.photos || []), part.photoUrl || '', best?.photoUrl || ''].filter(Boolean) as string[];
       const isReady = !!best && part.isFound;
+      const previewPhotos = photos.map((photo) => getOptimizedImageUrl(photo, { width: 480, quality: 64 }));
+      const galleryPhotos = photos.map((photo) => getOptimizedImageUrl(photo, { width: 1600, quality: 74 }));
       return {
         part,
         best,
-        photos,
+        previewPhotos,
+        galleryPhotos,
         converted,
         clientAed,
         isReady,
@@ -284,7 +289,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
         <section className="space-y-3">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Found parts ({foundParts.length})</p>
-          {foundParts.map(({ part, best, converted, photos, availability }) => (
+          {foundParts.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => (
             <article key={part.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -300,11 +305,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 </div>
               </div>
 
-              {photos.length > 0 && (
+              {previewPhotos.length > 0 && (
                 <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {photos.slice(0, 8).map((photo, idx) => (
-                    <button key={`${part.id}-${idx}`} type="button" onClick={() => setGallery({ images: photos, index: idx })} className="min-h-20 overflow-hidden rounded-2xl border border-slate-200">
-                      <img src={photo} alt={`${part.name} ${idx + 1}`} className="h-24 w-full object-cover" />
+                  {previewPhotos.slice(0, 8).map((photo, idx) => (
+                    <button key={`${part.id}-${idx}`} type="button" onClick={() => setGallery({ images: galleryPhotos, index: idx })} className="min-h-20 overflow-hidden rounded-2xl border border-slate-200">
+                      <img src={photo} alt={`${part.name} ${idx + 1}`} className="h-24 w-full object-cover" loading="lazy" decoding="async" />
                     </button>
                   ))}
                 </div>
