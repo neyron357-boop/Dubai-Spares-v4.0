@@ -105,9 +105,21 @@ const serializeError = (error: unknown) => {
 const getMissingColumnName = (error: unknown): string | null => {
   if (typeof error !== 'object' || !error) return null;
   const anyErr = error as { code?: unknown; message?: unknown };
-  if (anyErr.code !== 'PGRST204' || typeof anyErr.message !== 'string') return null;
-  const match = anyErr.message.match(/Could not find the '([^']+)' column of 'orders'/);
-  return match?.[1] || null;
+  if (typeof anyErr.message !== 'string') return null;
+
+  const message = anyErr.message;
+  if (anyErr.code === 'PGRST204') {
+    const match = message.match(/Could not find the '([^']+)' column of 'orders'/);
+    return match?.[1] || null;
+  }
+
+  if (anyErr.code === '42703') {
+    const postgresMatch = message.match(/column\s+orders\.([a-zA-Z0-9_]+)\s+does not exist/i);
+    const quotedMatch = message.match(/column\s+["']?orders["']?\.["']?([a-zA-Z0-9_]+)["']?\s+does not exist/i);
+    return postgresMatch?.[1] || quotedMatch?.[1] || null;
+  }
+
+  return null;
 };
 
 const isRelationQueryError = (error: unknown) => {

@@ -8,6 +8,7 @@ const BUCKET_CANDIDATES = [configuredBucket, 'images', 'order-images'].filter(
 
 const MAX_IMAGE_DIMENSION = 1200;
 const WEBP_QUALITY = 0.72;
+const STORAGE_UPLOAD_RETRY_DELAYS_MS = [600, 1600];
 
 type ImageTransformOptions = {
   width?: number;
@@ -23,6 +24,20 @@ const isBucketNotFoundError = (error: unknown): boolean => {
 
   return message.includes('bucket not found') || status === '404';
 };
+
+const isTransientStorageUploadError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return false;
+
+  const maybeError = error as { message?: unknown; statusCode?: unknown; status?: unknown; name?: unknown };
+  const message = typeof maybeError.message === 'string' ? maybeError.message.toLowerCase() : '';
+  const status = String(maybeError.statusCode ?? maybeError.status ?? '');
+  const name = typeof maybeError.name === 'string' ? maybeError.name.toLowerCase() : '';
+
+  if (name.includes('abort') || message.includes('network') || message.includes('load failed')) return true;
+  return status === '408' || status === '429' || status === '502' || status === '503' || status === '504';
+};
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const toBlob = async (source: File | Blob | string): Promise<Blob> => {
   if (typeof source === 'string') {
@@ -156,10 +171,32 @@ export const uploadImageToStorage = async (
   const path = `${folder}/${fileName}.${ext}`;
 
   for (const bucket of BUCKET_CANDIDATES) {
-    const { error } = await supabase.storage.from(bucket).upload(path, blob, {
-      upsert: true,
-      contentType: blob.type || 'image/webp'
-    });
+    let error: unknown = null;
+
+    for (let attempt = 0; attempt <= STORAGE_UPLOAD_RETRY_DELAYS_MS.length; attempt += 1) {
+      const upload = await supabase.storage.from(bucket).upload(path, blob, {
+        upsert: true,
+        contentType: blob.type || 'image/webp'
+      });
+      error = upload.error;
+
+      if (!error) {
+        const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+        return data.publicUrl;
+      }
+
+      if (!isTransientStorageUploadError(error) || attempt === STORAGE_UPLOAD_RETRY_DELAYS_MS.length) {
+        break;
+      }
+
+      await logger.warn('storage:upload', `Transient storage upload failure for ${path}; retrying`, {
+        bucket,
+        attempt: attempt + 1,
+        delayMs: STORAGE_UPLOAD_RETRY_DELAYS_MS[attempt],
+        error
+      });
+      await wait(STORAGE_UPLOAD_RETRY_DELAYS_MS[attempt]);
+    }
 
     if (!error) {
       const { data } = supabase.storage.from(bucket).getPublicUrl(path);
