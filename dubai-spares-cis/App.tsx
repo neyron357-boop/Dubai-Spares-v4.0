@@ -9,6 +9,7 @@ import DebugLogsScreen from './screens/DebugLogsScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import RadarScreen from './screens/RadarScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import RadarLiveSettingsScreen from './screens/RadarLiveSettingsScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-react';
 import { useStore } from './store';
@@ -296,6 +297,7 @@ const App: React.FC = () => {
               <Route path="/notifications" element={<NotificationsScreen />} />
               <Route path="/debug" element={<DebugLogsScreen />} />
               <Route path="/settings" element={<SettingsScreen />} />
+              <Route path="/settings/radar-live" element={<RadarLiveSettingsScreen />} />
             </Routes>
           </Layout>
         </HashRouter>
