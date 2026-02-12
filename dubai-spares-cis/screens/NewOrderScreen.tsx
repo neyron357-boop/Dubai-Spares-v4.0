@@ -89,7 +89,6 @@ const SearchableDropdown: React.FC<{
   onChange: (value: string) => void;
 }> = ({ value, placeholder, disabled, options, loading, onChange }) => {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -101,12 +100,6 @@ const SearchableDropdown: React.FC<{
     document.addEventListener('mousedown', onOutside);
     return () => document.removeEventListener('mousedown', onOutside);
   }, []);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((option) => option.label.toLowerCase().includes(q));
-  }, [options, query]);
 
   return (
     <div ref={wrapperRef} className="relative">
@@ -121,13 +114,6 @@ const SearchableDropdown: React.FC<{
       </button>
       {open && (
         <div className="absolute z-[60] mt-2 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-          <input
-            value={query}
-            autoFocus
-            onChange={(e) => setQuery(e.target.value)}
-            className="mb-2 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-slate-300"
-            placeholder="Поиск..."
-          />
           {loading ? (
             <div className="space-y-2 p-1">
               <div className="h-8 animate-pulse rounded-lg bg-slate-100" />
@@ -135,21 +121,20 @@ const SearchableDropdown: React.FC<{
             </div>
           ) : (
             <div className="max-h-52 overflow-y-auto">
-              {filtered.map((option) => (
+              {options.map((option) => (
                 <button
                   key={option.value}
                   type="button"
                   onClick={() => {
                     onChange(option.value);
                     setOpen(false);
-                    setQuery('');
                   }}
                   className="flex w-full items-center rounded-lg px-2 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
                 >
                   {option.label}
                 </button>
               ))}
-              {filtered.length === 0 && <p className="px-2 py-2 text-xs text-slate-500">Ничего не найдено</p>}
+              {options.length === 0 && <p className="px-2 py-2 text-xs text-slate-500">Нет доступных вариантов</p>}
             </div>
           )}
         </div>
@@ -184,6 +169,7 @@ const NewOrderScreen: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [brandLoading, setBrandLoading] = useState(true);
   const [modelLoading, setModelLoading] = useState(false);
+  const [manualModelMode, setManualModelMode] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [recordingNoteId, setRecordingNoteId] = useState<string | null>(null);
   const [recordingTick, setRecordingTick] = useState(0);
@@ -514,10 +500,10 @@ const NewOrderScreen: React.FC = () => {
               setBrand(value);
               setModel('');
               setSeriesCode('');
+              setManualModelMode(false);
             }}
           />
           {errors.brand && <p className="text-xs text-rose-600">{errors.brand}</p>}
-          <input value={brand} onChange={(e) => { touched.current.brand = true; setBrand(e.target.value); }} placeholder="Или введите марку вручную" className={inputClass} />
         </label>
 
         <div className="space-y-1 transition-all duration-200">
@@ -527,13 +513,32 @@ const NewOrderScreen: React.FC = () => {
             placeholder="Выберите модель"
             options={modelOptions}
             loading={modelLoading}
+            disabled={!brand}
             onChange={(value) => {
               touched.current.model = true;
               setModel(value);
+              setManualModelMode(false);
             }}
           />
           {errors.model && <p className="text-xs text-rose-600">{errors.model}</p>}
-          <input value={model} onChange={(e) => { touched.current.model = true; setModel(e.target.value); }} placeholder="Или введите модель вручную" className={inputClass} />
+          <button
+            type="button"
+            onClick={() => setManualModelMode((prev) => !prev)}
+            className="text-xs font-semibold text-slate-600 underline underline-offset-2"
+          >
+            {manualModelMode ? 'Выбрать модель из списка' : 'Добавить модель вручную'}
+          </button>
+          {(manualModelMode || (brand && modelOptions.length === 0)) && (
+            <input
+              value={model}
+              onChange={(e) => {
+                touched.current.model = true;
+                setModel(e.target.value);
+              }}
+              placeholder="Введите модель вручную"
+              className={inputClass}
+            />
+          )}
           {!!chassisCodes.length && <p className="text-xs text-slate-500">Подсказка по серии: {chassisCodes.slice(0, 4).map((x) => x.value).join(', ')}</p>}
         </div>
 

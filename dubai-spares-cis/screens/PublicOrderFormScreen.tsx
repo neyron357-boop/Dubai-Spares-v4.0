@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Camera, Check, ChevronLeft, Copy, Mic, MicOff, Upload } from 'lucide-react';
+import { ArrowRight, Camera, Check, ChevronDown, ChevronLeft, Copy, Mic, MicOff, Upload } from 'lucide-react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
 import { isCloudSyncConfigured, supabase } from '../supabase';
 import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
@@ -78,6 +78,59 @@ const splitParts = (value: string) => value
   .map((item) => item.trim())
   .filter(Boolean);
 
+const ButtonDropdown: React.FC<{
+  value: string;
+  placeholder: string;
+  options: string[];
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}> = ({ value, placeholder, options, disabled, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onOutsideClick = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onOutsideClick);
+    return () => document.removeEventListener('mousedown', onOutsideClick);
+  }, []);
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex h-14 w-full items-center justify-between rounded-3xl border border-white/15 bg-white/10 px-5 text-left text-base outline-none disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <span className={value ? 'text-white' : 'text-slate-300'}>{value || placeholder}</span>
+        <ChevronDown className={`h-4 w-4 text-slate-300 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute z-40 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-white/15 bg-slate-900/95 p-2 shadow-2xl backdrop-blur">
+          {options.length > 0 ? options.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => {
+                onChange(item);
+                setOpen(false);
+              }}
+              className="w-full rounded-xl px-3 py-2 text-left text-sm text-slate-100 hover:bg-white/10"
+            >
+              {item}
+            </button>
+          )) : <p className="px-3 py-2 text-xs text-slate-300">Нет доступных вариантов</p>}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const PublicOrderFormScreen: React.FC = () => {
   const [step, setStep] = useState<FormStep>(1);
   const [brand, setBrand] = useState('');
@@ -102,6 +155,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [createdOrderId, setCreatedOrderId] = useState('');
   const [recordingPartId, setRecordingPartId] = useState<string | null>(null);
   const [recordingTick, setRecordingTick] = useState(0);
+  const [manualModelMode, setManualModelMode] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { settings } = useAppSettings();
 
@@ -474,22 +528,46 @@ const PublicOrderFormScreen: React.FC = () => {
               <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm">🚗 {brand || 'Марка'} {model || ''} {year || ''}</div>
               <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Марка</span>
-                <input list="brands-list" value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); }} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-lg outline-none ${errors.brand ? 'border-amber-300' : 'border-white/15'}`} placeholder="BMW" />
-                <datalist id="brands-list">
-                  {[...POPULAR_BRANDS, ...BRANDS.filter((b) => !POPULAR_BRANDS.includes(b))].map((item) => <option key={item} value={item} />)}
-                </datalist>
+                <ButtonDropdown
+                  value={brand}
+                  placeholder="Выберите марку"
+                  options={[...POPULAR_BRANDS, ...BRANDS.filter((b) => !POPULAR_BRANDS.includes(b))]}
+                  onChange={(value) => {
+                    setBrand(value);
+                    setModel('');
+                    setManualModelMode(false);
+                  }}
+                />
                 {errors.brand && <p className="mt-1 text-xs text-amber-200">{errors.brand}</p>}
               </label>
 
               <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Модель</span>
-                {modelOptions.length > 0 && (
-                  <select value={model} onChange={(e) => setModel(e.target.value)} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.model ? 'border-amber-300' : 'border-white/15'}`}>
-                    <option value="">Выберите модель</option>
-                    {modelOptions.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
-                  </select>
+                <ButtonDropdown
+                  value={model}
+                  placeholder="Выберите модель"
+                  options={modelOptions}
+                  disabled={!brand}
+                  onChange={(value) => {
+                    setModel(value);
+                    setManualModelMode(false);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setManualModelMode((prev) => !prev)}
+                  className="mt-2 text-xs font-semibold text-slate-200 underline underline-offset-2"
+                >
+                  {manualModelMode ? 'Выбрать модель из списка' : 'Добавить модель вручную'}
+                </button>
+                {(manualModelMode || (brand && modelOptions.length === 0)) && (
+                  <input
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="Введите модель вручную"
+                    className={`mt-2 h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.model ? 'border-amber-300' : 'border-white/15'}`}
+                  />
                 )}
-                <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="Или введите модель вручную" className={`mt-2 h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.model ? 'border-amber-300' : 'border-white/15'}`} />
                 {errors.model && <p className="mt-1 text-xs text-amber-200">{errors.model}</p>}
               </label>
 
