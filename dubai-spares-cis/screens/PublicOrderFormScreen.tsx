@@ -1,36 +1,45 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { ArrowRight, Check, ChevronLeft, Upload, Camera } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowRight, Camera, Check, ChevronLeft, Copy, Mic, MicOff, Upload } from 'lucide-react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
 import { isCloudSyncConfigured, supabase } from '../supabase';
-import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
+import { BRAND_BODY_TYPES, BRAND_MODELS, BRANDS, YEARS } from '../constants';
+import { NotificationType, pushNotification } from '../notificationCenter';
+import { logger } from '../logging';
 import { Source } from '../types';
 
-type FormStep = 1 | 2 | 3 | 4;
+type FormStep = 1 | 2 | 3 | 4 | 5;
 
-const TOTAL_STEPS = 4;
-const INITIAL_REQUEST_PART_FIELDS = 3;
+const TOTAL_STEPS = 5;
 const MAX_REQUEST_PART_FIELDS = 10;
+const DRAFT_KEY = 'public_order_form_draft_v2';
 
-const LANGUAGE_OPTIONS = [
-  { value: 'en', label: 'English' },
-  { value: 'ru', label: 'Русский' },
-  { value: 'tg', label: 'Тоҷикӣ' },
-  { value: 'kk', label: 'Қазақша' },
-  { value: 'uz', label: 'O‘zbekcha' }
-] as const;
+const STEP_NAMES = ['Автомобиль', 'Детали', 'Фото / VIN', 'Контакты', 'Подтверждение'];
 
-type LanguageCode = (typeof LANGUAGE_OPTIONS)[number]['value'];
+const POPULAR_BRANDS = ['Toyota', 'BMW', 'Mercedes-Benz', 'Lexus', 'Kia', 'Hyundai'];
+const PART_SUGGESTIONS: Record<string, string[]> = {
+  'BMW|5 Series|E39': ['Front bumper', 'Hood', 'Headlight', 'Engine', 'Transmission']
+};
 
-type MessageSource = 'Instagram' | 'TikTok' | 'Telegram' | 'WhatsApp' | 'Facebook';
-
-const MESSAGE_SOURCES: MessageSource[] = ['Instagram', 'TikTok', 'Telegram', 'WhatsApp', 'Facebook'];
+const VIN_BRAND_HINTS: Record<string, string> = {
+  WBA: 'BMW',
+  WBS: 'BMW',
+  WDB: 'Mercedes-Benz',
+  WDC: 'Mercedes-Benz',
+  JTD: 'Toyota',
+  JT3: 'Toyota',
+  KMH: 'Hyundai',
+  KNA: 'Kia',
+  SAL: 'Land Rover',
+  WAU: 'Audi',
+  WVW: 'Volkswagen'
+};
 
 const PHONE_CODES = [
-  { id: 'uae', label: 'ОАЭ', code: '+971' },
-  { id: 'ru', label: 'Россия', code: '+7' },
-  { id: 'tj', label: 'Таджикистан', code: '+992' },
-  { id: 'uz', label: 'Узбекистан', code: '+998' },
-  { id: 'kz', label: 'Казахстан', code: '+7' }
+  { id: 'uae', label: 'ОАЭ', country: 'ОАЭ', code: '+971' },
+  { id: 'ru', label: 'Россия', country: 'Россия', code: '+7' },
+  { id: 'tj', label: 'Таджикистан', country: 'Таджикистан', code: '+992' },
+  { id: 'uz', label: 'Узбекистан', country: 'Узбекистан', code: '+998' },
+  { id: 'kz', label: 'Казахстан', country: 'Казахстан', code: '+7' }
 ] as const;
 
 const DELIVERY_COUNTRIES = ['ОАЭ', 'Россия', 'Таджикистан', 'Узбекистан', 'Казахстан'] as const;
@@ -42,92 +51,29 @@ const DELIVERY_CITIES: Record<(typeof DELIVERY_COUNTRIES)[number], string[]> = {
   'Казахстан': ['Алматы', 'Астана', 'Шымкент']
 };
 
-const translations = {
-  en: {
-    title: 'Tell us what your car needs.', subtitle: 'Tell us what your car needs, and our experts will find the best options in Dubai.',
-    step: 'Step', of: 'of', brand: 'Brand', selectBrand: 'Select brand', model: 'Model', selectModel: 'Select model', typeModel: 'Type model', year: 'Year', selectYear: 'Select year',
-    preferredLanguage: 'Preferred Language', selectLanguage: 'Select language', requestedParts: 'Requested parts (up to 10)', part: 'Part', partExample: 'Example: Front brake pads', partPhoto: 'Part photo (optional)', addPart: 'Add another part',
-    chooseFromGallery: 'Choose from gallery', takePhoto: 'Take a photo', photoSelected: 'Photo selected ✓',
-    vinStepTitle: 'VIN and vehicle photos (optional)', vinPhoto: 'VIN photo', carPhoto: 'Car photo', vinManual: 'Manual VIN entry',
-    phone: 'Phone Number / WhatsApp', deliveryCountry: 'Delivery Country', country: 'Country', deliveryCity: 'Delivery City (optional)', city: 'City', deliveryDetails: 'Delivery details (optional)', detailsPlaceholder: 'Area, address notes, preferred delivery info',
-    back: 'Back', next: 'Continue', submit: 'Submit Request', submitting: 'Submitting...',
-    completeRequired: 'Please complete the required fields before submitting.', unavailable: 'Order form is temporarily unavailable.', failed: 'Failed to submit request.',
-    requestReceived: 'Request Received!', thanks: 'We are searching for your parts now. We will contact you on WhatsApp shortly.', another: 'Submit another request',
-    publicRequest: 'Public Request', language: 'Language', requestedPartsLabel: 'Requested Parts', delivery: 'Delivery', details: 'Details'
-  },
-  ru: {
-    title: 'Расскажите, что нужно вашему авто.', subtitle: 'Опишите нужные запчасти, и наши эксперты подберут лучшие варианты в Дубае.',
-    step: 'Шаг', of: 'из', brand: 'Марка', selectBrand: 'Выберите марку', model: 'Модель', selectModel: 'Выберите модель', typeModel: 'Введите модель', year: 'Год', selectYear: 'Выберите год',
-    preferredLanguage: 'Предпочитаемый язык', selectLanguage: 'Выберите язык', requestedParts: 'Нужные запчасти (до 10)', part: 'Деталь', partExample: 'Например: передние тормозные колодки', partPhoto: 'Фото детали (необязательно)', addPart: 'Добавить ещё деталь',
-    chooseFromGallery: 'Выбрать из галереи', takePhoto: 'Сделать фото', photoSelected: 'Фото выбрано ✓',
-    vinStepTitle: 'VIN и фото автомобиля (необязательно)', vinPhoto: 'Фото VIN', carPhoto: 'Фото авто', vinManual: 'VIN вручную',
-    phone: 'Телефон / WhatsApp', deliveryCountry: 'Страна доставки', country: 'Страна', deliveryCity: 'Город доставки (необязательно)', city: 'Город', deliveryDetails: 'Детали доставки (необязательно)', detailsPlaceholder: 'Район, адрес и другая информация для доставки',
-    back: 'Назад', next: 'Далее', submit: 'Отправить заявку', submitting: 'Отправка...',
-    completeRequired: 'Пожалуйста, заполните обязательные поля перед отправкой.', unavailable: 'Форма заявки временно недоступна.', failed: 'Не удалось отправить заявку.',
-    requestReceived: 'Заявка получена!', thanks: 'Мы уже ищем ваши запчасти. Скоро свяжемся с вами в WhatsApp.', another: 'Отправить еще одну заявку',
-    publicRequest: 'Публичная заявка', language: 'Язык', requestedPartsLabel: 'Запрошенные запчасти', delivery: 'Доставка', details: 'Детали'
-  },
-  tg: {
-    title: 'Ба мо бигӯед, ки ба мошини шумо чӣ лозим аст.', subtitle: 'Қисмҳои лозимиро нависед, ва коршиносони мо беҳтарин вариантҳоро дар Дубай пайдо мекунанд.',
-    step: 'Қадам', of: 'аз', brand: 'Бренд', selectBrand: 'Брендро интихоб кунед', model: 'Модел', selectModel: 'Моделро интихоб кунед', typeModel: 'Моделро ворид кунед', year: 'Сол', selectYear: 'Солро интихоб кунед',
-    preferredLanguage: 'Забони бартаридошта', selectLanguage: 'Забонро интихоб кунед', requestedParts: 'Қисмҳои дархостшуда (то 10)', part: 'Қисм', partExample: 'Мисол: колодкаҳои пеши тормоз', partPhoto: 'Акси қисм (ихтиёрӣ)', addPart: 'Илова кардани қисми дигар',
-    chooseFromGallery: 'Аз галерея интихоб кунед', takePhoto: 'Сурат гиред', photoSelected: 'Сурат интихоб шуд ✓',
-    vinStepTitle: 'VIN ва аксҳои мошин (ихтиёрӣ)', vinPhoto: 'Акси VIN', carPhoto: 'Акси мошин', vinManual: 'Воридкунии VIN дастӣ',
-    phone: 'Телефон / WhatsApp', deliveryCountry: 'Кишвари таҳвил', country: 'Кишвар', deliveryCity: 'Шаҳри таҳвил (ихтиёрӣ)', city: 'Шаҳр', deliveryDetails: 'Тафсилоти таҳвил (ихтиёрӣ)', detailsPlaceholder: 'Ноҳия, суроға ва маълумоти иловагӣ барои таҳвил',
-    back: 'Бозгашт', next: 'Давом', submit: 'Фиристодани дархост', submitting: 'Дар ҳоли фиристодан...',
-    completeRequired: 'Лутфан майдонҳои ҳатмиро пеш аз фиристодан пур кунед.', unavailable: 'Формаи дархост муваққатан дастрас нест.', failed: 'Фиристодани дархост ноком шуд.',
-    requestReceived: 'Дархост қабул шуд!', thanks: 'Мо аллакай қисмҳои шуморо ҷустуҷӯ мекунем. Ба наздикӣ дар WhatsApp бо шумо тамос мегирем.', another: 'Фиристодани дархости дигар',
-    publicRequest: 'Дархости оммавӣ', language: 'Забон', requestedPartsLabel: 'Қисмҳои дархостшуда', delivery: 'Таҳвил', details: 'Тафсилот'
-  },
-  kk: {
-    title: 'Унааңызга эмне керек экенин айтып бериңиз.', subtitle: 'Керектүү тетиктерди жазыңыз, биздин адистер Дубайдан эң жакшы варианттарды табышат.',
-    step: 'Кадам', of: 'дан', brand: 'Бренд', selectBrand: 'Брендди тандаңыз', model: 'Модель', selectModel: 'Моделди тандаңыз', typeModel: 'Моделди жазыңыз', year: 'Жылы', selectYear: 'Жылды тандаңыз',
-    preferredLanguage: 'Тандалган тил', selectLanguage: 'Тилди тандаңыз', requestedParts: 'Суралган тетиктер (10го чейин)', part: 'Тетик', partExample: 'Мисалы: алдыңкы тормоз колодкалары', partPhoto: 'Тетиктин сүрөтү (милдеттүү эмес)', addPart: 'Дагы тетик кошуу',
-    chooseFromGallery: 'Галереядан тандаңыз', takePhoto: 'Сүрөткө тартыңыз', photoSelected: 'Сүрөт тандалды ✓',
-    vinStepTitle: 'VIN жана унаанын сүрөттөрү (милдеттүү эмес)', vinPhoto: 'VIN сүрөтү', carPhoto: 'Унаа сүрөтү', vinManual: 'VIN кол менен киргизүү',
-    phone: 'Телефон / WhatsApp', deliveryCountry: 'Жеткирүү өлкөсү', country: 'Өлкө', deliveryCity: 'Жеткирүү шаары (милдеттүү эмес)', city: 'Шаар', deliveryDetails: 'Жеткирүү чоо-жайы (милдеттүү эмес)', detailsPlaceholder: 'Район, дарек жана жеткирүү боюнча кошумча маалымат',
-    back: 'Артка', next: 'Улантуу', submit: 'Сурам жөнөтүү', submitting: 'Жөнөтүлүүдө...',
-    completeRequired: 'Сураныч, жөнөтүүдөн мурун милдеттүү талааларды толтуруңуз.', unavailable: 'Сурам формасы убактылуу жеткиликсиз.', failed: 'Сурам жөнөтүүдө ката кетти.',
-    requestReceived: 'Сурам кабыл алынды!', thanks: 'Биз сиздин тетиктерди издеп жатабыз. Жакында WhatsApp аркылуу байланышабыз.', another: 'Дагы сурам жөнөтүү',
-    publicRequest: 'Ачык сурам', language: 'Тил', requestedPartsLabel: 'Суралган тетиктер', delivery: 'Жеткирүү', details: 'Чоо-жай'
-  },
-  uz: {
-    title: 'Mashinangizga nima kerakligini ayting.', subtitle: 'Kerakli ehtiyot qismlarni yozing, mutaxassislarimiz Dubaydan eng yaxshi variantlarni topadi.',
-    step: 'Qadam', of: 'dan', brand: 'Brend', selectBrand: 'Brendni tanlang', model: 'Model', selectModel: 'Modelni tanlang', typeModel: 'Modelni kiriting', year: 'Yil', selectYear: 'Yilni tanlang',
-    preferredLanguage: 'Afzal til', selectLanguage: 'Tilni tanlang', requestedParts: 'So‘ralgan qismlar (10 tagacha)', part: 'Qism', partExample: 'Masalan: old tormoz kolodkalari', partPhoto: 'Qism rasmi (ixtiyoriy)', addPart: 'Yana qism qo‘shish',
-    chooseFromGallery: 'Galereyadan tanlang', takePhoto: 'Rasmga oling', photoSelected: 'Rasm tanlandi ✓',
-    vinStepTitle: 'VIN va avtomobil rasmlari (ixtiyoriy)', vinPhoto: 'VIN rasmi', carPhoto: 'Avtomobil rasmi', vinManual: 'VINni qo‘lda kiritish',
-    phone: 'Telefon / WhatsApp', deliveryCountry: 'Yetkazib berish davlati', country: 'Davlat', deliveryCity: 'Yetkazib berish shahri (ixtiyoriy)', city: 'Shahar', deliveryDetails: 'Yetkazib berish tafsilotlari (ixtiyoriy)', detailsPlaceholder: 'Hudud, manzil va yetkazib berish bo‘yicha qo‘shimcha ma’lumot',
-    back: 'Orqaga', next: 'Davom etish', submit: 'So‘rov yuborish', submitting: 'Yuborilmoqda...',
-    completeRequired: 'Iltimos, yuborishdan oldin majburiy maydonlarni to‘ldiring.', unavailable: 'So‘rov formasi vaqtincha mavjud emas.', failed: 'So‘rov yuborilmadi.',
-    requestReceived: 'So‘rov qabul qilindi!', thanks: 'Biz hozir ehtiyot qismlaringizni qidirmoqdamiz. Tez orada WhatsApp orqali bog‘lanamiz.', another: 'Yana bir so‘rov yuborish',
-    publicRequest: 'Ochiq so‘rov', language: 'Til', requestedPartsLabel: 'So‘ralgan qismlar', delivery: 'Yetkazib berish', details: 'Tafsilotlar'
-  }
-} as const;
-
 interface RequestedPartInput {
   id: string;
   name: string;
   photoData: string | null;
+  audioNote?: string | null;
 }
-
-const createRequestedPartInputs = (): RequestedPartInput[] =>
-  Array.from({ length: INITIAL_REQUEST_PART_FIELDS }, (_, index) => ({
-    id: `requested-part-${index + 1}`,
-    name: '',
-    photoData: null
-  }));
-
-const createRequestedPartInput = (): RequestedPartInput => ({
-  id: createId(),
-  name: '',
-  photoData: null
-});
 
 const createId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+const createRequestedPartInput = (): RequestedPartInput => ({
+  id: createId(),
+  name: '',
+  photoData: null,
+  audioNote: null
+});
+
+const splitParts = (value: string) => value
+  .split(/,|\n| и | and |&|;/gi)
+  .map((item) => item.trim())
+  .filter(Boolean);
 
 const PublicOrderFormScreen: React.FC = () => {
   const [step, setStep] = useState<FormStep>(1);
@@ -135,19 +81,23 @@ const PublicOrderFormScreen: React.FC = () => {
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
   const [bodyType, setBodyType] = useState('');
-  const [preferredLanguage, setPreferredLanguage] = useState<LanguageCode>('ru');
-  const [requestedParts, setRequestedParts] = useState<RequestedPartInput[]>(() => createRequestedPartInputs());
   const [vin, setVin] = useState('');
+  const [requestedParts, setRequestedParts] = useState<RequestedPartInput[]>([createRequestedPartInput()]);
   const [carPhotoData, setCarPhotoData] = useState<string | null>(null);
   const [vinPhotoData, setVinPhotoData] = useState<string | null>(null);
   const [contactCountryCode, setContactCountryCode] = useState(PHONE_CODES[0].code);
   const [customerContact, setCustomerContact] = useState('');
-  const [messageSource, setMessageSource] = useState<MessageSource>('WhatsApp');
+  const [messageSource, setMessageSource] = useState<Source>(Source.WHATSAPP);
   const [deliveryCountry, setDeliveryCountry] = useState('');
   const [deliveryCity, setDeliveryCity] = useState('');
   const [deliveryAddressNote, setDeliveryAddressNote] = useState('');
+  const [showEngineCode, setShowEngineCode] = useState(false);
+  const [engineCode, setEngineCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showThanks, setShowThanks] = useState(false);
+  const [createdOrderId, setCreatedOrderId] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const carInputRef = useRef<HTMLInputElement | null>(null);
   const carCameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -155,10 +105,48 @@ const PublicOrderFormScreen: React.FC = () => {
   const vinCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
+  const bodyTypeOptions = useMemo(() => BRAND_BODY_TYPES[brand] || ['Седан', 'SUV', 'Купе', 'Хэтчбек'], [brand]);
   const deliveryCityOptions = useMemo(() => DELIVERY_CITIES[deliveryCountry as keyof typeof DELIVERY_CITIES] || [], [deliveryCountry]);
-  const selectedLanguage: LanguageCode = preferredLanguage || 'ru';
-  const locale = translations[selectedLanguage] || translations.en;
-  const preferredLanguageLabel = LANGUAGE_OPTIONS.find((item) => item.value === preferredLanguage)?.label || 'Русский';
+  const smartSuggestionKey = `${brand}|${model}|${bodyType}`;
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const source = (params.get('source') || '').toLowerCase();
+      if (source.includes('insta') || source.includes('ig')) {
+        setMessageSource(Source.INSTAGRAM);
+      }
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const draft = JSON.parse(saved);
+        setBrand(draft.brand || '');
+        setModel(draft.model || '');
+        setYear(draft.year || '');
+        setBodyType(draft.bodyType || '');
+        setVin(draft.vin || '');
+        setRequestedParts(Array.isArray(draft.requestedParts) && draft.requestedParts.length ? draft.requestedParts : [createRequestedPartInput()]);
+        setCustomerContact(draft.customerContact || '');
+        setContactCountryCode(draft.contactCountryCode || PHONE_CODES[0].code);
+        setDeliveryCountry(draft.deliveryCountry || '');
+        setDeliveryCity(draft.deliveryCity || '');
+        setDeliveryAddressNote(draft.deliveryAddressNote || '');
+        setEngineCode(draft.engineCode || '');
+      }
+    } catch {
+      // noop
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode,
+      deliveryCountry, deliveryCity, deliveryAddressNote, engineCode
+    }));
+  }, [brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode, deliveryCountry, deliveryCity, deliveryAddressNote, engineCode]);
+
+  useEffect(() => {
+    if (brand === 'BMW') setShowEngineCode(true);
+  }, [brand]);
 
   const handleFileToDataUrl = (file: File, onLoad: (value: string) => void) => {
     const reader = new FileReader();
@@ -166,14 +154,51 @@ const PublicOrderFormScreen: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
+  const detectByVin = (value: string) => {
+    const normalized = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (normalized.length < 3) return;
+    const brandByVin = VIN_BRAND_HINTS[normalized.slice(0, 3)];
+    if (brandByVin && !brand) setBrand(brandByVin);
+  };
+
+  const addRequestedPart = (value = '') => {
+    setRequestedParts((current) => {
+      if (current.length >= MAX_REQUEST_PART_FIELDS) return current;
+      return [...current, { ...createRequestedPartInput(), name: value }];
+    });
+  };
+
+  const updateRequestedPart = (index: number, updates: Partial<RequestedPartInput>) => {
+    setRequestedParts((current) => current.map((part, i) => (i === index ? { ...part, ...updates } : part)));
+  };
+
+  const validatePhone = () => customerContact.replace(/\D/g, '').length >= 7;
+
   const canContinue =
-    (step === 1 && Boolean(brand.trim() && model.trim() && year.trim())) ||
+    (step === 1 && Boolean(brand && model && year && bodyType)) ||
     (step === 2 && Boolean(requestedParts.some((part) => part.name.trim()))) ||
     step === 3 ||
-    (step === 4 && Boolean(customerContact.trim() && deliveryCountry.trim()));
+    (step === 4 && Boolean(validatePhone() && deliveryCountry)) ||
+    step === 5;
+
+  const validateStep = (nextStep = step) => {
+    const nextErrors: Record<string, string> = {};
+    if (nextStep === 1) {
+      if (!brand) nextErrors.brand = 'Выберите марку';
+      if (!model) nextErrors.model = 'Выберите модель';
+      if (!year) nextErrors.year = 'Выберите год';
+      if (!bodyType) nextErrors.bodyType = 'Выберите кузов';
+    }
+    if (nextStep === 4) {
+      if (!validatePhone()) nextErrors.phone = 'Введите корректный WhatsApp';
+      if (!deliveryCountry) nextErrors.deliveryCountry = 'Выберите страну доставки';
+    }
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
 
   const goNext = () => {
-    if (!canContinue) return;
+    if (!canContinue || !validateStep(step)) return;
     setStep((current) => Math.min(TOTAL_STEPS, current + 1) as FormStep);
   };
 
@@ -184,48 +209,68 @@ const PublicOrderFormScreen: React.FC = () => {
     setBrand('');
     setModel('');
     setYear('');
-    setPreferredLanguage('ru');
-    setRequestedParts(createRequestedPartInputs());
     setBodyType('');
     setVin('');
+    setRequestedParts([createRequestedPartInput()]);
     setCarPhotoData(null);
     setVinPhotoData(null);
     setContactCountryCode(PHONE_CODES[0].code);
     setCustomerContact('');
-    setMessageSource('WhatsApp');
+    setMessageSource(Source.WHATSAPP);
     setDeliveryCountry('');
     setDeliveryCity('');
     setDeliveryAddressNote('');
+    setShowEngineCode(false);
+    setEngineCode('');
+    localStorage.removeItem(DRAFT_KEY);
   };
 
-  const updateRequestedPart = (index: number, updates: Partial<RequestedPartInput>) => {
-    setRequestedParts((current) => current.map((part, partIndex) => (partIndex === index ? { ...part, ...updates } : part)));
+  const formatPhone = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    if (digits.startsWith('998')) {
+      setContactCountryCode('+998');
+      setDeliveryCountry('Узбекистан');
+      return digits.slice(3);
+    }
+    if (digits.startsWith('992')) {
+      setContactCountryCode('+992');
+      setDeliveryCountry('Таджикистан');
+      return digits.slice(3);
+    }
+    if (digits.startsWith('971')) {
+      setContactCountryCode('+971');
+      setDeliveryCountry('ОАЭ');
+      return digits.slice(3);
+    }
+    return digits;
   };
 
-  const addRequestedPart = () => {
-    setRequestedParts((current) => {
-      if (current.length >= MAX_REQUEST_PART_FIELDS) return current;
-      return [...current, createRequestedPartInput()];
-    });
+  const startVoiceInput = (index: number) => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'ru-RU';
+    recognition.interimResults = false;
+    setIsListening(true);
+    recognition.onresult = (event: any) => {
+      const text = event?.results?.[0]?.[0]?.transcript || '';
+      if (text) updateRequestedPart(index, { name: `${requestedParts[index].name} ${text}`.trim(), audioNote: text });
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.start();
   };
 
   const submitOrder = async () => {
-    const filledRequestedParts = requestedParts.filter((part) => part.name.trim());
+    if (!validateStep(1) || !validateStep(4)) return;
 
-    if (
-      !brand.trim() ||
-      !model.trim() ||
-      !year.trim() ||
-      filledRequestedParts.length === 0 ||
-      !customerContact.trim() ||
-      !deliveryCountry.trim()
-    ) {
-      alert(locale.completeRequired);
+    const filledRequestedParts = requestedParts.filter((part) => part.name.trim());
+    if (!filledRequestedParts.length) {
+      alert('Добавьте минимум одну деталь');
       return;
     }
 
     if (!isCloudSyncConfigured || !supabase) {
-      alert(locale.unavailable);
+      alert('Форма заявки временно недоступна.');
       return;
     }
 
@@ -248,27 +293,13 @@ const PublicOrderFormScreen: React.FC = () => {
         uploadedVinPhotos = await ensurePublicImageUrls([compressedVin], `orders/${orderId}/vin`);
       }
 
-      const requestedPartsSummary = filledRequestedParts
-        .map((part, index) => `${index + 1}. ${part.name.trim()}`)
-        .join('\n');
-
-      const deliverySummary = [
-        `${locale.country}: ${deliveryCountry.trim()}`,
-        deliveryCity.trim() ? `${locale.city}: ${deliveryCity.trim()}` : '',
-        deliveryAddressNote.trim() ? `Заметки к заявке: ${deliveryAddressNote.trim()}` : ''
-      ]
-        .filter(Boolean)
-        .join('\n');
-
-      const notes = [
-        {
-          id: createId(),
-          text: `${locale.publicRequest}\n${locale.language}: ${preferredLanguageLabel.trim()}\nИсточник обращения: ${messageSource}\nТип кузова: ${bodyType.trim() || '—'}\nТелефон: ${contactCountryCode}${customerContact.trim()}\n\n${locale.requestedPartsLabel}:\n${requestedPartsSummary}\n\n${locale.delivery}:\n${deliverySummary}`,
-          photos: uploadedVinPhotos,
-          audios: [],
-          createdAt: Date.now()
-        }
-      ];
+      const notes = [{
+        id: createId(),
+        text: `Public Lead\nИсточник: ${messageSource}\nVIN: ${vin || '—'}\nEngine code: ${engineCode || '—'}\nCountry: ${deliveryCountry}`,
+        photos: uploadedVinPhotos,
+        audios: [],
+        createdAt: Date.now()
+      }];
 
       const { error: orderError } = await supabase.from('orders').insert({
         id: orderId,
@@ -278,11 +309,11 @@ const PublicOrderFormScreen: React.FC = () => {
         body_type: bodyType.trim() || null,
         vin: vin.trim(),
         vin_photo_url: uploadedVinPhotos[0] || null,
-        status: 'new_inquiry',
+        status: 'lead',
         sales_status: 'Inquiry',
         client_name: 'Public Lead',
         customer_contact: `${contactCountryCode}${customerContact.trim()}`.trim(),
-        source: messageSource as Source,
+        source: messageSource,
         priority: 'MEDIUM',
         car_photo_url: uploadedCarPhotos[0] || null,
         car_photos: uploadedCarPhotos,
@@ -301,15 +332,12 @@ const PublicOrderFormScreen: React.FC = () => {
       if (orderError) throw orderError;
 
       const partsToInsert = [];
-
       for (const part of filledRequestedParts) {
         let uploadedPartPhotos: string[] = [];
-
         if (part.photoData) {
           const compressedPartPhoto = await optimizeImageForUpload(part.photoData, `public-order:${orderId}:${part.id}`);
           uploadedPartPhotos = await ensurePublicImageUrls([compressedPartPhoto], `orders/${orderId}/parts/${part.id}`);
         }
-
         partsToInsert.push({
           id: createId(),
           order_id: orderId,
@@ -321,13 +349,24 @@ const PublicOrderFormScreen: React.FC = () => {
       }
 
       const { error: partError } = await supabase.from('parts').insert(partsToInsert);
-
       if (partError) throw partError;
 
+      pushNotification({
+        type: NotificationType.ORDER_NEW,
+        title: 'Новая LEAD заявка',
+        message: `${brand} ${model} • ${filledRequestedParts.length} детали`,
+        orderId,
+        source: 'web_form',
+        route: `/orders/${orderId}`
+      });
+      void logger.info('public-form', `Lead created ${orderId}`, { source: messageSource, parts: filledRequestedParts.length });
+
+      setCreatedOrderId(orderId);
       setShowThanks(true);
       resetForm();
     } catch (error) {
-      const message = error instanceof Error ? error.message : locale.failed;
+      const message = error instanceof Error ? error.message : 'Не удалось отправить заявку.';
+      void logger.error('public-form', 'Lead submit failed', { error: message });
       alert(message);
     } finally {
       setIsSubmitting(false);
@@ -340,418 +379,220 @@ const PublicOrderFormScreen: React.FC = () => {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black px-4 py-10 text-white">
         <div className="mx-auto w-full max-w-xl rounded-[32px] border border-white/10 bg-white/5 p-8 shadow-[0_40px_120px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-          <div className="mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400/20 text-emerald-300">
-            <Check className="h-8 w-8" />
+          <div className="mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400/20 text-emerald-300"><Check className="h-8 w-8" /></div>
+          <h1 className="text-3xl font-semibold tracking-tight">Заявка принята</h1>
+          <p className="mt-2 text-slate-200">Номер заявки: <b>{createdOrderId}</b></p>
+          <p className="mt-1 text-slate-300">Обычно отвечаем в течение 10–20 минут.</p>
+          <div className="mt-5 grid gap-2 sm:grid-cols-2">
+            <a href="https://wa.me/971000000000" target="_blank" rel="noreferrer" className="rounded-2xl bg-emerald-400 px-4 py-3 text-center font-semibold text-slate-900">Перейти в WhatsApp</a>
+            <button type="button" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/#public-order/${createdOrderId}`)} className="rounded-2xl border border-white/25 px-4 py-3 text-sm font-semibold">Сохранить ссылку</button>
           </div>
-          <h1 className="text-3xl font-semibold tracking-tight">{locale.requestReceived}</h1>
-          <p className="mt-3 text-base text-slate-200">
-            {locale.thanks}
-          </p>
-          <button
-            type="button"
-            onClick={() => setShowThanks(false)}
-            className="mt-8 rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-900 transition hover:scale-[1.02]"
-          >
-            {locale.another}
-          </button>
+          <button type="button" onClick={() => setShowThanks(false)} className="mt-6 rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-900">Создать новую заявку</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black px-4 py-6 text-white sm:py-10">
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black px-4 py-4 pb-32 text-white sm:py-8">
       <div className="mx-auto w-full max-w-2xl rounded-[32px] border border-white/10 bg-white/5 p-5 shadow-[0_25px_80px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-8">
-        <div className="mb-6">
-          <p className="text-xs uppercase tracking-[0.26em] text-slate-300">Dubai Spares Concierge</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">{locale.title}</h1>
-          <p className="mt-2 text-sm text-slate-300 sm:text-base">
-            {locale.subtitle}
-          </p>
+        <p className="text-xs uppercase tracking-[0.26em] text-slate-300">Dubai Spares Concierge</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Премиальная заявка на запчасти</h1>
+
+        <div className="mb-6 mt-6">
+          <div className="mb-2 flex items-center justify-between text-xs text-slate-300"><span>Шаг {step} из {TOTAL_STEPS}</span><span>{Math.round(progress)}%</span></div>
+          <div className="mb-2 flex gap-2 overflow-x-auto pb-2 text-xs">
+            {STEP_NAMES.map((name, index) => (
+              <div key={name} className={`rounded-full border px-3 py-1 whitespace-nowrap ${step >= index + 1 ? 'border-amber-200/70 bg-amber-200/15' : 'border-white/20'}`}>{name}</div>
+            ))}
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-amber-300 via-orange-300 to-yellow-100 transition-all duration-500" style={{ width: `${progress}%` }} /></div>
         </div>
 
-        <div className="mb-8">
-          <div className="mb-2 flex items-center justify-between text-xs text-slate-300">
-            <span>{locale.step} {step} {locale.of} {TOTAL_STEPS}</span>
-            <span>{Math.round(progress)}%</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-white/10">
-            <div className="h-full rounded-full bg-gradient-to-r from-amber-300 via-orange-300 to-yellow-100 transition-all duration-500" style={{ width: `${progress}%` }} />
-          </div>
-        </div>
-
-        <div className="space-y-4 transition-all duration-500">
+        <div className="space-y-4 transition-all duration-300">
           {step === 1 && (
-            <div className="space-y-4">
+            <>
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm">🚗 {brand || 'Марка'} {model || ''} {year || ''}</div>
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.brand}</span>
-                <select
-                  value={brand}
-                  onChange={(e) => {
-                    setBrand(e.target.value);
-                    setModel('');
-                  }}
-                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition focus:border-white/50"
-                >
-                  <option value="">{locale.selectBrand}</option>
-                  {BRANDS.map((item) => (
-                    <option key={item} value={item} className="text-slate-900">
-                      {item}
-                    </option>
-                  ))}
-                </select>
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Марка</span>
+                <input list="brands-list" value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); }} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-lg outline-none ${errors.brand ? 'border-amber-300' : 'border-white/15'}`} placeholder="BMW" />
+                <datalist id="brands-list">
+                  {[...POPULAR_BRANDS, ...BRANDS.filter((b) => !POPULAR_BRANDS.includes(b))].map((item) => <option key={item} value={item} />)}
+                </datalist>
+                {errors.brand && <p className="mt-1 text-xs text-amber-200">{errors.brand}</p>}
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.model}</span>
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Модель</span>
                 {modelOptions.length > 0 ? (
-                  <select
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition focus:border-white/50"
-                  >
-                    <option value="">{locale.selectModel}</option>
-                    {modelOptions.map((item) => (
-                      <option key={item} value={item} className="text-slate-900">
-                        {item}
-                      </option>
-                    ))}
+                  <select value={model} onChange={(e) => setModel(e.target.value)} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.model ? 'border-amber-300' : 'border-white/15'}`}>
+                    <option value="">Выберите модель</option>
+                    {modelOptions.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
                   </select>
                 ) : (
-                  <input
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    placeholder={locale.typeModel}
-                    className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition placeholder:text-slate-400 focus:border-white/50"
-                  />
+                  <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="Введите модель" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.model ? 'border-amber-300' : 'border-white/15'}`} />
                 )}
+                {errors.model && <p className="mt-1 text-xs text-amber-200">{errors.model}</p>}
               </label>
 
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Тип кузова (текстом)</span>
-                <input
-                  value={bodyType}
-                  onChange={(e) => setBodyType(e.target.value)}
-                  placeholder="Например: Sedan / SUV / Hatchback"
-                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
-                />
-              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Год</span>
+                  <select value={year} onChange={(e) => setYear(e.target.value)} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.year ? 'border-amber-300' : 'border-white/15'}`}>
+                    <option value="">Выберите год</option>
+                    {YEARS.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
+                  </select>
+                  {errors.year && <p className="mt-1 text-xs text-amber-200">{errors.year}</p>}
+                </label>
+                <label>
+                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Тип кузова</span>
+                  <select value={bodyType} onChange={(e) => setBodyType(e.target.value)} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.bodyType ? 'border-amber-300' : 'border-white/15'}`}>
+                    <option value="">Выберите кузов</option>
+                    {bodyTypeOptions.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
+                  </select>
+                  {errors.bodyType && <p className="mt-1 text-xs text-amber-200">{errors.bodyType}</p>}
+                </label>
+              </div>
 
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.year}</span>
-                <select
-                  value={year}
-                  onChange={(e) => setYear(e.target.value)}
-                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition focus:border-white/50"
-                >
-                  <option value="">{locale.selectYear}</option>
-                  {YEARS.map((item) => (
-                    <option key={item} value={item} className="text-slate-900">
-                      {item}
-                    </option>
-                  ))}
-                </select>
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">VIN (опционально)</span>
+                <input value={vin} onChange={(e) => { setVin(e.target.value.toUpperCase()); detectByVin(e.target.value); }} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" placeholder="WDB123456789..." />
               </label>
-
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.preferredLanguage}</span>
-                <select
-                  value={preferredLanguage}
-                  onChange={(e) => setPreferredLanguage(e.target.value as LanguageCode)}
-                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition focus:border-white/50"
-                >
-                  {LANGUAGE_OPTIONS.map((item) => (
-                    <option key={item.value} value={item.value} className="text-slate-900">
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+            </>
           )}
 
           {step === 2 && (
-            <div className="space-y-4">
-              <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.requestedParts}</span>
+            <>
+              {showEngineCode && (
+                <label className="block">
+                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Код двигателя (для BMW)</span>
+                  <input value={engineCode} onChange={(e) => setEngineCode(e.target.value)} placeholder="Например: N52B30" className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" />
+                </label>
+              )}
+
+              {(PART_SUGGESTIONS[smartSuggestionKey] || []).length > 0 && (
+                <div className="rounded-2xl border border-amber-200/30 bg-amber-200/10 p-3">
+                  <p className="text-xs uppercase tracking-[0.2em] text-amber-100">Популярные детали</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {PART_SUGGESTIONS[smartSuggestionKey].map((item) => (
+                      <button type="button" key={item} onClick={() => addRequestedPart(item)} className="rounded-full border border-amber-100/40 px-3 py-1 text-xs">{item}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {requestedParts.map((part, index) => (
-                <div key={part.id} className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-4">
-                  <label className="block">
-                    <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.part} #{index + 1}</span>
-                    <input
-                      type="text"
-                      value={part.name}
-                      onChange={(e) => updateRequestedPart(index, { name: e.target.value })}
-                      placeholder={locale.partExample}
-                      className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
-                    />
-                  </label>
-                  <div className="block">
-                    <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.partPhoto}</span>
-                    <input
-                      id={`${part.id}-gallery`}
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFileToDataUrl(file, (value) => updateRequestedPart(index, { photoData: value }));
-                      }}
-                      className="hidden"
-                    />
-                    <input
-                      id={`${part.id}-camera`}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFileToDataUrl(file, (value) => updateRequestedPart(index, { photoData: value }));
-                      }}
-                      className="hidden"
-                    />
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <label htmlFor={`${part.id}-gallery`} className="flex h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 text-sm font-semibold text-slate-100 transition hover:bg-white/15">
-                        <Upload className="h-4 w-4" />
-                        {locale.chooseFromGallery}
-                      </label>
-                      <label htmlFor={`${part.id}-camera`} className="flex h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 text-sm font-semibold text-slate-100 transition hover:bg-white/15">
-                        <Camera className="h-4 w-4" />
-                        {locale.takePhoto}
-                      </label>
-                    </div>
-                    {part.photoData && <span className="mt-2 block text-xs text-emerald-300">{locale.photoSelected}</span>}
+                <div key={part.id} className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                  <input
+                    value={part.name}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const chunks = splitParts(value);
+                      if (chunks.length > 1 && !part.name.includes(',') && requestedParts.length < MAX_REQUEST_PART_FIELDS) {
+                        updateRequestedPart(index, { name: chunks[0] });
+                        chunks.slice(1).forEach((chunk) => addRequestedPart(chunk));
+                        return;
+                      }
+                      updateRequestedPart(index, { name: value });
+                    }}
+                    placeholder="Например: капот и бампер"
+                    className="h-14 w-full rounded-2xl border border-white/15 bg-white/10 px-4 outline-none"
+                  />
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                    <input id={`${part.id}-gallery`} type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, (value) => updateRequestedPart(index, { photoData: value })); }} className="hidden" />
+                    <input id={`${part.id}-camera`} type="file" accept="image/*" capture="environment" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, (value) => updateRequestedPart(index, { photoData: value })); }} className="hidden" />
+                    <label htmlFor={`${part.id}-gallery`} className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs"><Upload className="h-3 w-3" />Фото</label>
+                    <label htmlFor={`${part.id}-camera`} className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs"><Camera className="h-3 w-3" />Камера</label>
+                    <button type="button" onClick={() => startVoiceInput(index)} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs">{isListening ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}Голос</button>
                   </div>
                 </div>
               ))}
-              {requestedParts.length < MAX_REQUEST_PART_FIELDS && (
-                <button
-                  type="button"
-                  onClick={addRequestedPart}
-                  className="flex h-12 w-full items-center justify-center rounded-2xl border border-white/20 bg-white/10 px-4 text-sm font-semibold text-slate-100 transition hover:bg-white/15"
-                >
-                  {locale.addPart}
-                </button>
-              )}
-            </div>
+
+              {requestedParts.length < MAX_REQUEST_PART_FIELDS && <button type="button" onClick={() => addRequestedPart()} className="h-12 w-full rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold">+ Добавить ещё</button>}
+            </>
           )}
 
           {step === 3 && (
-            <div className="space-y-4">
-              <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.vinStepTitle}</span>
-              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.vinPhoto}</span>
+            <>
+              <p className="text-sm text-slate-300">VIN помогает подобрать точную запчасть.</p>
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-300">Загрузить фото VIN</span>
               <div className="grid gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => vinInputRef.current?.click()}
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
-                >
-                  <Upload className="h-4 w-4" />
-                  {locale.chooseFromGallery}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => vinCameraInputRef.current?.click()}
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
-                >
-                  <Camera className="h-4 w-4" />
-                  {locale.takePhoto}
-                </button>
+                <button type="button" onClick={() => vinInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Upload className="h-4 w-4" />Галерея</button>
+                <button type="button" onClick={() => vinCameraInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Camera className="h-4 w-4" />Камера</button>
               </div>
-              {vinPhotoData && <span className="mt-2 block text-xs text-emerald-300">{locale.photoSelected}</span>}
-              <input
-                ref={vinInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileToDataUrl(file, setVinPhotoData);
-                }}
-              />
-              <input
-                ref={vinCameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileToDataUrl(file, setVinPhotoData);
-                }}
-              />
-
-              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.carPhoto}</span>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => carInputRef.current?.click()}
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
-                >
-                  <Upload className="h-4 w-4" />
-                  {locale.chooseFromGallery}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => carCameraInputRef.current?.click()}
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold transition hover:bg-white/15"
-                >
-                  <Camera className="h-4 w-4" />
-                  {locale.takePhoto}
-                </button>
-              </div>
-              {carPhotoData && <span className="mt-2 block text-xs text-emerald-300">{locale.photoSelected}</span>}
-              <input
-                ref={carInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileToDataUrl(file, setCarPhotoData);
-                }}
-              />
-              <input
-                ref={carCameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileToDataUrl(file, setCarPhotoData);
-                }}
-              />
+              <input ref={vinInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setVinPhotoData); }} />
+              <input ref={vinCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setVinPhotoData); }} />
 
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.vinManual}</span>
-                <input
-                  type="text"
-                  value={vin}
-                  onChange={(e) => setVin(e.target.value)}
-                  placeholder="WDB123456789..."
-                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
-                />
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ввести VIN вручную</span>
+                <input type="text" value={vin} onChange={(e) => setVin(e.target.value.toUpperCase())} placeholder="WDB123456789..." className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" />
               </label>
-            </div>
+
+              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-300">Загрузить фото авто</span>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button type="button" onClick={() => carInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Upload className="h-4 w-4" />Галерея</button>
+                <button type="button" onClick={() => carCameraInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Camera className="h-4 w-4" />Камера</button>
+              </div>
+              <input ref={carInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); }} />
+              <input ref={carCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); }} />
+            </>
           )}
 
           {step === 4 && (
-            <div className="space-y-4">
+            <>
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Источник обращения</span>
-                <select
-                  value={messageSource}
-                  onChange={(e) => setMessageSource(e.target.value as MessageSource)}
-                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition focus:border-white/50"
-                >
-                  {MESSAGE_SOURCES.map((item) => (
-                    <option key={item} value={item} className="text-slate-900">
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.phone}</span>
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">WhatsApp (обязательное)</span>
                 <div className="grid grid-cols-[130px_1fr] gap-2">
-                  <select
-                    value={contactCountryCode}
-                    onChange={(e) => setContactCountryCode(e.target.value)}
-                    className="h-14 rounded-3xl border border-white/15 bg-white/10 px-3 text-sm outline-none transition focus:border-white/50"
-                  >
-                    {PHONE_CODES.map((item) => (
-                      <option key={item.id} value={item.code} className="text-slate-900">{item.label} {item.code}</option>
-                    ))}
+                  <select value={contactCountryCode} onChange={(e) => setContactCountryCode(e.target.value)} className="h-14 rounded-3xl border border-white/15 bg-white/10 px-3 text-sm outline-none">
+                    {PHONE_CODES.map((item) => <option key={item.id} value={item.code} className="text-slate-900">{item.label} {item.code}</option>)}
                   </select>
-                  <input
-                    type="tel"
-                    value={customerContact}
-                    onChange={(e) => setCustomerContact(e.target.value.replace(/\D/g, ''))}
-                    placeholder="555123456"
-                    className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-lg outline-none transition placeholder:text-slate-400 focus:border-white/50"
-                  />
+                  <input type="tel" value={customerContact} onChange={(e) => setCustomerContact(formatPhone(e.target.value))} placeholder="901234567" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-lg outline-none ${errors.phone ? 'border-amber-300' : 'border-white/15'}`} />
                 </div>
+                {errors.phone && <p className="mt-1 text-xs text-amber-200">{errors.phone}</p>}
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.deliveryCountry}</span>
-                <select
-                  value={deliveryCountry}
-                  onChange={(e) => {
-                    setDeliveryCountry(e.target.value);
-                    setDeliveryCity('');
-                  }}
-                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition focus:border-white/50"
-                >
-                  <option value="">{locale.country}</option>
-                  {DELIVERY_COUNTRIES.map((item) => (
-                    <option key={item} value={item} className="text-slate-900">
-                      {item}
-                    </option>
-                  ))}
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Страна доставки (обязательное)</span>
+                <select value={deliveryCountry} onChange={(e) => { setDeliveryCountry(e.target.value); setDeliveryCity(''); }} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.deliveryCountry ? 'border-amber-300' : 'border-white/15'}`}>
+                  <option value="">Выберите страну</option>
+                  {DELIVERY_COUNTRIES.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
+                </select>
+                {errors.deliveryCountry && <p className="mt-1 text-xs text-amber-200">{errors.deliveryCountry}</p>}
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Город (опционально)</span>
+                <select value={deliveryCity} onChange={(e) => setDeliveryCity(e.target.value)} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none">
+                  <option value="">Выберите город</option>
+                  {deliveryCityOptions.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
                 </select>
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">{locale.deliveryCity}</span>
-                <select
-                  value={deliveryCity}
-                  onChange={(e) => setDeliveryCity(e.target.value)}
-                  className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none transition focus:border-white/50"
-                >
-                  <option value="">{locale.city}</option>
-                  {deliveryCityOptions.map((item) => (
-                    <option key={item} value={item} className="text-slate-900">
-                      {item}
-                    </option>
-                  ))}
-                </select>
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Комментарий (опционально)</span>
+                <textarea value={deliveryAddressNote} onChange={(e) => setDeliveryAddressNote(e.target.value)} rows={3} placeholder="Район, адрес и комментарий" className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none" />
               </label>
+            </>
+          )}
 
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Заметки к заявке</span>
-                <textarea
-                  value={deliveryAddressNote}
-                  onChange={(e) => setDeliveryAddressNote(e.target.value)}
-                  rows={3}
-                  placeholder={locale.detailsPlaceholder}
-                  className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none transition placeholder:text-slate-400 focus:border-white/50"
-                />
-              </label>
+          {step === 5 && (
+            <div className="rounded-3xl border border-white/15 bg-white/5 p-5 text-sm leading-7">
+              <p>📦 {brand} {model} {year}</p>
+              <p>🧩 Детали: {requestedParts.filter((item) => item.name.trim()).length}</p>
+              <p>🌍 Доставка: {deliveryCountry || '—'}</p>
+              <p>📱 WhatsApp: {contactCountryCode}{customerContact || '—'}</p>
             </div>
           )}
         </div>
+      </div>
 
-        <div className="mt-8 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={goBack}
-            disabled={step === 1 || isSubmitting}
-            className="flex h-12 min-w-[120px] items-center justify-center gap-2 rounded-full border border-white/20 px-4 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-35"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            {locale.back}
-          </button>
-
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3">
+          <button type="button" onClick={goBack} disabled={step === 1 || isSubmitting} className="flex h-12 min-w-[120px] items-center justify-center gap-2 rounded-full border border-white/20 px-4 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-35"><ChevronLeft className="h-4 w-4" />Назад</button>
           {step < TOTAL_STEPS ? (
-            <button
-              type="button"
-              onClick={goNext}
-              disabled={!canContinue || isSubmitting}
-              className="flex h-12 min-w-[140px] items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-semibold text-slate-950 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {locale.next}
-              <ArrowRight className="h-4 w-4" />
-            </button>
+            <button type="button" onClick={goNext} disabled={!canContinue || isSubmitting} className="flex h-12 min-w-[160px] items-center justify-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40">Далее<ArrowRight className="h-4 w-4" /></button>
           ) : (
-            <button
-              type="button"
-              onClick={submitOrder}
-              disabled={!canContinue || isSubmitting}
-              className="h-12 min-w-[160px] rounded-full bg-gradient-to-r from-amber-200 to-white px-6 text-sm font-semibold text-slate-950 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {isSubmitting ? locale.submitting : locale.submit}
-            </button>
+            <button type="button" onClick={submitOrder} disabled={!canContinue || isSubmitting} className="flex h-12 min-w-[180px] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-200 to-white px-6 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40">{isSubmitting ? 'Отправка...' : 'Подтвердить заявку'}<Copy className="h-4 w-4" /></button>
           )}
         </div>
       </div>
