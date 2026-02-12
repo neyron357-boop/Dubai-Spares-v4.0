@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, ChevronDown, Mic, UserRound, Wrench, CarFront, ImagePlus, NotebookPen } from 'lucide-react';
+import { Camera, ChevronDown, Mic, Square, Play, Pause, UserRound, Wrench, CarFront, ImagePlus, NotebookPen } from 'lucide-react';
 import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE, YEARS } from '../constants';
 import { CHASSIS_BODY_TYPES_BY_BRAND } from '../carDatabase';
 import { useStore } from '../store';
@@ -185,11 +185,17 @@ const NewOrderScreen: React.FC = () => {
   const [brandLoading, setBrandLoading] = useState(true);
   const [modelLoading, setModelLoading] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const [recordingNoteId, setRecordingNoteId] = useState<string | null>(null);
+  const [recordingTick, setRecordingTick] = useState(0);
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
 
   const partPhotoRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const notePhotoRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const carGalleryRef = useRef<HTMLInputElement>(null);
   const carCameraRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recorderStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const touched = useRef({ brand: false, model: false, year: false });
 
@@ -307,19 +313,73 @@ const NewOrderScreen: React.FC = () => {
     !!brand.trim() && !!model.trim() && /^\d{4}$/.test(year.trim()) && parts.some((item) => item.name.trim()) && (!vin.trim() || vin.trim().length === 17)
   ), [brand, model, year, parts, vin]);
 
-  const startVoiceInput = (noteId: string) => {
-    const Ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!Ctor) return;
-    const rec = new Ctor();
-    rec.lang = 'ru-RU';
-    rec.onresult = (event: any) => {
-      const transcript = String(event?.results?.[0]?.[0]?.transcript || '').trim();
-      if (!transcript) return;
-      setNotes((prev) => prev.map((note) => (
-        note.id === noteId ? { ...note, voices: [...note.voices, transcript] } : note
-      )));
-    };
-    rec.start();
+  useEffect(() => {
+    if (!recordingNoteId) return;
+    const timer = window.setInterval(() => setRecordingTick((prev) => prev + 1), 280);
+    return () => window.clearInterval(timer);
+  }, [recordingNoteId]);
+
+  useEffect(() => () => {
+    recorderRef.current?.stop();
+    recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  const toggleNoteRecording = async (noteId: string) => {
+    if (recordingNoteId === noteId) {
+      recorderRef.current?.stop();
+      setRecordingNoteId(null);
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recorderStreamRef.current = stream;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const audioData = String(reader.result || '');
+          if (!audioData) return;
+          setNotes((prev) => prev.map((note) => (
+            note.id === noteId ? { ...note, voices: [...note.voices, audioData] } : note
+          )));
+        };
+        reader.readAsDataURL(blob);
+        recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+        recorderStreamRef.current = null;
+      };
+
+      recorder.start();
+      setRecordingNoteId(noteId);
+    } catch {
+      // noop
+    }
+  };
+
+  const toggleVoicePlayback = (voiceId: string) => {
+    const audioEl = document.getElementById(voiceId) as HTMLAudioElement | null;
+    if (!audioEl) return;
+    if (playingVoiceId === voiceId) {
+      audioEl.pause();
+      setPlayingVoiceId(null);
+      return;
+    }
+    if (playingVoiceId) {
+      const prev = document.getElementById(playingVoiceId) as HTMLAudioElement | null;
+      prev?.pause();
+    }
+    void audioEl.play();
+    setPlayingVoiceId(voiceId);
+    audioEl.onended = () => setPlayingVoiceId(null);
   };
 
   const attachCompressedImages = async (
@@ -401,9 +461,10 @@ const NewOrderScreen: React.FC = () => {
             id: createId(),
             text: [
               note.text.trim(),
-              ...note.voices.map((voice, index) => `Voice ${index + 1}: ${voice}`)
+              ...note.voices.map((_, index) => `Voice note ${index + 1}`)
             ].filter(Boolean).join('\n'),
             photos: note.photos,
+            audios: note.voices,
             createdAt: now
           })),
         ...(seriesCode.trim() ? [{ id: createId(), text: `Series/Code: ${seriesCode.trim()}`, createdAt: now }] : [])
@@ -456,6 +517,7 @@ const NewOrderScreen: React.FC = () => {
             }}
           />
           {errors.brand && <p className="text-xs text-rose-600">{errors.brand}</p>}
+          <input value={brand} onChange={(e) => { touched.current.brand = true; setBrand(e.target.value); }} placeholder="Или введите марку вручную" className={inputClass} />
         </label>
 
         <div className="space-y-1 transition-all duration-200">
@@ -471,6 +533,7 @@ const NewOrderScreen: React.FC = () => {
             }}
           />
           {errors.model && <p className="text-xs text-rose-600">{errors.model}</p>}
+          <input value={model} onChange={(e) => { touched.current.model = true; setModel(e.target.value); }} placeholder="Или введите модель вручную" className={inputClass} />
           {!!chassisCodes.length && <p className="text-xs text-slate-500">Подсказка по серии: {chassisCodes.slice(0, 4).map((x) => x.value).join(', ')}</p>}
         </div>
 
@@ -595,10 +658,26 @@ const NewOrderScreen: React.FC = () => {
               />
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => notePhotoRefs.current[note.id]?.click()} className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото</button>
-                <button type="button" onClick={() => startVoiceInput(note.id)} className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Mic size={14} /> Голос</button>
+                <button type="button" onClick={() => void toggleNoteRecording(note.id)} className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700">{recordingNoteId === note.id ? <Square size={14} /> : <Mic size={14} />} {recordingNoteId === note.id ? 'Стоп' : 'Голос'}</button>
                 {notes.length > 1 && <button type="button" onClick={() => setNotes((prev) => prev.filter((item) => item.id !== note.id))} className="inline-flex h-9 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-bold text-rose-600">Удалить</button>}
               </div>
               {!!note.voices.length && <p className="text-xs text-slate-500">Голосовых заметок: {note.voices.length}</p>}
+              {recordingNoteId === note.id && <div className="flex h-5 items-end gap-1">{Array.from({ length: 20 }).map((_, bar) => <span key={`${note.id}-rec-${bar}`} className="w-1 rounded-full bg-rose-300" style={{ height: `${30 + Math.abs(Math.sin((recordingTick + bar) * 0.9)) * 70}%` }} />)}</div>}
+              {!!note.voices.length && (
+                <div className="space-y-2">
+                  {note.voices.map((voice, voiceIndex) => {
+                    const voiceId = `new-note-${note.id}-${voiceIndex}`;
+                    const isPlaying = playingVoiceId === voiceId;
+                    return (
+                      <div key={voiceId} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <button type="button" onClick={() => toggleVoicePlayback(voiceId)} className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-white">{isPlaying ? <Pause size={12} /> : <Play size={12} className="ml-0.5" />}</button>
+                        <audio id={voiceId} src={voice} preload="metadata" />
+                        <span className="text-[11px] font-semibold text-slate-600">Голос {voiceIndex + 1}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {!!note.photos.length && (
                 <div className="grid grid-cols-4 gap-2">
                   {note.photos.map((photo, photoIndex) => (

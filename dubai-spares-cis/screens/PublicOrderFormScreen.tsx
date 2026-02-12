@@ -100,7 +100,8 @@ const PublicOrderFormScreen: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showThanks, setShowThanks] = useState(false);
   const [createdOrderId, setCreatedOrderId] = useState('');
-  const [isListening, setIsListening] = useState(false);
+  const [recordingPartId, setRecordingPartId] = useState<string | null>(null);
+  const [recordingTick, setRecordingTick] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { settings } = useAppSettings();
 
@@ -108,6 +109,9 @@ const PublicOrderFormScreen: React.FC = () => {
   const carCameraInputRef = useRef<HTMLInputElement | null>(null);
   const vinInputRef = useRef<HTMLInputElement | null>(null);
   const vinCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
   const deliveryCityOptions = useMemo(() => DELIVERY_CITIES[deliveryCountry as keyof typeof DELIVERY_CITIES] || [], [deliveryCountry]);
@@ -253,19 +257,58 @@ const PublicOrderFormScreen: React.FC = () => {
     return digits;
   };
 
-  const startVoiceInput = (index: number) => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ru-RU';
-    recognition.interimResults = false;
-    setIsListening(true);
-    recognition.onresult = (event: any) => {
-      const text = event?.results?.[0]?.[0]?.transcript || '';
-      if (text) updateRequestedPart(index, { name: `${requestedParts[index].name} ${text}`.trim(), audioNote: text });
-    };
-    recognition.onend = () => setIsListening(false);
-    recognition.start();
+  useEffect(() => {
+    if (!recordingPartId) return;
+    const timer = window.setInterval(() => setRecordingTick((prev) => prev + 1), 320);
+    return () => window.clearInterval(timer);
+  }, [recordingPartId]);
+
+  useEffect(() => () => {
+    mediaRecorderRef.current?.stop();
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  const togglePartVoiceRecording = async (partId: string, index: number) => {
+    if (recordingPartId === partId) {
+      mediaRecorderRef.current?.stop();
+      setRecordingPartId(null);
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert('Запись аудио не поддерживается на этом устройстве');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = () => {
+        const mimeType = recorder.mimeType || 'audio/webm';
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const audioData = String(reader.result || '');
+          if (audioData) updateRequestedPart(index, { audioNote: audioData });
+        };
+        reader.readAsDataURL(blob);
+        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      };
+
+      recorder.start();
+      setRecordingPartId(partId);
+    } catch {
+      alert('Не удалось начать запись');
+    }
   };
 
   const submitOrder = async () => {
@@ -301,11 +344,13 @@ const PublicOrderFormScreen: React.FC = () => {
         uploadedVinPhotos = await ensurePublicImageUrls([compressedVin], `orders/${orderId}/vin`);
       }
 
+      const uploadedAudios = filledRequestedParts.map((part) => part.audioNote || '').filter(Boolean);
+
       const notes = [{
         id: createId(),
         text: `Public Lead\nИсточник: ${messageSource}\nИмя/ник: ${clientAlias || '—'}\nVIN: ${vin || '—'}\nEngine code: ${engineCode || '—'}\nCountry: ${deliveryCountry}`,
         photos: uploadedVinPhotos,
-        audios: [],
+        audios: uploadedAudios,
         createdAt: Date.now()
       }];
 
@@ -438,14 +483,13 @@ const PublicOrderFormScreen: React.FC = () => {
 
               <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Модель</span>
-                {modelOptions.length > 0 ? (
+                {modelOptions.length > 0 && (
                   <select value={model} onChange={(e) => setModel(e.target.value)} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.model ? 'border-amber-300' : 'border-white/15'}`}>
                     <option value="">Выберите модель</option>
                     {modelOptions.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
                   </select>
-                ) : (
-                  <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="Введите модель" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.model ? 'border-amber-300' : 'border-white/15'}`} />
                 )}
+                <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="Или введите модель вручную" className={`mt-2 h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.model ? 'border-amber-300' : 'border-white/15'}`} />
                 {errors.model && <p className="mt-1 text-xs text-amber-200">{errors.model}</p>}
               </label>
 
@@ -469,6 +513,17 @@ const PublicOrderFormScreen: React.FC = () => {
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">VIN (опционально)</span>
                 <input value={vin} onChange={(e) => { const formatted = formatVinInput(e.target.value); setVin(formatted); detectByVin(formatted); }} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" placeholder="WDB123456789..." />
               </label>
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Фото автомобиля (в начале заявки)</span>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button type="button" onClick={() => carInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Upload className="h-4 w-4" />Галерея</button>
+                  <button type="button" onClick={() => carCameraInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Camera className="h-4 w-4" />Камера</button>
+                </div>
+                <input ref={carInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); }} />
+                <input ref={carCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); }} />
+                {carPhotoData && <img src={carPhotoData} alt="car-preview" className="mt-2 h-28 w-full rounded-xl object-cover" />}
+              </div>
             </>
           )}
 
@@ -514,8 +569,10 @@ const PublicOrderFormScreen: React.FC = () => {
                     <input id={`${part.id}-camera`} type="file" accept="image/*" capture="environment" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, (value) => updateRequestedPart(index, { photoData: value })); }} className="hidden" />
                     <label htmlFor={`${part.id}-gallery`} className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs"><Upload className="h-3 w-3" />Фото</label>
                     <label htmlFor={`${part.id}-camera`} className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs"><Camera className="h-3 w-3" />Камера</label>
-                    <button type="button" onClick={() => startVoiceInput(index)} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs">{isListening ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}Голос</button>
+                    <button type="button" onClick={() => void togglePartVoiceRecording(part.id, index)} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs">{recordingPartId === part.id ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}{recordingPartId === part.id ? 'Стоп' : 'Голос'}</button>
                   </div>
+                  {recordingPartId === part.id && <div className="mt-2 flex h-5 items-end gap-1">{Array.from({ length: 18 }).map((_, waveIndex) => <span key={`${part.id}-record-${waveIndex}`} className="w-1 rounded-full bg-rose-300 transition-all" style={{ height: `${25 + Math.abs(Math.sin((recordingTick + waveIndex) * 0.8)) * 75}%` }} />)}</div>}
+                  {part.audioNote && <audio controls src={part.audioNote} className="mt-2 h-8 w-full" />}
                 </div>
               ))}
 

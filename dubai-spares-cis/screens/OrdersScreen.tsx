@@ -573,6 +573,10 @@ const OrdersScreen: React.FC = () => {
                 disableCardTap={!!deleteId || isDeleting}
               >
                 <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-start gap-2">
+                    {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) && (
+                      <img src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl} alt={`${order.brand} ${order.model}`} className="h-12 w-12 shrink-0 rounded-xl object-cover border border-slate-200" />
+                    )}
                   <div className="min-w-0">
                     <h3 className="truncate text-base font-black text-slate-900">{order.brand} {order.model} <span className="text-sm font-semibold text-slate-500">{order.year}</span></h3>
                     {isUnreadPublicLead(order) && (
@@ -581,6 +585,7 @@ const OrdersScreen: React.FC = () => {
                       </span>
                     )}
                     <p className="mt-0.5 truncate text-sm text-slate-600 inline-flex items-center gap-1">{contactLabel}{order.isVip && <Star size={12} className="text-amber-500" />} • {order.source || 'Источник —'}</p>
+                  </div>
                   </div>
                   <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-700 inline-flex items-center gap-1"><Clock3 size={11} /> {ageLabel}</span>
                 </div>

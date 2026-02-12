@@ -91,6 +91,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [showSellConfirm, setShowSellConfirm] = useState(false);
   const [sellError, setSellError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingTick, setRecordingTick] = useState(0);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({});
   const [shops, setShops] = useState<Shop[]>([]);
@@ -609,6 +610,12 @@ const OrderDetailsScreen: React.FC = () => {
     });
   };
 
+  useEffect(() => {
+    if (!isRecording) return;
+    const timer = window.setInterval(() => setRecordingTick((prev) => prev + 1), 260);
+    return () => window.clearInterval(timer);
+  }, [isRecording]);
+
   const toggleRecording = async () => {
     if (isRecording) {
       recorderRef.current?.stop();
@@ -632,6 +639,8 @@ const OrderDetailsScreen: React.FC = () => {
       };
 
       recorder.onstop = () => {
+        setIsRecording(false);
+        recorderRef.current = null;
         const mimeType = recorder.mimeType || 'audio/webm';
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
         const reader = new FileReader();
@@ -1017,6 +1026,7 @@ const OrderDetailsScreen: React.FC = () => {
             <button type="button" onClick={() => noteFileRef.current?.click()} className="w-12 h-12 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 flex items-center justify-center"><ImageIcon size={18} /></button>
             <button type="button" onClick={() => noteAudioFileRef.current?.click()} className="w-12 h-12 rounded-xl border-2 border-dashed border-gray-200 text-gray-500 flex items-center justify-center"><FileAudio size={18} /></button>
             <button type="button" onClick={toggleRecording} className={`w-12 h-12 rounded-xl border-2 ${isRecording ? 'border-red-300 bg-red-50 text-red-600' : 'border-gray-200 text-gray-500'} flex items-center justify-center`}>{isRecording ? <Square size={16} /> : <Mic size={16} />}</button>
+            {isRecording && <div className="h-12 px-2 rounded-xl border border-rose-200 bg-rose-50 flex items-end gap-1">{Array.from({ length: 16 }).map((_, idx) => <span key={`record-wave-${idx}`} className="w-1 rounded-full bg-rose-400" style={{ height: `${30 + Math.abs(Math.sin((recordingTick + idx) * 0.9)) * 70}%` }} />)}</div>}
             {newNotePhotos.map((p, i) => <img key={i} src={p} className="w-12 h-12 rounded-xl object-cover border border-gray-100" />)}
             {newNoteAudios.map((_, i) => <div key={`na-${i}`} className="px-3 h-12 rounded-xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-600 flex items-center">Audio {i + 1}</div>)}
             <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />

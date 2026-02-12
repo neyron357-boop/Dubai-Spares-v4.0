@@ -265,8 +265,8 @@ const RadarScreen: React.FC = () => {
   const currentStop = chainRoute[chainIndex] || null;
 
   const openShopRoute = (shop: Shop) => {
-    if (hasValidCoordinates(shop.latitude, shop.longitude) && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-      window.open(`http://maps.apple.com/?daddr=${shop.latitude},${shop.longitude}`, '_blank');
+    if (hasValidCoordinates(shop.latitude, shop.longitude)) {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${shop.latitude},${shop.longitude}`, '_blank');
     } else {
       window.open(buildShopMapLink(shop), '_blank');
     }

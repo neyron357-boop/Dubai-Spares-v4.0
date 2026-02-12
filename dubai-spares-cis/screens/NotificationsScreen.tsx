@@ -286,8 +286,7 @@ const NotificationsScreen: React.FC = () => {
                     type="button"
                     onClick={() => {
                       if (item.lat && item.lng) {
-                        const isIos = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-                        const link = isIos ? `http://maps.apple.com/?daddr=${item.lat},${item.lng}` : `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`;
+                        const link = `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`;
                         window.open(link, '_blank');
                         return;
                       }
