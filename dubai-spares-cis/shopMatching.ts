@@ -13,6 +13,7 @@ const hasUniversalSpecialization = (brands: string[] = []) => brands.some((brand
 
 const isBrandEligible = (shop: Shop, orderBrand: string) => {
   const brands = shop.specialization || [];
+  if (brands.length === 0) return true;
   return hasUniversalSpecialization(brands) || brands.some((brand) => isBrandMatch(orderBrand, brand));
 };
 

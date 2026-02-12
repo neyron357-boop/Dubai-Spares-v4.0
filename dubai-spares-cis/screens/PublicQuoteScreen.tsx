@@ -269,7 +269,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const candidateOrderIds = Array.from(new Set([orderId, fallbackOrderId].filter(Boolean)));
   const token = params.get('token') || '';
   const hasSecurityToken = token.length >= 32;
-  const isExpired = !hasSecurityToken || !Number.isFinite(expiresAt) || expiresAt <= Date.now();
+  const isExpired = hasSecurityToken && Number.isFinite(expiresAt) && expiresAt <= Date.now();
 
   const logEvent = (event: string, meta?: Record<string, unknown>) => {
     void logger.info('public-quote-analytics', event, { event, orderId, ...meta });
@@ -343,13 +343,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     return EstimateErrorType.NOT_FOUND;
   };
 
-  const loadQuoteWithoutJoin = useCallback(async () => {
+  const loadQuoteWithoutJoin = useCallback(async (candidateId: string) => {
     if (!supabase) return { data: null, error: new Error('Supabase not configured') };
 
     const orderResponse = await supabase
       .from('orders')
       .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,logistics,created_at,is_archived,is_sold')
-      .eq('id', orderId)
+      .eq('id', candidateId)
       .maybeSingle();
 
     if (orderResponse.error || !orderResponse.data) {
@@ -359,7 +359,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     const partsResponse = await supabase
       .from('parts')
       .select('id,order_id,name,photo_url,photos,is_found')
-      .eq('order_id', orderId);
+      .eq('order_id', candidateId);
 
     if (partsResponse.error) {
       return { data: null, error: partsResponse.error };
@@ -391,7 +391,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     };
 
     return { data: stitched, error: null };
-  }, [orderId]);
+  }, []);
 
   const readQuoteFromCache = useCallback(() => {
     const raw = window.localStorage.getItem(`public-quote-cache:${orderId}`);
@@ -408,11 +408,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
   const loadQuote = useCallback(async () => {
-    if (isExpired) {
-      setErrorType(EstimateErrorType.EXPIRED_LINK);
-      setLoading(false);
-      return false;
-    }
     if (!navigator.onLine && readQuoteFromCache()) {
       setLoading(false);
       return true;
@@ -435,7 +430,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           .maybeSingle();
 
         if (loadError && isRelationQueryError(loadError)) {
-          const fallback = await loadQuoteWithoutJoin();
+          const fallback = await loadQuoteWithoutJoin(candidateId);
           data = fallback.data;
           loadError = fallback.error as any;
         }
@@ -458,7 +453,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
     setLoading(false);
     return false;
-  }, [isExpired, orderId, readQuoteFromCache, candidateOrderIds]);
+  }, [orderId, readQuoteFromCache, candidateOrderIds, loadQuoteWithoutJoin]);
 
   useEffect(() => {
     void loadQuote();
