@@ -14,6 +14,17 @@ type SearchState = 'searching' | 'waiting_response' | 'found' | 'offer_sent' | '
 
 const priorityWeight = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
 
+const ACTION_REVEAL = 72;
+const LEFT_OPEN_WIDTH = 210;
+const RIGHT_OPEN_WIDTH = 88;
+const CLOSE_THRESHOLD = 24;
+const OPEN_THRESHOLD_LEFT = 80;
+const OPEN_THRESHOLD_RIGHT = 60;
+const COMMIT_THRESHOLD_RIGHT = 140;
+const SWIPE_DEAD_ZONE = 8;
+
+type SwipeStatus = 'idle' | 'dragging_left' | 'dragging_right' | 'open_left' | 'open_right' | 'committed';
+
 const statusLabelMap: Record<SearchState, string> = {
   searching: 'В поиске',
   waiting_response: 'Ждём ответ',
@@ -42,6 +53,243 @@ const formatAge = (ts: number) => {
   return `${Math.floor(hours / 24)}d`;
 };
 
+type SwipeableOrderCardProps = {
+  orderId: string;
+  openCardId: string | null;
+  setOpenCardId: (id: string | null) => void;
+  onCommitWhatsapp: () => void;
+  onOpenWhatsapp: () => void;
+  onPin: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+  onCardTap: () => void;
+  children: React.ReactNode;
+};
+
+const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
+  orderId,
+  openCardId,
+  setOpenCardId,
+  onCommitWhatsapp,
+  onOpenWhatsapp,
+  onPin,
+  onArchive,
+  onDelete,
+  onCardTap,
+  children
+}) => {
+  const [translateX, setTranslateX] = useState(0);
+  const [status, setStatus] = useState<SwipeStatus>('idle');
+  const [isDragging, setIsDragging] = useState(false);
+  const [hasSwiped, setHasSwiped] = useState(() => window.localStorage.getItem('orders_swipe_hint_done') === '1');
+
+  const pointerStart = useRef({ x: 0, y: 0 });
+  const dragOriginX = useRef(0);
+  const isHorizontalSwipe = useRef<boolean | null>(null);
+  const moved = useRef(false);
+  const thresholdBuzzed = useRef(false);
+
+  const setSpringPosition = (nextX: number, nextState: SwipeStatus) => {
+    setTranslateX(nextX);
+    setStatus(nextState);
+    setIsDragging(false);
+  };
+
+  useEffect(() => {
+    if (openCardId !== orderId && (status === 'open_left' || status === 'open_right')) {
+      setSpringPosition(0, 'idle');
+    }
+  }, [openCardId, orderId, status]);
+
+  const leftProgress = Math.min(Math.max(-translateX / LEFT_OPEN_WIDTH, 0), 1);
+  const rightProgress = Math.min(Math.max(translateX / RIGHT_OPEN_WIDTH, 0), 1);
+
+  const applyResistance = (delta: number) => {
+    const raw = dragOriginX.current + delta;
+    if (raw > RIGHT_OPEN_WIDTH) {
+      return RIGHT_OPEN_WIDTH + (raw - RIGHT_OPEN_WIDTH) * 0.32;
+    }
+    if (raw < -LEFT_OPEN_WIDTH) {
+      return -LEFT_OPEN_WIDTH + (raw + LEFT_OPEN_WIDTH) * 0.32;
+    }
+    return raw;
+  };
+
+  const onPointerDown: React.PointerEventHandler<HTMLElement> = (event) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, input, textarea, select')) return;
+    pointerStart.current = { x: event.clientX, y: event.clientY };
+    dragOriginX.current = translateX;
+    isHorizontalSwipe.current = null;
+    moved.current = false;
+    thresholdBuzzed.current = Math.abs(translateX) >= COMMIT_THRESHOLD_RIGHT;
+    setIsDragging(true);
+  };
+
+  const onPointerMove: React.PointerEventHandler<HTMLElement> = (event) => {
+    if (!isDragging) return;
+    const dx = event.clientX - pointerStart.current.x;
+    const dy = event.clientY - pointerStart.current.y;
+
+    if (Math.abs(dx) < SWIPE_DEAD_ZONE && Math.abs(dy) < SWIPE_DEAD_ZONE) return;
+
+    if (isHorizontalSwipe.current === null) {
+      isHorizontalSwipe.current = Math.abs(dx) > Math.abs(dy) * 1.2;
+    }
+
+    if (!isHorizontalSwipe.current) {
+      setIsDragging(false);
+      return;
+    }
+
+    moved.current = true;
+    event.preventDefault();
+    const nextX = applyResistance(dx);
+    setTranslateX(nextX);
+    setStatus(nextX < 0 ? 'dragging_left' : 'dragging_right');
+
+    const crossed = nextX >= COMMIT_THRESHOLD_RIGHT;
+    if (crossed !== thresholdBuzzed.current) {
+      thresholdBuzzed.current = crossed;
+      vibrate([10]);
+    }
+
+    if (Math.abs(nextX) > ACTION_REVEAL && !hasSwiped) {
+      setHasSwiped(true);
+      window.localStorage.setItem('orders_swipe_hint_done', '1');
+    }
+  };
+
+  const onPointerUp: React.PointerEventHandler<HTMLElement> = (event) => {
+    if (!isDragging) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, input, textarea, select')) {
+      setIsDragging(false);
+      return;
+    }
+    const dx = event.clientX - pointerStart.current.x;
+
+    if (!moved.current) {
+      if (status === 'open_left' || status === 'open_right') {
+        setOpenCardId(null);
+        setSpringPosition(0, 'idle');
+      } else {
+        onCardTap();
+      }
+      setIsDragging(false);
+      return;
+    }
+
+    if (translateX >= COMMIT_THRESHOLD_RIGHT) {
+      setStatus('committed');
+      setTranslateX(COMMIT_THRESHOLD_RIGHT + 30);
+      vibrate([16]);
+      window.setTimeout(() => {
+        onCommitWhatsapp();
+        setOpenCardId(null);
+        setSpringPosition(0, 'idle');
+      }, 120);
+      return;
+    }
+
+    if (translateX <= -OPEN_THRESHOLD_LEFT || dx <= -OPEN_THRESHOLD_LEFT) {
+      setOpenCardId(orderId);
+      setSpringPosition(-LEFT_OPEN_WIDTH, 'open_left');
+      return;
+    }
+
+    if (translateX >= OPEN_THRESHOLD_RIGHT || dx >= OPEN_THRESHOLD_RIGHT) {
+      setOpenCardId(orderId);
+      setSpringPosition(RIGHT_OPEN_WIDTH, 'open_right');
+      return;
+    }
+
+    if (Math.abs(translateX) <= CLOSE_THRESHOLD) {
+      setOpenCardId(null);
+      setSpringPosition(0, 'idle');
+      return;
+    }
+
+    setOpenCardId(null);
+    setSpringPosition(0, 'idle');
+  };
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm" data-swipe-card="true">
+      <div className="absolute inset-0 flex items-stretch justify-between">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenWhatsapp();
+            setOpenCardId(null);
+            setSpringPosition(0, 'idle');
+          }}
+          className="flex h-full min-w-[88px] items-center justify-center bg-emerald-500/85 text-white"
+          style={{ opacity: Math.max(rightProgress, 0.12) }}
+        >
+          <span className="inline-flex items-center gap-2" style={{ opacity: rightProgress, transform: `scale(${0.92 + rightProgress * 0.08})` }}>
+            <MessageCircle size={18} /> WhatsApp
+          </span>
+        </button>
+
+        <div className="flex h-full items-stretch">
+          {[
+            { label: 'Pin', action: onPin, className: 'bg-indigo-500/90 text-white', icon: <Pin size={16} /> },
+            { label: 'Archive', action: onArchive, className: 'bg-slate-600/90 text-white', icon: <Archive size={16} /> },
+            { label: 'Delete', action: onDelete, className: 'bg-rose-600/95 text-white', icon: <XCircle size={16} /> }
+          ].map((item, idx) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                item.action();
+                setOpenCardId(null);
+                setSpringPosition(0, 'idle');
+              }}
+              className={`h-full min-w-[70px] px-2 ${item.className}`}
+              style={{
+                opacity: leftProgress,
+                transform: `translateY(${(1 - leftProgress) * 4}px) scale(${0.95 + leftProgress * 0.05})`,
+                transitionDelay: `${idx * 18}ms`
+              }}
+            >
+              <span className="flex flex-col items-center justify-center gap-1 text-[11px] font-black">
+                {item.icon}
+                <span className="opacity-80">{item.label}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <article
+        className="relative rounded-2xl bg-white p-4"
+        style={{
+          transform: `translate3d(${translateX}px,0,0)`,
+          transition: isDragging ? 'none' : 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1)',
+          willChange: 'transform',
+          touchAction: 'pan-y'
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => {
+          setIsDragging(false);
+          setSpringPosition(0, 'idle');
+        }}
+      >
+        <div className="pointer-events-none absolute inset-0 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)]" />
+        <div className="relative z-10">{children}</div>
+        {!hasSwiped && (
+          <p className="mt-3 text-[10px] text-slate-400">Свайп → WhatsApp • Свайп ← Pin/Archive/Delete</p>
+        )}
+      </article>
+    </div>
+  );
+};
+
 const OrdersScreen: React.FC = () => {
   const { orders, isLoading, error, syncOrders, updateOrder, deleteOrder } = useStore();
   const navigate = useNavigate();
@@ -62,7 +310,6 @@ const OrdersScreen: React.FC = () => {
   const [noResponseHours, setNoResponseHours] = useState<number>(0);
   const [issueFilter, setIssueFilter] = useState<'all' | 'missing_price' | 'missing_contact'>('all');
 
-  const touchStartX = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(searchText.trim().toLowerCase()), 300);
@@ -77,6 +324,22 @@ const OrdersScreen: React.FC = () => {
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('[data-swipe-card="true"]')) {
+        setOpenSwipeId(null);
+      }
+    };
+    const onScroll = () => setOpenSwipeId(null);
+    document.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('scroll', onScroll);
     };
   }, []);
 
@@ -195,25 +458,10 @@ const OrdersScreen: React.FC = () => {
 
   const showSkeleton = isLoading && orders.length === 0;
 
-  const onSwipeEnd = (order: Order, deltaX: number) => {
-    if (Math.abs(deltaX) < 70) return;
-    if (deltaX > 0) {
-      openWhatsapp(order);
-      vibrate([12]);
-      return;
-    }
-    if (order.isArchived) {
-      restoreOrder(order);
-      return;
-    }
-    if (order.isPinned) {
-      archiveOrder(order);
-    } else {
-      togglePin(order);
-      toast('Заказ закреплён', 'success');
-    }
-    vibrate([12, 24, 12]);
-  };
+
+
+  const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
+
 
   const confirmDelete = async () => {
     if (!deleteId) return;
@@ -295,18 +543,22 @@ const OrdersScreen: React.FC = () => {
             const profitAed = order.soldProfitUsd === undefined ? null : Math.round(order.soldProfitUsd * (order.exchangeRate || 3.67));
 
             return (
-              <article
+              <SwipeableOrderCard
                 key={order.id}
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                onClick={() => navigate(`/order/${order.id}`)}
-                onTouchStart={(e) => { touchStartX.current[order.id] = e.touches[0].clientX; }}
-                onTouchEnd={(e) => {
-                  const start = touchStartX.current[order.id];
-                  if (typeof start !== 'number') return;
-                  const deltaX = e.changedTouches[0].clientX - start;
-                  onSwipeEnd(order, deltaX);
-                  delete touchStartX.current[order.id];
+                orderId={order.id}
+                openCardId={openSwipeId}
+                setOpenCardId={setOpenSwipeId}
+                onCommitWhatsapp={() => openWhatsapp(order)}
+                onOpenWhatsapp={() => openWhatsapp(order)}
+                onPin={() => {
+                  togglePin(order);
+                  toast(order.isPinned ? 'Пин снят' : 'Заказ закреплён', 'success');
                 }}
+                onArchive={() => {
+                  order.isArchived ? restoreOrder(order) : archiveOrder(order);
+                }}
+                onDelete={() => setDeleteId(order.id)}
+                onCardTap={() => navigate(`/order/${order.id}`)}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -358,7 +610,7 @@ const OrdersScreen: React.FC = () => {
                   <button type="button" onClick={(e) => { e.stopPropagation(); order.isArchived ? restoreOrder(order) : archiveOrder(order); }} className="rounded-lg px-2 py-1 hover:bg-slate-100 inline-flex items-center gap-1"><Archive size={12} /> {order.isArchived ? 'Restore' : 'Archive'}</button>
                   <button type="button" onClick={(e) => { e.stopPropagation(); setDeleteId(order.id); }} className="rounded-lg px-2 py-1 text-rose-500 hover:bg-rose-50">Delete</button>
                 </div>
-              </article>
+              </SwipeableOrderCard>
             );
           })
         )}
