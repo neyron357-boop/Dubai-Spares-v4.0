@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   BadgeCheck,
@@ -8,8 +8,7 @@ import {
   Download,
   Globe,
   MessageCircle,
-  RefreshCcw,
-  ShieldCheck
+  RefreshCcw
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Order, PriceVariant } from '../types';
@@ -23,6 +22,14 @@ type Language = 'en' | 'ru';
 const CURRENCY_LABELS: Record<QuoteCurrency, string> = { AED: 'Dirham', USD: 'Dollar', RUB: 'Ruble', TJS: 'Somoni' };
 const WHATSAPP_PHONE = '971521574546';
 
+enum EstimateErrorType {
+  NOT_FOUND = 'NOT_FOUND',
+  NO_ACCESS = 'NO_ACCESS',
+  OFFLINE = 'OFFLINE',
+  SERVER_ERROR = 'SERVER_ERROR',
+  EXPIRED_LINK = 'EXPIRED_LINK'
+}
+
 const i18n = {
   en: {
     quoteUnavailable: 'Quote not available.',
@@ -30,6 +37,19 @@ const i18n = {
     quoteExpiredBody: 'This quote link is no longer active. Please contact us to refresh pricing and availability.',
     contactUs: 'Contact us',
     quoteNotFound: 'Quote not found.',
+    noAccessTitle: 'No access to quote',
+    noAccessBody: 'This quote belongs to another account or requires authorization.',
+    offlineTitle: 'No internet connection',
+    offlineBody: 'Check your connection and try again, or open the cached version.',
+    serverErrorTitle: 'Server error',
+    serverErrorBody: 'We are already working on it. Please try again in a moment.',
+    notFoundTitle: 'Quote not found',
+    notFoundBody: 'It may have been deleted or the link is outdated.',
+    expiredTitle: 'Quote link expired',
+    expiredBody: 'Request a fresh link to see current pricing and availability.',
+    retry: 'Retry',
+    backToOrders: 'Back to orders',
+    openOffline: 'Open offline version',
     loading: 'Loading quotation…',
     currency: 'Currency',
     source: 'Source',
@@ -68,6 +88,19 @@ const i18n = {
     quoteExpiredBody: 'Ссылка на смету больше не активна. Напишите нам, чтобы обновить цену и наличие.',
     contactUs: 'Связаться с нами',
     quoteNotFound: 'Смета не найдена.',
+    noAccessTitle: 'Нет доступа к смете',
+    noAccessBody: 'Эта смета принадлежит другому аккаунту или требует авторизации.',
+    offlineTitle: 'Нет подключения',
+    offlineBody: 'Проверьте интернет и попробуйте снова или откройте кешированную версию.',
+    serverErrorTitle: 'Ошибка сервера',
+    serverErrorBody: 'Мы уже работаем над этим. Попробуйте снова через минуту.',
+    notFoundTitle: 'Смета не найдена',
+    notFoundBody: 'Возможно, она была удалена или ссылка устарела.',
+    expiredTitle: 'Ссылка на смету истекла',
+    expiredBody: 'Запросите новую ссылку, чтобы увидеть актуальную цену и наличие.',
+    retry: 'Повторить',
+    backToOrders: 'Вернуться к заказам',
+    openOffline: 'Открыть офлайн-версию',
     loading: 'Загрузка сметы…',
     currency: 'Валюта',
     source: 'Источник',
@@ -201,7 +234,8 @@ const createSimplePdf = (lines: string[]): Blob => {
 const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<EstimateErrorType | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
   const [currency, setCurrency] = useState<QuoteCurrency>('AED');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [rates, setRates] = useState<QuoteRates>(DEFAULT_QUOTE_RATES);
@@ -211,6 +245,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [partsVerified, setPartsVerified] = useState(false);
   const detailRef = useRef<HTMLDivElement | null>(null);
+  const errorCardRef = useRef<HTMLDivElement | null>(null);
+  const errorIconRef = useRef<HTMLDivElement | null>(null);
 
   const t = i18n[lang];
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
@@ -279,35 +315,104 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     return () => window.removeEventListener('scroll', onScroll);
   }, [partsVerified]);
 
-  useEffect(() => {
+  const detectErrorType = (loadError: unknown, hasData: boolean): EstimateErrorType => {
+    if (!navigator.onLine) return EstimateErrorType.OFFLINE;
+    if (!hasData && !loadError) return EstimateErrorType.NOT_FOUND;
+    const status = Number((loadError as { status?: number } | null)?.status || 0);
+    const message = String((loadError as { message?: string } | null)?.message || '').toLowerCase();
+    if (status === 401 || status === 403 || message.includes('permission') || message.includes('not authorized')) return EstimateErrorType.NO_ACCESS;
+    if (message.includes('token') || message.includes('jwt')) return EstimateErrorType.EXPIRED_LINK;
+    if (status >= 500) return EstimateErrorType.SERVER_ERROR;
+    return EstimateErrorType.NOT_FOUND;
+  };
+
+  const readQuoteFromCache = useCallback(() => {
+    const raw = window.localStorage.getItem(`public-quote-cache:${orderId}`);
+    if (!raw) return false;
+    try {
+      setOrder(mapDbOrder(JSON.parse(raw)));
+      setErrorType(null);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [orderId]);
+
+  const loadQuote = useCallback(async () => {
     if (isExpired) {
+      setErrorType(EstimateErrorType.EXPIRED_LINK);
       setLoading(false);
-      return;
+      return false;
+    }
+    if (!navigator.onLine && readQuoteFromCache()) {
+      setLoading(false);
+      return true;
+    }
+    if (!supabase) {
+      setErrorType(EstimateErrorType.SERVER_ERROR);
+      setLoading(false);
+      return false;
     }
 
-    const loadQuote = async () => {
-      if (!supabase) {
-        setError('Quote service is unavailable.');
-        setLoading(false);
-        return;
-      }
+    const { data, error: loadError } = await supabase
+      .from('orders')
+      .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,logistics,created_at,is_archived,is_sold,parts(*,price_variants(*))')
+      .eq('id', orderId)
+      .maybeSingle();
 
-      const { data, error: loadError } = await supabase
-        .from('orders')
-        .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,logistics,created_at,is_archived,is_sold,parts(*,price_variants(*))')
-        .eq('id', orderId)
-        .maybeSingle();
-
-      if (loadError || !data) {
-        setError(t.quoteNotFound);
-      } else {
-        setOrder(mapDbOrder(data));
-      }
+    if (loadError || !data) {
+      setOrder(null);
+      setErrorType(detectErrorType(loadError, !!data));
       setLoading(false);
-    };
+      return false;
+    }
 
+    window.localStorage.setItem(`public-quote-cache:${orderId}`, JSON.stringify(data));
+    setOrder(mapDbOrder(data));
+    setErrorType(null);
+    setLoading(false);
+    return true;
+  }, [isExpired, orderId, readQuoteFromCache]);
+
+  useEffect(() => {
     void loadQuote();
-  }, [orderId, isExpired, t.quoteNotFound]);
+  }, [loadQuote]);
+
+  useEffect(() => {
+    if (!errorType) return;
+    errorCardRef.current?.animate(
+      [{ opacity: 0, transform: 'scale(0.98)' }, { opacity: 1, transform: 'scale(1)' }],
+      { duration: 150, easing: 'ease-out', fill: 'both' }
+    );
+    errorIconRef.current?.animate(
+      [{ transform: 'translateY(0)' }, { transform: 'translateY(-4px)' }, { transform: 'translateY(0)' }],
+      { duration: 700, easing: 'ease-in-out' }
+    );
+  }, [errorType]);
+
+  const shakeErrorCard = () => {
+    errorCardRef.current?.animate(
+      [
+        { transform: 'translateX(0)' },
+        { transform: 'translateX(-8px)' },
+        { transform: 'translateX(8px)' },
+        { transform: 'translateX(-5px)' },
+        { transform: 'translateX(0)' }
+      ],
+      { duration: 320, easing: 'ease-in-out' }
+    );
+  };
+
+  const onRetry = async () => {
+    setIsRetrying(true);
+    try {
+      await supabase?.auth.refreshSession();
+      const ok = await loadQuote();
+      if (!ok) shakeErrorCard();
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   const heroPhoto = useMemo(() => {
     if (!order) return '';
@@ -370,27 +475,41 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   if (loading) return <div className="min-h-screen bg-[#f5f5f7] text-slate-900 grid place-items-center">{t.loading}</div>;
 
-  if (isExpired) {
+  if (errorType || !order) {
+    const errorMeta: Record<EstimateErrorType, { title: string; body: string; tone: string; canRetry: boolean; canGoHome: boolean; canOpenOffline: boolean }> = {
+      [EstimateErrorType.NOT_FOUND]: { title: t.notFoundTitle, body: t.notFoundBody, tone: 'text-rose-500', canRetry: false, canGoHome: true, canOpenOffline: false },
+      [EstimateErrorType.NO_ACCESS]: { title: t.noAccessTitle, body: t.noAccessBody, tone: 'text-violet-500', canRetry: false, canGoHome: true, canOpenOffline: false },
+      [EstimateErrorType.OFFLINE]: { title: t.offlineTitle, body: t.offlineBody, tone: 'text-amber-500', canRetry: true, canGoHome: false, canOpenOffline: true },
+      [EstimateErrorType.SERVER_ERROR]: { title: t.serverErrorTitle, body: t.serverErrorBody, tone: 'text-orange-500', canRetry: true, canGoHome: false, canOpenOffline: false },
+      [EstimateErrorType.EXPIRED_LINK]: { title: t.expiredTitle, body: t.expiredBody, tone: 'text-slate-500', canRetry: false, canGoHome: true, canOpenOffline: false }
+    };
+    const current = errorMeta[errorType || EstimateErrorType.SERVER_ERROR];
     return (
       <div className="min-h-screen bg-[#f5f5f7] text-slate-900 flex items-center justify-center px-4 text-center">
-        <div className="max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <ShieldCheck className="mx-auto mb-3 text-amber-500" />
-          <h1 className="text-xl font-semibold">{t.quoteExpired}</h1>
-          <p className="mt-2 text-sm text-slate-600">{t.quoteExpiredBody}</p>
-          <a href={`https://wa.me/${WHATSAPP_PHONE}`} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white">
-            <MessageCircle size={16} /> {t.contactUs}
-          </a>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !order) {
-    return (
-      <div className="min-h-screen bg-[#f5f5f7] text-slate-900 flex items-center justify-center px-4 text-center">
-        <div className="max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <AlertCircle className="mx-auto mb-3 text-rose-500" />
-          <p className="text-sm text-slate-700">{error || t.quoteUnavailable}</p>
+        <div ref={errorCardRef} className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_12px_28px_rgba(15,23,42,0.08)]">
+          <div ref={errorIconRef}><AlertCircle className={`mx-auto mb-3 ${current.tone}`} /></div>
+          <h1 className="text-xl font-semibold">{current.title}</h1>
+          <p className="mt-2 text-sm text-slate-600">{current.body}</p>
+          <div className="mt-5 flex flex-col gap-2">
+            {current.canRetry && (
+              <button type="button" disabled={isRetrying} onClick={() => void onRetry()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+                <RefreshCcw size={15} className={isRetrying ? 'animate-spin' : ''} /> {t.retry}
+              </button>
+            )}
+            {current.canOpenOffline && (
+              <button type="button" onClick={() => { if (!readQuoteFromCache()) shakeErrorCard(); }} className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700">
+                {t.openOffline}
+              </button>
+            )}
+            {current.canGoHome && (
+              <a href="/" className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700">{t.backToOrders}</a>
+            )}
+            {errorType === EstimateErrorType.EXPIRED_LINK && (
+              <a href={`https://wa.me/${WHATSAPP_PHONE}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white">
+                <MessageCircle size={15} /> {t.contactUs}
+              </a>
+            )}
+          </div>
         </div>
       </div>
     );
