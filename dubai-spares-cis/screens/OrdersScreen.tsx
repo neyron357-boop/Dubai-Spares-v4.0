@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, CheckCircle2, Clock3, Filter, Loader2, MessageCircle, Pin, Share2, Smartphone, Star, WifiOff, XCircle } from 'lucide-react';
+import { Archive, BarChart3, CheckCircle2, Clock3, Filter, Loader2, MessageCircle, Smartphone, Star, WifiOff } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
 import ConfirmModal from '../components/ConfirmModal';
-import { shareQuoteLink } from '../shareUtils';
 import { toast, vibrate } from '../feedback';
 
 type TabType = 'active' | 'leads' | 'vip' | 'sold' | 'archive';
@@ -15,7 +14,7 @@ type SearchState = 'searching' | 'waiting_response' | 'found' | 'offer_sent' | '
 const priorityWeight = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
 
 const ACTION_REVEAL = 72;
-const LEFT_OPEN_WIDTH = 210;
+const LEFT_OPEN_WIDTH = 88;
 const RIGHT_OPEN_WIDTH = 88;
 const CLOSE_THRESHOLD = 24;
 const OPEN_THRESHOLD_LEFT = 80;
@@ -59,9 +58,8 @@ type SwipeableOrderCardProps = {
   setOpenCardId: (id: string | null) => void;
   onCommitWhatsapp: () => void;
   onOpenWhatsapp: () => void;
-  onPin: () => void;
   onArchive: () => void;
-  onDelete: () => void;
+  onLongPressDelete: () => void;
   onCardTap: () => void;
   children: React.ReactNode;
 };
@@ -72,9 +70,8 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
   setOpenCardId,
   onCommitWhatsapp,
   onOpenWhatsapp,
-  onPin,
   onArchive,
-  onDelete,
+  onLongPressDelete,
   onCardTap,
   children
 }) => {
@@ -88,6 +85,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
   const isHorizontalSwipe = useRef<boolean | null>(null);
   const moved = useRef(false);
   const thresholdBuzzed = useRef(false);
+  const longPressTimer = useRef<number | null>(null);
 
   const setSpringPosition = (nextX: number, nextState: SwipeStatus) => {
     setTranslateX(nextX);
@@ -100,6 +98,13 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
       setSpringPosition(0, 'idle');
     }
   }, [openCardId, orderId, status]);
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
   const leftProgress = Math.min(Math.max(-translateX / LEFT_OPEN_WIDTH, 0), 1);
   const rightProgress = Math.min(Math.max(translateX / RIGHT_OPEN_WIDTH, 0), 1);
@@ -124,6 +129,13 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
     moved.current = false;
     thresholdBuzzed.current = Math.abs(translateX) >= COMMIT_THRESHOLD_RIGHT;
     setIsDragging(true);
+    clearLongPress();
+    longPressTimer.current = window.setTimeout(() => {
+      if (!moved.current && Math.abs(translateX) < SWIPE_DEAD_ZONE) {
+        vibrate([16]);
+        onLongPressDelete();
+      }
+    }, 720);
   };
 
   const onPointerMove: React.PointerEventHandler<HTMLElement> = (event) => {
@@ -162,6 +174,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
 
   const onPointerUp: React.PointerEventHandler<HTMLElement> = (event) => {
     if (!isDragging) return;
+    clearLongPress();
     const target = event.target as HTMLElement;
     if (target.closest('button, a, input, textarea, select')) {
       setIsDragging(false);
@@ -235,9 +248,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
 
         <div className="flex h-full items-stretch">
           {[
-            { label: 'Pin', action: onPin, className: 'bg-indigo-500/90 text-white', icon: <Pin size={16} /> },
-            { label: 'Archive', action: onArchive, className: 'bg-slate-600/90 text-white', icon: <Archive size={16} /> },
-            { label: 'Delete', action: onDelete, className: 'bg-rose-600/95 text-white', icon: <XCircle size={16} /> }
+            { label: 'Archive', action: onArchive, className: 'bg-slate-600/90 text-white', icon: <Archive size={16} /> }
           ].map((item, idx) => (
             <button
               key={item.label}
@@ -276,6 +287,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={() => {
+          clearLongPress();
           setIsDragging(false);
           setSpringPosition(0, 'idle');
         }}
@@ -283,7 +295,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
         <div className="pointer-events-none absolute inset-0 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)]" />
         <div className="relative z-10">{children}</div>
         {!hasSwiped && (
-          <p className="mt-3 text-[10px] text-slate-400">Свайп → WhatsApp • Свайп ← Pin/Archive/Delete</p>
+          <p className="mt-3 text-[10px] text-slate-400">Свайп → WhatsApp • Свайп ← Archive • Long press → Delete</p>
         )}
       </article>
     </div>
@@ -353,10 +365,6 @@ const OrdersScreen: React.FC = () => {
     }
   };
 
-  const togglePin = (order: Order) => {
-    void updateOrder({ ...order, isPinned: !order.isPinned });
-  };
-
   const archiveOrder = (order: Order) => {
     if (order.isArchived) return;
     void updateOrder({ ...order, isArchived: true });
@@ -377,15 +385,6 @@ const OrdersScreen: React.FC = () => {
     }
     const message = `Здравствуйте! Апдейт по заказу ${order.brand} ${order.model}`;
     window.open(`https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`, '_blank');
-  };
-
-  const shareQuote = async (order: Order) => {
-    try {
-      await shareQuoteLink(order);
-      toast('Ссылка отправлена', 'success');
-    } catch {
-      toast('Не удалось поделиться оффером', 'error');
-    }
   };
 
   const allBrands = useMemo(() => Array.from(new Set(orders.map((order) => order.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
@@ -550,14 +549,10 @@ const OrdersScreen: React.FC = () => {
                 setOpenCardId={setOpenSwipeId}
                 onCommitWhatsapp={() => openWhatsapp(order)}
                 onOpenWhatsapp={() => openWhatsapp(order)}
-                onPin={() => {
-                  togglePin(order);
-                  toast(order.isPinned ? 'Пин снят' : 'Заказ закреплён', 'success');
-                }}
                 onArchive={() => {
                   order.isArchived ? restoreOrder(order) : archiveOrder(order);
                 }}
-                onDelete={() => setDeleteId(order.id)}
+                onLongPressDelete={() => setDeleteId(order.id)}
                 onCardTap={() => navigate(`/order/${order.id}`)}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -573,19 +568,7 @@ const OrdersScreen: React.FC = () => {
                   {order.priority === Priority.HIGH && <span className="text-[10px] font-black text-rose-600 uppercase">Срочно</span>}
                 </div>
 
-                <div className="mt-3">
-                  {totalParts === 0 ? (
-                    <div className="flex items-center justify-between rounded-xl border border-dashed border-slate-300 px-3 py-2">
-                      <p className="text-xs text-slate-500">Нет деталей</p>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); navigate(`/order/${order.id}`); }} className="rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-black uppercase text-white">Добавить</button>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="mb-1 flex items-center justify-between text-xs text-slate-600"><span>Найдено: {foundParts}/{totalParts}</span><span>{progress}%</span></div>
-                      <div className="h-2 w-full rounded bg-slate-100"><div className="h-2 rounded bg-emerald-500" style={{ width: `${progress}%` }} /></div>
-                    </>
-                  )}
-                </div>
+                <p className="mt-3 text-xs text-slate-500">Детали: {totalParts} • Найдено: {foundParts} ({progress}%)</p>
 
                 <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold">
                   {profitAed === null ? (
@@ -597,19 +580,7 @@ const OrdersScreen: React.FC = () => {
                   )}
                 </div>
 
-                <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
-                  <p className="text-[11px] text-slate-400">Свайп → WhatsApp • Свайп ← Pin/Archive</p>
-                  <div className="flex items-center gap-2">
-                    <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsapp(order); }} className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-emerald-700" aria-label="WhatsApp"><MessageCircle size={17} /></button>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); void shareQuote(order); }} className="grid h-11 w-11 place-items-center rounded-xl bg-indigo-50 text-indigo-700" aria-label="Share quote"><Share2 size={17} /></button>
-                  </div>
-                </div>
-
-                <div className="mt-2 flex items-center justify-end gap-1 text-[10px] font-black uppercase text-slate-400">
-                  <button type="button" onClick={(e) => { e.stopPropagation(); togglePin(order); }} className="rounded-lg px-2 py-1 hover:bg-slate-100">{order.isPinned ? 'Unpin' : 'Pin'}</button>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); order.isArchived ? restoreOrder(order) : archiveOrder(order); }} className="rounded-lg px-2 py-1 hover:bg-slate-100 inline-flex items-center gap-1"><Archive size={12} /> {order.isArchived ? 'Restore' : 'Archive'}</button>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); setDeleteId(order.id); }} className="rounded-lg px-2 py-1 text-rose-500 hover:bg-rose-50">Delete</button>
-                </div>
+                <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] text-slate-400">Свайп → WhatsApp • Свайп ← Archive</p>
               </SwipeableOrderCard>
             );
           })

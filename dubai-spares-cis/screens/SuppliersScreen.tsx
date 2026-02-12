@@ -728,26 +728,12 @@ const SuppliersScreen: React.FC = () => {
 
                 <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
                   <span className="rounded-full px-2 py-1 border border-blue-200 bg-blue-50 text-blue-700">{FIELD_TYPES.find((t) => t.value === s.type)?.label || 'New Parts'}</span>
-                  {s.zone && <span className="rounded-full px-2 py-1 border border-violet-200 bg-violet-50 text-violet-700">Zone: {s.zone}</span>}
-                  <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{s.activityState}</span>
-                  <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">Success: {s.successRate}%</span>
-                  <span className={`rounded-full px-2 py-1 border ${s.coordinates ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 bg-gray-50 text-gray-500'}`}>{s.coordinates ? 'GPS ✅' : 'GPS ❌'}</span>
-                  {(s.syncStatus === 'pending_sync' || s.syncStatus === 'error') && <span className="rounded-full px-2 py-1 border border-amber-200 bg-amber-50 text-amber-700">⏳ {s.syncStatus}</span>}
-                </div>
-
-                <div className="text-[11px] grid grid-cols-2 md:grid-cols-4 gap-2 text-gray-600 font-semibold">
-                  <span>FOUND/NOT: {s.foundCount}/{s.notFoundCount}</span>
-                  <span>Wrong info: {s.wrongInfoCount}</span>
-                  <span>Avg check: {s.avgCheck || 0} AED</span>
-                  <span>Primary: {s.primaryBrand || '—'}</span>
+                  <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
+                  {s.coordinates && <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{Math.max(0.1, Number((Math.abs(s.coordinates.lat - 25.2048) * 111).toFixed(1)))} km</span>}
                 </div>
 
                 {brands.length > 0 && (
-                  <div className="pt-2 flex flex-wrap gap-1.5 border-t border-gray-50">
-                    {brands.map((b) => (
-                      <span key={`brand-${s.id}-${b}`} className="bg-gray-50 text-gray-500 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase border border-gray-100 flex items-center gap-1"><Tag size={8} /> {b}</span>
-                    ))}
-                  </div>
+                  <p className="text-xs font-semibold text-slate-600 border-t border-slate-100 pt-2">{brands.slice(0, 3).join(' • ')}</p>
                 )}
 
                 <div className="grid grid-cols-3 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">

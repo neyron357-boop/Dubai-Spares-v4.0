@@ -18,6 +18,7 @@ type RadarMode = 'field' | 'detail';
 type TemplateLanguage = 'ru' | 'en' | 'tj';
 type TemplateLength = 'short' | 'full';
 type BrandMatchMode = 'strict' | 'soft';
+type RadarUxMode = 'quick' | 'advanced';
 
 type RadarEntry = ReturnType<typeof getRadarShopMatches>[number] & { order: Order; score: number; recommendation: 'high' | 'medium' | 'low'; reasons: string[]; openNow: boolean | null };
 
@@ -160,6 +161,7 @@ const RadarScreen: React.FC = () => {
   const [dismissedShopKeys, setDismissedShopKeys] = useState<Set<string>>(() => readDismissedRadarShops());
   const [isFetchingShops, setIsFetchingShops] = useState(true);
   const [chainMode, setChainMode] = useState(false);
+  const [uxMode, setUxMode] = useState<RadarUxMode>('quick');
   const [chainIndex, setChainIndex] = useState(0);
   const [interactions, setInteractions] = useState<RadarInteraction[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -471,6 +473,14 @@ const RadarScreen: React.FC = () => {
 
         <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Поиск: магазин / район / бренд" className="w-full rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-white outline-none" />
 
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-300/30 bg-slate-900/40 p-2">
+          <p className="text-[11px] font-black uppercase text-emerald-200">UX mode</p>
+          <div className="inline-flex rounded-lg border border-emerald-300/40 p-1">
+            <button type="button" onClick={() => setUxMode('quick')} className={`h-9 min-w-[88px] rounded-md px-3 text-[10px] font-black uppercase ${uxMode === 'quick' ? 'bg-emerald-400 text-slate-900' : 'text-emerald-100'}`}>Quick</button>
+            <button type="button" onClick={() => setUxMode('advanced')} className={`h-9 min-w-[88px] rounded-md px-3 text-[10px] font-black uppercase ${uxMode === 'advanced' ? 'bg-emerald-400 text-slate-900' : 'text-emerald-100'}`}>Advanced</button>
+          </div>
+        </div>
+
         <div className="space-y-1 text-[10px]">
           <p className="text-slate-400 uppercase font-black">A) Маршрут</p>
           <div className="flex flex-wrap gap-2">
@@ -484,12 +494,12 @@ const RadarScreen: React.FC = () => {
         <div className="space-y-1 text-[10px]">
           <p className="text-slate-400 uppercase font-black">B) Фильтры</p>
           <div className="flex flex-wrap gap-2">
-            {(['all', 'new_only', 'used_only'] as RadarFilter[]).map((item) => (
+            {uxMode === 'advanced' && (['all', 'new_only', 'used_only'] as RadarFilter[]).map((item) => (
               <button key={item} type="button" onClick={() => setActiveFilter(item)} className={`rounded-lg px-3 py-1 font-black uppercase ${activeFilter === item ? 'bg-slate-100 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>{item}</button>
             ))}
             <button type="button" onClick={() => setOpenNowOnly((v) => !v)} className={`rounded-lg px-3 py-1 font-black uppercase ${openNowOnly ? 'bg-slate-100 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>Open now</button>
             <button type="button" onClick={() => setBrandMatchMode((v) => (v === 'strict' ? 'soft' : 'strict'))} className="inline-flex items-center gap-1 rounded-lg border border-slate-600 px-3 py-1 font-black uppercase text-slate-300">Brand strict: {brandMatchMode}<HelpCircle size={11} title="Brand strict = показывать только точки с профилем нужного бренда" /></button>
-            <button type="button" onClick={() => setFallbackNearby((v) => !v)} className="inline-flex items-center gap-1 rounded-lg border border-amber-400/40 px-3 py-1 font-black uppercase text-amber-200"><Telescope size={11} /> fallback nearby<HelpCircle size={11} title="Fallback nearby = если мало совпадений, расширить подбор по типу" /></button>
+            {uxMode === 'advanced' && <button type="button" onClick={() => setFallbackNearby((v) => !v)} className="inline-flex items-center gap-1 rounded-lg border border-amber-400/40 px-3 py-1 font-black uppercase text-amber-200"><Telescope size={11} /> fallback nearby<HelpCircle size={11} title="Fallback nearby = если мало совпадений, расширить подбор по типу" /></button>}
           </div>
         </div>
 
@@ -504,13 +514,13 @@ const RadarScreen: React.FC = () => {
           </div>
         </div>
 
-        <div className="space-y-1 text-[10px]">
+        {uxMode === 'advanced' && <div className="space-y-1 text-[10px]">
           <p className="text-slate-400 uppercase font-black">D) WA + язык</p>
           <div className="flex items-center flex-wrap gap-2">
             {(['ru', 'en', 'tj'] as TemplateLanguage[]).map((lang) => <button key={lang} type="button" onClick={() => setTemplateLanguage(lang)} className={`rounded border px-2 py-1 uppercase ${templateLanguage === lang ? 'border-emerald-300 text-emerald-200' : 'border-slate-600 text-slate-300'}`}>{lang}</button>)}
             <button type="button" onClick={() => setTemplateLength((v) => (v === 'short' ? 'full' : 'short'))} className="rounded border border-slate-600 px-2 py-1 text-slate-300 uppercase">{templateLength === 'short' ? 'Коротко' : 'Подробно'}</button>
           </div>
-        </div>
+        </div>}
 
         <div className="flex items-center justify-between text-[11px] text-emerald-100/80">
           <p>Активных точек: {entries.length}. Очередь offline sync: {pendingSync > 0 ? `⏳ ${pendingSync}` : '0'}.</p>

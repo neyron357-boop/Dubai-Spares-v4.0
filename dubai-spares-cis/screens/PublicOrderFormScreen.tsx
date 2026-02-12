@@ -70,6 +70,8 @@ const createRequestedPartInput = (): RequestedPartInput => ({
   audioNote: null
 });
 
+const formatVinInput = (value: string) => value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 17);
+
 const splitParts = (value: string) => value
   .split(/,|\n| и | and |&|;/gi)
   .map((item) => item.trim())
@@ -173,6 +175,8 @@ const PublicOrderFormScreen: React.FC = () => {
   };
 
   const validatePhone = () => customerContact.replace(/\D/g, '').length >= 7;
+
+  const isWhatsappValid = validatePhone();
 
   const canContinue =
     (step === 1 && Boolean(brand && model && year && bodyType)) ||
@@ -456,7 +460,7 @@ const PublicOrderFormScreen: React.FC = () => {
 
               <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">VIN (опционально)</span>
-                <input value={vin} onChange={(e) => { setVin(e.target.value.toUpperCase()); detectByVin(e.target.value); }} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" placeholder="WDB123456789..." />
+                <input value={vin} onChange={(e) => { const formatted = formatVinInput(e.target.value); setVin(formatted); detectByVin(formatted); }} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" placeholder="WDB123456789..." />
               </label>
             </>
           )}
@@ -525,7 +529,7 @@ const PublicOrderFormScreen: React.FC = () => {
 
               <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ввести VIN вручную</span>
-                <input type="text" value={vin} onChange={(e) => setVin(e.target.value.toUpperCase())} placeholder="WDB123456789..." className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" />
+                <input type="text" value={vin} onChange={(e) => setVin(formatVinInput(e.target.value))} placeholder="WDB123456789..." className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" />
               </label>
 
               <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-300">Загрузить фото авто</span>
@@ -549,6 +553,7 @@ const PublicOrderFormScreen: React.FC = () => {
                   <input type="tel" value={customerContact} onChange={(e) => setCustomerContact(formatPhone(e.target.value))} placeholder="901234567" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-lg outline-none ${errors.phone ? 'border-amber-300' : 'border-white/15'}`} />
                 </div>
                 {errors.phone && <p className="mt-1 text-xs text-amber-200">{errors.phone}</p>}
+                {!errors.phone && customerContact && <p className={`mt-1 text-xs ${isWhatsappValid ? 'text-emerald-200' : 'text-amber-200'}`}>{isWhatsappValid ? 'WhatsApp номер выглядит корректно' : 'Проверьте номер WhatsApp'}</p>}
               </label>
 
               <label className="block">
@@ -576,11 +581,11 @@ const PublicOrderFormScreen: React.FC = () => {
           )}
 
           {step === 5 && (
-            <div className="rounded-3xl border border-white/15 bg-white/5 p-5 text-sm leading-7">
-              <p>📦 {brand} {model} {year}</p>
-              <p>🧩 Детали: {requestedParts.filter((item) => item.name.trim()).length}</p>
-              <p>🌍 Доставка: {deliveryCountry || '—'}</p>
-              <p>📱 WhatsApp: {contactCountryCode}{customerContact || '—'}</p>
+            <div className="rounded-3xl border border-amber-200/30 bg-gradient-to-br from-amber-100/15 via-white/10 to-transparent p-5">
+              <p className="text-xl font-black tracking-tight">{brand} {model} {year}</p>
+              <p className="mt-3 text-sm">🧩 {requestedParts.filter((item) => item.name.trim()).length} детали</p>
+              <p className="text-sm">🌍 Доставка: {deliveryCountry || '—'}</p>
+              <p className="mt-2 text-xs text-slate-300">📱 {contactCountryCode}{customerContact || '—'}</p>
             </div>
           )}
         </div>
