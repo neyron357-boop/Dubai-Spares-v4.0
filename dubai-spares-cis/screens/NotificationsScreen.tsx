@@ -48,6 +48,12 @@ const NotificationsScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const hasUnread = notifications.some((item) => !item.readAt);
+    if (!hasUnread) return;
+    markAllNotificationsRead();
+  }, [notifications]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim().toLowerCase()), 250);
     return () => window.clearTimeout(timer);
   }, [query]);

@@ -13,7 +13,7 @@ import RadarLiveSettingsScreen from './screens/RadarLiveSettingsScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-react';
 import { useStore } from './store';
-import { NotificationType, getNotifications, pushNotification } from './notificationCenter';
+import { NotificationType, getUnreadNotificationsCount, pushNotification } from './notificationCenter';
 import { checkSchemaHealth } from './schemaHealth';
 import { loadAppSettings, saveAppSettings } from './appSettings';
 
@@ -87,7 +87,24 @@ const PinGate: React.FC<{ onUnlock: () => void; isEntering: boolean }> = ({ onUn
 const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOffline: boolean }> = ({ children, isSyncing, isOffline }) => {
   const location = useLocation();
   const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
-  const unreadCount = getNotifications().filter((item) => !item.read).length;
+  const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
+
+  useEffect(() => {
+    const updateUnread = () => setUnreadCount(getUnreadNotificationsCount());
+
+    updateUnread();
+    window.addEventListener('notifications:changed', updateUnread);
+    window.addEventListener('focus', updateUnread);
+    document.addEventListener('visibilitychange', updateUnread);
+
+    return () => {
+      window.removeEventListener('notifications:changed', updateUnread);
+      window.removeEventListener('focus', updateUnread);
+      document.removeEventListener('visibilitychange', updateUnread);
+    };
+  }, []);
+
+  const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-50 flex flex-col overflow-hidden">
@@ -109,7 +126,7 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOfflin
           <NavLink to="/database" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">База</span></NavLink>
           <NavLink to="/radar" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Radar size={22} /><span className="text-[10px] font-medium">Радар</span></NavLink>
           <NavLink to="/notifications" className={({ isActive }) => `relative flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />
-            {unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{unreadCount}</span>}
+            {unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{badgeLabel}</span>}
             <span className="text-[10px] font-medium">Оповещ.</span>
           </NavLink>
           <NavLink to="/settings" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настр.</span></NavLink>
