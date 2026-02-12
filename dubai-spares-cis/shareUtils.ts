@@ -119,6 +119,8 @@ const createQuoteToken = () => {
 export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
   const slug = typeof order === 'string' ? order : buildPublicQuoteSlug(order);
   const url = new URL(`${window.location.origin}/quote/${slug}`);
+  const canonicalOrderId = typeof order === 'string' ? extractOrderIdFromQuoteSlug(order) : order.id;
+  url.searchParams.set('oid', canonicalOrderId);
   const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
   url.searchParams.set('token', createQuoteToken());
   url.searchParams.set('exp', String(expiresAt));

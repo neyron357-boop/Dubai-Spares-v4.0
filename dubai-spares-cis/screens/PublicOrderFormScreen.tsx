@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Camera, Check, ChevronLeft, Copy, Mic, MicOff, Upload } from 'lucide-react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
 import { isCloudSyncConfigured, supabase } from '../supabase';
-import { BRAND_BODY_TYPES, BRAND_MODELS, BRANDS, YEARS } from '../constants';
+import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
 import { NotificationType, pushNotification } from '../notificationCenter';
 import { logger } from '../logging';
 import { Source } from '../types';
@@ -107,7 +107,6 @@ const PublicOrderFormScreen: React.FC = () => {
   const vinCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
-  const bodyTypeOptions = useMemo(() => BRAND_BODY_TYPES[brand] || ['Седан', 'SUV', 'Купе', 'Хэтчбек'], [brand]);
   const deliveryCityOptions = useMemo(() => DELIVERY_CITIES[deliveryCountry as keyof typeof DELIVERY_CITIES] || [], [deliveryCountry]);
   const smartSuggestionKey = `${brand}|${model}|${bodyType}`;
 
@@ -124,7 +123,7 @@ const PublicOrderFormScreen: React.FC = () => {
         setBrand(draft.brand || '');
         setModel(draft.model || '');
         setYear(draft.year || '');
-        setBodyType(draft.bodyType || '');
+        setBodyType((draft.bodyType || '').slice(0, 40));
         setVin(draft.vin || '');
         setRequestedParts(Array.isArray(draft.requestedParts) && draft.requestedParts.length ? draft.requestedParts : [createRequestedPartInput()]);
         setCustomerContact(draft.customerContact || '');
@@ -179,7 +178,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const isWhatsappValid = validatePhone();
 
   const canContinue =
-    (step === 1 && Boolean(brand && model && year && bodyType)) ||
+    (step === 1 && Boolean(brand && model && year)) ||
     (step === 2 && Boolean(requestedParts.some((part) => part.name.trim()))) ||
     step === 3 ||
     (step === 4 && Boolean(validatePhone() && deliveryCountry)) ||
@@ -191,7 +190,7 @@ const PublicOrderFormScreen: React.FC = () => {
       if (!brand) nextErrors.brand = 'Выберите марку';
       if (!model) nextErrors.model = 'Выберите модель';
       if (!year) nextErrors.year = 'Выберите год';
-      if (!bodyType) nextErrors.bodyType = 'Выберите кузов';
+      if (bodyType.length > 40) nextErrors.bodyType = 'Максимум 40 символов';
     }
     if (nextStep === 4) {
       if (!validatePhone()) nextErrors.phone = 'Введите корректный WhatsApp';
@@ -328,6 +327,9 @@ const PublicOrderFormScreen: React.FC = () => {
         is_vip: false,
         is_pinned: false,
         is_lead: true,
+        lead_unread: true,
+        lead_source: 'public_form',
+        lead_read_at: null,
         notes,
         created_at: now,
         updated_at: now
@@ -449,11 +451,8 @@ const PublicOrderFormScreen: React.FC = () => {
                   {errors.year && <p className="mt-1 text-xs text-amber-200">{errors.year}</p>}
                 </label>
                 <label>
-                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Тип кузова</span>
-                  <select value={bodyType} onChange={(e) => setBodyType(e.target.value)} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.bodyType ? 'border-amber-300' : 'border-white/15'}`}>
-                    <option value="">Выберите кузов</option>
-                    {bodyTypeOptions.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
-                  </select>
+                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Тип кузова (опционально)</span>
+                  <input value={bodyType} maxLength={40} onChange={(e) => setBodyType(e.target.value.slice(0, 40))} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.bodyType ? 'border-amber-300' : 'border-white/15'}`} placeholder="Например: sedan / SUV / coupe / hatchback" />
                   {errors.bodyType && <p className="mt-1 text-xs text-amber-200">{errors.bodyType}</p>}
                 </label>
               </div>

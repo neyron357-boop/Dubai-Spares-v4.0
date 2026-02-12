@@ -49,7 +49,10 @@ const normalizeOrder = (order: Order): Order => ({
   salesStatus: order.salesStatus ?? 'Inquiry',
   updatedAt: order.updatedAt ?? order.createdAt ?? Date.now(),
   recommendedShopIds: Array.isArray(order.recommendedShopIds) ? order.recommendedShopIds : [],
-  dismissedShopIds: Array.isArray(order.dismissedShopIds) ? order.dismissedShopIds : []
+  dismissedShopIds: Array.isArray(order.dismissedShopIds) ? order.dismissedShopIds : [],
+  leadUnread: order.leadUnread === true,
+  leadSource: order.leadSource === 'public_form' ? 'public_form' : 'manual',
+  leadReadAt: Number.isFinite(Number(order.leadReadAt)) ? Number(order.leadReadAt) : undefined
 });
 
 
@@ -206,7 +209,10 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
     'social_nickname',
     'updated_at',
     'recommended_shop_ids',
-    'dismissed_shop_ids'
+    'dismissed_shop_ids',
+    'lead_unread',
+    'lead_source',
+    'lead_read_at'
   ];
 
   while (true) {
@@ -342,7 +348,10 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     socialNickname: row.social_nickname || '',
     updatedAt: parseTimestamp(row.updated_at ?? row.created_at),
     recommendedShopIds: Array.isArray(row.recommended_shop_ids) ? row.recommended_shop_ids : [],
-    dismissedShopIds: Array.isArray(row.dismissed_shop_ids) ? row.dismissed_shop_ids : []
+    dismissedShopIds: Array.isArray(row.dismissed_shop_ids) ? row.dismissed_shop_ids : [],
+    leadUnread: !!(row as any).lead_unread,
+    leadSource: (row as any).lead_source === 'public_form' ? 'public_form' : 'manual',
+    leadReadAt: Number.isFinite(Number((row as any).lead_read_at)) ? Number((row as any).lead_read_at) : undefined
   })
 });
 
@@ -429,7 +438,10 @@ const persistOrderGraph = async (order: Order) => {
     customer_contact: uploadedOrder.customerContact || '',
     social_nickname: uploadedOrder.socialNickname || '',
     recommended_shop_ids: uploadedOrder.recommendedShopIds || [],
-    dismissed_shop_ids: uploadedOrder.dismissedShopIds || []
+    dismissed_shop_ids: uploadedOrder.dismissedShopIds || [],
+    lead_unread: !!uploadedOrder.leadUnread,
+    lead_source: uploadedOrder.leadSource || 'manual',
+    lead_read_at: uploadedOrder.leadReadAt ? toIsoTimestamp(uploadedOrder.leadReadAt) : null
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -446,7 +458,10 @@ const persistOrderGraph = async (order: Order) => {
       'social_nickname',
       'recommended_shop_ids',
       'dismissed_shop_ids',
-      'body_type'
+      'body_type',
+      'lead_unread',
+      'lead_source',
+      'lead_read_at'
     ]);
 
     let payload: Record<string, unknown> = { ...fallbackOrderPayload };

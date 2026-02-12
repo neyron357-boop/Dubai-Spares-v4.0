@@ -61,6 +61,7 @@ type SwipeableOrderCardProps = {
   onArchive: () => void;
   onLongPressDelete: () => void;
   onCardTap: () => void;
+  disableCardTap?: boolean;
   children: React.ReactNode;
 };
 
@@ -73,6 +74,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
   onArchive,
   onLongPressDelete,
   onCardTap,
+  disableCardTap = false,
   children
 }) => {
   const [translateX, setTranslateX] = useState(0);
@@ -86,6 +88,8 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
   const moved = useRef(false);
   const thresholdBuzzed = useRef(false);
   const longPressTimer = useRef<number | null>(null);
+  const suppressClickUntil = useRef(0);
+  const longPressActive = useRef(false);
 
   const setSpringPosition = (nextX: number, nextState: SwipeStatus) => {
     setTranslateX(nextX);
@@ -132,6 +136,10 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
     clearLongPress();
     longPressTimer.current = window.setTimeout(() => {
       if (!moved.current && Math.abs(translateX) < SWIPE_DEAD_ZONE) {
+        event.preventDefault();
+        event.stopPropagation();
+        longPressActive.current = true;
+        suppressClickUntil.current = Date.now() + 400;
         vibrate([16]);
         onLongPressDelete();
       }
@@ -187,7 +195,8 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
         setOpenCardId(null);
         setSpringPosition(0, 'idle');
       } else {
-        onCardTap();
+        const blocked = disableCardTap || longPressActive.current || Date.now() < suppressClickUntil.current;
+        if (!blocked) onCardTap();
       }
       setIsDragging(false);
       return;
@@ -288,6 +297,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
         onPointerUp={onPointerUp}
         onPointerCancel={() => {
           clearLongPress();
+          longPressActive.current = false;
           setIsDragging(false);
           setSpringPosition(0, 'idle');
         }}
@@ -313,6 +323,7 @@ const OrdersScreen: React.FC = () => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
@@ -389,9 +400,12 @@ const OrdersScreen: React.FC = () => {
 
   const allBrands = useMemo(() => Array.from(new Set(orders.map((order) => order.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
 
+
+  const isUnreadPublicLead = (order: Order) => order.leadSource === 'public_form' && order.leadUnread === true && !order.isArchived;
+
   const tabCounts = useMemo(() => ({
-    active: orders.filter((o) => !o.isArchived && !o.isSold).length,
-    leads: orders.filter((o) => (o.isLead || o.status === 'new_inquiry') && !o.isSold).length,
+    active: orders.filter((o) => !o.isArchived && !o.isSold && !isUnreadPublicLead(o)).length,
+    leads: orders.filter((o) => isUnreadPublicLead(o) && !o.isSold).length,
     vip: orders.filter((o) => o.isVip && !o.isSold).length,
     sold: orders.filter((o) => o.isSold).length,
     archive: orders.filter((o) => o.isArchived && !o.isSold).length
@@ -402,8 +416,8 @@ const OrdersScreen: React.FC = () => {
       if (activeTab === 'sold') return order.isSold;
       if (activeTab === 'archive') return order.isArchived && !order.isSold;
       if (activeTab === 'vip') return order.isVip && !order.isSold;
-      if (activeTab === 'leads') return (order.isLead || order.status === 'new_inquiry') && !order.isSold;
-      return !order.isArchived && !order.isSold;
+      if (activeTab === 'leads') return isUnreadPublicLead(order) && !order.isSold;
+      return !order.isArchived && !order.isSold && !isUnreadPublicLead(order);
     });
 
     if (debouncedSearch) {
@@ -464,8 +478,10 @@ const OrdersScreen: React.FC = () => {
 
   const confirmDelete = async () => {
     if (!deleteId) return;
+    setIsDeleting(true);
     const ok = await deleteOrder(deleteId);
     if (ok) setDeleteId(null);
+    setIsDeleting(false);
   };
 
   return (
@@ -554,10 +570,16 @@ const OrdersScreen: React.FC = () => {
                 }}
                 onLongPressDelete={() => setDeleteId(order.id)}
                 onCardTap={() => navigate(`/order/${order.id}`)}
+                disableCardTap={!!deleteId || isDeleting}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <h3 className="truncate text-base font-black text-slate-900">{order.brand} {order.model} <span className="text-sm font-semibold text-slate-500">{order.year}</span></h3>
+                    {isUnreadPublicLead(order) && (
+                      <span className="mt-1 inline-flex items-center gap-2 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">
+                        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-rose-500" /> NEW LEAD
+                      </span>
+                    )}
                     <p className="mt-0.5 truncate text-sm text-slate-600 inline-flex items-center gap-1">{contactLabel}{order.isVip && <Star size={12} className="text-amber-500" />} • {order.source || 'Источник —'}</p>
                   </div>
                   <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-700 inline-flex items-center gap-1"><Clock3 size={11} /> {ageLabel}</span>
@@ -662,7 +684,7 @@ const OrdersScreen: React.FC = () => {
         </div>
       )}
 
-      <ConfirmModal isOpen={!!deleteId} message="Вы уверены, что хотите удалить этот заказ?" onConfirm={confirmDelete} onCancel={() => setDeleteId(null)} />
+      <ConfirmModal isOpen={!!deleteId} message={isDeleting ? 'Удаляем…' : 'Вы уверены, что хотите удалить этот заказ?'} onConfirm={confirmDelete} onCancel={() => { if (!isDeleting) setDeleteId(null); }} />
       {isIncomeOpen && <IncomeModal isOpen={isIncomeOpen} onClose={() => setIsIncomeOpen(false)} orders={orders} />}
     </div>
   );

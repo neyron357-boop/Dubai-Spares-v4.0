@@ -3,6 +3,18 @@ import type { SystemLogEntry, SystemLogLevel } from './types';
 
 const MAX_LOGS = 2000;
 
+const sessionId = window.localStorage.getItem('app_session_id') || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2,8)}`);
+window.localStorage.setItem('app_session_id', sessionId);
+
+const getCategory = (scope: string, level: SystemLogLevel): SystemLogEntry['category'] => {
+  if (scope.startsWith('sync')) return 'sync';
+  if (scope.startsWith('ui')) return 'ui';
+  if (scope.startsWith('network') || scope.includes('fetch') || scope.includes('quote')) return 'network';
+  if (level === 'error') return 'errors';
+  if (level === 'warn') return 'warn';
+  return 'info';
+};
+
 const createLogEntry = (level: SystemLogLevel, scope: string, message: string, meta?: unknown): SystemLogEntry => ({
   id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -11,7 +23,11 @@ const createLogEntry = (level: SystemLogLevel, scope: string, message: string, m
   scope,
   message,
   meta,
-  createdAt: Date.now()
+  createdAt: Date.now(),
+  category: getCategory(scope, level),
+  sessionId,
+  requestId: (meta as any)?.requestId,
+  orderId: (meta as any)?.orderId
 });
 
 const emit = async (level: SystemLogLevel, scope: string, message: string, meta?: unknown) => {
