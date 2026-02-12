@@ -675,11 +675,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                       setGallery({ images: galleryPhotos, index: 0 });
                       logEvent('gallery_open', { partId: part.id });
                     }}
-                    className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 disabled:opacity-40"
+                    className="mt-0.5 inline-flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-slate-600 disabled:opacity-40"
                     disabled={galleryPhotos.length === 0}
                     title={galleryPhotos.length > 1 ? `Фото: ${galleryPhotos.length}` : 'Фото детали'}
                   >
-                    <Images size={18} />
+                    {previewPhotos[0] ? <img src={previewPhotos[0]} alt={part.name} className="h-full w-full object-cover" /> : <Images size={18} />}
                   </button>
                   <div className="min-w-0">
                     <h3 className="truncate text-xl font-semibold">{part.name}</h3>
