@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Mic } from 'lucide-react';
-import { DEFAULT_MARKUP, DEFAULT_RATE } from '../constants';
+import { Camera, ChevronDown, Mic } from 'lucide-react';
+import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE, YEARS } from '../constants';
 import { useStore } from '../store';
 import { Order, Priority, Source } from '../types';
 import { logger } from '../logging';
@@ -39,6 +39,9 @@ const decodeVin = (rawVin: string): VinDecoded | null => {
 
 const createId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
+const inputClass = 'h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-slate-300 focus:ring-4 focus:ring-slate-100';
+const selectClass = `${inputClass} appearance-none pr-9`;
+
 const NewOrderScreen: React.FC = () => {
   const navigate = useNavigate();
   const { addOrder, isSyncing } = useStore();
@@ -63,6 +66,17 @@ const NewOrderScreen: React.FC = () => {
   const photoRef = useRef<HTMLInputElement>(null);
 
   const touched = useRef({ brand: false, model: false, year: false });
+
+  const modelOptions = useMemo(() => {
+    if (brand) return BRAND_MODELS[brand] || [];
+    return Array.from(new Set(Object.values(BRAND_MODELS).flat())).sort((a, b) => a.localeCompare(b));
+  }, [brand]);
+
+  useEffect(() => {
+    if (model && modelOptions.length > 0 && !modelOptions.includes(model)) {
+      setModel('');
+    }
+  }, [model, modelOptions]);
 
   useEffect(() => {
     const saved = localStorage.getItem('new-order-draft-v1');
@@ -186,27 +200,91 @@ const NewOrderScreen: React.FC = () => {
     <form onSubmit={submit} className="mx-auto max-w-2xl space-y-4 p-4 pb-28">
       <h1 className="text-xl font-black text-slate-900">Создать заказ</h1>
 
-      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
-        <h2 className="text-xs font-black uppercase text-slate-500">Автомобиль</h2>
-        <input autoFocus value={vin} onChange={(e) => setVin(e.target.value.toUpperCase().slice(0, 17))} placeholder="VIN (опционально)" className="h-12 w-full rounded-xl border border-slate-200 px-3" />
+      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="text-xs font-black uppercase tracking-wide text-slate-500">Автомобиль</h2>
+        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          Быстро заполните марку, модель и год через выпадающие списки.
+        </div>
+
+        <input autoFocus value={vin} onChange={(e) => setVin(e.target.value.toUpperCase().slice(0, 17))} placeholder="VIN (опционально)" className={inputClass} />
         {errors.vin && <p className="text-xs text-rose-600">{errors.vin}</p>}
-        <input value={brand} onChange={(e) => { touched.current.brand = true; setBrand(e.target.value); }} placeholder="Марка *" className="h-12 w-full rounded-xl border border-slate-200 px-3" />
-        {errors.brand && <p className="text-xs text-rose-600">{errors.brand}</p>}
-        <input value={model} onChange={(e) => { touched.current.model = true; setModel(e.target.value); }} placeholder="Модель *" className="h-12 w-full rounded-xl border border-slate-200 px-3" />
-        {errors.model && <p className="text-xs text-rose-600">{errors.model}</p>}
-        <input value={year} onChange={(e) => { touched.current.year = true; setYear(e.target.value.replace(/\D/g, '').slice(0, 4)); }} placeholder="Год *" className="h-12 w-full rounded-xl border border-slate-200 px-3" />
-        {errors.year && <p className="text-xs text-rose-600">{errors.year}</p>}
-        <input value={bodyType} onChange={(e) => setBodyType(e.target.value)} placeholder="Тип кузова" className="h-12 w-full rounded-xl border border-slate-200 px-3" />
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="space-y-1">
+            <span className="text-xs font-semibold text-slate-500">Марка *</span>
+            <div className="relative">
+              <select
+                value={brand}
+                onChange={(e) => {
+                  touched.current.brand = true;
+                  setBrand(e.target.value);
+                  setModel('');
+                }}
+                className={selectClass}
+              >
+                <option value="">Выберите марку</option>
+                {BRANDS.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            </div>
+            {errors.brand && <p className="text-xs text-rose-600">{errors.brand}</p>}
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-semibold text-slate-500">Модель *</span>
+            <div className="relative">
+              <select
+                value={model}
+                onChange={(e) => {
+                  touched.current.model = true;
+                  setModel(e.target.value);
+                }}
+                className={selectClass}
+              >
+                <option value="">Выберите модель</option>
+                {modelOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            </div>
+            {errors.model && <p className="text-xs text-rose-600">{errors.model}</p>}
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="space-y-1">
+            <span className="text-xs font-semibold text-slate-500">Год *</span>
+            <div className="relative">
+              <select
+                value={year}
+                onChange={(e) => {
+                  touched.current.year = true;
+                  setYear(e.target.value);
+                }}
+                className={selectClass}
+              >
+                <option value="">Выберите год</option>
+                {YEARS.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            </div>
+            {errors.year && <p className="text-xs text-rose-600">{errors.year}</p>}
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-semibold text-slate-500">Тип кузова (текстом)</span>
+            <input value={bodyType} onChange={(e) => setBodyType(e.target.value)} placeholder="Например: Sedan / SUV / Coupe" className={inputClass} />
+          </label>
+        </div>
       </section>
 
-      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-xs font-black uppercase text-slate-500">Деталь</h2>
-        <input value={partName} onChange={(e) => setPartName(e.target.value)} placeholder="Название детали *" className="h-12 w-full rounded-xl border border-slate-200 px-3" />
+        <input value={partName} onChange={(e) => setPartName(e.target.value)} placeholder="Название детали *" className={inputClass} />
         {errors.partName && <p className="text-xs text-rose-600">{errors.partName}</p>}
-        <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" rows={3} className="w-full rounded-xl border border-slate-200 p-3" />
+        <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" rows={3} className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100" />
         <div className="flex gap-2">
-          <button type="button" onClick={() => photoRef.current?.click()} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-bold"><Camera size={14} /> Фото</button>
-          <button type="button" onClick={startVoiceInput} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-bold"><Mic size={14} /> Голос</button>
+          <button type="button" onClick={() => photoRef.current?.click()} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"><Camera size={14} /> Фото</button>
+          <button type="button" onClick={startVoiceInput} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"><Mic size={14} /> Голос</button>
         </div>
         {!!voiceNote && <p className="text-xs text-slate-500">🎤 {voiceNote}</p>}
         <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => {
@@ -219,19 +297,17 @@ const NewOrderScreen: React.FC = () => {
         }} />
       </section>
 
-      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-xs font-black uppercase text-slate-500">Клиент</h2>
-        <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Имя клиента" className="h-12 w-full rounded-xl border border-slate-200 px-3" />
-        <input value={customerContact} onChange={(e) => setCustomerContact(e.target.value)} placeholder="WhatsApp *" className="h-12 w-full rounded-xl border border-slate-200 px-3" />
+        <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Имя клиента" className={inputClass} />
+        <input value={customerContact} onChange={(e) => setCustomerContact(e.target.value)} placeholder="WhatsApp *" className={inputClass} />
         {errors.contact && <p className="text-xs text-rose-600">{errors.contact}</p>}
-        <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Страна / откуда пишет" className="h-12 w-full rounded-xl border border-slate-200 px-3" />
+        <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Страна / откуда пишет" className={inputClass} />
       </section>
-
-
 
       <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 p-3 backdrop-blur">
         <div className="mx-auto max-w-2xl">
-          <button type="submit" disabled={!canCreate || isSyncing} className="h-14 w-full rounded-2xl bg-slate-900 text-sm font-black uppercase tracking-wide text-white disabled:opacity-40">
+          <button type="submit" disabled={!canCreate || isSyncing} className="h-14 w-full rounded-2xl bg-slate-900 text-sm font-black uppercase tracking-wide text-white transition-all duration-200 disabled:opacity-40">
             СОЗДАТЬ ЗАКАЗ
           </button>
         </div>
