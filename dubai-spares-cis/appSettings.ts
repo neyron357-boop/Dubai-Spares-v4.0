@@ -32,6 +32,8 @@ export interface AppSettings {
   publicWhatsappNumber: string;
   publicTelegramUrl: string;
   publicInstagramUrl: string;
+  publicDeliveryTerms: string;
+  publicWorkTerms: string;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -55,7 +57,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   hideSchemaWarningUntil: 0,
   publicWhatsappNumber: '971000000000',
   publicTelegramUrl: '',
-  publicInstagramUrl: ''
+  publicInstagramUrl: '',
+  publicDeliveryTerms: '',
+  publicWorkTerms: ''
 };
 
 const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSettings => ({
@@ -67,7 +71,9 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
     ? raw.publicWhatsappNumber.replace(/[^\d]/g, '')
     : DEFAULT_APP_SETTINGS.publicWhatsappNumber,
   publicTelegramUrl: typeof raw?.publicTelegramUrl === 'string' ? raw.publicTelegramUrl : '',
-  publicInstagramUrl: typeof raw?.publicInstagramUrl === 'string' ? raw.publicInstagramUrl : ''
+  publicInstagramUrl: typeof raw?.publicInstagramUrl === 'string' ? raw.publicInstagramUrl : '',
+  publicDeliveryTerms: typeof raw?.publicDeliveryTerms === 'string' ? raw.publicDeliveryTerms : '',
+  publicWorkTerms: typeof raw?.publicWorkTerms === 'string' ? raw.publicWorkTerms : ''
 });
 
 export const loadAppSettings = (): AppSettings => {

@@ -215,6 +215,24 @@ const SettingsScreen: React.FC = () => {
               className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
             />
           </Field>
+
+          <Field label="Условия доставки (для сметы клиенту)">
+            <textarea
+              value={draftSettings.publicDeliveryTerms}
+              onChange={(e) => updateDraft({ publicDeliveryTerms: e.target.value })}
+              placeholder="Например: Доставка 3-8 рабочих дней после подтверждения и оплаты."
+              className="min-h-20 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            />
+          </Field>
+
+          <Field label="Условия работы (для сметы клиенту)">
+            <textarea
+              value={draftSettings.publicWorkTerms}
+              onChange={(e) => updateDraft({ publicWorkTerms: e.target.value })}
+              placeholder="Например: Проверка наличия/цены перед оплатой, фото-отчёт перед отправкой."
+              className="min-h-20 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            />
+          </Field>
         </div>
       </Section>
 
