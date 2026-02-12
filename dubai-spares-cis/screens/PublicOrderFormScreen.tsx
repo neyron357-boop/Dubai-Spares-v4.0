@@ -6,6 +6,7 @@ import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
 import { NotificationType, pushNotification } from '../notificationCenter';
 import { logger } from '../logging';
 import { Source } from '../types';
+import { useAppSettings } from '../appSettings';
 
 type FormStep = 1 | 2 | 3 | 4 | 5;
 
@@ -90,6 +91,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [contactCountryCode, setContactCountryCode] = useState(PHONE_CODES[0].code);
   const [customerContact, setCustomerContact] = useState('');
   const [messageSource, setMessageSource] = useState<Source>(Source.WHATSAPP);
+  const [clientAlias, setClientAlias] = useState('');
   const [deliveryCountry, setDeliveryCountry] = useState('');
   const [deliveryCity, setDeliveryCity] = useState('');
   const [deliveryAddressNote, setDeliveryAddressNote] = useState('');
@@ -100,6 +102,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [createdOrderId, setCreatedOrderId] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const { settings } = useAppSettings();
 
   const carInputRef = useRef<HTMLInputElement | null>(null);
   const carCameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -132,6 +135,7 @@ const PublicOrderFormScreen: React.FC = () => {
         setDeliveryCity(draft.deliveryCity || '');
         setDeliveryAddressNote(draft.deliveryAddressNote || '');
         setEngineCode(draft.engineCode || '');
+        setClientAlias(draft.clientAlias || '');
       }
     } catch {
       // noop
@@ -141,9 +145,9 @@ const PublicOrderFormScreen: React.FC = () => {
   useEffect(() => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify({
       brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode,
-      deliveryCountry, deliveryCity, deliveryAddressNote, engineCode
+      deliveryCountry, deliveryCity, deliveryAddressNote, engineCode, clientAlias
     }));
-  }, [brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode, deliveryCountry, deliveryCity, deliveryAddressNote, engineCode]);
+  }, [brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode, deliveryCountry, deliveryCity, deliveryAddressNote, engineCode, clientAlias]);
 
   useEffect(() => {
     if (brand === 'BMW') setShowEngineCode(true);
@@ -173,7 +177,7 @@ const PublicOrderFormScreen: React.FC = () => {
     setRequestedParts((current) => current.map((part, i) => (i === index ? { ...part, ...updates } : part)));
   };
 
-  const validatePhone = () => customerContact.replace(/\D/g, '').length >= 7;
+  const validatePhone = () => customerContact.replace(/\D/g, '').length >= 8;
 
   const isWhatsappValid = validatePhone();
 
@@ -225,6 +229,7 @@ const PublicOrderFormScreen: React.FC = () => {
     setDeliveryAddressNote('');
     setShowEngineCode(false);
     setEngineCode('');
+    setClientAlias('');
     localStorage.removeItem(DRAFT_KEY);
   };
 
@@ -298,7 +303,7 @@ const PublicOrderFormScreen: React.FC = () => {
 
       const notes = [{
         id: createId(),
-        text: `Public Lead\nИсточник: ${messageSource}\nVIN: ${vin || '—'}\nEngine code: ${engineCode || '—'}\nCountry: ${deliveryCountry}`,
+        text: `Public Lead\nИсточник: ${messageSource}\nИмя/ник: ${clientAlias || '—'}\nVIN: ${vin || '—'}\nEngine code: ${engineCode || '—'}\nCountry: ${deliveryCountry}`,
         photos: uploadedVinPhotos,
         audios: [],
         createdAt: Date.now()
@@ -314,9 +319,10 @@ const PublicOrderFormScreen: React.FC = () => {
         vin_photo_url: uploadedVinPhotos[0] || null,
         status: 'lead',
         sales_status: 'Inquiry',
-        client_name: 'Public Lead',
+        client_name: clientAlias.trim() || 'Public Lead',
         customer_contact: `${contactCountryCode}${customerContact.trim()}`.trim(),
         source: messageSource,
+        social_nickname: clientAlias.trim() || null,
         priority: 'MEDIUM',
         car_photo_url: uploadedCarPhotos[0] || null,
         car_photos: uploadedCarPhotos,
@@ -390,8 +396,10 @@ const PublicOrderFormScreen: React.FC = () => {
           <p className="mt-2 text-slate-200">Номер заявки: <b>{createdOrderId}</b></p>
           <p className="mt-1 text-slate-300">Обычно отвечаем в течение 10–20 минут.</p>
           <div className="mt-5 grid gap-2 sm:grid-cols-2">
-            <a href="https://wa.me/971000000000" target="_blank" rel="noreferrer" className="rounded-2xl bg-emerald-400 px-4 py-3 text-center font-semibold text-slate-900">Перейти в WhatsApp</a>
+            <a href={`https://wa.me/${settings.publicWhatsappNumber || '971000000000'}`} target="_blank" rel="noreferrer" className="rounded-2xl bg-emerald-400 px-4 py-3 text-center font-semibold text-slate-900">Перейти в WhatsApp</a>
             <button type="button" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/#public-order/${createdOrderId}`)} className="rounded-2xl border border-white/25 px-4 py-3 text-sm font-semibold">Сохранить ссылку</button>
+            {settings.publicTelegramUrl && <a href={settings.publicTelegramUrl} target="_blank" rel="noreferrer" className="rounded-2xl border border-sky-300/40 bg-sky-400/20 px-4 py-3 text-center text-sm font-semibold text-sky-100">Telegram</a>}
+            {settings.publicInstagramUrl && <a href={settings.publicInstagramUrl} target="_blank" rel="noreferrer" className="rounded-2xl border border-pink-300/40 bg-pink-400/20 px-4 py-3 text-center text-sm font-semibold text-pink-100">Instagram</a>}
           </div>
           <button type="button" onClick={() => setShowThanks(false)} className="mt-6 rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-900">Создать новую заявку</button>
         </div>
@@ -573,6 +581,18 @@ const PublicOrderFormScreen: React.FC = () => {
               </label>
 
               <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ваше имя или ник (опционально)</span>
+                <input value={clientAlias} onChange={(e) => setClientAlias(e.target.value.slice(0, 60))} placeholder="Напр. @alex" className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Откуда вы пишете</span>
+                <select value={messageSource} onChange={(e) => setMessageSource(e.target.value as Source)} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none">
+                  {[Source.INSTAGRAM, Source.WHATSAPP, Source.TELEGRAM, Source.TIKTOK, Source.FACEBOOK, Source.OTHER].map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
+                </select>
+              </label>
+
+              <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Комментарий (опционально)</span>
                 <textarea value={deliveryAddressNote} onChange={(e) => setDeliveryAddressNote(e.target.value)} rows={3} placeholder="Район, адрес и комментарий" className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none" />
               </label>
@@ -585,6 +605,7 @@ const PublicOrderFormScreen: React.FC = () => {
               <p className="mt-3 text-sm">🧩 {requestedParts.filter((item) => item.name.trim()).length} детали</p>
               <p className="text-sm">🌍 Доставка: {deliveryCountry || '—'}</p>
               <p className="mt-2 text-xs text-slate-300">📱 {contactCountryCode}{customerContact || '—'}</p>
+              <p className="text-xs text-slate-300">👤 {clientAlias || '—'} • {messageSource}</p>
             </div>
           )}
         </div>

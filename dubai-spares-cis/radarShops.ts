@@ -158,14 +158,13 @@ const mapShopRow = (row: any): Shop => ({
 
 const mapSuppliersToShops = (suppliers: Supplier[]): Shop[] => suppliers
   .map(normalizeSupplierMetadata)
-  .filter((supplier) => supplier.coordinates)
   .map((supplier) => ({
     id: supplier.id,
     name: supplier.name,
     phone: supplier.phone,
     location: supplier.location,
-    latitude: supplier.coordinates!.lat,
-    longitude: supplier.coordinates!.lng,
+    latitude: Number(supplier.coordinates?.lat || 0),
+    longitude: Number(supplier.coordinates?.lng || 0),
     type: supplier.type,
     zone: supplier.zone,
     heatLevel: supplier.heatLevel,

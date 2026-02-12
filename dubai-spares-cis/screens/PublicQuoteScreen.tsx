@@ -16,11 +16,11 @@ import ImagePreview from '../components/ImagePreview';
 import { DEFAULT_QUOTE_RATES, extractOrderIdFromQuoteSlug, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
+import { useAppSettings } from '../appSettings';
 
 type Language = 'en' | 'ru';
 
 const CURRENCY_LABELS: Record<QuoteCurrency, string> = { AED: 'Dirham', USD: 'Dollar', RUB: 'Ruble', TJS: 'Somoni' };
-const WHATSAPP_PHONE = '971521574546';
 
 enum EstimateErrorType {
   NOT_FOUND = 'NOT_FOUND',
@@ -258,6 +258,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [lang, setLang] = useState<Language>('en');
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [partsVerified, setPartsVerified] = useState(false);
+  const { settings } = useAppSettings();
   const detailRef = useRef<HTMLDivElement | null>(null);
   const errorCardRef = useRef<HTMLDivElement | null>(null);
   const errorIconRef = useRef<HTMLDivElement | null>(null);
@@ -266,7 +267,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const expiresAt = Number(params.get('exp') || 0);
   const fallbackOrderId = extractOrderIdFromQuoteSlug(params.get('oid') || params.get('orderId') || '');
-  const candidateOrderIds = Array.from(new Set([orderId, fallbackOrderId].filter(Boolean)));
+  const rawOid = (params.get('oid') || params.get('orderId') || '').trim();
+  const candidateOrderIds = Array.from(new Set([orderId, fallbackOrderId, rawOid].filter(Boolean)));
   const token = params.get('token') || '';
   const hasSecurityToken = token.length >= 32;
   const isExpired = hasSecurityToken && Number.isFinite(expiresAt) && expiresAt <= Date.now();
@@ -348,7 +350,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
     const orderResponse = await supabase
       .from('orders')
-      .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,logistics,created_at,is_archived,is_sold')
+      .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,created_at,is_archived,is_sold')
       .eq('id', candidateId)
       .maybeSingle();
 
@@ -425,7 +427,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       for (const candidateId of candidateOrderIds) {
         let { data, error: loadError } = await supabase
           .from('orders')
-          .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,logistics,created_at,is_archived,is_sold,parts(*,price_variants(*))')
+          .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,created_at,is_archived,is_sold,parts(*,price_variants(*))')
           .eq('id', candidateId)
           .maybeSingle();
 
@@ -531,7 +533,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const confirmMessage = lang === 'ru'
     ? `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nИтого: ${totals.totalAed.toFixed(2)} AED.\nДетали: ${partsLine}.\nГотов(а) оформить. Подскажите срок и способ доставки.`
     : `Hello! I confirm the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nTotal: ${totals.totalAed.toFixed(2)} AED.\nPart: ${partsLine}.\nPlease confirm delivery time and shipping options.`;
-  const whatsappUrl = `https://wa.me/${WHATSAPP_PHONE}?text=${encodeURIComponent(confirmMessage)}`;
+  const whatsappPhone = settings.publicWhatsappNumber || '971000000000';
+  const whatsappUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(confirmMessage)}`;
 
   const downloadPdf = () => {
     if (!order) return;
@@ -543,7 +546,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       `Valid until: ${new Date(expiresAt).toLocaleString()}`,
       '--- Parts ---',
       ...foundParts.map(({ part, clientAed }) => `${part.name}: ${clientAed.toFixed(2)} AED`),
-      'Contact: +971 52 157 4546'
+      `Contact: +${whatsappPhone}`
     ];
     const blob = createSimplePdf(lines);
     const link = document.createElement('a');
@@ -587,7 +590,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <a href="/" className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700">{t.backToOrders}</a>
             )}
             {errorType === EstimateErrorType.EXPIRED_LINK && (
-              <a href={`https://wa.me/${WHATSAPP_PHONE}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white">
+              <a href={`https://wa.me/${whatsappPhone}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white">
                 <MessageCircle size={15} /> {t.contactUs}
               </a>
             )}
@@ -740,7 +743,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           </ul>
           <div className="mt-3 rounded-2xl bg-slate-50 p-3">
             <p className="font-semibold text-slate-800">{t.companyProfile}: Dubai Spares UAE</p>
-            <p>WhatsApp: +971 52 157 4546</p>
+            <p>WhatsApp: +{whatsappPhone}</p>
+            {settings.publicTelegramUrl && <p>Telegram: {settings.publicTelegramUrl}</p>}
+            {settings.publicInstagramUrl && <p>Instagram: {settings.publicInstagramUrl}</p>}
           </div>
         </section>
 
