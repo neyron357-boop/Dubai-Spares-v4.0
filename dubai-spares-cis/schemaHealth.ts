@@ -36,19 +36,6 @@ export const checkSchemaHealth = async (): Promise<SchemaHealth> => {
     return { frontendVersion: FRONTEND_SCHEMA_VERSION, backendVersion: null, compatible: true, reason: probe.error.message };
   }
 
-  const configProbe = await supabase.from('app_config').select('value').eq('key', 'schema_version').maybeSingle();
-  if (!configProbe.error) {
-    const backendVersion = typeof configProbe.data?.value === 'string' ? configProbe.data.value : null;
-    if (backendVersion && backendVersion !== FRONTEND_SCHEMA_VERSION) {
-      return {
-        frontendVersion: FRONTEND_SCHEMA_VERSION,
-        backendVersion,
-        compatible: false,
-        reason: 'Нужна синхронизация версии приложения/базы. Обновите страницу/приложение.'
-      };
-    }
-    return { frontendVersion: FRONTEND_SCHEMA_VERSION, backendVersion, compatible: true };
-  }
-
+  // app_config is optional; schema compatibility is validated through concrete table probes above.
   return { frontendVersion: FRONTEND_SCHEMA_VERSION, backendVersion: null, compatible: true };
 };

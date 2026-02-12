@@ -95,6 +95,14 @@ const clearGeocodeFailure = (shopId: string) => {
   failedGeocodeCache.delete(shopId);
 };
 
+const getMissingShopsColumnName = (error: unknown): string | null => {
+  if (typeof error !== 'object' || !error) return null;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  if (anyErr.code !== 'PGRST204' || typeof anyErr.message !== 'string') return null;
+  const match = anyErr.message.match(/Could not find the '([^']+)' column of 'shops'/);
+  return match?.[1] || null;
+};
+
 export const normalizeSupplierMetadata = (supplier: Supplier): Supplier => {
   const models = Array.isArray(supplier.models)
     ? supplier.models
@@ -242,24 +250,55 @@ export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> =>
     return supplierShops;
   }
 
-  const baseFields = 'id,name,phone,location,latitude,longitude,specialization,specialization_tag,business_hours,business_hours_timezone';
-  const extendedFields = `${baseFields},specialization_models,specialization_years,specialization_body_types,needs_manual_fix,shop_type,main_brands,zone,heat_level`;
-  const primary = await supabase.from('shops').select(extendedFields);
+  let selectFields = [
+    'id',
+    'name',
+    'phone',
+    'location',
+    'latitude',
+    'longitude',
+    'specialization',
+    'specialization_tag',
+    'business_hours',
+    'business_hours_timezone',
+    'specialization_models',
+    'specialization_years',
+    'specialization_body_types',
+    'needs_manual_fix',
+    'shop_type',
+    'main_brands',
+    'zone',
+    'heat_level'
+  ];
 
   let data: any[] | null = null;
-  if (primary.error && primary.error.code === '42703') {
-    await logDatabaseIntegrity('shops:fetch', primary.error, { table: 'shops', phase: 'extended-select' });
-    const fallback = await supabase.from('shops').select(baseFields);
-    data = Array.isArray(fallback.data) ? fallback.data : null;
-  } else {
-    if (primary.error) {
-      await logDatabaseIntegrity('shops:fetch', primary.error, { table: 'shops', phase: 'base-select' });
-      if (primary.error.code === '42501') {
-        await logger.error('shops:fetch', 'RLS denied access to shops table', { hint: 'Check shops select policy for anon/authenticated roles' });
-      }
-      toast('Ошибка загрузки магазинов радара', 'error');
+  let lastError: { code?: string; message?: string } | null = null;
+
+  while (selectFields.length > 0) {
+    const response = await supabase.from('shops').select(selectFields.join(','));
+    if (!response.error) {
+      data = Array.isArray(response.data) ? response.data : null;
+      lastError = null;
+      break;
     }
-    data = Array.isArray(primary.data) ? primary.data : null;
+
+    lastError = response.error;
+    const missingColumn = getMissingShopsColumnName(response.error);
+    if (!missingColumn || !selectFields.includes(missingColumn)) {
+      break;
+    }
+
+    await logDatabaseIntegrity('shops:fetch', response.error, { table: 'shops', column: missingColumn, phase: 'column-fallback' });
+    await logger.warn('shops:fetch', `shops.${missingColumn} is missing in remote schema; retrying fetch without that column`);
+    selectFields = selectFields.filter((column) => column !== missingColumn);
+  }
+
+  if (lastError) {
+    await logDatabaseIntegrity('shops:fetch', lastError, { table: 'shops', phase: 'select' });
+    if (lastError.code === '42501') {
+      await logger.error('shops:fetch', 'RLS denied access to shops table', { hint: 'Check shops select policy for anon/authenticated roles' });
+    }
+    toast('Ошибка загрузки магазинов радара', 'error');
   }
 
   if (Array.isArray(data) && data.length > 0) {
