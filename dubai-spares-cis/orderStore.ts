@@ -5,6 +5,7 @@ import { deleteOrderFolderFromStorage, ensurePublicImageUrls, optimizeImageForUp
 import { offlineDb } from './storage/offlineDb';
 import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
+import { NotificationType, pushNotification } from './notificationCenter';
 
 type OrderState = {
   orders: Order[];
@@ -652,6 +653,19 @@ const compressOrderImagesForAddFlow = async (order: Order): Promise<Order> => {
 export const addOrderItem = async (order: Order) => {
   const compressedOrder = await compressOrderImagesForAddFlow(order);
   const localOrder = normalizeOrder({ ...compressedOrder, id: ensureUuid(compressedOrder.id) });
+  pushNotification({
+    type: NotificationType.ORDER_NEW,
+    title: `Новый заказ: ${localOrder.brand} ${localOrder.model}`,
+    message: `Клиент: ${localOrder.clientName || 'без имени'} · ${localOrder.year}`,
+    orderId: localOrder.id,
+    phone: localOrder.customerContact,
+    brand: localOrder.brand,
+    carModel: localOrder.model,
+    carYear: Number(localOrder.year) || undefined,
+    source: 'app',
+    route: `/orders/${localOrder.id}`,
+    severity: localOrder.isVip ? 'critical' : 'info'
+  });
   const next = [localOrder, ...state.orders.filter((o) => o.id !== localOrder.id)];
   setState({ orders: next, error: null });
   await offlineDb.saveOrder(localOrder);
@@ -683,7 +697,21 @@ export const addOrderItem = async (order: Order) => {
 };
 
 export const updateOrderItem = async (order: Order) => {
+  const previousOrder = state.orders.find((o) => o.id === order.id);
   const normalized = normalizeOrder({ ...order, updatedAt: Date.now() });
+  if (previousOrder && previousOrder.status !== normalized.status) {
+    pushNotification({
+      type: NotificationType.ORDER_STATUS_CHANGED,
+      title: `Статус заказа изменён`,
+      message: `${normalized.brand} ${normalized.model}: ${previousOrder.status} → ${normalized.status}`,
+      orderId: normalized.id,
+      brand: normalized.brand,
+      carModel: normalized.model,
+      source: 'app',
+      route: `/orders/${normalized.id}`,
+      severity: normalized.status === 'vip' ? 'critical' : 'info'
+    });
+  }
   const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
   setState({ orders: next, error: null });
   await offlineDb.saveOrder(normalized);

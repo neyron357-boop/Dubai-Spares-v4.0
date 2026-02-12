@@ -8,6 +8,7 @@ import { fetchRadarShops } from '../radarShops';
 import { toast } from '../feedback';
 import { createUuid } from '../id';
 import { offlineDb } from '../storage/offlineDb';
+import { NotificationType, createFollowupFromAction, pushNotification } from '../notificationCenter';
 
 const GEO_OPTIONS: PositionOptions = { enableHighAccuracy: true, maximumAge: 8000, timeout: 15000 };
 const RADAR_DISMISSED_SHOPS_KEY = 'radar_dismissed_shop_keys';
@@ -262,9 +263,21 @@ const RadarScreen: React.FC = () => {
   const openShopRoute = (shop: Shop) => {
     if (hasValidCoordinates(shop.latitude, shop.longitude) && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
       window.open(`http://maps.apple.com/?daddr=${shop.latitude},${shop.longitude}`, '_blank');
-      return;
+    } else {
+      window.open(buildShopMapLink(shop), '_blank');
     }
-    window.open(buildShopMapLink(shop), '_blank');
+
+    pushNotification({
+      type: NotificationType.RADAR_ACTION,
+      title: `Маршрут открыт: ${shop.name}`,
+      message: 'Пользователь открыл маршрут до точки',
+      supplierId: shop.id,
+      mapUrl: buildShopMapLink(shop),
+      lat: shop.latitude,
+      lng: shop.longitude,
+      source: 'radar',
+      severity: 'info'
+    });
   };
 
   const openChainRoute = () => {
@@ -306,11 +319,47 @@ const RadarScreen: React.FC = () => {
     }
     window.open(link, '_blank');
     await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, result: 'message_sent', comment: 'WhatsApp opened' });
+    pushNotification({
+      type: NotificationType.RADAR_ACTION,
+      title: `WhatsApp: ${entry.shop.name}`,
+      message: 'Отправлен WhatsApp из Radar Live',
+      orderId: entry.order.id,
+      supplierId: entry.shop.id,
+      phone: entry.shop.phone || undefined,
+      brand: entry.order.brand,
+      carModel: entry.order.model,
+      source: 'radar',
+      severity: 'info'
+    });
+    createFollowupFromAction({
+      orderId: entry.order.id,
+      supplierId: entry.shop.id,
+      phone: entry.shop.phone || undefined,
+      brand: entry.order.brand,
+      carModel: entry.order.model,
+      carYear: Number(entry.order.year) || undefined,
+      route: `/orders/${entry.order.id}`,
+      source: 'radar',
+      minutes: 30
+    });
     toast('Шаблон WhatsApp открыт', 'success');
   };
 
   const quickResult = async (entry: RadarEntry, result: RadarInteractionResult) => {
     await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, partId: entry.order.parts[0]?.id, result, availability: result === 'found' ? 'in_stock' : undefined });
+    pushNotification({
+      type: NotificationType.RADAR_RESULT,
+      title: `Radar: ${entry.shop.name}`,
+      message: `Результат: ${result.replace('_', ' ')}`,
+      orderId: entry.order.id,
+      supplierId: entry.shop.id,
+      phone: entry.shop.phone || undefined,
+      mapUrl: buildShopMapLink(entry.shop),
+      lat: entry.shop.latitude,
+      lng: entry.shop.longitude,
+      source: 'radar',
+      severity: result === 'found' ? 'success' : result === 'wrong_info' ? 'warning' : 'info'
+    });
     if (chainMode) {
       if (result === 'found') toast('Точка закрыла потребность. Можно завершить поиск.', 'success');
       else setChainIndex((index) => Math.min(index + 1, Math.max(chainRoute.length - 1, 0)));
@@ -318,9 +367,32 @@ const RadarScreen: React.FC = () => {
     toast('Результат сохранен (offline-first)', 'success');
   };
 
-  const openCalls = (phone?: string) => {
+  const openCalls = (phone?: string, entry?: RadarEntry) => {
     if (!phone) return;
     window.open(`tel:${phone}`, '_self');
+    if (entry) {
+      pushNotification({
+        type: NotificationType.RADAR_ACTION,
+        title: `Звонок: ${entry.shop.name}`,
+        message: 'Совершен звонок из Radar Live',
+        orderId: entry.order.id,
+        supplierId: entry.shop.id,
+        phone,
+        source: 'radar',
+        severity: 'info'
+      });
+      createFollowupFromAction({
+        orderId: entry.order.id,
+        supplierId: entry.shop.id,
+        phone,
+        brand: entry.order.brand,
+        carModel: entry.order.model,
+        carYear: Number(entry.order.year) || undefined,
+        route: `/orders/${entry.order.id}`,
+        source: 'radar',
+        minutes: 30
+      });
+    }
   };
 
   const pendingSync = interactions.filter((item) => !item.syncedAt).length;
@@ -492,7 +564,7 @@ const RadarScreen: React.FC = () => {
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => openShopRoute(entry.shop)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
               <button type="button" onClick={() => onWhatsApp(entry)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><MessageCircle size={12} /> WhatsApp</button>
-              <button type="button" onClick={() => openCalls(entry.shop.phone)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
+              <button type="button" onClick={() => openCalls(entry.shop.phone, entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
               <button type="button" onClick={() => hideShop(entry.shop)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
               <button type="button" onClick={() => quickResult(entry, 'follow_up')} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
               {mode === 'detail' && <button type="button" onClick={() => navigate(`/order/${entry.order.id}`)} className="rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">Карточка</button>}
