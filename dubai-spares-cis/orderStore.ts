@@ -6,6 +6,7 @@ import { offlineDb } from './storage/offlineDb';
 import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
 import { NotificationType, pushNotification } from './notificationCenter';
+import { loadAppSettings } from './appSettings';
 
 type OrderState = {
   orders: Order[];
@@ -78,6 +79,8 @@ let state: OrderState = {
 };
 
 let syncInProgress = false;
+
+const isOfflineFirstEnabled = () => loadAppSettings().offlineFirst;
 
 const notify = () => listeners.forEach((l) => l());
 
@@ -525,7 +528,7 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
   }
 };
 
-const flushOfflineMutations = async () => {
+export const flushOfflineMutations = async () => {
   if (syncInProgress || !navigator.onLine || !isCloudSyncConfigured || !supabase) return;
   syncInProgress = true;
   setState({ isSyncing: true });
@@ -672,9 +675,11 @@ export const addOrderItem = async (order: Order) => {
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
   const directWriteMode = import.meta.env.VITE_DIRECT_SUPABASE_WRITE === 'true';
+  const offlineFirst = isOfflineFirstEnabled();
 
-  if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
+  if (offlineFirst || !navigator.onLine || !isCloudSyncConfigured || !supabase) {
     await queueMutation('upsert', localOrder, localOrder.id);
+    if (navigator.onLine && offlineFirst) void flushOfflineMutations();
     return true;
   }
 
@@ -717,8 +722,10 @@ export const updateOrderItem = async (order: Order) => {
   await offlineDb.saveOrder(normalized);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
-  if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
+  const offlineFirst = isOfflineFirstEnabled();
+  if (offlineFirst || !navigator.onLine || !isCloudSyncConfigured || !supabase) {
     await queueMutation('upsert', normalized, normalized.id);
+    if (navigator.onLine && offlineFirst) void flushOfflineMutations();
     return true;
   }
 
@@ -738,8 +745,10 @@ export const deleteOrderItem = async (orderId: string) => {
   await offlineDb.deleteOrder(orderId);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
-  if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
+  const offlineFirst = isOfflineFirstEnabled();
+  if (offlineFirst || !navigator.onLine || !isCloudSyncConfigured || !supabase) {
     await queueMutation('delete', undefined, orderId);
+    if (navigator.onLine && offlineFirst) void flushOfflineMutations();
     return true;
   }
 

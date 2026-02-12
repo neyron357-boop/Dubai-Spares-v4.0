@@ -13,6 +13,8 @@ import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-react';
 import { useStore } from './store';
 import { NotificationType, getNotifications, pushNotification } from './notificationCenter';
+import { checkSchemaHealth } from './schemaHealth';
+import { loadAppSettings, saveAppSettings } from './appSettings';
 
 const APP_PIN = '2202';
 
@@ -122,6 +124,7 @@ const App: React.FC = () => {
   const [savePulse, setSavePulse] = useState(false);
   const [syncToast, setSyncToast] = useState<string | null>(null);
   const [appToast, setAppToast] = useState<{ message: string; tone: 'error' | 'success' | 'info' } | null>(null);
+  const [schemaBanner, setSchemaBanner] = useState<string | null>(null);
   const { syncOrders, isLoading, error } = useStore();
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
@@ -153,6 +156,16 @@ const App: React.FC = () => {
     window.addEventListener('app-toast', onAppToast);
     return () => window.removeEventListener('app-toast', onAppToast);
   }, []);
+
+  useEffect(() => {
+    if (!unlocked) return;
+    void checkSchemaHealth().then((status) => {
+      const cfg = loadAppSettings();
+      if (!status.compatible && Date.now() > cfg.hideSchemaWarningUntil) {
+        setSchemaBanner(status.reason || 'Schema mismatch');
+      }
+    });
+  }, [unlocked]);
 
   useEffect(() => {
     if (!unlocked) return;
@@ -242,6 +255,13 @@ const App: React.FC = () => {
             Сохранено
           </div>
         </div>
+
+        {schemaBanner && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[96] max-w-[90%] px-3 py-2 rounded-xl bg-rose-100 text-rose-700 text-[10px] font-black tracking-wide shadow">
+            <div>{schemaBanner}</div>
+            <button className="underline" type="button" onClick={() => { saveAppSettings({ hideSchemaWarningUntil: Date.now() + 24 * 60 * 60 * 1000 }); setSchemaBanner(null); }}>Не показывать 24ч</button>
+          </div>
+        )}
 
         {syncToast && (
           <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-wide shadow">

@@ -9,8 +9,8 @@ import { toast } from '../feedback';
 import { createUuid } from '../id';
 import { offlineDb } from '../storage/offlineDb';
 import { NotificationType, createFollowupFromAction, pushNotification } from '../notificationCenter';
+import { loadAppSettings } from '../appSettings';
 
-const GEO_OPTIONS: PositionOptions = { enableHighAccuracy: true, maximumAge: 8000, timeout: 15000 };
 const RADAR_DISMISSED_SHOPS_KEY = 'radar_dismissed_shop_keys';
 
 type RadarFilter = 'all' | 'new_only' | 'used_only';
@@ -23,6 +23,8 @@ type RadarEntry = ReturnType<typeof getRadarShopMatches>[number] & { order: Orde
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 const RADIUS_STEPS = [2, 5, 10, 20] as const;
+const radarSettings = loadAppSettings();
+const GEO_OPTIONS: PositionOptions = { enableHighAccuracy: radarSettings.gpsHighAccuracy, maximumAge: 8000, timeout: 15000 };
 
 const hasValidCoordinates = (latitude: number, longitude: number) => Number.isFinite(latitude) && Number.isFinite(longitude) && latitude !== 0 && longitude !== 0;
 
@@ -145,15 +147,15 @@ const RadarScreen: React.FC = () => {
   const location = useLocation();
   const [shops, setShops] = useState<Shop[]>([]);
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
-  const [mode, setMode] = useState<RadarMode>('field');
-  const [activeFilter, setActiveFilter] = useState<RadarFilter>('all');
-  const [openNowOnly, setOpenNowOnly] = useState(false);
-  const [radiusKm, setRadiusKm] = useState<number>(5);
+  const [mode, setMode] = useState<RadarMode>(radarSettings.radarDefaultMode);
+  const [activeFilter, setActiveFilter] = useState<RadarFilter>(radarSettings.radarDefaultFilter === 'open_now' ? 'all' : radarSettings.radarDefaultFilter);
+  const [openNowOnly, setOpenNowOnly] = useState(radarSettings.radarDefaultFilter === 'open_now');
+  const [radiusKm, setRadiusKm] = useState<number>(radarSettings.radarDefaultRadiusKm);
   const [customRadiusKm, setCustomRadiusKm] = useState('25');
   const [isCustomRadius, setIsCustomRadius] = useState(false);
-  const [brandMatchMode, setBrandMatchMode] = useState<BrandMatchMode>('strict');
-  const [fallbackNearby, setFallbackNearby] = useState(true);
-  const [templateLanguage, setTemplateLanguage] = useState<TemplateLanguage>('ru');
+  const [brandMatchMode, setBrandMatchMode] = useState<BrandMatchMode>(radarSettings.radarBrandStrict ? 'strict' : 'soft');
+  const [fallbackNearby, setFallbackNearby] = useState(radarSettings.radarFallbackNearby);
+  const [templateLanguage, setTemplateLanguage] = useState<TemplateLanguage>((['ru','en'].includes(radarSettings.waTemplateLanguage) ? radarSettings.waTemplateLanguage : 'ru') as TemplateLanguage);
   const [templateLength, setTemplateLength] = useState<TemplateLength>('short');
   const [dismissedShopKeys, setDismissedShopKeys] = useState<Set<string>>(() => readDismissedRadarShops());
   const [isFetchingShops, setIsFetchingShops] = useState(true);
@@ -364,6 +366,19 @@ const RadarScreen: React.FC = () => {
       if (result === 'found') toast('Точка закрыла потребность. Можно завершить поиск.', 'success');
       else setChainIndex((index) => Math.min(index + 1, Math.max(chainRoute.length - 1, 0)));
     }
+    if (loadAppSettings().radarAutoHideAfterAction) {
+      setDismissedShopKeys((prev) => {
+        const next = new Set(prev);
+        next.add(getDismissKey(entry.shop));
+        saveDismissedRadarShops(next);
+        return next;
+      });
+    }
+
+    if (loadAppSettings().radarAutoNextPoint && chainMode) {
+      setChainIndex((idx) => Math.min(idx + 1, Math.max(0, chainRoute.length - 1)));
+    }
+
     toast('Результат сохранен (offline-first)', 'success');
   };
 

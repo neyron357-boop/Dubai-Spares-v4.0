@@ -1,7 +1,7 @@
 import { offlineDb } from './storage/offlineDb';
 import type { SystemLogEntry, SystemLogLevel } from './types';
 
-const MAX_LOGS = 200;
+const MAX_LOGS = 2000;
 
 const createLogEntry = (level: SystemLogLevel, scope: string, message: string, meta?: unknown): SystemLogEntry => ({
   id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
