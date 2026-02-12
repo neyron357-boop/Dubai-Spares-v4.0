@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Camera, Check, ChevronLeft, Copy, Mic, MicOff, Upload } from 'lucide-react';
-import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
+import { ensurePublicImageUrls } from '../storage/photos';
 import { isCloudSyncConfigured, supabase } from '../supabase';
 import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
 import { NotificationType, pushNotification } from '../notificationCenter';
@@ -292,13 +292,11 @@ const PublicOrderFormScreen: React.FC = () => {
       let uploadedVinPhotos: string[] = [];
 
       if (carPhotoData) {
-        const compressed = await optimizeImageForUpload(carPhotoData, `public-order:${orderId}:car`);
-        uploadedCarPhotos = await ensurePublicImageUrls([compressed], `orders/${orderId}/car`);
+        uploadedCarPhotos = await ensurePublicImageUrls([carPhotoData], `orders/${orderId}/car`);
       }
 
       if (vinPhotoData) {
-        const compressedVin = await optimizeImageForUpload(vinPhotoData, `public-order:${orderId}:vin`);
-        uploadedVinPhotos = await ensurePublicImageUrls([compressedVin], `orders/${orderId}/vin`);
+        uploadedVinPhotos = await ensurePublicImageUrls([vinPhotoData], `orders/${orderId}/vin`);
       }
 
       const notes = [{
@@ -347,8 +345,7 @@ const PublicOrderFormScreen: React.FC = () => {
       for (const part of filledRequestedParts) {
         let uploadedPartPhotos: string[] = [];
         if (part.photoData) {
-          const compressedPartPhoto = await optimizeImageForUpload(part.photoData, `public-order:${orderId}:${part.id}`);
-          uploadedPartPhotos = await ensurePublicImageUrls([compressedPartPhoto], `orders/${orderId}/parts/${part.id}`);
+          uploadedPartPhotos = await ensurePublicImageUrls([part.photoData], `orders/${orderId}/parts/${part.id}`);
         }
         partsToInsert.push({
           id: createId(),

@@ -1,13 +1,11 @@
 import { logger } from '../logging';
 import { supabase } from '../supabaseClient';
+import { compressImage } from '../utils/imageCompression';
 
 const configuredBucket = (import.meta as any).env?.VITE_SUPABASE_STORAGE_BUCKET as string | undefined;
 const BUCKET_CANDIDATES = [configuredBucket, 'images', 'order-images'].filter(
   (bucket, index, all): bucket is string => !!bucket && all.indexOf(bucket) === index
 );
-
-const MAX_IMAGE_DIMENSION = 1200;
-const WEBP_QUALITY = 0.72;
 
 type ImageTransformOptions = {
   width?: number;
@@ -39,80 +37,35 @@ const extensionFromBlob = (blob: Blob): string => {
   return ext || 'jpg';
 };
 
-const blobToDataUrl = (blob: Blob): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error ?? new Error('Failed to convert blob to data URL'));
-    reader.readAsDataURL(blob);
-  });
-
-const loadImage = (src: string): Promise<HTMLImageElement> =>
-  new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('Failed to load image for compression'));
-    image.src = src;
-  });
-
-const computeTargetSize = (width: number, height: number) => {
-  const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(width, height));
-  return {
-    width: Math.max(1, Math.round(width * scale)),
-    height: Math.max(1, Math.round(height * scale))
-  };
-};
-
-const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> =>
-  new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) {
-        resolve(blob);
-      } else {
-        reject(new Error('Canvas image compression failed'));
-      }
-    }, type, quality);
-  });
-
-const compressBlob = async (blob: Blob): Promise<Blob> => {
-  if (typeof document === 'undefined') return blob;
-
-  const imageUrl = URL.createObjectURL(blob);
-  try {
-    const image = await loadImage(imageUrl);
-    const { width, height } = computeTargetSize(image.naturalWidth || image.width, image.naturalHeight || image.height);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-
-    const context = canvas.getContext('2d');
-    if (!context) return blob;
-
-    context.drawImage(image, 0, 0, width, height);
-    return await canvasToBlob(canvas, 'image/webp', WEBP_QUALITY);
-  } finally {
-    URL.revokeObjectURL(imageUrl);
-  }
-};
-
 export const optimizeImageForUpload = async (
   source: File | Blob | string,
   label: string
 ): Promise<string> => {
   const originalBlob = await toBlob(source);
-  const compressedBlob = await compressBlob(originalBlob);
+  const originalType = originalBlob.type || 'image/jpeg';
+  const originalName = source instanceof File ? source.name : `image-${Date.now()}.${extensionFromBlob(originalBlob)}`;
+
+  const fileForCompression = source instanceof File
+    ? source
+    : new File([originalBlob], originalName, { type: originalType, lastModified: Date.now() });
+
+  const compressedFile = await compressImage(fileForCompression);
 
   await logger.info('storage:compression', `${label} compressed`, {
     beforeBytes: originalBlob.size,
-    afterBytes: compressedBlob.size,
-    reductionBytes: originalBlob.size - compressedBlob.size,
+    afterBytes: compressedFile.size,
+    reductionBytes: originalBlob.size - compressedFile.size,
     reductionPercent: originalBlob.size > 0
-      ? Number((((originalBlob.size - compressedBlob.size) / originalBlob.size) * 100).toFixed(2))
+      ? Number((((originalBlob.size - compressedFile.size) / originalBlob.size) * 100).toFixed(2))
       : 0
   });
 
-  return blobToDataUrl(compressedBlob);
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to convert blob to data URL'));
+    reader.readAsDataURL(compressedFile);
+  });
 };
 
 export const getOptimizedImageUrl = (imageUrl: string, options: ImageTransformOptions = {}): string => {
@@ -249,7 +202,8 @@ export const ensurePublicImageUrls = async (
       }
 
       try {
-        return await uploadImageToStorage(image, folder, `${Date.now()}-${index}`);
+        const optimizedImage = await optimizeImageForUpload(image, `upload:${folder}[${index}]`);
+        return await uploadImageToStorage(optimizedImage, folder, `${Date.now()}-${index}`);
       } catch (error) {
         if (isBucketNotFoundError(error)) {
           return image;
