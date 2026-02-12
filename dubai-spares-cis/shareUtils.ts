@@ -102,11 +102,26 @@ export const parseQuoteRates = (raw: string | null | undefined): QuoteRates | nu
 interface BuildPublicQuoteLinkOptions {
   rates?: QuoteRates;
   currency?: QuoteCurrency;
+  expiresAt?: number;
 }
+
+const QUOTE_TOKEN_LENGTH = 32;
+
+const createQuoteToken = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(QUOTE_TOKEN_LENGTH / 2);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+  return `${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`.slice(0, QUOTE_TOKEN_LENGTH);
+};
 
 export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
   const slug = typeof order === 'string' ? order : buildPublicQuoteSlug(order);
   const url = new URL(`${window.location.origin}/quote/${slug}`);
+  const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
+  url.searchParams.set('token', createQuoteToken());
+  url.searchParams.set('exp', String(expiresAt));
 
   if (options?.rates) {
     url.searchParams.set('rates', serializeQuoteRates(options.rates));

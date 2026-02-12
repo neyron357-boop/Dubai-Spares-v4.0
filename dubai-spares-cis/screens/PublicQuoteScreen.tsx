@@ -1,17 +1,106 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, BadgeCheck, CheckCircle2, ChevronRight, MessageCircle, RefreshCcw } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AlertCircle,
+  BadgeCheck,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Globe,
+  MessageCircle,
+  RefreshCcw,
+  ShieldCheck
+} from 'lucide-react';
 import { supabase } from '../supabase';
 import { Order, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
 import { DEFAULT_QUOTE_RATES, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { getOptimizedImageUrl } from '../storage/photos';
+import { logger } from '../logging';
 
-const CURRENCY_LABELS: Record<QuoteCurrency, string> = {
-  AED: 'Dirham',
-  USD: 'Dollar',
-  RUB: 'Ruble',
-  TJS: 'Somoni'
-};
+type Language = 'en' | 'ru';
+
+const CURRENCY_LABELS: Record<QuoteCurrency, string> = { AED: 'Dirham', USD: 'Dollar', RUB: 'Ruble', TJS: 'Somoni' };
+const WHATSAPP_PHONE = '971521574546';
+
+const i18n = {
+  en: {
+    quoteUnavailable: 'Quote not available.',
+    quoteExpired: 'Quote expired',
+    quoteExpiredBody: 'This quote link is no longer active. Please contact us to refresh pricing and availability.',
+    contactUs: 'Contact us',
+    quoteNotFound: 'Quote not found.',
+    loading: 'Loading quotation…',
+    currency: 'Currency',
+    source: 'Source',
+    refresh: 'Refresh',
+    quoteTotal: 'Quote total',
+    finalClientPrice: 'Final client price',
+    confirmWhatsApp: 'Confirm & WhatsApp',
+    viewParts: 'View Parts & Photos',
+    whatIncluded: "What's included",
+    partsGallery: 'Parts gallery',
+    status: 'Status',
+    inStock: 'In stock',
+    onOrder: 'On order',
+    premiumSupplier: 'Premium supplier',
+    partsVerified: 'Parts verified',
+    showBreakdown: 'Show breakdown',
+    hideBreakdown: 'Hide breakdown',
+    priceBreakdown: 'Price breakdown',
+    partsSubtotal: 'Parts subtotal',
+    serviceFee: 'Service fee',
+    logistics: 'Logistics',
+    total: 'Total',
+    deliveryTerms: 'Delivery & terms',
+    trust: 'Trust',
+    validUntil: 'Price valid until',
+    availabilityChange: 'Availability can change quickly due to live market demand.',
+    trustedBy: 'Trusted by CIS customers',
+    yards: 'We work with Dubai scrap yards & shops daily.',
+    response: 'Response time: usually 5–15 min.',
+    companyProfile: 'Company profile',
+    downloadPdf: 'Download PDF Quote'
+  },
+  ru: {
+    quoteUnavailable: 'Предложение недоступно.',
+    quoteExpired: 'Срок предложения истёк',
+    quoteExpiredBody: 'Ссылка на смету больше не активна. Напишите нам, чтобы обновить цену и наличие.',
+    contactUs: 'Связаться с нами',
+    quoteNotFound: 'Смета не найдена.',
+    loading: 'Загрузка сметы…',
+    currency: 'Валюта',
+    source: 'Источник',
+    refresh: 'Обновить',
+    quoteTotal: 'Итоговая цена',
+    finalClientPrice: 'Финальная цена для клиента',
+    confirmWhatsApp: 'Подтвердить в WhatsApp',
+    viewParts: 'Смотреть детали и фото',
+    whatIncluded: 'Что входит в цену',
+    partsGallery: 'Галерея деталей',
+    status: 'Статус',
+    inStock: 'В наличии',
+    onOrder: 'Под заказ',
+    premiumSupplier: 'Премиум поставщик',
+    partsVerified: 'Детали подтверждены',
+    showBreakdown: 'Показать разбивку',
+    hideBreakdown: 'Скрыть разбивку',
+    priceBreakdown: 'Разбивка цены',
+    partsSubtotal: 'Сумма деталей',
+    serviceFee: 'Сервисный сбор',
+    logistics: 'Логистика',
+    total: 'Итого',
+    deliveryTerms: 'Доставка и условия',
+    trust: 'Доверие',
+    validUntil: 'Цена действует до',
+    availabilityChange: 'Наличие может быстро меняться из-за живого рынка.',
+    trustedBy: 'Нам доверяют клиенты из СНГ',
+    yards: 'Мы ежедневно работаем с авторазборками и магазинами Дубая.',
+    response: 'Скорость ответа: обычно 5–15 минут.',
+    companyProfile: 'Профиль компании',
+    downloadPdf: 'Скачать PDF смету'
+  }
+} as const;
 
 const parseTimestamp = (value: string | number | null | undefined): number => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -23,6 +112,8 @@ const parseTimestamp = (value: string | number | null | undefined): number => {
   }
   return Date.now();
 };
+
+const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
 
 const mapDbOrder = (row: any): Order => ({
   id: String(row.id),
@@ -39,6 +130,7 @@ const mapDbOrder = (row: any): Order => ({
   source: row.source || 'WhatsApp',
   carPhotoUrl: row.car_photo_url || row.car_photos?.[0] || row.vin_photo_url || '',
   carPhotos: row.car_photos || [],
+  logistics: row.logistics || undefined,
   parts: (row.parts || []).map((part: any) => ({
     id: String(part.id),
     orderId: String(part.order_id || row.id),
@@ -50,6 +142,8 @@ const mapDbOrder = (row: any): Order => ({
       id: String(variant.id),
       partId: String(variant.part_id || part.id),
       priceAed: Number(variant.price_aed || 0),
+      condition: variant.condition,
+      availability: variant.availability,
       shopName: variant.shop_name || '',
       phone: variant.phone || '',
       location: variant.location || '',
@@ -65,26 +159,43 @@ const mapDbOrder = (row: any): Order => ({
   isSold: !!row.is_sold
 });
 
-const quoteStatus = (order: Order) => {
-  if (order.salesStatus === 'Pending Approval') return 'Ready for Review';
-  if (order.salesStatus === 'Price Sent') return 'Best Price Found';
-  if (order.salesStatus === 'Paid') return 'Awaiting Delivery';
-  if (order.salesStatus === 'Completed' || order.isSold) return 'Order Confirmed';
-  return 'Best Price Found';
-};
-
 const fetchLiveQuoteRates = async (): Promise<QuoteRates> => {
   const response = await fetch('https://open.er-api.com/v6/latest/AED');
   if (!response.ok) throw new Error(`Rate API error: ${response.status}`);
   const payload = await response.json();
   const rates = payload?.rates || {};
-
   return {
     AED: 1,
     USD: Number(rates.USD) > 0 ? Number(rates.USD) : DEFAULT_QUOTE_RATES.USD,
     RUB: Number(rates.RUB) > 0 ? Number(rates.RUB) : DEFAULT_QUOTE_RATES.RUB,
     TJS: Number(rates.TJS) > 0 ? Number(rates.TJS) : DEFAULT_QUOTE_RATES.TJS
   };
+};
+
+const createSimplePdf = (lines: string[]): Blob => {
+  const escape = (text: string) => text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  const contentLines = lines.map((line, idx) => `BT /F1 12 Tf 50 ${780 - idx * 18} Td (${escape(line)}) Tj ET`).join('\n');
+  const objects = [
+    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
+    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
+    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj',
+    `4 0 obj << /Length ${contentLines.length} >> stream\n${contentLines}\nendstream endobj`,
+    '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj'
+  ];
+
+  let pdf = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  objects.forEach((obj) => {
+    offsets.push(pdf.length);
+    pdf += `${obj}\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.forEach((offset) => {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  });
+  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new Blob([pdf], { type: 'application/pdf' });
 };
 
 const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
@@ -96,12 +207,29 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [rates, setRates] = useState<QuoteRates>(DEFAULT_QUOTE_RATES);
   const [rateSource, setRateSource] = useState('Live market rates');
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
+  const [lang, setLang] = useState<Language>('en');
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [partsVerified, setPartsVerified] = useState(false);
+  const detailRef = useRef<HTMLDivElement | null>(null);
+
+  const t = i18n[lang];
+  const params = useMemo(() => new URLSearchParams(window.location.search), []);
+  const expiresAt = Number(params.get('exp') || 0);
+  const token = params.get('token') || '';
+  const hasSecurityToken = token.length >= 32;
+  const isExpired = !hasSecurityToken || !Number.isFinite(expiresAt) || expiresAt <= Date.now();
+
+  const logEvent = (event: string, meta?: Record<string, unknown>) => {
+    void logger.info('public-quote-analytics', event, { event, orderId, ...meta });
+  };
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    setLang((navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en');
+  }, []);
+
+  useEffect(() => {
     const sharedRates = parseQuoteRates(params.get('rates'));
     const sharedCurrency = (params.get('currency') || '').toUpperCase() as QuoteCurrency;
-
     if (sharedCurrency in DEFAULT_QUOTE_RATES) setCurrency(sharedCurrency);
 
     if (sharedRates) {
@@ -122,9 +250,41 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         setIsRefreshingRates(false);
       }
     })();
+  }, [params]);
+
+  useEffect(() => {
+    logEvent('view', { isExpired, hasSecurityToken });
   }, []);
 
   useEffect(() => {
+    const marks = [25, 50, 75, 100];
+    const seen = new Set<number>();
+    const onScroll = () => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      if (max <= 0) return;
+      const pct = Math.round((window.scrollY / max) * 100);
+      marks.forEach((mark) => {
+        if (pct >= mark && !seen.has(mark)) {
+          seen.add(mark);
+          logEvent('scroll_depth', { depth: mark });
+        }
+      });
+      if (detailRef.current && !partsVerified) {
+        const top = detailRef.current.getBoundingClientRect().top;
+        if (top < window.innerHeight * 0.85) setPartsVerified(true);
+      }
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [partsVerified]);
+
+  useEffect(() => {
+    if (isExpired) {
+      setLoading(false);
+      return;
+    }
+
     const loadQuote = async () => {
       if (!supabase) {
         setError('Quote service is unavailable.');
@@ -134,25 +294,24 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
       const { data, error: loadError } = await supabase
         .from('orders')
-        .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,created_at,is_archived,is_sold,parts(*,price_variants(*))')
+        .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,logistics,created_at,is_archived,is_sold,parts(*,price_variants(*))')
         .eq('id', orderId)
         .maybeSingle();
 
       if (loadError || !data) {
-        setError('Quote not found.');
+        setError(t.quoteNotFound);
       } else {
         setOrder(mapDbOrder(data));
       }
-
       setLoading(false);
     };
 
     void loadQuote();
-  }, [orderId]);
+  }, [orderId, isExpired, t.quoteNotFound]);
 
   const heroPhoto = useMemo(() => {
     if (!order) return '';
-    const photo = order.carPhotoUrl || order.carPhotos[0] || order.vinPhotoUrl || order.parts.find((part) => (part.photos || []).length > 0)?.photos?.[0] || '';
+    const photo = order.carPhotoUrl || order.carPhotos?.[0] || order.vinPhotoUrl || order.parts.find((part) => (part.photos || []).length > 0)?.photos?.[0] || '';
     return getOptimizedImageUrl(photo, { width: 1600, quality: 74 });
   }, [order]);
 
@@ -167,40 +326,63 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const isReady = !!best && part.isFound;
       const previewPhotos = photos.map((photo) => getOptimizedImageUrl(photo, { width: 480, quality: 64 }));
       const galleryPhotos = photos.map((photo) => getOptimizedImageUrl(photo, { width: 1600, quality: 74 }));
-      return {
-        part,
-        best,
-        previewPhotos,
-        galleryPhotos,
-        converted,
-        clientAed,
-        isReady,
-        availability: isReady ? 'In stock' : 'In progress'
-      };
+      return { part, best, previewPhotos, galleryPhotos, converted, clientAed, isReady, availability: isReady ? t.inStock : t.onOrder };
     });
-  }, [order, currency, rates]);
+  }, [order, currency, rates, t.inStock, t.onOrder]);
 
-  const { foundParts, pendingParts } = useMemo(() => ({
-    foundParts: partCards.filter((item) => item.isReady),
-    pendingParts: partCards.filter((item) => !item.isReady)
-  }), [partCards]);
+  const foundParts = partCards.filter((item) => item.isReady);
+  const pendingParts = partCards.filter((item) => !item.isReady);
 
   const totals = useMemo(() => {
-    const totalSellAed = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
-    return {
-      totalAed: totalSellAed,
-      totalConverted: totalSellAed * rates[currency]
-    };
-  }, [foundParts, currency, rates]);
+    const subtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
+    const serviceFee = (order?.logistics?.serviceFeeAed || 0);
+    const logistics = (order?.logistics?.deliveryAed || 0) + (order?.logistics?.packingAed || 0);
+    const totalAed = subtotal + serviceFee + logistics;
+    return { subtotal, serviceFee, logistics, totalAed, totalConverted: totalAed * rates[currency] };
+  }, [foundParts, currency, rates, order]);
 
-  const selectedPartNames = foundParts.map(({ part }) => part.name).join(', ');
-  const whatsappText = encodeURIComponent(
-    `Hello! I confirmed the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''} and want to proceed with ${selectedPartNames || 'the selected parts'}.`
-  );
-  const whatsappUrl = `https://wa.me/971521574546?text=${whatsappText}`;
+  const partsLine = foundParts.map(({ part }) => `${part.name} (${t.inStock})`).join(', ') || 'Selected parts';
+  const confirmMessage = lang === 'ru'
+    ? `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nИтого: ${totals.totalAed.toFixed(2)} AED.\nДетали: ${partsLine}.\nГотов(а) оформить. Подскажите срок и способ доставки.`
+    : `Hello! I confirm the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nTotal: ${totals.totalAed.toFixed(2)} AED.\nPart: ${partsLine}.\nPlease confirm delivery time and shipping options.`;
+  const whatsappUrl = `https://wa.me/${WHATSAPP_PHONE}?text=${encodeURIComponent(confirmMessage)}`;
 
-  if (loading) {
-    return <div className="min-h-screen bg-[#f5f5f7] text-slate-900 flex items-center justify-center">Loading quotation…</div>;
+  const downloadPdf = () => {
+    if (!order) return;
+    const lines = [
+      'Dubai Spares UAE - Quote',
+      `${order.brand} ${order.model} ${order.year}`,
+      `VIN: ${maskVin(order.vin)}`,
+      `Total: ${totals.totalAed.toFixed(2)} AED`,
+      `Valid until: ${new Date(expiresAt).toLocaleString()}`,
+      '--- Parts ---',
+      ...foundParts.map(({ part, clientAed }) => `${part.name}: ${clientAed.toFixed(2)} AED`),
+      'Contact: +971 52 157 4546'
+    ];
+    const blob = createSimplePdf(lines);
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `quote-${order.id}.pdf`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    logEvent('pdf_download');
+  };
+
+  if (loading) return <div className="min-h-screen bg-[#f5f5f7] text-slate-900 grid place-items-center">{t.loading}</div>;
+
+  if (isExpired) {
+    return (
+      <div className="min-h-screen bg-[#f5f5f7] text-slate-900 flex items-center justify-center px-4 text-center">
+        <div className="max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <ShieldCheck className="mx-auto mb-3 text-amber-500" />
+          <h1 className="text-xl font-semibold">{t.quoteExpired}</h1>
+          <p className="mt-2 text-sm text-slate-600">{t.quoteExpiredBody}</p>
+          <a href={`https://wa.me/${WHATSAPP_PHONE}`} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white">
+            <MessageCircle size={16} /> {t.contactUs}
+          </a>
+        </div>
+      </div>
+    );
   }
 
   if (error || !order) {
@@ -208,7 +390,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       <div className="min-h-screen bg-[#f5f5f7] text-slate-900 flex items-center justify-center px-4 text-center">
         <div className="max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <AlertCircle className="mx-auto mb-3 text-rose-500" />
-          <p className="text-sm text-slate-700">{error || 'Quote not available.'}</p>
+          <p className="text-sm text-slate-700">{error || t.quoteUnavailable}</p>
         </div>
       </div>
     );
@@ -217,130 +399,164 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   return (
     <div className="min-h-screen bg-[#f5f5f7] text-slate-900">
       <div className="sticky top-0 z-40 border-b border-black/5 bg-white/90 px-3 py-2 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Globe size={15} className="text-slate-500" />
+            <button type="button" onClick={() => setLang('en')} className={`rounded-full px-2 py-1 text-xs font-semibold ${lang === 'en' ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>EN</button>
+            <button type="button" onClick={() => setLang('ru')} className={`rounded-full px-2 py-1 text-xs font-semibold ${lang === 'ru' ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>RU</button>
+          </div>
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-            <p className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Currency</p>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t.currency}</span>
             {(Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[]).map((code) => (
-              <button
-                key={code}
-                type="button"
-                onClick={() => setCurrency(code)}
-                className={`min-h-9 min-w-[62px] rounded-full px-3 text-sm font-semibold transition ${currency === code ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
-              >
-                {code}
-              </button>
+              <button key={code} type="button" onClick={() => { setCurrency(code); logEvent('currency_switch', { currency: code }); }} className={`min-h-9 min-w-[58px] rounded-full px-3 text-sm font-semibold ${currency === code ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>{code}</button>
             ))}
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-slate-500">
-            <span>Source: {rateSource}</span>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-slate-700"
-              onClick={() => {
-                void (async () => {
-                  setIsRefreshingRates(true);
-                  try {
-                    setRates(await fetchLiveQuoteRates());
-                    setRateSource('Live market rates');
-                  } catch {
-                    setRateSource('Default rates');
-                  } finally {
-                    setIsRefreshingRates(false);
-                  }
-                })();
-              }}
-            >
-              <RefreshCcw size={12} className={isRefreshingRates ? 'animate-spin' : ''} /> Refresh
-            </button>
-          </div>
         </div>
-        <div className="mx-auto mt-2 grid w-full max-w-4xl grid-cols-2 gap-1 text-[10px] text-slate-500 sm:grid-cols-4">
-          {(Object.keys(rates) as QuoteCurrency[]).map((code) => (
-            <div key={code} className="rounded-lg bg-slate-100 px-2 py-1">1 AED = {rates[code].toFixed(4)} {code} · {CURRENCY_LABELS[code]}</div>
-          ))}
+        <div className="mx-auto mt-2 flex w-full max-w-5xl items-center justify-between text-[11px] text-slate-500">
+          <span>{t.source}: {rateSource}</span>
+          <button type="button" className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-slate-700" onClick={() => {
+            void (async () => {
+              setIsRefreshingRates(true);
+              try {
+                setRates(await fetchLiveQuoteRates());
+                setRateSource('Live market rates');
+              } catch {
+                setRateSource('Default rates');
+              } finally {
+                setIsRefreshingRates(false);
+              }
+            })();
+          }}><RefreshCcw size={12} className={isRefreshingRates ? 'animate-spin' : ''} /> {t.refresh}</button>
         </div>
       </div>
 
-      <header className="relative min-h-[45vh] overflow-hidden">
-        {heroPhoto ? (
-          <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="absolute inset-0 h-full w-full object-cover" />
-        ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-slate-200 to-slate-400" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/45 to-black/65" />
-        <div className="relative mx-auto flex h-full w-full max-w-4xl flex-col justify-between px-4 pb-6 pt-8 text-white">
-          <div className="w-fit rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold backdrop-blur">VIN: {order.vin || 'Not provided'}</div>
+      <header className="relative min-h-[50vh] overflow-hidden">
+        {heroPhoto ? <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 bg-gradient-to-br from-slate-300 to-slate-500" />}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/45 to-black/70" />
+        <div className="relative mx-auto flex h-full w-full max-w-5xl flex-col justify-between px-4 pb-8 pt-8 text-white">
+          <div className="w-fit rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold backdrop-blur">VIN: {maskVin(order.vin)}</div>
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{order.brand} {order.model} {order.year}</h1>
-            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-500/90 px-4 py-2 text-sm font-semibold shadow-lg shadow-emerald-900/40">
-              <BadgeCheck size={16} />
-              {quoteStatus(order)}
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-5xl">{order.brand} {order.model} {order.year}</h1>
+            <p className="mt-4 text-4xl font-bold sm:text-5xl">{totals.totalConverted.toFixed(2)} {currency}</p>
+            <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
+              <span className="rounded-full bg-emerald-500/90 px-3 py-1.5">✅ Verified UAE supplier</span>
+              <span className="rounded-full bg-indigo-500/90 px-3 py-1.5">⚡ Fast response (5–15 min)</span>
+              <span className="rounded-full bg-amber-500/90 px-3 py-1.5">🧾 {t.validUntil}: {new Date(expiresAt).toLocaleString()}</span>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <a href={whatsappUrl} target="_blank" rel="noreferrer" onClick={() => logEvent('confirm_click', { placement: 'hero' })} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white">
+                <MessageCircle size={16} /> {t.confirmWhatsApp}
+              </a>
+              <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-2 rounded-2xl bg-white/15 px-4 py-2.5 text-sm font-semibold text-white backdrop-blur">📄 {t.viewParts}</button>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto -mt-8 w-full max-w-4xl space-y-4 px-3 pb-28 sm:px-5">
-        <section className="rounded-3xl border border-black/5 bg-gradient-to-br from-white via-white to-slate-50 p-4 shadow-[0_16px_45px_rgba(15,23,42,0.08)] sm:p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Quote total</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900 sm:text-4xl">{totals.totalConverted.toFixed(2)} {currency}</p>
-          <p className="mt-1 text-sm text-slate-500">Final client price · {totals.totalAed.toFixed(2)} AED</p>
+      <main className="mx-auto -mt-6 w-full max-w-5xl space-y-4 px-3 pb-28 sm:px-5">
+        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-6">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.whatIncluded}</h2>
+          <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+            <div className="rounded-2xl bg-slate-50 p-3">🔍 Sourcing in UAE</div>
+            <div className="rounded-2xl bg-slate-50 p-3">📦 Packaging & handling</div>
+            <div className="rounded-2xl bg-slate-50 p-3">🚚 Export support (optional)</div>
+            <div className="rounded-2xl bg-slate-50 p-3">🛡️ Basic verification (photo/video)</div>
+          </div>
         </section>
 
-        <section className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Found parts ({foundParts.length})</p>
+        <section ref={detailRef} className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.partsGallery} ({foundParts.length})</h2>
           {foundParts.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => (
             <article key={part.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-semibold text-slate-900">{part.name}</h2>
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs font-medium">
-                    <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-emerald-700">Status: {availability}</span>
-                  </div>
+                  <h3 className="text-xl font-semibold">{part.name} <span className="text-sm text-slate-500">· {best?.condition || 'used'}</span></h3>
+                  <span className="mt-2 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">{t.status}: {availability}</span>
                 </div>
-
-                <div className="text-right">
-                  <p className="text-2xl font-semibold text-slate-900">{converted.toFixed(2)} {currency}</p>
-                  <p className="text-xs text-slate-500">Final price</p>
-                </div>
+                <p className="text-2xl font-semibold">{converted.toFixed(2)} {currency}</p>
               </div>
 
               {previewPhotos.length > 0 && (
                 <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
                   {previewPhotos.slice(0, 8).map((photo, idx) => (
-                    <button key={`${part.id}-${idx}`} type="button" onClick={() => setGallery({ images: galleryPhotos, index: idx })} className="min-h-20 overflow-hidden rounded-2xl border border-slate-200">
+                    <button key={`${part.id}-${idx}`} type="button" onClick={() => { setGallery({ images: galleryPhotos, index: idx }); logEvent('gallery_open', { partId: part.id }); }} className="min-h-20 overflow-hidden rounded-2xl border border-slate-200">
                       <img src={photo} alt={`${part.name} ${idx + 1}`} className="h-24 w-full object-cover" loading="lazy" decoding="async" />
                     </button>
                   ))}
                 </div>
               )}
 
-              {best?.shopName && (
-                <div className="mt-4 inline-flex items-center gap-2 text-sm text-slate-600">
-                  <CheckCircle2 size={16} className="text-emerald-500" />
-                  Premium source: {best.shopName}
-                </div>
-              )}
+              <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
+                <p className="font-semibold text-slate-800">{best?.shopName || 'Supplier'} · {t.premiumSupplier}</p>
+                <p>{best?.location || 'Dubai, UAE'}</p>
+                {(best?.phone || '').trim() && (
+                  <a href={`tel:${best?.phone}`} className="mt-2 inline-flex rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Call {best?.phone}</a>
+                )}
+              </div>
             </article>
           ))}
 
           {pendingParts.length > 0 && (
             <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-4 sm:p-5">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Parts in progress ({pendingParts.length})</p>
               <div className="flex flex-wrap gap-2">
-                {pendingParts.map(({ part }) => (
-                  <span key={part.id} className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">{part.name}</span>
-                ))}
+                {pendingParts.map(({ part }) => <span key={part.id} className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">{part.name}</span>)}
               </div>
             </div>
           )}
         </section>
+
+        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
+          <button type="button" onClick={() => setShowBreakdown((v) => !v)} className="flex w-full items-center justify-between text-left">
+            <span className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.priceBreakdown}</span>
+            <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700">{showBreakdown ? t.hideBreakdown : t.showBreakdown} <ChevronDown size={15} className={showBreakdown ? 'rotate-180' : ''} /></span>
+          </button>
+          {showBreakdown && (
+            <div className="mt-3 space-y-2 text-sm">
+              <div className="flex justify-between"><span>{t.partsSubtotal}</span><span>{totals.subtotal.toFixed(2)} AED</span></div>
+              <div className="flex justify-between"><span>{t.serviceFee}</span><span>{totals.serviceFee.toFixed(2)} AED</span></div>
+              <div className="flex justify-between"><span>{t.logistics}</span><span>{totals.logistics.toFixed(2)} AED</span></div>
+              <div className="flex justify-between border-t pt-2 font-semibold"><span>{t.total}</span><span>{totals.totalAed.toFixed(2)} AED</span></div>
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.deliveryTerms}</h2>
+          <ul className="mt-2 space-y-1">
+            <li>• Estimated delivery: 3–8 working days (subject to destination).</li>
+            <li>• Warranty / return follows supplier terms.</li>
+            <li>• {t.validUntil}: {new Date(expiresAt).toLocaleString()}.</li>
+            <li>• {t.availabilityChange}</li>
+          </ul>
+        </section>
+
+        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.trust}</h2>
+          <ul className="mt-2 space-y-1">
+            <li>• {t.trustedBy}</li>
+            <li>• {t.yards}</li>
+            <li>• {t.response}</li>
+          </ul>
+          <div className="mt-3 rounded-2xl bg-slate-50 p-3">
+            <p className="font-semibold text-slate-800">{t.companyProfile}: Dubai Spares UAE</p>
+            <p>WhatsApp: +971 52 157 4546</p>
+          </div>
+        </section>
+
+        <button type="button" onClick={downloadPdf} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm">
+          <Download size={16} /> {t.downloadPdf}
+        </button>
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-black/5 bg-white/95 p-3 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur-xl">
-        <div className="mx-auto w-full max-w-4xl">
-          <a href={whatsappUrl} target="_blank" rel="noreferrer" className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 via-emerald-500 to-green-500 px-5 text-base font-bold text-white shadow-[0_14px_42px_rgba(16,185,129,0.42)] transition hover:brightness-105">
-            <MessageCircle size={18} /> Confirm & Open WhatsApp Chat <ChevronRight size={18} />
+        <div className="mx-auto flex w-full max-w-5xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs text-slate-500">{t.quoteTotal}</p>
+            <p className="text-lg font-bold text-slate-900">{totals.totalConverted.toFixed(2)} {currency}</p>
+            {partsVerified && <p className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600"><CheckCircle2 size={12} /> {t.partsVerified}</p>}
+          </div>
+          <a href={whatsappUrl} target="_blank" rel="noreferrer" onClick={() => logEvent('confirm_click', { placement: 'sticky' })} className="inline-flex min-h-12 shrink-0 items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-500 px-4 text-sm font-bold text-white shadow-[0_14px_42px_rgba(16,185,129,0.42)]">
+            <MessageCircle size={16} /> {t.confirmWhatsApp} <ChevronRight size={16} />
           </a>
         </div>
       </div>
