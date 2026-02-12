@@ -161,16 +161,6 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
   }
 };
 
-const isBigintTimestampInputError = (error: unknown) => {
-  if (typeof error !== 'object' || !error) return false;
-  const anyErr = error as { code?: unknown; message?: unknown };
-  return (
-    anyErr.code === '22P02' &&
-    typeof anyErr.message === 'string' &&
-    anyErr.message.includes('invalid input syntax for type bigint')
-  );
-};
-
 const isTimestamptzTimestampInputError = (error: unknown) => {
   if (typeof error !== 'object' || !error) return false;
   const anyErr = error as { code?: unknown; message?: unknown };
@@ -356,7 +346,7 @@ const persistOrderGraph = async (order: Order) => {
     car_photos: cloudOrder.carPhotos || [],
     markup_percent: uploadedOrder.markupPercent,
     exchange_rate: uploadedOrder.exchangeRate,
-    created_at: parseTimestamp(uploadedOrder.createdAt),
+    created_at: toIsoTimestamp(uploadedOrder.createdAt),
     is_archived: uploadedOrder.isArchived,
     is_sold: uploadedOrder.isSold,
     sold_profit_usd: uploadedOrder.soldProfitUsd,
@@ -374,7 +364,7 @@ const persistOrderGraph = async (order: Order) => {
     const fallbackOrderPayload: Record<string, unknown> = {
       ...buildOrderPayload(),
       sales_status: uploadedOrder.salesStatus || 'Inquiry',
-      updated_at: parseTimestamp(uploadedOrder.updatedAt || Date.now())
+      updated_at: toIsoTimestamp(uploadedOrder.updatedAt || Date.now())
     };
 
     const fallbackColumns = new Set([
@@ -391,13 +381,8 @@ const persistOrderGraph = async (order: Order) => {
     let { error: orderError } = await supabase.from('orders').upsert(payload);
 
     if (orderError && isOrderTimestampInputError(orderError)) {
-      const isoPayload: Record<string, unknown> = {
-        ...payload,
-        created_at: toIsoTimestamp(uploadedOrder.createdAt),
-        updated_at: toIsoTimestamp(uploadedOrder.updatedAt || Date.now())
-      };
-      ({ error: orderError } = await supabase.from('orders').upsert(isoPayload));
-      if (!orderError) payload = isoPayload;
+      await logger.warn('sync:persist', 'Order timestamp normalization detected invalid input; retrying with ISO datetime values');
+      ({ error: orderError } = await supabase.from('orders').upsert(payload));
     }
 
     while (orderError) {
@@ -459,7 +444,7 @@ const persistOrderGraph = async (order: Order) => {
         location: variant.location,
         photo_url: variant.photoUrl,
         photos: variant.photos || [],
-        created_at: parseTimestamp(variant.createdAt)
+        created_at: toIsoTimestamp(variant.createdAt)
       };
 
       let { error: variantError } = await supabase.from('price_variants').upsert(variantPayload);
@@ -472,17 +457,6 @@ const persistOrderGraph = async (order: Order) => {
         ({ error: variantError } = await supabase.from('price_variants').upsert({
           ...variantPayload,
           created_at: toIsoTimestamp(variant.createdAt)
-        }));
-      }
-
-      if (variantError && isBigintTimestampInputError(variantError)) {
-        await logger.warn(
-          'sync:persist',
-          'price_variants.created_at expects bigint in remote schema; retrying upsert with epoch milliseconds'
-        );
-        ({ error: variantError } = await supabase.from('price_variants').upsert({
-          ...variantPayload,
-          created_at: parseTimestamp(variant.createdAt)
         }));
       }
 
