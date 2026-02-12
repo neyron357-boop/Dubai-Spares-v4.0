@@ -13,7 +13,7 @@ import {
 import { supabase } from '../supabase';
 import { Order, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
-import { DEFAULT_QUOTE_RATES, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
+import { DEFAULT_QUOTE_RATES, extractOrderIdFromQuoteSlug, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
 
@@ -265,6 +265,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const t = i18n[lang];
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const expiresAt = Number(params.get('exp') || 0);
+  const fallbackOrderId = extractOrderIdFromQuoteSlug(params.get('oid') || params.get('orderId') || '');
+  const candidateOrderIds = Array.from(new Set([orderId, fallbackOrderId].filter(Boolean)));
   const token = params.get('token') || '';
   const hasSecurityToken = token.length >= 32;
   const isExpired = !hasSecurityToken || !Number.isFinite(expiresAt) || expiresAt <= Date.now();
@@ -403,6 +405,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     }
   }, [orderId]);
 
+  const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
   const loadQuote = useCallback(async () => {
     if (isExpired) {
       setErrorType(EstimateErrorType.EXPIRED_LINK);
@@ -419,31 +423,42 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       return false;
     }
 
-    let { data, error: loadError } = await supabase
-      .from('orders')
-      .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,logistics,created_at,is_archived,is_sold,parts(*,price_variants(*))')
-      .eq('id', orderId)
-      .maybeSingle();
+    const attempts = [0, 350, 900];
+    for (let attempt = 0; attempt < attempts.length; attempt += 1) {
+      if (attempts[attempt] > 0) await sleep(attempts[attempt]);
 
-    if (loadError && isRelationQueryError(loadError)) {
-      const fallback = await loadQuoteWithoutJoin();
-      data = fallback.data;
-      loadError = fallback.error as any;
+      for (const candidateId of candidateOrderIds) {
+        let { data, error: loadError } = await supabase
+          .from('orders')
+          .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,logistics,created_at,is_archived,is_sold,parts(*,price_variants(*))')
+          .eq('id', candidateId)
+          .maybeSingle();
+
+        if (loadError && isRelationQueryError(loadError)) {
+          const fallback = await loadQuoteWithoutJoin();
+          data = fallback.data;
+          loadError = fallback.error as any;
+        }
+
+        if (data && !loadError) {
+          window.localStorage.setItem(`public-quote-cache:${orderId}`, JSON.stringify(data));
+          setOrder(mapDbOrder(data));
+          setErrorType(null);
+          setLoading(false);
+          return true;
+        }
+
+        if (attempt === attempts.length - 1) {
+          await logger.warn('quote-not-found', 'Quote lookup failed', { quoteId: orderId, candidateId, attempt, loadError });
+          setOrder(null);
+          setErrorType(detectErrorType(loadError, !!data));
+        }
+      }
     }
 
-    if (loadError || !data) {
-      setOrder(null);
-      setErrorType(detectErrorType(loadError, !!data));
-      setLoading(false);
-      return false;
-    }
-
-    window.localStorage.setItem(`public-quote-cache:${orderId}`, JSON.stringify(data));
-    setOrder(mapDbOrder(data));
-    setErrorType(null);
     setLoading(false);
-    return true;
-  }, [isExpired, orderId, readQuoteFromCache]);
+    return false;
+  }, [isExpired, orderId, readQuoteFromCache, candidateOrderIds]);
 
   useEffect(() => {
     void loadQuote();
@@ -548,7 +563,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   if (errorType || !order) {
     const errorMeta: Record<EstimateErrorType, { title: string; body: string; tone: string; canRetry: boolean; canGoHome: boolean; canOpenOffline: boolean }> = {
-      [EstimateErrorType.NOT_FOUND]: { title: t.notFoundTitle, body: t.notFoundBody, tone: 'text-rose-500', canRetry: false, canGoHome: true, canOpenOffline: false },
+      [EstimateErrorType.NOT_FOUND]: { title: t.notFoundTitle, body: t.notFoundBody, tone: 'text-rose-500', canRetry: true, canGoHome: true, canOpenOffline: false },
       [EstimateErrorType.NO_ACCESS]: { title: t.noAccessTitle, body: t.noAccessBody, tone: 'text-violet-500', canRetry: false, canGoHome: true, canOpenOffline: false },
       [EstimateErrorType.OFFLINE]: { title: t.offlineTitle, body: t.offlineBody, tone: 'text-amber-500', canRetry: true, canGoHome: false, canOpenOffline: true },
       [EstimateErrorType.SERVER_ERROR]: { title: t.serverErrorTitle, body: t.serverErrorBody, tone: 'text-orange-500', canRetry: true, canGoHome: false, canOpenOffline: false },
@@ -561,6 +576,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           <div ref={errorIconRef}><AlertCircle className={`mx-auto mb-3 ${current.tone}`} /></div>
           <h1 className="text-xl font-semibold">{current.title}</h1>
           <p className="mt-2 text-sm text-slate-600">{current.body}</p>
+          <p className="mt-2 text-xs text-slate-400">ID: <code>{orderId}</code></p>
           <div className="mt-5 flex flex-col gap-2">
             {current.canRetry && (
               <button type="button" disabled={isRetrying} onClick={() => void onRetry()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">

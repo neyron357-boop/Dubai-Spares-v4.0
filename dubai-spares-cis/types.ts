@@ -96,6 +96,9 @@ export interface Order {
   updatedAt?: number;
   recommendedShopIds?: string[];
   dismissedShopIds?: string[];
+  leadUnread?: boolean;
+  leadSource?: 'public_form' | 'manual';
+  leadReadAt?: number;
   customerStatus?: 'VIP' | 'LEAD' | 'INQUIRY';
   statusChangedAt?: number;
   statusChangedBy?: string;
@@ -159,6 +162,8 @@ export interface Supplier {
   createdAt?: number;
   updatedAt?: number;
   syncStatus?: SupplierSyncStatus;
+  priority?: 'high' | 'medium' | 'low';
+  status?: 'active' | 'dormant' | 'visited' | 'unknown';
 }
 
 export interface Shop {
@@ -234,6 +239,9 @@ export interface DbOrderRow {
   updated_at?: number | string;
   recommended_shop_ids?: string[];
   dismissed_shop_ids?: string[];
+  lead_unread?: boolean;
+  lead_source?: "public_form" | "manual";
+  lead_read_at?: number | string | null;
 }
 
 export interface DbOrderGraphRow extends DbOrderRow {
@@ -249,6 +257,10 @@ export interface SystemLogEntry {
   message: string;
   meta?: unknown;
   createdAt: number;
+  category?: 'errors' | 'warn' | 'info' | 'sync' | 'ui' | 'network';
+  sessionId?: string;
+  requestId?: string;
+  orderId?: string;
 }
 
 export type RadarInteractionResult = 'found' | 'not_found' | 'follow_up' | 'wrong_info' | 'message_sent';

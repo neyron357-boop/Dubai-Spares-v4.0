@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ImageOff, X } from 'lucide-react';
+import { Filter, ImageOff, X } from 'lucide-react';
 import { vibrate } from '../feedback';
 import { useStore } from '../store';
 import { Priority, type Order, type Part } from '../types';
@@ -41,23 +41,32 @@ const VendorSlider: React.FC = () => {
   const [imgIndex, setImgIndex] = useState(0);
   const [isZoomed, setIsZoomed] = useState(false);
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [brandFilter, setBrandFilter] = useState<string>('all');
+  const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | NonNullable<Part['status']>>('all');
 
   const pressTimer = useRef<number | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const lastGestureAt = useRef(0);
 
   const slides = useMemo<VendorSlide[]>(() => {
-    const active = orders.filter((o) => !o.isArchived && !o.isSold);
+    const active = orders.filter((o) => !o.isArchived && !o.isSold)
+      .filter((o) => brandFilter === 'all' || o.brand === brandFilter)
+      .filter((o) => priorityFilter === 'all' || o.priority === priorityFilter);
     return active
       .sort((a, b) => (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt))
-      .flatMap((order) => order.parts.map((part) => ({
-        orderId: order.id,
-        partId: part.id,
-        order,
-        part,
-        images: (part.photos && part.photos.length > 0) ? part.photos : (part.photoUrl ? [part.photoUrl] : []),
-      })));
-  }, [orders]);
+      .flatMap((order) => order.parts
+        .filter((part) => statusFilter === 'all' || part.status === statusFilter)
+        .map((part) => ({
+          orderId: order.id,
+          partId: part.id,
+          order,
+          part,
+          images: (part.photos && part.photos.length > 0) ? part.photos : (part.photoUrl ? [part.photoUrl] : []),
+        }))
+      );
+  }, [orders, brandFilter, priorityFilter, statusFilter]);
 
   useEffect(() => {
     if (index >= slides.length) setIndex(0);
@@ -78,6 +87,7 @@ const VendorSlider: React.FC = () => {
   }, [index, slides]);
 
   const current = slides[index];
+  const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
 
   const goTo = (next: number) => {
     const bounded = Math.max(0, Math.min(slides.length - 1, next));
@@ -145,9 +155,12 @@ const VendorSlider: React.FC = () => {
         <div className="relative h-[28vh] min-h-[170px] max-h-[240px] w-full overflow-hidden border-b border-slate-800">
           {carImage ? <img src={carImage} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" /> : <div className="h-full w-full bg-slate-900" />}
           <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/35 to-transparent" />
-          <button type="button" onClick={() => navigate(-1)} className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full bg-black/45">
-            <X size={20} />
-          </button>
+          <div className="absolute right-3 top-3 flex gap-2">
+            <button type="button" onClick={() => setFiltersOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Filter size={18} /></button>
+            <button type="button" onClick={() => navigate(-1)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45">
+              <X size={20} />
+            </button>
+          </div>
           <div className="absolute bottom-3 left-4 right-4">
             <p className="truncate text-3xl font-black leading-tight">{order.brand} {order.model}</p>
             <p className="text-sm text-white/90">{order.year} · {order.bodyType || '—'} · {order.parts.length} деталей</p>
@@ -224,6 +237,36 @@ const VendorSlider: React.FC = () => {
           </div>
         </div>
       </div>
+
+
+      {filtersOpen && (
+        <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setFiltersOpen(false)}>
+          <div className="mt-20 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Фильтры</p>
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="mb-1 text-xs text-white/70">Марки</p>
+                <select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} className="w-full rounded-xl bg-slate-800 px-3 py-2">
+                  <option value="all">Все марки</option>
+                  {brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+                </select>
+              </div>
+              <div>
+                <p className="mb-1 text-xs text-white/70">Приоритет</p>
+                <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2">
+                  <option value="all">Любой</option><option value={Priority.HIGH}>High</option><option value={Priority.MEDIUM}>Medium</option><option value={Priority.LOW}>Low</option>
+                </select>
+              </div>
+              <div>
+                <p className="mb-1 text-xs text-white/70">Статус</p>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2">
+                  <option value="all">Любой</option><option value="searching">Searching</option><option value="found">Found</option><option value="ordered">Ordered</option><option value="not_found">Not found</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {partsSheetOpen && (
         <div className="absolute inset-0 z-10 bg-black/70 p-4" onClick={() => setPartsSheetOpen(false)}>

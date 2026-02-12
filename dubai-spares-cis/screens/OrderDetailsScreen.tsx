@@ -126,6 +126,13 @@ const OrderDetailsScreen: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (!order) return;
+    if (order.leadSource === 'public_form' && order.leadUnread) {
+      updateOrder({ ...order, leadUnread: false, leadReadAt: Date.now(), isLead: false, status: 'active' });
+    }
+  }, [order?.id]);
+
 
   useEffect(() => {
     let active = true;
@@ -1057,7 +1064,7 @@ const OrderDetailsScreen: React.FC = () => {
 
 
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-2">
-          <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Recommended Shops</h2>
+          <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Recommend shop · nearest first</h2>
           <div className="flex items-center gap-2">
             <select
               onChange={(e) => { addManualRecommendation(e.target.value); e.currentTarget.value = ''; }}
@@ -1117,8 +1124,11 @@ const OrderDetailsScreen: React.FC = () => {
                               Убрать ручную
                             </button>
                           )}
+                          <button type="button" onClick={() => window.open(`https://wa.me/${(shop.phone || '').replace(/\D/g, '')}`, '_blank')} className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-bold text-emerald-700">
+                            WhatsApp
+                          </button>
                           <button type="button" onClick={() => dismissShopRecommendation(shop.id)} className="rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] font-bold text-amber-700">
-                            Скрыть
+                            Hide
                           </button>
                           <button type="button" onClick={() => navigateToShop(shop)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white">
                             Navigate
