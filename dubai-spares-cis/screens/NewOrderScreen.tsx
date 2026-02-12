@@ -1,16 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, ChevronDown, Mic } from 'lucide-react';
+import { Camera, ChevronDown, Mic, UserRound, Wrench, CarFront, ImagePlus, NotebookPen } from 'lucide-react';
 import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE, YEARS } from '../constants';
+import { CHASSIS_BODY_TYPES_BY_BRAND } from '../carDatabase';
 import { useStore } from '../store';
 import { Order, Priority, Source } from '../types';
 import { logger } from '../logging';
+import { optimizeImageForUpload } from '../storage/photos';
 
 type VinDecoded = {
   brand?: string;
   model?: string;
   year?: string;
 };
+
+type Mode = 'quick' | 'full';
+
+type DropdownOption = {
+  label: string;
+  value: string;
+};
+
+const POPULAR_BRANDS = ['BMW', 'Mercedes-Benz', 'Toyota', 'Lexus', 'Nissan', 'Hyundai', 'Kia', 'Audi', 'Volkswagen'];
 
 const VIN_BRAND_MAP: Record<string, string> = {
   JT: 'Toyota',
@@ -40,17 +51,98 @@ const decodeVin = (rawVin: string): VinDecoded | null => {
 const createId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
 const inputClass = 'h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-slate-300 focus:ring-4 focus:ring-slate-100';
-const selectClass = `${inputClass} appearance-none pr-9`;
+
+const cardClass = 'space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200';
+
+const SearchableDropdown: React.FC<{
+  value: string;
+  placeholder: string;
+  disabled?: boolean;
+  options: DropdownOption[];
+  loading?: boolean;
+  onChange: (value: string) => void;
+}> = ({ value, placeholder, disabled, options, loading, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onOutside = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onOutside);
+    return () => document.removeEventListener('mousedown', onOutside);
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((option) => option.label.toLowerCase().includes(q));
+  }, [options, query]);
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((prev) => !prev)}
+        className={`${inputClass} relative flex items-center justify-between text-left disabled:cursor-not-allowed disabled:bg-slate-100`}
+      >
+        <span className={value ? 'text-slate-900' : 'text-slate-400'}>{value || placeholder}</span>
+        <ChevronDown size={16} className={`text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-2 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+          <input
+            value={query}
+            autoFocus
+            onChange={(e) => setQuery(e.target.value)}
+            className="mb-2 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-slate-300"
+            placeholder="Поиск..."
+          />
+          {loading ? (
+            <div className="space-y-2 p-1">
+              <div className="h-8 animate-pulse rounded-lg bg-slate-100" />
+              <div className="h-8 animate-pulse rounded-lg bg-slate-100" />
+            </div>
+          ) : (
+            <div className="max-h-52 overflow-y-auto">
+              {filtered.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                    setQuery('');
+                  }}
+                  className="flex w-full items-center rounded-lg px-2 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+                >
+                  {option.label}
+                </button>
+              ))}
+              {filtered.length === 0 && <p className="px-2 py-2 text-xs text-slate-500">Ничего не найдено</p>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const NewOrderScreen: React.FC = () => {
   const navigate = useNavigate();
   const { addOrder, isSyncing } = useStore();
 
+  const [mode, setMode] = useState<Mode>('quick');
   const [vin, setVin] = useState('');
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
   const [bodyType, setBodyType] = useState('');
+  const [seriesCode, setSeriesCode] = useState('');
 
   const [partName, setPartName] = useState('');
   const [comment, setComment] = useState('');
@@ -60,49 +152,104 @@ const NewOrderScreen: React.FC = () => {
   const [clientName, setClientName] = useState('');
   const [customerContact, setCustomerContact] = useState('');
   const [country, setCountry] = useState('');
+  const [city, setCity] = useState('');
+  const [leadSource, setLeadSource] = useState<Source>(Source.WHATSAPP);
+
+  const [carPhotos, setCarPhotos] = useState<string[]>([]);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [brandLoading, setBrandLoading] = useState(true);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
 
-  const photoRef = useRef<HTMLInputElement>(null);
+  const partPhotoRef = useRef<HTMLInputElement>(null);
+  const carGalleryRef = useRef<HTMLInputElement>(null);
+  const carCameraRef = useRef<HTMLInputElement>(null);
 
   const touched = useRef({ brand: false, model: false, year: false });
 
   const modelOptions = useMemo(() => {
-    if (brand) return BRAND_MODELS[brand] || [];
-    return Array.from(new Set(Object.values(BRAND_MODELS).flat())).sort((a, b) => a.localeCompare(b));
+    const base = brand ? BRAND_MODELS[brand] || [] : Array.from(new Set(Object.values(BRAND_MODELS).flat()));
+    return base.sort((a, b) => a.localeCompare(b)).map((item) => ({ label: item, value: item }));
+  }, [brand]);
+
+  const brandOptions = useMemo(() => {
+    const popularSet = new Set(POPULAR_BRANDS);
+    const popular = POPULAR_BRANDS.filter((item) => BRANDS.includes(item)).map((item) => ({ label: `⭐ ${item}`, value: item }));
+    const rest = BRANDS.filter((item) => !popularSet.has(item)).map((item) => ({ label: item, value: item }));
+    return [...popular, ...rest];
+  }, []);
+
+  const chassisCodes = useMemo(
+    () => (brand ? (CHASSIS_BODY_TYPES_BY_BRAND[brand] || []).map((item) => ({ label: item, value: item })) : []),
+    [brand]
+  );
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setBrandLoading(false), 220);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!brand) return;
+    setModelLoading(true);
+    const timer = window.setTimeout(() => setModelLoading(false), 180);
+    return () => window.clearTimeout(timer);
   }, [brand]);
 
   useEffect(() => {
-    if (model && modelOptions.length > 0 && !modelOptions.includes(model)) {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    const onResize = () => {
+      const offset = Math.max(0, window.innerHeight - (viewport.height + viewport.offsetTop));
+      setKeyboardOffset(offset);
+    };
+
+    viewport.addEventListener('resize', onResize);
+    viewport.addEventListener('scroll', onResize);
+    onResize();
+
+    return () => {
+      viewport.removeEventListener('resize', onResize);
+      viewport.removeEventListener('scroll', onResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (model && modelOptions.length > 0 && !modelOptions.map((item) => item.value).includes(model)) {
       setModel('');
     }
   }, [model, modelOptions]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('new-order-draft-v1');
+    const saved = localStorage.getItem('new-order-draft-v2');
     if (!saved) return;
     try {
       const d = JSON.parse(saved);
+      setMode(d.mode || 'quick');
       setVin(d.vin || '');
       setBrand(d.brand || '');
       setModel(d.model || '');
       setYear(d.year || '');
       setBodyType(d.bodyType || '');
+      setSeriesCode(d.seriesCode || '');
       setPartName(d.partName || '');
       setComment(d.comment || '');
       setClientName(d.clientName || '');
       setCustomerContact(d.customerContact || '');
       setCountry(d.country || '');
+      setCity(d.city || '');
     } catch {
       // noop
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('new-order-draft-v1', JSON.stringify({
-      vin, brand, model, year, bodyType, partName, comment, clientName, customerContact, country
+    localStorage.setItem('new-order-draft-v2', JSON.stringify({
+      mode, vin, brand, model, year, bodyType, seriesCode, partName, comment, clientName, customerContact, country, city
     }));
-  }, [vin, brand, model, year, bodyType, partName, comment, clientName, customerContact, country]);
+  }, [mode, vin, brand, model, year, bodyType, seriesCode, partName, comment, clientName, customerContact, country, city]);
 
   useEffect(() => {
     const decoded = decodeVin(vin);
@@ -122,9 +269,8 @@ const NewOrderScreen: React.FC = () => {
     if (!brand.trim()) next.brand = 'Марка обязательна';
     if (!model.trim()) next.model = 'Модель обязательна';
     if (!year.trim() || !/^\d{4}$/.test(year.trim())) next.year = 'Год: 4 цифры';
-    if (!partName.trim()) next.partName = 'Название детали обязательно';
+    if (!partName.trim()) next.partName = 'Что нужно — обязательно';
     if (vin.trim() && vin.trim().length !== 17) next.vin = 'VIN должен быть 17 символов';
-    if (customerContact.replace(/\D/g, '').length < 8) next.contact = 'WhatsApp минимум 8 цифр';
     setErrors(next);
     if (Object.keys(next).length > 0) {
       void logger.warn('create-order', 'create_order_validation_error', { errors: next });
@@ -133,8 +279,8 @@ const NewOrderScreen: React.FC = () => {
   };
 
   const canCreate = useMemo(() => (
-    !!brand.trim() && !!model.trim() && /^\d{4}$/.test(year.trim()) && !!partName.trim() && customerContact.replace(/\D/g, '').length >= 8 && (!vin.trim() || vin.trim().length === 17)
-  ), [brand, model, year, partName, customerContact, vin]);
+    !!brand.trim() && !!model.trim() && /^\d{4}$/.test(year.trim()) && !!partName.trim() && (!vin.trim() || vin.trim().length === 17)
+  ), [brand, model, year, partName, vin]);
 
   const startVoiceInput = () => {
     const Ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -145,10 +291,44 @@ const NewOrderScreen: React.FC = () => {
     rec.start();
   };
 
+  const attachCompressedImages = async (
+    files: FileList | null,
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    maxCount = 10,
+    labelPrefix = 'new-order:image'
+  ) => {
+    const selected = Array.from(files || []);
+    if (!selected.length) return;
+
+    const prepared: string[] = [];
+    for (const file of selected) {
+      try {
+        const compressed = await optimizeImageForUpload(file, `${labelPrefix}:${file.name}`);
+        prepared.push(compressed);
+      } catch {
+        await new Promise<void>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            prepared.push(String(reader.result || ''));
+            resolve();
+          };
+          reader.onerror = () => resolve();
+          reader.readAsDataURL(file);
+        });
+      }
+    }
+
+    setter((prev) => [...prev, ...prepared].slice(0, maxCount));
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    void logger.info('create-order', 'create_order_start', { source: 'manual' });
+    void logger.info('create-order', 'create_order_start', { source: 'manual', mode });
     if (!validate()) return;
+
+    if ('vibrate' in navigator) {
+      navigator.vibrate(20);
+    }
 
     const now = Date.now();
     const params = new URLSearchParams(window.location.search);
@@ -163,8 +343,10 @@ const NewOrderScreen: React.FC = () => {
       vin: vin.trim(),
       priority: Priority.MEDIUM,
       clientName: clientName.trim(),
-      source: Source.WHATSAPP,
+      source: leadSource,
       customerContact: customerContact.trim(),
+      carPhotos,
+      carPhotoUrl: carPhotos[0],
       parts: [{
         id: createId(),
         name: partName.trim(),
@@ -183,132 +365,184 @@ const NewOrderScreen: React.FC = () => {
       leadSource: fromLead ? 'public_form' : 'manual',
       notes: [
         ...(comment.trim() ? [{ id: createId(), text: comment.trim(), createdAt: now }] : []),
-        ...(voiceNote.trim() ? [{ id: createId(), text: `Voice: ${voiceNote.trim()}`, createdAt: now }] : [])
+        ...(voiceNote.trim() ? [{ id: createId(), text: `Voice: ${voiceNote.trim()}`, createdAt: now }] : []),
+        ...(seriesCode.trim() ? [{ id: createId(), text: `Series/Code: ${seriesCode.trim()}`, createdAt: now }] : [])
       ],
-      socialNickname: country.trim() || undefined
+      socialNickname: [country.trim(), city.trim()].filter(Boolean).join(', ') || undefined
     };
 
     const ok = await addOrder(order);
     if (!ok) return;
 
-    localStorage.removeItem('new-order-draft-v1');
+    localStorage.removeItem('new-order-draft-v2');
     void logger.info('create-order', 'create_order_success', { orderId: order.id });
-    navigate(`/orders/${order.id}`);
+    navigate(`/order/${order.id}`);
   };
 
   return (
-    <form onSubmit={submit} className="mx-auto max-w-2xl space-y-4 p-4 pb-28">
+    <form onSubmit={submit} className="mx-auto max-w-2xl space-y-4 p-4 pb-[210px]">
       <h1 className="text-xl font-black text-slate-900">Создать заказ</h1>
 
-      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-xs font-black uppercase tracking-wide text-slate-500">Автомобиль</h2>
-        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-          Быстро заполните марку, модель и год через выпадающие списки.
+      <div className="rounded-2xl bg-slate-100 p-1">
+        <div className="grid grid-cols-2 gap-1">
+          <button type="button" onClick={() => setMode('quick')} className={`h-10 rounded-xl text-sm font-bold transition ${mode === 'quick' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Quick</button>
+          <button type="button" onClick={() => setMode('full')} className={`h-10 rounded-xl text-sm font-bold transition ${mode === 'full' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Full</button>
         </div>
+      </div>
 
-        <input autoFocus value={vin} onChange={(e) => setVin(e.target.value.toUpperCase().slice(0, 17))} placeholder="VIN (опционально)" className={inputClass} />
-        {errors.vin && <p className="text-xs text-rose-600">{errors.vin}</p>}
+      <section className={cardClass}>
+        <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><CarFront size={16} /> Автомобиль</h2>
+        <p className="text-xs text-slate-500">Сначала марка и модель, затем всё остальное.</p>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Марка *</span>
-            <div className="relative">
-              <select
-                value={brand}
-                onChange={(e) => {
-                  touched.current.brand = true;
-                  setBrand(e.target.value);
-                  setModel('');
-                }}
-                className={selectClass}
-              >
-                <option value="">Выберите марку</option>
-                {BRANDS.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            </div>
-            {errors.brand && <p className="text-xs text-rose-600">{errors.brand}</p>}
-          </label>
+        {mode === 'full' && (
+          <div className="space-y-1 transition-all duration-200">
+            <input autoFocus value={vin} onChange={(e) => setVin(e.target.value.toUpperCase().slice(0, 17))} placeholder="VIN (опционально)" className={inputClass} />
+            {errors.vin && <p className="text-xs text-rose-600">{errors.vin}</p>}
+          </div>
+        )}
 
-          <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Модель *</span>
-            <div className="relative">
-              <select
-                value={model}
-                onChange={(e) => {
-                  touched.current.model = true;
-                  setModel(e.target.value);
-                }}
-                className={selectClass}
-              >
-                <option value="">Выберите модель</option>
-                {modelOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            </div>
-            {errors.model && <p className="text-xs text-rose-600">{errors.model}</p>}
-          </label>
+        <label className="space-y-1">
+          <span className="text-xs font-semibold text-slate-500">Марка *</span>
+          <SearchableDropdown
+            value={brand}
+            placeholder="Выберите марку"
+            options={brandOptions}
+            loading={brandLoading}
+            onChange={(value) => {
+              touched.current.brand = true;
+              setBrand(value);
+              setModel('');
+              setSeriesCode('');
+            }}
+          />
+          {errors.brand && <p className="text-xs text-rose-600">{errors.brand}</p>}
+        </label>
+
+        <div className={`space-y-1 overflow-hidden transition-all duration-200 ${brand ? 'max-h-52 opacity-100' : 'max-h-0 opacity-0'}`}>
+          <span className="text-xs font-semibold text-slate-500">Модель *</span>
+          <SearchableDropdown
+            value={model}
+            placeholder={brand ? 'Выберите модель' : 'Сначала выберите марку'}
+            disabled={!brand}
+            options={modelOptions}
+            loading={modelLoading}
+            onChange={(value) => {
+              touched.current.model = true;
+              setModel(value);
+            }}
+          />
+          {errors.model && <p className="text-xs text-rose-600">{errors.model}</p>}
+          {!!chassisCodes.length && <p className="text-xs text-slate-500">Подсказка по серии: {chassisCodes.slice(0, 4).map((x) => x.value).join(', ')}</p>}
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="space-y-1">
             <span className="text-xs font-semibold text-slate-500">Год *</span>
-            <div className="relative">
-              <select
-                value={year}
-                onChange={(e) => {
-                  touched.current.year = true;
-                  setYear(e.target.value);
-                }}
-                className={selectClass}
-              >
-                <option value="">Выберите год</option>
-                {YEARS.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            </div>
+            <input
+              value={year}
+              onChange={(e) => {
+                touched.current.year = true;
+                setYear(e.target.value.replace(/\D/g, '').slice(0, 4));
+              }}
+              placeholder="Например: 2018"
+              inputMode="numeric"
+              className={inputClass}
+            />
             {errors.year && <p className="text-xs text-rose-600">{errors.year}</p>}
           </label>
 
           <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Тип кузова (текстом)</span>
-            <input value={bodyType} onChange={(e) => setBodyType(e.target.value)} placeholder="Например: Sedan / SUV / Coupe" className={inputClass} />
+            <span className="text-xs font-semibold text-slate-500">Тип кузова</span>
+            <input value={bodyType} onChange={(e) => setBodyType(e.target.value)} placeholder="SUV / Sedan / Coupe / Hatchback..." className={inputClass} />
           </label>
         </div>
-      </section>
 
-      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-xs font-black uppercase text-slate-500">Деталь</h2>
-        <input value={partName} onChange={(e) => setPartName(e.target.value)} placeholder="Название детали *" className={inputClass} />
-        {errors.partName && <p className="text-xs text-rose-600">{errors.partName}</p>}
-        <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" rows={3} className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100" />
-        <div className="flex gap-2">
-          <button type="button" onClick={() => photoRef.current?.click()} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"><Camera size={14} /> Фото</button>
-          <button type="button" onClick={startVoiceInput} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"><Mic size={14} /> Голос</button>
+        {mode === 'full' && !!chassisCodes.length && (
+          <label className="space-y-1 transition-all duration-200">
+            <span className="text-xs font-semibold text-slate-500">Series / Code</span>
+            <SearchableDropdown value={seriesCode} placeholder="Выберите серию" options={chassisCodes} onChange={setSeriesCode} />
+          </label>
+        )}
+
+        <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-3">
+          <p className="text-xs font-semibold text-slate-600">Фото авто (до 10)</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => carCameraRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Camera</button>
+            <button type="button" onClick={() => carGalleryRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><ImagePlus size={14} /> Gallery</button>
+          </div>
+          {!!carPhotos.length && (
+            <div className="grid grid-cols-3 gap-2">
+              {carPhotos.map((photo, index) => (
+                <div key={`${photo}-${index}`} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white">
+                  <img src={photo} alt={`car-${index}`} className="h-20 w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setCarPhotos((prev) => prev.filter((_, i) => i !== index))}
+                    className="absolute right-1 top-1 h-5 w-5 rounded-full bg-black/60 text-[10px] text-white"
+                  >×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <input ref={carGalleryRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-gallery')} />
+          <input ref={carCameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-camera')} />
         </div>
-        {!!voiceNote && <p className="text-xs text-slate-500">🎤 {voiceNote}</p>}
-        <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          files.forEach((file) => {
-            const reader = new FileReader();
-            reader.onloadend = () => setPartPhotos((prev) => [...prev, String(reader.result || '')]);
-            reader.readAsDataURL(file);
-          });
-        }} />
       </section>
 
-      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-xs font-black uppercase text-slate-500">Клиент</h2>
-        <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Имя клиента" className={inputClass} />
-        <input value={customerContact} onChange={(e) => setCustomerContact(e.target.value)} placeholder="WhatsApp *" className={inputClass} />
-        {errors.contact && <p className="text-xs text-rose-600">{errors.contact}</p>}
-        <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Страна / откуда пишет" className={inputClass} />
+      <section className={cardClass}>
+        <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><Wrench size={16} /> Деталь / запрос</h2>
+        <label className="space-y-1">
+          <span className="text-xs font-semibold text-slate-500">Что нужно? *</span>
+          <input value={partName} onChange={(e) => setPartName(e.target.value)} placeholder="Например: задний фонарь правый" className={inputClass} />
+          {errors.partName && <p className="text-xs text-rose-600">{errors.partName}</p>}
+        </label>
+
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => partPhotoRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото детали</button>
+          <button type="button" onClick={startVoiceInput} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Mic size={14} /> Голос</button>
+          <button type="button" onClick={() => setMode('full')} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><NotebookPen size={14} /> Заметка</button>
+        </div>
+
+        {(partPhotos.length > 0 || voiceNote) && (
+          <div className="flex gap-2 text-xs">
+            {partPhotos.length > 0 && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">+{partPhotos.length} фото</span>}
+            {voiceNote && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">+1 voice</span>}
+          </div>
+        )}
+
+        {mode === 'full' && (
+          <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий к заказу" rows={3} className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100" />
+        )}
+
+        <input ref={partPhotoRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void attachCompressedImages(e.target.files, setPartPhotos, 10, 'new-order:part')} />
       </section>
 
-      <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 p-3 backdrop-blur">
-        <div className="mx-auto max-w-2xl">
+      <section className={cardClass}>
+        <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><UserRound size={16} /> Клиент</h2>
+        <input value={customerContact} onChange={(e) => setCustomerContact(e.target.value)} placeholder="WhatsApp / телефон (опционально)" className={inputClass} />
+        <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Имя (опционально)" className={inputClass} />
+
+        {mode === 'full' && (
+          <div className="grid grid-cols-1 gap-3 transition-all duration-200 sm:grid-cols-2">
+            <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Страна" className={inputClass} />
+            <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Город" className={inputClass} />
+            <label className="space-y-1 sm:col-span-2">
+              <span className="text-xs font-semibold text-slate-500">Источник</span>
+              <select value={leadSource} onChange={(e) => setLeadSource(e.target.value as Source)} className={inputClass}>
+                <option value={Source.INSTAGRAM}>IG</option>
+                <option value={Source.TIKTOK}>TikTok</option>
+                <option value={Source.WHATSAPP}>WA</option>
+                <option value={Source.OTHER}>Other</option>
+              </select>
+            </label>
+          </div>
+        )}
+      </section>
+
+      <div style={{ bottom: `${keyboardOffset}px` }} className="fixed inset-x-0 z-40 mx-auto w-full max-w-md border-t border-slate-200 bg-white/95 px-3 pt-3 backdrop-blur" >
+        <div className="pb-[calc(env(safe-area-inset-bottom)+64px)]">
           <button type="submit" disabled={!canCreate || isSyncing} className="h-14 w-full rounded-2xl bg-slate-900 text-sm font-black uppercase tracking-wide text-white transition-all duration-200 disabled:opacity-40">
-            СОЗДАТЬ ЗАКАЗ
+            Создать заказ
           </button>
         </div>
       </div>
