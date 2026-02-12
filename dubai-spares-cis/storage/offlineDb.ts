@@ -16,6 +16,7 @@ const ORDERS_STORE = 'orders';
 const MUTATIONS_STORE = 'mutations';
 const SYSTEM_LOGS_STORE = 'system_logs';
 const RADAR_INTERACTIONS_STORE = 'radar_interactions';
+const ALL_STORES = [ORDERS_STORE, MUTATIONS_STORE, SYSTEM_LOGS_STORE, RADAR_INTERACTIONS_STORE] as const;
 
 const openDb = (): Promise<IDBDatabase> =>
   new Promise((resolve, reject) => {
@@ -108,17 +109,24 @@ export const offlineDb = {
     await txRequest(tx.objectStore(MUTATIONS_STORE).clear());
   },
 
-  async addSystemLog(entry: SystemLogEntry, maxEntries = 200): Promise<void> {
+  async addSystemLog(entry: SystemLogEntry, maxEntries = 2000, maxAgeMs = 14 * 24 * 60 * 60 * 1000): Promise<void> {
     const db = await openDb();
     const tx = db.transaction(SYSTEM_LOGS_STORE, 'readwrite');
     const store = tx.objectStore(SYSTEM_LOGS_STORE);
     await txRequest(store.put(entry));
 
     const rows = (await txRequest(store.getAll())) as SystemLogEntry[];
-    if (rows.length > maxEntries) {
-      const oldest = rows
+    const now = Date.now();
+    const tooOld = rows.filter((item) => now - item.createdAt > maxAgeMs);
+    for (const item of tooOld) {
+      await txRequest(store.delete(item.id));
+    }
+
+    const freshRows = rows.filter((item) => now - item.createdAt <= maxAgeMs);
+    if (freshRows.length > maxEntries) {
+      const oldest = freshRows
         .sort((a, b) => a.createdAt - b.createdAt)
-        .slice(0, rows.length - maxEntries);
+        .slice(0, freshRows.length - maxEntries);
 
       for (const item of oldest) {
         await txRequest(store.delete(item.id));
@@ -145,6 +153,52 @@ export const offlineDb = {
     const db = await openDb();
     const tx = db.transaction(SYSTEM_LOGS_STORE, 'readwrite');
     await txRequest(tx.objectStore(SYSTEM_LOGS_STORE).clear());
+  },
+
+  async getDiagnosticsSnapshot(): Promise<Record<string, { count: number; approxBytes: number }>> {
+    const db = await openDb();
+    const tx = db.transaction([...ALL_STORES], 'readonly');
+    const result: Record<string, { count: number; approxBytes: number }> = {};
+
+    for (const storeName of ALL_STORES) {
+      const rows = await txRequest(tx.objectStore(storeName).getAll());
+      const approxBytes = new Blob([JSON.stringify(rows)]).size;
+      result[storeName] = { count: Array.isArray(rows) ? rows.length : 0, approxBytes };
+    }
+
+    return result;
+  },
+
+  async exportAllData(): Promise<Record<string, unknown[]>> {
+    const db = await openDb();
+    const tx = db.transaction([...ALL_STORES], 'readonly');
+    const dump: Record<string, unknown[]> = {};
+    for (const storeName of ALL_STORES) {
+      const rows = await txRequest(tx.objectStore(storeName).getAll());
+      dump[storeName] = Array.isArray(rows) ? rows : [];
+    }
+    return dump;
+  },
+
+  async importAllData(payload: Record<string, unknown[]>): Promise<void> {
+    const db = await openDb();
+    const tx = db.transaction([...ALL_STORES], 'readwrite');
+    for (const storeName of ALL_STORES) {
+      const store = tx.objectStore(storeName);
+      await txRequest(store.clear());
+      const rows = Array.isArray(payload[storeName]) ? payload[storeName] : [];
+      for (const row of rows) {
+        await txRequest(store.put(row));
+      }
+    }
+  },
+
+  async clearAllOfflineData(): Promise<void> {
+    const db = await openDb();
+    const tx = db.transaction([...ALL_STORES], 'readwrite');
+    for (const storeName of ALL_STORES) {
+      await txRequest(tx.objectStore(storeName).clear());
+    }
   },
 
   async saveRadarInteraction(interaction: RadarInteraction): Promise<void> {
