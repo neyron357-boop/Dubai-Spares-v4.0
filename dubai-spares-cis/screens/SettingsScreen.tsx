@@ -156,6 +156,16 @@ const SettingsScreen: React.FC = () => {
               )}
             </div>
           </Field>
+
+          <label className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2">
+            <span className="text-sm font-bold text-gray-800">Field Focus Mode</span>
+            <input
+              type="checkbox"
+              checked={settings.fieldFocusMode}
+              onChange={(e) => updateSettings({ fieldFocusMode: e.target.checked })}
+              className="h-4 w-4"
+            />
+          </label>
         </div>
       </Section>
 

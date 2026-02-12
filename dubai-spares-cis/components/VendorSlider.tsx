@@ -1,9 +1,19 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ChevronDown, ChevronLeft, ChevronRight, Copy, X } from 'lucide-react';
+import { loadAppSettings, saveAppSettings } from '../appSettings';
+import { vibrate } from '../feedback';
+import { ensureUuid } from '../id';
 import { useStore } from '../store';
-import { X, ChevronLeft, ChevronRight, Package, Car, Filter, ArrowUpDown } from 'lucide-react';
-import ImagePreview from './ImagePreview';
-import { Priority } from '../types';
+import { Priority, type Order, type Part } from '../types';
+
+type VendorSlide = {
+  orderId: string;
+  partId: string;
+  order: Order;
+  part: Part;
+  images: string[];
+};
 
 const priorityWeight = {
   [Priority.HIGH]: 3,
@@ -11,236 +21,312 @@ const priorityWeight = {
   [Priority.LOW]: 1,
 };
 
-type VendorSortType = 'priority' | 'date_desc' | 'date_asc' | 'brand' | 'model' | 'status' | 'parts' | 'type';
+const priorityLabel = (order: Order) => {
+  if (order.isVip) return 'VIP';
+  if (order.parts.some((part) => part.priority === 'urgent')) return 'Urgent';
+  return 'Normal';
+};
 
-const sortOptions: { value: VendorSortType; label: string }[] = [
-  { value: 'priority', label: 'Приоритет' },
-  { value: 'date_desc', label: 'Дата (новые)' },
-  { value: 'date_asc', label: 'Дата (старые)' },
-  { value: 'brand', label: 'Марка A-Я' },
-  { value: 'model', label: 'Модель A-Я' },
-  { value: 'status', label: 'Статус поиска' },
-  { value: 'parts', label: 'Кол-во деталей' },
-  { value: 'type', label: 'Тип заказа' },
-];
+const priorityClass = (order: Order) => {
+  if (order.isVip) return 'text-amber-300 border-amber-400/60 bg-amber-500/15';
+  if (order.parts.some((part) => part.priority === 'urgent')) return 'text-rose-300 border-rose-400/60 bg-rose-500/15';
+  return 'text-slate-300 border-slate-500/50 bg-slate-500/15';
+};
+
+const resolveTarget = (order: Order, part: Part) => {
+  const base = order.isVip ? 1500 : order.priority === Priority.HIGH ? 1300 : order.priority === Priority.MEDIUM ? 1000 : 800;
+  const mod = part.priority === 'urgent' ? 1.15 : 1;
+  const target = Math.round(base * mod);
+  return {
+    target,
+    marketLow: Math.round(target * 1.1),
+    marketHigh: Math.round(target * 1.4),
+  };
+};
+
+const getStatusBadge = (price?: number) => {
+  if (!price) return { label: '🟢 Searching', tone: 'bg-emerald-500/15 text-emerald-200 border-emerald-400/50' };
+  if (price <= 1800) return { label: '🟡 Quoted', tone: 'bg-amber-500/15 text-amber-200 border-amber-400/50' };
+  return { label: '🔴 Expensive', tone: 'bg-rose-500/15 text-rose-200 border-rose-400/50' };
+};
 
 const VendorSlider: React.FC = () => {
   const navigate = useNavigate();
-  const { orders } = useStore();
+  const { orders, updateOrder } = useStore();
 
-  const activeOrders = useMemo(() => orders.filter(o => !o.isArchived && !o.isSold), [orders]);
-
-  const [selectedBrand, setSelectedBrand] = useState<string>('All');
-  const [sortBy, setSortBy] = useState<VendorSortType>('priority');
   const [index, setIndex] = useState(0);
-  const [touchStart, setTouchStart] = useState<number | null>(null);
-  const [touchEnd, setTouchEnd] = useState<number | null>(null);
-  const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
+  const [imgIndex, setImgIndex] = useState(0);
+  const [priceInput, setPriceInput] = useState('');
+  const [priceOpen, setPriceOpen] = useState(false);
+  const [fieldFocusMode, setFieldFocusMode] = useState<boolean>(() => loadAppSettings().fieldFocusMode);
+  const [superFieldMode, setSuperFieldMode] = useState(false);
+  const [quotedPrices, setQuotedPrices] = useState<Record<string, number>>({});
+  const pressTimer = useRef<number | null>(null);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
 
-  const brands = useMemo(() => {
-    const b = new Set(activeOrders.map(o => o.brand));
-    return ['All', ...Array.from(b).sort()];
-  }, [activeOrders]);
+  const slides = useMemo<VendorSlide[]>(() => {
+    const active = orders.filter((o) => !o.isArchived && !o.isSold);
+    return active
+      .sort((a, b) => (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt))
+      .flatMap((order) => order.parts.map((part) => ({
+        orderId: order.id,
+        partId: part.id,
+        order,
+        part,
+        images: (part.photos && part.photos.length > 0) ? part.photos : (part.photoUrl ? [part.photoUrl] : []),
+      })));
+  }, [orders]);
 
-  const filteredOrders = useMemo(() => {
-    const list = selectedBrand === 'All' ? activeOrders : activeOrders.filter(o => o.brand === selectedBrand);
-    const statusScore = (partsCount: number, foundCount: number) => {
-      if (partsCount === 0) return 0;
-      if (foundCount === partsCount) return 3;
-      if (foundCount > 0) return 2;
-      return 1;
+  useEffect(() => {
+    if (index >= slides.length) setIndex(0);
+  }, [index, slides.length]);
+
+  useEffect(() => {
+    setImgIndex(0);
+    setPriceOpen(false);
+    setPriceInput('');
+  }, [index]);
+
+  useEffect(() => {
+    const unsubscribe = () => {
+      window.removeEventListener('app-settings-updated', handler);
     };
+    const handler = () => setFieldFocusMode(loadAppSettings().fieldFocusMode);
+    window.addEventListener('app-settings-updated', handler);
+    return unsubscribe;
+  }, []);
 
-    const orderTypeScore = (order: typeof list[number]) => {
-      if (order.status === 'new_inquiry') return 5;
-      if (order.isLead) return 4;
-      if (order.isVip) return 3;
-      if (order.isArchived) return 1;
-      return 2;
-    };
-
-    return [...list].sort((a, b) => {
-      switch (sortBy) {
-        case 'date_desc':
-          return b.createdAt - a.createdAt;
-        case 'date_asc':
-          return a.createdAt - b.createdAt;
-        case 'brand':
-          return a.brand.localeCompare(b.brand) || b.createdAt - a.createdAt;
-        case 'model':
-          return a.model.localeCompare(b.model) || b.createdAt - a.createdAt;
-        case 'status': {
-          const aFound = a.parts.filter(p => p.variants.length > 0).length;
-          const bFound = b.parts.filter(p => p.variants.length > 0).length;
-          return statusScore(b.parts.length, bFound) - statusScore(a.parts.length, aFound) || b.createdAt - a.createdAt;
-        }
-        case 'parts':
-          return b.parts.length - a.parts.length || b.createdAt - a.createdAt;
-        case 'type':
-          return orderTypeScore(b) - orderTypeScore(a) || b.createdAt - a.createdAt;
-        case 'priority':
-        default:
-          return (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt);
-      }
+  useEffect(() => {
+    const urls = slides.flatMap((slide) => slide.images).slice(0, 20);
+    urls.forEach((url) => {
+      const img = new Image();
+      img.src = url;
     });
-  }, [activeOrders, selectedBrand, sortBy]);
+  }, [slides]);
 
-  useEffect(() => {
-    setIndex(0);
-  }, [selectedBrand, sortBy]);
+  const current = slides[index];
 
-  useEffect(() => {
-    if (index >= filteredOrders.length) setIndex(0);
-  }, [filteredOrders.length, index]);
-
-  const onTouchStart = (e: React.TouchEvent) => {
-    setTouchEnd(null);
-    setTouchStart(e.targetTouches[0].clientX);
+  const goTo = (next: number) => {
+    const bounded = Math.max(0, Math.min(slides.length - 1, next));
+    if (bounded === index) return;
+    const atLast = bounded === slides.length - 1;
+    vibrate(atLast ? [30, 40, 30] : 15);
+    setIndex(bounded);
   };
 
-  const onTouchMove = (e: React.TouchEvent) => {
-    setTouchEnd(e.targetTouches[0].clientX);
+  const handleTap = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isRight = e.clientX > rect.left + rect.width / 2;
+    goTo(index + (isRight ? 1 : -1));
   };
 
-  const onTouchEnd = () => {
-    if (!touchStart || !touchEnd) return;
-    const distance = touchStart - touchEnd;
-    if (distance > 50 && index < filteredOrders.length - 1) setIndex(prev => prev + 1);
-    if (distance < -50 && index > 0) setIndex(prev => prev - 1);
+  const onTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const touch = e.targetTouches[0];
+    touchStart.current = { x: touch.clientX, y: touch.clientY };
   };
 
-  const openGallery = (e: React.MouseEvent, images: string[]) => {
-    e.stopPropagation();
-    if (images.length === 0) return;
-    setGallery({ images, index: 0 });
+  const onTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!touchStart.current) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStart.current.x;
+    const dy = touch.clientY - touchStart.current.y;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) goTo(index + (dx > 0 ? -1 : 1));
+    if (dy > 60) setPriceOpen(true);
+    touchStart.current = null;
   };
 
-  const onClose = () => navigate(-1);
-  const order = filteredOrders[index];
-  const carPhotos = order ? ((order.carPhotos && order.carPhotos.length > 0) ? order.carPhotos : (order.carPhotoUrl ? [order.carPhotoUrl] : [])) : [];
-  const touchHandlers = order ? { onTouchStart, onTouchMove, onTouchEnd } : {};
+  const copyVin = async () => {
+    if (!current?.order.vin) return;
+    await navigator.clipboard.writeText(current.order.vin);
+    vibrate(10);
+  };
+
+  const savePrice = async () => {
+    if (!current) return;
+    const parsed = Number(priceInput);
+    if (!Number.isFinite(parsed) || parsed <= 0) return;
+    const key = `${current.orderId}:${current.partId}`;
+    setQuotedPrices((prev) => ({ ...prev, [key]: parsed }));
+    setPriceOpen(false);
+    setPriceInput('');
+
+    const noteText = `${current.part.name}: vendor quoted ${parsed} AED`;
+    await updateOrder({
+      ...current.order,
+      notes: [
+        {
+          id: ensureUuid(`note-${Date.now()}`),
+          text: noteText,
+          createdAt: Date.now(),
+        },
+        ...(current.order.notes || []),
+      ],
+    });
+  };
+
+  const skip = () => goTo(index + 1);
+
+  const onLongPressStart = () => {
+    pressTimer.current = window.setTimeout(async () => {
+      if (!current) return;
+      const text = window.prompt('Добавить заметку:');
+      if (!text) return;
+      await updateOrder({
+        ...current.order,
+        notes: [
+          {
+            id: ensureUuid(`note-${Date.now()}`),
+            text,
+            createdAt: Date.now(),
+          },
+          ...(current.order.notes || []),
+        ],
+      });
+      vibrate(20);
+    }, 500);
+  };
+
+  const onLongPressEnd = () => {
+    if (!pressTimer.current) return;
+    window.clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+  };
+
+  if (!current) {
+    return (
+      <div className="absolute inset-0 z-50 bg-gray-950 text-gray-300 flex flex-col items-center justify-center gap-4">
+        <p>Нет деталей для просмотра</p>
+        <button type="button" onClick={() => navigate(-1)} className="rounded-xl border border-gray-700 px-4 py-2">Назад</button>
+      </div>
+    );
+  }
+
+  const { order, part, images } = current;
+  const priceKey = `${current.orderId}:${current.partId}`;
+  const quoted = quotedPrices[priceKey];
+  const target = resolveTarget(order, part);
+  const statusBadge = getStatusBadge(quoted);
+  const progressDone = index + 1;
 
   return (
-    <div
-      className="absolute inset-0 z-50 bg-gray-950 flex flex-col h-full w-full overscroll-none"
-      {...touchHandlers}
-    >
-      <div className="p-4 flex items-center justify-between border-b border-gray-800 shrink-0">
-        <div className="flex items-center gap-2">
-          <Filter size={16} className="text-gray-400" />
-          <select
-            value={selectedBrand}
-            onChange={(e) => setSelectedBrand(e.target.value)}
-            className="bg-transparent text-white font-bold text-sm outline-none border-none py-1"
-          >
-            {brands.map(b => <option key={b} value={b} className="bg-gray-900">{b}</option>)}
-          </select>
+    <div className={`absolute inset-0 z-50 flex flex-col h-full w-full ${fieldFocusMode ? 'bg-black' : 'bg-slate-950'}`}>
+      <div className="px-3 py-2 border-b border-slate-800 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-black text-white truncate">{order.brand} {order.model} {order.year}</p>
+          {!superFieldMode && <p className={`font-mono ${fieldFocusMode ? 'text-sm text-white' : 'text-xs text-slate-400'} truncate`}>VIN: {order.vin || '—'}</p>}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="px-3 py-2 rounded-xl bg-gray-800 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
-            <ArrowUpDown size={12} />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as VendorSortType)}
-              className="bg-transparent text-white outline-none border-none"
-            >
-              {sortOptions.map((option) => (
-                <option key={option.value} value={option.value} className="bg-gray-900">
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button onClick={onClose} className="p-2 text-white bg-gray-800 rounded-full active:scale-90 transition-transform"><X size={24} /></button>
+        <div className="flex items-center gap-2 shrink-0">
+          {!superFieldMode && (
+            <button type="button" onClick={() => void copyVin()} className="rounded-lg border border-slate-600 px-2 py-1 text-[11px] font-bold text-white">
+              <Copy size={12} className="inline mr-1" />Copy
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              const next = !superFieldMode;
+              setSuperFieldMode(next);
+              vibrate(12);
+            }}
+            className={`rounded-lg px-2 py-1 text-[11px] font-black ${superFieldMode ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-200'}`}
+          >
+            ⚡ Field Mode
+          </button>
+          <button type="button" onClick={() => navigate(-1)} className="rounded-full p-1.5 bg-slate-800 text-slate-300"><X size={16} /></button>
         </div>
       </div>
 
-      {filteredOrders.length > 0 && order ? (
-        <>
-          <div className="flex-1 overflow-y-auto no-scrollbar relative">
-            <div key={order.id} className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="relative h-64 bg-gray-900 overflow-hidden shrink-0">
-                {carPhotos.length > 0 ? (
-                  <button type="button" onClick={(e) => openGallery(e, carPhotos)} className="w-full h-full block">
-                    <img src={carPhotos[0]} className="w-full h-full object-cover opacity-60" alt="Car" />
-                    {carPhotos.length > 1 && (
-                      <div className="absolute top-3 right-3 bg-blue-600 text-white text-[11px] font-bold px-2 py-1 rounded-lg">
-                        +{carPhotos.length - 1}
-                      </div>
-                    )}
+      <div
+        className="flex-1 min-h-0 flex flex-col"
+        onClick={handleTap}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+        onMouseDown={onLongPressStart}
+        onMouseUp={onLongPressEnd}
+        onMouseLeave={onLongPressEnd}
+      >
+        <div className={`${superFieldMode ? 'px-4 pt-4 pb-2' : 'px-4 pt-3 pb-3'} space-y-2`}>
+          {!superFieldMode && <p className="text-[11px] tracking-[0.18em] font-black text-emerald-300">🟢 DASHBOARD</p>}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`rounded-full border px-2 py-1 text-[11px] font-black uppercase ${priorityClass(order)}`}>Priority: {priorityLabel(order)}</span>
+            {!superFieldMode && <span className="rounded-full border border-slate-700 px-2 py-1 text-[11px] font-bold text-slate-300">Qty: 1</span>}
+            {!superFieldMode && <span className={`rounded-full border px-2 py-1 text-[11px] font-black ${statusBadge.tone}`}>{statusBadge.label}</span>}
+          </div>
+          <div>
+            <p className={`font-black ${fieldFocusMode || superFieldMode ? 'text-4xl' : 'text-3xl'} text-white`}>💰 TARGET: {target.target} AED</p>
+            {!superFieldMode && <p className="text-xs text-slate-400">Market {target.marketLow}–{target.marketHigh}</p>}
+          </div>
+          {!superFieldMode && (
+            <div className="text-xs text-slate-300 font-semibold">
+              {Array.from({ length: slides.length }).map((_, itemIdx) => (itemIdx < progressDone ? '█' : '░')).join('')} {progressDone}/{slides.length} done
+            </div>
+          )}
+        </div>
+
+        <div className={`px-4 ${superFieldMode ? 'h-[60vh]' : 'h-[44vh]'}`}>
+          <div className="h-full rounded-3xl overflow-hidden bg-slate-900 border border-slate-800 relative">
+            {images.length > 0 ? (
+              <>
+                <img src={images[imgIndex]} alt={part.name} className="w-full h-full object-cover" />
+                {images.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImgIndex((prev) => (prev + 1) % images.length);
+                    }}
+                    className="absolute right-3 bottom-3 rounded-full bg-black/70 px-3 py-1 text-xs text-white"
+                  >
+                    {imgIndex + 1}/{images.length}
                   </button>
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center"><Car size={80} className="text-gray-800" /></div>
                 )}
-                <div className="absolute inset-0 bg-gradient-to-t from-gray-950 to-transparent pointer-events-none" />
-                <div className="absolute bottom-6 left-0 right-0 text-center px-4 pointer-events-none">
-                  <h1 className="text-3xl font-black text-white leading-none line-clamp-2 break-words">{order.brand || '—'} {order.model || ''}</h1>
-                  <p className="text-gray-400 font-bold mt-2 truncate">{order.year || 'Год не указан'} год выпуска</p>
-                  {order.bodyType && <p className="text-gray-300/90 text-xs font-semibold mt-1">Тип кузова: {order.bodyType}</p>}
-                  <div className="mt-3 flex items-center justify-center gap-2">
-                    <span className="rounded-full bg-white/15 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white">{order.salesStatus || 'Inquiry'}</span>
-                    {order.status === 'new_inquiry' ? (
-                      <span className="rounded-full bg-rose-500/85 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white animate-pulse">NEW LEAD</span>
-                    ) : order.isLead ? (
-                      <span className="rounded-full bg-purple-500/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white">LEAD</span>
-                    ) : order.isVip ? (
-                      <span className="rounded-full bg-amber-500/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white">VIP</span>
-                    ) : (
-                      <span className="rounded-full bg-sky-500/75 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white">ACTIVE</span>
-                    )}
-                  </div>
-                </div>
-              </div>
+              </>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-slate-500 text-sm">No photo</div>
+            )}
+          </div>
+        </div>
 
-              <div className="p-6 space-y-8">
-                <div className="bg-blue-600/10 border border-blue-500/20 p-6 rounded-3xl text-center">
-                  <div className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mb-3">VIN НОМЕР</div>
-                  <div className="text-xl font-mono font-black text-white break-all tracking-wider">{order.vin || '—'}</div>
-                </div>
+        {!superFieldMode && <div className="px-4 pt-2 text-lg font-bold text-white line-clamp-2">{part.name}</div>}
+      </div>
 
-                <div className="space-y-4">
-                  <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest flex items-center gap-2"><Package size={14} /> Список запчастей</h3>
-                  <div className="grid gap-3">
-                    {order.parts.map(p => {
-                      const photos = (p.photos && p.photos.length > 0) ? p.photos : (p.photoUrl ? [p.photoUrl] : []);
-                      return (
-                        <div key={p.id} className="bg-gray-900 border border-gray-800 p-4 rounded-2xl flex items-center justify-between gap-4">
-                          <div className="flex items-center gap-4">
-                            <div className={`w-3 h-3 rounded-full shrink-0 ${p.variants.length > 0 ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-gray-700'}`} />
-                            <span className="text-lg font-bold text-gray-200 leading-tight break-words line-clamp-2">{p.name}</span>
-                          </div>
-                          {photos.length > 0 && (
-                            <button
-                              onClick={(e) => openGallery(e, photos)}
-                              className="w-12 h-12 rounded-xl bg-gray-800 border border-gray-700 overflow-hidden shrink-0 active:scale-95 transition-transform relative"
-                            >
-                              <img src={photos[0]} className="w-full h-full object-cover" />
-                              {photos.length > 1 && (
-                                <div className="absolute bottom-0 right-0 bg-blue-600 text-white text-[9px] font-bold px-1 rounded-tl">+{photos.length - 1}</div>
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
+      <div className="p-4 border-t border-slate-800 flex items-center gap-3">
+        <button type="button" onClick={() => goTo(index - 1)} className="rounded-2xl border border-slate-700 px-4 py-3 text-white"><ChevronLeft size={20} /></button>
+        <div className="text-white text-sm font-mono flex-1 text-center">{index + 1} / {slides.length}</div>
+        <button type="button" onClick={() => goTo(index + 1)} className="rounded-2xl border border-slate-700 px-4 py-3 text-white"><ChevronRight size={20} /></button>
+        <button type="button" onClick={() => setPriceOpen(true)} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[12px] font-black text-black">PRICE</button>
+        <button type="button" onClick={skip} className="rounded-2xl bg-slate-700 px-4 py-3 text-[12px] font-black text-white">SKIP</button>
+      </div>
+
+      {priceOpen && (
+        <div className="absolute inset-x-0 bottom-0 p-4 bg-black/85 border-t border-slate-700 backdrop-blur-sm">
+          <div className="max-w-md mx-auto space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-white font-bold">Enter vendor price:</p>
+              <button type="button" onClick={() => setPriceOpen(false)} className="text-slate-400"><ChevronDown size={18} /></button>
+            </div>
+            <input
+              value={priceInput}
+              onChange={(e) => setPriceInput(e.target.value)}
+              className="w-full rounded-xl bg-slate-900 border border-slate-600 px-3 py-3 text-white"
+              type="number"
+              placeholder="1600"
+            />
+            <div className="flex gap-2">
+              <button type="button" onClick={() => void savePrice()} className="flex-1 rounded-xl bg-emerald-500 py-3 text-black font-black">Save</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !fieldFocusMode;
+                  setFieldFocusMode(next);
+                  saveAppSettings({ fieldFocusMode: next });
+                }}
+                className={`rounded-xl px-3 py-3 text-xs font-black ${fieldFocusMode ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-100'}`}
+              >
+                Field Focus Mode
+              </button>
             </div>
           </div>
-
-          <div className="p-6 bg-gray-950 border-t border-gray-900 flex items-center justify-between gap-4 shrink-0 pb-10">
-            <button disabled={index === 0} onClick={() => setIndex(index - 1)} className="flex-1 py-4 bg-gray-900 text-white rounded-2xl flex items-center justify-center disabled:opacity-30 active:scale-95 transition-all"><ChevronLeft size={24} /></button>
-            <div className="text-white font-mono text-sm">{index + 1} / {filteredOrders.length}</div>
-            <button disabled={index === filteredOrders.length - 1} onClick={() => setIndex(index + 1)} className="flex-1 py-4 bg-gray-900 text-white rounded-2xl flex items-center justify-center disabled:opacity-30 active:scale-95 transition-all"><ChevronRight size={24} /></button>
-          </div>
-
-          {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
-        </>
-      ) : (
-        <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-gray-500 gap-4">
-          <Car size={48} className="opacity-20" />
-          <p>Нет заказов для этой марки</p>
         </div>
       )}
     </div>
