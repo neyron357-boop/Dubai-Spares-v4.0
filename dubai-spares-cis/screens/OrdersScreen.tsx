@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, CheckCircle2, Clock3, Filter, Loader2, MessageCircle, Smartphone, Star, WifiOff } from 'lucide-react';
+import { Archive, BarChart3, CheckCircle2, Clock3, Filter, Loader2, MessageCircle, Smartphone, Star, WifiOff, XCircle } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
