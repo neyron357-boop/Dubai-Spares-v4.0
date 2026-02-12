@@ -36,9 +36,11 @@ export interface AppSettings {
   publicInstagramUrl: string;
   publicDeliveryTerms: string;
   publicWorkTerms: string;
+  publicContactsUpdatedAt: number;
 }
 
 type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms'>;
+type CloudPublicSettings = PublicAppSettings & Pick<AppSettings, 'publicContactsUpdatedAt'>;
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   appLanguage: 'ru',
@@ -63,7 +65,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   publicTelegramUrl: '',
   publicInstagramUrl: '',
   publicDeliveryTerms: '',
-  publicWorkTerms: ''
+  publicWorkTerms: '',
+  publicContactsUpdatedAt: 0
 };
 
 const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSettings => ({
@@ -77,7 +80,8 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
   publicTelegramUrl: typeof raw?.publicTelegramUrl === 'string' ? raw.publicTelegramUrl : '',
   publicInstagramUrl: typeof raw?.publicInstagramUrl === 'string' ? raw.publicInstagramUrl : '',
   publicDeliveryTerms: typeof raw?.publicDeliveryTerms === 'string' ? raw.publicDeliveryTerms : '',
-  publicWorkTerms: typeof raw?.publicWorkTerms === 'string' ? raw.publicWorkTerms : ''
+  publicWorkTerms: typeof raw?.publicWorkTerms === 'string' ? raw.publicWorkTerms : '',
+  publicContactsUpdatedAt: Number.isFinite(Number(raw?.publicContactsUpdatedAt)) ? Number(raw?.publicContactsUpdatedAt) : 0
 });
 
 const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): PublicAppSettings => {
@@ -91,18 +95,26 @@ const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): Publi
   };
 };
 
-const loadCloudPublicSettings = async (): Promise<PublicAppSettings | null> => {
+const loadCloudPublicSettings = async (): Promise<CloudPublicSettings | null> => {
   if (!supabase) return null;
 
   try {
     const { data, error } = await supabase
       .from('app_state')
-      .select('data')
+      .select('data,updated_at')
       .eq('id', CLOUD_PUBLIC_SETTINGS_ID)
       .maybeSingle();
 
     if (error) return null;
-    return pickPublicSettings((data?.data || {}) as Partial<AppSettings>);
+    const publicData = pickPublicSettings((data?.data || {}) as Partial<AppSettings>);
+    const rawUpdatedAt = data?.updated_at;
+    const updatedAt = typeof rawUpdatedAt === 'string' ? Date.parse(rawUpdatedAt) : NaN;
+    return {
+      ...publicData,
+      publicContactsUpdatedAt: Number.isFinite(updatedAt)
+        ? updatedAt
+        : Number((data?.data as Record<string, unknown> | null)?.publicContactsUpdatedAt || 0)
+    };
   } catch {
     return null;
   }
@@ -117,7 +129,10 @@ const saveCloudPublicSettings = async (settings: AppSettings): Promise<void> => 
       .upsert(
         {
           id: CLOUD_PUBLIC_SETTINGS_ID,
-          data: pickPublicSettings(settings),
+          data: {
+            ...pickPublicSettings(settings),
+            publicContactsUpdatedAt: settings.publicContactsUpdatedAt
+          },
           updated_at: new Date().toISOString()
         },
         { onConflict: 'id' }
@@ -138,7 +153,13 @@ export const loadAppSettings = (): AppSettings => {
 };
 
 export const saveAppSettings = (patch: Partial<AppSettings>): AppSettings => {
-  const next = normalizeSettings({ ...loadAppSettings(), ...patch });
+  const touchesPublicContacts = ['publicWhatsappNumber', 'publicTelegramUrl', 'publicInstagramUrl', 'publicDeliveryTerms', 'publicWorkTerms']
+    .some((field) => Object.prototype.hasOwnProperty.call(patch, field));
+  const next = normalizeSettings({
+    ...loadAppSettings(),
+    ...patch,
+    ...(touchesPublicContacts ? { publicContactsUpdatedAt: Date.now() } : {})
+  });
   localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(next));
   window.dispatchEvent(new CustomEvent('app-settings-updated', { detail: next }));
   return next;
@@ -154,7 +175,13 @@ export const useAppSettings = () => {
       const cloudPublicSettings = await loadCloudPublicSettings();
       if (!cloudPublicSettings || !active) return;
 
-      const merged = normalizeSettings({ ...loadAppSettings(), ...cloudPublicSettings });
+      const localSettings = loadAppSettings();
+      const cloudUpdatedAt = Number(cloudPublicSettings.publicContactsUpdatedAt || 0);
+      const shouldApplyCloud = cloudUpdatedAt > Number(localSettings.publicContactsUpdatedAt || 0);
+
+      const merged = normalizeSettings(shouldApplyCloud
+        ? { ...localSettings, ...cloudPublicSettings, publicContactsUpdatedAt: cloudUpdatedAt }
+        : localSettings);
       localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(merged));
       setSettings(merged);
     })();
