@@ -27,6 +27,7 @@ export interface AppSettings {
   radarAutoNextPoint: boolean;
   gpsHighAccuracy: boolean;
   gpsUpdateInterval: GpsUpdateInterval;
+  fieldFocusMode: boolean;
   hideSchemaWarningUntil: number;
 }
 
@@ -47,6 +48,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   radarAutoNextPoint: false,
   gpsHighAccuracy: true,
   gpsUpdateInterval: '10s',
+  fieldFocusMode: false,
   hideSchemaWarningUntil: 0
 };
 
