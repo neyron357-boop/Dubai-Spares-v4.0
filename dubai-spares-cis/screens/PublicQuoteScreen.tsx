@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
-  BadgeCheck,
   CheckCircle2,
+  Images,
   ChevronRight,
   Download,
   Globe,
@@ -71,7 +71,6 @@ const i18n = {
     serviceFee: 'Service fee',
     logistics: 'Logistics',
     total: 'Total',
-    deliveryTerms: 'Delivery & terms',
     trust: 'Trust',
     validUntil: 'Price valid until',
     availabilityChange: 'Availability can change quickly due to live market demand.',
@@ -122,7 +121,6 @@ const i18n = {
     serviceFee: 'Сервисный сбор',
     logistics: 'Логистика',
     total: 'Итого',
-    deliveryTerms: 'Доставка и условия',
     trust: 'Доверие',
     validUntil: 'Цена действует до',
     availabilityChange: 'Наличие может быстро меняться из-за живого рынка.',
@@ -497,7 +495,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const heroPhoto = useMemo(() => {
     if (!order) return '';
-    const photo = order.carPhotoUrl || order.carPhotos?.[0] || order.vinPhotoUrl || order.parts.find((part) => (part.photos || []).length > 0)?.photos?.[0] || '';
+    const photo = order.carPhotoUrl || order.carPhotos?.[0] || order.vinPhotoUrl || '';
     return getOptimizedImageUrl(photo, { width: 1600, quality: 74 });
   }, [order]);
 
@@ -508,10 +506,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const supplierAed = best?.priceAed || 0;
       const clientAed = supplierAed * (1 + order.markupPercent / 100);
       const converted = clientAed * rates[currency];
-      const photos = [...(part.photos || []), ...(best?.photos || []), part.photoUrl || '', best?.photoUrl || ''].filter(Boolean) as string[];
+      const variantPhotos = [best?.photoUrl || '', ...(best?.photos || [])].filter(Boolean) as string[];
+      const basePartPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean) as string[];
+      const photoSource = variantPhotos.length > 0 ? variantPhotos : basePartPhotos;
+      const uniquePhotos = Array.from(new Set(photoSource));
       const isReady = !!best && part.isFound;
-      const previewPhotos = photos.map((photo) => getOptimizedImageUrl(photo, { width: 480, quality: 64 }));
-      const galleryPhotos = photos.map((photo) => getOptimizedImageUrl(photo, { width: 1600, quality: 74 }));
+      const previewPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 480, quality: 64 }));
+      const galleryPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 1600, quality: 74 }));
       return { part, best, previewPhotos, galleryPhotos, converted, clientAed, isReady, availability: isReady ? t.inStock : t.onOrder };
     });
   }, [order, currency, rates, t.inStock, t.onOrder]);
@@ -531,7 +532,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const confirmMessage = lang === 'ru'
     ? `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nИтого: ${totals.totalAed.toFixed(2)} AED.\nДетали: ${partsLine}.\nГотов(а) оформить. Подскажите срок и способ доставки.`
     : `Hello! I confirm the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nTotal: ${totals.totalAed.toFixed(2)} AED.\nPart: ${partsLine}.\nPlease confirm delivery time and shipping options.`;
-  const whatsappPhone = settings.publicWhatsappNumber || '971000000000';
+  const whatsappPhone = (settings.publicWhatsappNumber || '971000000000').replace(/[^\d]/g, '') || '971000000000';
   const whatsappUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(confirmMessage)}`;
 
   const downloadPdf = () => {
@@ -656,15 +657,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       </header>
 
       <main className="mx-auto -mt-6 w-full max-w-5xl space-y-4 px-3 pb-28 sm:px-5">
-        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-6">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.whatIncluded}</h2>
-          <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-            <div className="rounded-2xl bg-slate-50 p-3">🔍 Sourcing in UAE</div>
-            <div className="rounded-2xl bg-slate-50 p-3">📦 Packaging & handling</div>
-            <div className="rounded-2xl bg-slate-50 p-3">🚚 Export support (optional)</div>
-            <div className="rounded-2xl bg-slate-50 p-3">🛡️ Basic verification (photo/video)</div>
-          </div>
-        </section>
 
         <section ref={detailRef} className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.partsGallery} ({foundParts.length})</h2>
@@ -675,22 +667,27 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             return (
             <article key={part.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
               <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-xl font-semibold">{part.name} <span className="text-sm text-slate-500">· {best?.condition || 'used'}</span></h3>
-                  <span className="mt-2 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">{t.status}: {availability}</span>
+                <div className="flex min-w-0 items-start gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (galleryPhotos.length === 0) return;
+                      setGallery({ images: galleryPhotos, index: 0 });
+                      logEvent('gallery_open', { partId: part.id });
+                    }}
+                    className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 disabled:opacity-40"
+                    disabled={galleryPhotos.length === 0}
+                    title={galleryPhotos.length > 1 ? `Фото: ${galleryPhotos.length}` : 'Фото детали'}
+                  >
+                    <Images size={18} />
+                  </button>
+                  <div className="min-w-0">
+                    <h3 className="truncate text-xl font-semibold">{part.name}</h3>
+                    <span className="mt-2 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">{t.status}: {availability}</span>
+                  </div>
                 </div>
-                <p className="text-2xl font-semibold">{converted.toFixed(2)} {currency}</p>
+                <p className="text-right text-2xl font-semibold">{converted.toFixed(2)} {currency}</p>
               </div>
-
-              {previewPhotos.length > 0 && (
-                <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {previewPhotos.slice(0, 8).map((photo, idx) => (
-                    <button key={`${part.id}-${idx}`} type="button" onClick={() => { setGallery({ images: galleryPhotos, index: idx }); logEvent('gallery_open', { partId: part.id }); }} className="min-h-20 overflow-hidden rounded-2xl border border-slate-200">
-                      <img src={photo} alt={`${part.name} ${idx + 1}`} className="h-24 w-full object-cover" loading="lazy" decoding="async" />
-                    </button>
-                  ))}
-                </div>
-              )}
 
               <a href={partWhatsappUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">
                 <MessageCircle size={14} /> {t.confirmWhatsApp}
@@ -708,15 +705,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           )}
         </section>
 
-        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.deliveryTerms}</h2>
-          <ul className="mt-2 space-y-1">
-            <li>• Estimated delivery: 3–8 working days (subject to destination).</li>
-            <li>• Warranty / return follows supplier terms.</li>
-            <li>• {t.validUntil}: {new Date(expiresAt).toLocaleString()}.</li>
-            <li>• {t.availabilityChange}</li>
-          </ul>
-        </section>
+
+        {(settings.publicDeliveryTerms.trim() || settings.publicWorkTerms.trim()) && (
+          <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
+            {settings.publicDeliveryTerms.trim() && <p className="whitespace-pre-line">{settings.publicDeliveryTerms.trim()}</p>}
+            {settings.publicWorkTerms.trim() && <p className="whitespace-pre-line mt-2">{settings.publicWorkTerms.trim()}</p>}
+          </section>
+        )}
 
         <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.trust}</h2>
