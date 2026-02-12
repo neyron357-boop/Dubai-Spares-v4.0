@@ -169,6 +169,37 @@ const SettingsScreen: React.FC = () => {
         </div>
       </Section>
 
+      <Section title="Публичные контакты">
+        <div className="space-y-3">
+          <Field label="WhatsApp номер для ссылки в заявке и смете">
+            <input
+              value={settings.publicWhatsappNumber}
+              onChange={(e) => updateSettings({ publicWhatsappNumber: e.target.value.replace(/[^\d]/g, '') })}
+              placeholder="971521574546"
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            />
+          </Field>
+
+          <Field label="Telegram ссылка">
+            <input
+              value={settings.publicTelegramUrl}
+              onChange={(e) => updateSettings({ publicTelegramUrl: e.target.value.trim() })}
+              placeholder="https://t.me/your_account"
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            />
+          </Field>
+
+          <Field label="Instagram ссылка">
+            <input
+              value={settings.publicInstagramUrl}
+              onChange={(e) => updateSettings({ publicInstagramUrl: e.target.value.trim() })}
+              placeholder="https://instagram.com/your_account"
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            />
+          </Field>
+        </div>
+      </Section>
+
       <Section title="Radar Live">
         <button
           type="button"

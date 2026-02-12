@@ -29,6 +29,9 @@ export interface AppSettings {
   gpsUpdateInterval: GpsUpdateInterval;
   fieldFocusMode: boolean;
   hideSchemaWarningUntil: number;
+  publicWhatsappNumber: string;
+  publicTelegramUrl: string;
+  publicInstagramUrl: string;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -49,14 +52,22 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   gpsHighAccuracy: true,
   gpsUpdateInterval: '10s',
   fieldFocusMode: false,
-  hideSchemaWarningUntil: 0
+  hideSchemaWarningUntil: 0,
+  publicWhatsappNumber: '971000000000',
+  publicTelegramUrl: '',
+  publicInstagramUrl: ''
 };
 
 const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSettings => ({
   ...DEFAULT_APP_SETTINGS,
   ...(raw || {}),
   defaultExchangeRate: Number.isFinite(Number(raw?.defaultExchangeRate)) ? Number(raw?.defaultExchangeRate) : DEFAULT_APP_SETTINGS.defaultExchangeRate,
-  manualTimezone: typeof raw?.manualTimezone === 'string' ? raw.manualTimezone : ''
+  manualTimezone: typeof raw?.manualTimezone === 'string' ? raw.manualTimezone : '',
+  publicWhatsappNumber: typeof raw?.publicWhatsappNumber === 'string'
+    ? raw.publicWhatsappNumber.replace(/[^\d]/g, '')
+    : DEFAULT_APP_SETTINGS.publicWhatsappNumber,
+  publicTelegramUrl: typeof raw?.publicTelegramUrl === 'string' ? raw.publicTelegramUrl : '',
+  publicInstagramUrl: typeof raw?.publicInstagramUrl === 'string' ? raw.publicInstagramUrl : ''
 });
 
 export const loadAppSettings = (): AppSettings => {
