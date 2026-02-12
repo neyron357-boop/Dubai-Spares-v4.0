@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronLeft, ChevronRight, Copy, X } from 'lucide-react';
-import { loadAppSettings, saveAppSettings } from '../appSettings';
+import { ImageOff, X } from 'lucide-react';
 import { vibrate } from '../feedback';
-import { ensureUuid } from '../id';
 import { useStore } from '../store';
 import { Priority, type Order, type Part } from '../types';
 
@@ -21,48 +19,32 @@ const priorityWeight = {
   [Priority.LOW]: 1,
 };
 
-const priorityLabel = (order: Order) => {
-  if (order.isVip) return 'VIP';
-  if (order.parts.some((part) => part.priority === 'urgent')) return 'Urgent';
-  return 'Normal';
+const getPrice = (part: Part) => {
+  const prices = part.variants.map((item) => item.priceAed).filter((price) => Number.isFinite(price) && price > 0);
+  if (!prices.length) return null;
+  return Math.min(...prices);
 };
 
-const priorityClass = (order: Order) => {
-  if (order.isVip) return 'text-amber-300 border-amber-400/60 bg-amber-500/15';
-  if (order.parts.some((part) => part.priority === 'urgent')) return 'text-rose-300 border-rose-400/60 bg-rose-500/15';
-  return 'text-slate-300 border-slate-500/50 bg-slate-500/15';
-};
-
-const resolveTarget = (order: Order, part: Part) => {
-  const base = order.isVip ? 1500 : order.priority === Priority.HIGH ? 1300 : order.priority === Priority.MEDIUM ? 1000 : 800;
-  const mod = part.priority === 'urgent' ? 1.15 : 1;
-  const target = Math.round(base * mod);
-  return {
-    target,
-    marketLow: Math.round(target * 1.1),
-    marketHigh: Math.round(target * 1.4),
-  };
-};
-
-const getStatusBadge = (price?: number) => {
-  if (!price) return { label: '🟢 Searching', tone: 'bg-emerald-500/15 text-emerald-200 border-emerald-400/50' };
-  if (price <= 1800) return { label: '🟡 Quoted', tone: 'bg-amber-500/15 text-amber-200 border-amber-400/50' };
-  return { label: '🔴 Expensive', tone: 'bg-rose-500/15 text-rose-200 border-rose-400/50' };
+const getStatusMeta = (part: Part) => {
+  if (!part.status) return { label: 'Статус не указан', dot: 'bg-slate-500' };
+  if (part.status === 'found') return { label: 'In stock', dot: 'bg-emerald-500' };
+  if (part.status === 'ordered') return { label: 'Ordered', dot: 'bg-blue-500' };
+  if (part.status === 'not_found') return { label: 'Not found', dot: 'bg-rose-500' };
+  return { label: 'Searching', dot: 'bg-slate-500' };
 };
 
 const VendorSlider: React.FC = () => {
   const navigate = useNavigate();
-  const { orders, updateOrder } = useStore();
+  const { orders } = useStore();
 
   const [index, setIndex] = useState(0);
   const [imgIndex, setImgIndex] = useState(0);
-  const [priceInput, setPriceInput] = useState('');
-  const [priceOpen, setPriceOpen] = useState(false);
-  const [fieldFocusMode, setFieldFocusMode] = useState<boolean>(() => loadAppSettings().fieldFocusMode);
-  const [superFieldMode, setSuperFieldMode] = useState(false);
-  const [quotedPrices, setQuotedPrices] = useState<Record<string, number>>({});
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [partsSheetOpen, setPartsSheetOpen] = useState(false);
+
   const pressTimer = useRef<number | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const lastGestureAt = useRef(0);
 
   const slides = useMemo<VendorSlide[]>(() => {
     const active = orders.filter((o) => !o.isArchived && !o.isSold);
@@ -83,38 +65,32 @@ const VendorSlider: React.FC = () => {
 
   useEffect(() => {
     setImgIndex(0);
-    setPriceOpen(false);
-    setPriceInput('');
+    setIsZoomed(false);
   }, [index]);
 
   useEffect(() => {
-    const unsubscribe = () => {
-      window.removeEventListener('app-settings-updated', handler);
-    };
-    const handler = () => setFieldFocusMode(loadAppSettings().fieldFocusMode);
-    window.addEventListener('app-settings-updated', handler);
-    return unsubscribe;
-  }, []);
-
-  useEffect(() => {
-    const urls = slides.flatMap((slide) => slide.images).slice(0, 20);
-    urls.forEach((url) => {
+    const nextSlides = [slides[index], slides[index + 1], slides[index + 2]].filter(Boolean) as VendorSlide[];
+    const preloadUrls = nextSlides.flatMap((slide) => slide.images.slice(0, 2));
+    preloadUrls.forEach((url) => {
       const img = new Image();
       img.src = url;
     });
-  }, [slides]);
+  }, [index, slides]);
 
   const current = slides[index];
 
   const goTo = (next: number) => {
     const bounded = Math.max(0, Math.min(slides.length - 1, next));
     if (bounded === index) return;
-    const atLast = bounded === slides.length - 1;
-    vibrate(atLast ? [30, 40, 30] : 15);
+    const now = Date.now();
+    if (now - lastGestureAt.current < 140) return;
+    lastGestureAt.current = now;
+    vibrate(12);
     setIndex(bounded);
   };
 
   const handleTap = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (partsSheetOpen) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const isRight = e.clientX > rect.left + rect.width / 2;
     goTo(index + (isRight ? 1 : -1));
@@ -126,64 +102,21 @@ const VendorSlider: React.FC = () => {
   };
 
   const onTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (!touchStart.current) return;
+    if (!touchStart.current || partsSheetOpen) return;
     const touch = e.changedTouches[0];
     const dx = touch.clientX - touchStart.current.x;
     const dy = touch.clientY - touchStart.current.y;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) goTo(index + (dx > 0 ? -1 : 1));
-    if (dy > 60) setPriceOpen(true);
+    if (Math.abs(dx) > 36 && Math.abs(dx) > Math.abs(dy)) {
+      goTo(index + (dx > 0 ? -1 : 1));
+    }
     touchStart.current = null;
   };
 
-  const copyVin = async () => {
-    if (!current?.order.vin) return;
-    await navigator.clipboard.writeText(current.order.vin);
-    vibrate(10);
-  };
-
-  const savePrice = async () => {
-    if (!current) return;
-    const parsed = Number(priceInput);
-    if (!Number.isFinite(parsed) || parsed <= 0) return;
-    const key = `${current.orderId}:${current.partId}`;
-    setQuotedPrices((prev) => ({ ...prev, [key]: parsed }));
-    setPriceOpen(false);
-    setPriceInput('');
-
-    const noteText = `${current.part.name}: vendor quoted ${parsed} AED`;
-    await updateOrder({
-      ...current.order,
-      notes: [
-        {
-          id: ensureUuid(`note-${Date.now()}`),
-          text: noteText,
-          createdAt: Date.now(),
-        },
-        ...(current.order.notes || []),
-      ],
-    });
-  };
-
-  const skip = () => goTo(index + 1);
-
   const onLongPressStart = () => {
-    pressTimer.current = window.setTimeout(async () => {
-      if (!current) return;
-      const text = window.prompt('Добавить заметку:');
-      if (!text) return;
-      await updateOrder({
-        ...current.order,
-        notes: [
-          {
-            id: ensureUuid(`note-${Date.now()}`),
-            text,
-            createdAt: Date.now(),
-          },
-          ...(current.order.notes || []),
-        ],
-      });
+    pressTimer.current = window.setTimeout(() => {
+      setPartsSheetOpen(true);
       vibrate(20);
-    }, 500);
+    }, 420);
   };
 
   const onLongPressEnd = () => {
@@ -194,7 +127,7 @@ const VendorSlider: React.FC = () => {
 
   if (!current) {
     return (
-      <div className="absolute inset-0 z-50 bg-gray-950 text-gray-300 flex flex-col items-center justify-center gap-4">
+      <div className="absolute inset-0 z-50 bg-[#0B1220] text-gray-300 flex flex-col items-center justify-center gap-4">
         <p>Нет деталей для просмотра</p>
         <button type="button" onClick={() => navigate(-1)} className="rounded-xl border border-gray-700 px-4 py-2">Назад</button>
       </div>
@@ -202,129 +135,114 @@ const VendorSlider: React.FC = () => {
   }
 
   const { order, part, images } = current;
-  const priceKey = `${current.orderId}:${current.partId}`;
-  const quoted = quotedPrices[priceKey];
-  const target = resolveTarget(order, part);
-  const statusBadge = getStatusBadge(quoted);
-  const progressDone = index + 1;
+  const statusMeta = getStatusMeta(part);
+  const price = getPrice(part);
+  const carImage = (order.carPhotos && order.carPhotos.length > 0 ? order.carPhotos[0] : order.carPhotoUrl) || images[0] || '';
 
   return (
-    <div className={`absolute inset-0 z-50 flex flex-col h-full w-full ${fieldFocusMode ? 'bg-black' : 'bg-slate-950'}`}>
-      <div className="px-3 py-2 border-b border-slate-800 flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-sm font-black text-white truncate">{order.brand} {order.model} {order.year}</p>
-          {!superFieldMode && <p className={`font-mono ${fieldFocusMode ? 'text-sm text-white' : 'text-xs text-slate-400'} truncate`}>VIN: {order.vin || '—'}</p>}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {!superFieldMode && (
-            <button type="button" onClick={() => void copyVin()} className="rounded-lg border border-slate-600 px-2 py-1 text-[11px] font-bold text-white">
-              <Copy size={12} className="inline mr-1" />Copy
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              const next = !superFieldMode;
-              setSuperFieldMode(next);
-              vibrate(12);
-            }}
-            className={`rounded-lg px-2 py-1 text-[11px] font-black ${superFieldMode ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-200'}`}
-          >
-            ⚡ Field Mode
+    <div className="absolute inset-0 z-50 h-full w-full overflow-hidden bg-[#0B1220] text-white">
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="relative h-[28vh] min-h-[170px] max-h-[240px] w-full overflow-hidden border-b border-slate-800">
+          {carImage ? <img src={carImage} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" /> : <div className="h-full w-full bg-slate-900" />}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/35 to-transparent" />
+          <button type="button" onClick={() => navigate(-1)} className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full bg-black/45">
+            <X size={20} />
           </button>
-          <button type="button" onClick={() => navigate(-1)} className="rounded-full p-1.5 bg-slate-800 text-slate-300"><X size={16} /></button>
+          <div className="absolute bottom-3 left-4 right-4">
+            <p className="truncate text-3xl font-black leading-tight">{order.brand} {order.model}</p>
+            <p className="text-sm text-white/90">{order.year} · {order.bodyType || '—'} · {order.parts.length} деталей</p>
+            <p className="mt-1 truncate text-xs text-white/70">VIN: {order.vin || '—'}</p>
+          </div>
         </div>
-      </div>
 
-      <div
-        className="flex-1 min-h-0 flex flex-col"
-        onClick={handleTap}
-        onTouchStart={onTouchStart}
-        onTouchEnd={onTouchEnd}
-        onMouseDown={onLongPressStart}
-        onMouseUp={onLongPressEnd}
-        onMouseLeave={onLongPressEnd}
-      >
-        <div className={`${superFieldMode ? 'px-4 pt-4 pb-2' : 'px-4 pt-3 pb-3'} space-y-2`}>
-          {!superFieldMode && <p className="text-[11px] tracking-[0.18em] font-black text-emerald-300">🟢 DASHBOARD</p>}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`rounded-full border px-2 py-1 text-[11px] font-black uppercase ${priorityClass(order)}`}>Priority: {priorityLabel(order)}</span>
-            {!superFieldMode && <span className="rounded-full border border-slate-700 px-2 py-1 text-[11px] font-bold text-slate-300">Qty: 1</span>}
-            {!superFieldMode && <span className={`rounded-full border px-2 py-1 text-[11px] font-black ${statusBadge.tone}`}>{statusBadge.label}</span>}
-          </div>
-          <div>
-            <p className={`font-black ${fieldFocusMode || superFieldMode ? 'text-4xl' : 'text-3xl'} text-white`}>💰 TARGET: {target.target} AED</p>
-            {!superFieldMode && <p className="text-xs text-slate-400">Market {target.marketLow}–{target.marketHigh}</p>}
-          </div>
-          {!superFieldMode && (
-            <div className="text-xs text-slate-300 font-semibold">
-              {Array.from({ length: slides.length }).map((_, itemIdx) => (itemIdx < progressDone ? '█' : '░')).join('')} {progressDone}/{slides.length} done
+        <div
+          className="flex-1 space-y-3 overflow-hidden px-4 py-3"
+          onClick={handleTap}
+          onDoubleClick={() => setIsZoomed((prev) => !prev)}
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+          onMouseDown={onLongPressStart}
+          onMouseUp={onLongPressEnd}
+          onMouseLeave={onLongPressEnd}
+          style={{ touchAction: 'pan-y' }}
+        >
+          <div className="rounded-3xl border border-slate-700/70 bg-[#111a2d] p-4">
+            <p className="truncate text-[34px] font-black uppercase leading-none">{part.name}</p>
+            <p className="mt-2 text-[32px] font-black leading-none text-[#60a5fa]">{price ? `${price} AED` : 'Запрос цены'}</p>
+            <div className="mt-2 flex items-center gap-2 text-base">
+              <span className={`h-3 w-3 rounded-full ${statusMeta.dot}`} />
+              <span className="font-semibold text-white/85">{statusMeta.label}</span>
             </div>
-          )}
-        </div>
+          </div>
 
-        <div className={`px-4 ${superFieldMode ? 'h-[60vh]' : 'h-[44vh]'}`}>
-          <div className="h-full rounded-3xl overflow-hidden bg-slate-900 border border-slate-800 relative">
-            {images.length > 0 ? (
-              <>
-                <img src={images[imgIndex]} alt={part.name} className="w-full h-full object-cover" />
-                {images.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setImgIndex((prev) => (prev + 1) % images.length);
-                    }}
-                    className="absolute right-3 bottom-3 rounded-full bg-black/70 px-3 py-1 text-xs text-white"
-                  >
-                    {imgIndex + 1}/{images.length}
-                  </button>
-                )}
-              </>
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-slate-500 text-sm">No photo</div>
-            )}
+          <div className="rounded-3xl border border-slate-700/70 bg-[#0f172a] p-3">
+            <div className="mx-auto h-[26vh] min-h-[180px] max-h-[280px] w-[78%] overflow-hidden rounded-2xl bg-slate-900">
+              {images.length > 0 ? (
+                <img
+                  src={images[imgIndex]}
+                  alt={part.name}
+                  loading="lazy"
+                  className={`h-full w-full object-cover transition-transform duration-200 ${isZoomed ? 'scale-125' : 'scale-100'}`}
+                />
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-400">
+                  <ImageOff size={30} />
+                  <p className="text-sm font-semibold">Фото отсутствует</p>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1">
+              {images.slice(0, 6).map((img, thumbIdx) => (
+                <button
+                  key={`${img}-${thumbIdx}`}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setImgIndex(thumbIdx);
+                  }}
+                  className={`h-14 w-14 shrink-0 snap-start overflow-hidden rounded-xl border ${imgIndex === thumbIdx ? 'border-[#2563EB]' : 'border-slate-700'}`}
+                >
+                  <img src={img} alt={`${part.name}-${thumbIdx + 1}`} className="h-full w-full object-cover" loading="lazy" />
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {!superFieldMode && <div className="px-4 pt-2 text-lg font-bold text-white line-clamp-2">{part.name}</div>}
-      </div>
-
-      <div className="p-4 border-t border-slate-800 flex items-center gap-3">
-        <button type="button" onClick={() => goTo(index - 1)} className="rounded-2xl border border-slate-700 px-4 py-3 text-white"><ChevronLeft size={20} /></button>
-        <div className="text-white text-sm font-mono flex-1 text-center">{index + 1} / {slides.length}</div>
-        <button type="button" onClick={() => goTo(index + 1)} className="rounded-2xl border border-slate-700 px-4 py-3 text-white"><ChevronRight size={20} /></button>
-        <button type="button" onClick={() => setPriceOpen(true)} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[12px] font-black text-black">PRICE</button>
-        <button type="button" onClick={skip} className="rounded-2xl bg-slate-700 px-4 py-3 text-[12px] font-black text-white">SKIP</button>
-      </div>
-
-      {priceOpen && (
-        <div className="absolute inset-x-0 bottom-0 p-4 bg-black/85 border-t border-slate-700 backdrop-blur-sm">
-          <div className="max-w-md mx-auto space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-white font-bold">Enter vendor price:</p>
-              <button type="button" onClick={() => setPriceOpen(false)} className="text-slate-400"><ChevronDown size={18} /></button>
-            </div>
-            <input
-              value={priceInput}
-              onChange={(e) => setPriceInput(e.target.value)}
-              className="w-full rounded-xl bg-slate-900 border border-slate-600 px-3 py-3 text-white"
-              type="number"
-              placeholder="1600"
-            />
-            <div className="flex gap-2">
-              <button type="button" onClick={() => void savePrice()} className="flex-1 rounded-xl bg-emerald-500 py-3 text-black font-black">Save</button>
+        <div className="h-16 shrink-0 border-t border-slate-800 px-4">
+          <div className="flex h-full items-center justify-center gap-3">
+            {slides.map((slide, dotIdx) => (
               <button
+                key={`${slide.orderId}-${slide.partId}`}
                 type="button"
-                onClick={() => {
-                  const next = !fieldFocusMode;
-                  setFieldFocusMode(next);
-                  saveAppSettings({ fieldFocusMode: next });
-                }}
-                className={`rounded-xl px-3 py-3 text-xs font-black ${fieldFocusMode ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-100'}`}
-              >
-                Field Focus Mode
-              </button>
+                aria-label={`Деталь ${dotIdx + 1}`}
+                onClick={() => goTo(dotIdx)}
+                className={`h-4 w-4 rounded-full transition ${dotIdx === index ? 'bg-[#2563EB] scale-110' : 'bg-slate-600'}`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {partsSheetOpen && (
+        <div className="absolute inset-0 z-10 bg-black/70 p-4" onClick={() => setPartsSheetOpen(false)}>
+          <div className="mt-16 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Все детали</p>
+            <div className="max-h-[50vh] space-y-2 overflow-y-auto">
+              {slides.map((slide, slideIdx) => (
+                <button
+                  key={`${slide.orderId}-${slide.partId}-sheet`}
+                  type="button"
+                  onClick={() => {
+                    setIndex(slideIdx);
+                    setPartsSheetOpen(false);
+                  }}
+                  className={`flex h-12 w-full items-center rounded-xl px-3 text-left ${slideIdx === index ? 'bg-[#2563EB]/25 text-white' : 'bg-slate-800 text-slate-200'}`}
+                >
+                  <span className="truncate text-base font-semibold">{slide.part.name}</span>
+                </button>
+              ))}
             </div>
           </div>
         </div>
