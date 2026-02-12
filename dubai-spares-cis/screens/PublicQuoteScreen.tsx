@@ -205,6 +205,20 @@ const fetchLiveQuoteRates = async (): Promise<QuoteRates> => {
   };
 };
 
+const isRelationQueryError = (error: unknown) => {
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  const message = typeof anyErr.message === 'string' ? anyErr.message.toLowerCase() : '';
+  return (anyErr.code === 'PGRST200' || anyErr.code === 'PGRST201')
+    && (message.includes('relationship') || message.includes('embedded') || message.includes('not found'));
+};
+
+const isSchemaColumnError = (error: unknown) => {
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  return anyErr.code === 'PGRST204' && typeof anyErr.message === 'string' && anyErr.message.includes('Could not find the');
+};
+
 const createSimplePdf = (lines: string[]): Blob => {
   const escape = (text: string) => text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
   const contentLines = lines.map((line, idx) => `BT /F1 12 Tf 50 ${780 - idx * 18} Td (${escape(line)}) Tj ET`).join('\n');
@@ -321,10 +335,61 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     const status = Number((loadError as { status?: number } | null)?.status || 0);
     const message = String((loadError as { message?: string } | null)?.message || '').toLowerCase();
     if (status === 401 || status === 403 || message.includes('permission') || message.includes('not authorized')) return EstimateErrorType.NO_ACCESS;
+    if (isSchemaColumnError(loadError) || isRelationQueryError(loadError)) return EstimateErrorType.SERVER_ERROR;
     if (message.includes('token') || message.includes('jwt')) return EstimateErrorType.EXPIRED_LINK;
     if (status >= 500) return EstimateErrorType.SERVER_ERROR;
     return EstimateErrorType.NOT_FOUND;
   };
+
+  const loadQuoteWithoutJoin = useCallback(async () => {
+    if (!supabase) return { data: null, error: new Error('Supabase not configured') };
+
+    const orderResponse = await supabase
+      .from('orders')
+      .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,logistics,created_at,is_archived,is_sold')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (orderResponse.error || !orderResponse.data) {
+      return { data: null, error: orderResponse.error };
+    }
+
+    const partsResponse = await supabase
+      .from('parts')
+      .select('id,order_id,name,photo_url,photos,is_found')
+      .eq('order_id', orderId);
+
+    if (partsResponse.error) {
+      return { data: null, error: partsResponse.error };
+    }
+
+    const parts = Array.isArray(partsResponse.data) ? partsResponse.data : [];
+    const partIds = parts.map((item) => String(item.id));
+    const variantsResponse = partIds.length === 0
+      ? { data: [], error: null }
+      : await supabase
+        .from('price_variants')
+        .select('id,part_id,price_aed,condition,availability,shop_name,phone,location,photo_url,photos,created_at')
+        .in('part_id', partIds);
+
+    if (variantsResponse.error) {
+      return { data: null, error: variantsResponse.error };
+    }
+
+    const variantsByPart = new Map<string, any[]>();
+    (variantsResponse.data || []).forEach((variant: any) => {
+      const key = String(variant.part_id || '');
+      if (!variantsByPart.has(key)) variantsByPart.set(key, []);
+      variantsByPart.get(key)!.push(variant);
+    });
+
+    const stitched = {
+      ...orderResponse.data,
+      parts: parts.map((part: any) => ({ ...part, price_variants: variantsByPart.get(String(part.id)) || [] }))
+    };
+
+    return { data: stitched, error: null };
+  }, [orderId]);
 
   const readQuoteFromCache = useCallback(() => {
     const raw = window.localStorage.getItem(`public-quote-cache:${orderId}`);
@@ -354,11 +419,17 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       return false;
     }
 
-    const { data, error: loadError } = await supabase
+    let { data, error: loadError } = await supabase
       .from('orders')
       .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,logistics,created_at,is_archived,is_sold,parts(*,price_variants(*))')
       .eq('id', orderId)
       .maybeSingle();
+
+    if (loadError && isRelationQueryError(loadError)) {
+      const fallback = await loadQuoteWithoutJoin();
+      data = fallback.data;
+      loadError = fallback.error as any;
+    }
 
     if (loadError || !data) {
       setOrder(null);

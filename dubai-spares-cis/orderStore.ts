@@ -107,6 +107,72 @@ const getMissingColumnName = (error: unknown): string | null => {
   return match?.[1] || null;
 };
 
+const isRelationQueryError = (error: unknown) => {
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  const message = typeof anyErr.message === 'string' ? anyErr.message.toLowerCase() : '';
+  return (anyErr.code === 'PGRST200' || anyErr.code === 'PGRST201')
+    && (message.includes("relationship") || message.includes("embedded") || message.includes('not found'));
+};
+
+const fetchOrderGraphWithoutJoin = async (orderColumns: string[]) => {
+  if (!supabase) return { data: null, error: null };
+
+  const ordersResponse = await supabase
+    .from('orders')
+    .select(orderColumns.join(','))
+    .order('created_at', { ascending: false });
+
+  if (ordersResponse.error || !ordersResponse.data) {
+    return { data: null, error: ordersResponse.error };
+  }
+
+  const orders = ordersResponse.data as DbOrderGraphRow[];
+  if (orders.length === 0) return { data: [], error: null };
+
+  const orderIds = orders.map((item) => String(item.id));
+  const partsResponse = await supabase
+    .from('parts')
+    .select('id,order_id,name,photo_url,photos,is_found')
+    .in('order_id', orderIds);
+
+  if (partsResponse.error) {
+    return { data: null, error: partsResponse.error };
+  }
+
+  const parts = Array.isArray(partsResponse.data) ? partsResponse.data : [];
+  const partIds = parts.map((item) => String(item.id));
+
+  const variantsResponse = partIds.length === 0
+    ? { data: [], error: null }
+    : await supabase
+      .from('price_variants')
+      .select('id,part_id,price_aed,condition,availability,shop_name,phone,location,photo_url,photos,created_at')
+      .in('part_id', partIds);
+
+  if (variantsResponse.error) {
+    return { data: null, error: variantsResponse.error };
+  }
+
+  const variantsByPartId = new Map<string, any[]>();
+  (variantsResponse.data || []).forEach((variant: any) => {
+    const key = String(variant.part_id || '');
+    if (!variantsByPartId.has(key)) variantsByPartId.set(key, []);
+    variantsByPartId.get(key)!.push(variant);
+  });
+
+  const partsByOrderId = new Map<string, any[]>();
+  parts.forEach((part: any) => {
+    const key = String(part.order_id || '');
+    const mapped = { ...part, price_variants: variantsByPartId.get(String(part.id)) || [] };
+    if (!partsByOrderId.has(key)) partsByOrderId.set(key, []);
+    partsByOrderId.get(key)!.push(mapped);
+  });
+
+  const stitched = orders.map((order) => ({ ...order, parts: partsByOrderId.get(String(order.id)) || [] }));
+  return { data: stitched, error: null };
+};
+
 
 const fetchOrdersGraphWithSchemaFallbacks = async () => {
   if (!supabase) return { data: null, error: null };
@@ -153,7 +219,13 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
     if (!response.error) return response;
 
     const missingColumn = getMissingColumnName(response.error);
-    if (!missingColumn || !orderColumns.includes(missingColumn)) return response;
+    if (!missingColumn || !orderColumns.includes(missingColumn)) {
+      if (isRelationQueryError(response.error)) {
+        await logger.warn('sync:fetch', 'Embedded orders graph query failed; retrying without joins');
+        return fetchOrderGraphWithoutJoin(orderColumns);
+      }
+      return response;
+    }
 
     await logger.warn('sync:fetch', `orders.${missingColumn} is missing in remote schema; retrying fetch without that column`);
     await logDatabaseIntegrity('sync:fetch', response.error, { column: missingColumn });
