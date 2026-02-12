@@ -12,7 +12,7 @@ import SettingsScreen from './screens/SettingsScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-react';
 import { useStore } from './store';
-import { getNotifications } from './notificationCenter';
+import { NotificationType, getNotifications, pushNotification } from './notificationCenter';
 
 const APP_PIN = '2202';
 
@@ -173,6 +173,13 @@ const App: React.FC = () => {
       const message = customEvent.detail?.message || 'Unknown sync error';
       const readable = message.toLowerCase().includes('schema') || message.toLowerCase().includes('supabase') ? 'Сервис данных временно недоступен. Повторите позже.' : `Sync failed: ${message}`;
       setSyncToast(readable);
+      pushNotification({
+        type: NotificationType.SYNC_ERROR,
+        title: 'Ошибка синхронизации',
+        message: readable,
+        source: 'sync',
+        severity: 'critical'
+      });
     };
 
     window.addEventListener('cloud-sync-error', onSyncError);
@@ -180,7 +187,22 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const onStatus = () => setIsOffline(!navigator.onLine);
+    const onStatus = () => {
+      const offline = !navigator.onLine;
+      setIsOffline(offline);
+      if (offline) {
+        pushNotification({
+          type: NotificationType.OFFLINE_QUEUE,
+          title: 'Offline режим',
+          message: 'Действия сохраняются в локальную очередь',
+          source: 'sync',
+          offline: true,
+          severity: 'warning'
+        });
+      } else {
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: '✅ Синхронизировано: очередь отправлена', tone: 'success' } }));
+      }
+    };
     window.addEventListener('online', onStatus);
     window.addEventListener('offline', onStatus);
     return () => {
