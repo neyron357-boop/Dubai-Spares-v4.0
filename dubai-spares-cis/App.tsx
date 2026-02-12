@@ -17,73 +17,6 @@ import { NotificationType, getUnreadNotificationsCount, pushNotification } from 
 import { checkSchemaHealth } from './schemaHealth';
 import { loadAppSettings, saveAppSettings } from './appSettings';
 
-const APP_PIN = '2202';
-
-const PinGate: React.FC<{ onUnlock: () => void; isEntering: boolean }> = ({ onUnlock, isEntering }) => {
-  const [value, setValue] = useState('');
-  const [error, setError] = useState(false);
-
-  const onDigit = (digit: string) => {
-    if (value.length >= 4) return;
-    const next = `${value}${digit}`;
-    setError(false);
-    setValue(next);
-    if (next.length === 4) {
-      setTimeout(() => {
-        if (next === APP_PIN) onUnlock();
-        else {
-          setError(true);
-          setValue('');
-        }
-      }, 120);
-    }
-  };
-
-  const deleteDigit = () => {
-    setError(false);
-    setValue((prev) => prev.slice(0, -1));
-  };
-
-  const submit = () => {
-    if (value === APP_PIN) onUnlock();
-    else {
-      setError(true);
-      setValue('');
-    }
-  };
-
-  return (
-    <div className={`fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-slate-950 flex flex-col items-center justify-between p-6 pt-14 text-white transition-opacity duration-500 ${isEntering ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-      <style>{`@keyframes pin-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}`}</style>
-      <div className="text-center">
-        <div className="inline-flex h-12 items-center rounded-2xl border border-slate-800 px-4 text-sm font-black tracking-[0.18em] text-slate-200">DUBAI SPARES</div>
-        <h1 className="text-2xl font-black mt-5">Field Mode</h1>
-        <p className="text-sm text-slate-400 mt-1">Введите PIN для быстрого входа</p>
-      </div>
-
-      <div className="w-full max-w-[280px]">
-        <div className={`flex justify-center gap-3 mb-4 ${error ? '[animation:pin-shake_0.25s_linear_2]' : ''}`}>
-          {Array.from({ length: 4 }).map((_, idx) => (
-            <div key={idx} className={`h-4 w-4 rounded-full border ${value.length > idx ? 'bg-blue-500 border-blue-400' : 'border-slate-600 bg-slate-900'}`} />
-          ))}
-        </div>
-        {error && <p className="text-rose-400 text-xs font-bold text-center mb-4">Неверный PIN. Попробуйте ещё раз.</p>}
-        <div className="grid grid-cols-3 gap-3">
-          {[...'123456789'].map((digit) => (
-            <button key={digit} type="button" onClick={() => onDigit(digit)} className="h-12 rounded-2xl bg-slate-900 border border-slate-700 text-lg font-black">{digit}</button>
-          ))}
-          <button type="button" className="h-12 rounded-2xl bg-slate-900 border border-slate-700 text-xs font-black">Face ID</button>
-          <button type="button" onClick={() => onDigit('0')} className="h-12 rounded-2xl bg-slate-900 border border-slate-700 text-lg font-black">0</button>
-          <button type="button" onClick={deleteDigit} className="h-12 rounded-2xl bg-slate-900 border border-slate-700 text-xs font-black">⌫</button>
-        </div>
-        <button type="button" onClick={submit} className="mt-3 w-full h-12 rounded-2xl bg-blue-600 text-sm font-black uppercase tracking-wide">Войти быстрее</button>
-      </div>
-
-      <p className="text-[11px] text-slate-500">Личный рабочий инструмент</p>
-    </div>
-  );
-};
-
 const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOffline: boolean }> = ({ children, isSyncing, isOffline }) => {
   const location = useLocation();
   const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
@@ -137,8 +70,6 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOfflin
 };
 
 const App: React.FC = () => {
-  const [unlocked, setUnlocked] = useState(false);
-  const [entering, setEntering] = useState(false);
   const [savePulse, setSavePulse] = useState(false);
   const [syncToast, setSyncToast] = useState<string | null>(null);
   const [appToast, setAppToast] = useState<{ message: string; tone: 'error' | 'success' | 'info' } | null>(null);
@@ -176,19 +107,17 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!unlocked) return;
     void checkSchemaHealth().then((status) => {
       const cfg = loadAppSettings();
       if (!status.compatible && Date.now() > cfg.hideSchemaWarningUntil) {
         setSchemaBanner(status.reason || 'Schema mismatch');
       }
     });
-  }, [unlocked]);
+  }, []);
 
   useEffect(() => {
-    if (!unlocked) return;
     void syncOrders();
-  }, [unlocked, syncOrders]);
+  }, [syncOrders]);
 
   useEffect(() => {
     if (!error) return;
@@ -241,12 +170,6 @@ const App: React.FC = () => {
       window.removeEventListener('offline', onStatus);
     };
   }, []);
-  const onUnlock = () => {
-    setEntering(true);
-    void syncOrders();
-    setTimeout(() => setUnlocked(true), 140);
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       const target = e.target as HTMLInputElement;
@@ -265,9 +188,7 @@ const App: React.FC = () => {
 
   return (
     <div onKeyDown={handleKeyDown}>
-      <PinGate onUnlock={onUnlock} isEntering={entering || unlocked} />
-
-      <div className={`transition-opacity duration-500 ${unlocked ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      <div className="transition-opacity duration-500 opacity-100">
         <div className={`fixed top-3 right-3 z-[90] pointer-events-none transition-all duration-700 ${savePulse ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
           <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-lg">
             Сохранено
