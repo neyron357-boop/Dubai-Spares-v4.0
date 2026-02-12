@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Order } from '../types';
 import { X, CheckCircle2, Share2, RefreshCcw } from 'lucide-react';
 import { DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
+import ImagePreview from './ImagePreview';
+import { useAppSettings } from '../appSettings';
 
 interface Props {
   order: Order;
@@ -41,6 +43,8 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const [currency, setCurrency] = useState<QuoteCurrency>('USD');
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
   const [rateNotice, setRateNotice] = useState('');
+  const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
+  const { settings } = useAppSettings();
 
   const totalAed = foundParts.reduce((sum, p) => {
     const costAed = p.variants[0].priceAed;
@@ -71,11 +75,12 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     () => foundParts.map((part) => {
       const costAed = part.variants[0].priceAed;
       const sellAed = costAed * (1 + order.markupPercent / 100);
+      const photos = (part.photos && part.photos.length > 0) ? part.photos : (part.photoUrl ? [part.photoUrl] : []);
       return {
         part,
-        sellAed,
         sellConverted: sellAed * rates[currency],
-        photo: (part.photos && part.photos.length > 0) ? part.photos[0] : part.photoUrl
+        photo: photos[0] || '',
+        photos
       };
     }),
     [currency, foundParts, order.markupPercent, rates]
@@ -86,6 +91,10 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     if (!Number.isFinite(parsed) || parsed <= 0) return;
     setRates((current) => ({ ...current, [code]: parsed }));
   };
+
+  const whatsappPhone = settings.publicWhatsappNumber || '971000000000';
+  const confirmMessage = `Здравствуйте! Подтверждаю смету по ${order.brand} ${order.model} ${order.year}. VIN: ${order.vin}`;
+  const confirmUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(confirmMessage)}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={onClose}>
@@ -161,11 +170,11 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
             {previewParts.length === 0 ? (
               <div className="text-center py-10 text-gray-400 text-xs italic">Нет найденных деталей</div>
             ) : (
-              previewParts.map(({ part, sellAed, sellConverted, photo }) => (
+              previewParts.map(({ part, sellConverted, photo, photos }) => (
                 <div key={part.id} className="flex items-center gap-2 py-1.5 border-b border-gray-100 last:border-none">
-                  <div className="w-8 h-8 bg-gray-50 rounded-lg overflow-hidden flex-shrink-0 border border-gray-100">
+                  <button type="button" onClick={() => photos.length > 0 && setGallery({ images: photos, index: 0 })} className="w-8 h-8 bg-gray-50 rounded-lg overflow-hidden flex-shrink-0 border border-gray-100">
                     {photo ? <img src={photo} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-blue-50/30 flex items-center justify-center text-blue-200 font-bold text-[8px]">IMG</div>}
-                  </div>
+                  </button>
                   <div className="flex-1 min-w-0 flex flex-col justify-center">
                     <div className="font-bold text-xs text-gray-800 truncate leading-none">{part.name}</div>
                     <div className="text-[9px] text-green-600 font-bold uppercase tracking-wider mt-0.5 flex items-center gap-1">
@@ -174,7 +183,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
                   </div>
                   <div className="text-right shrink-0">
                     <div className="text-sm font-black text-gray-900 leading-none">{sellConverted.toFixed(0)} {currency}</div>
-                    <div className="text-[8px] text-gray-400 font-bold mt-0.5">{sellAed.toFixed(0)} AED</div>
                   </div>
                 </div>
               ))
@@ -200,7 +208,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
               <div className="text-[8px] font-bold text-gray-400 uppercase tracking-widest">Итого</div>
               <div className="flex items-baseline gap-1.5">
                 <div className="text-2xl font-black text-blue-600 leading-none">{convertedTotal.toFixed(0)} {currency}</div>
-                <div className="text-xs font-bold text-gray-400">{totalAed.toFixed(0)} AED</div>
+
               </div>
             </div>
             <div className="text-right">
@@ -212,12 +220,17 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
           <button
             type="button"
             onClick={() => void onShare({ rates, currency })}
-            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-black uppercase tracking-wider text-white"
-          >
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white"
+>
             <Share2 size={12} /> Share quote link
           </button>
+          <a href={confirmUrl} target="_blank" rel="noreferrer" className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white">
+            <CheckCircle2 size={12} /> Подтвердить по WhatsApp
+          </a>
         </div>
       </div>
+
+      {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
     </div>
   );
 };

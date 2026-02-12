@@ -4,7 +4,7 @@ import { ChevronRight, ShieldAlert, Wrench } from 'lucide-react';
 import { flushOfflineMutations } from '../orderStore';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
-import { loadAppSettings, saveAppSettings, useAppSettings } from '../appSettings';
+import { AppSettings, loadAppSettings, saveAppSettings, useAppSettings } from '../appSettings';
 import { checkSchemaHealth } from '../schemaHealth';
 
 const formatTs = (value?: number | null) => (value ? new Date(value).toLocaleString() : '—');
@@ -39,6 +39,8 @@ const SettingsScreen: React.FC = () => {
   const [tapCount, setTapCount] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [schemaWarning, setSchemaWarning] = useState<string | null>(null);
+  const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -64,6 +66,22 @@ const SettingsScreen: React.FC = () => {
   useEffect(() => {
     document.documentElement.lang = settings.appLanguage;
   }, [settings.appLanguage]);
+
+  useEffect(() => {
+    setDraftSettings(settings);
+  }, [settings]);
+
+  const updateDraft = (patch: Partial<AppSettings>) => {
+    setDraftSettings((prev) => ({ ...prev, ...patch }));
+    setSaveNotice(null);
+  };
+
+  const hasUnsavedChanges = useMemo(() => JSON.stringify(draftSettings) !== JSON.stringify(settings), [draftSettings, settings]);
+
+  const saveChanges = () => {
+    updateSettings(draftSettings);
+    setSaveNotice('Изменения сохранены и применены во всех разделах.');
+  };
 
   const withBusy = async (label: string, fn: () => Promise<void>) => {
     setBusy(label);
@@ -110,14 +128,14 @@ const SettingsScreen: React.FC = () => {
       <Section title="Основные настройки">
         <div className="space-y-3">
           <Field label="Язык приложения">
-            <select value={settings.appLanguage} onChange={(e) => updateSettings({ appLanguage: e.target.value as 'ru' | 'en' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
+            <select value={draftSettings.appLanguage} onChange={(e) => updateDraft({ appLanguage: e.target.value as 'ru' | 'en' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
               <option value="ru">RU</option>
               <option value="en">EN</option>
             </select>
           </Field>
 
           <Field label="Язык WA шаблонов">
-            <select value={settings.waTemplateLanguage} onChange={(e) => updateSettings({ waTemplateLanguage: e.target.value as 'ru' | 'en' | 'ar' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
+            <select value={draftSettings.waTemplateLanguage} onChange={(e) => updateDraft({ waTemplateLanguage: e.target.value as 'ru' | 'en' | 'ar' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
               <option value="ru">RU</option>
               <option value="en">EN</option>
               <option value="ar">AR</option>
@@ -125,7 +143,7 @@ const SettingsScreen: React.FC = () => {
           </Field>
 
           <Field label="Валюта">
-            <select value={settings.currencyFormat} onChange={(e) => updateSettings({ currencyFormat: e.target.value as 'AED' | 'USD' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
+            <select value={draftSettings.currencyFormat} onChange={(e) => updateDraft({ currencyFormat: e.target.value as 'AED' | 'USD' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
               <option value="AED">AED</option>
               <option value="USD">USD</option>
             </select>
@@ -133,8 +151,8 @@ const SettingsScreen: React.FC = () => {
 
           <Field label="Курс по умолчанию">
             <input
-              value={settings.defaultExchangeRate}
-              onChange={(e) => updateSettings({ defaultExchangeRate: Number(e.target.value) || 0 })}
+              value={draftSettings.defaultExchangeRate}
+              onChange={(e) => updateDraft({ defaultExchangeRate: Number(e.target.value) || 0 })}
               className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
               type="number"
               step="0.01"
@@ -143,12 +161,12 @@ const SettingsScreen: React.FC = () => {
 
           <Field label="Часовой пояс">
             <div className="space-y-2">
-              <select value={settings.timezoneMode} onChange={(e) => updateSettings({ timezoneMode: e.target.value as 'auto' | 'manual' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
+              <select value={draftSettings.timezoneMode} onChange={(e) => updateDraft({ timezoneMode: e.target.value as 'auto' | 'manual' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
                 <option value="auto">Auto</option>
                 <option value="manual">Manual</option>
               </select>
-              {settings.timezoneMode === 'manual' && (
-                <select value={settings.manualTimezone || timezoneList[0]} onChange={(e) => updateSettings({ manualTimezone: e.target.value })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
+              {draftSettings.timezoneMode === 'manual' && (
+                <select value={draftSettings.manualTimezone || timezoneList[0]} onChange={(e) => updateDraft({ manualTimezone: e.target.value })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
                   {timezoneList.map((tz) => (
                     <option key={tz} value={tz}>{tz}</option>
                   ))}
@@ -161,8 +179,8 @@ const SettingsScreen: React.FC = () => {
             <span className="text-sm font-bold text-gray-800">Field Focus Mode</span>
             <input
               type="checkbox"
-              checked={settings.fieldFocusMode}
-              onChange={(e) => updateSettings({ fieldFocusMode: e.target.checked })}
+              checked={draftSettings.fieldFocusMode}
+              onChange={(e) => updateDraft({ fieldFocusMode: e.target.checked })}
               className="h-4 w-4"
             />
           </label>
@@ -173,8 +191,8 @@ const SettingsScreen: React.FC = () => {
         <div className="space-y-3">
           <Field label="WhatsApp номер для ссылки в заявке и смете">
             <input
-              value={settings.publicWhatsappNumber}
-              onChange={(e) => updateSettings({ publicWhatsappNumber: e.target.value.replace(/[^\d]/g, '') })}
+              value={draftSettings.publicWhatsappNumber}
+              onChange={(e) => updateDraft({ publicWhatsappNumber: e.target.value.replace(/[^\d]/g, '') })}
               placeholder="971521574546"
               className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
             />
@@ -182,8 +200,8 @@ const SettingsScreen: React.FC = () => {
 
           <Field label="Telegram ссылка">
             <input
-              value={settings.publicTelegramUrl}
-              onChange={(e) => updateSettings({ publicTelegramUrl: e.target.value.trim() })}
+              value={draftSettings.publicTelegramUrl}
+              onChange={(e) => updateDraft({ publicTelegramUrl: e.target.value.trim() })}
               placeholder="https://t.me/your_account"
               className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
             />
@@ -191,8 +209,8 @@ const SettingsScreen: React.FC = () => {
 
           <Field label="Instagram ссылка">
             <input
-              value={settings.publicInstagramUrl}
-              onChange={(e) => updateSettings({ publicInstagramUrl: e.target.value.trim() })}
+              value={draftSettings.publicInstagramUrl}
+              onChange={(e) => updateDraft({ publicInstagramUrl: e.target.value.trim() })}
               placeholder="https://instagram.com/your_account"
               className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
             />
@@ -310,6 +328,18 @@ const SettingsScreen: React.FC = () => {
           <div>Dev-раздел скрыт. Для открытия: 5 тапов по заголовку “Настройки”.</div>
         </div>
       )}
+
+      <div className="sticky bottom-2 z-30 rounded-2xl border border-gray-200 bg-white/95 p-3 shadow-sm backdrop-blur">
+        <button
+          type="button"
+          onClick={saveChanges}
+          disabled={!hasUnsavedChanges}
+          className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+        >
+          Сохранить изменения
+        </button>
+        {saveNotice && <p className="mt-1 text-center text-[11px] font-semibold text-emerald-600">{saveNotice}</p>}
+      </div>
 
       {busy && <div className="text-xs text-gray-500">Выполняется: {busy}…</div>}
     </div>

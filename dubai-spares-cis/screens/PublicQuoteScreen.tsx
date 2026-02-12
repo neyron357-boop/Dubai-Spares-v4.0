@@ -3,7 +3,6 @@ import {
   AlertCircle,
   BadgeCheck,
   CheckCircle2,
-  ChevronDown,
   ChevronRight,
   Download,
   Globe,
@@ -256,7 +255,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [rateSource, setRateSource] = useState('Live market rates');
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
   const [lang, setLang] = useState<Language>('en');
-  const [showBreakdown, setShowBreakdown] = useState(false);
   const [partsVerified, setPartsVerified] = useState(false);
   const { settings } = useAppSettings();
   const detailRef = useRef<HTMLDivElement | null>(null);
@@ -648,10 +646,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <span className="rounded-full bg-amber-500/90 px-3 py-1.5">🧾 {t.validUntil}: {new Date(expiresAt).toLocaleString()}</span>
             </div>
             <div className="mt-5 flex flex-wrap gap-2">
-              <a href={whatsappUrl} target="_blank" rel="noreferrer" onClick={() => logEvent('confirm_click', { placement: 'hero' })} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white">
+              <a href={whatsappUrl} target="_blank" rel="noreferrer" onClick={() => logEvent('confirm_click', { placement: 'hero' })} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white">
                 <MessageCircle size={16} /> {t.confirmWhatsApp}
               </a>
-              <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-2 rounded-2xl bg-white/15 px-4 py-2.5 text-sm font-semibold text-white backdrop-blur">📄 {t.viewParts}</button>
+              <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold text-white backdrop-blur">📄 {t.viewParts}</button>
             </div>
           </div>
         </div>
@@ -670,7 +668,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
         <section ref={detailRef} className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.partsGallery} ({foundParts.length})</h2>
-          {foundParts.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => (
+          {foundParts.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => {
+            const partMessage = `Hello! I confirm ${part.name} for ${order.brand} ${order.model} ${order.year}.\nVIN: ${maskVin(order.vin || '')}.\nPrice: ${converted.toFixed(2)} ${currency}.`;
+            const partWhatsappUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(partMessage)}`;
+
+            return (
             <article key={part.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -690,36 +692,18 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 </div>
               )}
 
-              <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
-                <p className="font-semibold text-slate-800">{best?.shopName || 'Supplier'} · {t.premiumSupplier}</p>
-                <p>{best?.location || 'Dubai, UAE'}</p>
-                {(best?.phone || '').trim() && (
-                  <a href={`tel:${best?.phone}`} className="mt-2 inline-flex rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Call {best?.phone}</a>
-                )}
-              </div>
+              <a href={partWhatsappUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">
+                <MessageCircle size={14} /> {t.confirmWhatsApp}
+              </a>
             </article>
-          ))}
+            );
+          })}
 
           {pendingParts.length > 0 && (
             <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-4 sm:p-5">
               <div className="flex flex-wrap gap-2">
                 {pendingParts.map(({ part }) => <span key={part.id} className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">{part.name}</span>)}
               </div>
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
-          <button type="button" onClick={() => setShowBreakdown((v) => !v)} className="flex w-full items-center justify-between text-left">
-            <span className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.priceBreakdown}</span>
-            <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700">{showBreakdown ? t.hideBreakdown : t.showBreakdown} <ChevronDown size={15} className={showBreakdown ? 'rotate-180' : ''} /></span>
-          </button>
-          {showBreakdown && (
-            <div className="mt-3 space-y-2 text-sm">
-              <div className="flex justify-between"><span>{t.partsSubtotal}</span><span>{totals.subtotal.toFixed(2)} AED</span></div>
-              <div className="flex justify-between"><span>{t.serviceFee}</span><span>{totals.serviceFee.toFixed(2)} AED</span></div>
-              <div className="flex justify-between"><span>{t.logistics}</span><span>{totals.logistics.toFixed(2)} AED</span></div>
-              <div className="flex justify-between border-t pt-2 font-semibold"><span>{t.total}</span><span>{totals.totalAed.toFixed(2)} AED</span></div>
             </div>
           )}
         </section>
@@ -749,7 +733,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           </div>
         </section>
 
-        <button type="button" onClick={downloadPdf} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm">
+        <button type="button" onClick={downloadPdf} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
           <Download size={16} /> {t.downloadPdf}
         </button>
       </main>
@@ -761,7 +745,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             <p className="text-lg font-bold text-slate-900">{totals.totalConverted.toFixed(2)} {currency}</p>
             {partsVerified && <p className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600"><CheckCircle2 size={12} /> {t.partsVerified}</p>}
           </div>
-          <a href={whatsappUrl} target="_blank" rel="noreferrer" onClick={() => logEvent('confirm_click', { placement: 'sticky' })} className="inline-flex min-h-12 shrink-0 items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-500 px-4 text-sm font-bold text-white shadow-[0_14px_42px_rgba(16,185,129,0.42)]">
+          <a href={whatsappUrl} target="_blank" rel="noreferrer" onClick={() => logEvent('confirm_click', { placement: 'sticky' })} className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 px-3 text-xs font-bold text-white shadow-[0_14px_42px_rgba(16,185,129,0.42)]">
             <MessageCircle size={16} /> {t.confirmWhatsApp} <ChevronRight size={16} />
           </a>
         </div>
