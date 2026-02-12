@@ -21,6 +21,19 @@ type DropdownOption = {
   value: string;
 };
 
+type DraftPart = {
+  id: string;
+  name: string;
+  photos: string[];
+};
+
+type DraftNote = {
+  id: string;
+  text: string;
+  photos: string[];
+  voices: string[];
+};
+
 const POPULAR_BRANDS = ['BMW', 'Mercedes-Benz', 'Toyota', 'Lexus', 'Nissan', 'Hyundai', 'Kia', 'Audi', 'Volkswagen'];
 
 const VIN_BRAND_MAP: Record<string, string> = {
@@ -49,6 +62,19 @@ const decodeVin = (rawVin: string): VinDecoded | null => {
 };
 
 const createId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+
+const createDraftPart = (): DraftPart => ({
+  id: createId(),
+  name: '',
+  photos: []
+});
+
+const createDraftNote = (): DraftNote => ({
+  id: createId(),
+  text: '',
+  photos: [],
+  voices: []
+});
 
 const inputClass = 'h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-slate-300 focus:ring-4 focus:ring-slate-100';
 
@@ -94,7 +120,7 @@ const SearchableDropdown: React.FC<{
         <ChevronDown size={16} className={`text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute z-30 mt-2 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+        <div className="absolute z-[60] mt-2 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
           <input
             value={query}
             autoFocus
@@ -144,10 +170,8 @@ const NewOrderScreen: React.FC = () => {
   const [bodyType, setBodyType] = useState('');
   const [seriesCode, setSeriesCode] = useState('');
 
-  const [partName, setPartName] = useState('');
-  const [comment, setComment] = useState('');
-  const [partPhotos, setPartPhotos] = useState<string[]>([]);
-  const [voiceNote, setVoiceNote] = useState('');
+  const [parts, setParts] = useState<DraftPart[]>([createDraftPart()]);
+  const [notes, setNotes] = useState<DraftNote[]>([createDraftNote()]);
 
   const [clientName, setClientName] = useState('');
   const [customerContact, setCustomerContact] = useState('');
@@ -162,7 +186,8 @@ const NewOrderScreen: React.FC = () => {
   const [modelLoading, setModelLoading] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
-  const partPhotoRef = useRef<HTMLInputElement>(null);
+  const partPhotoRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const notePhotoRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const carGalleryRef = useRef<HTMLInputElement>(null);
   const carCameraRef = useRef<HTMLInputElement>(null);
 
@@ -234,8 +259,8 @@ const NewOrderScreen: React.FC = () => {
       setYear(d.year || '');
       setBodyType(d.bodyType || '');
       setSeriesCode(d.seriesCode || '');
-      setPartName(d.partName || '');
-      setComment(d.comment || '');
+      setParts(Array.isArray(d.parts) && d.parts.length ? d.parts : [createDraftPart()]);
+      setNotes(Array.isArray(d.notes) && d.notes.length ? d.notes : [createDraftNote()]);
       setClientName(d.clientName || '');
       setCustomerContact(d.customerContact || '');
       setCountry(d.country || '');
@@ -247,9 +272,9 @@ const NewOrderScreen: React.FC = () => {
 
   useEffect(() => {
     localStorage.setItem('new-order-draft-v2', JSON.stringify({
-      mode, vin, brand, model, year, bodyType, seriesCode, partName, comment, clientName, customerContact, country, city
+      mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, customerContact, country, city
     }));
-  }, [mode, vin, brand, model, year, bodyType, seriesCode, partName, comment, clientName, customerContact, country, city]);
+  }, [mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, customerContact, country, city]);
 
   useEffect(() => {
     const decoded = decodeVin(vin);
@@ -269,7 +294,7 @@ const NewOrderScreen: React.FC = () => {
     if (!brand.trim()) next.brand = 'Марка обязательна';
     if (!model.trim()) next.model = 'Модель обязательна';
     if (!year.trim() || !/^\d{4}$/.test(year.trim())) next.year = 'Год: 4 цифры';
-    if (!partName.trim()) next.partName = 'Что нужно — обязательно';
+    if (!parts.some((item) => item.name.trim())) next.partName = 'Добавьте хотя бы одну деталь';
     if (vin.trim() && vin.trim().length !== 17) next.vin = 'VIN должен быть 17 символов';
     setErrors(next);
     if (Object.keys(next).length > 0) {
@@ -279,15 +304,21 @@ const NewOrderScreen: React.FC = () => {
   };
 
   const canCreate = useMemo(() => (
-    !!brand.trim() && !!model.trim() && /^\d{4}$/.test(year.trim()) && !!partName.trim() && (!vin.trim() || vin.trim().length === 17)
-  ), [brand, model, year, partName, vin]);
+    !!brand.trim() && !!model.trim() && /^\d{4}$/.test(year.trim()) && parts.some((item) => item.name.trim()) && (!vin.trim() || vin.trim().length === 17)
+  ), [brand, model, year, parts, vin]);
 
-  const startVoiceInput = () => {
+  const startVoiceInput = (noteId: string) => {
     const Ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!Ctor) return;
     const rec = new Ctor();
     rec.lang = 'ru-RU';
-    rec.onresult = (event: any) => setVoiceNote(event?.results?.[0]?.[0]?.transcript || '');
+    rec.onresult = (event: any) => {
+      const transcript = String(event?.results?.[0]?.[0]?.transcript || '').trim();
+      if (!transcript) return;
+      setNotes((prev) => prev.map((note) => (
+        note.id === noteId ? { ...note, voices: [...note.voices, transcript] } : note
+      )));
+    };
     rec.start();
   };
 
@@ -347,14 +378,14 @@ const NewOrderScreen: React.FC = () => {
       customerContact: customerContact.trim(),
       carPhotos,
       carPhotoUrl: carPhotos[0],
-      parts: [{
+      parts: parts.filter((part) => part.name.trim()).map((part) => ({
         id: createId(),
-        name: partName.trim(),
-        photos: partPhotos,
-        photoUrl: partPhotos[0],
+        name: part.name.trim(),
+        photos: part.photos,
+        photoUrl: part.photos[0],
         variants: [],
         isFound: false
-      }],
+      })),
       markupPercent: DEFAULT_MARKUP,
       exchangeRate: DEFAULT_RATE,
       createdAt: now,
@@ -364,8 +395,17 @@ const NewOrderScreen: React.FC = () => {
       leadUnread: fromLead,
       leadSource: fromLead ? 'public_form' : 'manual',
       notes: [
-        ...(comment.trim() ? [{ id: createId(), text: comment.trim(), createdAt: now }] : []),
-        ...(voiceNote.trim() ? [{ id: createId(), text: `Voice: ${voiceNote.trim()}`, createdAt: now }] : []),
+        ...notes
+          .filter((note) => note.text.trim() || note.photos.length > 0 || note.voices.length > 0)
+          .map((note) => ({
+            id: createId(),
+            text: [
+              note.text.trim(),
+              ...note.voices.map((voice, index) => `Voice ${index + 1}: ${voice}`)
+            ].filter(Boolean).join('\n'),
+            photos: note.photos,
+            createdAt: now
+          })),
         ...(seriesCode.trim() ? [{ id: createId(), text: `Series/Code: ${seriesCode.trim()}`, createdAt: now }] : [])
       ],
       socialNickname: [country.trim(), city.trim()].filter(Boolean).join(', ') || undefined
@@ -418,12 +458,11 @@ const NewOrderScreen: React.FC = () => {
           {errors.brand && <p className="text-xs text-rose-600">{errors.brand}</p>}
         </label>
 
-        <div className={`space-y-1 overflow-hidden transition-all duration-200 ${brand ? 'max-h-52 opacity-100' : 'max-h-0 opacity-0'}`}>
+        <div className="space-y-1 transition-all duration-200">
           <span className="text-xs font-semibold text-slate-500">Модель *</span>
           <SearchableDropdown
             value={model}
-            placeholder={brand ? 'Выберите модель' : 'Сначала выберите марку'}
-            disabled={!brand}
+            placeholder="Выберите модель"
             options={modelOptions}
             loading={modelLoading}
             onChange={(value) => {
@@ -438,15 +477,14 @@ const NewOrderScreen: React.FC = () => {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="space-y-1">
             <span className="text-xs font-semibold text-slate-500">Год *</span>
-            <input
+            <SearchableDropdown
               value={year}
-              onChange={(e) => {
+              placeholder="Выберите год"
+              options={YEARS.map((item) => ({ label: String(item), value: String(item) }))}
+              onChange={(value) => {
                 touched.current.year = true;
-                setYear(e.target.value.replace(/\D/g, '').slice(0, 4));
+                setYear(value);
               }}
-              placeholder="Например: 2018"
-              inputMode="numeric"
-              className={inputClass}
             />
             {errors.year && <p className="text-xs text-rose-600">{errors.year}</p>}
           </label>
@@ -491,30 +529,103 @@ const NewOrderScreen: React.FC = () => {
 
       <section className={cardClass}>
         <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><Wrench size={16} /> Деталь / запрос</h2>
-        <label className="space-y-1">
-          <span className="text-xs font-semibold text-slate-500">Что нужно? *</span>
-          <input value={partName} onChange={(e) => setPartName(e.target.value)} placeholder="Например: задний фонарь правый" className={inputClass} />
+        <div className="space-y-3">
+          {parts.map((part, index) => (
+            <div key={part.id} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <label className="space-y-1">
+                <span className="text-xs font-semibold text-slate-500">Деталь {index + 1} *</span>
+                <input
+                  value={part.name}
+                  onChange={(e) => setParts((prev) => prev.map((item) => (item.id === part.id ? { ...item, name: e.target.value } : item)))}
+                  placeholder="Например: задний фонарь правый"
+                  className={inputClass}
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => partPhotoRefs.current[part.id]?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото детали</button>
+                {parts.length > 1 && <button type="button" onClick={() => setParts((prev) => prev.filter((item) => item.id !== part.id))} className="inline-flex h-10 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-bold text-rose-600">Удалить</button>}
+              </div>
+              {!!part.photos.length && (
+                <div className="grid grid-cols-3 gap-2">
+                  {part.photos.map((photo, photoIndex) => (
+                    <div key={`${photo}-${photoIndex}`} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white">
+                      <img src={photo} alt={`part-${index}-${photoIndex}`} className="h-20 w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, photos: item.photos.filter((_, i) => i !== photoIndex) } : item))}
+                        className="absolute right-1 top-1 h-5 w-5 rounded-full bg-black/60 text-[10px] text-white"
+                      >×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <input
+                ref={(el) => { partPhotoRefs.current[part.id] = el; }}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => void attachCompressedImages(e.target.files, (updater) => {
+                  setParts((prev) => prev.map((item) => {
+                    if (item.id !== part.id) return item;
+                    const nextPhotos = typeof updater === 'function' ? updater(item.photos) : updater;
+                    return { ...item, photos: nextPhotos };
+                  }));
+                }, 10, 'new-order:part')}
+              />
+            </div>
+          ))}
           {errors.partName && <p className="text-xs text-rose-600">{errors.partName}</p>}
-        </label>
-
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => partPhotoRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото детали</button>
-          <button type="button" onClick={startVoiceInput} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Mic size={14} /> Голос</button>
-          <button type="button" onClick={() => setMode('full')} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><NotebookPen size={14} /> Заметка</button>
+          <button type="button" onClick={() => setParts((prev) => [...prev, createDraftPart()])} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700">+ Добавить еще деталь</button>
         </div>
 
-        {(partPhotos.length > 0 || voiceNote) && (
-          <div className="flex gap-2 text-xs">
-            {partPhotos.length > 0 && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">+{partPhotos.length} фото</span>}
-            {voiceNote && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">+1 voice</span>}
+        <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-slate-600">Комментарии / заметки</p>
+            <button type="button" onClick={() => setMode('full')} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700"><NotebookPen size={12} /> Full</button>
           </div>
-        )}
-
-        {mode === 'full' && (
-          <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий к заказу" rows={3} className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100" />
-        )}
-
-        <input ref={partPhotoRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void attachCompressedImages(e.target.files, setPartPhotos, 10, 'new-order:part')} />
+          {notes.map((note, index) => (
+            <div key={note.id} className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+              <textarea
+                value={note.text}
+                onChange={(e) => setNotes((prev) => prev.map((item) => item.id === note.id ? { ...item, text: e.target.value } : item))}
+                placeholder={`Комментарий ${index + 1}`}
+                rows={2}
+                className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+              />
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => notePhotoRefs.current[note.id]?.click()} className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото</button>
+                <button type="button" onClick={() => startVoiceInput(note.id)} className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Mic size={14} /> Голос</button>
+                {notes.length > 1 && <button type="button" onClick={() => setNotes((prev) => prev.filter((item) => item.id !== note.id))} className="inline-flex h-9 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-bold text-rose-600">Удалить</button>}
+              </div>
+              {!!note.voices.length && <p className="text-xs text-slate-500">Голосовых заметок: {note.voices.length}</p>}
+              {!!note.photos.length && (
+                <div className="grid grid-cols-4 gap-2">
+                  {note.photos.map((photo, photoIndex) => (
+                    <div key={`${photo}-${photoIndex}`} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white">
+                      <img src={photo} alt={`note-${index}-${photoIndex}`} className="h-16 w-full object-cover" />
+                    </div>
+                  ))}
+                </div>
+              )}
+              <input
+                ref={(el) => { notePhotoRefs.current[note.id] = el; }}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => void attachCompressedImages(e.target.files, (updater) => {
+                  setNotes((prev) => prev.map((item) => {
+                    if (item.id !== note.id) return item;
+                    const nextPhotos = typeof updater === 'function' ? updater(item.photos) : updater;
+                    return { ...item, photos: nextPhotos };
+                  }));
+                }, 10, 'new-order:note')}
+              />
+            </div>
+          ))}
+          <button type="button" onClick={() => setNotes((prev) => [...prev, createDraftNote()])} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700">+ Добавить комментарий</button>
+        </div>
       </section>
 
       <section className={cardClass}>
