@@ -165,7 +165,7 @@ const isTimestamptzTimestampInputError = (error: unknown) => {
   if (typeof error !== 'object' || !error) return false;
   const anyErr = error as { code?: unknown; message?: unknown };
   return (
-    (anyErr.code === '22007' || anyErr.code === '22008') &&
+    (anyErr.code === '22007' || anyErr.code === '22008' || anyErr.code === '22P02') &&
     typeof anyErr.message === 'string' &&
     (anyErr.message.includes('timestamp with time zone') || anyErr.message.includes('date/time field value'))
   );
@@ -435,6 +435,7 @@ const persistOrderGraph = async (order: Order) => {
 
     for (const variant of part.variants || []) {
       await logger.info('sync:persist', `Step 3/3 upsert variant ${variant.id} (part ${part.id})`);
+      const variantCreatedAt = parseTimestamp(variant.createdAt);
       const variantPayload = {
         id: variant.id,
         part_id: part.id,
@@ -444,7 +445,7 @@ const persistOrderGraph = async (order: Order) => {
         location: variant.location,
         photo_url: variant.photoUrl,
         photos: variant.photos || [],
-        created_at: toIsoTimestamp(variant.createdAt)
+        created_at: variantCreatedAt
       };
 
       let { error: variantError } = await supabase.from('price_variants').upsert(variantPayload);
@@ -456,7 +457,7 @@ const persistOrderGraph = async (order: Order) => {
         );
         ({ error: variantError } = await supabase.from('price_variants').upsert({
           ...variantPayload,
-          created_at: toIsoTimestamp(variant.createdAt)
+          created_at: toIsoTimestamp(variantCreatedAt)
         }));
       }
 
