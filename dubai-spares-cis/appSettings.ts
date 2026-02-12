@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { supabase } from './supabase';
 
 export const APP_SETTINGS_KEY = 'dubai_spares_app_settings_v1';
+const CLOUD_PUBLIC_SETTINGS_ID = 'public_settings';
 
 export type AppLanguage = 'ru' | 'en';
 export type WhatsAppTemplateLanguage = 'ru' | 'en' | 'ar';
@@ -35,6 +37,8 @@ export interface AppSettings {
   publicDeliveryTerms: string;
   publicWorkTerms: string;
 }
+
+type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms'>;
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   appLanguage: 'ru',
@@ -76,6 +80,53 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
   publicWorkTerms: typeof raw?.publicWorkTerms === 'string' ? raw.publicWorkTerms : ''
 });
 
+const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): PublicAppSettings => {
+  const normalized = normalizeSettings(raw);
+  return {
+    publicWhatsappNumber: normalized.publicWhatsappNumber,
+    publicTelegramUrl: normalized.publicTelegramUrl,
+    publicInstagramUrl: normalized.publicInstagramUrl,
+    publicDeliveryTerms: normalized.publicDeliveryTerms,
+    publicWorkTerms: normalized.publicWorkTerms
+  };
+};
+
+const loadCloudPublicSettings = async (): Promise<PublicAppSettings | null> => {
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('app_state')
+      .select('data')
+      .eq('id', CLOUD_PUBLIC_SETTINGS_ID)
+      .maybeSingle();
+
+    if (error) return null;
+    return pickPublicSettings((data?.data || {}) as Partial<AppSettings>);
+  } catch {
+    return null;
+  }
+};
+
+const saveCloudPublicSettings = async (settings: AppSettings): Promise<void> => {
+  if (!supabase) return;
+
+  try {
+    await supabase
+      .from('app_state')
+      .upsert(
+        {
+          id: CLOUD_PUBLIC_SETTINGS_ID,
+          data: pickPublicSettings(settings),
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: 'id' }
+      );
+  } catch {
+    // keep local settings as fallback
+  }
+};
+
 export const loadAppSettings = (): AppSettings => {
   try {
     const raw = localStorage.getItem(APP_SETTINGS_KEY);
@@ -97,6 +148,23 @@ export const useAppSettings = () => {
   const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
 
   useEffect(() => {
+    let active = true;
+
+    void (async () => {
+      const cloudPublicSettings = await loadCloudPublicSettings();
+      if (!cloudPublicSettings || !active) return;
+
+      const merged = normalizeSettings({ ...loadAppSettings(), ...cloudPublicSettings });
+      localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(merged));
+      setSettings(merged);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const onUpdate = (event: Event) => {
       const custom = event as CustomEvent<AppSettings>;
       if (custom.detail) setSettings(normalizeSettings(custom.detail));
@@ -110,6 +178,7 @@ export const useAppSettings = () => {
   const updateSettings = (patch: Partial<AppSettings>) => {
     const next = saveAppSettings(patch);
     setSettings(next);
+    void saveCloudPublicSettings(next);
     return next;
   };
 

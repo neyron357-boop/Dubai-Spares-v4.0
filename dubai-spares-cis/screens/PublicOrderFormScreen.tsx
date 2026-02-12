@@ -485,6 +485,7 @@ const PublicOrderFormScreen: React.FC = () => {
   };
 
   const progress = (step / TOTAL_STEPS) * 100;
+  const whatsappPhone = (settings.publicWhatsappNumber || '971000000000').replace(/[^\d]/g, '') || '971000000000';
 
   if (showThanks) {
     return (
@@ -495,7 +496,7 @@ const PublicOrderFormScreen: React.FC = () => {
           <p className="mt-2 text-slate-200">Номер заявки: <b>{createdOrderId}</b></p>
           <p className="mt-1 text-slate-300">Обычно отвечаем в течение 10–20 минут.</p>
           <div className="mt-5 grid gap-2 sm:grid-cols-2">
-            <a href={`https://wa.me/${settings.publicWhatsappNumber || '971000000000'}`} target="_blank" rel="noreferrer" className="rounded-2xl bg-emerald-400 px-4 py-3 text-center font-semibold text-slate-900">Перейти в WhatsApp</a>
+            <a href={`https://wa.me/${whatsappPhone}`} target="_blank" rel="noreferrer" className="rounded-2xl bg-emerald-400 px-4 py-3 text-center font-semibold text-slate-900">Перейти в WhatsApp</a>
             <button type="button" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/#public-order/${createdOrderId}`)} className="rounded-2xl border border-white/25 px-4 py-3 text-sm font-semibold">Сохранить ссылку</button>
             {settings.publicTelegramUrl && <a href={settings.publicTelegramUrl} target="_blank" rel="noreferrer" className="rounded-2xl border border-sky-300/40 bg-sky-400/20 px-4 py-3 text-center text-sm font-semibold text-sky-100">Telegram</a>}
             {settings.publicInstagramUrl && <a href={settings.publicInstagramUrl} target="_blank" rel="noreferrer" className="rounded-2xl border border-pink-300/40 bg-pink-400/20 px-4 py-3 text-center text-sm font-semibold text-pink-100">Instagram</a>}
