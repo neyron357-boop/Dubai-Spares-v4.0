@@ -167,6 +167,7 @@ const RadarScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedShopIds, setSelectedShopIds] = useState<Set<string>>(new Set());
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [proximityAlerts, setProximityAlerts] = useState<Set<string>>(new Set());
 
   useEffect(() => { void offlineDb.getRadarInteractions().then(setInteractions); }, []);
 
@@ -206,7 +207,7 @@ const RadarScreen: React.FC = () => {
       .filter((order) => !activeOrder || order.id === activeOrder.id)
       .flatMap((order) => {
         const candidates = getRadarShopMatches(order, shops, position)
-          .filter((item) => brandMatchMode === 'soft' || item.matchScore > 0)
+          .filter((item) => brandMatchMode === 'soft' || item.matchScore >= 0)
           .filter((item) => !dismissedShopKeys.has(getDismissKey(item.shop)));
 
         const radiusFiltered = candidates.filter((item) => km(item.distance) <= radiusKm);
@@ -221,7 +222,8 @@ const RadarScreen: React.FC = () => {
           const historyFactor = Math.min(20, (successfulByShop.get(item.shop.id) || 0) * 5);
           const responseFactor = interactions.some((x) => x.shopId === item.shop.id && x.result === 'message_sent') ? 8 : 4;
           const reliabilityFactor = Math.max(0, 15 - ((badByShop.get(item.shop.id) || 0) * 5));
-          const score = Math.max(0, Math.min(100, brandCategory + distanceFactor + openFactor + historyFactor + responseFactor + reliabilityFactor));
+          const sensitivityBoost = Number.isFinite(item.distance) && (item.distance || 0) <= 2500 ? 8 : 3;
+          const score = Math.max(0, Math.min(100, brandCategory + distanceFactor + openFactor + historyFactor + responseFactor + reliabilityFactor + sensitivityBoost));
 
           const reasons = [
             diagnostics.brandMatched ? 'Бренд совпадает' : 'Слабое совпадение по бренду',
@@ -246,6 +248,46 @@ const RadarScreen: React.FC = () => {
       .sort((a, b) => b.score - a.score)
       .slice(0, 50);
   }, [orders, shops, position, activeFilter, openNowOnly, radiusKm, fallbackNearby, dismissedShopKeys, interactions, brandMatchMode, activeOrder, searchQuery]);
+
+  useEffect(() => {
+    const nearby = entries.filter((entry) => Number.isFinite(entry.distance) && (entry.distance || 0) <= 200 && entry.recommendation !== 'low');
+    if (nearby.length === 0) return;
+
+    nearby.forEach((entry) => {
+      if (proximityAlerts.has(entry.shop.id)) return;
+      const next = new Set(proximityAlerts);
+      next.add(entry.shop.id);
+      setProximityAlerts(next);
+
+      pushNotification({
+        type: NotificationType.RADAR_RESULT,
+        title: `Рядом поставщик: ${entry.shop.name}`,
+        message: `До точки около ${Math.max(1, Math.round((entry.distance || 0)))} м. Рекомендуем остановиться.`,
+        supplierId: entry.shop.id,
+        mapUrl: buildShopMapLink(entry.shop),
+        lat: entry.shop.latitude,
+        lng: entry.shop.longitude,
+        distanceM: entry.distance || undefined,
+        source: 'radar',
+        severity: 'critical'
+      });
+
+      try {
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = 1040;
+        gain.gain.value = 0.08;
+        osc.start();
+        osc.stop(ctx.currentTime + 0.25);
+      } catch {
+        // audio may be blocked by browser autoplay policy
+      }
+    });
+  }, [entries, proximityAlerts]);
 
   const chainRoute = useMemo(() => {
     const selected = entries.filter((entry) => selectedShopIds.has(entry.shop.id)).map((entry) => entry.shop);

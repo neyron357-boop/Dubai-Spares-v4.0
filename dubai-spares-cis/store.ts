@@ -135,7 +135,7 @@ export const restoreDataExternal = (data: any) => {
 };
 
 export const useStore = () => {
-  const [_, setVersion] = useState(0);
+  const [version, setVersion] = useState(0);
 
   const { orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, fetchOrders } = useOrderStore();
 
@@ -210,5 +210,5 @@ export const useStore = () => {
     updatePriceVariant,
     fetchOrders,
     syncOrders: fetchOrders
-  }), [orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders]);
+  }), [version, orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders]);
 };

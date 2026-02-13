@@ -251,6 +251,12 @@ export const restoreFromArchive = (id: string) => {
 
 export const completeFollowupNotification = archiveNotification;
 
+
+export const clearAllNotifications = (tab: NotificationTab = 'active') => {
+  const list = getNotifications().filter((item) => (tab === 'archive' ? !item.archivedAt : !!item.archivedAt));
+  persist(list);
+};
+
 export const snoozeNotification = (id: string, snoozeUntil: number) => {
   const list = getNotifications().map((item) => item.id === id ? { ...item, snoozeUntil, followUpAt: snoozeUntil, readAt: undefined } : item);
   persist(list);

@@ -11,7 +11,8 @@ import {
   markNotificationRead,
   restoreFromArchive,
   restoreNotificationReadState,
-  snoozeNotification
+  snoozeNotification,
+  clearAllNotifications
 } from '../notificationCenter';
 
 const FILTERS: Array<{ label: string; id: 'all' | 'orders' | 'radar' | 'followup' | 'system' | 'sync' }> = [
@@ -183,9 +184,14 @@ const NotificationsScreen: React.FC = () => {
       <div className="rounded-xl border border-gray-100 bg-white p-3 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div className="rounded-lg bg-blue-50 px-3 py-2 text-[11px] font-bold text-blue-700">Непрочитанных: {unreadCount}</div>
-          <button type="button" onClick={handleMarkAllRead} className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-gray-600 disabled:opacity-50" disabled={unreadCount <= 0}>
-            <CheckCheck size={14} /> Прочитано
-          </button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={handleMarkAllRead} className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-gray-600 disabled:opacity-50" disabled={unreadCount <= 0}>
+              <CheckCheck size={14} /> Прочитано
+            </button>
+            <button type="button" onClick={() => clearAllNotifications(tab)} className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-black uppercase text-rose-700">
+              Стереть все
+            </button>
+          </div>
         </div>
 
         <div className="flex rounded-xl bg-gray-100 p-1 text-[11px] font-black uppercase">

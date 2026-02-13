@@ -11,8 +11,10 @@ const isUniversalBrand = (value: string) => UNIVERSAL_BRAND_TOKENS.has(value.tri
 
 const hasUniversalSpecialization = (brands: string[] = []) => brands.some((brand) => isUniversalBrand(brand));
 
+const getShopBrandPool = (shop: Shop) => Array.from(new Set([...(shop.specialization || []), ...(shop.mainBrands || [])].filter(Boolean)));
+
 const isBrandEligible = (shop: Shop, orderBrand: string) => {
-  const brands = shop.specialization || [];
+  const brands = getShopBrandPool(shop);
   if (brands.length === 0) return true;
   return hasUniversalSpecialization(brands) || brands.some((brand) => isBrandMatch(orderBrand, brand));
 };
@@ -78,7 +80,7 @@ export const getShopRecommendationDiagnostics = (
   shop: Shop,
   order: Pick<Order, 'brand' | 'model' | 'year' | 'bodyType'>
 ): ShopRecommendationDiagnostics => {
-  const brands = shop.specialization || [];
+  const brands = getShopBrandPool(shop);
   const models = shop.specializationModels || [];
   const years = shop.specializationYears || [];
   const bodyTypes = shop.specializationBodyTypes || [];
@@ -155,7 +157,7 @@ export const isShopCompatibleWithOrder = (shop: Shop, order: Pick<Order, 'brand'
 
 export const getShopOrderMatchScore = (shop: Shop, order: Pick<Order, 'brand' | 'model' | 'year' | 'bodyType'>) => {
   let score = 0;
-  const brands = shop.specialization || [];
+  const brands = getShopBrandPool(shop);
   const models = shop.specializationModels || [];
   const years = shop.specializationYears || [];
   const bodyTypes = shop.specializationBodyTypes || [];
