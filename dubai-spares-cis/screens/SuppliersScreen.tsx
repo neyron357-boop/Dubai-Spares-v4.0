@@ -141,6 +141,7 @@ const SuppliersScreen: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deleteSupplierId, setDeleteSupplierId] = useState<string | null>(null);
 
@@ -369,6 +370,7 @@ const SuppliersScreen: React.FC = () => {
   };
 
   const resetAddForm = () => {
+    setEditingSupplierId(null);
     setName('');
     setPhone('');
     setLocation('');
@@ -424,8 +426,11 @@ const SuppliersScreen: React.FC = () => {
       const parsedModels = supplierModelsInput.split(',').map((item) => item.trim()).filter(Boolean);
       const parsedYears = supplierYearsInput.split(',').map((item) => Number(item.trim())).filter((year) => Number.isFinite(year));
       const now = Date.now();
-      const newSupplier: Supplier = {
-        id: createUuid(),
+      const existingSupplier = editingSupplierId
+        ? suppliers.find((supplier) => supplier.id === editingSupplierId)
+        : null;
+      const supplierPayload: Supplier = {
+        id: existingSupplier?.id || createUuid(),
         name: normalizedName,
         phone: normalizedPhone,
         location,
@@ -437,7 +442,7 @@ const SuppliersScreen: React.FC = () => {
         primaryBrand: primaryBrand || mainBrands[0] || '',
         models: parsedModels,
         years: parsedYears,
-        bodyTypes: [],
+        bodyTypes: existingSupplier?.bodyTypes || [],
         photoUrl: supplierPhotos[0],
         photos: supplierPhotos,
         coordinates: resolvedCoordinates,
@@ -449,25 +454,26 @@ const SuppliersScreen: React.FC = () => {
         whatsappFast,
         comment,
         website,
-        foundCount: 0,
-        notFoundCount: 0,
-        wrongInfoCount: 0,
-        successRate: 0,
-        activityScore: 0,
-        lastContactAt: 0,
-        isFavorite: false,
-        createdAt: now,
+        foundCount: existingSupplier?.foundCount || 0,
+        notFoundCount: existingSupplier?.notFoundCount || 0,
+        wrongInfoCount: existingSupplier?.wrongInfoCount || 0,
+        successRate: existingSupplier?.successRate || 0,
+        activityScore: existingSupplier?.activityScore || 0,
+        lastContactAt: existingSupplier?.lastContactAt || 0,
+        isFavorite: existingSupplier?.isFavorite === true,
+        createdAt: existingSupplier?.createdAt || now,
         updatedAt: now,
         syncStatus: navigator.onLine ? 'synced' : 'pending_sync'
       };
 
-      addSupplier(newSupplier);
+      if (existingSupplier) updateSupplier(supplierPayload);
+      else addSupplier(supplierPayload);
 
       if (navigator.onLine) {
         try {
-          await upsertSupplierToShops(newSupplier);
+          await upsertSupplierToShops(supplierPayload);
         } catch {
-          updateSupplier({ ...newSupplier, syncStatus: 'error' });
+          updateSupplier({ ...supplierPayload, syncStatus: 'error' });
         }
       }
 
@@ -663,7 +669,7 @@ const SuppliersScreen: React.FC = () => {
           <form onSubmit={(e) => { e.preventDefault(); void handleSave(); }} className="bg-white w-full max-w-md rounded-3xl p-4 sm:p-5 shadow-2xl space-y-4 max-h-[85vh] sm:max-h-[90vh] overflow-y-auto overflow-x-hidden pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between">
               <div>
-                <h2 className="text-xl font-bold">Добавить поставщика</h2>
+                <h2 className="text-xl font-bold">{editingSupplierId ? "Редактировать поставщика" : "Добавить поставщика"}</h2>
                 <p className="text-xs text-gray-400 font-semibold">Field Mode</p>
               </div>
               <button type="button" onClick={() => { setIsAdding(false); resetAddForm(); }} className="text-xs font-black text-gray-500">Cancel</button>
@@ -768,7 +774,7 @@ const SuppliersScreen: React.FC = () => {
 
             <div className="sticky bottom-0 -mx-4 sm:-mx-5 mt-1 px-4 sm:px-5 pt-2 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] bg-white/95 backdrop-blur border-t border-gray-100 flex gap-3">
               <button type="button" onClick={() => { setIsAdding(false); resetAddForm(); }} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-2xl font-bold uppercase text-xs">Cancel</button>
-              <button type="submit" disabled={isSavingSupplier || !requiredReady} className="flex-1 py-3 bg-blue-600 text-white rounded-2xl font-bold uppercase text-xs disabled:opacity-40 inline-flex items-center justify-center gap-2">{isSavingSupplier ? <><Loader2 size={14} className="animate-spin" />Сохранение...</> : 'Save'}</button>
+              <button type="submit" disabled={isSavingSupplier || !requiredReady} className="flex-1 py-3 bg-blue-600 text-white rounded-2xl font-bold uppercase text-xs disabled:opacity-40 inline-flex items-center justify-center gap-2">{isSavingSupplier ? <><Loader2 size={14} className="animate-spin" />Сохранение...</> : (editingSupplierId ? 'Update' : 'Save')}</button>
             </div>
           </form>
         </div>
@@ -818,7 +824,7 @@ const SuppliersScreen: React.FC = () => {
                   <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Маршрут</button>
                   <a href={`https://wa.me/${(s.phone || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
                   <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-1.5 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
-                  <button type="button" onClick={() => { setIsAdding(true); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput((s.years || []).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
+                  <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput((s.years || []).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
                   <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
                   <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
                   <button type="button" onClick={() => alert(`Analyze ${s.name}\nContacts: ${s.activityScore || 0}\nFound: ${s.successRate}%\nLast: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 py-1.5 text-[10px] font-black text-blue-700 inline-flex items-center justify-center gap-1"><Sparkles size={12} />Analyze</button>
