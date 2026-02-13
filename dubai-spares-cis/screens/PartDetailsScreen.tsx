@@ -307,6 +307,7 @@ const PartDetailsScreen: React.FC = () => {
           name: form.shopName,
           phone: form.phone,
           location: form.locationText,
+          type: form.condition === 'new' ? 'new_parts' : 'scrapyard',
           brands: nextBrandPool,
           mainBrands: nextBrandPool,
           primaryBrand: nextBrandPool[0] || '',

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { CheckCircle2, Clock3, EyeOff, HelpCircle, ListChecks, Loader2, MapPinned, MessageCircle, Navigation, PhoneCall, RotateCcw, ShieldAlert, ShieldCheck, Telescope, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronUp, Clock3, EyeOff, HelpCircle, ListChecks, Loader2, MapPinned, MessageCircle, Navigation, PhoneCall, ShieldAlert, ShieldCheck, Telescope, XCircle } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, RadarInteraction, RadarInteractionResult, Shop } from '../types';
 import { buildNearestShopsChain, buildRoutePlanMapLink, buildShopMapLink, getRadarShopMatches, getShopRecommendationDiagnostics } from '../shopMatching';
@@ -12,6 +12,7 @@ import { NotificationType, createFollowupFromAction, pushNotification } from '..
 import { loadAppSettings } from '../appSettings';
 
 const RADAR_DISMISSED_SHOPS_KEY = 'radar_dismissed_shop_keys';
+const RADAR_VISITED_SHOPS_KEY = 'radar_visited_shop_keys';
 
 type RadarFilter = 'all' | 'new_only' | 'used_only';
 type RadarMode = 'field' | 'detail';
@@ -43,6 +44,25 @@ const readDismissedRadarShops = () => {
 const saveDismissedRadarShops = (keys: Set<string>) => {
   try {
     localStorage.setItem(RADAR_DISMISSED_SHOPS_KEY, JSON.stringify(Array.from(keys)));
+  } catch {
+    // ignore storage failures
+  }
+};
+
+const readVisitedRadarShops = () => {
+  try {
+    const raw = localStorage.getItem(RADAR_VISITED_SHOPS_KEY);
+    if (!raw) return new Set<string>();
+    const parsed = JSON.parse(raw);
+    return new Set<string>(Array.isArray(parsed) ? parsed.map((item) => String(item)) : []);
+  } catch {
+    return new Set<string>();
+  }
+};
+
+const saveVisitedRadarShops = (keys: Set<string>) => {
+  try {
+    localStorage.setItem(RADAR_VISITED_SHOPS_KEY, JSON.stringify(Array.from(keys)));
   } catch {
     // ignore storage failures
   }
@@ -160,6 +180,9 @@ const RadarScreen: React.FC = () => {
   const [templateLanguage, setTemplateLanguage] = useState<TemplateLanguage>((['ru','en'].includes(radarSettings.waTemplateLanguage) ? radarSettings.waTemplateLanguage : 'ru') as TemplateLanguage);
   const [templateLength, setTemplateLength] = useState<TemplateLength>('short');
   const [dismissedShopKeys, setDismissedShopKeys] = useState<Set<string>>(() => readDismissedRadarShops());
+  const [visitedShopKeys, setVisitedShopKeys] = useState<Set<string>>(() => readVisitedRadarShops());
+  const [showHiddenBlock, setShowHiddenBlock] = useState(false);
+  const [showVisitedBlock, setShowVisitedBlock] = useState(false);
   const [isFetchingShops, setIsFetchingShops] = useState(true);
   const [chainMode, setChainMode] = useState(false);
   const [uxMode, setUxMode] = useState<RadarUxMode>('quick');
@@ -208,8 +231,7 @@ const RadarScreen: React.FC = () => {
       .filter((order) => !activeOrder || order.id === activeOrder.id)
       .flatMap((order) => {
         const candidates = getRadarShopMatches(order, shops, position)
-          .filter((item) => brandMatchMode === 'soft' || item.matchScore >= 0)
-          .filter((item) => !dismissedShopKeys.has(getDismissKey(item.shop.id, order.id)) && !dismissedShopKeys.has(getLegacyDismissKey(item.shop)));
+          .filter((item) => brandMatchMode === 'soft' || item.matchScore >= 0);
 
         const radiusFiltered = candidates.filter((item) => km(item.distance) <= radiusKm);
         const pool = radiusFiltered.length >= 3 || !fallbackNearby ? radiusFiltered : candidates.filter((item) => km(item.distance) <= radiusKm * 2);
@@ -241,6 +263,8 @@ const RadarScreen: React.FC = () => {
         return true;
       })
       .filter((entry) => !openNowOnly || entry.openNow === true)
+      .filter((entry) => !dismissedShopKeys.has(getDismissKey(entry.shop.id, entry.order.id)) && !dismissedShopKeys.has(getLegacyDismissKey(entry.shop)))
+      .filter((entry) => !visitedShopKeys.has(getDismissKey(entry.shop.id, entry.order.id)))
       .filter((entry) => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return true;
@@ -248,7 +272,7 @@ const RadarScreen: React.FC = () => {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 50);
-  }, [orders, shops, position, activeFilter, openNowOnly, radiusKm, fallbackNearby, dismissedShopKeys, interactions, brandMatchMode, activeOrder, searchQuery]);
+  }, [orders, shops, position, activeFilter, openNowOnly, radiusKm, fallbackNearby, dismissedShopKeys, visitedShopKeys, interactions, brandMatchMode, activeOrder, searchQuery]);
 
   useEffect(() => {
     const nearby = entries.filter((entry) => Number.isFinite(entry.distance) && (entry.distance || 0) <= 200 && entry.recommendation !== 'low');
@@ -335,10 +359,18 @@ const RadarScreen: React.FC = () => {
     window.open(buildRoutePlanMapLink(chainRoute, position), '_blank');
   };
 
-  const resetDismissed = () => {
-    const next = new Set<string>();
+  const restoreHiddenShop = (key: string) => {
+    const next = new Set(dismissedShopKeys);
+    next.delete(key);
     setDismissedShopKeys(next);
     saveDismissedRadarShops(next);
+  };
+
+  const restoreVisitedShop = (key: string) => {
+    const next = new Set(visitedShopKeys);
+    next.delete(key);
+    setVisitedShopKeys(next);
+    saveVisitedRadarShops(next);
   };
 
   const hideShop = (entry: RadarEntry) => {
@@ -346,6 +378,14 @@ const RadarScreen: React.FC = () => {
     next.add(getDismissKey(entry.shop.id, entry.order.id));
     setDismissedShopKeys(next);
     saveDismissedRadarShops(next);
+  };
+
+  const markVisitedShop = (entry: RadarEntry) => {
+    const key = getDismissKey(entry.shop.id, entry.order.id);
+    const next = new Set(visitedShopKeys);
+    next.add(key);
+    setVisitedShopKeys(next);
+    saveVisitedRadarShops(next);
   };
 
   const addInteraction = async (payload: Omit<RadarInteraction, 'id' | 'createdAt'>) => {
@@ -496,6 +536,29 @@ const RadarScreen: React.FC = () => {
     }
   };
 
+
+  const hiddenEntries = Array.from(dismissedShopKeys)
+    .map((key) => {
+      const match = key.match(/^order:(.+):shop:(.+)$/);
+      if (!match) return null;
+      const orderById = orders.find((item) => item.id === match[1]);
+      const shopById = shops.find((item) => item.id === match[2]);
+      if (!orderById || !shopById) return null;
+      return { key, order: orderById, shop: shopById };
+    })
+    .filter((item): item is { key: string; order: Order; shop: Shop } => !!item);
+
+  const visitedEntries = Array.from(visitedShopKeys)
+    .map((key) => {
+      const match = key.match(/^order:(.+):shop:(.+)$/);
+      if (!match) return null;
+      const orderById = orders.find((item) => item.id === match[1]);
+      const shopById = shops.find((item) => item.id === match[2]);
+      if (!orderById || !shopById) return null;
+      return { key, order: orderById, shop: shopById };
+    })
+    .filter((item): item is { key: string; order: Order; shop: Shop } => !!item);
+
   return (
     <div className="p-4 pb-20 space-y-3 bg-slate-950 min-h-full text-white">
       <section className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-3 space-y-3">
@@ -529,7 +592,8 @@ const RadarScreen: React.FC = () => {
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setChainMode((v) => !v)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-400 px-3 py-2 font-black uppercase text-slate-950"><Navigation size={12} /> Chain Route</button>
             <button type="button" onClick={openChainRoute} className="rounded-xl border border-emerald-300/40 px-3 py-2 font-black uppercase text-emerald-100">Open route</button>
-            <button type="button" onClick={resetDismissed} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 font-black uppercase text-slate-200"><RotateCcw size={12} /> Reset hidden</button>
+            <button type="button" onClick={() => setShowHiddenBlock((v) => !v)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 font-black uppercase text-slate-200">{showHiddenBlock ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Скрытые ({dismissedShopKeys.size})</button>
+            <button type="button" onClick={() => setShowVisitedBlock((v) => !v)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 font-black uppercase text-slate-200">{showVisitedBlock ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Посещенные ({visitedShopKeys.size})</button>
             <button type="button" onClick={contactSelectedShops} className="rounded-xl border border-emerald-300/40 px-3 py-2 font-black uppercase text-emerald-100">Contact selected</button>
           </div>
         </div>
@@ -569,9 +633,33 @@ const RadarScreen: React.FC = () => {
           <p>Активных точек: {entries.length}. Очередь offline sync: {pendingSync > 0 ? `⏳ ${pendingSync}` : '0'}.</p>
           <button type="button" onClick={syncNow} className="rounded-lg border border-emerald-300/50 px-2 py-1 text-[10px] font-black uppercase text-emerald-200">Sync now</button>
         </div>
+
         {syncError && <p className="text-[10px] text-rose-200">Sync error: {syncError}</p>}
       </section>
 
+      {showHiddenBlock && (
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3 space-y-2">
+          <p className="text-xs font-black uppercase text-slate-200">Скрытые позиции</p>
+          {hiddenEntries.length === 0 ? <p className="text-xs text-slate-400">Нет скрытых позиций</p> : hiddenEntries.map((entry) => (
+            <div key={entry.key} className="flex items-center justify-between gap-2 rounded-lg bg-slate-800/70 px-2 py-2">
+              <p className="text-xs text-slate-200 truncate">{entry.shop.name} · {entry.order.brand} {entry.order.model}</p>
+              <button type="button" onClick={() => restoreHiddenShop(entry.key)} className="rounded-lg border border-emerald-400/40 px-2 py-1 text-[10px] font-black uppercase text-emerald-200">Вернуть</button>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {showVisitedBlock && (
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3 space-y-2">
+          <p className="text-xs font-black uppercase text-slate-200">Посещенные</p>
+          {visitedEntries.length === 0 ? <p className="text-xs text-slate-400">Нет посещенных позиций</p> : visitedEntries.map((entry) => (
+            <div key={entry.key} className="flex items-center justify-between gap-2 rounded-lg bg-slate-800/70 px-2 py-2">
+              <p className="text-xs text-slate-200 truncate">{entry.shop.name} · {entry.order.brand} {entry.order.model}</p>
+              <button type="button" onClick={() => restoreVisitedShop(entry.key)} className="rounded-lg border border-emerald-400/40 px-2 py-1 text-[10px] font-black uppercase text-emerald-200">Вернуть</button>
+            </div>
+          ))}
+        </section>
+      )}
 
       {chainMode && currentStop && (
         <section className="rounded-2xl border border-blue-400/30 bg-blue-500/10 p-3 space-y-2">
@@ -604,16 +692,16 @@ const RadarScreen: React.FC = () => {
                 <label className="inline-flex items-center gap-1 text-[10px] text-slate-300 mb-1">
                   <input type="checkbox" checked={selectedShopIds.has(entry.shop.id)} onChange={() => toggleSelected(entry.shop.id)} /> Add to route
                 </label>
-                <p className="text-sm font-black truncate">{entry.shop.name}</p>
-                <p className="text-[11px] text-slate-400 truncate">{entry.order.brand} {entry.order.model} {entry.order.year || ''}</p>
+                <p className="text-base font-black truncate">{entry.shop.name}</p>
+                <p className="text-sm text-slate-300 truncate">{entry.order.brand} {entry.order.model} {entry.order.year || ''}</p>
               </div>
               <div className="text-right">
                 <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${recTone}`}>Рекомендация: {entry.recommendation}</span>
               </div>
             </div>
 
-            <div className="flex items-center flex-wrap gap-2 text-[10px] text-slate-300">
-              <span>{Number.isFinite(entry.distance) ? `${((entry.distance || 0) / 1000).toFixed(1)} км` : 'Distance n/a'}</span>
+            <div className="flex items-center flex-wrap gap-2 text-xs text-slate-200">
+              <span className="font-black text-emerald-200 text-sm">{Number.isFinite(entry.distance) ? `${((entry.distance || 0) / 1000).toFixed(1)} км` : 'Distance n/a'}</span>
               <span>• ETA bike ~{Number.isFinite(entry.distance) ? Math.max(3, Math.round((entry.distance || 0) / 230)) : '?'} мин</span>
               <span>•</span>
               {entry.openNow === true ? <span className="text-emerald-300">Open now</span> : entry.openNow === false ? <span className="text-rose-300">Closed</span> : <span>hours unknown</span>}
@@ -634,7 +722,7 @@ const RadarScreen: React.FC = () => {
               <button type="button" onClick={() => onWhatsApp(entry)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><MessageCircle size={12} /> WhatsApp</button>
               <button type="button" onClick={() => openCalls(entry.shop.phone, entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
               <button type="button" onClick={() => hideShop(entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
-              <button type="button" onClick={() => quickResult(entry, 'follow_up')} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
+              <button type="button" onClick={() => { markVisitedShop(entry); void quickResult(entry, 'follow_up'); }} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
               {mode === 'detail' && <button type="button" onClick={() => navigate(`/order/${entry.order.id}`)} className="rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">Карточка</button>}
             </div>
 
