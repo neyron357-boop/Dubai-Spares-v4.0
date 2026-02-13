@@ -195,6 +195,52 @@ const mapDbOrder = (row: any): Order => ({
   isSold: !!row.is_sold
 });
 
+const mapSnapshotOrder = (row: any): Order => ({
+  id: String(row?.id || ''),
+  brand: row?.brand || '',
+  model: row?.model || '',
+  year: row?.year || '',
+  bodyType: row?.bodyType || row?.body_type || '',
+  vin: row?.vin || '',
+  vinPhotoUrl: row?.vinPhotoUrl || row?.vin_photo_url || '',
+  priority: row?.priority || 'MEDIUM',
+  status: row?.status || 'in_progress',
+  salesStatus: row?.salesStatus || row?.sales_status,
+  clientName: row?.clientName || row?.client_name || '',
+  source: row?.source || 'WhatsApp',
+  carPhotoUrl: row?.carPhotoUrl || row?.car_photo_url || row?.carPhotos?.[0] || row?.car_photos?.[0] || row?.vinPhotoUrl || row?.vin_photo_url || '',
+  carPhotos: row?.carPhotos || row?.car_photos || [],
+  logistics: row?.logistics || undefined,
+  markupType: row?.markupType || row?.markup_type || 'percent',
+  markupFixedAed: Number(row?.markupFixedAed ?? row?.markup_fixed_aed ?? 0),
+  parts: (row?.parts || []).map((part: any) => ({
+    id: String(part?.id || ''),
+    orderId: String(part?.orderId || part?.order_id || row?.id || ''),
+    name: part?.name || 'Part',
+    photoUrl: part?.photoUrl || part?.photo_url || part?.photos?.[0] || '',
+    photos: part?.photos || [],
+    isFound: !!part?.isFound || !!part?.is_found,
+    variants: (part?.variants || part?.price_variants || []).map((variant: any): PriceVariant => ({
+      id: String(variant?.id || ''),
+      partId: String(variant?.partId || variant?.part_id || part?.id || ''),
+      priceAed: Number(variant?.priceAed ?? variant?.price_aed ?? 0),
+      condition: variant?.condition,
+      availability: variant?.availability,
+      shopName: variant?.shopName || variant?.shop_name || '',
+      phone: variant?.phone || '',
+      location: variant?.location || '',
+      photoUrl: variant?.photoUrl || variant?.photo_url || variant?.photos?.[0] || '',
+      photos: variant?.photos || [],
+      createdAt: parseTimestamp(variant?.createdAt ?? variant?.created_at)
+    }))
+  })),
+  markupPercent: Number(row?.markupPercent ?? row?.markup_percent ?? 0),
+  exchangeRate: Number(row?.exchangeRate ?? row?.exchange_rate ?? 3.67),
+  createdAt: parseTimestamp(row?.createdAt ?? row?.created_at),
+  isArchived: !!row?.isArchived || !!row?.is_archived,
+  isSold: !!row?.isSold || !!row?.is_sold
+});
+
 const fetchLiveQuoteRates = async (): Promise<QuoteRates> => {
   const response = await fetch('https://open.er-api.com/v6/latest/AED');
   if (!response.ok) throw new Error(`Rate API error: ${response.status}`);
@@ -397,6 +443,27 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     return { data: stitched, error: null };
   }, []);
 
+  const loadQuoteFromCloudSnapshot = useCallback(async (candidateId: string): Promise<Order | null> => {
+    if (!supabase) return null;
+
+    const { data, error } = await supabase
+      .from('app_state')
+      .select('data')
+      .eq('id', 'global')
+      .maybeSingle();
+
+    if (error) {
+      await logger.warn('quote-cloud-snapshot-miss', 'Unable to read app_state fallback for public quote', { quoteId: orderId, candidateId, error });
+      return null;
+    }
+
+    const orders = Array.isArray(data?.data?.orders) ? data.data.orders : [];
+    const snapshot = orders.find((item: any) => String(item?.id || '') === candidateId);
+    if (!snapshot) return null;
+
+    return mapSnapshotOrder(snapshot);
+  }, [orderId]);
+
   const readQuoteFromCache = useCallback(() => {
     const raw = window.localStorage.getItem(`public-quote-cache:${orderId}`);
     if (!raw) return false;
@@ -447,6 +514,17 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           return true;
         }
 
+        if (!data && !loadError) {
+          const fallbackOrder = await loadQuoteFromCloudSnapshot(candidateId);
+          if (fallbackOrder) {
+            window.localStorage.setItem(`public-quote-cache:${orderId}`, JSON.stringify(fallbackOrder));
+            setOrder(fallbackOrder);
+            setErrorType(null);
+            setLoading(false);
+            return true;
+          }
+        }
+
         if (attempt === attempts.length - 1) {
           await logger.warn('quote-not-found', 'Quote lookup failed', { quoteId: orderId, candidateId, attempt, loadError });
           setOrder(null);
@@ -457,7 +535,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
     setLoading(false);
     return false;
-  }, [orderId, readQuoteFromCache, candidateOrderIds, loadQuoteWithoutJoin]);
+  }, [orderId, readQuoteFromCache, candidateOrderIds, loadQuoteWithoutJoin, loadQuoteFromCloudSnapshot]);
 
   useEffect(() => {
     void loadQuote();
