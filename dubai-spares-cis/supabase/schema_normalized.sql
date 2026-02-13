@@ -45,6 +45,8 @@ create table if not exists public.orders (
   car_photo_url text,
   car_photos text[] not null default '{}',
   markup_percent numeric not null default 20,
+  markup_type text not null default 'percent' check (markup_type in ('percent','fixed')),
+  markup_fixed_aed numeric not null default 0,
   exchange_rate numeric not null default 3.67,
   is_archived boolean not null default false,
   is_sold boolean not null default false,
