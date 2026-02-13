@@ -42,6 +42,7 @@ const showTaggedNotification = async (title, options = {}) => {
   await self.registration.showNotification(title, {
     badge: '/icon-192.png',
     icon: '/icon-192.png',
+    silent: false,
     renotify: true,
     requireInteraction: true,
     vibrate: [220, 120, 220],
@@ -132,6 +133,9 @@ const notifyAboutNewLeads = async () => {
       renotify: true,
       data: { url: '/' }
     });
+
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    clients.forEach((client) => client.postMessage({ type: 'lead-notification-sound', count: newRows.length }));
   }
 
   latestLeadIds = current;
