@@ -69,6 +69,8 @@ const i18n = {
     priceBreakdown: 'Price breakdown',
     partsSubtotal: 'Parts subtotal',
     serviceFee: 'Service fee',
+    markup: 'Markup',
+    packing: 'Packing',
     logistics: 'Logistics',
     total: 'Total',
     trust: 'Trust',
@@ -119,6 +121,8 @@ const i18n = {
     priceBreakdown: 'Разбивка цены',
     partsSubtotal: 'Сумма деталей',
     serviceFee: 'Сервисный сбор',
+    markup: 'Наценка',
+    packing: 'Упаковка',
     logistics: 'Логистика',
     total: 'Итого',
     trust: 'Доверие',
@@ -161,6 +165,8 @@ const mapDbOrder = (row: any): Order => ({
   carPhotoUrl: row.car_photo_url || row.car_photos?.[0] || row.vin_photo_url || '',
   carPhotos: row.car_photos || [],
   logistics: row.logistics || undefined,
+  markupType: row.markup_type || 'percent',
+  markupFixedAed: Number(row.markup_fixed_aed || 0),
   parts: (row.parts || []).map((part: any) => ({
     id: String(part.id),
     orderId: String(part.order_id || row.id),
@@ -346,7 +352,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
     const orderResponse = await supabase
       .from('orders')
-      .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,created_at,is_archived,is_sold')
+      .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,markup_type,markup_fixed_aed,logistics,exchange_rate,created_at,is_archived,is_sold')
       .eq('id', candidateId)
       .maybeSingle();
 
@@ -423,7 +429,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       for (const candidateId of candidateOrderIds) {
         let { data, error: loadError } = await supabase
           .from('orders')
-          .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,exchange_rate,created_at,is_archived,is_sold,parts(*,price_variants(*))')
+          .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,markup_type,markup_fixed_aed,logistics,exchange_rate,created_at,is_archived,is_sold,parts(*,price_variants(*))')
           .eq('id', candidateId)
           .maybeSingle();
 
@@ -504,7 +510,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     return order.parts.map((part) => {
       const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
       const supplierAed = best?.priceAed || 0;
-      const clientAed = supplierAed * (1 + order.markupPercent / 100);
+      const clientAed = (order.markupType || 'percent') === 'fixed'
+        ? supplierAed
+        : supplierAed * (1 + order.markupPercent / 100);
       const converted = clientAed * rates[currency];
       const variantPhotos = [best?.photoUrl || '', ...(best?.photos || [])].filter(Boolean) as string[];
       const basePartPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean) as string[];
@@ -522,10 +530,14 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const totals = useMemo(() => {
     const subtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
+    const markup = (order?.markupType || 'percent') === 'fixed' ? Number(order?.markupFixedAed || 0) : 0;
     const serviceFee = (order?.logistics?.serviceFeeAed || 0);
-    const logistics = (order?.logistics?.deliveryAed || 0) + (order?.logistics?.packingAed || 0);
-    const totalAed = subtotal + serviceFee + logistics;
-    return { subtotal, serviceFee, logistics, totalAed, totalConverted: totalAed * rates[currency] };
+    const delivery = (order?.logistics?.deliveryAed || 0);
+    const packing = (order?.logistics?.packingAed || 0);
+    const logistics = delivery + packing;
+    const subtotalWithoutExtras = subtotal + markup;
+    const totalAed = subtotalWithoutExtras + serviceFee + logistics;
+    return { subtotal, markup, subtotalWithoutExtras, serviceFee, delivery, packing, logistics, totalAed, totalConverted: totalAed * rates[currency] };
   }, [foundParts, currency, rates, order]);
 
   const partsLine = foundParts.map(({ part }) => `${part.name} (${t.inStock})`).join(', ') || 'Selected parts';
@@ -712,6 +724,19 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             {settings.publicWorkTerms.trim() && <p className="whitespace-pre-line mt-2">{settings.publicWorkTerms.trim()}</p>}
           </section>
         )}
+
+        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.priceBreakdown}</h2>
+          <div className="mt-2 space-y-1.5">
+            <div className="flex items-center justify-between"><span>{t.partsSubtotal}</span><strong>{(totals.subtotal * rates[currency]).toFixed(2)} {currency}</strong></div>
+            {totals.markup > 0 && <div className="flex items-center justify-between"><span>{t.markup}</span><strong>{(totals.markup * rates[currency]).toFixed(2)} {currency}</strong></div>}
+            <div className="flex items-center justify-between"><span>{t.whatIncluded} ({t.partsSubtotal})</span><strong>{(totals.subtotalWithoutExtras * rates[currency]).toFixed(2)} {currency}</strong></div>
+            {totals.delivery > 0 && <div className="flex items-center justify-between"><span>{t.logistics}</span><strong>{(totals.delivery * rates[currency]).toFixed(2)} {currency}</strong></div>}
+            {totals.packing > 0 && <div className="flex items-center justify-between"><span>{t.packing}</span><strong>{(totals.packing * rates[currency]).toFixed(2)} {currency}</strong></div>}
+            {totals.serviceFee > 0 && <div className="flex items-center justify-between"><span>{t.serviceFee}</span><strong>{(totals.serviceFee * rates[currency]).toFixed(2)} {currency}</strong></div>}
+            <div className="mt-2 border-t border-dashed border-slate-200 pt-2 flex items-center justify-between text-base"><span className="font-semibold">{t.total}</span><strong>{totals.totalConverted.toFixed(2)} {currency}</strong></div>
+          </div>
+        </section>
 
         <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.trust}</h2>

@@ -48,11 +48,22 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
 
   const totalAed = foundParts.reduce((sum, p) => {
     const costAed = p.variants[0].priceAed;
-    const sellAed = costAed * (1 + order.markupPercent / 100);
+    const sellAed = (order.markupType || 'percent') === 'fixed'
+      ? costAed
+      : costAed * (1 + order.markupPercent / 100);
     return sum + sellAed;
   }, 0);
 
-  const convertedTotal = totalAed * rates[currency];
+  const logistics = {
+    deliveryAed: Number(order.logistics?.deliveryAed || 0),
+    packingAed: Number(order.logistics?.packingAed || 0),
+    serviceFeeAed: Number(order.logistics?.serviceFeeAed || 0)
+  };
+  const markupAed = (order.markupType || 'percent') === 'fixed' ? Number(order.markupFixedAed || 0) : 0;
+  const subtotalWithoutLogisticsAed = totalAed + markupAed;
+  const finalTotalAed = subtotalWithoutLogisticsAed + logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed;
+
+  const convertedTotal = finalTotalAed * rates[currency];
 
   useEffect(() => {
     void (async () => {
@@ -74,7 +85,9 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const previewParts = useMemo(
     () => foundParts.map((part) => {
       const costAed = part.variants[0].priceAed;
-      const sellAed = costAed * (1 + order.markupPercent / 100);
+      const sellAed = (order.markupType || 'percent') === 'fixed'
+        ? costAed
+        : costAed * (1 + order.markupPercent / 100);
       const variantPhotos = [part.variants[0]?.photoUrl || '', ...(part.variants[0]?.photos || [])].filter(Boolean);
       const partPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean);
       const photos = Array.from(new Set((variantPhotos.length > 0 ? variantPhotos : partPhotos) as string[]));
@@ -85,7 +98,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
         photos
       };
     }),
-    [currency, foundParts, order.markupPercent, rates]
+    [currency, foundParts, order.markupPercent, order.markupType, rates]
   );
 
   const updateRate = (code: QuoteCurrency, value: string) => {
@@ -217,6 +230,13 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
               <div className="text-[8px] font-bold text-gray-300 uppercase leading-none">Комиссия вкл.</div>
               <div className="text-[8px] font-bold text-gray-400 uppercase mt-0.5 leading-none">ID: {order.id.slice(-4)}</div>
             </div>
+          </div>
+          <div className="space-y-1 rounded-lg bg-white border border-gray-200 p-2 text-[10px] text-gray-600">
+            <div className="flex items-center justify-between"><span>Сумма деталей (без логистики/упаковки/комиссии)</span><span className="font-bold text-gray-900">{(subtotalWithoutLogisticsAed * rates[currency]).toFixed(0)} {currency}</span></div>
+            {markupAed > 0 && <div className="flex items-center justify-between"><span>Наценка</span><span className="font-bold text-gray-900">{(markupAed * rates[currency]).toFixed(0)} {currency}</span></div>}
+            {logistics.deliveryAed > 0 && <div className="flex items-center justify-between"><span>Логистика</span><span>{(logistics.deliveryAed * rates[currency]).toFixed(0)} {currency}</span></div>}
+            {logistics.packingAed > 0 && <div className="flex items-center justify-between"><span>Упаковка</span><span>{(logistics.packingAed * rates[currency]).toFixed(0)} {currency}</span></div>}
+            {logistics.serviceFeeAed > 0 && <div className="flex items-center justify-between"><span>Комиссия</span><span>{(logistics.serviceFeeAed * rates[currency]).toFixed(0)} {currency}</span></div>}
           </div>
           {(settings.publicDeliveryTerms.trim() || settings.publicWorkTerms.trim()) && <p className="text-[10px] text-gray-500 text-center whitespace-pre-line">{[settings.publicDeliveryTerms.trim(), settings.publicWorkTerms.trim()].filter(Boolean).join('\n')}</p>}
           <button
