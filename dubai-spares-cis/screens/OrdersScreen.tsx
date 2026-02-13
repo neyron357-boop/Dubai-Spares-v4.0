@@ -404,7 +404,7 @@ const OrdersScreen: React.FC = () => {
   const isUnreadPublicLead = (order: Order) => order.leadSource === 'public_form' && order.leadUnread === true && !order.isArchived;
 
   const tabCounts = useMemo(() => ({
-    active: orders.filter((o) => !o.isArchived && !o.isSold && !isUnreadPublicLead(o)).length,
+    active: orders.filter((o) => !o.isArchived && !o.isSold && !o.isVip && !isUnreadPublicLead(o)).length,
     leads: orders.filter((o) => isUnreadPublicLead(o) && !o.isSold).length,
     vip: orders.filter((o) => o.isVip && !o.isSold).length,
     sold: orders.filter((o) => o.isSold).length,
@@ -417,7 +417,7 @@ const OrdersScreen: React.FC = () => {
       if (activeTab === 'archive') return order.isArchived && !order.isSold;
       if (activeTab === 'vip') return order.isVip && !order.isSold;
       if (activeTab === 'leads') return isUnreadPublicLead(order) && !order.isSold;
-      return !order.isArchived && !order.isSold && !isUnreadPublicLead(order);
+      return !order.isArchived && !order.isSold && !order.isVip && !isUnreadPublicLead(order);
     });
 
     if (debouncedSearch) {
@@ -556,6 +556,7 @@ const OrdersScreen: React.FC = () => {
             const contactLabel = order.clientName?.trim() || order.customerContact || 'Без контакта';
             const ageLabel = formatAge(order.updatedAt || order.createdAt);
             const profitAed = order.soldProfitUsd === undefined ? null : Math.round(order.soldProfitUsd * (order.exchangeRate || 3.67));
+            const isVipOrder = order.isVip;
 
             return (
               <SwipeableOrderCard
@@ -572,6 +573,7 @@ const OrdersScreen: React.FC = () => {
                 onCardTap={() => navigate(`/order/${order.id}`)}
                 disableCardTap={!!deleteId || isDeleting}
               >
+                <div className={`rounded-2xl p-2.5 -m-2.5 ${isVipOrder ? 'bg-gradient-to-br from-amber-50 via-yellow-100 to-amber-200 border border-amber-300/80 shadow-[0_10px_26px_rgba(217,119,6,0.25)]' : ''}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-start gap-2">
                     {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) && (
@@ -589,6 +591,12 @@ const OrdersScreen: React.FC = () => {
                   </div>
                   <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-700 inline-flex items-center gap-1"><Clock3 size={11} /> {ageLabel}</span>
                 </div>
+
+                {isVipOrder && (
+                  <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-500 px-2.5 py-1 text-[10px] font-black uppercase text-white shadow">
+                    <Star size={11} className="fill-white" /> VIP Premium
+                  </div>
+                )}
 
                 <div className="mt-2 flex items-center gap-2">
                   <span className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">{statusLabelMap[status]}</span>
@@ -608,6 +616,7 @@ const OrdersScreen: React.FC = () => {
                 </div>
 
                 <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] text-slate-400">Свайп → WhatsApp • Свайп ← Archive</p>
+                </div>
               </SwipeableOrderCard>
             );
           })
