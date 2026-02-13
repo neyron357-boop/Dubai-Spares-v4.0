@@ -5,7 +5,7 @@ import { deleteOrderFolderFromStorage, ensurePublicImageUrls, optimizeImageForUp
 import { offlineDb } from './storage/offlineDb';
 import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
-import { NotificationType, pushNotification } from './notificationCenter';
+import { NotificationType, pushNotification, sendBrowserNotification } from './notificationCenter';
 import { loadAppSettings } from './appSettings';
 
 type OrderState = {
@@ -82,6 +82,7 @@ let state: OrderState = {
 };
 
 let syncInProgress = false;
+let wasCloudHydratedAtLeastOnce = false;
 
 const isOfflineFirstEnabled = () => loadAppSettings().offlineFirst;
 
@@ -101,6 +102,45 @@ const serializeError = (error: unknown) => {
     return error;
   }
   return { value: String(error) };
+};
+
+const isUnreadPublicLead = (order: Order) =>
+  order.leadSource === 'public_form' && order.leadUnread === true && !order.isArchived;
+
+const notifyAboutIncomingLeads = (previousOrders: Order[], nextOrders: Order[]) => {
+  const previousIds = new Set(previousOrders.map((order) => order.id));
+  const incomingLeads = nextOrders.filter((order) => isUnreadPublicLead(order) && !previousIds.has(order.id));
+  if (incomingLeads.length === 0) return;
+
+  incomingLeads.forEach((lead) => {
+    const title = `Новый лид: ${lead.brand || '-'} ${lead.model || ''}`.trim();
+    const message = `Клиент: ${lead.clientName || 'без имени'} · ${lead.year || 'год не указан'}`;
+
+    pushNotification({
+      type: NotificationType.ORDER_NEW,
+      title,
+      message,
+      orderId: lead.id,
+      phone: lead.customerContact,
+      brand: lead.brand,
+      carModel: lead.model,
+      carYear: Number(lead.year) || undefined,
+      source: 'web_form',
+      route: `/orders/${lead.id}`,
+      severity: 'critical',
+      signature: `incoming-lead:${lead.id}:${lead.updatedAt || lead.createdAt || ''}`
+    });
+
+    void sendBrowserNotification(title, {
+      body: message,
+      tag: `incoming-lead-${lead.id}`,
+      renotify: true,
+      requireInteraction: true,
+      silent: false,
+      vibrate: [250, 120, 250, 120, 250],
+      route: `/orders/${lead.id}`
+    });
+  });
 };
 const getMissingColumnName = (error: unknown): string | null => {
   if (typeof error !== 'object' || !error) return null;
@@ -678,6 +718,7 @@ export const fetchOrders = async () => {
   }
 
   const orders = (data || []).map(mapDbOrder);
+  const previousOrders = state.orders;
   await logger.info('sync:fetch', `Loaded ${orders.length} cloud orders`);
   const pendingMutations = await offlineDb.getMutations();
   await logger.info('sync:fetch', `Queue currently has ${pendingMutations.length} mutations`);
@@ -690,6 +731,11 @@ export const fetchOrders = async () => {
 
   await offlineDb.saveOrders(orders);
   setState({ orders, isLoading: false, isHydrated: true, error: null });
+
+  if (wasCloudHydratedAtLeastOnce) {
+    notifyAboutIncomingLeads(previousOrders, orders);
+  }
+  wasCloudHydratedAtLeastOnce = true;
 
   if (pendingMutations.length > 0) {
     void flushOfflineMutations();
