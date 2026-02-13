@@ -50,13 +50,15 @@ const normalizeSalesStatus = (value: unknown): SalesStatus => {
   return SALES_STATUS_ALIASES[normalizedKey] || 'Inquiry';
 };
 
-const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | 'exchangeRate'>): number => {
+const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | 'markupType' | 'markupFixedAed' | 'exchangeRate'>): number => {
   const totalCostAed = (order.parts || []).reduce((sum, part) => {
     if (!part.isFound || part.variants.length === 0) return sum;
     return sum + Number(part.variants[0].priceAed || 0);
   }, 0);
   if (totalCostAed <= 0) return 0;
-  const markupAed = totalCostAed * (Number(order.markupPercent || 0) / 100);
+  const markupAed = (order.markupType || 'percent') === 'fixed'
+    ? Number(order.markupFixedAed || 0)
+    : totalCostAed * (Number(order.markupPercent || 0) / 100);
   return markupAed / (Number(order.exchangeRate || 0) || 3.67);
 };
 
@@ -281,6 +283,12 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
     'car_photo_url',
     'car_photos',
     'markup_percent',
+    'markup_type',
+    'markup_fixed_aed',
+    'use_markup_as_default_for_new_parts',
+    'client_currency',
+    'fx_updated_at',
+    'logistics',
     'exchange_rate',
     'created_at',
     'is_archived',
@@ -420,6 +428,12 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
       }))
     })),
     markupPercent: Number(row.markup_percent || 0),
+    markupType: row.markup_type || 'percent',
+    markupFixedAed: Number(row.markup_fixed_aed || 0),
+    useMarkupAsDefaultForNewParts: !!row.use_markup_as_default_for_new_parts,
+    clientCurrency: row.client_currency || 'USD',
+    fxUpdatedAt: Number.isFinite(Number(row.fx_updated_at)) ? Number(row.fx_updated_at) : undefined,
+    logistics: row.logistics || undefined,
     exchangeRate: Number(row.exchange_rate || 0),
     createdAt: parseTimestamp(row.created_at),
     isArchived: !!row.is_archived,
@@ -513,6 +527,12 @@ const persistOrderGraph = async (order: Order) => {
     car_photo_url: cloudOrder.carPhotoUrl,
     car_photos: cloudOrder.carPhotos || [],
     markup_percent: uploadedOrder.markupPercent,
+    markup_type: uploadedOrder.markupType || 'percent',
+    markup_fixed_aed: Number(uploadedOrder.markupFixedAed || 0),
+    use_markup_as_default_for_new_parts: !!uploadedOrder.useMarkupAsDefaultForNewParts,
+    client_currency: uploadedOrder.clientCurrency || 'USD',
+    fx_updated_at: uploadedOrder.fxUpdatedAt ? toIsoTimestamp(uploadedOrder.fxUpdatedAt) : null,
+    logistics: uploadedOrder.logistics || null,
     exchange_rate: uploadedOrder.exchangeRate,
     created_at: toIsoTimestamp(uploadedOrder.createdAt),
     is_archived: uploadedOrder.isArchived,
@@ -548,7 +568,13 @@ const persistOrderGraph = async (order: Order) => {
       'body_type',
       'lead_unread',
       'lead_source',
-      'lead_read_at'
+      'lead_read_at',
+      'markup_type',
+      'markup_fixed_aed',
+      'use_markup_as_default_for_new_parts',
+      'client_currency',
+      'fx_updated_at',
+      'logistics'
     ]);
 
     let payload: Record<string, unknown> = { ...fallbackOrderPayload };

@@ -224,6 +224,17 @@ export interface DbOrderRow {
   car_photo_url: string | null;
   car_photos: string[];
   markup_percent: number;
+  markup_type?: 'percent' | 'fixed';
+  markup_fixed_aed?: number;
+  use_markup_as_default_for_new_parts?: boolean;
+  client_currency?: 'AED' | 'USD' | 'RUB' | 'TJS';
+  fx_updated_at?: number | string | null;
+  logistics?: {
+    deliveryType?: 'uae' | 'export';
+    deliveryAed?: number;
+    packingAed?: number;
+    serviceFeeAed?: number;
+  };
   exchange_rate: number;
   created_at: number | string;
   is_archived: boolean;
