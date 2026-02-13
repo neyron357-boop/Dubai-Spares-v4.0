@@ -790,11 +790,25 @@ export const fetchOrders = async () => {
     return;
   }
 
-  await offlineDb.saveOrders(orders);
-  setState({ orders, isLoading: false, isHydrated: true, error: null });
+  const localById = new Map(localOrders.map((item) => [item.id, normalizeOrder(item)]));
+  const pendingUpsertIds = new Set(pendingMutations.filter((mutation) => mutation.type === 'upsert').map((mutation) => mutation.orderId));
+
+  const mergedOrders = orders.map((cloudOrder) => {
+    if (!pendingUpsertIds.has(cloudOrder.id)) return cloudOrder;
+    return localById.get(cloudOrder.id) || cloudOrder;
+  });
+
+  localById.forEach((localOrder, localId) => {
+    if (!pendingUpsertIds.has(localId)) return;
+    if (mergedOrders.some((order) => order.id === localId)) return;
+    mergedOrders.push(localOrder);
+  });
+
+  await offlineDb.saveOrders(mergedOrders);
+  setState({ orders: mergedOrders, isLoading: false, isHydrated: true, error: null });
 
   if (wasCloudHydratedAtLeastOnce) {
-    notifyAboutIncomingLeads(previousOrders, orders);
+    notifyAboutIncomingLeads(previousOrders, mergedOrders);
   }
   wasCloudHydratedAtLeastOnce = true;
 

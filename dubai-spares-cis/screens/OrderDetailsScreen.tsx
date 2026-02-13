@@ -70,6 +70,14 @@ const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: 
 };
 
 
+
+const sanitizeNumericInput = (raw: string) => {
+  const cleaned = raw.replace(/[^\d]/g, '');
+  if (!cleaned) return '';
+  const withoutLeading = cleaned.replace(/^0+(?=\d)/, '');
+  return withoutLeading || '0';
+};
+
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -111,6 +119,11 @@ const OrderDetailsScreen: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState(MESSAGE_TEMPLATES[0]);
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
+  const [logisticsInputs, setLogisticsInputs] = useState({
+    deliveryAed: String(Number(order?.logistics?.deliveryAed || 0)),
+    packingAed: String(Number(order?.logistics?.packingAed || 0)),
+    serviceFeeAed: String(Number(order?.logistics?.serviceFeeAed || 0))
+  });
 
   // Sync local rate input if order changes
   useEffect(() => {
@@ -120,6 +133,14 @@ const OrderDetailsScreen: React.FC = () => {
   useEffect(() => {
     setMarkupFixedInput((order?.markupFixedAed || 0).toString());
   }, [order?.id, order?.markupFixedAed]);
+
+  useEffect(() => {
+    setLogisticsInputs({
+      deliveryAed: String(Number(order?.logistics?.deliveryAed || 0)),
+      packingAed: String(Number(order?.logistics?.packingAed || 0)),
+      serviceFeeAed: String(Number(order?.logistics?.serviceFeeAed || 0))
+    });
+  }, [order?.id, order?.logistics?.deliveryAed, order?.logistics?.packingAed, order?.logistics?.serviceFeeAed]);
 
   useEffect(() => {
     if (!toast) return;
@@ -434,12 +455,20 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const updateLogisticsField = (field: 'deliveryType' | 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value: string) => {
-    const numericFields = ['deliveryAed', 'packingAed', 'serviceFeeAed'];
-    const nextLogistics = {
-      ...order.logistics,
-      [field]: numericFields.includes(field) ? Number(value || 0) : value
-    };
-    updateOrder({ ...order, logistics: nextLogistics });
+    if (field === 'deliveryType') {
+      updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value } });
+      return;
+    }
+
+    const sanitized = sanitizeNumericInput(value);
+    setLogisticsInputs((prev) => ({ ...prev, [field]: sanitized }));
+    updateOrder({
+      ...order,
+      logistics: {
+        ...order.logistics,
+        [field]: Number(sanitized || 0)
+      }
+    });
   };
 
   const handleRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -458,9 +487,9 @@ const OrderDetailsScreen: React.FC = () => {
 
   const handleMarkupFixedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawVal = e.target.value;
-    if (!/^[\d]*$/.test(rawVal)) return;
-    setMarkupFixedInput(rawVal);
-    updateOrder({ ...order, markupFixedAed: Number(rawVal || 0), markupType: 'fixed' });
+    const sanitized = sanitizeNumericInput(rawVal);
+    setMarkupFixedInput(sanitized);
+    updateOrder({ ...order, markupFixedAed: Number(sanitized || 0), markupType: 'fixed' });
   };
 
   const togglePartFound = (partId: string) => {
@@ -901,7 +930,7 @@ const OrderDetailsScreen: React.FC = () => {
                 {MARKUP_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}%</option>)}
               </select>
             ) : (
-              <input type="text" inputMode="numeric" value={markupFixedInput} onChange={handleMarkupFixedChange} className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100" placeholder="AED" />
+              <input type="text" inputMode="numeric" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onChange={handleMarkupFixedChange} className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100" placeholder="AED" />
             )}
             <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-gray-500">
               <input type="checkbox" checked={!!order.useMarkupAsDefaultForNewParts} onChange={(e) => updateOrderField('useMarkupAsDefaultForNewParts', e.target.checked)} />
@@ -930,7 +959,7 @@ const OrderDetailsScreen: React.FC = () => {
             {(['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).map((field) => (
               <div key={field}>
                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{field === 'deliveryAed' ? 'Доставка' : field === 'packingAed' ? 'Упаковка' : 'Комиссия'} AED</span>
-                <input type="number" min="0" value={logistics[field] || 0} onChange={(e) => updateLogisticsField(field, e.target.value)} className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100" />
+                <input type="text" inputMode="numeric" value={logisticsInputs[field]} onFocus={() => { if (logisticsInputs[field] === '0') setLogisticsInputs((prev) => ({ ...prev, [field]: '' })); }} onBlur={() => { if (!logisticsInputs[field]) setLogisticsInputs((prev) => ({ ...prev, [field]: '0' })); }} onChange={(e) => updateLogisticsField(field, e.target.value)} className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100" />
               </div>
             ))}
           </div>
