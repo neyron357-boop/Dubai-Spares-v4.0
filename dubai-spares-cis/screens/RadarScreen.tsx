@@ -163,6 +163,15 @@ const templateText = (order: Order, lang: TemplateLanguage, length: TemplateLeng
   return `Hi! Need ${part}${partSuffix} for ${baseContext}. VIN: ${order.vin || 'N/A'}. Please share condition (new/used), price, photos, and location.`;
 };
 
+
+const getPrimaryPart = (order: Order, partId?: string) => {
+  if (partId) {
+    const exact = order.parts.find((item) => item.id === partId);
+    if (exact) return exact;
+  }
+  return order.parts[0] || null;
+};
+
 const RadarScreen: React.FC = () => {
   const { orders, suppliers } = useStore();
   const navigate = useNavigate();
@@ -284,7 +293,7 @@ const RadarScreen: React.FC = () => {
       next.add(entry.shop.id);
       setProximityAlerts(next);
 
-      pushNotification({
+    pushNotification({
         type: NotificationType.RADAR_RESULT,
         title: `Рядом поставщик: ${entry.shop.name}`,
         message: `До точки около ${Math.max(1, Math.round((entry.distance || 0)))} м. Рекомендуем остановиться.`,
@@ -331,12 +340,25 @@ const RadarScreen: React.FC = () => {
 
   const currentStop = chainRoute[chainIndex] || null;
 
-  const openShopRoute = (shop: Shop) => {
+  const openShopNavigation = (shop: Shop) => {
     if (hasValidCoordinates(shop.latitude, shop.longitude)) {
       window.open(`https://www.google.com/maps/dir/?api=1&destination=${shop.latitude},${shop.longitude}`, '_blank');
     } else {
       window.open(buildShopMapLink(shop), '_blank');
     }
+  };
+
+  const openShopRoute = async (entry: RadarEntry) => {
+    const shop = entry.shop;
+    openShopNavigation(shop);
+
+    await addInteraction({
+      shopId: entry.shop.id,
+      orderId: entry.order.id,
+      partId: getPrimaryPart(entry.order)?.id,
+      result: 'route_opened',
+      comment: 'Route opened from radar card'
+    });
 
     pushNotification({
       type: NotificationType.RADAR_ACTION,
@@ -373,24 +395,39 @@ const RadarScreen: React.FC = () => {
     saveVisitedRadarShops(next);
   };
 
-  const hideShop = (entry: RadarEntry) => {
+  const hideShop = async (entry: RadarEntry) => {
     const next = new Set(dismissedShopKeys);
     next.add(getDismissKey(entry.shop.id, entry.order.id));
     setDismissedShopKeys(next);
     saveDismissedRadarShops(next);
+    await addInteraction({
+      shopId: entry.shop.id,
+      orderId: entry.order.id,
+      partId: getPrimaryPart(entry.order)?.id,
+      result: 'hidden',
+      comment: 'Point hidden from radar list'
+    });
   };
 
-  const markVisitedShop = (entry: RadarEntry) => {
+  const markVisitedShop = async (entry: RadarEntry) => {
     const key = getDismissKey(entry.shop.id, entry.order.id);
     const next = new Set(visitedShopKeys);
     next.add(key);
     setVisitedShopKeys(next);
     saveVisitedRadarShops(next);
+    await addInteraction({
+      shopId: entry.shop.id,
+      orderId: entry.order.id,
+      partId: getPrimaryPart(entry.order)?.id,
+      result: 'visited',
+      comment: 'Marked as at shop'
+    });
   };
 
   const addInteraction = async (payload: Omit<RadarInteraction, 'id' | 'createdAt'>) => {
     const interaction: RadarInteraction = { id: createUuid(), createdAt: Date.now(), ...payload };
     await offlineDb.saveRadarInteraction(interaction);
+    window.dispatchEvent(new CustomEvent('radar-interaction-saved'));
     setInteractions((prev) => [interaction, ...prev]);
     if (navigator.onLine) {
       await offlineDb.markRadarInteractionSynced(interaction.id);
@@ -433,7 +470,8 @@ const RadarScreen: React.FC = () => {
   };
 
   const quickResult = async (entry: RadarEntry, result: RadarInteractionResult) => {
-    await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, partId: entry.order.parts[0]?.id, result, availability: result === 'found' ? 'in_stock' : undefined });
+    const primaryPart = getPrimaryPart(entry.order);
+    await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, partId: primaryPart?.id, result, availability: result === 'found' ? 'in_stock' : undefined, comment: primaryPart ? `Target part: ${primaryPart.name}` : undefined });
     pushNotification({
       type: NotificationType.RADAR_RESULT,
       title: `Radar: ${entry.shop.name}`,
@@ -467,10 +505,17 @@ const RadarScreen: React.FC = () => {
     toast('Результат сохранен (offline-first)', 'success');
   };
 
-  const openCalls = (phone?: string, entry?: RadarEntry) => {
+  const openCalls = async (phone?: string, entry?: RadarEntry) => {
     if (!phone) return;
     window.open(`tel:${phone}`, '_self');
     if (entry) {
+      await addInteraction({
+        shopId: entry.shop.id,
+        orderId: entry.order.id,
+        partId: getPrimaryPart(entry.order)?.id,
+        result: 'called',
+        comment: 'Phone call opened from radar card'
+      });
       pushNotification({
         type: NotificationType.RADAR_ACTION,
         title: `Звонок: ${entry.shop.name}`,
@@ -666,7 +711,7 @@ const RadarScreen: React.FC = () => {
           <p className="text-xs font-black uppercase text-blue-200">Route sheet · прогресс {chainIndex + 1}/{chainRoute.length}</p>
           <p className="text-sm font-black">Текущая точка: {currentStop.name}</p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => openShopRoute(currentStop)} className="rounded-xl bg-blue-400 px-3 py-2 text-[11px] font-black uppercase text-slate-900">Navigate</button>
+            <button type="button" onClick={() => openShopNavigation(currentStop)} className="rounded-xl bg-blue-400 px-3 py-2 text-[11px] font-black uppercase text-slate-900">Navigate</button>
             <button type="button" onClick={() => setChainIndex((i) => Math.min(i + 1, chainRoute.length - 1))} className="rounded-xl border border-blue-300/40 px-3 py-2 text-[11px] font-black uppercase text-blue-100">Next</button>
           </div>
           <div className="max-h-28 overflow-y-auto space-y-1">
@@ -718,11 +763,11 @@ const RadarScreen: React.FC = () => {
             )}
 
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => openShopRoute(entry.shop)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
+              <button type="button" onClick={() => void openShopRoute(entry)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
               <button type="button" onClick={() => onWhatsApp(entry)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><MessageCircle size={12} /> WhatsApp</button>
-              <button type="button" onClick={() => openCalls(entry.shop.phone, entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
-              <button type="button" onClick={() => hideShop(entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
-              <button type="button" onClick={() => { markVisitedShop(entry); void quickResult(entry, 'follow_up'); }} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
+              <button type="button" onClick={() => void openCalls(entry.shop.phone, entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
+              <button type="button" onClick={() => void hideShop(entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
+              <button type="button" onClick={() => { void markVisitedShop(entry); void quickResult(entry, 'follow_up'); }} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
               {mode === 'detail' && <button type="button" onClick={() => navigate(`/order/${entry.order.id}`)} className="rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">Карточка</button>}
             </div>
 

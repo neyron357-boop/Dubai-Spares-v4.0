@@ -1,6 +1,6 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
-import { Supplier, SupplierType } from '../types';
+import { RadarInteraction, Supplier, SupplierType } from '../types';
 import {
   Search,
   Phone,
@@ -31,6 +31,7 @@ import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
 import { CAR_DATABASE } from '../carDatabase';
+import { offlineDb } from '../storage/offlineDb';
 
 const FIELD_TYPES: Array<{ value: SupplierType; label: string; icon: React.ReactNode }> = [
   { value: 'new_parts', label: 'New Parts', icon: <Gem size={12} /> },
@@ -102,6 +103,20 @@ const daysAgoLabel = (ts?: number) => {
   return `${diff} дней назад`;
 };
 
+
+const radarResultLabel = (result: RadarInteraction['result']) => {
+  if (result === 'found') return '✅ Found';
+  if (result === 'not_found') return '❌ Not found';
+  if (result === 'follow_up') return '⏱️ Follow-up';
+  if (result === 'wrong_info') return '⚠️ Wrong info';
+  if (result === 'message_sent') return '💬 WhatsApp';
+  if (result === 'visited') return '📍 Я у магазина';
+  if (result === 'route_opened') return '🧭 Маршрут открыт';
+  if (result === 'called') return '📞 Звонок';
+  if (result === 'hidden') return '🙈 Точка скрыта';
+  return result;
+};
+
 const activityLabel = (score: number, lastContactAt?: number) => {
   const days = lastContactAt ? (Date.now() - lastContactAt) / (1000 * 60 * 60 * 24) : Infinity;
   if (days > 60) return '⚫ Dormant';
@@ -161,6 +176,8 @@ const SuppliersScreen: React.FC = () => {
   const [isSavingSupplier, setIsSavingSupplier] = useState(false);
   const [locationParseNotice, setLocationParseNotice] = useState<string | null>(null);
   const [activeOrderLinkShopId, setActiveOrderLinkShopId] = useState<string | null>(null);
+  const [supplierRadarHistoryExpandedId, setSupplierRadarHistoryExpandedId] = useState<string | null>(null);
+  const [radarInteractions, setRadarInteractions] = useState<RadarInteraction[]>([]);
   const [activeOrderPartLink, setActiveOrderPartLink] = useState<{ supplierId: string; orderId: string; partId: string } | null>(null);
 
   const [filterType, setFilterType] = useState<'all' | SupplierType>('all');
@@ -577,6 +594,13 @@ const SuppliersScreen: React.FC = () => {
     alert('Поставщик добавлен в активный заказ. Откройте заказ и добавьте вариант к выбранной детали.');
   };
 
+  useEffect(() => {
+    void offlineDb.getRadarInteractions().then(setRadarInteractions);
+    const onRadarUpdated = () => { void offlineDb.getRadarInteractions().then(setRadarInteractions); };
+    window.addEventListener('radar-interaction-saved', onRadarUpdated);
+    return () => window.removeEventListener('radar-interaction-saved', onRadarUpdated);
+  }, []);
+
   const requiredReady = !!toTitle(name.trim()) && isValidE164(currentPhone) && !!location.trim();
 
   return (
@@ -801,6 +825,35 @@ const SuppliersScreen: React.FC = () => {
                 </div>
 
                 <div className="border-t border-gray-100 pt-3 space-y-2">
+                  <button type="button" onClick={() => setSupplierRadarHistoryExpandedId((prev) => (prev === s.id ? null : s.id))} className="w-full rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 inline-flex items-center justify-center gap-2"><Clock3 size={13} /> История радара</button>
+                  {supplierRadarHistoryExpandedId === s.id && (
+                    <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-2 space-y-2">
+                      {(radarInteractions
+                        .filter((item) => item.shopId === s.id)
+                        .sort((a, b) => b.createdAt - a.createdAt)
+                        .slice(0, 30)).length === 0 ? (
+                        <p className="text-[11px] text-slate-500">Пока нет событий по этому поставщику.</p>
+                      ) : (
+                        radarInteractions
+                          .filter((item) => item.shopId === s.id)
+                          .sort((a, b) => b.createdAt - a.createdAt)
+                          .slice(0, 30)
+                          .map((item) => {
+                            const order = orders.find((o) => o.id === item.orderId);
+                            const part = order?.parts?.find((p) => p.id === item.partId) || order?.parts?.[0];
+                            return (
+                              <div key={item.id} className="rounded-lg border border-violet-100 bg-white px-2 py-1.5 text-[10px] text-slate-700">
+                                <p className="font-black">{radarResultLabel(item.result)} • {new Date(item.createdAt).toLocaleString()}</p>
+                                <p>{order ? `${order.brand} ${order.model} ${order.year || ''}`.trim() : `Order: ${item.orderId}`}</p>
+                                {part && <p>Искали: {part.name}</p>}
+                                {item.result === 'not_found' && <p className="text-rose-600 font-semibold">Не найдено для авто выше.</p>}
+                                {item.comment && <p className="text-slate-500">{item.comment}</p>}
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
+                  )}
                   <button type="button" onClick={() => setActiveOrderLinkShopId(activeOrderLinkShopId === s.id ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-center gap-2"><Link2 size={13} /> Add to Active Order</button>
                   {activeOrderLinkShopId === s.id && (
                     <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-2">
