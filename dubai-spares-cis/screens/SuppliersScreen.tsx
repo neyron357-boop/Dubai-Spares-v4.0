@@ -68,6 +68,32 @@ const toTitle = (value: string) => value
   .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
   .join(' ');
 
+const mergeUniqueStrings = (current: string[] = [], incoming: string[] = []) => {
+  const seen = new Set(current.map((item) => item.trim().toLowerCase()).filter(Boolean));
+  const next = [...current];
+  incoming.forEach((item) => {
+    const normalized = item.trim();
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    next.push(normalized);
+  });
+  return next;
+};
+
+const mergeUniqueYears = (current: number[] = [], incoming: number[] = []) => {
+  const seen = new Set(current.filter((item) => Number.isFinite(item)).map((item) => Number(item)));
+  const next = [...seen];
+  incoming.forEach((item) => {
+    const normalized = Number(item);
+    if (!Number.isFinite(normalized) || seen.has(normalized)) return;
+    seen.add(normalized);
+    next.push(normalized);
+  });
+  return next.sort((a, b) => a - b);
+};
+
 const daysAgoLabel = (ts?: number) => {
   if (!ts || !Number.isFinite(ts)) return 'нет контактов';
   const diff = Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24));
@@ -117,6 +143,9 @@ const SuppliersScreen: React.FC = () => {
   const [brandSearch, setBrandSearch] = useState('');
   const [customBrand, setCustomBrand] = useState('');
   const [isFastBrandMode, setIsFastBrandMode] = useState(true);
+  const [supplierModelsInput, setSupplierModelsInput] = useState('');
+  const [supplierYearsInput, setSupplierYearsInput] = useState('');
+  const [supplierPhotos, setSupplierPhotos] = useState<string[]>([]);
 
   const [workingHours, setWorkingHours] = useState('');
   const [trustLevel, setTrustLevel] = useState(3);
@@ -328,6 +357,9 @@ const SuppliersScreen: React.FC = () => {
     setLocation('');
     setMainBrands([]);
     setPrimaryBrand('');
+    setSupplierModelsInput('');
+    setSupplierYearsInput('');
+    setSupplierPhotos([]);
     setShopType('new_parts');
     setZone('');
     setLocationParseNotice(null);
@@ -340,6 +372,22 @@ const SuppliersScreen: React.FC = () => {
     setComment('');
     setWebsite('');
     setShowAdvanced(false);
+  };
+
+  const onSupplierPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files ? Array.from(event.target.files) : [];
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setSupplierPhotos((prev) => [...prev, String(reader.result || '')].filter(Boolean));
+      };
+      reader.readAsDataURL(file);
+    });
+    event.target.value = '';
+  };
+
+  const removeSupplierPhoto = (index: number) => {
+    setSupplierPhotos((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleSave = async () => {
@@ -356,6 +404,8 @@ const SuppliersScreen: React.FC = () => {
 
       const inferredZone = zone || inferZoneFromCoords(resolvedCoordinates || undefined);
 
+      const parsedModels = supplierModelsInput.split(',').map((item) => item.trim()).filter(Boolean);
+      const parsedYears = supplierYearsInput.split(',').map((item) => Number(item.trim())).filter((year) => Number.isFinite(year));
       const now = Date.now();
       const newSupplier: Supplier = {
         id: createUuid(),
@@ -368,9 +418,11 @@ const SuppliersScreen: React.FC = () => {
         brands: mainBrands,
         mainBrands,
         primaryBrand: primaryBrand || mainBrands[0] || '',
-        models: [],
-        years: [],
+        models: parsedModels,
+        years: parsedYears,
         bodyTypes: [],
+        photoUrl: supplierPhotos[0],
+        photos: supplierPhotos,
         coordinates: resolvedCoordinates,
         gpsAccuracyMeters: gpsAccuracy || undefined,
         workingHours,
@@ -494,12 +546,12 @@ const SuppliersScreen: React.FC = () => {
     const linkedSupplier = suppliers.find((item) => item.id === shopId);
     if (linkedSupplier && order.brand) {
       const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
-      if (!currentBrands.some((brand) => brand.toLowerCase() === order.brand.toLowerCase())) {
-        const nextBrands = [...currentBrands, order.brand];
-        const updatedSupplier = { ...linkedSupplier, mainBrands: nextBrands, brands: nextBrands, primaryBrand: linkedSupplier.primaryBrand || order.brand, updatedAt: Date.now() };
-        updateSupplier(updatedSupplier);
-        void upsertSupplierToShops(updatedSupplier);
-      }
+      const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
+      const nextModels = mergeUniqueStrings(linkedSupplier.models || [], [order.model || '']);
+      const nextYears = mergeUniqueYears(linkedSupplier.years || [], [Number(order.year)]);
+      const updatedSupplier = { ...linkedSupplier, mainBrands: nextBrands, brands: nextBrands, primaryBrand: linkedSupplier.primaryBrand || order.brand, models: nextModels, years: nextYears, updatedAt: Date.now() };
+      updateSupplier(updatedSupplier);
+      void upsertSupplierToShops(updatedSupplier);
     }
     setActiveOrderLinkShopId(null);
   };
@@ -514,12 +566,12 @@ const SuppliersScreen: React.FC = () => {
     const linkedSupplier = suppliers.find((item) => item.id === activeOrderPartLink.supplierId);
     if (linkedSupplier && order.brand) {
       const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
-      if (!currentBrands.some((brand) => brand.toLowerCase() === order.brand.toLowerCase())) {
-        const nextBrands = [...currentBrands, order.brand];
-        const updatedSupplier = { ...linkedSupplier, mainBrands: nextBrands, brands: nextBrands, primaryBrand: linkedSupplier.primaryBrand || order.brand, updatedAt: Date.now() };
-        updateSupplier(updatedSupplier);
-        void upsertSupplierToShops(updatedSupplier);
-      }
+      const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
+      const nextModels = mergeUniqueStrings(linkedSupplier.models || [], [order.model || '']);
+      const nextYears = mergeUniqueYears(linkedSupplier.years || [], [Number(order.year)]);
+      const updatedSupplier = { ...linkedSupplier, mainBrands: nextBrands, brands: nextBrands, primaryBrand: linkedSupplier.primaryBrand || order.brand, models: nextModels, years: nextYears, updatedAt: Date.now() };
+      updateSupplier(updatedSupplier);
+      void upsertSupplierToShops(updatedSupplier);
     }
     setActiveOrderPartLink(null);
     alert('Поставщик добавлен в активный заказ. Откройте заказ и добавьте вариант к выбранной детали.');
@@ -653,6 +705,23 @@ const SuppliersScreen: React.FC = () => {
                 <option value="">Primary brand</option>
                 {mainBrands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
               </select>
+              <input value={supplierModelsInput} onChange={(e) => setSupplierModelsInput(e.target.value)} placeholder="Модели через запятую (Camry, Corolla)" className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
+              <input value={supplierYearsInput} onChange={(e) => setSupplierYearsInput(e.target.value.replace(/[^\d, ]/g, ''))} placeholder="Годы через запятую (2018, 2019)" className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
+                <label className="text-[10px] font-bold text-gray-500 uppercase">Фото поставщика (опционально)</label>
+                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                  <label className="inline-flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 text-[10px] font-black text-gray-500">
+                    +Фото
+                    <input type="file" className="hidden" accept="image/*" multiple onChange={onSupplierPhotoChange} />
+                  </label>
+                  {supplierPhotos.map((photo, index) => (
+                    <div key={`${photo}-${index}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200">
+                      <img src={photo} alt="supplier" className="h-full w-full object-cover" />
+                      <button type="button" onClick={() => removeSupplierPhoto(index)} className="absolute right-0.5 top-0.5 rounded-full bg-black/60 px-1 text-[9px] text-white">×</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="rounded-xl border border-gray-100 bg-gray-50">
@@ -715,12 +784,17 @@ const SuppliersScreen: React.FC = () => {
                 {brands.length > 0 && (
                   <p className="text-xs font-semibold text-slate-600 border-t border-slate-100 pt-2">{brands.slice(0, 3).join(' • ')}</p>
                 )}
+                {Array.isArray(s.models) && s.models.length > 0 && <p className="text-[11px] text-slate-500">Модели: {s.models.slice(0, 3).join(', ')}</p>}
+                {Array.isArray(s.years) && s.years.length > 0 && <p className="text-[11px] text-slate-500">Годы: {s.years.slice(0, 4).join(', ')}</p>}
+                {(s.photoUrl || (s.photos || []).length > 0) && (
+                  <button type="button" onClick={() => window.open((s.photos && s.photos[0]) || s.photoUrl || '', '_blank')} className="mt-1 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-black text-slate-700">Фото поставщика</button>
+                )}
 
                 <div className="grid grid-cols-3 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">
                   <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Маршрут</button>
                   <a href={`https://wa.me/${(s.phone || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
                   <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-1.5 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
-                  <button type="button" onClick={() => { setIsAdding(true); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
+                  <button type="button" onClick={() => { setIsAdding(true); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput((s.years || []).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
                   <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
                   <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
                   <button type="button" onClick={() => alert(`Analyze ${s.name}\nContacts: ${s.activityScore || 0}\nFound: ${s.successRate}%\nLast: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 py-1.5 text-[10px] font-black text-blue-700 inline-flex items-center justify-center gap-1"><Sparkles size={12} />Analyze</button>

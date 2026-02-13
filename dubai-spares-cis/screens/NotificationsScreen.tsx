@@ -26,6 +26,13 @@ const FILTERS: Array<{ label: string; id: 'all' | 'orders' | 'radar' | 'followup
 
 const PAGE_SIZE = 60;
 
+const normalizeNotificationRoute = (route?: string, orderId?: string) => {
+  const fallback = orderId ? `/order/${orderId}` : '/';
+  if (!route) return fallback;
+  if (route.startsWith('/orders/')) return route.replace('/orders/', '/order/');
+  return route;
+};
+
 const NotificationsScreen: React.FC = () => {
   const [notifications, setNotifications] = useState<AppNotification[]>(() => getNotifications());
   const [filter, setFilter] = useState<(typeof FILTERS)[number]['id']>('all');
@@ -251,7 +258,15 @@ const NotificationsScreen: React.FC = () => {
       ) : (
         <div className="space-y-2">
           {visibleItems.map((item) => (
-            <article key={item.id} className={`w-full rounded-2xl border px-3 py-3 text-left transition-all ${item.readAt ? 'bg-white border-gray-100' : 'bg-indigo-50 border-indigo-100'}`}>
+            <article
+              key={item.id}
+              onClick={() => {
+                if (!item.orderId) return;
+                markNotificationRead(item.id);
+                navigate(normalizeNotificationRoute(item.route, item.orderId));
+              }}
+              className={`w-full rounded-2xl border px-3 py-3 text-left transition-all ${item.readAt ? 'bg-white border-gray-100' : 'bg-indigo-50 border-indigo-100'} ${item.orderId ? 'cursor-pointer active:scale-[0.995]' : ''}`}
+            >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -268,9 +283,9 @@ const NotificationsScreen: React.FC = () => {
                 </div>
               </div>
 
-              <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="mt-2 grid grid-cols-2 gap-2" onClick={(event) => event.stopPropagation()}>
                 {item.orderId && (
-                  <button type="button" onClick={() => { markNotificationRead(item.id); navigate(item.route || `/orders/${item.orderId}`); }} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-blue-600 px-2 text-[10px] font-black uppercase text-white">
+                  <button type="button" onClick={(event) => { event.stopPropagation(); markNotificationRead(item.id); navigate(normalizeNotificationRoute(item.route, item.orderId)); }} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-blue-600 px-2 text-[10px] font-black uppercase text-white">
                     <ExternalLink size={12} /> Открыть заказ
                   </button>
                 )}
