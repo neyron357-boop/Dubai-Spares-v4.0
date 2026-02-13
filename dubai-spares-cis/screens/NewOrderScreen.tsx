@@ -234,10 +234,10 @@ const NewOrderScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (model && modelOptions.length > 0 && !modelOptions.map((item) => item.value).includes(model)) {
+    if (!manualModelMode && model && modelOptions.length > 0 && !modelOptions.map((item) => item.value).includes(model)) {
       setModel('');
     }
-  }, [model, modelOptions]);
+  }, [manualModelMode, model, modelOptions]);
 
   useEffect(() => {
     const saved = localStorage.getItem('new-order-draft-v2');
