@@ -128,7 +128,11 @@ const SettingsScreen: React.FC = () => {
       <Section title="Основные настройки">
         <div className="space-y-3">
           <Field label="Язык приложения">
-            <select value={draftSettings.appLanguage} onChange={(e) => updateDraft({ appLanguage: e.target.value as 'ru' | 'en' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
+            <select value={draftSettings.appLanguage} onChange={(e) => {
+              const nextLang = e.target.value as 'ru' | 'en';
+              updateDraft({ appLanguage: nextLang });
+              updateSettings({ appLanguage: nextLang });
+            }} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
               <option value="ru">RU</option>
               <option value="en">EN</option>
             </select>

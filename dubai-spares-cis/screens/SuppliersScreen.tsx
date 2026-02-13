@@ -100,7 +100,6 @@ const SuppliersScreen: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
-  const [isHeatMapMode, setIsHeatMapMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deleteSupplierId, setDeleteSupplierId] = useState<string | null>(null);
 
@@ -263,23 +262,6 @@ const SuppliersScreen: React.FC = () => {
       return (b.activityScore || 0) - (a.activityScore || 0);
     });
   }, [suppliersWithStats, searchTerm, filterType, filterBrand, filterGps, filterActivity, sortBy]);
-
-  const heatMapRows = useMemo(() => {
-    const zoneMap = new Map<string, { total: number; scrap: number; body: number; engine: number }>();
-    suppliersWithStats.forEach((supplier) => {
-      const zoneName = supplier.zone || 'Unknown';
-      const current = zoneMap.get(zoneName) || { total: 0, scrap: 0, body: 0, engine: 0 };
-      current.total += Math.max(1, supplier.foundCount || 0);
-      if (supplier.type === 'scrapyard') current.scrap += 1;
-      if (supplier.type === 'body_parts') current.body += 1;
-      if (supplier.type === 'engine_specialist') current.engine += 1;
-      zoneMap.set(zoneName, current);
-    });
-
-    return Array.from(zoneMap.entries())
-      .map(([zoneName, value]) => ({ zoneName, ...value }))
-      .sort((a, b) => b.total - a.total);
-  }, [suppliersWithStats]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -509,6 +491,16 @@ const SuppliersScreen: React.FC = () => {
     current.add(shopId);
     const nextDismissed = (order.dismissedShopIds || []).filter((id) => id !== shopId);
     updateOrder({ ...order, recommendedShopIds: Array.from(current), dismissedShopIds: nextDismissed, updatedAt: Date.now() });
+    const linkedSupplier = suppliers.find((item) => item.id === shopId);
+    if (linkedSupplier && order.brand) {
+      const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
+      if (!currentBrands.some((brand) => brand.toLowerCase() === order.brand.toLowerCase())) {
+        const nextBrands = [...currentBrands, order.brand];
+        const updatedSupplier = { ...linkedSupplier, mainBrands: nextBrands, brands: nextBrands, primaryBrand: linkedSupplier.primaryBrand || order.brand, updatedAt: Date.now() };
+        updateSupplier(updatedSupplier);
+        void upsertSupplierToShops(updatedSupplier);
+      }
+    }
     setActiveOrderLinkShopId(null);
   };
 
@@ -519,6 +511,16 @@ const SuppliersScreen: React.FC = () => {
     const current = new Set(order.recommendedShopIds || []);
     current.add(activeOrderPartLink.supplierId);
     updateOrder({ ...order, recommendedShopIds: Array.from(current), updatedAt: Date.now() });
+    const linkedSupplier = suppliers.find((item) => item.id === activeOrderPartLink.supplierId);
+    if (linkedSupplier && order.brand) {
+      const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
+      if (!currentBrands.some((brand) => brand.toLowerCase() === order.brand.toLowerCase())) {
+        const nextBrands = [...currentBrands, order.brand];
+        const updatedSupplier = { ...linkedSupplier, mainBrands: nextBrands, brands: nextBrands, primaryBrand: linkedSupplier.primaryBrand || order.brand, updatedAt: Date.now() };
+        updateSupplier(updatedSupplier);
+        void upsertSupplierToShops(updatedSupplier);
+      }
+    }
     setActiveOrderPartLink(null);
     alert('Поставщик добавлен в активный заказ. Откройте заказ и добавьте вариант к выбранной детали.');
   };
@@ -529,35 +531,13 @@ const SuppliersScreen: React.FC = () => {
     <div className="p-4 space-y-4 pb-20 overflow-x-hidden">
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-bold">База Поставщиков</h1>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setIsHeatMapMode((prev) => !prev)}
-            className={`px-3 py-2 rounded-xl text-xs font-black ${isHeatMapMode ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}
-          >
-            🧠 Heat Map Mode
-          </button>
+        <div className="flex flex-wrap justify-end gap-2">
           <button type="button" onClick={handleExport} className="p-3 bg-emerald-50 text-emerald-600 rounded-xl" title="Экспорт"><Download size={18} /></button>
           <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleFileSelect} />
           <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 bg-violet-50 text-violet-600 rounded-xl" title="Импорт"><Upload size={18} /></button>
           <button type="button" onClick={() => setIsAdding(true)} className="p-3 bg-blue-600 text-white rounded-xl" title="Добавить"><UserPlus size={20} /></button>
         </div>
       </div>
-
-      {isHeatMapMode && (
-        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-3 space-y-2">
-          <p className="text-xs font-black uppercase text-orange-700">Heat Map: где чаще находки / scrap / кузовщина / двигатели</p>
-          {heatMapRows.map((row) => (
-            <div key={row.zoneName} className="grid grid-cols-4 gap-2 text-[11px] font-semibold bg-white rounded-xl p-2 border border-orange-100">
-              <span>{row.zoneName}</span>
-              <span>Found: {row.total}</span>
-              <span>Scrap: {row.scrap}</span>
-              <span>Body/Engine: {row.body}/{row.engine}</span>
-            </div>
-          ))}
-          {heatMapRows.length === 0 && <p className="text-xs text-orange-700">Недостаточно данных для heat map.</p>}
-        </div>
-      )}
 
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
@@ -604,7 +584,7 @@ const SuppliersScreen: React.FC = () => {
 
       {isAdding && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm" onClick={() => { setIsAdding(false); resetAddForm(); }}>
-          <form onSubmit={(e) => { e.preventDefault(); void handleSave(); }} className="bg-white w-full max-w-md rounded-3xl p-4 sm:p-5 shadow-2xl space-y-4 max-h-[85vh] sm:max-h-[90vh] overflow-y-auto pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]" onClick={(e) => e.stopPropagation()}>
+          <form onSubmit={(e) => { e.preventDefault(); void handleSave(); }} className="bg-white w-full max-w-md rounded-3xl p-4 sm:p-5 shadow-2xl space-y-4 max-h-[85vh] sm:max-h-[90vh] overflow-y-auto overflow-x-hidden pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="text-xl font-bold">Добавить поставщика</h2>

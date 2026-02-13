@@ -92,6 +92,20 @@ const DebugLogsScreen: React.FC = () => {
       lastError
     };
   }, [logs, dbStats, schemaState]);
+  const radarDiagnostics = useMemo(() => {
+    const radarLogs = logs.filter((entry) => entry.scope.toLowerCase().includes('radar'));
+    const radarErrors = radarLogs.filter((entry) => entry.level === 'error');
+    const recent = radarLogs.slice(0, 30);
+    return {
+      total: radarLogs.length,
+      errors: radarErrors.length,
+      warnings: radarLogs.filter((entry) => entry.level === 'warn').length,
+      lastEventAt: radarLogs[0]?.createdAt,
+      lastError: radarErrors[0],
+      recent
+    };
+  }, [logs]);
+
 
   const renderLog = (entry: SystemLogEntry) => {
     let meta = stringifyMeta(entry.meta);
@@ -164,7 +178,7 @@ const DebugLogsScreen: React.FC = () => {
   }, [filteredLogs]);
 
   return (
-    <div className="p-4 pb-24 space-y-3">
+    <div className="p-4 pb-24 space-y-3 overflow-x-hidden">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-black">Debug / Logs</h1>
         <div className="text-[11px] text-gray-500">{filteredLogs.length}/{logs.length}</div>
@@ -199,6 +213,16 @@ const DebugLogsScreen: React.FC = () => {
           <div className="rounded-xl border bg-white p-3 space-y-1"><div className="font-black">Sync Engine</div><p>pending: {dbStats.mutations?.count || 0}</p><p>last 20 sync events:</p><ul className="list-disc pl-4">{logs.filter((entry) => entry.scope.includes('sync')).slice(0, 20).map((entry) => <li key={entry.id}>{entry.message}</li>)}</ul></div>
           <div className="rounded-xl border bg-white p-3 space-y-1"><div className="font-black">Supabase</div><p>project: {maskSensitive((import.meta as any).env?.VITE_SUPABASE_URL || 'not set')}</p><p>last error code: {(logs.find((entry) => entry.scope.includes('supabase') && entry.level === 'error')?.message.match(/code:\s*([A-Z0-9]+)/i)?.[1]) || '—'}</p></div>
           <div className="rounded-xl border bg-white p-3 space-y-1"><div className="font-black">Geo</div><p>coords: {gps ? (showExactGps ? `${gps.lat.toFixed(5)}, ${gps.lng.toFixed(5)}` : 'hidden') : 'n/a'} <button className="underline" type="button" onClick={() => setShowExactGps((v) => !v)}>{showExactGps ? 'hide' : 'show'}</button></p><p>accuracy: {gps?.accuracy?.toFixed(1) || 'n/a'} m</p><p>last update: {gps ? formatTime(gps.time) : '—'}</p></div>
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 space-y-2">
+            <div className="font-black text-indigo-800">Radar диагностика (полная)</div>
+            <p>events: {radarDiagnostics.total} · warnings: {radarDiagnostics.warnings} · errors: {radarDiagnostics.errors}</p>
+            <p>last event: {radarDiagnostics.lastEventAt ? formatTime(radarDiagnostics.lastEventAt) : '—'}</p>
+            {radarDiagnostics.lastError && <p className="text-rose-700">last error: {radarDiagnostics.lastError.message}</p>}
+            <div>
+              <p className="font-bold">Последние события радара:</p>
+              <ul className="list-disc pl-4 max-h-56 overflow-y-auto">{radarDiagnostics.recent.map((entry) => <li key={entry.id}>{formatTime(entry.createdAt)} · [{entry.level}] {entry.scope}: {entry.message}</li>)}</ul>
+            </div>
+          </div>
         </div>
       )}
 
@@ -210,7 +234,7 @@ const DebugLogsScreen: React.FC = () => {
             <select value={scope} onChange={(e) => setScope(e.target.value as any)} className="rounded-lg border p-2"><option value="all">scope: all</option><option value="database">database</option><option value="sync">sync</option><option value="supabase">supabase</option><option value="radar">radar</option><option value="ui">ui</option></select>
             <label className="text-xs font-bold flex items-center gap-2"><input type="checkbox" checked={maskVin} onChange={(e) => setMaskVin(e.target.checked)} />mask VIN</label>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button className="px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-black" type="button" onClick={() => void loadLogs()}>Refresh</button>
             <button className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black" type="button" onClick={() => void onCopy()}>Copy Logs to Clipboard</button>
             <button className="px-3 py-2 rounded-xl bg-violet-600 text-white text-xs font-black" type="button" onClick={() => void onShareFile()}>Share as .txt</button>
