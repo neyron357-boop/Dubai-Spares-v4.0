@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant } from './types';
+import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant, SalesStatus } from './types';
 import { supabase, isCloudSyncConfigured } from './supabase';
 import { deleteOrderFolderFromStorage, ensurePublicImageUrls, optimizeImageForUpload } from './storage/photos';
 import { offlineDb } from './storage/offlineDb';
@@ -36,24 +36,59 @@ const getStatus = (order: Pick<Order, 'isSold' | 'isArchived' | 'isVip' | 'isLea
   return 'active';
 };
 
-const normalizeOrder = (order: Order): Order => ({
-  ...order,
-  status: order.status ?? getStatus(order),
-  isVip: !!order.isVip,
-  isPinned: !!order.isPinned,
-  isLead: !!order.isLead,
-  notes: Array.isArray(order.notes) ? order.notes : [],
-  vinPhotoUrl: order.vinPhotoUrl || '',
-  bodyType: order.bodyType || '',
-  parts: Array.isArray(order.parts) ? order.parts : [],
-  salesStatus: order.salesStatus ?? 'Inquiry',
-  updatedAt: order.updatedAt ?? order.createdAt ?? Date.now(),
-  recommendedShopIds: Array.isArray(order.recommendedShopIds) ? order.recommendedShopIds : [],
-  dismissedShopIds: Array.isArray(order.dismissedShopIds) ? order.dismissedShopIds : [],
-  leadUnread: order.leadUnread === true,
-  leadSource: order.leadSource === 'public_form' ? 'public_form' : 'manual',
-  leadReadAt: Number.isFinite(Number(order.leadReadAt)) ? Number(order.leadReadAt) : undefined
-});
+const SALES_STATUS_ALIASES: Record<string, SalesStatus> = {
+  inquiry: 'Inquiry',
+  price_sent: 'Price Sent',
+  pending_approval: 'Pending Approval',
+  paid: 'Paid',
+  completed: 'Completed'
+};
+
+const normalizeSalesStatus = (value: unknown): SalesStatus => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  const normalizedKey = raw.toLowerCase().replace(/[\s-]+/g, '_');
+  return SALES_STATUS_ALIASES[normalizedKey] || 'Inquiry';
+};
+
+const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | 'exchangeRate'>): number => {
+  const totalCostAed = (order.parts || []).reduce((sum, part) => {
+    if (!part.isFound || part.variants.length === 0) return sum;
+    return sum + Number(part.variants[0].priceAed || 0);
+  }, 0);
+  if (totalCostAed <= 0) return 0;
+  const markupAed = totalCostAed * (Number(order.markupPercent || 0) / 100);
+  return markupAed / (Number(order.exchangeRate || 0) || 3.67);
+};
+
+const normalizeOrder = (order: Order): Order => {
+  const salesStatus = normalizeSalesStatus(order.salesStatus);
+  const isCompleted = salesStatus === 'Completed';
+  const isSold = order.isSold || isCompleted;
+
+  return {
+    ...order,
+    status: order.status ?? getStatus(order),
+    salesStatus,
+    isSold,
+    isArchived: order.isArchived || isCompleted,
+    soldProfitUsd: isSold
+      ? order.soldProfitUsd ?? estimateOrderProfitUsd(order)
+      : order.soldProfitUsd,
+    isVip: !!order.isVip,
+    isPinned: !!order.isPinned,
+    isLead: !!order.isLead,
+    notes: Array.isArray(order.notes) ? order.notes : [],
+    vinPhotoUrl: order.vinPhotoUrl || '',
+    bodyType: order.bodyType || '',
+    parts: Array.isArray(order.parts) ? order.parts : [],
+    updatedAt: order.updatedAt ?? order.createdAt ?? Date.now(),
+    recommendedShopIds: Array.isArray(order.recommendedShopIds) ? order.recommendedShopIds : [],
+    dismissedShopIds: Array.isArray(order.dismissedShopIds) ? order.dismissedShopIds : [],
+    leadUnread: order.leadUnread === true,
+    leadSource: order.leadSource === 'public_form' ? 'public_form' : 'manual',
+    leadReadAt: Number.isFinite(Number(order.leadReadAt)) ? Number(order.leadReadAt) : undefined
+  };
+};
 
 
 const parseTimestamp = (value: string | number | null | undefined): number => {
