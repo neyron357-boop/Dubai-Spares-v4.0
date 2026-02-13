@@ -201,10 +201,26 @@ const PublicOrderFormScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({
-      brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode,
-      deliveryCountry, deliveryCity, deliveryAddressNote, engineCode, clientAlias
-    }));
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        brand,
+        model,
+        year,
+        bodyType,
+        vin,
+        requestedParts,
+        customerContact,
+        contactCountryCode,
+        deliveryCountry,
+        deliveryCity,
+        deliveryAddressNote,
+        engineCode,
+        clientAlias
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown';
+      void logger.warn('public-form:draft', 'Draft save skipped', { reason: message });
+    }
   }, [brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode, deliveryCountry, deliveryCity, deliveryAddressNote, engineCode, clientAlias]);
 
   useEffect(() => {
@@ -351,7 +367,10 @@ const PublicOrderFormScreen: React.FC = () => {
         const reader = new FileReader();
         reader.onloadend = () => {
           const audioData = String(reader.result || '');
-          if (audioData) updateRequestedPart(index, { audioNote: audioData });
+          if (audioData) {
+            updateRequestedPart(index, { audioNote: audioData });
+            void logger.info('public-form:media', 'Part audio recorded', { partId, index });
+          }
         };
         reader.readAsDataURL(blob);
         mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -380,6 +399,12 @@ const PublicOrderFormScreen: React.FC = () => {
     }
 
     setIsSubmitting(true);
+    void logger.info('public-form', 'Lead submit started', {
+      source: messageSource,
+      parts: filledRequestedParts.length,
+      hasCarPhoto: Boolean(carPhotoData),
+      hasVinPhoto: Boolean(vinPhotoData)
+    });
 
     try {
       const orderId = createId();
@@ -471,7 +496,7 @@ const PublicOrderFormScreen: React.FC = () => {
         source: 'web_form',
         route: `/orders/${orderId}`
       });
-      void logger.info('public-form', `Lead created ${orderId}`, { source: messageSource, parts: filledRequestedParts.length });
+      void logger.info('public-form', `Lead created ${orderId}`, { source: messageSource, parts: filledRequestedParts.length, orderId });
 
       setCreatedOrderId(orderId);
       setShowThanks(true);
@@ -645,14 +670,43 @@ const PublicOrderFormScreen: React.FC = () => {
                     className="h-14 w-full rounded-2xl border border-white/15 bg-white/10 px-4 outline-none"
                   />
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                    <input id={`${part.id}-gallery`} type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, (value) => updateRequestedPart(index, { photoData: value })); }} className="hidden" />
-                    <input id={`${part.id}-camera`} type="file" accept="image/*" capture="environment" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, (value) => updateRequestedPart(index, { photoData: value })); }} className="hidden" />
+                    <input id={`${part.id}-gallery`} type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, (value) => { updateRequestedPart(index, { photoData: value }); void logger.info('public-form:media', 'Part photo attached from gallery', { partId: part.id, index }); }); }} className="hidden" />
+                    <input id={`${part.id}-camera`} type="file" accept="image/*" capture="environment" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, (value) => { updateRequestedPart(index, { photoData: value }); void logger.info('public-form:media', 'Part photo attached from camera', { partId: part.id, index }); }); }} className="hidden" />
                     <label htmlFor={`${part.id}-gallery`} className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs"><Upload className="h-3 w-3" />Фото</label>
                     <label htmlFor={`${part.id}-camera`} className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs"><Camera className="h-3 w-3" />Камера</label>
                     <button type="button" onClick={() => void togglePartVoiceRecording(part.id, index)} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs">{recordingPartId === part.id ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}{recordingPartId === part.id ? 'Стоп' : 'Голос'}</button>
                   </div>
                   {recordingPartId === part.id && <div className="mt-2 flex h-5 items-end gap-1">{Array.from({ length: 18 }).map((_, waveIndex) => <span key={`${part.id}-record-${waveIndex}`} className="w-1 rounded-full bg-rose-300 transition-all" style={{ height: `${25 + Math.abs(Math.sin((recordingTick + waveIndex) * 0.8)) * 75}%` }} />)}</div>}
-                  {part.audioNote && <audio controls src={part.audioNote} className="mt-2 h-8 w-full" />}
+                  {part.photoData && (
+                    <div className="relative mt-2 overflow-hidden rounded-2xl border border-white/20 bg-black/20">
+                      <img src={part.photoData} alt={`part-${index}-preview`} className="h-36 w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateRequestedPart(index, { photoData: null });
+                          void logger.info('public-form:media', 'Part photo removed', { partId: part.id, index });
+                        }}
+                        className="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold text-white"
+                      >
+                        Удалить фото
+                      </button>
+                    </div>
+                  )}
+                  {part.audioNote && (
+                    <div className="mt-2 flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 p-2">
+                      <audio controls src={part.audioNote} className="h-8 w-full" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateRequestedPart(index, { audioNote: null });
+                          void logger.info('public-form:media', 'Part audio removed', { partId: part.id, index });
+                        }}
+                        className="shrink-0 rounded-lg border border-white/20 px-2 py-1 text-[11px]"
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
 
