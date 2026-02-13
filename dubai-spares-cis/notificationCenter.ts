@@ -147,6 +147,17 @@ const persistReadSignatures = (map: Record<string, number>) => {
   localStorage.setItem(READ_SIGNATURES_KEY, JSON.stringify(map));
 };
 
+
+const normalizeNotificationRoute = (route?: string) => {
+  if (!route) return '/';
+  const trimmed = route.trim();
+  if (!trimmed) return '/';
+  const normalized = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
+  if (normalized.startsWith('/orders/')) return normalized.replace('/orders/', '/order/');
+  if (normalized.startsWith('/')) return normalized;
+  return `/${normalized}`;
+};
+
 export const sendBrowserNotification = async (
   title: string,
   options: NotificationOptions & { route?: string; url?: string }
@@ -170,7 +181,7 @@ export const sendBrowserNotification = async (
   const notification = new Notification(title, { ...options, data, vibrate: options.vibrate || [220, 120, 220] });
   notification.onclick = () => {
     if (options.route) {
-      window.location.hash = `#${options.route}`;
+      window.location.hash = `#${normalizeNotificationRoute(options.route)}`;
     } else if (options.url) {
       window.open(options.url, '_blank');
     }

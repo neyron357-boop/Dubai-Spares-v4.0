@@ -38,6 +38,27 @@ const restoreLeadPollingState = async () => {
   }
 };
 
+
+const normalizeNotificationRoute = (route) => {
+  if (!route || typeof route !== 'string') return '/';
+  const cleaned = route.trim();
+  if (!cleaned) return '/';
+  if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
+    try {
+      const parsed = new URL(cleaned);
+      return normalizeNotificationRoute(parsed.hash?.replace(/^#/, '') || parsed.pathname || '/');
+    } catch {
+      return '/';
+    }
+  }
+  const noHash = cleaned.startsWith('#') ? cleaned.slice(1) : cleaned;
+  if (noHash.startsWith('/orders/')) return noHash.replace('/orders/', '/order/');
+  if (noHash.startsWith('/order/')) return noHash;
+  if (noHash.startsWith('/notifications')) return noHash;
+  if (noHash.startsWith('/')) return noHash;
+  return `/${noHash}`;
+};
+
 const showTaggedNotification = async (title, options = {}) => {
   await self.registration.showNotification(title, {
     badge: '/icon-192.png',
@@ -226,8 +247,7 @@ self.addEventListener('periodicsync', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const route = event.notification.data?.route || '/';
-  const url = event.notification.data?.url || '/';
+  const route = normalizeNotificationRoute(event.notification.data?.route || event.notification.data?.url || '/');
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       const existing = clients.find((client) => 'focus' in client);
