@@ -274,7 +274,16 @@ export interface SystemLogEntry {
   orderId?: string;
 }
 
-export type RadarInteractionResult = 'found' | 'not_found' | 'follow_up' | 'wrong_info' | 'message_sent';
+export type RadarInteractionResult =
+  | 'found'
+  | 'not_found'
+  | 'follow_up'
+  | 'wrong_info'
+  | 'message_sent'
+  | 'visited'
+  | 'route_opened'
+  | 'called'
+  | 'hidden';
 
 export interface RadarInteraction {
   id: string;
