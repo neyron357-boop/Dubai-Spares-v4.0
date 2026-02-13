@@ -26,6 +26,33 @@ root.render(
   </React.StrictMode>
 );
 
+let audioContext: AudioContext | null = null;
+const playLeadAlertSound = () => {
+  if (typeof window === 'undefined') return;
+  const Context = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Context) return;
+  if (!audioContext) audioContext = new Context();
+  if (audioContext.state === 'suspended') {
+    void audioContext.resume().catch(() => undefined);
+  }
+
+  const now = audioContext.currentTime;
+  const gain = audioContext.createGain();
+  gain.connect(audioContext.destination);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.65);
+
+  const osc = audioContext.createOscillator();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(1046, now);
+  osc.frequency.exponentialRampToValueAtTime(1318, now + 0.22);
+  osc.frequency.exponentialRampToValueAtTime(988, now + 0.45);
+  osc.connect(gain);
+  osc.start(now);
+  osc.stop(now + 0.65);
+};
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     void navigator.serviceWorker.register('/sw.js').then(async (registration) => {
@@ -62,6 +89,12 @@ if ('serviceWorker' in navigator) {
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         void Notification.requestPermission();
       }
+
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'lead-notification-sound') {
+          playLeadAlertSound();
+        }
+      });
     });
   });
 }
