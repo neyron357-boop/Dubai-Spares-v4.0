@@ -123,7 +123,8 @@ const makeWhatsappLink = (shopPhone: string, message: string) => {
   return `https://wa.me/${normalizedPhone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`;
 };
 
-const getDismissKey = (shop: Shop) => shop.location?.trim().toLowerCase() ? `location:${shop.location.trim().toLowerCase()}` : `id:${shop.id}`;
+const getDismissKey = (shopId: string, orderId: string) => `order:${orderId}:shop:${shopId}`;
+const getLegacyDismissKey = (shop: Shop) => shop.location?.trim().toLowerCase() ? `location:${shop.location.trim().toLowerCase()}` : `id:${shop.id}`;
 
 const templateText = (order: Order, lang: TemplateLanguage, length: TemplateLength) => {
   const parts = order.parts.map((item) => item.name).filter(Boolean);
@@ -208,7 +209,7 @@ const RadarScreen: React.FC = () => {
       .flatMap((order) => {
         const candidates = getRadarShopMatches(order, shops, position)
           .filter((item) => brandMatchMode === 'soft' || item.matchScore >= 0)
-          .filter((item) => !dismissedShopKeys.has(getDismissKey(item.shop)));
+          .filter((item) => !dismissedShopKeys.has(getDismissKey(item.shop.id, order.id)) && !dismissedShopKeys.has(getLegacyDismissKey(item.shop)));
 
         const radiusFiltered = candidates.filter((item) => km(item.distance) <= radiusKm);
         const pool = radiusFiltered.length >= 3 || !fallbackNearby ? radiusFiltered : candidates.filter((item) => km(item.distance) <= radiusKm * 2);
@@ -340,9 +341,9 @@ const RadarScreen: React.FC = () => {
     saveDismissedRadarShops(next);
   };
 
-  const hideShop = (shop: Shop) => {
+  const hideShop = (entry: RadarEntry) => {
     const next = new Set(dismissedShopKeys);
-    next.add(getDismissKey(shop));
+    next.add(getDismissKey(entry.shop.id, entry.order.id));
     setDismissedShopKeys(next);
     saveDismissedRadarShops(next);
   };
@@ -413,7 +414,7 @@ const RadarScreen: React.FC = () => {
     if (loadAppSettings().radarAutoHideAfterAction) {
       setDismissedShopKeys((prev) => {
         const next = new Set(prev);
-        next.add(getDismissKey(entry.shop));
+        next.add(getDismissKey(entry.shop.id, entry.order.id));
         saveDismissedRadarShops(next);
         return next;
       });
@@ -632,7 +633,7 @@ const RadarScreen: React.FC = () => {
               <button type="button" onClick={() => openShopRoute(entry.shop)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
               <button type="button" onClick={() => onWhatsApp(entry)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><MessageCircle size={12} /> WhatsApp</button>
               <button type="button" onClick={() => openCalls(entry.shop.phone, entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
-              <button type="button" onClick={() => hideShop(entry.shop)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
+              <button type="button" onClick={() => hideShop(entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
               <button type="button" onClick={() => quickResult(entry, 'follow_up')} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
               {mode === 'detail' && <button type="button" onClick={() => navigate(`/order/${entry.order.id}`)} className="rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">Карточка</button>}
             </div>

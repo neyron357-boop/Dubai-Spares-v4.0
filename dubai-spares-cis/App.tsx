@@ -120,6 +120,15 @@ const App: React.FC = () => {
   }, [syncOrders]);
 
   useEffect(() => {
+    const poll = () => {
+      if (!document.hidden) void syncOrders();
+    };
+
+    const id = window.setInterval(poll, 20_000);
+    return () => window.clearInterval(id);
+  }, [syncOrders]);
+
+  useEffect(() => {
     if (!error) return;
     const readable = String(error).toLowerCase().includes('schema') || String(error).toLowerCase().includes('supabase') ? 'Проблема синхронизации данных. Попробуйте ещё раз.' : `Sync error: ${error}`;
     setSyncToast(readable);

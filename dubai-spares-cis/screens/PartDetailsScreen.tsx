@@ -77,6 +77,34 @@ const etaLabels: Record<OfferFormState['deliveryEta'], string> = {
   week: 'Неделя'
 };
 
+
+const mergeUniqueStrings = (current: string[] = [], incoming: string[] = []) => {
+  const existing = new Set(current.map((item) => item.trim().toLowerCase()).filter(Boolean));
+  const next = [...current];
+  incoming.forEach((item) => {
+    const normalized = item.trim();
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (existing.has(key)) return;
+    existing.add(key);
+    next.push(normalized);
+  });
+  return next;
+};
+
+const mergeUniqueYears = (current: number[] = [], incoming: number[] = []) => {
+  const existing = new Set(current.filter((item) => Number.isFinite(item)).map((item) => Number(item)));
+  const next = [...existing];
+  incoming.forEach((year) => {
+    const normalized = Number(year);
+    if (!Number.isFinite(normalized)) return;
+    if (existing.has(normalized)) return;
+    existing.add(normalized);
+    next.push(normalized);
+  });
+  return next.sort((a, b) => a - b);
+};
+
 const PartDetailsScreen: React.FC = () => {
   const { orderId, partId } = useParams<{ orderId: string; partId: string }>();
   const navigate = useNavigate();
@@ -261,27 +289,47 @@ const PartDetailsScreen: React.FC = () => {
       });
 
       if (!existingSupplier) {
+        const nextBrandPool = mergeUniqueStrings([], [order.brand]);
+        const nextModels = mergeUniqueStrings([], [order.model || '']);
+        const nextYears = mergeUniqueYears([], [Number(order.year)]);
+        const nextBodyTypes = mergeUniqueStrings([], [order.bodyType || '']);
         const newSupplier = {
           id: createUuid(),
           name: form.shopName,
           phone: form.phone,
           location: form.locationText,
-          brands: [order.brand],
-          models: order.model ? [order.model] : [],
-          years: order.year ? [Number(order.year)].filter(Number.isFinite) : [],
-          bodyTypes: order.bodyType ? [order.bodyType] : [],
+          brands: nextBrandPool,
+          mainBrands: nextBrandPool,
+          primaryBrand: nextBrandPool[0] || '',
+          models: nextModels,
+          years: nextYears,
+          bodyTypes: nextBodyTypes,
+          photoUrl: form.photos[0],
+          photos: form.photos,
           coordinates: resolvedCoordinates
         };
         addSupplier(newSupplier);
         await upsertSupplierToShops(newSupplier);
       } else {
+        const currentBrands = existingSupplier.mainBrands || existingSupplier.brands || [];
+        const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
+        const nextModels = mergeUniqueStrings(existingSupplier.models || [], [order.model || '']);
+        const nextYears = mergeUniqueYears(existingSupplier.years || [], [Number(order.year)]);
+        const nextBodyTypes = mergeUniqueStrings(existingSupplier.bodyTypes || [], [order.bodyType || '']);
+        const nextPhotos = mergeUniqueStrings(existingSupplier.photos || (existingSupplier.photoUrl ? [existingSupplier.photoUrl] : []), form.photos || []);
+
         const updatedSupplier = {
           ...existingSupplier,
           phone: existingSupplier.phone || form.phone,
           location: existingSupplier.location || form.locationText,
-          brands: existingSupplier.brands.includes(order.brand)
-            ? existingSupplier.brands
-            : [...existingSupplier.brands, order.brand],
+          brands: nextBrands,
+          mainBrands: nextBrands,
+          primaryBrand: existingSupplier.primaryBrand || nextBrands[0] || '',
+          models: nextModels,
+          years: nextYears,
+          bodyTypes: nextBodyTypes,
+          photoUrl: existingSupplier.photoUrl || form.photos[0],
+          photos: nextPhotos,
           coordinates: existingSupplier.coordinates || resolvedCoordinates
         };
         updateSupplier(updatedSupplier);
