@@ -268,6 +268,53 @@ const isSchemaColumnError = (error: unknown) => {
   return anyErr.code === 'PGRST204' && typeof anyErr.message === 'string' && anyErr.message.includes('Could not find the');
 };
 
+
+const ORDER_BASE_COLUMNS = [
+  'id',
+  'brand',
+  'model',
+  'year',
+  'body_type',
+  'vin',
+  'status',
+  'sales_status',
+  'vin_photo_url',
+  'priority',
+  'client_name',
+  'source',
+  'car_photo_url',
+  'car_photos',
+  'markup_percent',
+  'markup_type',
+  'markup_fixed_aed',
+  'use_markup_as_default_for_new_parts',
+  'logistics',
+  'exchange_rate',
+  'created_at',
+  'is_archived',
+  'is_sold'
+];
+
+const getMissingOrderColumn = (error: unknown): string | null => {
+  if (typeof error !== 'object' || !error) return null;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  const message = typeof anyErr.message === 'string' ? anyErr.message : '';
+  if (!message) return null;
+
+  if (anyErr.code === 'PGRST204') {
+    const match = message.match(/Could not find the '([^']+)' column of 'orders'/);
+    return match?.[1] || null;
+  }
+
+  if (anyErr.code === '42703') {
+    const postgresMatch = message.match(/column\s+orders\.([a-zA-Z0-9_]+)\s+does not exist/i);
+    const quotedMatch = message.match(/column\s+["']?orders["']?\.["']?([a-zA-Z0-9_]+)["']?\s+does not exist/i);
+    return postgresMatch?.[1] || quotedMatch?.[1] || null;
+  }
+
+  return null;
+};
+
 const createSimplePdf = (lines: string[]): Blob => {
   const escape = (text: string) => text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
   const contentLines = lines.map((line, idx) => `BT /F1 12 Tf 50 ${780 - idx * 18} Td (${escape(line)}) Tj ET`).join('\n');
@@ -393,14 +440,34 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     return EstimateErrorType.NOT_FOUND;
   };
 
+  const loadOrderRowWithSchemaFallback = useCallback(async (candidateId: string, withJoin: boolean) => {
+    if (!supabase) return { data: null, error: new Error('Supabase not configured') };
+
+    let orderColumns = [...ORDER_BASE_COLUMNS];
+    while (orderColumns.length > 0) {
+      const query = withJoin ? `${orderColumns.join(',')},parts(*,price_variants(*))` : orderColumns.join(',');
+      const response = await supabase
+        .from('orders')
+        .select(query)
+        .eq('id', candidateId)
+        .maybeSingle();
+
+      if (!response.error || !isSchemaColumnError(response.error)) return response;
+
+      const missingColumn = getMissingOrderColumn(response.error);
+      if (!missingColumn || !orderColumns.includes(missingColumn)) return response;
+
+      await logger.warn('quote-schema-fallback', `orders.${missingColumn} is missing; retrying quote query without the column`, { quoteId: orderId, candidateId, withJoin });
+      orderColumns = orderColumns.filter((column) => column !== missingColumn);
+    }
+
+    return { data: null, error: new Error('No selectable columns left for orders table') };
+  }, [orderId]);
+
   const loadQuoteWithoutJoin = useCallback(async (candidateId: string) => {
     if (!supabase) return { data: null, error: new Error('Supabase not configured') };
 
-    const orderResponse = await supabase
-      .from('orders')
-      .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,markup_type,markup_fixed_aed,logistics,exchange_rate,created_at,is_archived,is_sold')
-      .eq('id', candidateId)
-      .maybeSingle();
+    const orderResponse = await loadOrderRowWithSchemaFallback(candidateId, false);
 
     if (orderResponse.error || !orderResponse.data) {
       return { data: null, error: orderResponse.error };
@@ -441,7 +508,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     };
 
     return { data: stitched, error: null };
-  }, []);
+  }, [loadOrderRowWithSchemaFallback]);
 
   const loadQuoteFromCloudSnapshot = useCallback(async (candidateId: string): Promise<Order | null> => {
     if (!supabase) return null;
@@ -494,13 +561,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       if (attempts[attempt] > 0) await sleep(attempts[attempt]);
 
       for (const candidateId of candidateOrderIds) {
-        let { data, error: loadError } = await supabase
-          .from('orders')
-          .select('id,brand,model,year,body_type,vin,status,sales_status,vin_photo_url,priority,client_name,source,car_photo_url,car_photos,markup_percent,markup_type,markup_fixed_aed,logistics,exchange_rate,created_at,is_archived,is_sold,parts(*,price_variants(*))')
-          .eq('id', candidateId)
-          .maybeSingle();
+        let { data, error: loadError } = await loadOrderRowWithSchemaFallback(candidateId, true);
 
-        if (loadError && isRelationQueryError(loadError)) {
+        if (loadError && (isRelationQueryError(loadError) || isSchemaColumnError(loadError))) {
           const fallback = await loadQuoteWithoutJoin(candidateId);
           data = fallback.data;
           loadError = fallback.error as any;
@@ -535,7 +598,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
     setLoading(false);
     return false;
-  }, [orderId, readQuoteFromCache, candidateOrderIds, loadQuoteWithoutJoin, loadQuoteFromCloudSnapshot]);
+  }, [orderId, readQuoteFromCache, candidateOrderIds, loadOrderRowWithSchemaFallback, loadQuoteWithoutJoin, loadQuoteFromCloudSnapshot]);
 
   useEffect(() => {
     void loadQuote();
