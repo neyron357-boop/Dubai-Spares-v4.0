@@ -385,18 +385,18 @@ const PublicOrderFormScreen: React.FC = () => {
       const orderId = createId();
       const now = new Date().toISOString();
 
-      let uploadedCarPhotos: string[] = [];
-      let uploadedVinPhotos: string[] = [];
-
-      if (carPhotoData) {
-        const compressed = await optimizeImageForUpload(carPhotoData, `public-order:${orderId}:car`);
-        uploadedCarPhotos = await ensurePublicImageUrls([compressed], `orders/${orderId}/car`);
-      }
-
-      if (vinPhotoData) {
-        const compressedVin = await optimizeImageForUpload(vinPhotoData, `public-order:${orderId}:vin`);
-        uploadedVinPhotos = await ensurePublicImageUrls([compressedVin], `orders/${orderId}/vin`);
-      }
+      const [uploadedCarPhotos, uploadedVinPhotos] = await Promise.all([
+        (async () => {
+          if (!carPhotoData) return [] as string[];
+          const compressed = await optimizeImageForUpload(carPhotoData, `public-order:${orderId}:car`);
+          return ensurePublicImageUrls([compressed], `orders/${orderId}/car`);
+        })(),
+        (async () => {
+          if (!vinPhotoData) return [] as string[];
+          const compressedVin = await optimizeImageForUpload(vinPhotoData, `public-order:${orderId}:vin`);
+          return ensurePublicImageUrls([compressedVin], `orders/${orderId}/vin`);
+        })()
+      ]);
 
       const uploadedAudios = filledRequestedParts.map((part) => part.audioNote || '').filter(Boolean);
 
@@ -442,22 +442,23 @@ const PublicOrderFormScreen: React.FC = () => {
 
       if (orderError) throw orderError;
 
-      const partsToInsert = [];
-      for (const part of filledRequestedParts) {
-        let uploadedPartPhotos: string[] = [];
-        if (part.photoData) {
-          const compressedPartPhoto = await optimizeImageForUpload(part.photoData, `public-order:${orderId}:${part.id}`);
-          uploadedPartPhotos = await ensurePublicImageUrls([compressedPartPhoto], `orders/${orderId}/parts/${part.id}`);
-        }
-        partsToInsert.push({
+      const partsToInsert = await Promise.all(filledRequestedParts.map(async (part) => {
+        const uploadedPartPhotos = !part.photoData
+          ? []
+          : await (async (photoData: string) => {
+            const compressedPartPhoto = await optimizeImageForUpload(photoData, `public-order:${orderId}:${part.id}`);
+            return ensurePublicImageUrls([compressedPartPhoto], `orders/${orderId}/parts/${part.id}`);
+          })(part.photoData);
+
+        return {
           id: createId(),
           order_id: orderId,
           name: part.name.trim(),
           photos: uploadedPartPhotos,
           photo_url: uploadedPartPhotos[0] || null,
           is_found: false
-        });
-      }
+        };
+      }));
 
       const { error: partError } = await supabase.from('parts').insert(partsToInsert);
       if (partError) throw partError;
