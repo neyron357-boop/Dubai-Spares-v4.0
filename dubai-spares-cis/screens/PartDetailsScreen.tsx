@@ -111,6 +111,7 @@ const PartDetailsScreen: React.FC = () => {
   const { orders, updateOrder, suppliers, addSupplier, updateSupplier } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const variantsListRef = useRef<HTMLDivElement>(null);
+  const formSessionRef = useRef<string | null>(null);
 
   const order = orders.find((o) => o.id === orderId);
   const part = order?.parts.find((p) => p.id === partId);
@@ -157,7 +158,15 @@ const PartDetailsScreen: React.FC = () => {
   }, [isPriceValid, numericPrice, order?.exchangeRate, order?.clientCurrency]);
 
   useEffect(() => {
-    if (!isAdding) return;
+    if (!isAdding) {
+      formSessionRef.current = null;
+      return;
+    }
+
+    const nextSession = isEditing ? `edit:${editingVariantId || ''}` : 'create';
+    if (formSessionRef.current === nextSession) return;
+    formSessionRef.current = nextSession;
+
     if (isEditing && part) {
       const editable = part.variants.find((v) => v.id === editingVariantId);
       if (!editable) return;

@@ -714,8 +714,24 @@ const NewOrderScreen: React.FC = () => {
 
       <section className={cardClass}>
         <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><UserRound size={16} /> Клиент</h2>
-        <input value={customerContact} onChange={(e) => setCustomerContact(e.target.value)} placeholder="WhatsApp / телефон (опционально)" className={inputClass} />
-        <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Имя (опционально)" className={inputClass} />
+        <input
+          type="tel"
+          name="customerContact"
+          autoComplete="tel"
+          value={customerContact}
+          onChange={(e) => setCustomerContact(e.target.value)}
+          placeholder="WhatsApp / телефон (опционально)"
+          className={inputClass}
+        />
+        <input
+          type="text"
+          name="clientName"
+          autoComplete="name"
+          value={clientName}
+          onChange={(e) => setClientName(e.target.value)}
+          placeholder="Имя (опционально)"
+          className={inputClass}
+        />
 
         {mode === 'full' && (
           <div className="grid grid-cols-1 gap-3 transition-all duration-200 sm:grid-cols-2">
