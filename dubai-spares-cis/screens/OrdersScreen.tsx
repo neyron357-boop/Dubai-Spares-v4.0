@@ -404,7 +404,7 @@ const OrdersScreen: React.FC = () => {
   const isUnreadPublicLead = (order: Order) => order.leadSource === 'public_form' && order.leadUnread === true && !order.isArchived;
 
   const tabCounts = useMemo(() => ({
-    active: orders.filter((o) => !o.isArchived && !o.isSold && !o.isVip && !isUnreadPublicLead(o)).length,
+    active: orders.filter((o) => !o.isArchived && !o.isSold && !isUnreadPublicLead(o)).length,
     leads: orders.filter((o) => isUnreadPublicLead(o) && !o.isSold).length,
     vip: orders.filter((o) => o.isVip && !o.isSold).length,
     sold: orders.filter((o) => o.isSold).length,
@@ -417,7 +417,7 @@ const OrdersScreen: React.FC = () => {
       if (activeTab === 'archive') return order.isArchived && !order.isSold;
       if (activeTab === 'vip') return order.isVip && !order.isSold;
       if (activeTab === 'leads') return isUnreadPublicLead(order) && !order.isSold;
-      return !order.isArchived && !order.isSold && !order.isVip && !isUnreadPublicLead(order);
+      return !order.isArchived && !order.isSold && !isUnreadPublicLead(order);
     });
 
     if (debouncedSearch) {
