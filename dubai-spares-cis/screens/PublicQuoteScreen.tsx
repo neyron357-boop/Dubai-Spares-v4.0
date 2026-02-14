@@ -352,10 +352,13 @@ const isRelationQueryError = (error: unknown) => {
     && (message.includes('relationship') || message.includes('embedded') || message.includes('not found'));
 };
 
-const isSchemaColumnError = (error: unknown) => {
+const isMissingColumnError = (error: unknown) => {
   if (typeof error !== 'object' || !error) return false;
   const anyErr = error as { code?: unknown; message?: unknown };
-  return anyErr.code === 'PGRST204' && typeof anyErr.message === 'string' && anyErr.message.includes('Could not find the');
+  if (typeof anyErr.message !== 'string') return false;
+  if (anyErr.code === 'PGRST204') return anyErr.message.includes('Could not find the');
+  if (anyErr.code === '42703') return anyErr.message.toLowerCase().includes('does not exist');
+  return false;
 };
 
 
@@ -547,7 +550,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     const status = Number((loadError as { status?: number } | null)?.status || 0);
     const message = String((loadError as { message?: string } | null)?.message || '').toLowerCase();
     if (status === 401 || status === 403 || message.includes('permission') || message.includes('not authorized')) return EstimateErrorType.NO_ACCESS;
-    if (isSchemaColumnError(loadError) || isRelationQueryError(loadError) || (loadError as { code?: string } | null)?.code === '42703') return EstimateErrorType.SERVER_ERROR;
+    if (isMissingColumnError(loadError) || isRelationQueryError(loadError)) return EstimateErrorType.SERVER_ERROR;
     if (message.includes('token') || message.includes('jwt')) return EstimateErrorType.EXPIRED_LINK;
     if (status >= 500) return EstimateErrorType.SERVER_ERROR;
     return EstimateErrorType.NOT_FOUND;
@@ -565,7 +568,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         .eq('id', candidateId)
         .maybeSingle();
 
-      if (!response.error || !isSchemaColumnError(response.error)) return response;
+      if (!response.error || !isMissingColumnError(response.error)) return response;
 
       const missingColumn = getMissingTableColumn(response.error, 'orders');
       if (!missingColumn || !orderColumns.includes(missingColumn)) return response;
@@ -595,7 +598,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         .select(partColumns.join(','))
         .eq('order_id', candidateId);
 
-      if (!partsResponse.error || !isSchemaColumnError(partsResponse.error)) break;
+      if (!partsResponse.error || !isMissingColumnError(partsResponse.error)) break;
 
       const missingColumn = getMissingTableColumn(partsResponse.error, 'parts');
       if (!missingColumn || !partColumns.includes(missingColumn)) break;
@@ -620,7 +623,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           .select(variantColumns.join(','))
           .in('part_id', partIds);
 
-        if (!variantsResponse.error || !isSchemaColumnError(variantsResponse.error)) break;
+        if (!variantsResponse.error || !isMissingColumnError(variantsResponse.error)) break;
 
         const missingColumn = getMissingTableColumn(variantsResponse.error, 'price_variants');
         if (!missingColumn || !variantColumns.includes(missingColumn)) break;
@@ -727,7 +730,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       for (const candidateId of candidateOrderIds) {
         let { data, error: loadError } = await loadOrderRowWithSchemaFallback(candidateId, true);
 
-        if (loadError && (isRelationQueryError(loadError) || isSchemaColumnError(loadError))) {
+        if (loadError && (isRelationQueryError(loadError) || isMissingColumnError(loadError))) {
           const fallback = await loadQuoteWithoutJoin(candidateId);
           data = fallback.data;
           loadError = fallback.error as any;
