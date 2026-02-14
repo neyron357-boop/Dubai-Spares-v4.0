@@ -391,20 +391,33 @@ const ORDER_BASE_COLUMNS = [
   'is_sold'
 ];
 
-const getMissingOrderColumn = (error: unknown): string | null => {
+const PART_BASE_COLUMNS = ['id', 'order_id', 'name', 'photo_url', 'photos', 'is_found'];
+
+const PRICE_VARIANT_BASE_COLUMNS = ['id', 'part_id', 'price_aed', 'condition', 'availability', 'shop_name', 'phone', 'location', 'photo_url', 'photos', 'created_at'];
+
+const normalizeCandidateOrderId = (rawId: string) => {
+  const normalizedDashes = rawId.replace(/[‐‑‒–—―]/g, '-');
+  const cleaned = decodeURIComponent(normalizedDashes.trim().replace(/^['\"]+|['\"]+$/g, ''));
+  const uuidMatch = cleaned.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+  return uuidMatch ? uuidMatch[0].toLowerCase() : cleaned;
+};
+
+const getMissingTableColumn = (error: unknown, table: string): string | null => {
   if (typeof error !== 'object' || !error) return null;
   const anyErr = error as { code?: unknown; message?: unknown };
   const message = typeof anyErr.message === 'string' ? anyErr.message : '';
   if (!message) return null;
 
+  const escapedTable = table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
   if (anyErr.code === 'PGRST204') {
-    const match = message.match(/Could not find the '([^']+)' column of 'orders'/);
+    const match = message.match(new RegExp(`Could not find the '([^']+)' column of '${escapedTable}'`));
     return match?.[1] || null;
   }
 
   if (anyErr.code === '42703') {
-    const postgresMatch = message.match(/column\s+orders\.([a-zA-Z0-9_]+)\s+does not exist/i);
-    const quotedMatch = message.match(/column\s+["']?orders["']?\.["']?([a-zA-Z0-9_]+)["']?\s+does not exist/i);
+    const postgresMatch = message.match(new RegExp(`column\\s+${escapedTable}\\.([a-zA-Z0-9_]+)\\s+does not exist`, 'i'));
+    const quotedMatch = message.match(new RegExp(`column\\s+["']?${escapedTable}["']?\\.["']?([a-zA-Z0-9_]+)["']?\\s+does not exist`, 'i'));
     return postgresMatch?.[1] || quotedMatch?.[1] || null;
   }
 
@@ -459,7 +472,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const expiresAt = Number(params.get('exp') || 0);
   const fallbackOrderId = extractOrderIdFromQuoteSlug(params.get('oid') || params.get('orderId') || '');
   const rawOid = (params.get('oid') || params.get('orderId') || '').trim();
-  const candidateOrderIds = Array.from(new Set([orderId, fallbackOrderId, rawOid].filter(Boolean)));
+  const candidateOrderIds = Array.from(new Set([orderId, fallbackOrderId, rawOid]
+    .filter(Boolean)
+    .map((candidate) => normalizeCandidateOrderId(candidate))));
   const embeddedSnapshot = useMemo(() => parseEmbeddedSnapshot(params.get('data')), [params]);
   const snapshotToken = (params.get('snapshot') || '').trim();
   const token = params.get('token') || '';
@@ -532,7 +547,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     const status = Number((loadError as { status?: number } | null)?.status || 0);
     const message = String((loadError as { message?: string } | null)?.message || '').toLowerCase();
     if (status === 401 || status === 403 || message.includes('permission') || message.includes('not authorized')) return EstimateErrorType.NO_ACCESS;
-    if (isSchemaColumnError(loadError) || isRelationQueryError(loadError)) return EstimateErrorType.SERVER_ERROR;
+    if (isSchemaColumnError(loadError) || isRelationQueryError(loadError) || (loadError as { code?: string } | null)?.code === '42703') return EstimateErrorType.SERVER_ERROR;
     if (message.includes('token') || message.includes('jwt')) return EstimateErrorType.EXPIRED_LINK;
     if (status >= 500) return EstimateErrorType.SERVER_ERROR;
     return EstimateErrorType.NOT_FOUND;
@@ -552,7 +567,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
       if (!response.error || !isSchemaColumnError(response.error)) return response;
 
-      const missingColumn = getMissingOrderColumn(response.error);
+      const missingColumn = getMissingTableColumn(response.error, 'orders');
       if (!missingColumn || !orderColumns.includes(missingColumn)) return response;
 
       await logger.warn('quote-schema-fallback', `orders.${missingColumn} is missing; retrying quote query without the column`, { quoteId: orderId, candidateId, withJoin });
@@ -571,23 +586,49 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       return { data: null, error: orderResponse.error };
     }
 
-    const partsResponse = await supabase
-      .from('parts')
-      .select('id,order_id,name,photo_url,photos,is_found')
-      .eq('order_id', candidateId);
+    let partColumns = [...PART_BASE_COLUMNS];
+    let partsResponse;
 
-    if (partsResponse.error) {
+    while (partColumns.length > 0) {
+      partsResponse = await supabase
+        .from('parts')
+        .select(partColumns.join(','))
+        .eq('order_id', candidateId);
+
+      if (!partsResponse.error || !isSchemaColumnError(partsResponse.error)) break;
+
+      const missingColumn = getMissingTableColumn(partsResponse.error, 'parts');
+      if (!missingColumn || !partColumns.includes(missingColumn)) break;
+
+      await logger.warn('quote-schema-fallback', `parts.${missingColumn} is missing; retrying quote query without the column`, { quoteId: orderId, candidateId });
+      partColumns = partColumns.filter((column) => column !== missingColumn);
+    }
+
+    if (!partsResponse || partsResponse.error) {
       return { data: null, error: partsResponse.error };
     }
 
     const parts = Array.isArray(partsResponse.data) ? partsResponse.data : [];
     const partIds = parts.map((item) => String(item.id));
-    const variantsResponse = partIds.length === 0
-      ? { data: [], error: null }
-      : await supabase
-        .from('price_variants')
-        .select('id,part_id,price_aed,condition,availability,shop_name,phone,location,photo_url,photos,created_at')
-        .in('part_id', partIds);
+    let variantColumns = [...PRICE_VARIANT_BASE_COLUMNS];
+    let variantsResponse: { data: any[] | null; error: any } = { data: [], error: null };
+
+    if (partIds.length > 0) {
+      while (variantColumns.length > 0) {
+        variantsResponse = await supabase
+          .from('price_variants')
+          .select(variantColumns.join(','))
+          .in('part_id', partIds);
+
+        if (!variantsResponse.error || !isSchemaColumnError(variantsResponse.error)) break;
+
+        const missingColumn = getMissingTableColumn(variantsResponse.error, 'price_variants');
+        if (!missingColumn || !variantColumns.includes(missingColumn)) break;
+
+        await logger.warn('quote-schema-fallback', `price_variants.${missingColumn} is missing; retrying quote query without the column`, { quoteId: orderId, candidateId });
+        variantColumns = variantColumns.filter((column) => column !== missingColumn);
+      }
+    }
 
     if (variantsResponse.error) {
       return { data: null, error: variantsResponse.error };
