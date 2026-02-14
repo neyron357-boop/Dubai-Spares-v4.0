@@ -114,6 +114,27 @@ export interface Order {
     packingAed?: number;
     serviceFeeAed?: number;
   };
+  pricingEvents?: OrderPricingEvent[];
+}
+
+export type PricingFieldKey =
+  | 'markupType'
+  | 'markupPercent'
+  | 'markupFixedAed'
+  | 'exchangeRate'
+  | 'clientCurrency'
+  | 'logistics.deliveryType'
+  | 'logistics.deliveryAed'
+  | 'logistics.packingAed'
+  | 'logistics.serviceFeeAed';
+
+export interface OrderPricingEvent {
+  id: string;
+  field: PricingFieldKey;
+  label: string;
+  previousValue: string;
+  nextValue: string;
+  createdAt: number;
 }
 
 export interface OrderNote {
@@ -235,6 +256,7 @@ export interface DbOrderRow {
     packingAed?: number;
     serviceFeeAed?: number;
   };
+  pricing_events?: OrderPricingEvent[];
   exchange_rate: number;
   created_at: number | string;
   is_archived: boolean;

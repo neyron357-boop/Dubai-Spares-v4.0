@@ -282,7 +282,8 @@ const mapDbOrder = (row: any): Order => ({
   exchangeRate: Number(row.exchange_rate || 3.67),
   createdAt: parseTimestamp(row.created_at),
   isArchived: !!row.is_archived,
-  isSold: !!row.is_sold
+  isSold: !!row.is_sold,
+  pricingEvents: Array.isArray(row.pricing_events) ? row.pricing_events : []
 });
 
 const mapSnapshotOrder = (row: any): Order => ({
@@ -328,7 +329,8 @@ const mapSnapshotOrder = (row: any): Order => ({
   exchangeRate: Number(row?.exchangeRate ?? row?.exchange_rate ?? 3.67),
   createdAt: parseTimestamp(row?.createdAt ?? row?.created_at),
   isArchived: !!row?.isArchived || !!row?.is_archived,
-  isSold: !!row?.isSold || !!row?.is_sold
+  isSold: !!row?.isSold || !!row?.is_sold,
+  pricingEvents: Array.isArray(row?.pricingEvents || row?.pricing_events) ? (row?.pricingEvents || row?.pricing_events) : []
 });
 
 const fetchLiveQuoteRates = async (): Promise<QuoteRates> => {
@@ -396,7 +398,8 @@ const ORDER_BASE_COLUMNS = [
   'exchange_rate',
   'created_at',
   'is_archived',
-  'is_sold'
+  'is_sold',
+  'pricing_events'
 ];
 
 const PART_BASE_COLUMNS = ['id', 'order_id', 'name', 'photo_url', 'photos', 'is_found'];
@@ -718,6 +721,16 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
   const loadQuote = useCallback(async () => {
+    if (snapshotToken) {
+      const sharedSnapshotOrder = await loadQuoteFromSharedSnapshot();
+      if (sharedSnapshotOrder) {
+        setOrder(sharedSnapshotOrder);
+        setErrorType(null);
+        setLoading(false);
+        return true;
+      }
+    }
+
     if (!navigator.onLine && readQuoteFromCache()) {
       setLoading(false);
       return true;
@@ -788,7 +801,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
     setLoading(false);
     return false;
-  }, [orderId, readQuoteFromCache, candidateOrderIds, loadOrderRowWithSchemaFallback, loadQuoteWithoutJoin, loadQuoteFromSharedSnapshot, loadQuoteFromCloudSnapshot, embeddedSnapshot]);
+  }, [orderId, readQuoteFromCache, candidateOrderIds, loadOrderRowWithSchemaFallback, loadQuoteWithoutJoin, loadQuoteFromSharedSnapshot, loadQuoteFromCloudSnapshot, embeddedSnapshot, snapshotToken]);
 
   useEffect(() => {
     void loadQuote();

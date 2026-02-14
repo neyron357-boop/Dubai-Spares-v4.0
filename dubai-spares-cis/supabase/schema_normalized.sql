@@ -55,6 +55,7 @@ create table if not exists public.orders (
   is_pinned boolean not null default false,
   is_lead boolean not null default false,
   notes jsonb not null default '[]'::jsonb,
+  pricing_events jsonb not null default '[]'::jsonb,
   recommended_shop_ids text[] not null default '{}',
   dismissed_shop_ids text[] not null default '{}',
   created_at timestamptz not null default now(),
