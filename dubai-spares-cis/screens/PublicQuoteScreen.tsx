@@ -72,6 +72,7 @@ const i18n = {
     markup: 'Markup',
     packing: 'Packing',
     logistics: 'Logistics',
+    delivery: 'Delivery',
     total: 'Total',
     trust: 'Trust',
     validUntil: 'Price valid until',
@@ -124,6 +125,7 @@ const i18n = {
     markup: 'Наценка',
     packing: 'Упаковка',
     logistics: 'Логистика',
+    delivery: 'Доставка',
     total: 'Итого',
     trust: 'Доверие',
     validUntil: 'Цена действует до',
@@ -147,6 +149,30 @@ const parseTimestamp = (value: string | number | null | undefined): number => {
   return Date.now();
 };
 
+const parseMoneyField = (...values: Array<unknown>) => {
+  for (const value of values) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+};
+
+const normalizeLogistics = (raw: any) => {
+  if (!raw || typeof raw !== 'object') return undefined;
+
+  const deliveryAed = parseMoneyField(raw.deliveryAed, raw.delivery_aed);
+  const packingAed = parseMoneyField(raw.packingAed, raw.packing_aed);
+  const serviceFeeAed = parseMoneyField(raw.serviceFeeAed, raw.service_fee_aed);
+  const deliveryType = raw.deliveryType || raw.delivery_type;
+
+  return {
+    deliveryType: deliveryType === 'export' ? 'export' : 'uae',
+    deliveryAed,
+    packingAed,
+    serviceFeeAed
+  };
+};
+
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
 
 const mapDbOrder = (row: any): Order => ({
@@ -164,7 +190,7 @@ const mapDbOrder = (row: any): Order => ({
   source: row.source || 'WhatsApp',
   carPhotoUrl: row.car_photo_url || row.car_photos?.[0] || row.vin_photo_url || '',
   carPhotos: row.car_photos || [],
-  logistics: row.logistics || undefined,
+  logistics: normalizeLogistics(row.logistics),
   markupType: row.markup_type || 'percent',
   markupFixedAed: Number(row.markup_fixed_aed || 0),
   parts: (row.parts || []).map((part: any) => ({
@@ -210,7 +236,7 @@ const mapSnapshotOrder = (row: any): Order => ({
   source: row?.source || 'WhatsApp',
   carPhotoUrl: row?.carPhotoUrl || row?.car_photo_url || row?.carPhotos?.[0] || row?.car_photos?.[0] || row?.vinPhotoUrl || row?.vin_photo_url || '',
   carPhotos: row?.carPhotos || row?.car_photos || [],
-  logistics: row?.logistics || undefined,
+  logistics: normalizeLogistics(row?.logistics),
   markupType: row?.markupType || row?.markup_type || 'percent',
   markupFixedAed: Number(row?.markupFixedAed ?? row?.markup_fixed_aed ?? 0),
   parts: (row?.parts || []).map((part: any) => ({
@@ -680,9 +706,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const totals = useMemo(() => {
     const subtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
     const markup = 0;
-    const serviceFee = Number(order?.logistics?.serviceFeeAed || 0);
-    const delivery = Number(order?.logistics?.deliveryAed || 0);
-    const packing = Number(order?.logistics?.packingAed || 0);
+    const serviceFee = parseMoneyField(order?.logistics?.serviceFeeAed);
+    const delivery = parseMoneyField(order?.logistics?.deliveryAed);
+    const packing = parseMoneyField(order?.logistics?.packingAed);
     const logistics = delivery + packing;
     const subtotalWithoutExtras = subtotal;
     const totalAed = subtotalWithoutExtras + serviceFee + logistics;
@@ -880,7 +906,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             <div className="flex items-center justify-between"><span>{t.partsSubtotal}</span><strong>{(totals.subtotal * rates[currency]).toFixed(2)} {currency}</strong></div>
             {totals.markup > 0 && <div className="flex items-center justify-between"><span>{t.markup}</span><strong>{(totals.markup * rates[currency]).toFixed(2)} {currency}</strong></div>}
             <div className="flex items-center justify-between"><span>{t.whatIncluded} ({t.partsSubtotal})</span><strong>{(totals.subtotalWithoutExtras * rates[currency]).toFixed(2)} {currency}</strong></div>
-            {totals.logistics > 0 && <div className="flex items-center justify-between"><span>{t.logistics}</span><strong>{(totals.logistics * rates[currency]).toFixed(2)} {currency}</strong></div>}
+            {totals.delivery > 0 && <div className="flex items-center justify-between"><span>{t.delivery}</span><strong>{(totals.delivery * rates[currency]).toFixed(2)} {currency}</strong></div>}
+            {totals.packing > 0 && <div className="flex items-center justify-between"><span>{t.packing}</span><strong>{(totals.packing * rates[currency]).toFixed(2)} {currency}</strong></div>}
             {totals.serviceFee > 0 && <div className="flex items-center justify-between"><span>{t.serviceFee}</span><strong>{(totals.serviceFee * rates[currency]).toFixed(2)} {currency}</strong></div>}
             <div className="mt-2 border-t border-dashed border-slate-200 pt-2 flex items-center justify-between text-base"><span className="font-semibold">{t.total}</span><strong>{totals.totalConverted.toFixed(2)} {currency}</strong></div>
           </div>
