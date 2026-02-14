@@ -149,10 +149,17 @@ const parseTimestamp = (value: string | number | null | undefined): number => {
   return Date.now();
 };
 
+const parseMoneyValue = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const parseMoneyField = (...values: Array<unknown>) => {
   for (const value of values) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
+    const parsed = parseMoneyValue(value);
+    if (parsed !== null) return parsed;
   }
   return 0;
 };
@@ -204,10 +211,8 @@ const normalizeLogistics = (raw: any) => {
 };
 
 const resolveOrderLogistics = (row: any) => {
-  const nestedLogistics = normalizeLogistics(row?.logistics);
-  if (nestedLogistics) return nestedLogistics;
-
-  return normalizeLogistics({
+  const mergedSources = {
+    ...(row?.logistics && typeof row.logistics === 'object' ? row.logistics : {}),
     deliveryAed: row?.deliveryAed,
     delivery_aed: row?.delivery_aed,
     delivery: row?.delivery,
@@ -227,7 +232,9 @@ const resolveOrderLogistics = (row: any) => {
     fee: row?.fee,
     deliveryType: row?.deliveryType,
     delivery_type: row?.delivery_type
-  });
+  };
+
+  return normalizeLogistics(mergedSources);
 };
 
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
@@ -850,10 +857,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <button
                 type="button"
                 onClick={() => {
-                  if (window.history.length > 1) {
-                    window.history.back();
-                    return;
-                  }
                   window.location.href = '/request';
                 }}
                 className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700"
