@@ -68,7 +68,7 @@ const i18n = {
     hideBreakdown: 'Hide breakdown',
     priceBreakdown: 'Price breakdown',
     partsSubtotal: 'Parts subtotal',
-    serviceFee: 'Service fee',
+    serviceFee: 'Commission',
     markup: 'Markup',
     packing: 'Packing',
     logistics: 'Logistics',
@@ -120,7 +120,7 @@ const i18n = {
     hideBreakdown: 'Скрыть разбивку',
     priceBreakdown: 'Разбивка цены',
     partsSubtotal: 'Сумма деталей',
-    serviceFee: 'Сервисный сбор',
+    serviceFee: 'Комиссия',
     markup: 'Наценка',
     packing: 'Упаковка',
     logistics: 'Логистика',
@@ -680,9 +680,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const totals = useMemo(() => {
     const subtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
     const markup = 0;
-    const serviceFee = (order?.logistics?.serviceFeeAed || 0);
-    const delivery = (order?.logistics?.deliveryAed || 0);
-    const packing = (order?.logistics?.packingAed || 0);
+    const serviceFee = Number(order?.logistics?.serviceFeeAed || 0);
+    const delivery = Number(order?.logistics?.deliveryAed || 0);
+    const packing = Number(order?.logistics?.packingAed || 0);
     const logistics = delivery + packing;
     const subtotalWithoutExtras = subtotal;
     const totalAed = subtotalWithoutExtras + serviceFee + logistics;
@@ -880,8 +880,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             <div className="flex items-center justify-between"><span>{t.partsSubtotal}</span><strong>{(totals.subtotal * rates[currency]).toFixed(2)} {currency}</strong></div>
             {totals.markup > 0 && <div className="flex items-center justify-between"><span>{t.markup}</span><strong>{(totals.markup * rates[currency]).toFixed(2)} {currency}</strong></div>}
             <div className="flex items-center justify-between"><span>{t.whatIncluded} ({t.partsSubtotal})</span><strong>{(totals.subtotalWithoutExtras * rates[currency]).toFixed(2)} {currency}</strong></div>
-            {totals.delivery > 0 && <div className="flex items-center justify-between"><span>{t.logistics}</span><strong>{(totals.delivery * rates[currency]).toFixed(2)} {currency}</strong></div>}
-            {totals.packing > 0 && <div className="flex items-center justify-between"><span>{t.packing}</span><strong>{(totals.packing * rates[currency]).toFixed(2)} {currency}</strong></div>}
+            {totals.logistics > 0 && <div className="flex items-center justify-between"><span>{t.logistics}</span><strong>{(totals.logistics * rates[currency]).toFixed(2)} {currency}</strong></div>}
             {totals.serviceFee > 0 && <div className="flex items-center justify-between"><span>{t.serviceFee}</span><strong>{(totals.serviceFee * rates[currency]).toFixed(2)} {currency}</strong></div>}
             <div className="mt-2 border-t border-dashed border-slate-200 pt-2 flex items-center justify-between text-base"><span className="font-semibold">{t.total}</span><strong>{totals.totalConverted.toFixed(2)} {currency}</strong></div>
           </div>
