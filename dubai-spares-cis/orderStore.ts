@@ -7,6 +7,7 @@ import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
 import { NotificationType, pushNotification, sendBrowserNotification } from './notificationCenter';
 import { loadAppSettings } from './appSettings';
+import { addMissingColumns, normalizeSyncError, setLastIndexedDbError, setLastSupabaseError, setSyncStatus } from './syncDiagnostics';
 
 type OrderState = {
   orders: Order[];
@@ -121,6 +122,8 @@ let state: OrderState = {
 
 let syncInProgress = false;
 let wasCloudHydratedAtLeastOnce = false;
+const schemaMissingColumns = new Set<string>();
+const MAX_MUTATION_RETRY = 5;
 
 const isOfflineFirstEnabled = () => loadAppSettings().offlineFirst;
 
@@ -330,8 +333,12 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
       return response;
     }
 
-    await logger.warn('sync:fetch', `orders.${missingColumn} is missing in remote schema; retrying fetch without that column`);
-    await logDatabaseIntegrity('sync:fetch', response.error, { column: missingColumn });
+    if (!schemaMissingColumns.has(missingColumn)) {
+      schemaMissingColumns.add(missingColumn);
+      addMissingColumns([missingColumn]);
+      await logger.warn('sync:fetch', `schema_missing_columns: ["${missingColumn}"]`);
+      await logDatabaseIntegrity('sync:fetch', response.error, { column: missingColumn });
+    }
     orderColumns = orderColumns.filter((column) => column !== missingColumn);
   }
 };
@@ -374,11 +381,19 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 };
 
 const broadcastSyncError = (error: unknown, fallback: string) => {
-  const message = getErrorMessage(error, fallback);
-  void logger.error('sync:error', message, { fallback, error: serializeError(error) });
+  const normalized = normalizeSyncError(error, fallback);
+  const message = `${normalized.humanMessage} [${normalized.code}]`;
+  void logger.error('sync:error', message, { fallback, code: normalized.code, actions: normalized.actions, error: serializeError(error) });
   void logDatabaseIntegrity('sync:error', error, { fallback });
   setState({ error: message });
-  window.dispatchEvent(new CustomEvent('cloud-sync-error', { detail: { message } }));
+  setSyncStatus(navigator.onLine ? 'error' : 'offline');
+  if (normalized.code.startsWith('PGRST') || normalized.code.startsWith('42')) {
+    setLastSupabaseError(normalized);
+  }
+  if (normalized.code.includes('IDB') || normalized.code.includes('QUEUE')) {
+    setLastIndexedDbError(normalized);
+  }
+  window.dispatchEvent(new CustomEvent('cloud-sync-error', { detail: { message, code: normalized.code, actions: normalized.actions } }));
 };
 
 const deleteRemoteOrderWithStorageCleanup = async (orderId: string) => {
@@ -681,12 +696,18 @@ const persistOrderGraph = async (order: Order) => {
 
 const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined, orderId: string) => {
   await logger.warn('sync:queue', `Queueing ${type} for order ${orderId}`);
+  const mutationId = `${type}:${orderId}`;
   await offlineDb.enqueueMutation({
-    id: createUuid(),
+    id: mutationId,
     type,
     orderId,
+    entity: 'orders',
+    entityId: orderId,
+    operation: type,
     payload: order,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    retryCount: 0,
+    lastError: null
   });
 
   const queueCount = await offlineDb.getMutationCount();
@@ -711,40 +732,47 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
 export const flushOfflineMutations = async () => {
   if (syncInProgress || !navigator.onLine || !isCloudSyncConfigured || !supabase) return;
   syncInProgress = true;
+  setSyncStatus('syncing');
   setState({ isSyncing: true });
 
   try {
     const pending = await offlineDb.getMutations();
     await logger.info('sync:flush', `Flush started with ${pending.length} pending mutations`);
     for (const mutation of pending) {
+      if (Number(mutation.retryCount || 0) >= MAX_MUTATION_RETRY) {
+        await logger.error('sync:flush', `Mutation ${mutation.id} reached retry limit`, { retryCount: mutation.retryCount, lastError: mutation.lastError });
+        continue;
+      }
       await logger.info('sync:flush', `Processing mutation ${mutation.id}`, { type: mutation.type, orderId: mutation.orderId });
-      if (mutation.type === 'delete') {
-        await logger.info('sync:flush', `Delete order ${mutation.orderId}`);
-        if (isUuid(mutation.orderId)) {
-          try {
+      try {
+        if (mutation.type === 'delete') {
+          await logger.info('sync:flush', `Delete order ${mutation.orderId}`);
+          if (isUuid(mutation.orderId)) {
             await deleteRemoteOrderWithStorageCleanup(mutation.orderId);
-          } catch (error) {
-            await logger.error('sync:flush', `Delete failed for order ${mutation.orderId}`, { error: serializeError(error) });
-            throw error;
           }
+        } else if (mutation.payload) {
+          const saved = await persistOrderGraph(mutation.payload);
+          await offlineDb.saveOrder(saved);
         }
-      } else if (mutation.payload) {
-        const saved = await persistOrderGraph(mutation.payload);
-        await offlineDb.saveOrder(saved);
+
+        await logger.info('sync:flush', `Mutation ${mutation.id} synced`);
+
+        if (import.meta.env.DEV) {
+          console.log(`☁️ Synced offline mutation ${mutation.id} for order ${mutation.orderId} to Supabase`);
+        }
+
+        await offlineDb.removeMutation(mutation.id);
+        const queueCount = await offlineDb.getMutationCount();
+        await logger.info('sync:flush', `Mutation ${mutation.id} removed from queue`, { queueCount });
+      } catch (error) {
+        const retryCount = Number(mutation.retryCount || 0) + 1;
+        await offlineDb.enqueueMutation({ ...mutation, retryCount, lastError: getErrorMessage(error, 'Mutation failed') });
+        await logger.warn('sync:flush', `Mutation ${mutation.id} failed`, { retryCount, error: serializeError(error) });
       }
-
-      await logger.info('sync:flush', `Mutation ${mutation.id} synced`);
-
-      if (import.meta.env.DEV) {
-        console.log(`☁️ Synced offline mutation ${mutation.id} for order ${mutation.orderId} to Supabase`);
-      }
-
-      await offlineDb.removeMutation(mutation.id);
-      const queueCount = await offlineDb.getMutationCount();
-      await logger.info('sync:flush', `Mutation ${mutation.id} removed from queue`, { queueCount });
     }
 
     await logger.info('sync:flush', 'Flush completed');
+    setSyncStatus('online');
   } catch (error: unknown) {
     broadcastSyncError(error, 'Offline sync failed');
   } finally {
@@ -770,6 +798,7 @@ export const fetchOrders = async () => {
 
   if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
     await logger.warn('sync:fetch', 'Skipping cloud fetch (offline or missing supabase config)');
+    setSyncStatus(navigator.onLine ? 'online' : 'offline');
     setState({ isLoading: false, isHydrated: true });
     return;
   }
@@ -810,6 +839,7 @@ export const fetchOrders = async () => {
   });
 
   await offlineDb.saveOrders(mergedOrders);
+  setSyncStatus('online');
   setState({ orders: mergedOrders, isLoading: false, isHydrated: true, error: null });
 
   if (wasCloudHydratedAtLeastOnce) {

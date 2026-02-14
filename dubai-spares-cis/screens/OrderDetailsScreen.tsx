@@ -151,6 +151,7 @@ const OrderDetailsScreen: React.FC = () => {
   const pricingSaveDebounceRef = useRef<number | null>(null);
   const logisticsCommitTimersRef = useRef<Partial<Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', number>>>({});
   const markupCommitTimerRef = useRef<number | null>(null);
+  const exchangeRateCommitTimerRef = useRef<number | null>(null);
   const renderPerfStart = performance.now();
 
   // Sync local rate input if order changes
@@ -178,6 +179,7 @@ const OrderDetailsScreen: React.FC = () => {
   useEffect(() => () => {
     if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
     if (markupCommitTimerRef.current) window.clearTimeout(markupCommitTimerRef.current);
+    if (exchangeRateCommitTimerRef.current) window.clearTimeout(exchangeRateCommitTimerRef.current);
     (Object.values(logisticsCommitTimersRef.current) as number[]).forEach((timerId) => {
       if (timerId) window.clearTimeout(timerId);
     });
@@ -590,7 +592,11 @@ const OrderDetailsScreen: React.FC = () => {
     const num = parseFloat(normalized);
 
     if (!isNaN(num) && num > 0) {
-      updateOrderField('exchangeRate', num);
+      if (exchangeRateCommitTimerRef.current) window.clearTimeout(exchangeRateCommitTimerRef.current);
+      exchangeRateCommitTimerRef.current = window.setTimeout(() => {
+        updateOrderField('exchangeRate', num);
+        exchangeRateCommitTimerRef.current = null;
+      }, 600);
     }
   };
 

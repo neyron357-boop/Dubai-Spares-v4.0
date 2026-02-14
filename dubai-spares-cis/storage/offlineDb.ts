@@ -6,8 +6,13 @@ export interface OfflineMutation {
   id: string;
   type: MutationType;
   orderId: string;
+  entity?: 'orders';
+  entityId?: string;
+  operation?: MutationType;
   payload?: Order;
   createdAt: number;
+  retryCount?: number;
+  lastError?: string | null;
 }
 
 const DB_NAME = 'dubai-spares-offline';
@@ -17,8 +22,27 @@ const MUTATIONS_STORE = 'mutations';
 const SYSTEM_LOGS_STORE = 'system_logs';
 const RADAR_INTERACTIONS_STORE = 'radar_interactions';
 const ALL_STORES = [ORDERS_STORE, MUTATIONS_STORE, SYSTEM_LOGS_STORE, RADAR_INTERACTIONS_STORE] as const;
+const MAX_MUTATIONS = 2000;
+const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
+let openPromise: Promise<IDBDatabase> | null = null;
 
-const openDb = (): Promise<IDBDatabase> =>
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isRecoverableOpenError = (error: unknown) => {
+  if (!(error instanceof Error)) return false;
+  return ['VersionError', 'QuotaExceededError', 'UnknownError', 'InvalidStateError'].includes(error.name)
+    || /blocked|lost|internal error|version/i.test(error.message);
+};
+
+const runWithDbLock = async <T>(fn: () => Promise<T>): Promise<T> => {
+  const lockApi = (navigator as Navigator & { locks?: { request: <R>(name: string, callback: () => Promise<R>) => Promise<R> } }).locks;
+  if (lockApi?.request) {
+    return lockApi.request('dubai-spares-offline-db-open', fn);
+  }
+  return fn();
+};
+
+const unsafeOpenDb = (): Promise<IDBDatabase> =>
   new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -38,9 +62,39 @@ const openDb = (): Promise<IDBDatabase> =>
       }
     };
 
-    request.onsuccess = () => resolve(request.result);
+    request.onblocked = () => reject(new Error('IndexedDB open blocked by another tab'));
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
     request.onerror = () => reject(request.error ?? new Error('Failed to open IndexedDB'));
   });
+
+const openDb = async (): Promise<IDBDatabase> => {
+  if (openPromise) return openPromise;
+  openPromise = runWithDbLock(async () => {
+    let lastError: unknown;
+    for (let index = 0; index < RETRY_DELAYS_MS.length; index += 1) {
+      try {
+        return await unsafeOpenDb();
+      } catch (error) {
+        lastError = error;
+        if (!isRecoverableOpenError(error) || index === RETRY_DELAYS_MS.length - 1) {
+          throw error;
+        }
+        await sleep(RETRY_DELAYS_MS[index]);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('Unable to open IndexedDB');
+  });
+
+  try {
+    return await openPromise;
+  } finally {
+    openPromise = null;
+  }
+};
 
 const txRequest = <T>(request: IDBRequest<T>) =>
   new Promise<T>((resolve, reject) => {
@@ -81,7 +135,28 @@ export const offlineDb = {
   async enqueueMutation(mutation: OfflineMutation): Promise<void> {
     const db = await openDb();
     const tx = db.transaction(MUTATIONS_STORE, 'readwrite');
-    await txRequest(tx.objectStore(MUTATIONS_STORE).put(mutation));
+    const store = tx.objectStore(MUTATIONS_STORE);
+    const rows = (await txRequest(store.getAll())) as OfflineMutation[];
+    const normalized: OfflineMutation = {
+      ...mutation,
+      entity: mutation.entity || 'orders',
+      entityId: mutation.entityId || mutation.orderId,
+      operation: mutation.operation || mutation.type,
+      retryCount: Number(mutation.retryCount || 0),
+      lastError: mutation.lastError || null
+    };
+
+    const duplicate = rows.find((item) => item.entity === normalized.entity && item.entityId === normalized.entityId && (item.operation || item.type) === (normalized.operation || normalized.type));
+    if (duplicate) {
+      await txRequest(store.put({ ...duplicate, ...normalized, id: duplicate.id, createdAt: duplicate.createdAt }));
+      return;
+    }
+
+    if (rows.length >= MAX_MUTATIONS) {
+      throw new Error(`Mutation queue limit reached (${MAX_MUTATIONS}). Export backup and clear queue.`);
+    }
+
+    await txRequest(store.put(normalized));
   },
 
   async getMutations(): Promise<OfflineMutation[]> {
@@ -199,6 +274,15 @@ export const offlineDb = {
     for (const storeName of ALL_STORES) {
       await txRequest(tx.objectStore(storeName).clear());
     }
+  },
+
+  async rebuildIndex(): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(DB_NAME);
+      request.onsuccess = () => resolve();
+      request.onblocked = () => reject(new Error('Cannot rebuild index while another tab is open'));
+      request.onerror = () => reject(request.error ?? new Error('Failed to rebuild IndexedDB'));
+    });
   },
 
   async saveRadarInteraction(interaction: RadarInteraction): Promise<void> {
