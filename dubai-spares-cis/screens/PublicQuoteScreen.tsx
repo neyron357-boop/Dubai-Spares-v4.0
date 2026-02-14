@@ -160,10 +160,28 @@ const parseMoneyField = (...values: Array<unknown>) => {
 const normalizeLogistics = (raw: any) => {
   if (!raw || typeof raw !== 'object') return undefined;
 
-  const deliveryAed = parseMoneyField(raw.deliveryAed, raw.delivery_aed);
-  const packingAed = parseMoneyField(raw.packingAed, raw.packing_aed);
-  const serviceFeeAed = parseMoneyField(raw.serviceFeeAed, raw.service_fee_aed);
+  const deliveryAed = parseMoneyField(
+    raw.deliveryAed,
+    raw.delivery_aed,
+    raw.delivery,
+    raw.logisticsAed,
+    raw.logistics_aed,
+    raw.logistics
+  );
+  const packingAed = parseMoneyField(raw.packingAed, raw.packing_aed, raw.packing, raw.packagingAed, raw.packaging_aed, raw.packaging);
+  const serviceFeeAed = parseMoneyField(
+    raw.serviceFeeAed,
+    raw.service_fee_aed,
+    raw.serviceFee,
+    raw.service_fee,
+    raw.commissionAed,
+    raw.commission_aed,
+    raw.commission,
+    raw.fee
+  );
   const deliveryType = raw.deliveryType || raw.delivery_type;
+
+  if (deliveryAed <= 0 && packingAed <= 0 && serviceFeeAed <= 0) return undefined;
 
   return {
     deliveryType: deliveryType === 'export' ? 'export' : 'uae',
@@ -171,6 +189,33 @@ const normalizeLogistics = (raw: any) => {
     packingAed,
     serviceFeeAed
   };
+};
+
+const resolveOrderLogistics = (row: any) => {
+  const nestedLogistics = normalizeLogistics(row?.logistics);
+  if (nestedLogistics) return nestedLogistics;
+
+  return normalizeLogistics({
+    deliveryAed: row?.deliveryAed,
+    delivery_aed: row?.delivery_aed,
+    delivery: row?.delivery,
+    logisticsAed: row?.logisticsAed,
+    logistics_aed: row?.logistics_aed,
+    logistics: row?.logistics_total,
+    packingAed: row?.packingAed,
+    packing_aed: row?.packing_aed,
+    packing: row?.packing,
+    serviceFeeAed: row?.serviceFeeAed,
+    service_fee_aed: row?.service_fee_aed,
+    serviceFee: row?.serviceFee,
+    service_fee: row?.service_fee,
+    commissionAed: row?.commissionAed,
+    commission_aed: row?.commission_aed,
+    commission: row?.commission,
+    fee: row?.fee,
+    deliveryType: row?.deliveryType,
+    delivery_type: row?.delivery_type
+  });
 };
 
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
@@ -190,7 +235,7 @@ const mapDbOrder = (row: any): Order => ({
   source: row.source || 'WhatsApp',
   carPhotoUrl: row.car_photo_url || row.car_photos?.[0] || row.vin_photo_url || '',
   carPhotos: row.car_photos || [],
-  logistics: normalizeLogistics(row.logistics),
+  logistics: resolveOrderLogistics(row),
   markupType: row.markup_type || 'percent',
   markupFixedAed: Number(row.markup_fixed_aed || 0),
   parts: (row.parts || []).map((part: any) => ({
@@ -236,7 +281,7 @@ const mapSnapshotOrder = (row: any): Order => ({
   source: row?.source || 'WhatsApp',
   carPhotoUrl: row?.carPhotoUrl || row?.car_photo_url || row?.carPhotos?.[0] || row?.car_photos?.[0] || row?.vinPhotoUrl || row?.vin_photo_url || '',
   carPhotos: row?.carPhotos || row?.car_photos || [],
-  logistics: normalizeLogistics(row?.logistics),
+  logistics: resolveOrderLogistics(row),
   markupType: row?.markupType || row?.markup_type || 'percent',
   markupFixedAed: Number(row?.markupFixedAed ?? row?.markup_fixed_aed ?? 0),
   parts: (row?.parts || []).map((part: any) => ({
@@ -315,6 +360,12 @@ const ORDER_BASE_COLUMNS = [
   'markup_fixed_aed',
   'use_markup_as_default_for_new_parts',
   'logistics',
+  'delivery_aed',
+  'packing_aed',
+  'service_fee_aed',
+  'commission_aed',
+  'logistics_aed',
+  'delivery_type',
   'exchange_rate',
   'created_at',
   'is_archived',
