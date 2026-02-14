@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, OrderPricingEvent, Part, Priority, OrderNote, Shop } from '../types';
@@ -148,6 +148,10 @@ const OrderDetailsScreen: React.FC = () => {
     packingAed: String(Number(order?.logistics?.packingAed || 0)),
     serviceFeeAed: String(Number(order?.logistics?.serviceFeeAed || 0))
   });
+  const pricingSaveDebounceRef = useRef<number | null>(null);
+  const logisticsCommitTimersRef = useRef<Partial<Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', number>>>({});
+  const markupCommitTimerRef = useRef<number | null>(null);
+  const renderPerfStart = performance.now();
 
   // Sync local rate input if order changes
   useEffect(() => {
@@ -165,6 +169,19 @@ const OrderDetailsScreen: React.FC = () => {
       serviceFeeAed: String(Number(order?.logistics?.serviceFeeAed || 0))
     });
   }, [order?.id, order?.logistics?.deliveryAed, order?.logistics?.packingAed, order?.logistics?.serviceFeeAed]);
+
+  useEffect(() => {
+    const renderMs = Math.round((performance.now() - renderPerfStart) * 100) / 100;
+    void logger.debug('PRICING_PERF', 'render_ms', { orderId: order?.id, renderMs });
+  });
+
+  useEffect(() => () => {
+    if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
+    if (markupCommitTimerRef.current) window.clearTimeout(markupCommitTimerRef.current);
+    (Object.values(logisticsCommitTimersRef.current) as number[]).forEach((timerId) => {
+      if (timerId) window.clearTimeout(timerId);
+    });
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -280,18 +297,18 @@ const OrderDetailsScreen: React.FC = () => {
   if (!order) return <div className="p-10 text-center text-gray-400 font-bold">ЗАКАЗ НЕ НАЙДЕН</div>;
 
 
-  const selectedOfferTotal = order.parts.reduce((sum, p) => sum + (p.variants[0]?.priceAed || 0), 0);
-  const logistics = {
+  const selectedOfferTotal = useMemo(() => order.parts.reduce((sum, p) => sum + (p.variants[0]?.priceAed || 0), 0), [order.parts]);
+  const logistics = useMemo(() => ({
     deliveryType: order.logistics?.deliveryType || 'uae',
-    deliveryAed: Number(order.logistics?.deliveryAed || 0),
-    packingAed: Number(order.logistics?.packingAed || 0),
-    serviceFeeAed: Number(order.logistics?.serviceFeeAed || 0)
-  };
-  const logisticsTotal = logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed;
+    deliveryAed: Number(logisticsInputs.deliveryAed || 0),
+    packingAed: Number(logisticsInputs.packingAed || 0),
+    serviceFeeAed: Number(logisticsInputs.serviceFeeAed || 0)
+  }), [order.logistics?.deliveryType, logisticsInputs.deliveryAed, logisticsInputs.packingAed, logisticsInputs.serviceFeeAed]);
+  const logisticsTotal = useMemo(() => logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed, [logistics.deliveryAed, logistics.packingAed, logistics.serviceFeeAed]);
   const markupType = order.markupType || 'percent';
-  const markupAed = markupType === 'fixed'
-    ? Number(order.markupFixedAed || 0)
-    : selectedOfferTotal * (order.markupPercent / 100);
+  const markupAed = useMemo(() => (markupType === 'fixed'
+    ? Number(markupFixedInput || 0)
+    : selectedOfferTotal * (order.markupPercent / 100)), [markupType, markupFixedInput, selectedOfferTotal, order.markupPercent]);
   const sellTotalAed = selectedOfferTotal + logisticsTotal + markupAed;
   const canComputeProfit = selectedOfferTotal > 0;
   const netProfitAed = canComputeProfit ? sellTotalAed - selectedOfferTotal - logisticsTotal : null;
@@ -495,16 +512,21 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
-  const updateLogisticsField = (field: 'deliveryType' | 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value: string) => {
-    if (field === 'deliveryType') {
-      const event = createPricingEvent('logistics.deliveryType', 'Тип доставки', order.logistics?.deliveryType || 'uae', value);
-      updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value }, pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents });
-      return;
-    }
+  const scheduleDebouncedSaveLog = useCallback(() => {
+    if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
+    void logger.debug('PRICING_PERF', 'save_debounced_scheduled', { orderId: order.id, delayMs: 1000 });
+    pricingSaveDebounceRef.current = window.setTimeout(() => {
+      void logger.debug('PRICING_PERF', 'save_debounced_flush', { orderId: order.id });
+      pricingSaveDebounceRef.current = null;
+    }, 1000);
+  }, [order.id]);
 
-    const sanitized = sanitizeNumericInput(value);
-    setLogisticsInputs((prev) => ({ ...prev, [field]: sanitized }));
-    const nextValue = Number(sanitized || 0);
+  const commitLogisticsField = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', forcedValue?: number) => {
+    const commitStart = performance.now();
+    const nextValue = forcedValue ?? Number(logisticsInputs[field] || 0);
+    const prevValue = Number(order.logistics?.[field] || 0);
+    if (prevValue === nextValue) return;
+
     const eventLabels: Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string> = {
       deliveryAed: 'Логистика AED',
       packingAed: 'Упаковка AED',
@@ -515,7 +537,12 @@ const OrderDetailsScreen: React.FC = () => {
       packingAed: 'logistics.packingAed',
       serviceFeeAed: 'logistics.serviceFeeAed'
     };
-    const event = createPricingEvent(eventFieldMap[field], eventLabels[field], order.logistics?.[field], nextValue);
+    void logger.debug('PRICING_PERF', 'pricing_commit_start', { orderId: order.id, field: eventFieldMap[field], oldValue: prevValue, newValue: nextValue, source: 'ui_commit' });
+    const event = createPricingEvent(eventFieldMap[field], eventLabels[field], prevValue, nextValue);
+    if (event) {
+      void logger.debug('PRICING_PERF', 'pricing_event_appended', { orderId: order.id, field: event.field, oldValue: event.previousValue, newValue: event.nextValue });
+    }
+
     updateOrder({
       ...order,
       logistics: {
@@ -524,6 +551,33 @@ const OrderDetailsScreen: React.FC = () => {
       },
       pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents
     });
+    const commitMs = Math.round((performance.now() - commitStart) * 100) / 100;
+    void logger.debug('PRICING_PERF', 'pricing_commit_end', { orderId: order.id, field: eventFieldMap[field], commitMs });
+    scheduleDebouncedSaveLog();
+  }, [logisticsInputs, order, scheduleDebouncedSaveLog, updateOrder]);
+
+  const flushLogisticsFieldCommit = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed') => {
+    const timerId = logisticsCommitTimersRef.current[field];
+    if (timerId) window.clearTimeout(timerId);
+    commitLogisticsField(field);
+    logisticsCommitTimersRef.current[field] = undefined;
+  }, [commitLogisticsField]);
+
+  const updateLogisticsField = (field: 'deliveryType' | 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value: string) => {
+    if (field === 'deliveryType') {
+      const event = createPricingEvent('logistics.deliveryType', 'Тип доставки', order.logistics?.deliveryType || 'uae', value);
+      updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value }, pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents });
+      return;
+    }
+
+    const sanitized = sanitizeNumericInput(value);
+    setLogisticsInputs((prev) => ({ ...prev, [field]: sanitized }));
+    const timerId = logisticsCommitTimersRef.current[field];
+    if (timerId) window.clearTimeout(timerId);
+    logisticsCommitTimersRef.current[field] = window.setTimeout(() => {
+      commitLogisticsField(field, Number(sanitized || 0));
+      logisticsCommitTimersRef.current[field] = undefined;
+    }, 1000);
   };
 
   const handleRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -540,15 +594,41 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
+  const commitMarkupFixed = useCallback((forcedValue?: number) => {
+    const commitStart = performance.now();
+    const nextValue = forcedValue ?? Number(markupFixedInput || 0);
+    const previousValue = Number(order.markupFixedAed || 0);
+    const previousType = order.markupType || 'percent';
+    if (nextValue === previousValue && previousType === 'fixed') return;
+
+    void logger.debug('PRICING_PERF', 'pricing_commit_start', { orderId: order.id, field: 'markupFixedAed', oldValue: previousValue, newValue: nextValue, source: 'ui_commit' });
+    const amountEvent = createPricingEvent('markupFixedAed', 'Наценка (фикс AED)', previousValue, nextValue);
+    const typeEvent = createPricingEvent('markupType', 'Тип наценки', previousType, 'fixed');
+    const nextEvents = [amountEvent, typeEvent].filter(Boolean) as OrderPricingEvent[];
+    if (nextEvents.length) {
+      void logger.debug('PRICING_PERF', 'pricing_event_appended', { orderId: order.id, count: nextEvents.length, fields: nextEvents.map((event) => event.field) });
+    }
+    updateOrder({ ...order, markupFixedAed: nextValue, markupType: 'fixed', pricingEvents: nextEvents.length ? [...nextEvents, ...(order.pricingEvents || [])] : order.pricingEvents });
+    const commitMs = Math.round((performance.now() - commitStart) * 100) / 100;
+    void logger.debug('PRICING_PERF', 'pricing_commit_end', { orderId: order.id, field: 'markupFixedAed', commitMs });
+    scheduleDebouncedSaveLog();
+  }, [markupFixedInput, order, scheduleDebouncedSaveLog, updateOrder]);
+
+  const flushMarkupCommit = useCallback(() => {
+    if (markupCommitTimerRef.current) window.clearTimeout(markupCommitTimerRef.current);
+    commitMarkupFixed();
+    markupCommitTimerRef.current = null;
+  }, [commitMarkupFixed]);
+
   const handleMarkupFixedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawVal = e.target.value;
     const sanitized = sanitizeNumericInput(rawVal);
     setMarkupFixedInput(sanitized);
-    const nextValue = Number(sanitized || 0);
-    const amountEvent = createPricingEvent('markupFixedAed', 'Наценка (фикс AED)', order.markupFixedAed || 0, nextValue);
-    const typeEvent = createPricingEvent('markupType', 'Тип наценки', order.markupType || 'percent', 'fixed');
-    const nextEvents = [amountEvent, typeEvent].filter(Boolean) as OrderPricingEvent[];
-    updateOrder({ ...order, markupFixedAed: nextValue, markupType: 'fixed', pricingEvents: nextEvents.length ? [...nextEvents, ...(order.pricingEvents || [])] : order.pricingEvents });
+    if (markupCommitTimerRef.current) window.clearTimeout(markupCommitTimerRef.current);
+    markupCommitTimerRef.current = window.setTimeout(() => {
+      commitMarkupFixed(Number(sanitized || 0));
+      markupCommitTimerRef.current = null;
+    }, 1000);
   };
 
   const togglePartFound = (partId: string) => {
@@ -989,7 +1069,7 @@ const OrderDetailsScreen: React.FC = () => {
                 {MARKUP_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}%</option>)}
               </select>
             ) : (
-              <input type="text" inputMode="numeric" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onChange={handleMarkupFixedChange} className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100" placeholder="AED" />
+              <input type="text" inputMode="numeric" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onBlur={() => { if (!markupFixedInput) setMarkupFixedInput('0'); flushMarkupCommit(); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }} onChange={handleMarkupFixedChange} className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100" placeholder="AED" />
             )}
             <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-gray-500">
               <input type="checkbox" checked={!!order.useMarkupAsDefaultForNewParts} onChange={(e) => updateOrderField('useMarkupAsDefaultForNewParts', e.target.checked)} />
@@ -1018,7 +1098,7 @@ const OrderDetailsScreen: React.FC = () => {
             {(['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).map((field) => (
               <div key={field}>
                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{field === 'deliveryAed' ? 'Доставка' : field === 'packingAed' ? 'Упаковка' : 'Комиссия'} AED</span>
-                <input type="text" inputMode="numeric" value={logisticsInputs[field]} onFocus={() => { if (logisticsInputs[field] === '0') setLogisticsInputs((prev) => ({ ...prev, [field]: '' })); }} onBlur={() => { if (!logisticsInputs[field]) setLogisticsInputs((prev) => ({ ...prev, [field]: '0' })); }} onChange={(e) => updateLogisticsField(field, e.target.value)} className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100" />
+                <input type="text" inputMode="numeric" value={logisticsInputs[field]} onFocus={() => { if (logisticsInputs[field] === '0') setLogisticsInputs((prev) => ({ ...prev, [field]: '' })); }} onBlur={() => { if (!logisticsInputs[field]) setLogisticsInputs((prev) => ({ ...prev, [field]: '0' })); flushLogisticsFieldCommit(field); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }} onChange={(e) => updateLogisticsField(field, e.target.value)} className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100" />
               </div>
             ))}
           </div>
