@@ -383,10 +383,15 @@ const ORDER_BASE_COLUMNS = [
   'use_markup_as_default_for_new_parts',
   'logistics',
   'delivery_aed',
+  'delivery',
   'packing_aed',
+  'packing',
   'service_fee_aed',
+  'service_fee',
   'commission_aed',
+  'commission',
   'logistics_aed',
+  'logistics_total',
   'delivery_type',
   'exchange_rate',
   'created_at',
@@ -1073,9 +1078,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             <div className="flex items-center justify-between"><span>{t.partsSubtotal}</span><strong>{(totals.subtotal * rates[currency]).toFixed(2)} {currency}</strong></div>
             {totals.markup > 0 && <div className="flex items-center justify-between"><span>{t.markup}</span><strong>{(totals.markup * rates[currency]).toFixed(2)} {currency}</strong></div>}
             <div className="flex items-center justify-between"><span>{t.whatIncluded} ({t.partsSubtotal})</span><strong>{(totals.subtotalWithoutExtras * rates[currency]).toFixed(2)} {currency}</strong></div>
-            {totals.delivery > 0 && <div className="flex items-center justify-between"><span>{t.delivery}</span><strong>{(totals.delivery * rates[currency]).toFixed(2)} {currency}</strong></div>}
-            {totals.packing > 0 && <div className="flex items-center justify-between"><span>{t.packing}</span><strong>{(totals.packing * rates[currency]).toFixed(2)} {currency}</strong></div>}
-            {totals.serviceFee > 0 && <div className="flex items-center justify-between"><span>{t.serviceFee}</span><strong>{(totals.serviceFee * rates[currency]).toFixed(2)} {currency}</strong></div>}
+            <div className="flex items-center justify-between"><span>{t.logistics}</span><strong>{(totals.delivery * rates[currency]).toFixed(2)} {currency}</strong></div>
+            <div className="flex items-center justify-between"><span>{t.packing}</span><strong>{(totals.packing * rates[currency]).toFixed(2)} {currency}</strong></div>
+            <div className="flex items-center justify-between"><span>{t.serviceFee}</span><strong>{(totals.serviceFee * rates[currency]).toFixed(2)} {currency}</strong></div>
             <div className="mt-2 border-t border-dashed border-slate-200 pt-2 flex items-center justify-between text-base"><span className="font-semibold">{t.total}</span><strong>{totals.totalConverted.toFixed(2)} {currency}</strong></div>
           </div>
         </section>
