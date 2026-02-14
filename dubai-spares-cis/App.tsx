@@ -16,8 +16,9 @@ import { useStore } from './store';
 import { NotificationType, getUnreadNotificationsCount, pushNotification } from './notificationCenter';
 import { checkSchemaHealth } from './schemaHealth';
 import { loadAppSettings, saveAppSettings } from './appSettings';
+import { getSyncDiagnosticsState } from './syncDiagnostics';
 
-const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOffline: boolean }> = ({ children, isSyncing, isOffline }) => {
+const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOffline: boolean; syncState: string }> = ({ children, isSyncing, isOffline, syncState }) => {
   const location = useLocation();
   const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
   const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
@@ -50,6 +51,9 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOfflin
             Offline Mode
           </div>
         )}
+        <div className={`fixed top-3 right-3 z-[90] px-2.5 py-1 rounded-full text-white text-[10px] font-black uppercase tracking-wide shadow ${syncState === 'error' ? 'bg-rose-500' : syncState === 'syncing' ? 'bg-blue-500' : syncState === 'offline' ? 'bg-amber-500' : 'bg-emerald-500'}`}>
+          {syncState === 'error' ? 'Error' : syncState === 'syncing' ? 'Syncing' : syncState === 'offline' ? 'Offline' : 'Online'}
+        </div>
         {children}
       </main>
       {!hideNav && (
@@ -76,6 +80,7 @@ const App: React.FC = () => {
   const [schemaBanner, setSchemaBanner] = useState<string | null>(null);
   const { syncOrders, isLoading, error } = useStore();
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [syncState, setSyncState] = useState(getSyncDiagnosticsState().syncStatus);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -129,7 +134,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const onSyncError = (event: Event) => {
-      const customEvent = event as CustomEvent<{ message?: string }>;
+      const customEvent = event as CustomEvent<{ message?: string; code?: string; actions?: string[] }>;
       const message = customEvent.detail?.message || 'Unknown sync error';
       const readable = message.toLowerCase().includes('schema') || message.toLowerCase().includes('supabase') ? 'Сервис данных временно недоступен. Повторите позже.' : `Sync failed: ${message}`;
       setSyncToast(readable);
@@ -137,6 +142,7 @@ const App: React.FC = () => {
         type: NotificationType.SYNC_ERROR,
         title: 'Ошибка синхронизации',
         message: readable,
+        signature: `sync:${customEvent.detail?.code || 'UNKNOWN'}:${message}`,
         source: 'sync',
         severity: 'critical'
       });
@@ -144,6 +150,13 @@ const App: React.FC = () => {
 
     window.addEventListener('cloud-sync-error', onSyncError);
     return () => window.removeEventListener('cloud-sync-error', onSyncError);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setSyncState(getSyncDiagnosticsState().syncStatus);
+    }, 700);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -223,7 +236,7 @@ const App: React.FC = () => {
         )}
 
         <HashRouter>
-          <Layout isSyncing={isLoading} isOffline={isOffline}>
+          <Layout isSyncing={isLoading} isOffline={isOffline} syncState={syncState}>
             <Routes>
               <Route path="/" element={<OrdersScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />

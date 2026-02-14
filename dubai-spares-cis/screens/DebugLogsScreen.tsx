@@ -5,6 +5,7 @@ import { offlineDb } from '../storage/offlineDb';
 import { loadAppSettings } from '../appSettings';
 import { checkSchemaHealth, FRONTEND_SCHEMA_VERSION } from '../schemaHealth';
 import { supabase } from '../supabase';
+import { getSyncDiagnosticsState } from '../syncDiagnostics';
 
 const formatTime = (value: number) => new Date(value).toLocaleString();
 const maskPhone = (value: string) => value.replace(/\+?\d[\d\s-]{7,}/g, (match) => `${match.slice(0, 4)}***${match.slice(-4)}`);
@@ -153,16 +154,21 @@ const DebugLogsScreen: React.FC = () => {
 
   const supportPacket = useMemo(() => {
     const settings = loadAppSettings();
-    const last30Errors = logs.filter((entry) => entry.level === 'error').slice(0, 30);
+    const diagnostics = getSyncDiagnosticsState();
+    const last50Logs = logs.slice(0, 50);
     return JSON.stringify({
       buildVersion: (import.meta as any).env?.VITE_APP_VERSION || 'dev',
       commitHash: (import.meta as any).env?.VITE_COMMIT_HASH || 'local',
       buildDate: (import.meta as any).env?.VITE_BUILD_DATE || new Date().toISOString(),
       schemaVersion: FRONTEND_SCHEMA_VERSION,
+      browser: navigator.userAgent,
       settings,
+      syncStatus: diagnostics.syncStatus,
       syncQueueState: dbStats.mutations || null,
-      lastSupabaseError: logs.find((entry) => entry.scope.includes('supabase') && entry.level === 'error') || null,
-      last30Errors
+      schemaMissingColumns: diagnostics.missingColumns,
+      lastSupabaseError: diagnostics.lastSupabaseError,
+      lastIndexedDbError: diagnostics.lastIndexedDbError,
+      last50Logs
     }, null, 2);
   }, [logs, dbStats]);
 
@@ -202,7 +208,7 @@ const DebugLogsScreen: React.FC = () => {
           </div>
           {!schemaState.ok && <div className="rounded-xl border border-red-300 bg-red-50 p-2 text-red-700 font-bold">Что делать: {schemaState.reason}</div>}
           <button className="rounded-lg bg-blue-600 text-white px-3 py-1 font-black" type="button" onClick={() => void onCopy(`${schemaState.reason || 'No schema issues'}\nLast error: ${overview.lastError?.message || 'none'}`, 'Summary copied')}>Copy error summary</button>
-          <button className="rounded-lg bg-slate-900 text-white px-3 py-1 font-black ml-2" type="button" onClick={() => void onCopy(supportPacket, 'Support packet copied')}>Copy Support Packet</button>
+          <button className="rounded-lg bg-slate-900 text-white px-3 py-1 font-black ml-2" type="button" onClick={() => void onCopy(supportPacket, 'Diagnostics copied')}>Copy diagnostics</button>
         </div>
       )}
 
