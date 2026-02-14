@@ -129,7 +129,7 @@ const encodeSnapshot = (snapshot: Record<string, unknown>) => {
 
 const buildQuoteSnapshot = (order: Pick<Order,
   'id' | 'brand' | 'model' | 'year' | 'bodyType' | 'vin' | 'vinPhotoUrl' | 'carPhotoUrl' | 'carPhotos' |
-  'markupType' | 'markupPercent' | 'markupFixedAed' | 'exchangeRate' | 'logistics' | 'parts'>) => ({
+  'markupType' | 'markupPercent' | 'markupFixedAed' | 'exchangeRate' | 'logistics' | 'pricingEvents' | 'parts'>) => ({
   id: order.id,
   brand: order.brand,
   model: order.model,
@@ -144,6 +144,7 @@ const buildQuoteSnapshot = (order: Pick<Order,
   markupFixedAed: order.markupFixedAed,
   exchangeRate: order.exchangeRate,
   logistics: order.logistics,
+  pricingEvents: order.pricingEvents || [],
   parts: (order.parts || []).map((part) => ({
     id: part.id,
     name: part.name,

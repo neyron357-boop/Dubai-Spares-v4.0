@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { Order, Part, Priority, OrderNote, Shop } from '../types';
+import { Order, OrderPricingEvent, Part, Priority, OrderNote, Shop } from '../types';
 import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationDiagnostics, getShopRecommendationLevel, isBrandMatch, isShopCompatibleWithOrder } from '../shopMatching';
 import { SOURCES } from '../constants';
 import { 
@@ -76,6 +76,30 @@ const sanitizeNumericInput = (raw: string) => {
   if (!cleaned) return '';
   const withoutLeading = cleaned.replace(/^0+(?=\d)/, '');
   return withoutLeading || '0';
+};
+
+
+const formatPricingEventValue = (value: unknown) => {
+  if (value === undefined || value === null || value === '') return '—';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '—';
+  if (typeof value === 'boolean') return value ? 'yes' : 'no';
+  return String(value);
+};
+
+const createPricingEvent = (field: OrderPricingEvent['field'], label: string, previousValue: unknown, nextValue: unknown): OrderPricingEvent | null => {
+  const prev = formatPricingEventValue(previousValue);
+  const next = formatPricingEventValue(nextValue);
+  if (prev === next) return null;
+  return {
+    id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    field,
+    label,
+    previousValue: prev,
+    nextValue: next,
+    createdAt: Date.now()
+  };
 };
 
 const OrderDetailsScreen: React.FC = () => {
@@ -428,7 +452,24 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const updateOrderField = (field: keyof Order, value: any) => {
-    updateOrder({ ...order, [field]: value });
+    const trackedFieldLabels: Partial<Record<keyof Order, string>> = {
+      markupPercent: 'Наценка %',
+      markupType: 'Тип наценки',
+      markupFixedAed: 'Наценка (фикс AED)',
+      exchangeRate: 'Курс валюты',
+      clientCurrency: 'Валюта клиента'
+    };
+
+    const trackedLabel = trackedFieldLabels[field];
+    const event = trackedLabel
+      ? createPricingEvent(field as OrderPricingEvent['field'], trackedLabel, order[field], value)
+      : null;
+
+    updateOrder({
+      ...order,
+      [field]: value,
+      pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents
+    });
   };
 
   const updatePriority = (nextPriority: Priority) => {
@@ -456,18 +497,32 @@ const OrderDetailsScreen: React.FC = () => {
 
   const updateLogisticsField = (field: 'deliveryType' | 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value: string) => {
     if (field === 'deliveryType') {
-      updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value } });
+      const event = createPricingEvent('logistics.deliveryType', 'Тип доставки', order.logistics?.deliveryType || 'uae', value);
+      updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value }, pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents });
       return;
     }
 
     const sanitized = sanitizeNumericInput(value);
     setLogisticsInputs((prev) => ({ ...prev, [field]: sanitized }));
+    const nextValue = Number(sanitized || 0);
+    const eventLabels: Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string> = {
+      deliveryAed: 'Логистика AED',
+      packingAed: 'Упаковка AED',
+      serviceFeeAed: 'Комиссия AED'
+    };
+    const eventFieldMap: Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', OrderPricingEvent['field']> = {
+      deliveryAed: 'logistics.deliveryAed',
+      packingAed: 'logistics.packingAed',
+      serviceFeeAed: 'logistics.serviceFeeAed'
+    };
+    const event = createPricingEvent(eventFieldMap[field], eventLabels[field], order.logistics?.[field], nextValue);
     updateOrder({
       ...order,
       logistics: {
         ...order.logistics,
-        [field]: Number(sanitized || 0)
-      }
+        [field]: nextValue
+      },
+      pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents
     });
   };
 
@@ -489,7 +544,11 @@ const OrderDetailsScreen: React.FC = () => {
     const rawVal = e.target.value;
     const sanitized = sanitizeNumericInput(rawVal);
     setMarkupFixedInput(sanitized);
-    updateOrder({ ...order, markupFixedAed: Number(sanitized || 0), markupType: 'fixed' });
+    const nextValue = Number(sanitized || 0);
+    const amountEvent = createPricingEvent('markupFixedAed', 'Наценка (фикс AED)', order.markupFixedAed || 0, nextValue);
+    const typeEvent = createPricingEvent('markupType', 'Тип наценки', order.markupType || 'percent', 'fixed');
+    const nextEvents = [amountEvent, typeEvent].filter(Boolean) as OrderPricingEvent[];
+    updateOrder({ ...order, markupFixedAed: nextValue, markupType: 'fixed', pricingEvents: nextEvents.length ? [...nextEvents, ...(order.pricingEvents || [])] : order.pricingEvents });
   };
 
   const togglePartFound = (partId: string) => {
@@ -917,8 +976,8 @@ const OrderDetailsScreen: React.FC = () => {
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Наценка</span>
               <div className="inline-flex rounded-xl border border-gray-200 p-1">
-                <button type="button" onClick={() => updateOrder({ ...order, markupType: 'percent' })} className={`px-3 py-1 text-xs font-bold rounded-lg ${(order.markupType || 'percent') === 'percent' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>%</button>
-                <button type="button" onClick={() => updateOrder({ ...order, markupType: 'fixed' })} className={`px-3 py-1 text-xs font-bold rounded-lg ${(order.markupType || 'percent') === 'fixed' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>фикс</button>
+                <button type="button" onClick={() => updateOrderField('markupType', 'percent')} className={`px-3 py-1 text-xs font-bold rounded-lg ${(order.markupType || 'percent') === 'percent' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>%</button>
+                <button type="button" onClick={() => updateOrderField('markupType', 'fixed')} className={`px-3 py-1 text-xs font-bold rounded-lg ${(order.markupType || 'percent') === 'fixed' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>фикс</button>
               </div>
             </div>
             {(order.markupType || 'percent') === 'percent' ? (

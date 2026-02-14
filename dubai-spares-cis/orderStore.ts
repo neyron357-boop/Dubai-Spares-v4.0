@@ -88,7 +88,8 @@ const normalizeOrder = (order: Order): Order => {
     dismissedShopIds: Array.isArray(order.dismissedShopIds) ? order.dismissedShopIds : [],
     leadUnread: order.leadUnread === true,
     leadSource: order.leadSource === 'public_form' ? 'public_form' : 'manual',
-    leadReadAt: Number.isFinite(Number(order.leadReadAt)) ? Number(order.leadReadAt) : undefined
+    leadReadAt: Number.isFinite(Number(order.leadReadAt)) ? Number(order.leadReadAt) : undefined,
+    pricingEvents: Array.isArray(order.pricingEvents) ? order.pricingEvents : []
   };
 };
 
@@ -307,7 +308,8 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
     'dismissed_shop_ids',
     'lead_unread',
     'lead_source',
-    'lead_read_at'
+    'lead_read_at',
+    'pricing_events'
   ];
 
   while (true) {
@@ -452,7 +454,8 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     dismissedShopIds: Array.isArray(row.dismissed_shop_ids) ? row.dismissed_shop_ids : [],
     leadUnread: !!(row as any).lead_unread,
     leadSource: (row as any).lead_source === 'public_form' ? 'public_form' : 'manual',
-    leadReadAt: Number.isFinite(Number((row as any).lead_read_at)) ? Number((row as any).lead_read_at) : undefined
+    leadReadAt: Number.isFinite(Number((row as any).lead_read_at)) ? Number((row as any).lead_read_at) : undefined,
+    pricingEvents: Array.isArray((row as any).pricing_events) ? (row as any).pricing_events : []
   })
 });
 
@@ -548,7 +551,8 @@ const persistOrderGraph = async (order: Order) => {
     dismissed_shop_ids: uploadedOrder.dismissedShopIds || [],
     lead_unread: !!uploadedOrder.leadUnread,
     lead_source: uploadedOrder.leadSource || 'manual',
-    lead_read_at: uploadedOrder.leadReadAt ? toIsoTimestamp(uploadedOrder.leadReadAt) : null
+    lead_read_at: uploadedOrder.leadReadAt ? toIsoTimestamp(uploadedOrder.leadReadAt) : null,
+    pricing_events: uploadedOrder.pricingEvents || []
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -574,7 +578,8 @@ const persistOrderGraph = async (order: Order) => {
       'use_markup_as_default_for_new_parts',
       'client_currency',
       'fx_updated_at',
-      'logistics'
+      'logistics',
+      'pricing_events'
     ]);
 
     let payload: Record<string, unknown> = { ...fallbackOrderPayload };
