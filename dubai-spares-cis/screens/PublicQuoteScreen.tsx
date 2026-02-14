@@ -461,6 +461,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const rawOid = (params.get('oid') || params.get('orderId') || '').trim();
   const candidateOrderIds = Array.from(new Set([orderId, fallbackOrderId, rawOid].filter(Boolean)));
   const embeddedSnapshot = useMemo(() => parseEmbeddedSnapshot(params.get('data')), [params]);
+  const snapshotToken = (params.get('snapshot') || '').trim();
   const token = params.get('token') || '';
   const hasSecurityToken = token.length >= 32;
   const isExpired = hasSecurityToken && Number.isFinite(expiresAt) && expiresAt <= Date.now();
@@ -628,6 +629,31 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     return mapSnapshotOrder(snapshot);
   }, [orderId]);
 
+  const loadQuoteFromSharedSnapshot = useCallback(async (): Promise<Order | null> => {
+    if (!supabase || !snapshotToken) return null;
+
+    const { data, error } = await supabase
+      .from('public_quote_snapshots')
+      .select('order_id,expires_at,payload')
+      .eq('token', snapshotToken)
+      .maybeSingle();
+
+    if (error || !data?.payload) {
+      await logger.warn('quote-shared-snapshot-miss', 'Unable to load shared public quote snapshot', { quoteId: orderId, snapshotToken, error });
+      return null;
+    }
+
+    const expiresAtIso = typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : NaN;
+    if (!Number.isNaN(expiresAtIso) && expiresAtIso <= Date.now()) return null;
+
+    const snapshotOrder = mapSnapshotOrder({
+      ...(typeof data.payload === 'object' && data.payload ? data.payload : {}),
+      id: (data.payload as any)?.id || data.order_id || orderId
+    });
+
+    return snapshotOrder.id ? snapshotOrder : null;
+  }, [orderId, snapshotToken]);
+
   const readQuoteFromCache = useCallback(() => {
     const raw = window.localStorage.getItem(`public-quote-cache:${orderId}`);
     if (!raw) return false;
@@ -675,6 +701,14 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         }
 
         if (!data && !loadError) {
+          const sharedSnapshotOrder = await loadQuoteFromSharedSnapshot();
+          if (sharedSnapshotOrder) {
+            setOrder(sharedSnapshotOrder);
+            setErrorType(null);
+            setLoading(false);
+            return true;
+          }
+
           const fallbackOrder = await loadQuoteFromCloudSnapshot(candidateId);
           if (fallbackOrder) {
             window.localStorage.setItem(`public-quote-cache:${orderId}`, JSON.stringify(fallbackOrder));
@@ -705,7 +739,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
     setLoading(false);
     return false;
-  }, [orderId, readQuoteFromCache, candidateOrderIds, loadOrderRowWithSchemaFallback, loadQuoteWithoutJoin, loadQuoteFromCloudSnapshot, embeddedSnapshot]);
+  }, [orderId, readQuoteFromCache, candidateOrderIds, loadOrderRowWithSchemaFallback, loadQuoteWithoutJoin, loadQuoteFromSharedSnapshot, loadQuoteFromCloudSnapshot, embeddedSnapshot]);
 
   useEffect(() => {
     void loadQuote();

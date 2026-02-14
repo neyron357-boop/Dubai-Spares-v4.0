@@ -1,4 +1,5 @@
 import { Order, Part } from './types';
+import { supabase } from './supabase';
 
 export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS';
 export type QuoteRates = Record<QuoteCurrency, number>;
@@ -102,6 +103,8 @@ interface BuildPublicQuoteLinkOptions {
   currency?: QuoteCurrency;
   expiresAt?: number;
   snapshot?: Record<string, unknown>;
+  snapshotToken?: string;
+  embedSnapshotInUrl?: boolean;
 }
 
 const QUOTE_TOKEN_LENGTH = 32;
@@ -178,10 +181,14 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
     url.searchParams.set('currency', options.currency);
   }
 
-  if (options?.snapshot) {
+  if (options?.snapshotToken) {
+    url.searchParams.set('snapshot', options.snapshotToken);
+  }
+
+  if (options?.embedSnapshotInUrl && options?.snapshot) {
     const encodedSnapshot = encodeSnapshot(options.snapshot);
     if (encodedSnapshot) url.searchParams.set('data', encodedSnapshot);
-  } else if (typeof order !== 'string') {
+  } else if (options?.embedSnapshotInUrl && typeof order !== 'string') {
     const encodedSnapshot = encodeSnapshot(buildQuoteSnapshot(order as Order));
     if (encodedSnapshot) url.searchParams.set('data', encodedSnapshot);
   }
@@ -189,11 +196,31 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
   return url.toString();
 };
 
-export const buildQuoteShareText = (order: Order, options?: BuildPublicQuoteLinkOptions) =>
-  `Hello! We found the parts for your ${order.brand} ${order.model}. View details and prices here: ${buildPublicQuoteLink(order, options)}`;
+const saveQuoteSnapshot = async (order: Order, expiresAt: number, token: string) => {
+  if (!supabase) return false;
+
+  const snapshot = buildQuoteSnapshot(order);
+  const { error } = await supabase
+    .from('public_quote_snapshots')
+    .upsert({
+      token,
+      order_id: order.id,
+      expires_at: new Date(expiresAt).toISOString(),
+      payload: snapshot
+    }, { onConflict: 'token' });
+
+  return !error;
+};
 
 export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
-  const link = buildPublicQuoteLink(order, options);
+  const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
+  const snapshotToken = createQuoteToken();
+  const snapshotSaved = await saveQuoteSnapshot(order, expiresAt, snapshotToken);
+  const link = buildPublicQuoteLink(order, {
+    ...options,
+    expiresAt,
+    snapshotToken: snapshotSaved ? snapshotToken : undefined
+  });
   const text = `Quote for ${order.brand} ${order.model} ${order.year}`;
 
   if (navigator.share) {
@@ -210,7 +237,7 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
     return { method: 'clipboard' as const, link };
   }
 
-  await shareMessage(buildQuoteShareText(order, options));
+  await shareMessage(`Hello! We found the parts for your ${order.brand} ${order.model}. View details and prices here: ${link}`);
   return { method: 'fallback' as const, link };
 };
 
