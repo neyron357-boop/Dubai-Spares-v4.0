@@ -648,18 +648,26 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const partCards = useMemo(() => {
     if (!order) return [];
+    const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
+    const fixedMarkupTotal = Number(order.markupFixedAed || 0);
+    const readyPartsCount = order.parts.filter((part) => {
+      const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
+      return !!best && part.isFound;
+    }).length;
+    const fixedMarkupPerPart = isFixedMarkup && readyPartsCount > 0 ? fixedMarkupTotal / readyPartsCount : 0;
+
     return order.parts.map((part) => {
       const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
       const supplierAed = best?.priceAed || 0;
-      const clientAed = (order.markupType || 'percent') === 'fixed'
-        ? supplierAed
+      const isReady = !!best && part.isFound;
+      const clientAed = isFixedMarkup
+        ? supplierAed + (isReady ? fixedMarkupPerPart : 0)
         : supplierAed * (1 + order.markupPercent / 100);
       const converted = clientAed * rates[currency];
       const variantPhotos = [best?.photoUrl || '', ...(best?.photos || [])].filter(Boolean) as string[];
       const basePartPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean) as string[];
       const photoSource = variantPhotos.length > 0 ? variantPhotos : basePartPhotos;
       const uniquePhotos = Array.from(new Set(photoSource));
-      const isReady = !!best && part.isFound;
       const previewPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 480, quality: 64 }));
       const galleryPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 1600, quality: 74 }));
       return { part, best, previewPhotos, galleryPhotos, converted, clientAed, isReady, availability: isReady ? t.inStock : t.onOrder };
@@ -671,12 +679,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const totals = useMemo(() => {
     const subtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
-    const markup = (order?.markupType || 'percent') === 'fixed' ? Number(order?.markupFixedAed || 0) : 0;
+    const markup = 0;
     const serviceFee = (order?.logistics?.serviceFeeAed || 0);
     const delivery = (order?.logistics?.deliveryAed || 0);
     const packing = (order?.logistics?.packingAed || 0);
     const logistics = delivery + packing;
-    const subtotalWithoutExtras = subtotal + markup;
+    const subtotalWithoutExtras = subtotal;
     const totalAed = subtotalWithoutExtras + serviceFee + logistics;
     return { subtotal, markup, subtotalWithoutExtras, serviceFee, delivery, packing, logistics, totalAed, totalConverted: totalAed * rates[currency] };
   }, [foundParts, currency, rates, order]);
