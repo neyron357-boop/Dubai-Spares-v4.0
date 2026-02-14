@@ -101,6 +101,7 @@ interface BuildPublicQuoteLinkOptions {
   rates?: QuoteRates;
   currency?: QuoteCurrency;
   expiresAt?: number;
+  snapshot?: Record<string, unknown>;
 }
 
 const QUOTE_TOKEN_LENGTH = 32;
@@ -113,6 +114,53 @@ const createQuoteToken = () => {
   }
   return `${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`.slice(0, QUOTE_TOKEN_LENGTH);
 };
+
+const encodeSnapshot = (snapshot: Record<string, unknown>) => {
+  try {
+    const raw = JSON.stringify(snapshot);
+    return btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  } catch {
+    return '';
+  }
+};
+
+const buildQuoteSnapshot = (order: Pick<Order,
+  'id' | 'brand' | 'model' | 'year' | 'bodyType' | 'vin' | 'vinPhotoUrl' | 'carPhotoUrl' | 'carPhotos' |
+  'markupType' | 'markupPercent' | 'markupFixedAed' | 'exchangeRate' | 'logistics' | 'parts'>) => ({
+  id: order.id,
+  brand: order.brand,
+  model: order.model,
+  year: order.year,
+  bodyType: order.bodyType,
+  vin: order.vin,
+  vinPhotoUrl: order.vinPhotoUrl,
+  carPhotoUrl: order.carPhotoUrl,
+  carPhotos: (order.carPhotos || []).slice(0, 3),
+  markupType: order.markupType,
+  markupPercent: order.markupPercent,
+  markupFixedAed: order.markupFixedAed,
+  exchangeRate: order.exchangeRate,
+  logistics: order.logistics,
+  parts: (order.parts || []).map((part) => ({
+    id: part.id,
+    name: part.name,
+    isFound: !!part.isFound,
+    photoUrl: part.photoUrl,
+    photos: (part.photos || []).slice(0, 2),
+    variants: (part.variants || []).map((variant) => ({
+      id: variant.id,
+      priceAed: Number(variant.priceAed || 0),
+      condition: variant.condition,
+      availability: variant.availability,
+      shopName: variant.shopName,
+      phone: variant.phone,
+      location: variant.location,
+      photoUrl: variant.photoUrl,
+      photos: (variant.photos || []).slice(0, 2),
+      createdAt: variant.createdAt
+    }))
+  }))
+});
 
 export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
   const slug = typeof order === 'string' ? order : buildPublicQuoteSlug(order);
@@ -128,6 +176,14 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
   }
   if (options?.currency) {
     url.searchParams.set('currency', options.currency);
+  }
+
+  if (options?.snapshot) {
+    const encodedSnapshot = encodeSnapshot(options.snapshot);
+    if (encodedSnapshot) url.searchParams.set('data', encodedSnapshot);
+  } else if (typeof order !== 'string') {
+    const encodedSnapshot = encodeSnapshot(buildQuoteSnapshot(order as Order));
+    if (encodedSnapshot) url.searchParams.set('data', encodedSnapshot);
   }
 
   return url.toString();
