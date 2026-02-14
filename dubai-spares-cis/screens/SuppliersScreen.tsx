@@ -27,6 +27,7 @@ import {
   Pencil
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
+import ImagePreview from '../components/ImagePreview';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
@@ -162,6 +163,7 @@ const SuppliersScreen: React.FC = () => {
   const [supplierModelsInput, setSupplierModelsInput] = useState('');
   const [supplierYearsInput, setSupplierYearsInput] = useState('');
   const [supplierPhotos, setSupplierPhotos] = useState<string[]>([]);
+  const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
 
   const [workingHours, setWorkingHours] = useState('');
   const [trustLevel, setTrustLevel] = useState(3);
@@ -746,7 +748,9 @@ const SuppliersScreen: React.FC = () => {
                   </label>
                   {supplierPhotos.map((photo, index) => (
                     <div key={`${photo}-${index}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200">
-                      <img src={photo} alt="supplier" className="h-full w-full object-cover" />
+                      <button type="button" onClick={() => setGallery({ images: supplierPhotos, index })} className="h-full w-full">
+                        <img src={photo} alt="supplier" className="h-full w-full object-cover" />
+                      </button>
                       <button type="button" onClick={() => removeSupplierPhoto(index)} className="absolute right-0.5 top-0.5 rounded-full bg-black/60 px-1 text-[9px] text-white">×</button>
                     </div>
                   ))}
@@ -817,7 +821,17 @@ const SuppliersScreen: React.FC = () => {
                 {Array.isArray(s.models) && s.models.length > 0 && <p className="text-[11px] text-slate-500">Модели: {s.models.slice(0, 3).join(', ')}</p>}
                 {Array.isArray(s.years) && s.years.length > 0 && <p className="text-[11px] text-slate-500">Годы: {s.years.slice(0, 4).join(', ')}</p>}
                 {(s.photoUrl || (s.photos || []).length > 0) && (
-                  <button type="button" onClick={() => window.open((s.photos && s.photos[0]) || s.photoUrl || '', '_blank')} className="mt-1 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-black text-slate-700">Фото поставщика</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const images = ((s.photos && s.photos.length > 0) ? s.photos : [s.photoUrl || '']).filter(Boolean) as string[];
+                      if (images.length === 0) return;
+                      setGallery({ images, index: 0 });
+                    }}
+                    className="mt-1 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-black text-slate-700"
+                  >
+                    Фото поставщика
+                  </button>
                 )}
 
                 <div className="grid grid-cols-3 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">
@@ -886,6 +900,7 @@ const SuppliersScreen: React.FC = () => {
       </div>
 
       <ConfirmModal isOpen={!!deleteSupplierId} message="Вы уверены, что хотите удалить этого поставщика?" onConfirm={confirmDeleteSupplier} onCancel={() => setDeleteSupplierId(null)} />
+      {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
       <ConfirmModal
         isOpen={!!importFile}
         message={`Восстановить резервную копию?\n\nДата: ${importFile?.exportedAt ? new Date(importFile.exportedAt).toLocaleDateString() : 'Неизвестно'}\nЗаказов: ${importFile?.orders?.length || 0}\nПоставщиков: ${importFile?.suppliers?.length || 0}\n\nВНИМАНИЕ: Все текущие данные будут заменены!`}
