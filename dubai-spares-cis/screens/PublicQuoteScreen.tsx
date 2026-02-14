@@ -157,6 +157,18 @@ const parseMoneyField = (...values: Array<unknown>) => {
   return 0;
 };
 
+const parseEmbeddedSnapshot = (raw: string | null): any | null => {
+  if (!raw) return null;
+  try {
+    const normalized = raw.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+    const decoded = decodeURIComponent(escape(atob(padded)));
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+};
+
 const normalizeLogistics = (raw: any) => {
   if (!raw || typeof raw !== 'object') return undefined;
 
@@ -441,6 +453,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const fallbackOrderId = extractOrderIdFromQuoteSlug(params.get('oid') || params.get('orderId') || '');
   const rawOid = (params.get('oid') || params.get('orderId') || '').trim();
   const candidateOrderIds = Array.from(new Set([orderId, fallbackOrderId, rawOid].filter(Boolean)));
+  const embeddedSnapshot = useMemo(() => parseEmbeddedSnapshot(params.get('data')), [params]);
   const token = params.get('token') || '';
   const hasSecurityToken = token.length >= 32;
   const isExpired = hasSecurityToken && Number.isFinite(expiresAt) && expiresAt <= Date.now();
@@ -665,6 +678,16 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           }
         }
 
+        if (!data && embeddedSnapshot) {
+          const embeddedOrder = mapSnapshotOrder(embeddedSnapshot);
+          if (embeddedOrder.id) {
+            setOrder(embeddedOrder);
+            setErrorType(null);
+            setLoading(false);
+            return true;
+          }
+        }
+
         if (attempt === attempts.length - 1) {
           await logger.warn('quote-not-found', 'Quote lookup failed', { quoteId: orderId, candidateId, attempt, loadError });
           setOrder(null);
@@ -675,7 +698,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
     setLoading(false);
     return false;
-  }, [orderId, readQuoteFromCache, candidateOrderIds, loadOrderRowWithSchemaFallback, loadQuoteWithoutJoin, loadQuoteFromCloudSnapshot]);
+  }, [orderId, readQuoteFromCache, candidateOrderIds, loadOrderRowWithSchemaFallback, loadQuoteWithoutJoin, loadQuoteFromCloudSnapshot, embeddedSnapshot]);
 
   useEffect(() => {
     void loadQuote();
@@ -824,7 +847,19 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               </button>
             )}
             {current.canGoHome && (
-              <a href="/" className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700">{t.backToOrders}</a>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.history.length > 1) {
+                    window.history.back();
+                    return;
+                  }
+                  window.location.href = '/request';
+                }}
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700"
+              >
+                {t.backToOrders}
+              </button>
             )}
             {errorType === EstimateErrorType.EXPIRED_LINK && (
               <a href={`https://wa.me/${whatsappPhone}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white">
