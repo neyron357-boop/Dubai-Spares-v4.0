@@ -11,6 +11,7 @@ export interface OfflineMutation {
   entityId?: string;
   operation?: MutationType;
   payload?: Order;
+  patch?: Partial<Order>;
   createdAt: number;
   retryCount?: number;
   lastError?: string | null;
@@ -23,7 +24,8 @@ const ORDERS_STORE = 'orders';
 const MUTATIONS_STORE = 'mutations';
 const SYSTEM_LOGS_STORE = 'system_logs';
 const RADAR_INTERACTIONS_STORE = 'radar_interactions';
-const ALL_STORES = [ORDERS_STORE, MUTATIONS_STORE, SYSTEM_LOGS_STORE, RADAR_INTERACTIONS_STORE] as const;
+const ORDER_PATCHES_STORE = 'order_patches';
+const ALL_STORES = [ORDERS_STORE, ORDER_PATCHES_STORE, MUTATIONS_STORE, SYSTEM_LOGS_STORE, RADAR_INTERACTIONS_STORE] as const;
 const MAX_MUTATIONS = 2000;
 const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
 const IDB_RECOVERY_RETRY_LIMIT = 3;
@@ -36,6 +38,9 @@ let pendingOrdersClear = false;
 const pendingOrderWrites = new Map<string, { type: 'put'; order: Order } | { type: 'delete' }>();
 let pendingOrderFlushTimer: number | null = null;
 let pendingOrderFlushPromise: Promise<void> | null = null;
+const pendingOrderPatchWrites = new Map<string, Partial<Order>>();
+let pendingOrderPatchFlushTimer: number | null = null;
+let pendingOrderPatchFlushPromise: Promise<void> | null = null;
 
 const pendingMutationWrites = new Map<string, OfflineMutation>();
 let pendingMutationFlushTimer: number | null = null;
@@ -141,6 +146,9 @@ const unsafeOpenDb = (): Promise<IDBDatabase> =>
         mutationsStore.createIndex('by_order_id', 'orderId', { unique: false });
         mutationsStore.createIndex('by_next_retry_at', 'nextRetryAt', { unique: false });
       }
+      if (!db.objectStoreNames.contains(ORDER_PATCHES_STORE)) {
+        db.createObjectStore(ORDER_PATCHES_STORE, { keyPath: 'id' });
+      }
       if (!db.objectStoreNames.contains(SYSTEM_LOGS_STORE)) {
         db.createObjectStore(SYSTEM_LOGS_STORE, { keyPath: 'id' });
       }
@@ -154,10 +162,12 @@ const unsafeOpenDb = (): Promise<IDBDatabase> =>
       const db = request.result;
       syncPerf.addIdbEvent('open_success', { dbVersion: db.version });
       db.onversionchange = () => {
+        syncPerf.addIdbEvent('idb_close', { reason: 'versionchange' });
         db.close();
         if (activeDb === db) activeDb = null;
       };
       db.onclose = () => {
+        syncPerf.addIdbEvent('idb_close', { reason: 'close_event' });
         if (activeDb === db) activeDb = null;
       };
       resolve(db);
@@ -209,10 +219,12 @@ const flushOrderWrites = async () => {
   pendingOrderFlushPromise = withIdbRecovery('flush_order_writes', async () => {
     await measureIdbTx(async () => {
       const db = await openDb();
-      const tx = db.transaction(ORDERS_STORE, 'readwrite');
+      const tx = db.transaction([ORDERS_STORE, ORDER_PATCHES_STORE], 'readwrite');
       const store = tx.objectStore(ORDERS_STORE);
+      const patchStore = tx.objectStore(ORDER_PATCHES_STORE);
       if (pendingOrdersClear) {
         await txRequest(store.clear());
+        await txRequest(patchStore.clear());
         pendingOrdersClear = false;
       }
 
@@ -221,8 +233,10 @@ const flushOrderWrites = async () => {
       for (const [orderId, op] of writes) {
         if (op.type === 'delete') {
           await txRequest(store.delete(orderId));
+          await txRequest(patchStore.delete(orderId));
         } else {
           await txRequest(store.put(op.order));
+          await txRequest(patchStore.delete(orderId));
         }
       }
       if (writes.length) syncPerf.recordIdbWrite();
@@ -233,6 +247,36 @@ const flushOrderWrites = async () => {
     await pendingOrderFlushPromise;
   } finally {
     pendingOrderFlushPromise = null;
+  }
+};
+
+
+const flushOrderPatchWrites = async () => {
+  if (pendingOrderPatchFlushTimer) {
+    window.clearTimeout(pendingOrderPatchFlushTimer);
+    pendingOrderPatchFlushTimer = null;
+  }
+  if (pendingOrderPatchFlushPromise) return pendingOrderPatchFlushPromise;
+
+  pendingOrderPatchFlushPromise = withIdbRecovery('flush_order_patch_writes', async () => {
+    await measureIdbTx(async () => {
+      const patches = Array.from(pendingOrderPatchWrites.entries());
+      if (!patches.length) return;
+      pendingOrderPatchWrites.clear();
+      const db = await openDb();
+      const tx = db.transaction(ORDER_PATCHES_STORE, 'readwrite');
+      const store = tx.objectStore(ORDER_PATCHES_STORE);
+      for (const [orderId, patch] of patches) {
+        await txRequest(store.put({ id: orderId, patch, updatedAt: Date.now() }));
+      }
+      syncPerf.recordIdbWrite();
+    });
+  });
+
+  try {
+    await pendingOrderPatchFlushPromise;
+  } finally {
+    pendingOrderPatchFlushPromise = null;
   }
 };
 
@@ -252,14 +296,12 @@ const flushMutationWrites = async () => {
       const db = await openDb();
       const tx = db.transaction(MUTATIONS_STORE, 'readwrite');
       const store = tx.objectStore(MUTATIONS_STORE);
+      const count = await txRequest(store.count());
 
       for (const normalized of writes) {
         const existing = await txRequest(store.get(normalized.id)) as OfflineMutation | undefined;
-        if (!existing) {
-          const count = await txRequest(store.count());
-          if (count >= MAX_MUTATIONS) {
-            throw new Error(`Mutation queue limit reached (${MAX_MUTATIONS}). Export backup and clear queue.`);
-          }
+        if (!existing && count >= MAX_MUTATIONS) {
+          throw new Error(`Mutation queue limit reached (${MAX_MUTATIONS}). Export backup and clear queue.`);
         }
         await txRequest(store.put({ ...existing, ...normalized, createdAt: existing?.createdAt || normalized.createdAt }));
       }
@@ -278,7 +320,7 @@ const scheduleMutationFlush = () => {
   if (!pendingMutationFlushTimer) {
     pendingMutationFlushTimer = window.setTimeout(() => {
       void flushMutationWrites();
-    }, getJitterMs(400, 800));
+    }, getJitterMs(600, 900));
   }
 };
 
@@ -286,13 +328,22 @@ const scheduleOrderFlush = () => {
   if (!pendingOrderFlushTimer) {
     pendingOrderFlushTimer = window.setTimeout(() => {
       void flushOrderWrites();
-    }, getJitterMs(400, 800));
+    }, getJitterMs(600, 900));
+  }
+};
+
+const scheduleOrderPatchFlush = () => {
+  if (!pendingOrderPatchFlushTimer) {
+    pendingOrderPatchFlushTimer = window.setTimeout(() => {
+      void flushOrderPatchWrites();
+    }, getJitterMs(600, 900));
   }
 };
 
 if (typeof window !== 'undefined') {
   window.addEventListener('blur', () => {
     void flushOrderWrites();
+    void flushOrderPatchWrites();
     void flushMutationWrites();
   });
 }
@@ -300,11 +351,16 @@ if (typeof window !== 'undefined') {
 export const offlineDb = {
   async getOrders(): Promise<Order[]> {
     await flushOrderWrites();
+    await flushOrderPatchWrites();
     return withIdbRecovery('get_orders', () => measureIdbTx(async () => {
       const db = await openDb();
-      const tx = db.transaction(ORDERS_STORE, 'readonly');
-      const rows = await txRequest(tx.objectStore(ORDERS_STORE).getAll());
-      return (rows as Order[]).sort((a, b) => b.createdAt - a.createdAt);
+      const tx = db.transaction([ORDERS_STORE, ORDER_PATCHES_STORE], 'readonly');
+      const rows = await txRequest(tx.objectStore(ORDERS_STORE).getAll()) as Order[];
+      const patchRows = await txRequest(tx.objectStore(ORDER_PATCHES_STORE).getAll()) as Array<{ id: string; patch?: Partial<Order> }>;
+      const patchMap = new Map(patchRows.map((item) => [item.id, item.patch || {}]));
+      return rows
+        .map((order) => patchMap.has(order.id) ? ({ ...order, ...patchMap.get(order.id)! }) : order)
+        .sort((a, b) => b.createdAt - a.createdAt);
     }));
   },
 
@@ -321,6 +377,14 @@ export const offlineDb = {
     pendingOrderWrites.set(order.id, { type: 'put', order });
     scheduleOrderFlush();
     logSyncCategory('IDB_TX', 'save_order', { orderId: order.id });
+  },
+
+  async saveOrderPatch(orderId: string, patch: Partial<Order>): Promise<void> {
+    if (!orderId || !patch || !Object.keys(patch).length) return;
+    const existing = pendingOrderPatchWrites.get(orderId) || {};
+    pendingOrderPatchWrites.set(orderId, { ...existing, ...patch });
+    scheduleOrderPatchFlush();
+    logSyncCategory('IDB_TX', 'save_order_patch', { orderId, fields: Object.keys(patch) });
   },
 
   async deleteOrder(orderId: string): Promise<void> {
@@ -476,6 +540,15 @@ export const offlineDb = {
       request.onblocked = () => reject(new Error('Cannot rebuild index while another tab is open'));
       request.onerror = () => reject(request.error ?? new Error('Failed to rebuild IndexedDB'));
     });
+  },
+
+  async rebuildLocalCacheSafely(): Promise<void> {
+    await flushOrderWrites();
+    await flushOrderPatchWrites();
+    await flushMutationWrites();
+    const snapshot = await this.exportAllData();
+    await this.rebuildIndex();
+    await this.importAllData(snapshot);
   },
 
   async saveRadarInteraction(interaction: RadarInteraction): Promise<void> {
