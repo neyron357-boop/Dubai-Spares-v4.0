@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant, SalesStatus } from './types';
 import { supabase, isCloudSyncConfigured } from './supabase';
 import { deleteOrderFolderFromStorage, ensurePublicImageUrls, optimizeImageForUpload } from './storage/photos';
-import { OfflineMutation, offlineDb } from './storage/offlineDb';
+import { OfflineMutation, isIdbAutoSyncPaused, offlineDb } from './storage/offlineDb';
 import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
 import { NotificationType, pushNotification, sendBrowserNotification } from './notificationCenter';
@@ -125,8 +125,8 @@ let syncInProgress = false;
 let wasCloudHydratedAtLeastOnce = false;
 const schemaMissingColumns = new Set<string>();
 const MAX_MUTATION_RETRY = 5;
-const RETRY_BASE_MS = 1200;
-const RETRY_MAX_MS = 60000;
+const RETRY_STEPS_MS = [1000, 2000, 4000, 8000, 16000, 30000] as const;
+const ORDER_PAGE_SIZE = 50;
 const MUTATION_COALESCE_MS = 650;
 const mutationTimers = new Map<string, number>();
 const localCommitTimers = new Map<string, number>();
@@ -134,6 +134,20 @@ const networkFlushTimerMs = 3000;
 const hotFieldKeys: Array<keyof Order> = ['markupPercent', 'markupType', 'markupFixedAed', 'exchangeRate', 'clientCurrency', 'fxUpdatedAt', 'logistics', 'pricingEvents', 'updatedAt'];
 let cachedQueueLength = 0;
 let retryTimer: number | null = null;
+let syncMutex: Promise<void> = Promise.resolve();
+
+const runWithSyncMutex = async <T>(task: () => Promise<T>): Promise<T> => {
+  const previous = syncMutex;
+  let release!: () => void;
+  syncMutex = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+  }
+};
+
 
 const notify = () => listeners.forEach((l) => l());
 
@@ -277,20 +291,42 @@ const fetchOrderGraphWithoutJoin = async (orderColumns: string[]) => {
   return { data: stitched, error: null };
 };
 
+const fetchOrdersPageWithoutJoin = async (orderColumns: string[], from: number, to: number) => {
+  if (!supabase) return { data: null, error: null };
+
+  const ordersResponse = await supabase
+    .from('orders')
+    .select(orderColumns.join(','))
+    .order('created_at', { ascending: false })
+    .range(from, to);
+
+  if (ordersResponse.error || !ordersResponse.data) {
+    return { data: null, error: ordersResponse.error };
+  }
+
+  return { data: ordersResponse.data as DbOrderGraphRow[], error: null };
+};
+
 
 const fetchOrdersGraphWithSchemaFallbacks = async () => {
   if (!supabase) return { data: null, error: null };
 
   let orderColumns = getSelectableColumns('orders');
+  const collectedOrders: DbOrderGraphRow[] = [];
+  let offset = 0;
 
   while (true) {
-    const query = `${orderColumns.join(',')}, parts(*, price_variants(*))`;
-    const response = await supabase
-      .from('orders')
-      .select(query)
-      .order('created_at', { ascending: false });
+    const response = await fetchOrdersPageWithoutJoin(orderColumns, offset, offset + ORDER_PAGE_SIZE - 1);
 
-    if (!response.error) return response;
+    if (!response.error) {
+      const page = Array.isArray(response.data) ? response.data : [];
+      collectedOrders.push(...page);
+      if (page.length < ORDER_PAGE_SIZE) {
+        return { data: collectedOrders, error: null };
+      }
+      offset += ORDER_PAGE_SIZE;
+      continue;
+    }
 
     const missingColumn = getMissingColumnName(response.error);
     if (!missingColumn || !orderColumns.includes(missingColumn)) {
@@ -401,9 +437,8 @@ const classifySyncError = (error: unknown): 'network' | 'schema' | 'unknown' => 
 };
 
 const computeRetryDelay = (retryCount: number) => {
-  const expDelay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** Math.max(0, retryCount - 1)));
-  const jitter = Math.floor(expDelay * (0.2 + Math.random() * 0.25));
-  return expDelay + jitter;
+  const index = Math.max(0, Math.min(RETRY_STEPS_MS.length - 1, retryCount - 1));
+  return RETRY_STEPS_MS[index];
 };
 
 const scheduleRetryFlush = (nextRetryAt: number) => {
@@ -810,8 +845,8 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
   }
 };
 
-export const flushOfflineMutations = async () => {
-  if (syncInProgress || !navigator.onLine || !isCloudSyncConfigured || !supabase) return;
+export const flushOfflineMutations = async () => runWithSyncMutex(async () => {
+  if (syncInProgress || !navigator.onLine || !isCloudSyncConfigured || !supabase || isIdbAutoSyncPaused()) return;
   syncInProgress = true;
   logSyncCategory('SYNC_STATE', 'flush_started');
   setSyncStatus('online');
@@ -953,7 +988,7 @@ export const flushOfflineMutations = async () => {
     syncInProgress = false;
     setState({ isSyncing: false });
   }
-};
+});
 
 export const subscribeOrderStore = (listener: () => void) => {
   listeners.add(listener);
@@ -962,7 +997,7 @@ export const subscribeOrderStore = (listener: () => void) => {
 
 export const getOrderState = () => state;
 
-export const fetchOrders = async () => {
+export const fetchOrders = async () => runWithSyncMutex(async () => {
   setState({ isLoading: true, error: null });
   await logger.info('sync:fetch', 'Starting order hydration');
 
@@ -970,7 +1005,7 @@ export const fetchOrders = async () => {
   await logger.info('sync:fetch', `Loaded ${localOrders.length} local orders`);
   setState({ orders: localOrders.map(normalizeOrder), isHydrated: true });
 
-  if (!navigator.onLine || !isCloudSyncConfigured || !supabase) {
+  if (!navigator.onLine || !isCloudSyncConfigured || !supabase || isIdbAutoSyncPaused()) {
     await logger.warn('sync:fetch', 'Skipping cloud fetch (offline or missing supabase config)');
     setSyncStatus(navigator.onLine ? 'online' : 'offline');
     setState({ isLoading: false, isHydrated: true });
@@ -1026,6 +1061,25 @@ export const fetchOrders = async () => {
   if (pendingMutations.length > 0) {
     void flushOfflineMutations();
   }
+});
+
+export const fetchOrderDetails = async (orderId: string) => {
+  if (!orderId || !supabase || !navigator.onLine || !isCloudSyncConfigured) return;
+  const orderColumns = getSelectableColumns('orders');
+  const query = `${orderColumns.join(',')}, parts(*, price_variants(*))`;
+  const response = await supabase.from('orders').select(query).eq('id', orderId).maybeSingle();
+  if (response.error || !response.data) {
+    await logger.warn('sync:fetch-details', 'Failed to load order details graph', {
+      orderId,
+      error: serializeError(response.error)
+    });
+    return;
+  }
+
+  const details = mapDbOrder(response.data as DbOrderGraphRow);
+  const next = state.orders.map((order) => (order.id === details.id ? normalizeOrder({ ...order, ...details }) : order));
+  setState({ orders: next });
+  await offlineDb.saveOrder(details);
 };
 
 
@@ -1196,15 +1250,22 @@ export const useOrderStore = () => {
       if (navigator.onLine) void flushOfflineMutations();
     };
 
+    const onIdbPaused = () => {
+      setSyncStatus('error');
+      setState({ isSyncing: false });
+    };
+
     window.addEventListener('online', onOnline);
     window.addEventListener('blur', onBlur);
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('idb-autosync-paused', onIdbPaused as EventListener);
     navigator.serviceWorker?.addEventListener?.('message', onSwMessage);
     return () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('blur', onBlur);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('idb-autosync-paused', onIdbPaused as EventListener);
       window.clearInterval(syncTimer);
       navigator.serviceWorker?.removeEventListener?.('message', onSwMessage);
       if (ordersChannel) {

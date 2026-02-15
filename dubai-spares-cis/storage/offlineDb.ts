@@ -30,14 +30,15 @@ const MAX_MUTATIONS = 2000;
 const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
 const IDB_RECOVERY_REOPEN_LIMIT = 2;
 const IDB_SAFE_REBUILD_LIMIT = 1;
-const IDB_RECOVERY_WAIT_MIN_MS = 500;
-const IDB_RECOVERY_WAIT_MAX_MS = 1500;
+const IDB_RECOVERY_WAIT_MIN_MS = 300;
+const IDB_RECOVERY_WAIT_MAX_MS = 500;
 let openPromise: Promise<IDBDatabase> | null = null;
 let activeDb: IDBDatabase | null = null;
 let idbRecoveryFailures = 0;
 let idbSafeRebuilds = 0;
 let rebuildInFlight: Promise<void> | null = null;
 let pendingOrdersClear = false;
+let idbAutoSyncPaused = false;
 const pendingOrderWrites = new Map<string, { type: 'put'; order: Order } | { type: 'delete' }>();
 let pendingOrderFlushTimer: number | null = null;
 let pendingOrderFlushPromise: Promise<void> | null = null;
@@ -157,6 +158,10 @@ const withIdbRecovery = async <T>(operation: string, fn: () => Promise<T>): Prom
         syncPerf.addIdbEvent('recovery_retry', { operation, attempt });
         const result = await fn();
         idbRecoveryFailures = 0;
+        if (idbAutoSyncPaused) {
+          idbAutoSyncPaused = false;
+          window.dispatchEvent(new CustomEvent('idb-autosync-resumed'));
+        }
         return result;
       } catch (recoveryError) {
         idbRecoveryFailures += 1;
@@ -170,9 +175,16 @@ const withIdbRecovery = async <T>(operation: string, fn: () => Promise<T>): Prom
       syncPerf.addIdbEvent('rebuild_required', { operation, failures: idbRecoveryFailures, rebuildAttempt: idbSafeRebuilds });
       await safeRebuildIndex();
       syncPerf.addIdbEvent('rebuild_completed', { operation, rebuildAttempt: idbSafeRebuilds });
-      return fn();
+      const rebuilt = await fn();
+      if (idbAutoSyncPaused) {
+        idbAutoSyncPaused = false;
+        window.dispatchEvent(new CustomEvent('idb-autosync-resumed'));
+      }
+      return rebuilt;
     }
 
+    idbAutoSyncPaused = true;
+    window.dispatchEvent(new CustomEvent('idb-autosync-paused', { detail: { failures: idbRecoveryFailures } }));
     window.dispatchEvent(new CustomEvent('idb-rebuild-required', { detail: { failures: idbRecoveryFailures } }));
     throw toError(error, 'IndexedDB recovery failed after rebuild attempts');
   }
@@ -411,6 +423,8 @@ if (typeof window !== 'undefined') {
     void flushMutationWrites();
   });
 }
+
+export const isIdbAutoSyncPaused = () => idbAutoSyncPaused;
 
 export const offlineDb = {
   async getOrders(): Promise<Order[]> {
