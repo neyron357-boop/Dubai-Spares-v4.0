@@ -25,6 +25,7 @@ const ALL_STORES = [ORDERS_STORE, MUTATIONS_STORE, SYSTEM_LOGS_STORE, RADAR_INTE
 const MAX_MUTATIONS = 2000;
 const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
 let openPromise: Promise<IDBDatabase> | null = null;
+let activeDb: IDBDatabase | null = null;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -65,13 +66,20 @@ const unsafeOpenDb = (): Promise<IDBDatabase> =>
     request.onblocked = () => reject(new Error('IndexedDB open blocked by another tab'));
     request.onsuccess = () => {
       const db = request.result;
-      db.onversionchange = () => db.close();
+      db.onversionchange = () => {
+        db.close();
+        if (activeDb === db) activeDb = null;
+      };
+      db.onclose = () => {
+        if (activeDb === db) activeDb = null;
+      };
       resolve(db);
     };
     request.onerror = () => reject(request.error ?? new Error('Failed to open IndexedDB'));
   });
 
 const openDb = async (): Promise<IDBDatabase> => {
+  if (activeDb) return activeDb;
   if (openPromise) return openPromise;
   openPromise = runWithDbLock(async () => {
     let lastError: unknown;
@@ -90,7 +98,9 @@ const openDb = async (): Promise<IDBDatabase> => {
   });
 
   try {
-    return await openPromise;
+    const db = await openPromise;
+    activeDb = db;
+    return db;
   } finally {
     openPromise = null;
   }
@@ -277,6 +287,11 @@ export const offlineDb = {
   },
 
   async rebuildIndex(): Promise<void> {
+    if (activeDb) {
+      activeDb.close();
+      activeDb = null;
+    }
+
     await new Promise<void>((resolve, reject) => {
       const request = indexedDB.deleteDatabase(DB_NAME);
       request.onsuccess = () => resolve();
