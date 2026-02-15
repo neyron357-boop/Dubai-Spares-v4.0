@@ -9,13 +9,13 @@ import {
   MessageCircle,
   RefreshCcw
 } from 'lucide-react';
-import { supabase } from '../supabase';
 import { Order, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
 import { DEFAULT_QUOTE_RATES, extractOrderIdFromQuoteSlug, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
 import { useAppSettings } from '../appSettings';
+import { publicQuoteGet } from '../serverApi';
 
 type Language = 'en' | 'ru';
 
@@ -564,146 +564,25 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     return EstimateErrorType.NOT_FOUND;
   };
 
-  const loadOrderRowWithSchemaFallback = useCallback(async (candidateId: string, withJoin: boolean) => {
-    if (!supabase) return { data: null, error: new Error('Supabase not configured') };
-
-    let orderColumns = [...ORDER_BASE_COLUMNS];
-    while (orderColumns.length > 0) {
-      const query = withJoin ? `${orderColumns.join(',')},parts(*,price_variants(*))` : orderColumns.join(',');
-      const response = await supabase
-        .from('orders')
-        .select(query)
-        .eq('id', candidateId)
-        .maybeSingle();
-
-      if (!response.error || !isMissingColumnError(response.error)) return response;
-
-      const missingColumn = getMissingTableColumn(response.error, 'orders');
-      if (!missingColumn || !orderColumns.includes(missingColumn)) return response;
-
-      await logger.warn('quote-schema-fallback', `orders.${missingColumn} is missing; retrying quote query without the column`, { quoteId: orderId, candidateId, withJoin });
-      orderColumns = orderColumns.filter((column) => column !== missingColumn);
-    }
-
-    return { data: null, error: new Error('No selectable columns left for orders table') };
-  }, [orderId]);
-
-  const loadQuoteWithoutJoin = useCallback(async (candidateId: string) => {
-    if (!supabase) return { data: null, error: new Error('Supabase not configured') };
-
-    const orderResponse = await loadOrderRowWithSchemaFallback(candidateId, false);
-
-    if (orderResponse.error || !orderResponse.data) {
-      return { data: null, error: orderResponse.error };
-    }
-
-    let partColumns = [...PART_BASE_COLUMNS];
-    let partsResponse;
-
-    while (partColumns.length > 0) {
-      partsResponse = await supabase
-        .from('parts')
-        .select(partColumns.join(','))
-        .eq('order_id', candidateId);
-
-      if (!partsResponse.error || !isMissingColumnError(partsResponse.error)) break;
-
-      const missingColumn = getMissingTableColumn(partsResponse.error, 'parts');
-      if (!missingColumn || !partColumns.includes(missingColumn)) break;
-
-      await logger.warn('quote-schema-fallback', `parts.${missingColumn} is missing; retrying quote query without the column`, { quoteId: orderId, candidateId });
-      partColumns = partColumns.filter((column) => column !== missingColumn);
-    }
-
-    if (!partsResponse || partsResponse.error) {
-      return { data: null, error: partsResponse.error };
-    }
-
-    const parts = Array.isArray(partsResponse.data) ? partsResponse.data : [];
-    const partIds = parts.map((item) => String(item.id));
-    let variantColumns = [...PRICE_VARIANT_BASE_COLUMNS];
-    let variantsResponse: { data: any[] | null; error: any } = { data: [], error: null };
-
-    if (partIds.length > 0) {
-      while (variantColumns.length > 0) {
-        variantsResponse = await supabase
-          .from('price_variants')
-          .select(variantColumns.join(','))
-          .in('part_id', partIds);
-
-        if (!variantsResponse.error || !isMissingColumnError(variantsResponse.error)) break;
-
-        const missingColumn = getMissingTableColumn(variantsResponse.error, 'price_variants');
-        if (!missingColumn || !variantColumns.includes(missingColumn)) break;
-
-        await logger.warn('quote-schema-fallback', `price_variants.${missingColumn} is missing; retrying quote query without the column`, { quoteId: orderId, candidateId });
-        variantColumns = variantColumns.filter((column) => column !== missingColumn);
-      }
-    }
-
-    if (variantsResponse.error) {
-      return { data: null, error: variantsResponse.error };
-    }
-
-    const variantsByPart = new Map<string, any[]>();
-    (variantsResponse.data || []).forEach((variant: any) => {
-      const key = String(variant.part_id || '');
-      if (!variantsByPart.has(key)) variantsByPart.set(key, []);
-      variantsByPart.get(key)!.push(variant);
-    });
-
-    const stitched = {
-      ...orderResponse.data,
-      parts: parts.map((part: any) => ({ ...part, price_variants: variantsByPart.get(String(part.id)) || [] }))
-    };
-
-    return { data: stitched, error: null };
-  }, [loadOrderRowWithSchemaFallback]);
-
-  const loadQuoteFromCloudSnapshot = useCallback(async (candidateId: string): Promise<Order | null> => {
-    if (!supabase) return null;
-
-    const { data, error } = await supabase
-      .from('app_state')
-      .select('data')
-      .eq('id', 'global')
-      .maybeSingle();
-
-    if (error) {
-      await logger.warn('quote-cloud-snapshot-miss', 'Unable to read app_state fallback for public quote', { quoteId: orderId, candidateId, error });
-      return null;
-    }
-
-    const orders = Array.isArray(data?.data?.orders) ? data.data.orders : [];
-    const snapshot = orders.find((item: any) => String(item?.id || '') === candidateId);
-    if (!snapshot) return null;
-
-    return mapSnapshotOrder(snapshot);
-  }, [orderId]);
-
   const loadQuoteFromSharedSnapshot = useCallback(async (): Promise<Order | null> => {
-    if (!supabase || !snapshotToken) return null;
+    if (!snapshotToken) return null;
 
-    const { data, error } = await supabase
-      .from('public_quote_snapshots')
-      .select('order_id,expires_at,payload')
-      .eq('token', snapshotToken)
-      .maybeSingle();
+    try {
+      const data = await publicQuoteGet(snapshotToken);
+      if (!data?.payload) return null;
 
-    if (error || !data?.payload) {
+      const expiresAtIso = typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : NaN;
+      if (!Number.isNaN(expiresAtIso) && expiresAtIso <= Date.now()) return null;
+
+      const snapshotOrder = mapSnapshotOrder(typeof data.payload === 'object' && data.payload
+        ? data.payload as Record<string, unknown>
+        : {});
+
+      return snapshotOrder.id ? snapshotOrder : null;
+    } catch (error) {
       await logger.warn('quote-shared-snapshot-miss', 'Unable to load shared public quote snapshot', { quoteId: orderId, snapshotToken, error });
       return null;
     }
-
-    const expiresAtIso = typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : NaN;
-    if (!Number.isNaN(expiresAtIso) && expiresAtIso <= Date.now()) return null;
-
-    const snapshotOrder = mapSnapshotOrder({
-      ...(typeof data.payload === 'object' && data.payload ? data.payload : {}),
-      id: (data.payload as any)?.id || data.order_id || orderId
-    });
-
-    return snapshotOrder.id ? snapshotOrder : null;
   }, [orderId, snapshotToken]);
 
   const readQuoteFromCache = useCallback(() => {
@@ -735,73 +614,38 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       setLoading(false);
       return true;
     }
-    if (!supabase) {
-      setErrorType(EstimateErrorType.SERVER_ERROR);
+
+    const sharedSnapshotOrder = await loadQuoteFromSharedSnapshot();
+    if (sharedSnapshotOrder) {
+      window.localStorage.setItem(`public-quote-cache:${orderId}`, JSON.stringify(sharedSnapshotOrder));
+      setOrder(sharedSnapshotOrder);
+      setErrorType(null);
       setLoading(false);
-      return false;
+      return true;
     }
 
-    const attempts = [0, 350, 900];
-    for (let attempt = 0; attempt < attempts.length; attempt += 1) {
-      if (attempts[attempt] > 0) await sleep(attempts[attempt]);
-
-      for (const candidateId of candidateOrderIds) {
-        let { data, error: loadError } = await loadOrderRowWithSchemaFallback(candidateId, true);
-
-        if (loadError && (isRelationQueryError(loadError) || isMissingColumnError(loadError))) {
-          const fallback = await loadQuoteWithoutJoin(candidateId);
-          data = fallback.data;
-          loadError = fallback.error as any;
-        }
-
-        if (data && !loadError) {
-          window.localStorage.setItem(`public-quote-cache:${orderId}`, JSON.stringify(data));
-          setOrder(mapDbOrder(data));
-          setErrorType(null);
-          setLoading(false);
-          return true;
-        }
-
-        if (!data && !loadError) {
-          const sharedSnapshotOrder = await loadQuoteFromSharedSnapshot();
-          if (sharedSnapshotOrder) {
-            setOrder(sharedSnapshotOrder);
-            setErrorType(null);
-            setLoading(false);
-            return true;
-          }
-
-          const fallbackOrder = await loadQuoteFromCloudSnapshot(candidateId);
-          if (fallbackOrder) {
-            window.localStorage.setItem(`public-quote-cache:${orderId}`, JSON.stringify(fallbackOrder));
-            setOrder(fallbackOrder);
-            setErrorType(null);
-            setLoading(false);
-            return true;
-          }
-        }
-
-        if (!data && embeddedSnapshot) {
-          const embeddedOrder = mapSnapshotOrder(embeddedSnapshot);
-          if (embeddedOrder.id) {
-            setOrder(embeddedOrder);
-            setErrorType(null);
-            setLoading(false);
-            return true;
-          }
-        }
-
-        if (attempt === attempts.length - 1) {
-          await logger.warn('quote-not-found', 'Quote lookup failed', { quoteId: orderId, candidateId, attempt, loadError });
-          setOrder(null);
-          setErrorType(detectErrorType(loadError, !!data));
-        }
+    if (embeddedSnapshot) {
+      const embeddedOrder = mapSnapshotOrder(embeddedSnapshot);
+      if (embeddedOrder.id) {
+        setOrder(embeddedOrder);
+        setErrorType(null);
+        setLoading(false);
+        return true;
       }
     }
 
+    const fromCache = readQuoteFromCache();
+    if (fromCache) {
+      setLoading(false);
+      return true;
+    }
+
+    await logger.warn('quote-not-found', 'Quote lookup failed', { quoteId: orderId, snapshotToken });
+    setOrder(null);
+    setErrorType(detectErrorType(new Error('Quote not found'), false));
     setLoading(false);
     return false;
-  }, [orderId, readQuoteFromCache, candidateOrderIds, loadOrderRowWithSchemaFallback, loadQuoteWithoutJoin, loadQuoteFromSharedSnapshot, loadQuoteFromCloudSnapshot, embeddedSnapshot, snapshotToken]);
+  }, [orderId, readQuoteFromCache, loadQuoteFromSharedSnapshot, embeddedSnapshot, snapshotToken]);
 
   useEffect(() => {
     void loadQuote();
@@ -835,7 +679,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const onRetry = async () => {
     setIsRetrying(true);
     try {
-      await supabase?.auth.refreshSession();
       const ok = await loadQuote();
       if (!ok) shakeErrorCard();
     } finally {

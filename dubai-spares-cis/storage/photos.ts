@@ -1,5 +1,4 @@
 import { logger } from '../logging';
-import { supabase } from '../supabaseClient';
 
 const configuredBucket = (import.meta as any).env?.VITE_SUPABASE_STORAGE_BUCKET as string | undefined;
 const BUCKET_CANDIDATES = [configuredBucket, 'images', 'order-images'].filter(
@@ -162,109 +161,22 @@ export const uploadImageToStorage = async (
   folder: string,
   fileName: string
 ): Promise<string> => {
-  if (!supabase) {
-    throw new Error('Supabase not configured');
-  }
-
   const blob = await toBlob(source);
   const ext = extensionFromBlob(blob);
-  const path = `${folder}/${fileName}.${ext}`;
-
-  for (const bucket of BUCKET_CANDIDATES) {
-    let error: unknown = null;
-
-    for (let attempt = 0; attempt <= STORAGE_UPLOAD_RETRY_DELAYS_MS.length; attempt += 1) {
-      const upload = await supabase.storage.from(bucket).upload(path, blob, {
-        upsert: true,
-        contentType: blob.type || 'image/webp'
-      });
-      error = upload.error;
-
-      if (!error) {
-        const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-        return data.publicUrl;
-      }
-
-      if (!isTransientStorageUploadError(error) || attempt === STORAGE_UPLOAD_RETRY_DELAYS_MS.length) {
-        break;
-      }
-
-      await logger.warn('storage:upload', `Transient storage upload failure for ${path}; retrying`, {
-        bucket,
-        attempt: attempt + 1,
-        delayMs: STORAGE_UPLOAD_RETRY_DELAYS_MS[attempt],
-        error
-      });
-      await wait(STORAGE_UPLOAD_RETRY_DELAYS_MS[attempt]);
-    }
-
-    if (!error) {
-      const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-      return data.publicUrl;
-    }
-
-    if (!isBucketNotFoundError(error)) {
-      throw error;
-    }
-  }
-
-  throw new Error(
-    `Supabase storage bucket not found. Tried: ${BUCKET_CANDIDATES.join(', ') || 'no buckets configured'}`
-  );
+  await logger.warn('storage:upload-disabled', 'Remote photo upload disabled in local-first mode', {
+    folder,
+    fileName,
+    sizeBytes: blob.size
+  });
+  return `local://${folder}/${fileName}.${ext}`;
 };
 
-export const listStoragePathsRecursive = async (bucket: string, folder: string): Promise<string[]> => {
-  if (!supabase) return [];
+export const listStoragePathsRecursive = async (_bucket: string, _folder: string): Promise<string[]> => [];
 
-  const collected: string[] = [];
-  const walk = async (prefix: string): Promise<void> => {
-    const { data, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 });
-    if (error) throw error;
-    if (!data?.length) return;
-
-    for (const item of data) {
-      const itemPath = `${prefix}/${item.name}`;
-      if (item.id) {
-        collected.push(itemPath);
-      } else {
-        await walk(itemPath);
-      }
-    }
-  };
-
-  await walk(folder);
-  return collected;
-};
-
-const deleteStorageFiles = async (bucket: string, paths: string[]): Promise<void> => {
-  if (!supabase || !paths.length) return;
-
-  const chunkSize = 100;
-  for (let index = 0; index < paths.length; index += chunkSize) {
-    const chunk = paths.slice(index, index + chunkSize);
-    const { error } = await supabase.storage.from(bucket).remove(chunk);
-    if (error) throw error;
-  }
-};
+const deleteStorageFiles = async (_bucket: string, _paths: string[]): Promise<void> => undefined;
 
 export const deleteOrderFolderFromStorage = async (orderId: string): Promise<void> => {
-  if (!supabase) return;
-
-  let deleted = 0;
-  for (const bucket of BUCKET_CANDIDATES) {
-    try {
-      const folder = `orders/${orderId}`;
-      const paths = await listStoragePathsRecursive(bucket, folder);
-      await deleteStorageFiles(bucket, paths);
-      deleted += paths.length;
-    } catch (error) {
-      if (!isBucketNotFoundError(error)) {
-        throw error;
-      }
-    }
-  }
-
-  await logger.info('storage:cleanup', `[INFO] Storage cleanup: Deleted ${deleted} files for order ${orderId}.`);
+  await logger.info('storage:cleanup', `[INFO] Storage cleanup skipped (local-first mode) for order ${orderId}.`);
 };
 
 export const ensurePublicImageUrls = async (

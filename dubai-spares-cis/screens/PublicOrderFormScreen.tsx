@@ -448,22 +448,17 @@ const PublicOrderFormScreen: React.FC = () => {
 
       await leadCreate({
         orderId,
-        brand: brand.trim(),
-        model: model.trim(),
-        year: year.trim(),
-        bodyType: bodyType.trim() || null,
-        vin: vin.trim(),
-        vinPhotoUrl: uploadedVinPhotos[0] || null,
-        clientName: clientAlias.trim() || 'Public Lead',
-        customerContact: `${contactCountryCode}${customerContact.trim()}`.trim(),
-        source: messageSource,
-        socialNickname: clientAlias.trim() || null,
-        carPhotoUrl: uploadedCarPhotos[0] || null,
-        carPhotos: uploadedCarPhotos,
-        parts: partsToInsert,
-        notes,
-        createdAt: now,
-        updatedAt: now
+        name: clientAlias.trim() || 'Public Lead',
+        phone: `${contactCountryCode}${customerContact.trim()}`.trim(),
+        message: JSON.stringify({
+          source: messageSource,
+          brand: brand.trim(),
+          model: model.trim(),
+          year: year.trim(),
+          vin: vin.trim(),
+          bodyType: bodyType.trim() || null,
+          requestedParts: filledRequestedParts.map((part) => part.name.trim())
+        })
       });
 
       pushNotification({
