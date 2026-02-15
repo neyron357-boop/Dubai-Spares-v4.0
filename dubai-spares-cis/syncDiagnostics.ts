@@ -57,6 +57,22 @@ export const normalizeSyncError = (error: unknown, fallback: string): Normalized
     ? (error as { code: string }).code
     : 'SYNC_UNKNOWN';
 
+
+  if (
+    /column does not exist|schema mismatch|schema cache/i.test(baseMessage)
+    || errorCode === '42703'
+    || errorCode === 'PGRST204'
+    || errorCode === 'PGRST205'
+  ) {
+    return {
+      code: 'SCHEMA_MISMATCH',
+      message: baseMessage,
+      humanMessage: 'Schema mismatch detected. Apply migrations and refresh Supabase schema cache before retrying sync.',
+      actions: ['copy_diagnostics'],
+      raw: error
+    };
+  }
+
   if (errorCode === 'PGRST204' || errorCode === 'PGRST205') {
     return {
       code: errorCode,

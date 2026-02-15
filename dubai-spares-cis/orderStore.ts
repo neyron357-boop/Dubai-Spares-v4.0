@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant, SalesStatus } from './types';
 import { supabase, isCloudSyncConfigured } from './supabase';
 import { deleteOrderFolderFromStorage, ensurePublicImageUrls, optimizeImageForUpload } from './storage/photos';
-import { offlineDb } from './storage/offlineDb';
+import { OfflineMutation, offlineDb } from './storage/offlineDb';
 import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
 import { NotificationType, pushNotification, sendBrowserNotification } from './notificationCenter';
@@ -125,12 +125,15 @@ let syncInProgress = false;
 let wasCloudHydratedAtLeastOnce = false;
 const schemaMissingColumns = new Set<string>();
 const MAX_MUTATION_RETRY = 5;
+const RETRY_BASE_MS = 1200;
+const RETRY_MAX_MS = 60000;
 const MUTATION_COALESCE_MS = 650;
 const mutationTimers = new Map<string, number>();
 const localCommitTimers = new Map<string, number>();
 const networkFlushTimerMs = 3000;
 const hotFieldKeys: Array<keyof Order> = ['markupPercent', 'markupType', 'markupFixedAed', 'exchangeRate', 'clientCurrency', 'fxUpdatedAt', 'logistics', 'pricingEvents', 'updatedAt'];
 let cachedQueueLength = 0;
+let retryTimer: number | null = null;
 
 const notify = () => listeners.forEach((l) => l());
 
@@ -363,6 +366,54 @@ const broadcastSyncError = (error: unknown, fallback: string) => {
     setLastIndexedDbError(normalized);
   }
   window.dispatchEvent(new CustomEvent('cloud-sync-error', { detail: { message, code: normalized.code, actions: normalized.actions } }));
+};
+
+const isNetworkError = (error: unknown) => {
+  const message = getErrorMessage(error, '').toLowerCase();
+  if (message.includes('load failed') || message.includes('failed to fetch') || message.includes('network')) return true;
+  if (typeof error === 'object' && error) {
+    const anyErr = error as { status?: unknown; code?: unknown };
+    const status = Number(anyErr.status);
+    if (status >= 500 || status === 0 || Number.isNaN(status)) return true;
+    if (typeof anyErr.code === 'string' && ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND'].includes(anyErr.code.toUpperCase())) return true;
+  }
+  return false;
+};
+
+const isSchemaError = (error: unknown) => {
+  if (getMissingColumnName(error)) return true;
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { status?: unknown; message?: unknown; code?: unknown };
+  const status = Number(anyErr.status);
+  const message = typeof anyErr.message === 'string' ? anyErr.message.toLowerCase() : '';
+  const code = typeof anyErr.code === 'string' ? anyErr.code.toUpperCase() : '';
+  return status === 400 || status === 404
+    || code === 'PGRST204'
+    || code === '42703'
+    || message.includes('column does not exist')
+    || message.includes('schema cache');
+};
+
+const classifySyncError = (error: unknown): 'network' | 'schema' | 'unknown' => {
+  if (isSchemaError(error)) return 'schema';
+  if (isNetworkError(error)) return 'network';
+  return 'unknown';
+};
+
+const computeRetryDelay = (retryCount: number) => {
+  const expDelay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** Math.max(0, retryCount - 1)));
+  const jitter = Math.floor(expDelay * (0.2 + Math.random() * 0.25));
+  return expDelay + jitter;
+};
+
+const scheduleRetryFlush = (nextRetryAt: number) => {
+  syncPerf.setNextRetryAt(nextRetryAt);
+  if (retryTimer) window.clearTimeout(retryTimer);
+  const delay = Math.max(250, nextRetryAt - Date.now());
+  retryTimer = window.setTimeout(() => {
+    retryTimer = null;
+    if (navigator.onLine) void flushOfflineMutations();
+  }, delay);
 };
 
 const deleteRemoteOrderWithStorageCleanup = async (orderId: string) => {
@@ -763,8 +814,8 @@ export const flushOfflineMutations = async () => {
   if (syncInProgress || !navigator.onLine || !isCloudSyncConfigured || !supabase) return;
   syncInProgress = true;
   logSyncCategory('SYNC_STATE', 'flush_started');
-  setSyncStatus('syncing');
-  setState({ isSyncing: true });
+  setSyncStatus('online');
+  setState({ isSyncing: false });
 
   try {
     const pending = await offlineDb.getMutations();
@@ -792,6 +843,7 @@ export const flushOfflineMutations = async () => {
       }, new Map<string, OfflineMutation>()).values()
     ).sort((a, b) => a.createdAt - b.createdAt);
     let earliestDeferredRetryAt = 0;
+    let hadActiveRequest = false;
     syncPerf.setQueueLength(pending.length);
     await logger.info('sync:flush', `Flush started with ${pending.length} pending mutations (${coalesced.length} after coalesce)`);
     for (const mutation of coalesced) {
@@ -805,6 +857,10 @@ export const flushOfflineMutations = async () => {
       }
       await logger.info('sync:flush', `Processing mutation ${mutation.id}`, { type: mutation.type, orderId: mutation.orderId });
       try {
+        hadActiveRequest = true;
+        setSyncStatus('syncing');
+        setState({ isSyncing: true });
+        syncPerf.setActiveRequest(true);
         if (mutation.type === 'delete') {
           await logger.info('sync:flush', `Delete order ${mutation.orderId}`);
           if (isUuid(mutation.orderId)) {
@@ -831,33 +887,69 @@ export const flushOfflineMutations = async () => {
         }
         cachedQueueLength = Math.max(0, cachedQueueLength - sameOrderMutations.length);
         syncPerf.setQueueLength(cachedQueueLength);
+        syncPerf.setLastErrorType(null);
       } catch (error) {
+        const errorType = classifySyncError(error);
+        syncPerf.setLastErrorType(errorType);
+        syncPerf.setLastError(getErrorMessage(error, 'Mutation failed'));
+        syncPerf.setActiveRequest(false);
+        setState({ isSyncing: false });
+
+        if (errorType === 'schema') {
+          const sameOrderMutations = pending.filter((item) => item.orderId === mutation.orderId);
+          for (const oldMutation of sameOrderMutations) {
+            await offlineDb.removeMutation(oldMutation.id);
+          }
+          cachedQueueLength = Math.max(0, cachedQueueLength - sameOrderMutations.length);
+          syncPerf.setQueueLength(cachedQueueLength);
+          setSyncStatus('error');
+          broadcastSyncError(error, 'Schema mismatch. Run migrations and refresh schema cache.');
+          await logger.error('sync:flush', `Schema mismatch for mutation ${mutation.id}; retries stopped`, {
+            error: serializeError(error),
+            orderId: mutation.orderId
+          });
+          continue;
+        }
+
         const retryCount = Number(mutation.retryCount || 0) + 1;
-        const baseDelay = Math.min(30000, 800 * (2 ** Math.min(retryCount, 6)));
-        const jitter = Math.floor(Math.random() * 700);
-        const nextRetryAt = Date.now() + baseDelay + jitter;
+        if (retryCount > MAX_MUTATION_RETRY) {
+          await offlineDb.removeMutation(mutation.id);
+          cachedQueueLength = Math.max(0, cachedQueueLength - 1);
+          syncPerf.setQueueLength(cachedQueueLength);
+          await logger.error('sync:flush', `Mutation ${mutation.id} dropped after max retries`, { error: serializeError(error) });
+          continue;
+        }
+        const nextRetryAt = Date.now() + computeRetryDelay(retryCount);
         syncPerf.markRetry();
         await offlineDb.enqueueMutation({ ...mutation, retryCount, lastError: getErrorMessage(error, 'Mutation failed'), nextRetryAt });
         await logger.warn('sync:flush', `Mutation ${mutation.id} failed`, { retryCount, nextRetryAt, error: serializeError(error) });
+        if (!earliestDeferredRetryAt || nextRetryAt < earliestDeferredRetryAt) earliestDeferredRetryAt = nextRetryAt;
+        setSyncStatus('error');
       }
+      syncPerf.setActiveRequest(false);
+      setState({ isSyncing: false });
+      if (hadActiveRequest) setSyncStatus('online');
     }
 
     await logger.info('sync:flush', 'Flush completed');
     cachedQueueLength = await offlineDb.getMutationCount();
     syncPerf.setQueueLength(cachedQueueLength);
     if (earliestDeferredRetryAt > Date.now()) {
-      const delay = Math.max(250, earliestDeferredRetryAt - Date.now());
-      window.setTimeout(() => {
-        if (navigator.onLine) void flushOfflineMutations();
-      }, delay);
+      setSyncStatus('error');
+      scheduleRetryFlush(earliestDeferredRetryAt);
+    } else {
+      syncPerf.setNextRetryAt(null);
     }
     syncPerf.markSynced();
     logSyncCategory('SYNC_STATE', 'flush_completed');
-    setSyncStatus('online');
+    if (!hadActiveRequest) {
+      setSyncStatus('online');
+    }
   } catch (error: unknown) {
     logSyncCategory('SYNC_STATE', 'flush_failed');
     broadcastSyncError(error, 'Offline sync failed');
   } finally {
+    syncPerf.setActiveRequest(false);
     syncInProgress = false;
     setState({ isSyncing: false });
   }

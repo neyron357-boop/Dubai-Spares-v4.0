@@ -19,6 +19,9 @@ type PerfState = {
   lastIdbError: string | null;
   idbEvents: Array<{ at: number; event: string; meta?: unknown }>;
   lastNetworkRequest: { at: number; operation: string; orderId?: string; bytes?: number } | null;
+  activeRequest: boolean;
+  lastErrorType: 'network' | 'schema' | 'unknown' | null;
+  nextRetryAt: number | null;
 };
 
 const state: PerfState = {
@@ -37,7 +40,10 @@ const state: PerfState = {
   idbTxDurationsMs: [],
   lastIdbError: null,
   idbEvents: [],
-  lastNetworkRequest: null
+  lastNetworkRequest: null,
+  activeRequest: false,
+  lastErrorType: null,
+  nextRetryAt: null
 };
 
 const oneSecondAgo = () => Date.now() - 1000;
@@ -90,6 +96,15 @@ export const syncPerf = {
   setLastError(message: string | null) {
     state.lastError = message;
   },
+  setLastErrorType(type: 'network' | 'schema' | 'unknown' | null) {
+    state.lastErrorType = type;
+  },
+  setNextRetryAt(value: number | null) {
+    state.nextRetryAt = value;
+  },
+  setActiveRequest(active: boolean) {
+    state.activeRequest = active;
+  },
   addSchemaWarning(message: string) {
     if (state.schemaWarnings.includes(message)) return;
     state.schemaWarnings.push(message);
@@ -136,7 +151,10 @@ export const syncPerf = {
       avgTxTimeMs: avgIdbTxMs,
       lastIdbError: state.lastIdbError,
       idbEvents: [...state.idbEvents],
-      lastNetworkRequest: state.lastNetworkRequest
+      lastNetworkRequest: state.lastNetworkRequest,
+      activeRequest: state.activeRequest,
+      lastErrorType: state.lastErrorType,
+      nextRetryAt: state.nextRetryAt
     };
   }
 };
