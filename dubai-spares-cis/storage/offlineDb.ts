@@ -19,7 +19,7 @@ export interface OfflineMutation {
 }
 
 const DB_NAME = 'dubai-spares-offline';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const ORDERS_STORE = 'orders';
 const MUTATIONS_STORE = 'mutations';
 const SYSTEM_LOGS_STORE = 'system_logs';
@@ -303,7 +303,13 @@ const flushMutationWrites = async () => {
         if (!existing && count >= MAX_MUTATIONS) {
           throw new Error(`Mutation queue limit reached (${MAX_MUTATIONS}). Export backup and clear queue.`);
         }
-        await txRequest(store.put({ ...existing, ...normalized, createdAt: existing?.createdAt || normalized.createdAt }));
+        await txRequest(store.put({
+          ...existing,
+          ...normalized,
+          payload: Object.prototype.hasOwnProperty.call(normalized, 'payload') ? normalized.payload : existing?.payload,
+          patch: Object.prototype.hasOwnProperty.call(normalized, 'patch') ? normalized.patch : existing?.patch,
+          createdAt: existing?.createdAt || normalized.createdAt
+        }));
       }
       syncPerf.recordIdbWrite();
     });
@@ -400,7 +406,9 @@ export const offlineDb = {
       operation: mutation.operation || mutation.type,
       retryCount: Number(mutation.retryCount || 0),
       lastError: mutation.lastError || null,
-      nextRetryAt: Number(mutation.nextRetryAt || 0)
+      nextRetryAt: Number(mutation.nextRetryAt || 0),
+      payload: Object.prototype.hasOwnProperty.call(mutation, 'payload') ? mutation.payload : undefined,
+      patch: Object.prototype.hasOwnProperty.call(mutation, 'patch') ? mutation.patch : undefined
     };
 
     pendingMutationWrites.set(normalized.id, normalized);
