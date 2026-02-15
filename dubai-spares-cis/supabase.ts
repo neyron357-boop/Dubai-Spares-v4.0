@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
+import { logSyncCategory, syncPerf } from './syncPerf';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -37,6 +38,8 @@ const instrumentedFetch: typeof fetch = async (input, init) => {
   const hasApiKey = Boolean(headers.get('apikey') || headers.get('x-api-key'));
   const hasAuthorization = Boolean(headers.get('authorization'));
 
+  syncPerf.recordNetworkRequest();
+  logSyncCategory('SUPABASE_REQ', 'request_started', { method: upperMethod, rawUrl });
   await logger.info('supabase:request', `Attempt ${method} ${rawUrl}`, {
     hasApiKey,
     hasAuthorization
