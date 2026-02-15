@@ -128,6 +128,9 @@ const schemaMissingColumns = new Set<string>();
 const MAX_MUTATION_RETRY = 5;
 const MUTATION_COALESCE_MS = 650;
 const mutationTimers = new Map<string, number>();
+const localCommitTimers = new Map<string, number>();
+const networkFlushTimerMs = 8000;
+const hotFieldKeys: Array<keyof Order> = ['markupPercent', 'markupType', 'markupFixedAed', 'exchangeRate', 'clientCurrency', 'fxUpdatedAt', 'logistics', 'updatedAt'];
 
 const isOfflineFirstEnabled = () => loadAppSettings().offlineFirst;
 
@@ -662,7 +665,67 @@ const persistOrderGraph = async (order: Order) => {
   return normalizeOrder(uploadedOrder);
 };
 
-const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined, orderId: string) => {
+
+const hasStructuralDiff = (previous: Order | undefined, next: Order) => {
+  if (!previous) return true;
+  return JSON.stringify(previous.parts || []) !== JSON.stringify(next.parts || [])
+    || JSON.stringify(previous.notes || []) !== JSON.stringify(next.notes || [])
+    || JSON.stringify(previous.pricingEvents || []) !== JSON.stringify(next.pricingEvents || [])
+    || JSON.stringify(previous.carPhotos || []) !== JSON.stringify(next.carPhotos || []);
+};
+
+const pickHotFieldPatch = (previous: Order | undefined, next: Order): Partial<Order> => {
+  const patch: Partial<Order> = {};
+  for (const key of hotFieldKeys) {
+    if (!previous || previous[key] !== next[key]) patch[key] = next[key] as never;
+  }
+  return patch;
+};
+
+const scheduleBackgroundFlush = () => {
+  const timerKey = '__network_flush__';
+  const existing = mutationTimers.get(timerKey);
+  if (existing) window.clearTimeout(existing);
+  mutationTimers.set(timerKey, window.setTimeout(() => {
+    mutationTimers.delete(timerKey);
+    if (navigator.onLine) void flushOfflineMutations();
+  }, networkFlushTimerMs));
+};
+
+const scheduleLocalCommit = (order: Order, patchOnly?: Partial<Order>) => {
+  const existing = localCommitTimers.get(order.id);
+  if (existing) window.clearTimeout(existing);
+  localCommitTimers.set(order.id, window.setTimeout(() => {
+    localCommitTimers.delete(order.id);
+    if (patchOnly && Object.keys(patchOnly).length > 0) {
+      void offlineDb.saveOrderPatch(order.id, patchOnly);
+      return;
+    }
+    void offlineDb.saveOrder(order);
+  }, MUTATION_COALESCE_MS));
+};
+
+
+const toOrderPatchPayload = (patch: Partial<Order>) => ({
+  markup_percent: patch.markupPercent,
+  markup_type: patch.markupType,
+  markup_fixed_aed: patch.markupFixedAed,
+  exchange_rate: patch.exchangeRate,
+  client_currency: patch.clientCurrency,
+  fx_updated_at: patch.fxUpdatedAt ? toIsoTimestamp(patch.fxUpdatedAt) : undefined,
+  logistics: patch.logistics,
+  updated_at: toIsoTimestamp(patch.updatedAt || Date.now())
+});
+
+const persistOrderPatch = async (orderId: string, patch: Partial<Order>) => {
+  if (!supabase || !Object.keys(patch).length) return;
+  const payload = toOrderPatchPayload(patch);
+  const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
+  const { error } = await supabase.from('orders').update(cleanPayload).eq('id', orderId);
+  if (error) throw error;
+};
+
+const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined, orderId: string, patch?: Partial<Order>) => {
   await logger.warn('sync:queue', `Queueing ${type} for order ${orderId}`);
   const mutationId = `${type}:${orderId}`;
   await offlineDb.enqueueMutation({
@@ -673,6 +736,7 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
     entityId: orderId,
     operation: type,
     payload: order,
+    patch,
     createdAt: Date.now(),
     retryCount: 0,
     lastError: null
@@ -682,14 +746,7 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
   syncPerf.setQueueLength(queueCount);
   await logger.info('sync:queue', `Queue size is now ${queueCount}`);
 
-  if (navigator.onLine) {
-    const existing = mutationTimers.get(orderId);
-    if (existing) window.clearTimeout(existing);
-    mutationTimers.set(orderId, window.setTimeout(() => {
-      mutationTimers.delete(orderId);
-      void flushOfflineMutations();
-    }, MUTATION_COALESCE_MS));
-  }
+  if (navigator.onLine) scheduleBackgroundFlush();
 
   if ('serviceWorker' in navigator) {
     try {
@@ -731,6 +788,8 @@ export const flushOfflineMutations = async () => {
           if (isUuid(mutation.orderId)) {
             await deleteRemoteOrderWithStorageCleanup(mutation.orderId);
           }
+        } else if (mutation.patch && !mutation.payload) {
+          await persistOrderPatch(mutation.orderId, mutation.patch);
         } else if (mutation.payload) {
           const saved = await persistOrderGraph(mutation.payload);
           await offlineDb.saveOrder(saved);
@@ -904,7 +963,6 @@ export const addOrderItem = async (order: Order) => {
 
   if (offlineFirst || !navigator.onLine || !isCloudSyncConfigured || !supabase) {
     await queueMutation('upsert', localOrder, localOrder.id);
-    if (navigator.onLine && offlineFirst) void flushOfflineMutations();
     return true;
   }
 
@@ -944,13 +1002,14 @@ export const updateOrderItem = async (order: Order) => {
   }
   const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
   setState({ orders: next, error: null });
-  await offlineDb.saveOrder(normalized);
+  const structuralDiff = hasStructuralDiff(previousOrder, normalized);
+  const patch = structuralDiff ? {} : pickHotFieldPatch(previousOrder, normalized);
+  scheduleLocalCommit(normalized, structuralDiff ? undefined : patch);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
   const offlineFirst = isOfflineFirstEnabled();
   if (offlineFirst || !navigator.onLine || !isCloudSyncConfigured || !supabase) {
-    await queueMutation('upsert', normalized, normalized.id);
-    if (navigator.onLine && offlineFirst) void flushOfflineMutations();
+    await queueMutation('upsert', structuralDiff ? normalized : undefined, normalized.id, patch);
     return true;
   }
 
@@ -973,7 +1032,6 @@ export const deleteOrderItem = async (orderId: string) => {
   const offlineFirst = isOfflineFirstEnabled();
   if (offlineFirst || !navigator.onLine || !isCloudSyncConfigured || !supabase) {
     await queueMutation('delete', undefined, orderId);
-    if (navigator.onLine && offlineFirst) void flushOfflineMutations();
     return true;
   }
 
@@ -1052,11 +1110,21 @@ export const useOrderStore = () => {
       void flushOfflineMutations();
     }
 
+    const syncTimer = window.setInterval(() => {
+      if (navigator.onLine) void flushOfflineMutations();
+    }, 15000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) void flushOfflineMutations();
+    };
+
     window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
     navigator.serviceWorker?.addEventListener?.('message', onSwMessage);
     return () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(syncTimer);
       navigator.serviceWorker?.removeEventListener?.('message', onSwMessage);
       if (ordersChannel) {
         void supabase?.removeChannel(ordersChannel);
