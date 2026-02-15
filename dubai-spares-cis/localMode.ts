@@ -1,4 +1,9 @@
-const envValue = (import.meta.env.VITE_LOCAL_ONLY ?? '1').toString().trim().toLowerCase();
+export const LOCAL_FIRST = true;
+export const LOCAL_ONLY = true;
+export const LOCAL_MODE_LABEL = 'LOCAL';
 
-export const LOCAL_ONLY = envValue !== '0' && envValue !== 'false' && envValue !== 'off';
-export const LOCAL_MODE_LABEL = 'LOCAL MODE';
+export const CLOUD_FEATURES = {
+  BACKUP: true,
+  PUBLIC_QUOTE: true,
+  CLIENT_FORM: true
+} as const;
