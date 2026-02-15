@@ -31,6 +31,8 @@ const RADAR_INTERACTIONS_STORE = 'radar_interactions';
 const ORDER_PATCHES_STORE = 'order_patches';
 const ALL_STORES = [ORDERS_STORE, ORDER_PATCHES_STORE, MUTATIONS_STORE, SYSTEM_LOGS_STORE, RADAR_INTERACTIONS_STORE] as const;
 const MAX_MUTATIONS = 2000;
+const DEBUG_MAX_READ_PER_CLICK = 200;
+const EXPORT_BATCH_SIZE = 100;
 const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
 const IDB_RECOVERY_REOPEN_LIMIT = 2;
 const IDB_SAFE_REBUILD_LIMIT = 1;
@@ -282,6 +284,52 @@ const txRequest = <T>(request: IDBRequest<T>) =>
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
   });
+
+const yieldToUi = async () => new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+
+const sampleRows = async (
+  store: IDBObjectStore,
+  limit: number,
+  cursor?: IDBValidKey,
+  signal?: AbortSignal
+): Promise<{ rows: unknown[]; nextCursor: IDBValidKey | null }> => {
+  const clampedLimit = Math.max(1, Math.min(limit, DEBUG_MAX_READ_PER_CLICK));
+  const rows: unknown[] = [];
+  let lastKey: IDBValidKey | null = null;
+  const range = cursor === undefined ? undefined : IDBKeyRange.lowerBound(cursor, true);
+
+  await new Promise<void>((resolve, reject) => {
+    const request = store.openCursor(range);
+    request.onsuccess = () => {
+      if (signal?.aborted) {
+        reject(new DOMException('Operation cancelled', 'AbortError'));
+        return;
+      }
+      const hit = request.result;
+      if (!hit || rows.length >= clampedLimit) {
+        resolve();
+        return;
+      }
+      rows.push(hit.value);
+      lastKey = hit.primaryKey;
+      hit.continue();
+    };
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB cursor failed'));
+  });
+
+  return {
+    rows,
+    nextCursor: rows.length === clampedLimit ? lastKey : null
+  };
+};
+
+export interface DiagnosticsSummaryPayload {
+  schemaVersion: number;
+  stores: Record<string, { count: number; approxBytes: number }>;
+  entityCounts: { orders: number; parts: number; price_variants: number; shops: number; app_state_keys: number };
+  lastLogs: SystemLogEntry[];
+  lastErrors: SystemLogEntry[];
+}
 
 const flushOrderWrites = async () => {
   if (pendingOrderFlushTimer) {
@@ -584,6 +632,84 @@ export const offlineDb = {
     return result;
   },
 
+  // iOS Safari can OOM when debug tools materialize entire IndexedDB datasets in memory.
+  // Keep diagnostics intentionally capped/sampled so Debug/Logs always remains responsive.
+  async getDiagnosticsSummary(options?: { signal?: AbortSignal; sampleLimit?: number; onBatch?: (payload: { step: string; processed: number; elapsedMs: number }) => Promise<void> | void }): Promise<DiagnosticsSummaryPayload> {
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const sampleLimit = Math.max(1, Math.min(options?.sampleLimit ?? 50, 50));
+    const db = await openDb();
+    const tx = db.transaction([...ALL_STORES], 'readonly');
+    const stores: Record<string, { count: number; approxBytes: number }> = {};
+
+    for (const storeName of ALL_STORES) {
+      const store = tx.objectStore(storeName);
+      const count = await txRequest(store.count());
+      const sample = await sampleRows(store, sampleLimit, undefined, options?.signal);
+      const approxBytes = new Blob([JSON.stringify(sample.rows)]).size;
+      stores[storeName] = { count, approxBytes };
+      await options?.onBatch?.({
+        step: `sample:${storeName}`,
+        processed: sample.rows.length,
+        elapsedMs: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt)
+      });
+      await yieldToUi();
+    }
+
+    const ordersSample = await sampleRows(tx.objectStore(ORDERS_STORE), DEBUG_MAX_READ_PER_CLICK, undefined, options?.signal);
+    const ordersRows = ordersSample.rows as Order[];
+    const parts = ordersRows.reduce((sum, order) => sum + (Array.isArray(order.parts) ? order.parts.length : 0), 0);
+    const variants = ordersRows.reduce((sum, order) => (
+      sum + (Array.isArray(order.parts)
+        ? order.parts.reduce((partSum, part) => partSum + (Array.isArray((part as { variants?: unknown[] }).variants) ? ((part as { variants?: unknown[] }).variants?.length || 0) : 0), 0)
+        : 0)
+    ), 0);
+
+    const lastLogs = await this.getSystemLogs(50);
+    const lastErrors = lastLogs.filter((entry) => entry.level === 'error').slice(0, 20);
+
+    const suppliersRaw = localStorage.getItem('dubai_spares_suppliers');
+    let shops = 0;
+    if (suppliersRaw) {
+      try {
+        const parsed = JSON.parse(suppliersRaw);
+        shops = Array.isArray(parsed) ? parsed.length : 0;
+      } catch {
+        shops = 0;
+      }
+    }
+
+    const appSettingsRaw = localStorage.getItem('dubai_spares_app_settings_v1');
+    let appStateKeys = 0;
+    if (appSettingsRaw) {
+      try {
+        const parsed = JSON.parse(appSettingsRaw);
+        appStateKeys = parsed && typeof parsed === 'object' ? Object.keys(parsed as Record<string, unknown>).length : 0;
+      } catch {
+        appStateKeys = 0;
+      }
+    }
+
+    return {
+      schemaVersion: db.version,
+      stores,
+      entityCounts: {
+        orders: stores[ORDERS_STORE]?.count || 0,
+        parts,
+        price_variants: variants,
+        shops,
+        app_state_keys: appStateKeys
+      },
+      lastLogs,
+      lastErrors
+    };
+  },
+
+  async getSample(storeName: string, limit = 50, cursor?: IDBValidKey, signal?: AbortSignal): Promise<{ rows: unknown[]; nextCursor: IDBValidKey | null }> {
+    const db = await openDb();
+    const tx = db.transaction(storeName, 'readonly');
+    return sampleRows(tx.objectStore(storeName), Math.min(limit, DEBUG_MAX_READ_PER_CLICK), cursor, signal);
+  },
+
   async exportAllData(): Promise<Record<string, unknown[]>> {
     const db = await openDb();
     const tx = db.transaction([...ALL_STORES], 'readonly');
@@ -593,6 +719,70 @@ export const offlineDb = {
       dump[storeName] = Array.isArray(rows) ? rows : [];
     }
     return dump;
+  },
+
+  async exportAllDataChunked(options?: {
+    signal?: AbortSignal;
+    batchSize?: number;
+    onStoreProgress?: (payload: { store: string; processed: number; total: number; elapsedMs: number }) => Promise<void> | void;
+    onStoreChunk?: (payload: { store: string; rows: unknown[]; isLastChunk: boolean }) => Promise<void> | void;
+  }): Promise<void> {
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const batchSize = Math.max(1, Math.min(options?.batchSize ?? EXPORT_BATCH_SIZE, DEBUG_MAX_READ_PER_CLICK));
+    const db = await openDb();
+    const tx = db.transaction([...ALL_STORES], 'readonly');
+
+    for (const storeName of ALL_STORES) {
+      const store = tx.objectStore(storeName);
+      const total = await txRequest(store.count());
+      let processed = 0;
+      let chunk: unknown[] = [];
+
+      await new Promise<void>((resolve, reject) => {
+        const request = store.openCursor();
+        request.onsuccess = async () => {
+          if (options?.signal?.aborted) {
+            reject(new DOMException('Operation cancelled', 'AbortError'));
+            return;
+          }
+          const hit = request.result;
+          if (!hit) {
+            if (chunk.length) {
+              await options?.onStoreChunk?.({ store: storeName, rows: chunk, isLastChunk: true });
+            } else {
+              await options?.onStoreChunk?.({ store: storeName, rows: [], isLastChunk: true });
+            }
+            resolve();
+            return;
+          }
+          chunk.push(hit.value);
+          processed += 1;
+
+          if (chunk.length >= batchSize) {
+            const rows = chunk;
+            chunk = [];
+            await options?.onStoreChunk?.({ store: storeName, rows, isLastChunk: false });
+            await options?.onStoreProgress?.({
+              store: storeName,
+              processed,
+              total,
+              elapsedMs: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt)
+            });
+            await yieldToUi();
+          }
+          hit.continue();
+        };
+        request.onerror = () => reject(request.error ?? new Error('IndexedDB export cursor failed'));
+      });
+
+      await options?.onStoreProgress?.({
+        store: storeName,
+        processed,
+        total,
+        elapsedMs: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt)
+      });
+      await yieldToUi();
+    }
   },
 
   async importAllData(payload: Record<string, unknown[]>): Promise<void> {
