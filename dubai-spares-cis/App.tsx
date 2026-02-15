@@ -12,10 +12,8 @@ import RadarLiveSettingsScreen from './screens/RadarLiveSettingsScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-react';
 import { useStore } from './store';
-import { NotificationType, getUnreadNotificationsCount, pushNotification } from './notificationCenter';
-import { checkSchemaHealth } from './schemaHealth';
-import { loadAppSettings, saveAppSettings } from './appSettings';
-import { LOCAL_MODE_LABEL, LOCAL_ONLY } from './localMode';
+import { getUnreadNotificationsCount } from './notificationCenter';
+import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
 
 const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
@@ -27,17 +25,8 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ c
 
   useEffect(() => {
     const updateUnread = () => setUnreadCount(getUnreadNotificationsCount());
-
-    updateUnread();
     window.addEventListener('notifications:changed', updateUnread);
-    window.addEventListener('focus', updateUnread);
-    document.addEventListener('visibilitychange', updateUnread);
-
-    return () => {
-      window.removeEventListener('notifications:changed', updateUnread);
-      window.removeEventListener('focus', updateUnread);
-      document.removeEventListener('visibilitychange', updateUnread);
-    };
+    return () => window.removeEventListener('notifications:changed', updateUnread);
   }, []);
 
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
@@ -48,9 +37,7 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ c
         <div className={`h-full bg-blue-500 transition-all duration-300 ${isSyncing ? 'w-full opacity-100 animate-pulse' : 'w-0 opacity-0'}`} />
       </div>
       <main className="flex-1 overflow-y-auto no-scrollbar relative">
-        <div className="fixed top-3 right-3 z-[90] px-2.5 py-1 rounded-full bg-slate-700/85 text-white text-[10px] font-black uppercase tracking-wide shadow">
-          {LOCAL_MODE_LABEL}
-        </div>
+        <div className="fixed top-3 right-3 z-[90] px-2.5 py-1 rounded-full bg-slate-700/85 text-white text-[10px] font-black uppercase tracking-wide shadow">{LOCAL_MODE_LABEL}</div>
         {children}
       </main>
       {!hideNav && (
@@ -59,10 +46,7 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ c
           <NavLink to="/new" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">Новый</span></NavLink>
           <NavLink to="/database" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">База</span></NavLink>
           <NavLink to="/radar" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Radar size={22} /><span className="text-[10px] font-medium">Радар</span></NavLink>
-          <NavLink to="/notifications" className={({ isActive }) => `relative flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />
-            {unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{badgeLabel}</span>}
-            <span className="text-[10px] font-medium">Оповещ.</span>
-          </NavLink>
+          <NavLink to="/notifications" className={({ isActive }) => `relative flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />{unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{badgeLabel}</span>}<span className="text-[10px] font-medium">Оповещ.</span></NavLink>
           <NavLink to="/settings" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настр.</span></NavLink>
         </nav>
       )}
@@ -71,167 +55,28 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ c
 };
 
 const App: React.FC = () => {
-  const [savePulse, setSavePulse] = useState(false);
-  const [syncToast, setSyncToast] = useState<string | null>(null);
-  const [appToast, setAppToast] = useState<{ message: string; tone: 'error' | 'success' | 'info' } | null>(null);
-  const [schemaBanner, setSchemaBanner] = useState<string | null>(null);
-  const { syncOrders, isLoading, error } = useStore();
+  const { isLoading, syncOrders } = useStore();
 
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const onSave = () => {
-      setSavePulse(true);
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => setSavePulse(false), 950);
-    };
-
-    window.addEventListener('cloud-save-success', onSave);
-    return () => {
-      window.removeEventListener('cloud-save-success', onSave);
-      if (timer) clearTimeout(timer);
-    };
-  }, []);
-
-  useEffect(() => {
-    const onAppToast = (event: Event) => {
-      const custom = event as CustomEvent<{ message?: string; tone?: 'error' | 'success' | 'info' }>;
-      const message = custom.detail?.message;
-      if (!message) return;
-      setAppToast({ message, tone: custom.detail?.tone || 'info' });
-      window.setTimeout(() => setAppToast(null), 3200);
-    };
-
-    window.addEventListener('app-toast', onAppToast);
-    return () => window.removeEventListener('app-toast', onAppToast);
-  }, []);
-
-  useEffect(() => {
-    if (LOCAL_ONLY) return;
-    void checkSchemaHealth().then((status) => {
-      const cfg = loadAppSettings();
-      if (!status.compatible && Date.now() > cfg.hideSchemaWarningUntil) {
-        setSchemaBanner(status.reason || 'Schema mismatch');
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    void syncOrders();
-  }, [syncOrders]);
-
-  useEffect(() => {
-    if (LOCAL_ONLY || !error) return;
-    const readable = String(error).toLowerCase().includes('schema') || String(error).toLowerCase().includes('supabase') ? 'Проблема синхронизации данных. Попробуйте ещё раз.' : `Sync error: ${error}`;
-    setSyncToast(readable);
-    const t = setTimeout(() => setSyncToast(null), 4500);
-    return () => clearTimeout(t);
-  }, [error]);
-
-  useEffect(() => {
-    if (LOCAL_ONLY) return;
-    const onSyncError = (event: Event) => {
-      const customEvent = event as CustomEvent<{ message?: string; code?: string; actions?: string[] }>;
-      const message = customEvent.detail?.message || 'Unknown sync error';
-      const readable = message.toLowerCase().includes('schema') || message.toLowerCase().includes('supabase') ? 'Сервис данных временно недоступен. Повторите позже.' : `Sync failed: ${message}`;
-      setSyncToast(readable);
-      pushNotification({
-        type: NotificationType.SYNC_ERROR,
-        title: 'Ошибка синхронизации',
-        message: readable,
-        signature: `sync:${customEvent.detail?.code || 'UNKNOWN'}:${message}`,
-        source: 'sync',
-        severity: 'critical'
-      });
-    };
-
-    window.addEventListener('cloud-sync-error', onSyncError);
-    return () => window.removeEventListener('cloud-sync-error', onSyncError);
-  }, []);
-
-
-
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      const target = e.target as HTMLInputElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') {
-        e.preventDefault();
-        const form = target.form;
-        if (form) {
-          const index = Array.prototype.indexOf.call(form, target);
-          const next = form.elements[index + 1] as HTMLElement;
-          if (next) next.focus({ preventScroll: true });
-          else target.blur();
-        }
-      }
-    }
-  };
+  useEffect(() => { void syncOrders(); }, [syncOrders]);
 
   return (
-    <div onKeyDown={handleKeyDown}>
-      <div className="transition-opacity duration-500 opacity-100">
-        <div className={`fixed top-3 right-3 z-[90] pointer-events-none transition-all duration-700 ${savePulse ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
-          <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-lg">
-            Сохранено
-          </div>
-        </div>
-
-        {schemaBanner && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[96] max-w-[90%] px-3 py-2 rounded-xl bg-rose-100 text-rose-700 text-[10px] font-black tracking-wide shadow">
-            <div>{schemaBanner}</div>
-            <button className="underline" type="button" onClick={() => { saveAppSettings({ hideSchemaWarningUntil: Date.now() + 24 * 60 * 60 * 1000 }); setSchemaBanner(null); }}>Не показывать 24ч</button>
-          </div>
-        )}
-
-        {syncToast && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-wide shadow">
-            {syncToast}
-          </div>
-        )}
-
-        {appToast && (
-          <div
-            className={`fixed top-14 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide shadow ${
-              appToast.tone === 'error'
-                ? 'bg-rose-100 text-rose-700'
-                : appToast.tone === 'success'
-                ? 'bg-emerald-100 text-emerald-700'
-                : 'bg-slate-100 text-slate-700'
-            }`}
-          >
-            {appToast.message}
-          </div>
-        )}
-
-        <HashRouter>
-          <Layout isSyncing={isLoading}>
-            <Routes>
-              <Route path="/" element={<OrdersScreen />} />
-              <Route path="/new" element={<NewOrderScreen />} />
-              <Route path="/vendor" element={<VendorSlider />} />
-              <Route path="/order/:id" element={<OrderDetailsScreen />} />
-              <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
-              <Route path="/database" element={<SuppliersScreen />} />
-              <Route path="/radar" element={<RadarScreen />} />
-              <Route path="/notifications" element={<NotificationsScreen />} />
-              <Route
-                path="/debug"
-                element={(
-                  <DebugRouteBoundary>
-                    <Suspense fallback={<div className="p-4 text-xs text-gray-500">Loading debug tools…</div>}>
-                      <DebugLogsScreen />
-                    </Suspense>
-                  </DebugRouteBoundary>
-                )}
-              />
-              <Route path="/settings" element={<SettingsScreen />} />
-              <Route path="/settings/radar-live" element={<RadarLiveSettingsScreen />} />
-            </Routes>
-          </Layout>
-        </HashRouter>
-      </div>
-    </div>
+    <HashRouter>
+      <Layout isSyncing={isLoading}>
+        <Routes>
+          <Route path="/" element={<OrdersScreen />} />
+          <Route path="/new" element={<NewOrderScreen />} />
+          <Route path="/vendor" element={<VendorSlider />} />
+          <Route path="/order/:id" element={<OrderDetailsScreen />} />
+          <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
+          <Route path="/database" element={<SuppliersScreen />} />
+          <Route path="/radar" element={<RadarScreen />} />
+          <Route path="/notifications" element={<NotificationsScreen />} />
+          <Route path="/debug" element={<DebugRouteBoundary><Suspense fallback={<div className="p-4 text-xs text-gray-500">Loading debug tools…</div>}><DebugLogsScreen /></Suspense></DebugRouteBoundary>} />
+          <Route path="/settings" element={<SettingsScreen />} />
+          <Route path="/settings/radar-live" element={<RadarLiveSettingsScreen />} />
+        </Routes>
+      </Layout>
+    </HashRouter>
   );
 };
 

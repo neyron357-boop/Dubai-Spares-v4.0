@@ -18,25 +18,6 @@ const CURRENCY_META: Record<QuoteCurrency, { label: string; symbol: string }> = 
   TJS: { label: 'Сомони', symbol: 'TJS' }
 };
 
-const pickRate = (code: QuoteCurrency, apiRates: Record<string, number>) => {
-  const value = apiRates[code];
-  return Number.isFinite(value) && value > 0 ? value : DEFAULT_QUOTE_RATES[code];
-};
-
-const fetchLiveQuoteRates = async (): Promise<QuoteRates> => {
-  const response = await fetch('https://open.er-api.com/v6/latest/AED');
-  if (!response.ok) throw new Error(`Currency API error: ${response.status}`);
-  const payload = await response.json();
-  const apiRates = payload?.rates || {};
-
-  return {
-    AED: 1,
-    USD: pickRate('USD', apiRates),
-    RUB: pickRate('RUB', apiRates),
-    TJS: pickRate('TJS', apiRates)
-  };
-};
-
 const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const foundParts = order.parts.filter(p => p.isFound && p.variants.length > 0);
   const [rates, setRates] = useState<QuoteRates>(DEFAULT_QUOTE_RATES);
@@ -65,20 +46,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
 
   const convertedTotal = finalTotalAed * rates[currency];
 
-  useEffect(() => {
-    void (async () => {
-      setIsRefreshingRates(true);
-      try {
-        const liveRates = await fetchLiveQuoteRates();
-        setRates(liveRates);
-        setRateNotice('Курс обновлён автоматически (реальный).');
-      } catch {
-        setRateNotice('Не удалось обновить автоматически. Используются значения по умолчанию.');
-      } finally {
-        setIsRefreshingRates(false);
-      }
-    })();
-  }, []);
 
   const carPhoto = (order.carPhotos && order.carPhotos.length > 0) ? order.carPhotos[0] : order.carPhotoUrl;
 
@@ -145,10 +112,9 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
                   void (async () => {
                     setIsRefreshingRates(true);
                     try {
-                      setRates(await fetchLiveQuoteRates());
-                      setRateNotice('Курс обновлён автоматически (реальный).');
+                      setRateNotice('Автообновление отключено в локальном режиме.');
                     } catch {
-                      setRateNotice('Ошибка API. Введите курс вручную.');
+                      setRateNotice('Используйте ручной ввод курса.');
                     } finally {
                       setIsRefreshingRates(false);
                     }

@@ -465,7 +465,6 @@ const SuppliersScreen: React.FC = () => {
         isFavorite: existingSupplier?.isFavorite === true,
         createdAt: existingSupplier?.createdAt || now,
         updatedAt: now,
-        syncStatus: navigator.onLine ? 'synced' : 'pending_sync'
       };
 
       if (existingSupplier) updateSupplier(supplierPayload);
@@ -475,7 +474,6 @@ const SuppliersScreen: React.FC = () => {
         try {
           await upsertSupplierToShops(supplierPayload);
         } catch {
-          updateSupplier({ ...supplierPayload, syncStatus: 'error' });
         }
       }
 
@@ -774,7 +772,6 @@ const SuppliersScreen: React.FC = () => {
             </div>
 
             {locationParseNotice && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">{locationParseNotice}</div>}
-            {!navigator.onLine && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">⏳ Offline mode: поставщик будет сохранён как pending sync.</div>}
 
             <div className="sticky bottom-0 -mx-4 sm:-mx-5 mt-1 px-4 sm:px-5 pt-2 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] bg-white/95 backdrop-blur border-t border-gray-100 flex gap-3">
               <button type="button" onClick={() => { setIsAdding(false); resetAddForm(); }} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-2xl font-bold uppercase text-xs">Cancel</button>

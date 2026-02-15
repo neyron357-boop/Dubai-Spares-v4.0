@@ -3,16 +3,11 @@ import { Supplier } from './types';
 import { useOrderStore, subscribeOrderStore, getOrderState, restoreOrdersExternal, fetchOrderDetails } from './orderStore';
 import { ensureUuid } from './id';
 import { deleteSupplierFromShops } from './radarShops';
-import { supabase } from './supabase';
-import { logger } from './logging';
-import { LOCAL_ONLY } from './localMode';
 
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
 let globalSuppliers: Supplier[] = [];
 let listeners = new Set<() => void>();
-
-let suppliersCloudSyncedThisSession = false;
 
 const normalizeSupplier = (supplier: Supplier): Supplier => ({
   ...supplier,
@@ -23,93 +18,27 @@ const normalizeSupplier = (supplier: Supplier): Supplier => ({
   brands: Array.isArray(supplier.brands) ? supplier.brands : [],
   mainBrands: Array.isArray(supplier.mainBrands) ? supplier.mainBrands : (Array.isArray(supplier.brands) ? supplier.brands : []),
   models: Array.isArray(supplier.models) ? supplier.models : [],
-  years: Array.isArray(supplier.years)
-    ? supplier.years.map((year) => Number(year)).filter((year) => Number.isFinite(year))
-    : [],
+  years: Array.isArray(supplier.years) ? supplier.years.map((year) => Number(year)).filter((year) => Number.isFinite(year)) : [],
   bodyTypes: Array.isArray(supplier.bodyTypes) ? supplier.bodyTypes : [],
   primaryBrand: typeof supplier.primaryBrand === 'string' ? supplier.primaryBrand : (Array.isArray(supplier.mainBrands) && supplier.mainBrands[0]) || '',
-  gpsAccuracyMeters: Number.isFinite(Number(supplier.gpsAccuracyMeters)) ? Number(supplier.gpsAccuracyMeters) : undefined,
-  workingHours: typeof supplier.workingHours === 'string' ? supplier.workingHours : '',
-  trustLevel: Number.isFinite(Number(supplier.trustLevel)) ? Number(supplier.trustLevel) : 3,
-  hasDelivery: supplier.hasDelivery === true,
-  hasWhatsapp: supplier.hasWhatsapp !== false,
-  whatsappFast: supplier.whatsappFast === true,
-  comment: typeof supplier.comment === 'string' ? supplier.comment : '',
-  website: typeof supplier.website === 'string' ? supplier.website : '',
-  foundCount: Number.isFinite(Number(supplier.foundCount)) ? Number(supplier.foundCount) : 0,
-  notFoundCount: Number.isFinite(Number(supplier.notFoundCount)) ? Number(supplier.notFoundCount) : 0,
-  wrongInfoCount: Number.isFinite(Number(supplier.wrongInfoCount)) ? Number(supplier.wrongInfoCount) : 0,
-  successRate: Number.isFinite(Number(supplier.successRate)) ? Number(supplier.successRate) : 0,
-  activityScore: Number.isFinite(Number(supplier.activityScore)) ? Number(supplier.activityScore) : 0,
-  lastContactAt: Number.isFinite(Number(supplier.lastContactAt)) ? Number(supplier.lastContactAt) : 0,
-  isFavorite: supplier.isFavorite === true,
   createdAt: Number.isFinite(Number(supplier.createdAt)) ? Number(supplier.createdAt) : Date.now(),
-  updatedAt: Number.isFinite(Number(supplier.updatedAt)) ? Number(supplier.updatedAt) : Date.now(),
-  syncStatus: supplier.syncStatus === 'pending_sync' || supplier.syncStatus === 'error' ? supplier.syncStatus : 'synced',
+  updatedAt: Number.isFinite(Number(supplier.updatedAt)) ? Number(supplier.updatedAt) : Date.now()
 });
 
 try {
   const savedSuppliers = localStorage.getItem(SUPPLIERS_KEY);
   if (savedSuppliers) globalSuppliers = (JSON.parse(savedSuppliers) as Supplier[]).map(normalizeSupplier);
-} catch (e) {
-  console.error('Failed to load suppliers:', e);
+} catch {
+  globalSuppliers = [];
 }
 
 const notifySupplierListeners = () => {
   try {
     localStorage.setItem(SUPPLIERS_KEY, JSON.stringify(globalSuppliers));
-  } catch (e) {
-    console.error('Failed to persist suppliers:', e);
+  } catch {
+    // ignore localStorage quota errors
   }
   listeners.forEach((listener) => listener());
-};
-
-const mapShopToSupplier = (shop: any): Supplier => {
-  const now = Date.now();
-  return normalizeSupplier({
-    id: String(shop.id || ''),
-    name: String(shop.name || 'Shop'),
-    phone: String(shop.phone || ''),
-    location: String(shop.location || ''),
-    type: shop.shop_type || 'new_parts',
-    zone: typeof shop.zone === 'string' ? shop.zone : '',
-    heatLevel: Number.isFinite(Number(shop.heat_level)) ? Number(shop.heat_level) : 0,
-    brands: Array.isArray(shop.specialization) ? shop.specialization : [],
-    mainBrands: Array.isArray(shop.main_brands) ? shop.main_brands : [],
-    models: Array.isArray(shop.specialization_models) ? shop.specialization_models : [],
-    years: Array.isArray(shop.specialization_years) ? shop.specialization_years : [],
-    bodyTypes: Array.isArray(shop.specialization_body_types) ? shop.specialization_body_types : [],
-    coordinates: Number.isFinite(Number(shop.latitude)) && Number.isFinite(Number(shop.longitude))
-      ? { lat: Number(shop.latitude), lng: Number(shop.longitude) }
-      : undefined,
-    syncStatus: 'synced',
-    createdAt: now,
-    updatedAt: now
-  });
-};
-
-const syncSuppliersFromCloud = async () => {
-  if (LOCAL_ONLY || suppliersCloudSyncedThisSession || !supabase || !navigator.onLine) return;
-
-  const { data, error } = await supabase
-    .from('shops')
-    .select('id,name,phone,location,latitude,longitude,shop_type,zone,heat_level,main_brands,specialization,specialization_models,specialization_years,specialization_body_types');
-
-  if (error) {
-    void logger.warn('suppliers:cloud', 'Failed to sync suppliers from shops table', { error: error.message });
-    return;
-  }
-
-  if (!Array.isArray(data)) return;
-
-  const localOnly = globalSuppliers.filter((supplier) => supplier.syncStatus !== 'synced');
-  const remote = data.map(mapShopToSupplier);
-
-  const byId = new Map<string, Supplier>();
-  [...localOnly, ...remote].forEach((supplier) => byId.set(supplier.id, supplier));
-  globalSuppliers = Array.from(byId.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  notifySupplierListeners();
-  suppliersCloudSyncedThisSession = true;
 };
 
 export const subscribeStore = (listener: () => void) => {
@@ -129,10 +58,7 @@ export const exportData = () => ({
 });
 
 export const restoreDataExternal = (data: any) => {
-  if (!data || !Array.isArray(data.orders)) {
-    throw new Error('Неверный формат данных');
-  }
-
+  if (!data || !Array.isArray(data.orders)) throw new Error('Неверный формат данных');
   restoreOrdersExternal(data.orders);
   globalSuppliers = Array.isArray(data.suppliers) ? data.suppliers.map((supplier: Supplier) => normalizeSupplier(supplier)) : [];
   notifySupplierListeners();
@@ -140,17 +66,12 @@ export const restoreDataExternal = (data: any) => {
 
 export const useStore = () => {
   const [version, setVersion] = useState(0);
-
   const { orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, fetchOrders } = useOrderStore();
 
   useEffect(() => {
     const listener = () => setVersion((v) => v + 1);
     listeners.add(listener);
     return () => listeners.delete(listener);
-  }, []);
-
-  useEffect(() => {
-    void syncSuppliersFromCloud();
   }, []);
 
   const addSupplier = useCallback((supplier: Supplier) => {
@@ -168,18 +89,8 @@ export const useStore = () => {
     const normalizedId = ensureUuid(id);
     globalSuppliers = globalSuppliers.filter((s) => s.id !== normalizedId);
     notifySupplierListeners();
-
     await deleteSupplierFromShops(normalizedId);
-
-    const ordersWithManualRecommendation = orders.filter((order) => (order.recommendedShopIds || []).includes(normalizedId) || (order.dismissedShopIds || []).includes(normalizedId));
-    await Promise.all(
-      ordersWithManualRecommendation.map((order) => {
-        const nextRecommended = (order.recommendedShopIds || []).filter((shopId) => shopId !== normalizedId);
-        const nextDismissed = (order.dismissedShopIds || []).filter((shopId) => shopId !== normalizedId);
-        return updateOrder({ ...order, recommendedShopIds: nextRecommended, dismissedShopIds: nextDismissed });
-      })
-    );
-  }, [orders, updateOrder]);
+  }, []);
 
   const getBackupData = useCallback(() => exportData(), []);
   const restoreData = useCallback((data: any) => restoreDataExternal(data), []);
@@ -203,5 +114,5 @@ export const useStore = () => {
     fetchOrders,
     syncOrders: fetchOrders,
     fetchOrderDetails
-  }), [version, orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders, fetchOrderDetails]);
+  }), [version, orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders]);
 };

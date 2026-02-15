@@ -1,57 +1,21 @@
 import { logger } from '../logging';
-import { supabase } from '../supabaseClient';
-
-const configuredBucket = (import.meta as any).env?.VITE_SUPABASE_STORAGE_BUCKET as string | undefined;
-const BUCKET_CANDIDATES = [configuredBucket, 'images', 'order-images'].filter(
-  (bucket, index, all): bucket is string => !!bucket && all.indexOf(bucket) === index
-);
 
 const MAX_IMAGE_DIMENSION = 1200;
 const WEBP_QUALITY = 0.72;
-const STORAGE_UPLOAD_RETRY_DELAYS_MS = [600, 1600];
 
 type ImageTransformOptions = {
   width?: number;
   quality?: number;
 };
 
-const isBucketNotFoundError = (error: unknown): boolean => {
-  if (!error || typeof error !== 'object') return false;
-
-  const maybeError = error as { message?: unknown; statusCode?: unknown; status?: unknown };
-  const message = typeof maybeError.message === 'string' ? maybeError.message.toLowerCase() : '';
-  const status = String(maybeError.statusCode ?? maybeError.status ?? '');
-
-  return message.includes('bucket not found') || status === '404';
-};
-
-const isTransientStorageUploadError = (error: unknown): boolean => {
-  if (!error || typeof error !== 'object') return false;
-
-  const maybeError = error as { message?: unknown; statusCode?: unknown; status?: unknown; name?: unknown };
-  const message = typeof maybeError.message === 'string' ? maybeError.message.toLowerCase() : '';
-  const status = String(maybeError.statusCode ?? maybeError.status ?? '');
-  const name = typeof maybeError.name === 'string' ? maybeError.name.toLowerCase() : '';
-
-  if (name.includes('abort') || message.includes('network') || message.includes('load failed')) return true;
-  return status === '408' || status === '429' || status === '502' || status === '503' || status === '504';
-};
-
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const toBlob = async (source: File | Blob | string): Promise<Blob> => {
   if (typeof source === 'string') {
+    if (!source.startsWith('data:')) throw new Error('Only data URLs are supported in local mode');
     const response = await fetch(source);
     return response.blob();
   }
 
   return source;
-};
-
-const extensionFromBlob = (blob: Blob): string => {
-  if (blob.type === 'image/webp') return 'webp';
-  const [, ext] = (blob.type || '').split('/');
-  return ext || 'jpg';
 };
 
 const blobToDataUrl = (blob: Blob): Promise<string> =>
@@ -72,20 +36,14 @@ const loadImage = (src: string): Promise<HTMLImageElement> =>
 
 const computeTargetSize = (width: number, height: number) => {
   const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(width, height));
-  return {
-    width: Math.max(1, Math.round(width * scale)),
-    height: Math.max(1, Math.round(height * scale))
-  };
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 };
 
 const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> =>
   new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
-      if (blob) {
-        resolve(blob);
-      } else {
-        reject(new Error('Canvas image compression failed'));
-      }
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas image compression failed'));
     }, type, quality);
   });
 
@@ -96,14 +54,11 @@ const compressBlob = async (blob: Blob): Promise<Blob> => {
   try {
     const image = await loadImage(imageUrl);
     const { width, height } = computeTargetSize(image.naturalWidth || image.width, image.naturalHeight || image.height);
-
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
-
     const context = canvas.getContext('2d');
     if (!context) return blob;
-
     context.drawImage(image, 0, 0, width, height);
     return await canvasToBlob(canvas, 'image/webp', WEBP_QUALITY);
   } finally {
@@ -111,191 +66,25 @@ const compressBlob = async (blob: Blob): Promise<Blob> => {
   }
 };
 
-export const optimizeImageForUpload = async (
-  source: File | Blob | string,
-  label: string
-): Promise<string> => {
+export const optimizeImageForUpload = async (source: File | Blob | string, label: string): Promise<string> => {
   const originalBlob = await toBlob(source);
   const compressedBlob = await compressBlob(originalBlob);
 
   await logger.info('storage:compression', `${label} compressed`, {
     beforeBytes: originalBlob.size,
-    afterBytes: compressedBlob.size,
-    reductionBytes: originalBlob.size - compressedBlob.size,
-    reductionPercent: originalBlob.size > 0
-      ? Number((((originalBlob.size - compressedBlob.size) / originalBlob.size) * 100).toFixed(2))
-      : 0
+    afterBytes: compressedBlob.size
   });
 
   return blobToDataUrl(compressedBlob);
 };
 
-export const getOptimizedImageUrl = (imageUrl: string, options: ImageTransformOptions = {}): string => {
-  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
-    return imageUrl;
-  }
+export const getOptimizedImageUrl = (imageUrl: string, _options: ImageTransformOptions = {}): string => imageUrl;
 
-  try {
-    const parsed = new URL(imageUrl);
-    const isSupabaseStorage = parsed.pathname.includes('/storage/v1/object/');
-    if (!isSupabaseStorage) return imageUrl;
-
-    const width = Math.round(options.width || 0);
-    const quality = Math.round(options.quality || 0);
-
-    if (width > 0) {
-      parsed.searchParams.set('width', String(width));
-    }
-
-    if (quality > 0) {
-      parsed.searchParams.set('quality', String(Math.min(100, Math.max(1, quality))));
-    }
-
-    return parsed.toString();
-  } catch {
-    return imageUrl;
-  }
+export const uploadImageToStorage = async (source: File | Blob | string): Promise<string> => {
+  return optimizeImageForUpload(source, 'local-image');
 };
 
-export const uploadImageToStorage = async (
-  source: File | Blob | string,
-  folder: string,
-  fileName: string
-): Promise<string> => {
-  if (!supabase) {
-    throw new Error('Supabase not configured');
-  }
+export const listStoragePathsRecursive = async (_bucket: string, _folder: string): Promise<string[]> => [];
+export const deleteOrderFolderFromStorage = async (_orderId: string): Promise<void> => {};
 
-  const blob = await toBlob(source);
-  const ext = extensionFromBlob(blob);
-  const path = `${folder}/${fileName}.${ext}`;
-
-  for (const bucket of BUCKET_CANDIDATES) {
-    let error: unknown = null;
-
-    for (let attempt = 0; attempt <= STORAGE_UPLOAD_RETRY_DELAYS_MS.length; attempt += 1) {
-      const upload = await supabase.storage.from(bucket).upload(path, blob, {
-        upsert: true,
-        contentType: blob.type || 'image/webp'
-      });
-      error = upload.error;
-
-      if (!error) {
-        const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-        return data.publicUrl;
-      }
-
-      if (!isTransientStorageUploadError(error) || attempt === STORAGE_UPLOAD_RETRY_DELAYS_MS.length) {
-        break;
-      }
-
-      await logger.warn('storage:upload', `Transient storage upload failure for ${path}; retrying`, {
-        bucket,
-        attempt: attempt + 1,
-        delayMs: STORAGE_UPLOAD_RETRY_DELAYS_MS[attempt],
-        error
-      });
-      await wait(STORAGE_UPLOAD_RETRY_DELAYS_MS[attempt]);
-    }
-
-    if (!error) {
-      const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-      return data.publicUrl;
-    }
-
-    if (!isBucketNotFoundError(error)) {
-      throw error;
-    }
-  }
-
-  throw new Error(
-    `Supabase storage bucket not found. Tried: ${BUCKET_CANDIDATES.join(', ') || 'no buckets configured'}`
-  );
-};
-
-export const listStoragePathsRecursive = async (bucket: string, folder: string): Promise<string[]> => {
-  if (!supabase) return [];
-
-  const collected: string[] = [];
-  const walk = async (prefix: string): Promise<void> => {
-    const { data, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 });
-    if (error) throw error;
-    if (!data?.length) return;
-
-    for (const item of data) {
-      const itemPath = `${prefix}/${item.name}`;
-      if (item.id) {
-        collected.push(itemPath);
-      } else {
-        await walk(itemPath);
-      }
-    }
-  };
-
-  await walk(folder);
-  return collected;
-};
-
-const deleteStorageFiles = async (bucket: string, paths: string[]): Promise<void> => {
-  if (!supabase || !paths.length) return;
-
-  const chunkSize = 100;
-  for (let index = 0; index < paths.length; index += chunkSize) {
-    const chunk = paths.slice(index, index + chunkSize);
-    const { error } = await supabase.storage.from(bucket).remove(chunk);
-    if (error) throw error;
-  }
-};
-
-export const deleteOrderFolderFromStorage = async (orderId: string): Promise<void> => {
-  if (!supabase) return;
-
-  let deleted = 0;
-  for (const bucket of BUCKET_CANDIDATES) {
-    try {
-      const folder = `orders/${orderId}`;
-      const paths = await listStoragePathsRecursive(bucket, folder);
-      await deleteStorageFiles(bucket, paths);
-      deleted += paths.length;
-    } catch (error) {
-      if (!isBucketNotFoundError(error)) {
-        throw error;
-      }
-    }
-  }
-
-  await logger.info('storage:cleanup', `[INFO] Storage cleanup: Deleted ${deleted} files for order ${orderId}.`);
-};
-
-export const ensurePublicImageUrls = async (
-  images: string[],
-  folder: string,
-  options?: { skipUpload?: boolean }
-): Promise<string[]> => {
-  if (!images.length) return [];
-  if (options?.skipUpload) return [];
-
-  const uploaded = await Promise.all(
-    images.map(async (image, index) => {
-      if (image.startsWith('http://') || image.startsWith('https://')) {
-        return image;
-      }
-
-      if (!image.startsWith('data:image')) {
-        return image;
-      }
-
-      try {
-        return await uploadImageToStorage(image, folder, `${Date.now()}-${index}`);
-      } catch (error) {
-        if (isBucketNotFoundError(error)) {
-          return image;
-        }
-
-        throw error;
-      }
-    })
-  );
-
-  return uploaded;
-};
+export const ensurePublicImageUrls = async (images: string[]): Promise<string[]> => images;

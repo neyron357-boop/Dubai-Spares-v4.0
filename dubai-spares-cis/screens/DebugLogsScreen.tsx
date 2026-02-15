@@ -2,9 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { logger } from '../logging';
 import { SystemLogEntry } from '../types';
 import { DiagnosticsSummaryPayload, offlineDb } from '../storage/offlineDb';
-import { getSyncDiagnosticsState } from '../syncDiagnostics';
 import { syncPerf } from '../syncPerf';
-import { FRONTEND_SCHEMA_VERSION } from '../schemaHealth';
 import { LOCAL_ONLY, LOCAL_MODE_LABEL } from '../localMode';
 
 const MAX_VISIBLE_LOGS = 400;
@@ -36,19 +34,18 @@ const toDiagnosticsPayload = (
   lastError: string,
   timings: { durationMs: number; batches: number }
 ) => {
-  const syncState = getSyncDiagnosticsState();
   const basePayload = {
     appVersion: (import.meta as any).env?.VITE_APP_VERSION || 'dev',
-    schemaVersion: FRONTEND_SCHEMA_VERSION,
+    schemaVersion: 'local-only',
     localOnly: LOCAL_ONLY,
     localModeLabel: LOCAL_MODE_LABEL,
     lastError,
     idbSchemaVersion: summary?.schemaVersion || 'unknown',
     idbStores: summary?.stores || {},
     counts: summary?.entityCounts || { orders: 0, parts: 0, price_variants: 0, shops: 0, app_state_keys: 0 },
-    syncStatus: syncState.syncStatus,
-    lastIndexedDbError: syncState.lastIndexedDbError,
-    lastSupabaseError: syncState.lastSupabaseError,
+    syncStatus: 'local-only',
+    lastIndexedDbError: null,
+    lastSupabaseError: null,
     lastLogs: summary?.lastLogs || logs.slice(0, 50),
     lastErrors: summary?.lastErrors || logs.filter((entry) => entry.level === 'error').slice(0, 20),
     perf: timings,
@@ -151,7 +148,7 @@ const DebugLogsScreen: React.FC = () => {
       } catch (error) {
         const fallbackLogs = logs.slice(0, 50);
         const fallbackSummary: DiagnosticsSummaryPayload = {
-          schemaVersion: FRONTEND_SCHEMA_VERSION,
+          schemaVersion: 'local-only',
           stores: { fallback: { count: fallbackLogs.length, approxBytes: new Blob([JSON.stringify(fallbackLogs)]).size } },
           entityCounts: { orders: 0, parts: 0, price_variants: 0, shops: 0, app_state_keys: 0 },
           lastLogs: fallbackLogs,
@@ -289,7 +286,7 @@ const DebugLogsScreen: React.FC = () => {
         <div className="space-y-2 text-xs">
           <div className="rounded-xl border bg-white p-3 space-y-1">
             <p>Mode: <b>{LOCAL_MODE_LABEL}</b></p>
-            <p>Schema: {FRONTEND_SCHEMA_VERSION}</p>
+            <p>Schema: local-only</p>
             <p>In-memory logs: {logs.length}</p>
             <p>Last action time: {actionMs === null ? 'n/a' : `${actionMs} ms`}</p>
           </div>
@@ -309,7 +306,7 @@ const DebugLogsScreen: React.FC = () => {
             <div className="rounded-xl border bg-white p-3 space-y-1">
               <p>Status: {diagnosticsStatus}</p>
               <p>Timing: {diagnosticsDurationMs} ms ({diagnosticsBatches} batches)</p>
-              <p>Sync status: {getSyncDiagnosticsState().syncStatus}</p>
+              <p>Sync status: local-only</p>
               <p>Queue length: {perfSnapshot.queueLength}</p>
               <p>IDB tx/sec: {perfSnapshot.txCountPerSecond}</p>
               <p>Last IDB error: {perfSnapshot.lastIdbError || 'none'}</p>

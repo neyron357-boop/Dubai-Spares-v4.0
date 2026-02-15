@@ -36,7 +36,6 @@ import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
 import { QuoteCurrency, QuoteRates, buildPartShareText, shareMessage, shareQuoteLink } from '../shareUtils';
-import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
 import { logger } from '../logging';
 import { syncPerf } from '../syncPerf';
@@ -214,27 +213,15 @@ const OrderDetailsScreen: React.FC = () => {
 
   useEffect(() => {
     let active = true;
-
     const loadShops = async () => {
       const loadedShops = await fetchRadarShops(suppliers);
       if (!active) return;
       setShops(loadedShops);
       setShopsLoaded(true);
     };
-
-    const shopsChannel = supabase
-      ?.channel('order-details-radar-shops')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'shops' }, () => {
-        void loadShops();
-      })
-      .subscribe();
-
     void loadShops();
     return () => {
       active = false;
-      if (shopsChannel) {
-        void supabase?.removeChannel(shopsChannel);
-      }
     };
   }, [suppliers]);
 

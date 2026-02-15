@@ -167,17 +167,6 @@ export const sendBrowserNotification = async (
 
   const data = { ...(options.data || {}), route: options.route, url: options.url };
 
-  if ('serviceWorker' in navigator) {
-    const registration = await navigator.serviceWorker.ready;
-    await registration.showNotification(title, {
-      ...options,
-      data,
-      vibrate: options.vibrate || [220, 120, 220],
-      badge: '/icon-192.png'
-    });
-    return;
-  }
-
   const notification = new Notification(title, { ...options, data, vibrate: options.vibrate || [220, 120, 220] });
   notification.onclick = () => {
     if (options.route) {

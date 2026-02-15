@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Camera, Check, ChevronDown, ChevronLeft, Copy, Mic, MicOff, Upload } from 'lucide-react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
-import { isCloudSyncConfigured, supabase } from '../supabase';
 import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
 import { NotificationType, pushNotification } from '../notificationCenter';
 import { logger } from '../logging';
-import { Source } from '../types';
+import { Priority, Source } from '../types';
 import { useAppSettings } from '../appSettings';
+import { addOrderItem } from '../orderStore';
 
 type FormStep = 1 | 2 | 3 | 4 | 5;
 
@@ -393,11 +393,6 @@ const PublicOrderFormScreen: React.FC = () => {
       return;
     }
 
-    if (!isCloudSyncConfigured || !supabase) {
-      alert('Форма заявки временно недоступна.');
-      return;
-    }
-
     setIsSubmitting(true);
     void logger.info('public-form', 'Lead submit started', {
       source: messageSource,
@@ -433,40 +428,6 @@ const PublicOrderFormScreen: React.FC = () => {
         createdAt: Date.now()
       }];
 
-      const { error: orderError } = await supabase.from('orders').insert({
-        id: orderId,
-        brand: brand.trim(),
-        model: model.trim(),
-        year: year.trim(),
-        body_type: bodyType.trim() || null,
-        vin: vin.trim(),
-        vin_photo_url: uploadedVinPhotos[0] || null,
-        status: 'lead',
-        sales_status: 'Inquiry',
-        client_name: clientAlias.trim() || 'Public Lead',
-        customer_contact: `${contactCountryCode}${customerContact.trim()}`.trim(),
-        source: messageSource,
-        social_nickname: clientAlias.trim() || null,
-        priority: 'MEDIUM',
-        car_photo_url: uploadedCarPhotos[0] || null,
-        car_photos: uploadedCarPhotos,
-        markup_percent: 20,
-        exchange_rate: 3.67,
-        is_archived: false,
-        is_sold: false,
-        is_vip: false,
-        is_pinned: false,
-        is_lead: true,
-        lead_unread: true,
-        lead_source: 'public_form',
-        lead_read_at: null,
-        notes,
-        created_at: now,
-        updated_at: now
-      });
-
-      if (orderError) throw orderError;
-
       const partsToInsert = await Promise.all(filledRequestedParts.map(async (part) => {
         const uploadedPartPhotos = !part.photoData
           ? []
@@ -485,8 +446,48 @@ const PublicOrderFormScreen: React.FC = () => {
         };
       }));
 
-      const { error: partError } = await supabase.from('parts').insert(partsToInsert);
-      if (partError) throw partError;
+      const localOrder = {
+        id: orderId,
+        brand: brand.trim(),
+        model: model.trim(),
+        year: year.trim(),
+        bodyType: bodyType.trim() || '',
+        vin: vin.trim(),
+        vinPhotoUrl: uploadedVinPhotos[0] || '',
+        status: 'lead' as const,
+        salesStatus: 'Inquiry' as const,
+        priority: Priority.MEDIUM,
+        clientName: clientAlias.trim() || 'Public Lead',
+        customerContact: `${contactCountryCode}${customerContact.trim()}`.trim(),
+        source: messageSource,
+        socialNickname: clientAlias.trim() || '',
+        carPhotoUrl: uploadedCarPhotos[0] || '',
+        carPhotos: uploadedCarPhotos,
+        parts: partsToInsert.map((part) => ({
+          id: part.id,
+          orderId,
+          name: part.name,
+          photos: part.photos,
+          photoUrl: part.photo_url || '',
+          variants: [],
+          isFound: false
+        })),
+        markupPercent: 20,
+        exchangeRate: 3.67,
+        isArchived: false,
+        isSold: false,
+        isVip: false,
+        isPinned: false,
+        isLead: true,
+        leadUnread: true,
+        leadSource: 'public_form' as const,
+        leadReadAt: undefined,
+        notes,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+
+      await addOrderItem(localOrder);
 
       pushNotification({
         type: NotificationType.ORDER_NEW,

@@ -1,7 +1,4 @@
 import { Order, Part } from './types';
-import { supabase } from './supabase';
-import { logSyncCategory, syncPerf } from './syncPerf';
-import { markMissingColumn } from './syncSchema';
 import { offlineDb } from './storage/offlineDb';
 
 export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS';
@@ -207,63 +204,7 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
   return url.toString();
 };
 
-const saveQuoteSnapshot = async (order: Order, expiresAt: number, token: string) => {
-  if (!supabase) return false;
-
-  const snapshot = buildQuoteSnapshot(order);
-  let payload: Record<string, unknown> = {
-    token,
-    order_id: order.id,
-    expires_at: new Date(expiresAt).toISOString(),
-    payload: snapshot
-  };
-
-  while (true) {
-    const { error } = await supabase
-      .from('public_quote_snapshots')
-      .upsert(payload, { onConflict: 'token' });
-
-    if (!error) return true;
-
-    const message = String((error as { message?: unknown })?.message || '');
-    const missingMatch = message.match(/Could not find the '([^']+)' column|column\s+public_quote_snapshots\.([a-zA-Z0-9_]+)/i);
-    const missingColumn = missingMatch?.[1] || missingMatch?.[2];
-    if (!missingColumn || !(missingColumn in payload)) {
-      const isNetworkIssue = /abort|timeout|network|fetch/i.test(message);
-      if (isNetworkIssue) {
-        const mutationId = createMutationId();
-        await offlineDb.enqueueMutation({
-          id: mutationId,
-          mutationId,
-          type: 'upsert',
-          operation: 'upsert',
-          table: 'public_quote_snapshots',
-          primaryKey: token,
-          orderId: order.id,
-          payload,
-          createdAt: Date.now(),
-          attemptCount: 0,
-          retryCount: 0
-        });
-        syncPerf.setQueueLength(await offlineDb.getMutationCount());
-        logSyncCategory('MUTATION_QUEUE', 'public_quote_snapshot_enqueued', { token, orderId: order.id });
-        return true;
-      }
-      logSyncCategory('SUPABASE_REQ', 'public_quote_snapshot_failed', { message });
-      return false;
-    }
-
-    const marked = markMissingColumn('public_quote_snapshots', missingColumn);
-    if (marked) {
-      syncPerf.addSchemaWarning(`public_quote_snapshots.${missingColumn}`);
-      logSyncCategory('SCHEMA_MISMATCH', 'column_missing', { table: 'public_quote_snapshots', column: missingColumn });
-    }
-
-    const { [missingColumn]: _drop, ...rest } = payload;
-    payload = rest;
-    if (Object.keys(payload).length === 0) return false;
-  }
-};
+const saveQuoteSnapshot = async (_order: Order, _expiresAt: number, _token: string) => false;
 
 export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
   const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
