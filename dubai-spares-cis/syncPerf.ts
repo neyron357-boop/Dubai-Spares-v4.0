@@ -12,6 +12,12 @@ type PerfState = {
   retryCount: number;
   lastError: string | null;
   schemaWarnings: string[];
+  idbOpenAttempts: number;
+  idbVersion: number | null;
+  idbTxTimestamps: number[];
+  idbTxDurationsMs: number[];
+  lastIdbError: string | null;
+  idbEvents: Array<{ at: number; event: string; meta?: unknown }>;
 };
 
 const state: PerfState = {
@@ -23,7 +29,13 @@ const state: PerfState = {
   lastSyncAt: null,
   retryCount: 0,
   lastError: null,
-  schemaWarnings: []
+  schemaWarnings: [],
+  idbOpenAttempts: 0,
+  idbVersion: null,
+  idbTxTimestamps: [],
+  idbTxDurationsMs: [],
+  lastIdbError: null,
+  idbEvents: []
 };
 
 const oneSecondAgo = () => Date.now() - 1000;
@@ -78,11 +90,31 @@ export const syncPerf = {
     state.schemaWarnings.push(message);
     logSyncCategory('SCHEMA_MISMATCH', 'schema_warning', { message }, 10000);
   },
+  recordIdbOpenAttempt(dbVersion?: number) {
+    state.idbOpenAttempts += 1;
+    if (Number.isFinite(dbVersion)) state.idbVersion = Number(dbVersion);
+  },
+  recordIdbTransaction(durationMs: number) {
+    state.idbTxTimestamps.push(Date.now());
+    trimOld(state.idbTxTimestamps);
+    state.idbTxDurationsMs.push(durationMs);
+    if (state.idbTxDurationsMs.length > 300) state.idbTxDurationsMs.shift();
+  },
+  setLastIdbError(message: string | null) {
+    state.lastIdbError = message;
+  },
+  addIdbEvent(event: string, meta?: unknown) {
+    state.idbEvents.unshift({ at: Date.now(), event, meta });
+    if (state.idbEvents.length > 20) state.idbEvents.length = 20;
+  },
   snapshot() {
     trimOld(state.idbWriteTimestamps);
     trimOld(state.networkRequestTimestamps);
     const typingAvgMs = state.typingSamplesMs.length
       ? Math.round((state.typingSamplesMs.reduce((sum, value) => sum + value, 0) / state.typingSamplesMs.length) * 100) / 100
+      : 0;
+    const avgIdbTxMs = state.idbTxDurationsMs.length
+      ? Math.round((state.idbTxDurationsMs.reduce((sum, value) => sum + value, 0) / state.idbTxDurationsMs.length) * 100) / 100
       : 0;
     return {
       typingAvgMs,
@@ -92,7 +124,13 @@ export const syncPerf = {
       lastSyncAt: state.lastSyncAt,
       retryCount: state.retryCount,
       lastError: state.lastError,
-      schemaWarnings: [...state.schemaWarnings]
+      schemaWarnings: [...state.schemaWarnings],
+      dbOpenAttempts: state.idbOpenAttempts,
+      dbVersion: state.idbVersion,
+      txCountPerSecond: state.idbTxTimestamps.length,
+      avgTxTimeMs: avgIdbTxMs,
+      lastIdbError: state.lastIdbError,
+      idbEvents: [...state.idbEvents]
     };
   }
 };

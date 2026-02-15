@@ -26,15 +26,93 @@ const RADAR_INTERACTIONS_STORE = 'radar_interactions';
 const ALL_STORES = [ORDERS_STORE, MUTATIONS_STORE, SYSTEM_LOGS_STORE, RADAR_INTERACTIONS_STORE] as const;
 const MAX_MUTATIONS = 2000;
 const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
+const IDB_RECOVERY_RETRY_LIMIT = 3;
+const IDB_RECOVERY_WAIT_MIN_MS = 500;
+const IDB_RECOVERY_WAIT_MAX_MS = 1500;
 let openPromise: Promise<IDBDatabase> | null = null;
 let activeDb: IDBDatabase | null = null;
+let idbRecoveryFailures = 0;
+let pendingOrdersClear = false;
+const pendingOrderWrites = new Map<string, { type: 'put'; order: Order } | { type: 'delete' }>();
+let pendingOrderFlushTimer: number | null = null;
+let pendingOrderFlushPromise: Promise<void> | null = null;
+
+const pendingMutationWrites = new Map<string, OfflineMutation>();
+let pendingMutationFlushTimer: number | null = null;
+let pendingMutationFlushPromise: Promise<void> | null = null;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const getJitterMs = (min: number, max: number) => Math.floor(min + Math.random() * (max - min + 1));
+
+const closeActiveDb = () => {
+  if (!activeDb) return;
+  try {
+    activeDb.close();
+  } catch {
+    // no-op
+  }
+  activeDb = null;
+};
 
 const isRecoverableOpenError = (error: unknown) => {
   if (!(error instanceof Error)) return false;
   return ['VersionError', 'QuotaExceededError', 'UnknownError', 'InvalidStateError'].includes(error.name)
     || /blocked|lost|internal error|version/i.test(error.message);
+};
+
+const isConnectionLostError = (error: unknown) => {
+  if (!(error instanceof Error)) return false;
+  return /IDB_CONNECTION_LOST|indexeddb.*(lost|unstable|closed)|InvalidStateError|AbortError/i.test(`${error.name}:${error.message}`);
+};
+
+const toError = (error: unknown, fallback: string) => error instanceof Error ? error : new Error(fallback);
+
+const measureIdbTx = async <T>(fn: () => Promise<T>) => {
+  const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  try {
+    return await fn();
+  } finally {
+    const finishedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    syncPerf.recordIdbTransaction(Math.max(0, finishedAt - startedAt));
+  }
+};
+
+const recoverConnectionOnce = async () => {
+  closeActiveDb();
+  const waitMs = getJitterMs(IDB_RECOVERY_WAIT_MIN_MS, IDB_RECOVERY_WAIT_MAX_MS);
+  syncPerf.addIdbEvent('recovery_wait', { waitMs });
+  await sleep(waitMs);
+  await openDb();
+};
+
+const withIdbRecovery = async <T>(operation: string, fn: () => Promise<T>): Promise<T> => {
+  try {
+    return await fn();
+  } catch (error) {
+    if (!isConnectionLostError(error)) throw error;
+
+    syncPerf.setLastIdbError(toError(error, 'IndexedDB operation failed').message);
+    syncPerf.addIdbEvent('connection_lost', { operation, error: toError(error, 'IndexedDB operation failed').message });
+
+    try {
+      await recoverConnectionOnce();
+      syncPerf.addIdbEvent('recovery_retry', { operation });
+      const result = await fn();
+      idbRecoveryFailures = 0;
+      return result;
+    } catch (recoveryError) {
+      idbRecoveryFailures += 1;
+      syncPerf.setLastIdbError(toError(recoveryError, 'IndexedDB recovery failed').message);
+      syncPerf.addIdbEvent('recovery_failed', { operation, failures: idbRecoveryFailures });
+
+      if (idbRecoveryFailures >= IDB_RECOVERY_RETRY_LIMIT) {
+        syncPerf.addIdbEvent('rebuild_required', { failures: idbRecoveryFailures });
+        window.dispatchEvent(new CustomEvent('idb-rebuild-required', { detail: { failures: idbRecoveryFailures } }));
+      }
+
+      throw recoveryError;
+    }
+  }
 };
 
 const runWithDbLock = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -47,9 +125,13 @@ const runWithDbLock = async <T>(fn: () => Promise<T>): Promise<T> => {
 
 const unsafeOpenDb = (): Promise<IDBDatabase> =>
   new Promise((resolve, reject) => {
+    syncPerf.recordIdbOpenAttempt(DB_VERSION);
+    syncPerf.addIdbEvent('open_attempt', { dbVersion: DB_VERSION });
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
+      const oldVersion = Number((event as IDBVersionChangeEvent).oldVersion || 0);
+      syncPerf.addIdbEvent('onupgradeneeded', { oldVersion, requestedVersion: DB_VERSION });
       const db = request.result;
       if (!db.objectStoreNames.contains(ORDERS_STORE)) {
         db.createObjectStore(ORDERS_STORE, { keyPath: 'id' });
@@ -70,6 +152,7 @@ const unsafeOpenDb = (): Promise<IDBDatabase> =>
     request.onblocked = () => reject(new Error('IndexedDB open blocked by another tab'));
     request.onsuccess = () => {
       const db = request.result;
+      syncPerf.addIdbEvent('open_success', { dbVersion: db.version });
       db.onversionchange = () => {
         db.close();
         if (activeDb === db) activeDb = null;
@@ -116,44 +199,136 @@ const txRequest = <T>(request: IDBRequest<T>) =>
     request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
   });
 
+const flushOrderWrites = async () => {
+  if (pendingOrderFlushTimer) {
+    window.clearTimeout(pendingOrderFlushTimer);
+    pendingOrderFlushTimer = null;
+  }
+  if (pendingOrderFlushPromise) return pendingOrderFlushPromise;
+
+  pendingOrderFlushPromise = withIdbRecovery('flush_order_writes', async () => {
+    await measureIdbTx(async () => {
+      const db = await openDb();
+      const tx = db.transaction(ORDERS_STORE, 'readwrite');
+      const store = tx.objectStore(ORDERS_STORE);
+      if (pendingOrdersClear) {
+        await txRequest(store.clear());
+        pendingOrdersClear = false;
+      }
+
+      const writes = Array.from(pendingOrderWrites.entries());
+      pendingOrderWrites.clear();
+      for (const [orderId, op] of writes) {
+        if (op.type === 'delete') {
+          await txRequest(store.delete(orderId));
+        } else {
+          await txRequest(store.put(op.order));
+        }
+      }
+      if (writes.length) syncPerf.recordIdbWrite();
+    });
+  });
+
+  try {
+    await pendingOrderFlushPromise;
+  } finally {
+    pendingOrderFlushPromise = null;
+  }
+};
+
+
+const flushMutationWrites = async () => {
+  if (pendingMutationFlushTimer) {
+    window.clearTimeout(pendingMutationFlushTimer);
+    pendingMutationFlushTimer = null;
+  }
+  if (pendingMutationFlushPromise) return pendingMutationFlushPromise;
+
+  pendingMutationFlushPromise = withIdbRecovery('flush_mutation_writes', async () => {
+    await measureIdbTx(async () => {
+      const writes = Array.from(pendingMutationWrites.values());
+      if (!writes.length) return;
+      pendingMutationWrites.clear();
+      const db = await openDb();
+      const tx = db.transaction(MUTATIONS_STORE, 'readwrite');
+      const store = tx.objectStore(MUTATIONS_STORE);
+
+      for (const normalized of writes) {
+        const existing = await txRequest(store.get(normalized.id)) as OfflineMutation | undefined;
+        if (!existing) {
+          const count = await txRequest(store.count());
+          if (count >= MAX_MUTATIONS) {
+            throw new Error(`Mutation queue limit reached (${MAX_MUTATIONS}). Export backup and clear queue.`);
+          }
+        }
+        await txRequest(store.put({ ...existing, ...normalized, createdAt: existing?.createdAt || normalized.createdAt }));
+      }
+      syncPerf.recordIdbWrite();
+    });
+  });
+
+  try {
+    await pendingMutationFlushPromise;
+  } finally {
+    pendingMutationFlushPromise = null;
+  }
+};
+
+const scheduleMutationFlush = () => {
+  if (!pendingMutationFlushTimer) {
+    pendingMutationFlushTimer = window.setTimeout(() => {
+      void flushMutationWrites();
+    }, getJitterMs(400, 800));
+  }
+};
+
+const scheduleOrderFlush = () => {
+  if (!pendingOrderFlushTimer) {
+    pendingOrderFlushTimer = window.setTimeout(() => {
+      void flushOrderWrites();
+    }, getJitterMs(400, 800));
+  }
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('blur', () => {
+    void flushOrderWrites();
+    void flushMutationWrites();
+  });
+}
+
 export const offlineDb = {
   async getOrders(): Promise<Order[]> {
-    const db = await openDb();
-    const tx = db.transaction(ORDERS_STORE, 'readonly');
-    const rows = await txRequest(tx.objectStore(ORDERS_STORE).getAll());
-    return (rows as Order[]).sort((a, b) => b.createdAt - a.createdAt);
+    await flushOrderWrites();
+    return withIdbRecovery('get_orders', () => measureIdbTx(async () => {
+      const db = await openDb();
+      const tx = db.transaction(ORDERS_STORE, 'readonly');
+      const rows = await txRequest(tx.objectStore(ORDERS_STORE).getAll());
+      return (rows as Order[]).sort((a, b) => b.createdAt - a.createdAt);
+    }));
   },
 
   async saveOrders(orders: Order[]): Promise<void> {
-    const db = await openDb();
-    const tx = db.transaction(ORDERS_STORE, 'readwrite');
-    const store = tx.objectStore(ORDERS_STORE);
-    await txRequest(store.clear());
+    pendingOrdersClear = true;
+    pendingOrderWrites.clear();
     for (const order of orders) {
-      await txRequest(store.put(order));
-      syncPerf.recordIdbWrite();
+      pendingOrderWrites.set(order.id, { type: 'put', order });
     }
+    scheduleOrderFlush();
   },
 
   async saveOrder(order: Order): Promise<void> {
-    const db = await openDb();
-    const tx = db.transaction(ORDERS_STORE, 'readwrite');
-    await txRequest(tx.objectStore(ORDERS_STORE).put(order));
-    syncPerf.recordIdbWrite();
+    pendingOrderWrites.set(order.id, { type: 'put', order });
+    scheduleOrderFlush();
     logSyncCategory('IDB_TX', 'save_order', { orderId: order.id });
   },
 
   async deleteOrder(orderId: string): Promise<void> {
-    const db = await openDb();
-    const tx = db.transaction(ORDERS_STORE, 'readwrite');
-    await txRequest(tx.objectStore(ORDERS_STORE).delete(orderId));
-    syncPerf.recordIdbWrite();
+    pendingOrderWrites.set(orderId, { type: 'delete' });
+    scheduleOrderFlush();
   },
 
   async enqueueMutation(mutation: OfflineMutation): Promise<void> {
-    const db = await openDb();
-    const tx = db.transaction(MUTATIONS_STORE, 'readwrite');
-    const store = tx.objectStore(MUTATIONS_STORE);
     const normalized: OfflineMutation = {
       ...mutation,
       entity: mutation.entity || 'orders',
@@ -164,20 +339,13 @@ export const offlineDb = {
       nextRetryAt: Number(mutation.nextRetryAt || 0)
     };
 
-    const existing = await txRequest(store.get(normalized.id)) as OfflineMutation | undefined;
-    if (!existing) {
-      const count = await txRequest(store.count());
-      if (count >= MAX_MUTATIONS) {
-        throw new Error(`Mutation queue limit reached (${MAX_MUTATIONS}). Export backup and clear queue.`);
-      }
-    }
-
-    await txRequest(store.put({ ...existing, ...normalized, createdAt: existing?.createdAt || normalized.createdAt }));
-    syncPerf.recordIdbWrite();
+    pendingMutationWrites.set(normalized.id, normalized);
+    scheduleMutationFlush();
     logSyncCategory('MUTATION_QUEUE', 'mutation_enqueued', { id: normalized.id, type: normalized.type, orderId: normalized.orderId });
   },
 
   async getMutations(): Promise<OfflineMutation[]> {
+    await flushMutationWrites();
     const db = await openDb();
     const tx = db.transaction(MUTATIONS_STORE, 'readonly');
     const rows = await txRequest(tx.objectStore(MUTATIONS_STORE).getAll());
@@ -185,6 +353,7 @@ export const offlineDb = {
   },
 
   async getMutationCount(): Promise<number> {
+    await flushMutationWrites();
     const db = await openDb();
     const tx = db.transaction(MUTATIONS_STORE, 'readonly');
     return txRequest(tx.objectStore(MUTATIONS_STORE).count());
