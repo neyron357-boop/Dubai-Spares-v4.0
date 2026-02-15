@@ -8,3 +8,53 @@ export const COMPAT_TABLE_COLUMNS = {
   price_variants: ['id','part_id','price_aed','condition','availability','shop_name','phone','location','photo_url','photos','created_at'],
   public_quote_snapshots: ['id','order_id','payload','created_at','expires_at']
 } as const;
+
+type CompatTableName = keyof typeof COMPAT_TABLE_COLUMNS;
+
+const STORAGE_KEY = 'sync_schema_missing_columns_v1';
+const runtimeMissingColumns = new Map<CompatTableName, Set<string>>();
+
+const loadMissingColumns = () => {
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Partial<Record<CompatTableName, string[]>>;
+    (Object.keys(parsed) as CompatTableName[]).forEach((table) => {
+      const values = parsed[table] || [];
+      runtimeMissingColumns.set(table, new Set(values));
+    });
+  } catch {
+    runtimeMissingColumns.clear();
+  }
+};
+
+const persistMissingColumns = () => {
+  try {
+    const payload = Array.from(runtimeMissingColumns.entries()).reduce((acc, [table, columns]) => {
+      acc[table] = Array.from(columns);
+      return acc;
+    }, {} as Record<CompatTableName, string[]>);
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // no-op in private mode
+  }
+};
+
+loadMissingColumns();
+
+export const getSelectableColumns = (table: CompatTableName) => {
+  const missing = runtimeMissingColumns.get(table);
+  if (!missing || missing.size === 0) return [...COMPAT_TABLE_COLUMNS[table]];
+  return COMPAT_TABLE_COLUMNS[table].filter((column) => !missing.has(column));
+};
+
+export const markMissingColumn = (table: CompatTableName, column: string) => {
+  const knownColumns = new Set(COMPAT_TABLE_COLUMNS[table]);
+  if (!knownColumns.has(column as any)) return false;
+  const existing = runtimeMissingColumns.get(table) || new Set<string>();
+  if (existing.has(column)) return false;
+  existing.add(column);
+  runtimeMissingColumns.set(table, existing);
+  persistMissingColumns();
+  return true;
+};

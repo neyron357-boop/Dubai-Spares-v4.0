@@ -8,7 +8,7 @@ import { logDatabaseIntegrity } from './dbIntegrity';
 import { NotificationType, pushNotification, sendBrowserNotification } from './notificationCenter';
 import { loadAppSettings } from './appSettings';
 import { addMissingColumns, normalizeSyncError, setLastIndexedDbError, setLastSupabaseError, setSyncStatus } from './syncDiagnostics';
-import { ORDER_GRAPH_COLUMNS } from './syncSchema';
+import { getSelectableColumns, markMissingColumn } from './syncSchema';
 import { logSyncCategory, syncPerf } from './syncPerf';
 
 type OrderState = {
@@ -277,7 +277,7 @@ const fetchOrderGraphWithoutJoin = async (orderColumns: string[]) => {
 const fetchOrdersGraphWithSchemaFallbacks = async () => {
   if (!supabase) return { data: null, error: null };
 
-  let orderColumns = [...ORDER_GRAPH_COLUMNS];
+  let orderColumns = getSelectableColumns('orders');
 
   while (true) {
     const query = `${orderColumns.join(',')}, parts(*, price_variants(*))`;
@@ -297,7 +297,8 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
       return response;
     }
 
-    if (!schemaMissingColumns.has(missingColumn)) {
+    const isNewlyMissing = markMissingColumn('orders', missingColumn);
+    if (isNewlyMissing && !schemaMissingColumns.has(missingColumn)) {
       schemaMissingColumns.add(missingColumn);
       addMissingColumns([missingColumn]);
       syncPerf.addSchemaWarning(`orders.${missingColumn}`);
@@ -705,6 +706,7 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
 export const flushOfflineMutations = async () => {
   if (syncInProgress || !navigator.onLine || !isCloudSyncConfigured || !supabase) return;
   syncInProgress = true;
+  logSyncCategory('SYNC_STATE', 'flush_started');
   setSyncStatus('syncing');
   setState({ isSyncing: true });
 
@@ -763,8 +765,10 @@ export const flushOfflineMutations = async () => {
       }, delay);
     }
     syncPerf.markSynced();
+    logSyncCategory('SYNC_STATE', 'flush_completed');
     setSyncStatus('online');
   } catch (error: unknown) {
+    logSyncCategory('SYNC_STATE', 'flush_failed');
     broadcastSyncError(error, 'Offline sync failed');
   } finally {
     syncInProgress = false;

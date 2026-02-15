@@ -1,5 +1,7 @@
 import { Order, Part } from './types';
 import { supabase } from './supabase';
+import { logSyncCategory, syncPerf } from './syncPerf';
+import { markMissingColumn } from './syncSchema';
 
 export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS';
 export type QuoteRates = Record<QuoteCurrency, number>;
@@ -201,16 +203,38 @@ const saveQuoteSnapshot = async (order: Order, expiresAt: number, token: string)
   if (!supabase) return false;
 
   const snapshot = buildQuoteSnapshot(order);
-  const { error } = await supabase
-    .from('public_quote_snapshots')
-    .upsert({
-      token,
-      order_id: order.id,
-      expires_at: new Date(expiresAt).toISOString(),
-      payload: snapshot
-    }, { onConflict: 'token' });
+  let payload: Record<string, unknown> = {
+    token,
+    order_id: order.id,
+    expires_at: new Date(expiresAt).toISOString(),
+    payload: snapshot
+  };
 
-  return !error;
+  while (true) {
+    const { error } = await supabase
+      .from('public_quote_snapshots')
+      .upsert(payload, { onConflict: 'token' });
+
+    if (!error) return true;
+
+    const message = String((error as { message?: unknown })?.message || '');
+    const missingMatch = message.match(/Could not find the '([^']+)' column|column\s+public_quote_snapshots\.([a-zA-Z0-9_]+)/i);
+    const missingColumn = missingMatch?.[1] || missingMatch?.[2];
+    if (!missingColumn || !(missingColumn in payload)) {
+      logSyncCategory('SUPABASE_REQ', 'public_quote_snapshot_failed', { message });
+      return false;
+    }
+
+    const marked = markMissingColumn('public_quote_snapshots', missingColumn);
+    if (marked) {
+      syncPerf.addSchemaWarning(`public_quote_snapshots.${missingColumn}`);
+      logSyncCategory('SCHEMA_MISMATCH', 'column_missing', { table: 'public_quote_snapshots', column: missingColumn });
+    }
+
+    const { [missingColumn]: _drop, ...rest } = payload;
+    payload = rest;
+    if (Object.keys(payload).length === 0) return false;
+  }
 };
 
 export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
