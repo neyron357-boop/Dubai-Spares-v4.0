@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { HashRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import OrdersScreen from './screens/OrdersScreen';
 import NewOrderScreen from './screens/NewOrderScreen';
 import OrderDetailsScreen from './screens/OrderDetailsScreen';
 import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
-import DebugLogsScreen from './screens/DebugLogsScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import RadarScreen from './screens/RadarScreen';
 import SettingsScreen from './screens/SettingsScreen';
@@ -17,6 +16,9 @@ import { NotificationType, getUnreadNotificationsCount, pushNotification } from 
 import { checkSchemaHealth } from './schemaHealth';
 import { loadAppSettings, saveAppSettings } from './appSettings';
 import { LOCAL_MODE_LABEL, LOCAL_ONLY } from './localMode';
+import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
+
+const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
 
 const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ children, isSyncing }) => {
   const location = useLocation();
@@ -213,7 +215,16 @@ const App: React.FC = () => {
               <Route path="/database" element={<SuppliersScreen />} />
               <Route path="/radar" element={<RadarScreen />} />
               <Route path="/notifications" element={<NotificationsScreen />} />
-              <Route path="/debug" element={<DebugLogsScreen />} />
+              <Route
+                path="/debug"
+                element={(
+                  <DebugRouteBoundary>
+                    <Suspense fallback={<div className="p-4 text-xs text-gray-500">Loading debug tools…</div>}>
+                      <DebugLogsScreen />
+                    </Suspense>
+                  </DebugRouteBoundary>
+                )}
+              />
               <Route path="/settings" element={<SettingsScreen />} />
               <Route path="/settings/radar-live" element={<RadarLiveSettingsScreen />} />
             </Routes>
