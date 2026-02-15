@@ -28,12 +28,15 @@ const ORDER_PATCHES_STORE = 'order_patches';
 const ALL_STORES = [ORDERS_STORE, ORDER_PATCHES_STORE, MUTATIONS_STORE, SYSTEM_LOGS_STORE, RADAR_INTERACTIONS_STORE] as const;
 const MAX_MUTATIONS = 2000;
 const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
-const IDB_RECOVERY_RETRY_LIMIT = 3;
+const IDB_RECOVERY_REOPEN_LIMIT = 2;
+const IDB_SAFE_REBUILD_LIMIT = 1;
 const IDB_RECOVERY_WAIT_MIN_MS = 500;
 const IDB_RECOVERY_WAIT_MAX_MS = 1500;
 let openPromise: Promise<IDBDatabase> | null = null;
 let activeDb: IDBDatabase | null = null;
 let idbRecoveryFailures = 0;
+let idbSafeRebuilds = 0;
+let rebuildInFlight: Promise<void> | null = null;
 let pendingOrdersClear = false;
 const pendingOrderWrites = new Map<string, { type: 'put'; order: Order } | { type: 'delete' }>();
 let pendingOrderFlushTimer: number | null = null;
@@ -90,6 +93,55 @@ const recoverConnectionOnce = async () => {
   await openDb();
 };
 
+const deleteDb = async () => {
+  closeActiveDb();
+  openPromise = null;
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(DB_NAME);
+    request.onsuccess = () => resolve();
+    request.onblocked = () => reject(new Error('Cannot rebuild index while another tab is open'));
+    request.onerror = () => reject(request.error ?? new Error('Failed to rebuild IndexedDB'));
+  });
+};
+
+const safeRebuildIndex = async () => {
+  if (rebuildInFlight) return rebuildInFlight;
+  rebuildInFlight = (async () => {
+    const snapshot = await (async () => {
+      try {
+        const db = await openDb();
+        const tx = db.transaction([...ALL_STORES], 'readonly');
+        const dump: Record<string, unknown[]> = {};
+        for (const storeName of ALL_STORES) {
+          const rows = await txRequest(tx.objectStore(storeName).getAll());
+          dump[storeName] = Array.isArray(rows) ? rows : [];
+        }
+        return dump;
+      } catch {
+        return {} as Record<string, unknown[]>;
+      }
+    })();
+
+    await deleteDb();
+    const db = await openDb();
+    const tx = db.transaction([...ALL_STORES], 'readwrite');
+    for (const storeName of ALL_STORES) {
+      const store = tx.objectStore(storeName);
+      await txRequest(store.clear());
+      const rows = Array.isArray(snapshot[storeName]) ? snapshot[storeName] : [];
+      for (const row of rows) {
+        await txRequest(store.put(row));
+      }
+    }
+  })();
+
+  try {
+    await rebuildInFlight;
+  } finally {
+    rebuildInFlight = null;
+  }
+};
+
 const withIdbRecovery = async <T>(operation: string, fn: () => Promise<T>): Promise<T> => {
   try {
     return await fn();
@@ -99,24 +151,30 @@ const withIdbRecovery = async <T>(operation: string, fn: () => Promise<T>): Prom
     syncPerf.setLastIdbError(toError(error, 'IndexedDB operation failed').message);
     syncPerf.addIdbEvent('connection_lost', { operation, error: toError(error, 'IndexedDB operation failed').message });
 
-    try {
-      await recoverConnectionOnce();
-      syncPerf.addIdbEvent('recovery_retry', { operation });
-      const result = await fn();
-      idbRecoveryFailures = 0;
-      return result;
-    } catch (recoveryError) {
-      idbRecoveryFailures += 1;
-      syncPerf.setLastIdbError(toError(recoveryError, 'IndexedDB recovery failed').message);
-      syncPerf.addIdbEvent('recovery_failed', { operation, failures: idbRecoveryFailures });
-
-      if (idbRecoveryFailures >= IDB_RECOVERY_RETRY_LIMIT) {
-        syncPerf.addIdbEvent('rebuild_required', { failures: idbRecoveryFailures });
-        window.dispatchEvent(new CustomEvent('idb-rebuild-required', { detail: { failures: idbRecoveryFailures } }));
+    for (let attempt = 1; attempt <= IDB_RECOVERY_REOPEN_LIMIT; attempt += 1) {
+      try {
+        await recoverConnectionOnce();
+        syncPerf.addIdbEvent('recovery_retry', { operation, attempt });
+        const result = await fn();
+        idbRecoveryFailures = 0;
+        return result;
+      } catch (recoveryError) {
+        idbRecoveryFailures += 1;
+        syncPerf.setLastIdbError(toError(recoveryError, 'IndexedDB recovery failed').message);
+        syncPerf.addIdbEvent('recovery_failed', { operation, failures: idbRecoveryFailures, attempt });
       }
-
-      throw recoveryError;
     }
+
+    if (idbSafeRebuilds < IDB_SAFE_REBUILD_LIMIT) {
+      idbSafeRebuilds += 1;
+      syncPerf.addIdbEvent('rebuild_required', { operation, failures: idbRecoveryFailures, rebuildAttempt: idbSafeRebuilds });
+      await safeRebuildIndex();
+      syncPerf.addIdbEvent('rebuild_completed', { operation, rebuildAttempt: idbSafeRebuilds });
+      return fn();
+    }
+
+    window.dispatchEvent(new CustomEvent('idb-rebuild-required', { detail: { failures: idbRecoveryFailures } }));
+    throw toError(error, 'IndexedDB recovery failed after rebuild attempts');
   }
 };
 
@@ -537,26 +595,14 @@ export const offlineDb = {
   },
 
   async rebuildIndex(): Promise<void> {
-    if (activeDb) {
-      activeDb.close();
-      activeDb = null;
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.deleteDatabase(DB_NAME);
-      request.onsuccess = () => resolve();
-      request.onblocked = () => reject(new Error('Cannot rebuild index while another tab is open'));
-      request.onerror = () => reject(request.error ?? new Error('Failed to rebuild IndexedDB'));
-    });
+    await deleteDb();
   },
 
   async rebuildLocalCacheSafely(): Promise<void> {
     await flushOrderWrites();
     await flushOrderPatchWrites();
     await flushMutationWrites();
-    const snapshot = await this.exportAllData();
-    await this.rebuildIndex();
-    await this.importAllData(snapshot);
+    await safeRebuildIndex();
   },
 
   async saveRadarInteraction(interaction: RadarInteraction): Promise<void> {
