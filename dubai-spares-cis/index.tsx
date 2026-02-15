@@ -4,6 +4,7 @@ import App from './App';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import { extractOrderIdFromQuoteSlug } from './shareUtils';
+import { LOCAL_ONLY } from './localMode';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');
@@ -55,6 +56,15 @@ const playLeadAlertSound = () => {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
+    if (LOCAL_ONLY) {
+      void navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => {
+          void registration.unregister();
+        });
+      });
+      return;
+    }
+
     void navigator.serviceWorker.register('/sw.js').then(async (registration) => {
       const swUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
       const swKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;

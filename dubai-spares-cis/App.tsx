@@ -16,9 +16,9 @@ import { useStore } from './store';
 import { NotificationType, getUnreadNotificationsCount, pushNotification } from './notificationCenter';
 import { checkSchemaHealth } from './schemaHealth';
 import { loadAppSettings, saveAppSettings } from './appSettings';
-import { getSyncDiagnosticsState } from './syncDiagnostics';
+import { LOCAL_MODE_LABEL, LOCAL_ONLY } from './localMode';
 
-const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOffline: boolean; syncState: string }> = ({ children, isSyncing, isOffline, syncState }) => {
+const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ children, isSyncing }) => {
   const location = useLocation();
   const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
   const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
@@ -46,13 +46,8 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean; isOfflin
         <div className={`h-full bg-blue-500 transition-all duration-300 ${isSyncing ? 'w-full opacity-100 animate-pulse' : 'w-0 opacity-0'}`} />
       </div>
       <main className="flex-1 overflow-y-auto no-scrollbar relative">
-        {isOffline && (
-          <div className="fixed top-3 left-3 z-[90] px-2.5 py-1 rounded-full bg-amber-500 text-white text-[10px] font-black uppercase tracking-wide shadow">
-            Offline Mode
-          </div>
-        )}
-        <div className={`fixed top-3 right-3 z-[90] px-2.5 py-1 rounded-full text-white text-[10px] font-black uppercase tracking-wide shadow ${syncState === 'error' ? 'bg-rose-500' : syncState === 'syncing' ? 'bg-blue-500' : syncState === 'offline' ? 'bg-amber-500' : 'bg-emerald-500'}`}>
-          {syncState === 'error' ? 'Error' : syncState === 'syncing' ? 'Syncing' : syncState === 'offline' ? 'Offline' : 'Online'}
+        <div className="fixed top-3 right-3 z-[90] px-2.5 py-1 rounded-full bg-slate-700/85 text-white text-[10px] font-black uppercase tracking-wide shadow">
+          {LOCAL_MODE_LABEL}
         </div>
         {children}
       </main>
@@ -79,8 +74,6 @@ const App: React.FC = () => {
   const [appToast, setAppToast] = useState<{ message: string; tone: 'error' | 'success' | 'info' } | null>(null);
   const [schemaBanner, setSchemaBanner] = useState<string | null>(null);
   const { syncOrders, isLoading, error } = useStore();
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  const [syncState, setSyncState] = useState(getSyncDiagnosticsState().syncStatus);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -112,6 +105,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (LOCAL_ONLY) return;
     void checkSchemaHealth().then((status) => {
       const cfg = loadAppSettings();
       if (!status.compatible && Date.now() > cfg.hideSchemaWarningUntil) {
@@ -125,7 +119,7 @@ const App: React.FC = () => {
   }, [syncOrders]);
 
   useEffect(() => {
-    if (!error) return;
+    if (LOCAL_ONLY || !error) return;
     const readable = String(error).toLowerCase().includes('schema') || String(error).toLowerCase().includes('supabase') ? 'Проблема синхронизации данных. Попробуйте ещё раз.' : `Sync error: ${error}`;
     setSyncToast(readable);
     const t = setTimeout(() => setSyncToast(null), 4500);
@@ -133,6 +127,7 @@ const App: React.FC = () => {
   }, [error]);
 
   useEffect(() => {
+    if (LOCAL_ONLY) return;
     const onSyncError = (event: Event) => {
       const customEvent = event as CustomEvent<{ message?: string; code?: string; actions?: string[] }>;
       const message = customEvent.detail?.message || 'Unknown sync error';
@@ -152,47 +147,9 @@ const App: React.FC = () => {
     return () => window.removeEventListener('cloud-sync-error', onSyncError);
   }, []);
 
-  useEffect(() => {
-    const updateSyncState = () => setSyncState(getSyncDiagnosticsState().syncStatus);
-    updateSyncState();
-    window.addEventListener('cloud-sync-error', updateSyncState);
-    window.addEventListener('cloud-save-success', updateSyncState);
-    window.addEventListener('online', updateSyncState);
-    window.addEventListener('offline', updateSyncState);
-    window.addEventListener('idb-autosync-paused', updateSyncState as EventListener);
-    return () => {
-      window.removeEventListener('cloud-sync-error', updateSyncState);
-      window.removeEventListener('cloud-save-success', updateSyncState);
-      window.removeEventListener('online', updateSyncState);
-      window.removeEventListener('offline', updateSyncState);
-      window.removeEventListener('idb-autosync-paused', updateSyncState as EventListener);
-    };
-  }, []);
 
-  useEffect(() => {
-    const onStatus = () => {
-      const offline = !navigator.onLine;
-      setIsOffline(offline);
-      if (offline) {
-        pushNotification({
-          type: NotificationType.OFFLINE_QUEUE,
-          title: 'Offline режим',
-          message: 'Действия сохраняются в локальную очередь',
-          source: 'sync',
-          offline: true,
-          severity: 'warning'
-        });
-      } else {
-        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: '✅ Синхронизировано: очередь отправлена', tone: 'success' } }));
-      }
-    };
-    window.addEventListener('online', onStatus);
-    window.addEventListener('offline', onStatus);
-    return () => {
-      window.removeEventListener('online', onStatus);
-      window.removeEventListener('offline', onStatus);
-    };
-  }, []);
+
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       const target = e.target as HTMLInputElement;
@@ -246,7 +203,7 @@ const App: React.FC = () => {
         )}
 
         <HashRouter>
-          <Layout isSyncing={isLoading} isOffline={isOffline} syncState={syncState}>
+          <Layout isSyncing={isLoading}>
             <Routes>
               <Route path="/" element={<OrdersScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />
