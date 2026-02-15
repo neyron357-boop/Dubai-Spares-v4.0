@@ -154,7 +154,6 @@ export const offlineDb = {
     const db = await openDb();
     const tx = db.transaction(MUTATIONS_STORE, 'readwrite');
     const store = tx.objectStore(MUTATIONS_STORE);
-    const rows = (await txRequest(store.getAll())) as OfflineMutation[];
     const normalized: OfflineMutation = {
       ...mutation,
       entity: mutation.entity || 'orders',
@@ -165,19 +164,17 @@ export const offlineDb = {
       nextRetryAt: Number(mutation.nextRetryAt || 0)
     };
 
-    const duplicate = rows.find((item) => item.entity === normalized.entity && item.entityId === normalized.entityId && (item.operation || item.type) === (normalized.operation || normalized.type));
-    if (duplicate) {
-      await txRequest(store.put({ ...duplicate, ...normalized, id: duplicate.id, createdAt: duplicate.createdAt }));
-      syncPerf.recordIdbWrite();
-      return;
+    const existing = await txRequest(store.get(normalized.id)) as OfflineMutation | undefined;
+    if (!existing) {
+      const count = await txRequest(store.count());
+      if (count >= MAX_MUTATIONS) {
+        throw new Error(`Mutation queue limit reached (${MAX_MUTATIONS}). Export backup and clear queue.`);
+      }
     }
 
-    if (rows.length >= MAX_MUTATIONS) {
-      throw new Error(`Mutation queue limit reached (${MAX_MUTATIONS}). Export backup and clear queue.`);
-    }
-
-    await txRequest(store.put(normalized));
+    await txRequest(store.put({ ...existing, ...normalized, createdAt: existing?.createdAt || normalized.createdAt }));
     syncPerf.recordIdbWrite();
+    logSyncCategory('MUTATION_QUEUE', 'mutation_enqueued', { id: normalized.id, type: normalized.type, orderId: normalized.orderId });
   },
 
   async getMutations(): Promise<OfflineMutation[]> {

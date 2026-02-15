@@ -514,11 +514,13 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const updateOrderField = (field: keyof Order, value: any) => {
+    const keyStart = performance.now();
     const shouldDebounce = (typeof value === 'string' || typeof value === 'number')
       && !['markupType', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType'].includes(String(field));
 
     if (!shouldDebounce) {
       commitDeferredOrderField(field, value);
+      syncPerf.recordTypingSample(Math.round((performance.now() - keyStart) * 100) / 100);
       return;
     }
 
@@ -532,6 +534,7 @@ const OrderDetailsScreen: React.FC = () => {
       void logger.debug('PRICING_PERF', 'typing_commit_latency', { orderId: order.id, field, elapsedMs: elapsed });
       commitDeferredOrderField(field);
     }, 650);
+    syncPerf.recordTypingSample(Math.round((performance.now() - keyStart) * 100) / 100);
   };
 
 
@@ -675,6 +678,7 @@ const OrderDetailsScreen: React.FC = () => {
   }, [commitMarkupFixed]);
 
   const handleMarkupFixedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const startedAt = performance.now();
     const rawVal = e.target.value;
     const sanitized = sanitizeNumericInput(rawVal);
     setMarkupFixedInput(sanitized);
@@ -683,6 +687,7 @@ const OrderDetailsScreen: React.FC = () => {
       commitMarkupFixed(Number(sanitized || 0));
       markupCommitTimerRef.current = null;
     }, 1000);
+    syncPerf.recordTypingSample(Math.round((performance.now() - startedAt) * 100) / 100);
   };
 
   const togglePartFound = (partId: string) => {
