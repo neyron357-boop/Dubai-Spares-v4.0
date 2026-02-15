@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Camera, Check, ChevronDown, ChevronLeft, Copy, Mic, MicOff, Upload } from 'lucide-react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
-import { isCloudSyncConfigured, supabase } from '../supabase';
+import { leadCreate } from '../serverApi';
 import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
 import { NotificationType, pushNotification } from '../notificationCenter';
 import { logger } from '../logging';
@@ -393,10 +393,6 @@ const PublicOrderFormScreen: React.FC = () => {
       return;
     }
 
-    if (!isCloudSyncConfigured || !supabase) {
-      alert('Форма заявки временно недоступна.');
-      return;
-    }
 
     setIsSubmitting(true);
     void logger.info('public-form', 'Lead submit started', {
@@ -433,40 +429,6 @@ const PublicOrderFormScreen: React.FC = () => {
         createdAt: Date.now()
       }];
 
-      const { error: orderError } = await supabase.from('orders').insert({
-        id: orderId,
-        brand: brand.trim(),
-        model: model.trim(),
-        year: year.trim(),
-        body_type: bodyType.trim() || null,
-        vin: vin.trim(),
-        vin_photo_url: uploadedVinPhotos[0] || null,
-        status: 'lead',
-        sales_status: 'Inquiry',
-        client_name: clientAlias.trim() || 'Public Lead',
-        customer_contact: `${contactCountryCode}${customerContact.trim()}`.trim(),
-        source: messageSource,
-        social_nickname: clientAlias.trim() || null,
-        priority: 'MEDIUM',
-        car_photo_url: uploadedCarPhotos[0] || null,
-        car_photos: uploadedCarPhotos,
-        markup_percent: 20,
-        exchange_rate: 3.67,
-        is_archived: false,
-        is_sold: false,
-        is_vip: false,
-        is_pinned: false,
-        is_lead: true,
-        lead_unread: true,
-        lead_source: 'public_form',
-        lead_read_at: null,
-        notes,
-        created_at: now,
-        updated_at: now
-      });
-
-      if (orderError) throw orderError;
-
       const partsToInsert = await Promise.all(filledRequestedParts.map(async (part) => {
         const uploadedPartPhotos = !part.photoData
           ? []
@@ -477,16 +439,32 @@ const PublicOrderFormScreen: React.FC = () => {
 
         return {
           id: createId(),
-          order_id: orderId,
           name: part.name.trim(),
           photos: uploadedPartPhotos,
-          photo_url: uploadedPartPhotos[0] || null,
-          is_found: false
+          photoUrl: uploadedPartPhotos[0] || null,
+          isFound: false
         };
       }));
 
-      const { error: partError } = await supabase.from('parts').insert(partsToInsert);
-      if (partError) throw partError;
+      await leadCreate({
+        orderId,
+        brand: brand.trim(),
+        model: model.trim(),
+        year: year.trim(),
+        bodyType: bodyType.trim() || null,
+        vin: vin.trim(),
+        vinPhotoUrl: uploadedVinPhotos[0] || null,
+        clientName: clientAlias.trim() || 'Public Lead',
+        customerContact: `${contactCountryCode}${customerContact.trim()}`.trim(),
+        source: messageSource,
+        socialNickname: clientAlias.trim() || null,
+        carPhotoUrl: uploadedCarPhotos[0] || null,
+        carPhotos: uploadedCarPhotos,
+        parts: partsToInsert,
+        notes,
+        createdAt: now,
+        updatedAt: now
+      });
 
       pushNotification({
         type: NotificationType.ORDER_NEW,

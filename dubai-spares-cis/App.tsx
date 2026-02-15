@@ -12,15 +12,13 @@ import RadarLiveSettingsScreen from './screens/RadarLiveSettingsScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-react';
 import { useStore } from './store';
-import { NotificationType, getUnreadNotificationsCount, pushNotification } from './notificationCenter';
-import { checkSchemaHealth } from './schemaHealth';
-import { loadAppSettings, saveAppSettings } from './appSettings';
-import { LOCAL_MODE_LABEL, LOCAL_ONLY } from './localMode';
+import { getUnreadNotificationsCount } from './notificationCenter';
+import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
 
 const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
 
-const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ children, isSyncing }) => {
+const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const hideNav = location.pathname.includes('/estimate') || location.pathname.includes('/vendor');
   const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
@@ -44,9 +42,6 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ c
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-50 flex flex-col overflow-hidden">
-      <div className="h-0.5 bg-transparent">
-        <div className={`h-full bg-blue-500 transition-all duration-300 ${isSyncing ? 'w-full opacity-100 animate-pulse' : 'w-0 opacity-0'}`} />
-      </div>
       <main className="flex-1 overflow-y-auto no-scrollbar relative">
         <div className="fixed top-3 right-3 z-[90] px-2.5 py-1 rounded-full bg-slate-700/85 text-white text-[10px] font-black uppercase tracking-wide shadow">
           {LOCAL_MODE_LABEL}
@@ -72,10 +67,8 @@ const Layout: React.FC<{ children: React.ReactNode; isSyncing: boolean }> = ({ c
 
 const App: React.FC = () => {
   const [savePulse, setSavePulse] = useState(false);
-  const [syncToast, setSyncToast] = useState<string | null>(null);
   const [appToast, setAppToast] = useState<{ message: string; tone: 'error' | 'success' | 'info' } | null>(null);
-  const [schemaBanner, setSchemaBanner] = useState<string | null>(null);
-  const { syncOrders, isLoading, error } = useStore();
+  useStore();
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -106,48 +99,9 @@ const App: React.FC = () => {
     return () => window.removeEventListener('app-toast', onAppToast);
   }, []);
 
-  useEffect(() => {
-    if (LOCAL_ONLY) return;
-    void checkSchemaHealth().then((status) => {
-      const cfg = loadAppSettings();
-      if (!status.compatible && Date.now() > cfg.hideSchemaWarningUntil) {
-        setSchemaBanner(status.reason || 'Schema mismatch');
-      }
-    });
-  }, []);
 
-  useEffect(() => {
-    void syncOrders();
-  }, [syncOrders]);
 
-  useEffect(() => {
-    if (LOCAL_ONLY || !error) return;
-    const readable = String(error).toLowerCase().includes('schema') || String(error).toLowerCase().includes('supabase') ? 'Проблема синхронизации данных. Попробуйте ещё раз.' : `Sync error: ${error}`;
-    setSyncToast(readable);
-    const t = setTimeout(() => setSyncToast(null), 4500);
-    return () => clearTimeout(t);
-  }, [error]);
 
-  useEffect(() => {
-    if (LOCAL_ONLY) return;
-    const onSyncError = (event: Event) => {
-      const customEvent = event as CustomEvent<{ message?: string; code?: string; actions?: string[] }>;
-      const message = customEvent.detail?.message || 'Unknown sync error';
-      const readable = message.toLowerCase().includes('schema') || message.toLowerCase().includes('supabase') ? 'Сервис данных временно недоступен. Повторите позже.' : `Sync failed: ${message}`;
-      setSyncToast(readable);
-      pushNotification({
-        type: NotificationType.SYNC_ERROR,
-        title: 'Ошибка синхронизации',
-        message: readable,
-        signature: `sync:${customEvent.detail?.code || 'UNKNOWN'}:${message}`,
-        source: 'sync',
-        severity: 'critical'
-      });
-    };
-
-    window.addEventListener('cloud-sync-error', onSyncError);
-    return () => window.removeEventListener('cloud-sync-error', onSyncError);
-  }, []);
 
 
 
@@ -177,18 +131,7 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {schemaBanner && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[96] max-w-[90%] px-3 py-2 rounded-xl bg-rose-100 text-rose-700 text-[10px] font-black tracking-wide shadow">
-            <div>{schemaBanner}</div>
-            <button className="underline" type="button" onClick={() => { saveAppSettings({ hideSchemaWarningUntil: Date.now() + 24 * 60 * 60 * 1000 }); setSchemaBanner(null); }}>Не показывать 24ч</button>
-          </div>
-        )}
 
-        {syncToast && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-wide shadow">
-            {syncToast}
-          </div>
-        )}
 
         {appToast && (
           <div
@@ -205,7 +148,7 @@ const App: React.FC = () => {
         )}
 
         <HashRouter>
-          <Layout isSyncing={isLoading}>
+          <Layout>
             <Routes>
               <Route path="/" element={<OrdersScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />

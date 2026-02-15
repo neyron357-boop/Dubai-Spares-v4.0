@@ -3,16 +3,11 @@ import { Supplier } from './types';
 import { useOrderStore, subscribeOrderStore, getOrderState, restoreOrdersExternal, fetchOrderDetails } from './orderStore';
 import { ensureUuid } from './id';
 import { deleteSupplierFromShops } from './radarShops';
-import { supabase } from './supabase';
-import { logger } from './logging';
-import { LOCAL_ONLY } from './localMode';
 
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
 let globalSuppliers: Supplier[] = [];
 let listeners = new Set<() => void>();
-
-let suppliersCloudSyncedThisSession = false;
 
 const normalizeSupplier = (supplier: Supplier): Supplier => ({
   ...supplier,
@@ -64,53 +59,6 @@ const notifySupplierListeners = () => {
   listeners.forEach((listener) => listener());
 };
 
-const mapShopToSupplier = (shop: any): Supplier => {
-  const now = Date.now();
-  return normalizeSupplier({
-    id: String(shop.id || ''),
-    name: String(shop.name || 'Shop'),
-    phone: String(shop.phone || ''),
-    location: String(shop.location || ''),
-    type: shop.shop_type || 'new_parts',
-    zone: typeof shop.zone === 'string' ? shop.zone : '',
-    heatLevel: Number.isFinite(Number(shop.heat_level)) ? Number(shop.heat_level) : 0,
-    brands: Array.isArray(shop.specialization) ? shop.specialization : [],
-    mainBrands: Array.isArray(shop.main_brands) ? shop.main_brands : [],
-    models: Array.isArray(shop.specialization_models) ? shop.specialization_models : [],
-    years: Array.isArray(shop.specialization_years) ? shop.specialization_years : [],
-    bodyTypes: Array.isArray(shop.specialization_body_types) ? shop.specialization_body_types : [],
-    coordinates: Number.isFinite(Number(shop.latitude)) && Number.isFinite(Number(shop.longitude))
-      ? { lat: Number(shop.latitude), lng: Number(shop.longitude) }
-      : undefined,
-    syncStatus: 'synced',
-    createdAt: now,
-    updatedAt: now
-  });
-};
-
-const syncSuppliersFromCloud = async () => {
-  if (LOCAL_ONLY || suppliersCloudSyncedThisSession || !supabase || !navigator.onLine) return;
-
-  const { data, error } = await supabase
-    .from('shops')
-    .select('id,name,phone,location,latitude,longitude,shop_type,zone,heat_level,main_brands,specialization,specialization_models,specialization_years,specialization_body_types');
-
-  if (error) {
-    void logger.warn('suppliers:cloud', 'Failed to sync suppliers from shops table', { error: error.message });
-    return;
-  }
-
-  if (!Array.isArray(data)) return;
-
-  const localOnly = globalSuppliers.filter((supplier) => supplier.syncStatus !== 'synced');
-  const remote = data.map(mapShopToSupplier);
-
-  const byId = new Map<string, Supplier>();
-  [...localOnly, ...remote].forEach((supplier) => byId.set(supplier.id, supplier));
-  globalSuppliers = Array.from(byId.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  notifySupplierListeners();
-  suppliersCloudSyncedThisSession = true;
-};
 
 export const subscribeStore = (listener: () => void) => {
   const unsubscribeOrders = subscribeOrderStore(listener);
@@ -147,10 +95,6 @@ export const useStore = () => {
     const listener = () => setVersion((v) => v + 1);
     listeners.add(listener);
     return () => listeners.delete(listener);
-  }, []);
-
-  useEffect(() => {
-    void syncSuppliersFromCloud();
   }, []);
 
   const addSupplier = useCallback((supplier: Supplier) => {
