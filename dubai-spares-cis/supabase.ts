@@ -27,12 +27,25 @@ if (!isCloudSyncConfigured) {
   });
 }
 
+const SUPABASE_GET_TIMEOUT_MS = 45000;
+const SUPABASE_WRITE_TIMEOUT_MS = 45000;
+const SUPABASE_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000, 30000] as const;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const shouldRetrySupabaseRequest = (error: unknown, method: string) => {
+  if (method !== 'GET' && method !== 'HEAD') return false;
+  if (!(error instanceof Error)) return false;
+  const message = `${error.name}:${error.message}`.toLowerCase();
+  return message.includes('aborterror') || message.includes('timeout') || message.includes('failed to fetch') || message.includes('network');
+};
+
 const instrumentedFetch: typeof fetch = async (input, init) => {
   const start = Date.now();
   const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   const method = init?.method ?? (typeof input !== 'string' && !(input instanceof URL) ? input.method : 'GET') ?? 'GET';
   const upperMethod = method.toUpperCase();
-  const requestTimeoutMs = upperMethod === 'GET' ? 15000 : 45000;
+  const requestTimeoutMs = upperMethod === 'GET' ? SUPABASE_GET_TIMEOUT_MS : SUPABASE_WRITE_TIMEOUT_MS;
 
   const headers = new Headers(init?.headers ?? (typeof input !== 'string' && !(input instanceof URL) ? input.headers : undefined));
   const hasApiKey = Boolean(headers.get('apikey') || headers.get('x-api-key'));
@@ -45,57 +58,70 @@ const instrumentedFetch: typeof fetch = async (input, init) => {
     hasAuthorization
   });
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(`Timeout after ${requestTimeoutMs}ms`), requestTimeoutMs);
-    const response = await fetch(input, {
-      ...init,
-      signal: init?.signal ?? controller.signal
-    });
-    window.clearTimeout(timeoutId);
-    await logger.info('supabase:response', `${response.status} ${method} ${rawUrl}`, {
-      ok: response.ok,
-      durationMs: Date.now() - start
-    });
-
-    if (!response.ok) {
-      const cloned = response.clone();
-      let body: unknown = null;
-      try {
-        body = await cloned.text();
-      } catch {
-        body = null;
-      }
-
-      await logger.error('supabase:response', `Non-2xx response ${response.status} for ${method} ${rawUrl}`, {
-        body,
-        hasApiKey,
-        hasAuthorization
+  for (let attempt = 0; attempt <= SUPABASE_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(`Timeout after ${requestTimeoutMs}ms`), requestTimeoutMs);
+      const response = await fetch(input, {
+        ...init,
+        signal: init?.signal ?? controller.signal
+      });
+      window.clearTimeout(timeoutId);
+      await logger.info('supabase:response', `${response.status} ${method} ${rawUrl}`, {
+        ok: response.ok,
+        durationMs: Date.now() - start,
+        attempt
       });
 
-      let parsedBody: unknown = body;
-      if (typeof body === 'string' && body.trim().startsWith('{')) {
+      if (!response.ok) {
+        const cloned = response.clone();
+        let body: unknown = null;
         try {
-          parsedBody = JSON.parse(body);
+          body = await cloned.text();
         } catch {
-          parsedBody = body;
+          body = null;
         }
-      }
-      await logDatabaseIntegrity('supabase:response', parsedBody, { status: response.status, method, rawUrl });
-    }
 
-    return response;
-  } catch (error) {
-    const isTimeoutError = error instanceof DOMException && error.name === 'AbortError';
-    await logger.error('supabase:request', `Request failed ${method} ${rawUrl}`, {
-      durationMs: Date.now() - start,
-      error: isTimeoutError ? `Request timeout (${requestTimeoutMs}ms)` : error instanceof Error ? error.message : String(error),
-      isTimeoutError,
-      hasApiKey,
-      hasAuthorization
-    });
-    throw error;
+        await logger.error('supabase:response', `Non-2xx response ${response.status} for ${method} ${rawUrl}`, {
+          body,
+          hasApiKey,
+          hasAuthorization
+        });
+
+        let parsedBody: unknown = body;
+        if (typeof body === 'string' && body.trim().startsWith('{')) {
+          try {
+            parsedBody = JSON.parse(body);
+          } catch {
+            parsedBody = body;
+          }
+        }
+        await logDatabaseIntegrity('supabase:response', parsedBody, { status: response.status, method, rawUrl });
+      }
+
+      return response;
+    } catch (error) {
+      const isTimeoutError = error instanceof DOMException && error.name === 'AbortError';
+      const canRetry = shouldRetrySupabaseRequest(error, upperMethod) && attempt < SUPABASE_RETRY_DELAYS_MS.length;
+      await logger.error('supabase:request', `Request failed ${method} ${rawUrl}`, {
+        durationMs: Date.now() - start,
+        error: isTimeoutError ? `Request timeout (${requestTimeoutMs}ms)` : error instanceof Error ? error.message : String(error),
+        isTimeoutError,
+        hasApiKey,
+        hasAuthorization,
+        attempt,
+        canRetry
+      });
+
+      if (!canRetry) {
+        throw error;
+      }
+
+      await sleep(SUPABASE_RETRY_DELAYS_MS[attempt]);
+    }
   }
+
+  throw new Error('Supabase request retry limit reached');
 };
 
 export const supabase = isCloudSyncConfigured

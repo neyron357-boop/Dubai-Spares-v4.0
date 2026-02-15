@@ -106,7 +106,7 @@ const createPricingEvent = (field: OrderPricingEvent['field'], label: string, pr
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { orders, isLoading, updateOrder, suppliers } = useStore();
+  const { orders, isLoading, updateOrder, suppliers, fetchOrderDetails } = useStore();
   const order = orders.find(o => o.id === id);
 
   const [isEstimateOpen, setIsEstimateOpen] = useState(false);
@@ -197,6 +197,13 @@ const OrderDetailsScreen: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+
+  useEffect(() => {
+    if (!id) return;
+    const currentOrder = orders.find((item) => item.id === id);
+    if (currentOrder && currentOrder.parts && currentOrder.parts.length > 0) return;
+    void fetchOrderDetails(id);
+  }, [id, orders, fetchOrderDetails]);
   useEffect(() => {
     if (!order) return;
     if (order.leadSource === 'public_form' && order.leadUnread) {

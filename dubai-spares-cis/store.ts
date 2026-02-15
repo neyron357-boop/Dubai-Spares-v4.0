@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { Supplier } from './types';
-import { useOrderStore, subscribeOrderStore, getOrderState, restoreOrdersExternal } from './orderStore';
+import { useOrderStore, subscribeOrderStore, getOrderState, restoreOrdersExternal, fetchOrderDetails } from './orderStore';
 import { ensureUuid } from './id';
 import { deleteSupplierFromShops } from './radarShops';
 import { supabase } from './supabase';
@@ -209,6 +209,7 @@ export const useStore = () => {
     updatePart,
     updatePriceVariant,
     fetchOrders,
-    syncOrders: fetchOrders
-  }), [version, orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders]);
+    syncOrders: fetchOrders,
+    fetchOrderDetails
+  }), [version, orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders, fetchOrderDetails]);
 };

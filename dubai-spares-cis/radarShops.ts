@@ -31,6 +31,10 @@ const GEO_FAIL_COOLDOWN_MS = 60 * 60 * 1000;
 const failedGeocodeCache = new Map<string, { failCount: number; blockedUntil: number }>();
 const manualFixShops = new Set<string>();
 
+const SHOPS_CACHE_TTL_MS = 10 * 60 * 1000;
+let shopsFetchInFlight: Promise<Shop[]> | null = null;
+let shopsCache: { expiresAt: number; data: Shop[] } | null = null;
+
 
 const extractCityHints = (location: string): string[] => {
   const normalized = location.toLowerCase();
@@ -243,7 +247,7 @@ const rerunCriticalCoordinatesParser = async (rows: any[]) => {
   }
 };
 
-export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> => {
+const fetchRadarShopsFresh = async (suppliers: Supplier[]): Promise<Shop[]> => {
   const supplierShops = mapSuppliersToShops(suppliers);
   if (!supabase) {
     return supplierShops;
@@ -308,7 +312,46 @@ export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> =>
   return supplierShops;
 };
 
+export const fetchRadarShops = async (suppliers: Supplier[]): Promise<Shop[]> => {
+  const supplierShops = mapSuppliersToShops(suppliers);
+  const now = Date.now();
+
+  if (shopsCache && shopsCache.expiresAt > now) {
+    void (async () => {
+      if (shopsFetchInFlight) return;
+      shopsFetchInFlight = fetchRadarShopsFresh(suppliers)
+        .then((fresh) => {
+          shopsCache = { data: fresh, expiresAt: Date.now() + SHOPS_CACHE_TTL_MS };
+          return fresh;
+        })
+        .finally(() => {
+          shopsFetchInFlight = null;
+        });
+      await shopsFetchInFlight;
+    })();
+    return mergeShops(shopsCache.data, supplierShops);
+  }
+
+  if (shopsFetchInFlight) {
+    const result = await shopsFetchInFlight;
+    return mergeShops(result, supplierShops);
+  }
+
+  shopsFetchInFlight = fetchRadarShopsFresh(suppliers)
+    .then((fresh) => {
+      shopsCache = { data: fresh, expiresAt: Date.now() + SHOPS_CACHE_TTL_MS };
+      return fresh;
+    })
+    .finally(() => {
+      shopsFetchInFlight = null;
+    });
+
+  const result = await shopsFetchInFlight;
+  return mergeShops(result, supplierShops);
+};
+
 export const upsertSupplierToShops = async (supplier: Supplier) => {
+  shopsCache = null;
   if (!supabase) return;
 
   const normalized = normalizeSupplierMetadata(supplier);
@@ -345,6 +388,7 @@ export const upsertSupplierToShops = async (supplier: Supplier) => {
 };
 
 export const deleteSupplierFromShops = async (supplierId: string) => {
+  shopsCache = null;
   if (!supabase) return;
 
   const normalizedShopId = ensureUuid(supplierId);
