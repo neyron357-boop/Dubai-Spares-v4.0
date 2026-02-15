@@ -30,6 +30,8 @@ const instrumentedFetch: typeof fetch = async (input, init) => {
   const start = Date.now();
   const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   const method = init?.method ?? (typeof input !== 'string' && !(input instanceof URL) ? input.method : 'GET') ?? 'GET';
+  const upperMethod = method.toUpperCase();
+  const requestTimeoutMs = upperMethod === 'GET' ? 15000 : 45000;
 
   const headers = new Headers(init?.headers ?? (typeof input !== 'string' && !(input instanceof URL) ? input.headers : undefined));
   const hasApiKey = Boolean(headers.get('apikey') || headers.get('x-api-key'));
@@ -41,7 +43,13 @@ const instrumentedFetch: typeof fetch = async (input, init) => {
   });
 
   try {
-    const response = await fetch(input, init);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(`Timeout after ${requestTimeoutMs}ms`), requestTimeoutMs);
+    const response = await fetch(input, {
+      ...init,
+      signal: init?.signal ?? controller.signal
+    });
+    window.clearTimeout(timeoutId);
     await logger.info('supabase:response', `${response.status} ${method} ${rawUrl}`, {
       ok: response.ok,
       durationMs: Date.now() - start
@@ -75,9 +83,11 @@ const instrumentedFetch: typeof fetch = async (input, init) => {
 
     return response;
   } catch (error) {
+    const isTimeoutError = error instanceof DOMException && error.name === 'AbortError';
     await logger.error('supabase:request', `Request failed ${method} ${rawUrl}`, {
       durationMs: Date.now() - start,
-      error: error instanceof Error ? error.message : String(error),
+      error: isTimeoutError ? `Request timeout (${requestTimeoutMs}ms)` : error instanceof Error ? error.message : String(error),
+      isTimeoutError,
       hasApiKey,
       hasAuthorization
     });
