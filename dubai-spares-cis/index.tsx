@@ -64,26 +64,8 @@ if ('serviceWorker' in navigator) {
           registration.active?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
           registration.waiting?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
           registration.installing?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
-          registration.active?.postMessage({ type: 'start-lead-polling' });
         };
         pushConfig();
-        window.setInterval(pushConfig, 60 * 1000);
-      }
-
-      if ('periodicSync' in registration) {
-        try {
-          await (registration as ServiceWorkerRegistration & { periodicSync: { register: (tag: string, options: { minInterval: number }) => Promise<void> } }).periodicSync.register('leads-periodic-sync', { minInterval: 5 * 60 * 1000 });
-        } catch {
-          // unsupported by browser permissions/policy
-        }
-      }
-
-      if ('sync' in registration) {
-        try {
-          await (registration as ServiceWorkerRegistration & { sync: { register: (tag: string) => Promise<void> } }).sync.register('leads-background-poll');
-        } catch {
-          // fallback to in-memory timer in SW
-        }
       }
 
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {

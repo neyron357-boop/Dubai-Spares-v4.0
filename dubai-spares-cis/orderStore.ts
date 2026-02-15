@@ -124,15 +124,13 @@ let state: OrderState = {
 let syncInProgress = false;
 let wasCloudHydratedAtLeastOnce = false;
 const schemaMissingColumns = new Set<string>();
-const MAX_MUTATION_RETRY = 8;
-const RETRY_STEPS_MS = [1000, 2000, 4000, 8000, 16000, 30000, 60000, 120000] as const;
+const MAX_MUTATION_RETRY = 1;
 const ORDER_PAGE_SIZE = 50;
 const mutationTimers = new Map<string, number>();
 const localCommitTimers = new Map<string, number>();
 const networkFlushTimerMs = 3000;
 const hotFieldKeys: Array<keyof Order> = ['markupPercent', 'markupType', 'markupFixedAed', 'exchangeRate', 'clientCurrency', 'fxUpdatedAt', 'logistics', 'pricingEvents', 'updatedAt'];
 let cachedQueueLength = 0;
-let retryTimer: number | null = null;
 let syncPausedUntil = 0;
 let syncMutex: Promise<void> = Promise.resolve();
 
@@ -225,72 +223,6 @@ const getMissingColumnName = (error: unknown): string | null => {
   return null;
 };
 
-const isRelationQueryError = (error: unknown) => {
-  if (typeof error !== 'object' || !error) return false;
-  const anyErr = error as { code?: unknown; message?: unknown };
-  const message = typeof anyErr.message === 'string' ? anyErr.message.toLowerCase() : '';
-  return (anyErr.code === 'PGRST200' || anyErr.code === 'PGRST201')
-    && (message.includes("relationship") || message.includes("embedded") || message.includes('not found'));
-};
-
-const fetchOrderGraphWithoutJoin = async (orderColumns: string[]) => {
-  if (!supabase) return { data: null, error: null };
-
-  const ordersResponse = await supabase
-    .from('orders')
-    .select(orderColumns.join(','))
-    .order('created_at', { ascending: false });
-
-  if (ordersResponse.error || !ordersResponse.data) {
-    return { data: null, error: ordersResponse.error };
-  }
-
-  const orders = ordersResponse.data as DbOrderGraphRow[];
-  if (orders.length === 0) return { data: [], error: null };
-
-  const orderIds = orders.map((item) => String(item.id));
-  const partsResponse = await supabase
-    .from('parts')
-    .select('id,order_id,name,photo_url,photos,is_found')
-    .in('order_id', orderIds);
-
-  if (partsResponse.error) {
-    return { data: null, error: partsResponse.error };
-  }
-
-  const parts = Array.isArray(partsResponse.data) ? partsResponse.data : [];
-  const partIds = parts.map((item) => String(item.id));
-
-  const variantsResponse = partIds.length === 0
-    ? { data: [], error: null }
-    : await supabase
-      .from('price_variants')
-      .select('id,part_id,price_aed,condition,availability,shop_name,phone,location,photo_url,photos,created_at')
-      .in('part_id', partIds);
-
-  if (variantsResponse.error) {
-    return { data: null, error: variantsResponse.error };
-  }
-
-  const variantsByPartId = new Map<string, any[]>();
-  (variantsResponse.data || []).forEach((variant: any) => {
-    const key = String(variant.part_id || '');
-    if (!variantsByPartId.has(key)) variantsByPartId.set(key, []);
-    variantsByPartId.get(key)!.push(variant);
-  });
-
-  const partsByOrderId = new Map<string, any[]>();
-  parts.forEach((part: any) => {
-    const key = String(part.order_id || '');
-    const mapped = { ...part, price_variants: variantsByPartId.get(String(part.id)) || [] };
-    if (!partsByOrderId.has(key)) partsByOrderId.set(key, []);
-    partsByOrderId.get(key)!.push(mapped);
-  });
-
-  const stitched = orders.map((order) => ({ ...order, parts: partsByOrderId.get(String(order.id)) || [] }));
-  return { data: stitched, error: null };
-};
-
 const fetchOrdersPageWithoutJoin = async (orderColumns: string[], from: number, to: number) => {
   if (!supabase) return { data: null, error: null };
 
@@ -330,10 +262,6 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
 
     const missingColumn = getMissingColumnName(response.error);
     if (!missingColumn || !orderColumns.includes(missingColumn)) {
-      if (isRelationQueryError(response.error)) {
-        await logger.warn('sync:fetch', 'Embedded orders graph query failed; retrying without joins');
-        return fetchOrderGraphWithoutJoin(orderColumns);
-      }
       return response;
     }
 
@@ -434,23 +362,6 @@ const classifySyncError = (error: unknown): 'network' | 'schema' | 'unknown' => 
   if (isSchemaError(error)) return 'schema';
   if (isNetworkError(error)) return 'network';
   return 'unknown';
-};
-
-const computeRetryDelay = (retryCount: number) => {
-  const index = Math.max(0, Math.min(RETRY_STEPS_MS.length - 1, retryCount - 1));
-  const baseDelay = RETRY_STEPS_MS[index];
-  const jitter = Math.floor(baseDelay * (0.15 + Math.random() * 0.2));
-  return baseDelay + jitter;
-};
-
-const scheduleRetryFlush = (nextRetryAt: number) => {
-  syncPerf.setNextRetryAt(nextRetryAt);
-  if (retryTimer) window.clearTimeout(retryTimer);
-  const delay = Math.max(250, nextRetryAt - Date.now());
-  retryTimer = window.setTimeout(() => {
-    retryTimer = null;
-    if (navigator.onLine && document.visibilityState === 'visible') void flushOfflineMutations();
-  }, delay);
 };
 
 const deleteRemoteOrderWithStorageCleanup = async (orderId: string) => {
@@ -858,7 +769,7 @@ export const flushOfflineMutations = async (options?: { force?: boolean }) => ru
   if (syncInProgress || !navigator.onLine || !isCloudSyncConfigured || !supabase || isIdbAutoSyncPaused()) return;
   if (!force && document.visibilityState !== 'visible') return;
   if (!force && syncPausedUntil > Date.now()) {
-    scheduleRetryFlush(syncPausedUntil);
+    syncPerf.setNextRetryAt(syncPausedUntil);
     return;
   }
 
@@ -938,7 +849,7 @@ export const flushOfflineMutations = async (options?: { force?: boolean }) => ru
       } catch (error) {
         const errorType = classifySyncError(error);
         const retryCount = Number((mutation.attemptCount ?? mutation.retryCount) || 0) + 1;
-        const nextRetryAt = Date.now() + computeRetryDelay(retryCount);
+        const nextRetryAt = Date.now();
         const isTimeoutLike = isNetworkError(error);
 
         syncPerf.setLastErrorType(errorType);
@@ -985,13 +896,14 @@ export const flushOfflineMutations = async (options?: { force?: boolean }) => ru
 
     if (earliestDeferredRetryAt > Date.now()) {
       setSyncStatus('error');
-      scheduleRetryFlush(earliestDeferredRetryAt);
-    } else {
-      setSyncStatus('online');
-      syncPerf.setNextRetryAt(null);
-      syncPerf.markSynced();
-      logSyncCategory('SYNC_STATE', 'flush_completed');
+      syncPerf.setNextRetryAt(earliestDeferredRetryAt);
+      return;
     }
+
+    setSyncStatus('online');
+    syncPerf.setNextRetryAt(null);
+    syncPerf.markSynced();
+    logSyncCategory('SYNC_STATE', 'flush_completed');
   } catch (error: unknown) {
     logSyncCategory('SYNC_STATE', 'flush_failed');
     broadcastSyncError(error, 'Offline sync failed');
@@ -1223,7 +1135,6 @@ export const useOrderStore = () => {
 
   useEffect(() => {
     const onOnline = () => {
-      void flushOfflineMutations();
       void fetchOrders();
     };
 
@@ -1233,47 +1144,18 @@ export const useOrderStore = () => {
       }
     };
 
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleRefresh = () => {
-      if (refreshTimer) window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => {
-        void fetchOrders();
-      }, 350);
-    };
-
-    const ordersChannel = supabase
-      ?.channel('orders-live-sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, scheduleRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'parts' }, scheduleRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'price_variants' }, scheduleRefresh)
-      .subscribe();
-
-    if (navigator.onLine && document.visibilityState === 'visible') {
-      void flushOfflineMutations();
-    }
-
-    const onVisible = () => {
-      if (document.visibilityState === 'visible' && navigator.onLine) void flushOfflineMutations();
-    };
-
     const onIdbPaused = () => {
       setSyncStatus('error');
       setState({ isSyncing: false });
     };
 
     window.addEventListener('online', onOnline);
-    document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('idb-autosync-paused', onIdbPaused as EventListener);
     navigator.serviceWorker?.addEventListener?.('message', onSwMessage);
     return () => {
-      if (refreshTimer) window.clearTimeout(refreshTimer);
       window.removeEventListener('online', onOnline);
-      document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('idb-autosync-paused', onIdbPaused as EventListener);
       navigator.serviceWorker?.removeEventListener?.('message', onSwMessage);
-      if (ordersChannel) {
-        void supabase?.removeChannel(ordersChannel);
-      }
     };
   }, []);
 
