@@ -1,4 +1,6 @@
 import { CLOUD_FEATURES, LOCAL_ONLY } from './localMode';
+import { decodePayloadFromCompressedTransport, encodePayloadToCompressedTransport, getJsonBytes } from './cloudCodec';
+import { preparePayloadWithImageManifest } from './cloudMedia';
 
 const SUPABASE_URL = ((import.meta as any).env?.VITE_SUPABASE_URL as string | undefined)?.trim() || 'https://jntgicfiehdprwhtjbuf.supabase.co';
 const SUPABASE_ANON_KEY = ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || 'sb_publishable_ZwcvMV3ccFi0xVapLOorsw_6wLL_9SC';
@@ -19,13 +21,7 @@ const short = (value: unknown) => {
   return text.length <= MAX_LOG_META ? text : `${text.slice(0, MAX_LOG_META)}…`;
 };
 
-const getPayloadBytes = (payload: unknown) => {
-  try {
-    return new Blob([JSON.stringify(payload)]).size;
-  } catch {
-    return 0;
-  }
-};
+const getPayloadBytes = (payload: unknown) => getJsonBytes(payload);
 
 const hashPayload = (payload: unknown) => {
   try {
@@ -33,6 +29,48 @@ const hashPayload = (payload: unknown) => {
   } catch {
     return String(payload);
   }
+};
+
+
+const prepareTransportRecord = async (
+  action: 'backup' | 'quote' | 'lead',
+  payload: unknown,
+  options?: { signal?: AbortSignal; allowUploadLater?: boolean }
+) => {
+  const rootId = action === 'quote'
+    ? `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    : action === 'lead'
+      ? `l-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      : `b-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const mediaPrepared = await preparePayloadWithImageManifest(payload, action, rootId, {
+    signal: options?.signal,
+    allowUploadLater: options?.allowUploadLater
+  });
+  const encoded = await encodePayloadToCompressedTransport(mediaPrepared.payload);
+
+  console.info('[serverApi] payloadPrepared', {
+    action,
+    rawBytes: encoded.rawBytes,
+    compressedBytes: encoded.compressedBytes,
+    imageCount: mediaPrepared.imageManifest.length,
+    pendingUpload: mediaPrepared.pendingUpload
+  });
+
+  return {
+    encoded,
+    imageManifest: mediaPrepared.imageManifest,
+    payloadForCompatibility: encoded.payloadJson ?? {},
+    pendingUpload: mediaPrepared.pendingUpload
+  };
+};
+
+const resolvePayloadFromRow = async <T extends { payload_b64?: string | null; payload_codec?: string | null; payload_json?: unknown | null; payload?: unknown | null }>(row: T): Promise<unknown> => {
+  if (row?.payload_b64) {
+    return decodePayloadFromCompressedTransport(row.payload_b64, row.payload_codec || 'gzip+pako+b64');
+  }
+  if (row?.payload_json) return row.payload_json;
+  return row?.payload ?? null;
 };
 
 const ensureCloudEnabled = (featureEnabled: boolean) => {
@@ -149,12 +187,13 @@ const requestJson = async <T>(options: JsonRequestOptions): Promise<T> => {
 export const backupUpload = Object.assign(
   async (payload: unknown, options?: { signal?: AbortSignal }) => {
     ensureCloudEnabled(CLOUD_FEATURES.BACKUP);
-    const key = `backupUpload:${hashPayload(payload)}`;
+    const transport = await prepareTransportRecord('backup', payload, { signal: options?.signal, allowUploadLater: true });
+    const key = `backupUpload:${hashPayload(transport.encoded.payloadB64)}`;
     const data = await requestJson<Array<{ id: string; created_at: string }>>({
       key,
       endpoint: 'backups',
       method: 'POST',
-      payload: [{ payload }],
+      payload: [{ payload: transport.payloadForCompatibility, payload_b64: transport.encoded.payloadB64, payload_codec: transport.encoded.payloadCodec, payload_json: transport.encoded.payloadJson, image_manifest: transport.imageManifest }],
       timeoutMs: BACKUP_TIMEOUT_MS,
       signal: options?.signal,
       retryTimeoutOnce: true
@@ -169,8 +208,8 @@ export const backupUpload = Object.assign(
     restoreById: async (backupId: string, options?: { signal?: AbortSignal }) => {
       ensureCloudEnabled(CLOUD_FEATURES.BACKUP);
       const key = `backupRestore:${backupId}`;
-      const query = `backups?id=eq.${encodeURIComponent(backupId)}&select=id,created_at,payload&limit=1`;
-      const data = await requestJson<Array<{ id: string; created_at: string; payload: unknown }>>({
+      const query = `backups?id=eq.${encodeURIComponent(backupId)}&select=id,created_at,payload,payload_b64,payload_codec,payload_json,image_manifest&limit=1`;
+      const data = await requestJson<Array<{ id: string; created_at: string; payload: unknown; payload_b64?: string | null; payload_codec?: string | null; payload_json?: unknown | null; image_manifest?: unknown }>>({
         key,
         endpoint: query,
         method: 'GET',
@@ -178,9 +217,11 @@ export const backupUpload = Object.assign(
         retries: 3
       });
       const row = Array.isArray(data) ? data[0] : null;
-      if (!row?.payload) throw new Error('Backup not found');
-      console.info('[serverApi] backupRestore', { backupId: row.id, payloadBytes: getPayloadBytes(row.payload) });
-      return row;
+      if (!row) throw new Error('Backup not found');
+      const payloadDecoded = await resolvePayloadFromRow(row);
+      if (!payloadDecoded) throw new Error('Backup not found');
+      console.info('[serverApi] backupRestore', { backupId: row.id, payloadBytes: getPayloadBytes(payloadDecoded) });
+      return { ...row, payload: payloadDecoded };
     }
   }
 );
@@ -188,12 +229,13 @@ export const backupUpload = Object.assign(
 export const publicQuoteCreate = async ({ token, payload, expiresAt }: { token: string; payload: unknown; expiresAt: string | number | Date }, options?: { signal?: AbortSignal }) => {
   ensureCloudEnabled(CLOUD_FEATURES.PUBLIC_QUOTE);
   const expiresIso = new Date(expiresAt).toISOString();
-  const key = `publicQuoteCreate:${token}:${hashPayload(payload)}`;
+  const transport = await prepareTransportRecord('quote', payload, { signal: options?.signal, allowUploadLater: true });
+  const key = `publicQuoteCreate:${token}:${hashPayload(transport.encoded.payloadB64)}`;
   const data = await requestJson<Array<{ token: string }>>({
     key,
     endpoint: 'public_quote_snapshots',
     method: 'POST',
-    payload: [{ token, payload, expires_at: expiresIso }],
+    payload: [{ token, payload: transport.payloadForCompatibility, expires_at: expiresIso, payload_b64: transport.encoded.payloadB64, payload_codec: transport.encoded.payloadCodec, payload_json: transport.encoded.payloadJson, image_manifest: transport.imageManifest }],
     signal: options?.signal
   });
   const row = Array.isArray(data) ? data[0] : null;
@@ -204,26 +246,33 @@ export const publicQuoteCreate = async ({ token, payload, expiresAt }: { token: 
 export const publicQuoteGet = async (token: string, options?: { signal?: AbortSignal }) => {
   ensureCloudEnabled(CLOUD_FEATURES.PUBLIC_QUOTE);
   const key = `publicQuoteGet:${token}`;
-  const query = `public_quote_snapshots?token=eq.${encodeURIComponent(token)}&select=token,expires_at,payload&limit=1`;
-  const data = await requestJson<Array<{ token: string; expires_at: string; payload: unknown }>>({
+  const query = `public_quote_snapshots?token=eq.${encodeURIComponent(token)}&select=token,expires_at,payload,payload_b64,payload_codec,payload_json,image_manifest&limit=1`;
+  const data = await requestJson<Array<{ token: string; expires_at: string; payload: unknown; payload_b64?: string | null; payload_codec?: string | null; payload_json?: unknown | null; image_manifest?: unknown }>>({
     key,
     endpoint: query,
     method: 'GET',
     signal: options?.signal,
     retries: 3
   });
-  return Array.isArray(data) ? (data[0] || null) : null;
+  const row = Array.isArray(data) ? (data[0] || null) : null;
+  if (!row) return null;
+  return { ...row, payload: await resolvePayloadFromRow(row) };
 };
 
 export const leadCreate = async (payload: { name: string; phone: string; message?: string; orderId?: string | null; [key: string]: unknown }, options?: { signal?: AbortSignal }) => {
   ensureCloudEnabled(CLOUD_FEATURES.CLIENT_FORM);
-  const key = `leadCreate:${hashPayload(payload)}`;
+  const transport = await prepareTransportRecord('lead', payload, { signal: options?.signal, allowUploadLater: true });
+  const key = `leadCreate:${hashPayload(transport.encoded.payloadB64)}`;
   const requestPayload = [{
     name: payload.name,
     phone: payload.phone,
     message: payload.message || '',
     order_id: payload.orderId || null,
-    payload
+    payload: transport.payloadForCompatibility,
+    payload_b64: transport.encoded.payloadB64,
+    payload_codec: transport.encoded.payloadCodec,
+    payload_json: transport.encoded.payloadJson,
+    image_manifest: transport.imageManifest
   }];
   const data = await requestJson<Array<{ id: string }>>({
     key,
