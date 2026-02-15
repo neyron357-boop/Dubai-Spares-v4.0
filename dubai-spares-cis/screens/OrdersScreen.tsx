@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, CheckCircle2, Clock3, Filter, Loader2, MessageCircle, Smartphone, Star, WifiOff, XCircle } from 'lucide-react';
+import { Archive, BarChart3, Clock3, Filter, MessageCircle, Smartphone, Star } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
@@ -313,7 +313,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
 };
 
 const OrdersScreen: React.FC = () => {
-  const { orders, isLoading, error, syncOrders, updateOrder, deleteOrder } = useStore();
+  const { orders, isLoading, syncOrders, updateOrder, deleteOrder } = useStore();
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<TabType>('active');
@@ -325,7 +325,6 @@ const OrdersScreen: React.FC = () => {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
@@ -339,16 +338,6 @@ const OrdersScreen: React.FC = () => {
     return () => window.clearTimeout(t);
   }, [searchText]);
 
-  useEffect(() => {
-    const onOnline = () => setIsOffline(false);
-    const onOffline = () => setIsOffline(true);
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
-    };
-  }, []);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -367,7 +356,6 @@ const OrdersScreen: React.FC = () => {
   }, []);
 
   const refreshOrders = async () => {
-    if (isOffline) return;
     setIsRefreshing(true);
     try {
       await syncOrders();
@@ -467,8 +455,6 @@ const OrdersScreen: React.FC = () => {
     return { title: 'Пока пусто', cta: 'Открыть активные', action: () => setActiveTab('active') };
   }, [activeTab, navigate]);
 
-  const syncState: 'synced' | 'syncing' | 'error' | 'offline' = isOffline ? 'offline' : isRefreshing ? 'syncing' : error ? 'error' : 'synced';
-
   const showSkeleton = isLoading && orders.length === 0;
 
 
@@ -486,12 +472,6 @@ const OrdersScreen: React.FC = () => {
 
   return (
     <div className="space-y-4 px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))] overflow-x-hidden">
-      {(isOffline || error) && (
-        <div className={`rounded-xl border px-3 py-2 text-xs font-bold ${isOffline ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-rose-300 bg-rose-50 text-rose-800'} flex items-center justify-between gap-2`}>
-          <span>{isOffline ? 'Офлайн • данные из кеша' : 'Ошибка синхронизации'}</span>
-          {!isOffline && <button type="button" onClick={() => void refreshOrders()} className="rounded-lg bg-white px-2 py-1 text-[10px] uppercase">Повторить</button>}
-        </div>
-      )}
 
       <header className="sticky top-0 z-20 space-y-3 bg-[#f7f8fc] pt-1 pb-2">
         <div className="flex items-center justify-between">
@@ -499,11 +479,8 @@ const OrdersScreen: React.FC = () => {
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setIsIncomeOpen(true)} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Статистика"><BarChart3 size={18} /></button>
             <button type="button" onClick={() => navigate('/vendor')} className="h-11 px-3 rounded-xl border border-slate-200 bg-white text-[11px] font-black uppercase">Склад</button>
-            <button type="button" disabled={isOffline || isRefreshing} onClick={() => void refreshOrders()} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center disabled:opacity-50" aria-label="Синхронизация">
-              {syncState === 'synced' && <CheckCircle2 size={18} className="text-emerald-600" />}
-              {syncState === 'syncing' && <Loader2 size={18} className="text-blue-600 animate-spin" />}
-              {syncState === 'error' && <XCircle size={18} className="text-rose-600" />}
-              {syncState === 'offline' && <WifiOff size={18} className="text-amber-600" />}
+            <button type="button" disabled={isRefreshing} onClick={() => void refreshOrders()} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center disabled:opacity-50" aria-label="Обновить">
+              <Clock3 size={18} className={isRefreshing ? 'animate-spin text-slate-500' : 'text-slate-700'} />
             </button>
           </div>
         </div>

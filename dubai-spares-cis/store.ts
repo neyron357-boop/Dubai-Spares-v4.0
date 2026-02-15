@@ -5,6 +5,7 @@ import { ensureUuid } from './id';
 import { deleteSupplierFromShops } from './radarShops';
 import { supabase } from './supabase';
 import { logger } from './logging';
+import { LOCAL_ONLY } from './localMode';
 
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
@@ -88,7 +89,7 @@ const mapShopToSupplier = (shop: any): Supplier => {
 };
 
 const syncSuppliersFromCloud = async () => {
-  if (suppliersCloudSyncedThisSession || !supabase || !navigator.onLine) return;
+  if (LOCAL_ONLY || suppliersCloudSyncedThisSession || !supabase || !navigator.onLine) return;
 
   const { data, error } = await supabase
     .from('shops')

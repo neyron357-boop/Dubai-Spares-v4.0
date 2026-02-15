@@ -9,6 +9,7 @@ import { NotificationType, pushNotification, sendBrowserNotification } from './n
 import { addMissingColumns, normalizeSyncError, setLastIndexedDbError, setLastSupabaseError, setSyncStatus } from './syncDiagnostics';
 import { getSelectableColumns, markMissingColumn } from './syncSchema';
 import { logSyncCategory, syncPerf } from './syncPerf';
+import { LOCAL_ONLY } from './localMode';
 
 type OrderState = {
   orders: Order[];
@@ -681,6 +682,7 @@ const scheduleBackgroundFlush = () => {
   const timerKey = '__network_flush__';
   const existing = mutationTimers.get(timerKey);
   if (existing) window.clearTimeout(existing);
+  if (LOCAL_ONLY) return;
   mutationTimers.set(timerKey, window.setTimeout(() => {
     mutationTimers.delete(timerKey);
     if (navigator.onLine && document.visibilityState === 'visible') void flushOfflineMutations();
@@ -728,6 +730,7 @@ const persistOrderPatch = async (orderId: string, patch: Partial<Order>) => {
 };
 
 const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined, orderId: string, patch?: Partial<Order>) => {
+  if (LOCAL_ONLY) return;
   await logger.warn('sync:queue', `Queueing ${type} for order ${orderId}`);
   const mutationId = createUuid();
   await offlineDb.enqueueMutation({
@@ -766,6 +769,11 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
 
 export const flushOfflineMutations = async (options?: { force?: boolean }) => runWithSyncMutex(async () => {
   const force = options?.force === true;
+  if (LOCAL_ONLY) {
+    setSyncStatus('online');
+    setState({ isSyncing: false });
+    return;
+  }
   if (syncInProgress || !navigator.onLine || !isCloudSyncConfigured || !supabase || isIdbAutoSyncPaused()) return;
   if (!force && document.visibilityState !== 'visible') return;
   if (!force && syncPausedUntil > Date.now()) {
@@ -929,8 +937,8 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
   await logger.info('sync:fetch', `Loaded ${localOrders.length} local orders`);
   setState({ orders: localOrders.map(normalizeOrder), isHydrated: true });
 
-  if (!navigator.onLine || !isCloudSyncConfigured || !supabase || isIdbAutoSyncPaused()) {
-    await logger.warn('sync:fetch', 'Skipping cloud fetch (offline or missing supabase config)');
+  if (LOCAL_ONLY || !navigator.onLine || !isCloudSyncConfigured || !supabase || isIdbAutoSyncPaused()) {
+    await logger.info('sync:fetch', LOCAL_ONLY ? 'LOCAL_ONLY mode: using IndexedDB only' : 'Skipping cloud fetch (offline or missing supabase config)');
     setSyncStatus(navigator.onLine ? 'online' : 'offline');
     setState({ isLoading: false, isHydrated: true });
     return;
@@ -988,7 +996,7 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
 });
 
 export const fetchOrderDetails = async (orderId: string) => {
-  if (!orderId || !supabase || !navigator.onLine || !isCloudSyncConfigured) return;
+  if (!orderId || LOCAL_ONLY || !supabase || !navigator.onLine || !isCloudSyncConfigured) return;
   const orderColumns = getSelectableColumns('orders');
   const query = `${orderColumns.join(',')}, parts(*, price_variants(*))`;
   const response = await supabase.from('orders').select(query).eq('id', orderId).maybeSingle();
@@ -1134,6 +1142,8 @@ export const useOrderStore = () => {
   useEffect(() => subscribeOrderStore(() => setVersion((v) => v + 1)), []);
 
   useEffect(() => {
+    if (LOCAL_ONLY) return;
+
     const onOnline = () => {
       void fetchOrders();
     };

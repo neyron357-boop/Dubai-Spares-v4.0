@@ -2,11 +2,12 @@ import { createClient } from '@supabase/supabase-js';
 import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
 import { logSyncCategory, syncPerf } from './syncPerf';
+import { LOCAL_ONLY } from './localMode';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-export const isCloudSyncConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+export const isCloudSyncConfigured = !LOCAL_ONLY && Boolean(supabaseUrl && supabaseAnonKey);
 
 void logger.info('supabase:init', 'Loading Supabase environment variables', {
   hasUrl: Boolean(supabaseUrl),
@@ -14,17 +15,26 @@ void logger.info('supabase:init', 'Loading Supabase environment variables', {
   urlPreview: supabaseUrl ? `${supabaseUrl.slice(0, 28)}...` : null
 });
 
-if (!isCloudSyncConfigured) {
-  console.warn('☁️ Cloud sync disabled: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY');
-  console.error('Supabase env vars are undefined', {
-    hasUrl: Boolean(supabaseUrl),
-    hasAnonKey: Boolean(supabaseAnonKey)
-  });
 
-  void logger.error('supabase:init', 'Cloud sync disabled due to missing env vars', {
-    hasUrl: Boolean(supabaseUrl),
-    hasAnonKey: Boolean(supabaseAnonKey)
-  });
+if (LOCAL_ONLY) {
+  void logger.info('supabase:init', 'LOCAL_ONLY mode enabled: Supabase transport disabled');
+}
+
+if (!isCloudSyncConfigured) {
+  if (LOCAL_ONLY) {
+    console.info('🧩 LOCAL_ONLY mode: cloud sync hard-disabled');
+  } else {
+    console.warn('☁️ Cloud sync disabled: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY');
+    console.error('Supabase env vars are undefined', {
+      hasUrl: Boolean(supabaseUrl),
+      hasAnonKey: Boolean(supabaseAnonKey)
+    });
+
+    void logger.error('supabase:init', 'Cloud sync disabled due to missing env vars', {
+      hasUrl: Boolean(supabaseUrl),
+      hasAnonKey: Boolean(supabaseAnonKey)
+    });
+  }
 }
 
 const SUPABASE_GET_TIMEOUT_MS = 45000;

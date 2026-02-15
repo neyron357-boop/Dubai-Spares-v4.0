@@ -214,13 +214,13 @@ self.addEventListener('fetch', (event) => {
           caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, responseClone));
           return response;
         })
-        .catch(() => caches.match(request))
+        .catch(async () => (await caches.match(request)) || new Response('Offline', { status: 503, statusText: 'Offline' }))
     );
     return;
   }
 
   event.respondWith(
-    fetch(request).catch(() => caches.match(request).then((hit) => hit || caches.match('/index.html')))
+    fetch(request).catch(async () => (await caches.match(request)) || (await caches.match('/index.html')) || new Response('<h1>Offline</h1>', { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } }))
   );
 });
 
