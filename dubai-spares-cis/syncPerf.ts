@@ -18,6 +18,7 @@ type PerfState = {
   idbTxDurationsMs: number[];
   lastIdbError: string | null;
   idbEvents: Array<{ at: number; event: string; meta?: unknown }>;
+  lastNetworkRequest: { at: number; operation: string; orderId?: string; bytes?: number } | null;
 };
 
 const state: PerfState = {
@@ -35,7 +36,8 @@ const state: PerfState = {
   idbTxTimestamps: [],
   idbTxDurationsMs: [],
   lastIdbError: null,
-  idbEvents: []
+  idbEvents: [],
+  lastNetworkRequest: null
 };
 
 const oneSecondAgo = () => Date.now() - 1000;
@@ -68,6 +70,9 @@ export const syncPerf = {
   recordNetworkRequest() {
     state.networkRequestTimestamps.push(Date.now());
     trimOld(state.networkRequestTimestamps);
+  },
+  setLastNetworkRequest(payload: { operation: string; orderId?: string; bytes?: number }) {
+    state.lastNetworkRequest = { at: Date.now(), ...payload };
   },
   setQueueLength(length: number) {
     if (state.queueLength === length) return;
@@ -130,7 +135,8 @@ export const syncPerf = {
       txCountPerSecond: state.idbTxTimestamps.length,
       avgTxTimeMs: avgIdbTxMs,
       lastIdbError: state.lastIdbError,
-      idbEvents: [...state.idbEvents]
+      idbEvents: [...state.idbEvents],
+      lastNetworkRequest: state.lastNetworkRequest
     };
   }
 };

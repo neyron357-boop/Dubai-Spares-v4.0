@@ -6,7 +6,6 @@ import { offlineDb } from './storage/offlineDb';
 import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
 import { NotificationType, pushNotification, sendBrowserNotification } from './notificationCenter';
-import { loadAppSettings } from './appSettings';
 import { addMissingColumns, normalizeSyncError, setLastIndexedDbError, setLastSupabaseError, setSyncStatus } from './syncDiagnostics';
 import { getSelectableColumns, markMissingColumn } from './syncSchema';
 import { logSyncCategory, syncPerf } from './syncPerf';
@@ -129,10 +128,9 @@ const MAX_MUTATION_RETRY = 5;
 const MUTATION_COALESCE_MS = 650;
 const mutationTimers = new Map<string, number>();
 const localCommitTimers = new Map<string, number>();
-const networkFlushTimerMs = 8000;
-const hotFieldKeys: Array<keyof Order> = ['markupPercent', 'markupType', 'markupFixedAed', 'exchangeRate', 'clientCurrency', 'fxUpdatedAt', 'logistics', 'updatedAt'];
-
-const isOfflineFirstEnabled = () => loadAppSettings().offlineFirst;
+const networkFlushTimerMs = 3000;
+const hotFieldKeys: Array<keyof Order> = ['markupPercent', 'markupType', 'markupFixedAed', 'exchangeRate', 'clientCurrency', 'fxUpdatedAt', 'logistics', 'pricingEvents', 'updatedAt'];
+let cachedQueueLength = 0;
 
 const notify = () => listeners.forEach((l) => l());
 
@@ -714,6 +712,7 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   client_currency: patch.clientCurrency,
   fx_updated_at: patch.fxUpdatedAt ? toIsoTimestamp(patch.fxUpdatedAt) : undefined,
   logistics: patch.logistics,
+  pricing_events: patch.pricingEvents,
   updated_at: toIsoTimestamp(patch.updatedAt || Date.now())
 });
 
@@ -721,6 +720,8 @@ const persistOrderPatch = async (orderId: string, patch: Partial<Order>) => {
   if (!supabase || !Object.keys(patch).length) return;
   const payload = toOrderPatchPayload(patch);
   const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
+  syncPerf.recordNetworkRequest();
+  syncPerf.setLastNetworkRequest({ operation: 'orders.patch', orderId, bytes: JSON.stringify(cleanPayload).length });
   const { error } = await supabase.from('orders').update(cleanPayload).eq('id', orderId);
   if (error) throw error;
 };
@@ -741,10 +742,8 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
     retryCount: 0,
     lastError: null
   });
-
-  const queueCount = await offlineDb.getMutationCount();
-  syncPerf.setQueueLength(queueCount);
-  await logger.info('sync:queue', `Queue size is now ${queueCount}`);
+  cachedQueueLength = Math.max(1, cachedQueueLength + 1);
+  syncPerf.setQueueLength(cachedQueueLength);
 
   if (navigator.onLine) scheduleBackgroundFlush();
 
@@ -769,10 +768,33 @@ export const flushOfflineMutations = async () => {
 
   try {
     const pending = await offlineDb.getMutations();
+    const coalesced = Array.from(
+      pending.reduce((acc, mutation) => {
+        const current = acc.get(mutation.orderId);
+        if (!current) {
+          acc.set(mutation.orderId, { ...mutation });
+          return acc;
+        }
+
+        if (mutation.type === 'delete') {
+          acc.set(mutation.orderId, { ...mutation, payload: undefined, patch: undefined });
+          return acc;
+        }
+
+        acc.set(mutation.orderId, {
+          ...current,
+          ...mutation,
+          payload: mutation.payload || current.payload,
+          patch: mutation.patch ? { ...(current.patch || {}), ...mutation.patch } : current.patch,
+          type: 'upsert'
+        });
+        return acc;
+      }, new Map<string, OfflineMutation>()).values()
+    ).sort((a, b) => a.createdAt - b.createdAt);
     let earliestDeferredRetryAt = 0;
     syncPerf.setQueueLength(pending.length);
-    await logger.info('sync:flush', `Flush started with ${pending.length} pending mutations`);
-    for (const mutation of pending) {
+    await logger.info('sync:flush', `Flush started with ${pending.length} pending mutations (${coalesced.length} after coalesce)`);
+    for (const mutation of coalesced) {
       if (Number(mutation.nextRetryAt || 0) > Date.now()) {
         if (!earliestDeferredRetryAt || Number(mutation.nextRetryAt) < earliestDeferredRetryAt) earliestDeferredRetryAt = Number(mutation.nextRetryAt);
         continue;
@@ -791,6 +813,8 @@ export const flushOfflineMutations = async () => {
         } else if (mutation.patch && !mutation.payload) {
           await persistOrderPatch(mutation.orderId, mutation.patch);
         } else if (mutation.payload) {
+          syncPerf.recordNetworkRequest();
+          syncPerf.setLastNetworkRequest({ operation: 'orders.graph_upsert', orderId: mutation.orderId, bytes: JSON.stringify(mutation.payload).length });
           const saved = await persistOrderGraph(mutation.payload);
           await offlineDb.saveOrder(saved);
         }
@@ -801,10 +825,12 @@ export const flushOfflineMutations = async () => {
           console.log(`☁️ Synced offline mutation ${mutation.id} for order ${mutation.orderId} to Supabase`);
         }
 
-        await offlineDb.removeMutation(mutation.id);
-        const queueCount = await offlineDb.getMutationCount();
-        syncPerf.setQueueLength(queueCount);
-        await logger.info('sync:flush', `Mutation ${mutation.id} removed from queue`, { queueCount });
+        const sameOrderMutations = pending.filter((item) => item.orderId === mutation.orderId);
+        for (const oldMutation of sameOrderMutations) {
+          await offlineDb.removeMutation(oldMutation.id);
+        }
+        cachedQueueLength = Math.max(0, cachedQueueLength - sameOrderMutations.length);
+        syncPerf.setQueueLength(cachedQueueLength);
       } catch (error) {
         const retryCount = Number(mutation.retryCount || 0) + 1;
         const baseDelay = Math.min(30000, 800 * (2 ** Math.min(retryCount, 6)));
@@ -817,6 +843,8 @@ export const flushOfflineMutations = async () => {
     }
 
     await logger.info('sync:flush', 'Flush completed');
+    cachedQueueLength = await offlineDb.getMutationCount();
+    syncPerf.setQueueLength(cachedQueueLength);
     if (earliestDeferredRetryAt > Date.now()) {
       const delay = Math.max(250, earliestDeferredRetryAt - Date.now());
       window.setTimeout(() => {
@@ -870,6 +898,8 @@ export const fetchOrders = async () => {
   const previousOrders = state.orders;
   await logger.info('sync:fetch', `Loaded ${orders.length} cloud orders`);
   const pendingMutations = await offlineDb.getMutations();
+  cachedQueueLength = pendingMutations.length;
+  syncPerf.setQueueLength(cachedQueueLength);
   await logger.info('sync:fetch', `Queue currently has ${pendingMutations.length} mutations`);
 
   if (orders.length === 0 && localOrders.length > 0 && pendingMutations.length > 0) {
@@ -958,30 +988,8 @@ export const addOrderItem = async (order: Order) => {
   await offlineDb.saveOrder(localOrder);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
-  const directWriteMode = import.meta.env.VITE_DIRECT_SUPABASE_WRITE === 'true';
-  const offlineFirst = isOfflineFirstEnabled();
-
-  if (offlineFirst || !navigator.onLine || !isCloudSyncConfigured || !supabase) {
-    await queueMutation('upsert', localOrder, localOrder.id);
-    return true;
-  }
-
-  try {
-    const saved = await persistOrderGraph(localOrder);
-    const merged = [saved, ...state.orders.filter((o) => o.id !== localOrder.id && o.id !== saved.id)];
-    setState({ orders: merged, error: null });
-    await offlineDb.saveOrders(merged);
-    return true;
-  } catch (error: unknown) {
-    if (directWriteMode) {
-      broadcastSyncError(error, 'Direct Supabase write failed');
-      return false;
-    }
-
-    broadcastSyncError(error, 'Supabase write failed, queued for retry');
-    await queueMutation('upsert', localOrder, localOrder.id);
-    return true;
-  }
+  await queueMutation('upsert', localOrder, localOrder.id);
+  return true;
 };
 
 export const updateOrderItem = async (order: Order) => {
@@ -1007,20 +1015,8 @@ export const updateOrderItem = async (order: Order) => {
   scheduleLocalCommit(normalized, structuralDiff ? undefined : patch);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
-  const offlineFirst = isOfflineFirstEnabled();
-  if (offlineFirst || !navigator.onLine || !isCloudSyncConfigured || !supabase) {
-    await queueMutation('upsert', structuralDiff ? normalized : undefined, normalized.id, patch);
-    return true;
-  }
-
-  try {
-    await persistOrderGraph(normalized);
-    return true;
-  } catch (error: unknown) {
-    broadcastSyncError(error, 'Supabase update failed, queued for retry');
-    await queueMutation('upsert', normalized, normalized.id);
-    return true;
-  }
+  await queueMutation('upsert', structuralDiff ? normalized : undefined, normalized.id, patch);
+  return true;
 };
 
 export const deleteOrderItem = async (orderId: string) => {
@@ -1029,20 +1025,8 @@ export const deleteOrderItem = async (orderId: string) => {
   await offlineDb.deleteOrder(orderId);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
-  const offlineFirst = isOfflineFirstEnabled();
-  if (offlineFirst || !navigator.onLine || !isCloudSyncConfigured || !supabase) {
-    await queueMutation('delete', undefined, orderId);
-    return true;
-  }
-
-  try {
-    await deleteRemoteOrderWithStorageCleanup(orderId);
-    return true;
-  } catch (error: unknown) {
-    broadcastSyncError(error, 'Supabase delete failed, queued for retry');
-    await queueMutation('delete', undefined, orderId);
-    return true;
-  }
+  await queueMutation('delete', undefined, orderId);
+  return true;
 };
 
 export const updatePartItem = async (orderId: string, part: Part) => {
@@ -1116,13 +1100,18 @@ export const useOrderStore = () => {
     const onVisible = () => {
       if (document.visibilityState === 'visible' && navigator.onLine) void flushOfflineMutations();
     };
+    const onBlur = () => {
+      if (navigator.onLine) void flushOfflineMutations();
+    };
 
     window.addEventListener('online', onOnline);
+    window.addEventListener('blur', onBlur);
     document.addEventListener('visibilitychange', onVisible);
     navigator.serviceWorker?.addEventListener?.('message', onSwMessage);
     return () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       window.removeEventListener('online', onOnline);
+      window.removeEventListener('blur', onBlur);
       document.removeEventListener('visibilitychange', onVisible);
       window.clearInterval(syncTimer);
       navigator.serviceWorker?.removeEventListener?.('message', onSwMessage);
