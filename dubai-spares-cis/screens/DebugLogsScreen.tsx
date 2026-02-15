@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { logger } from '../logging';
 import { SystemLogEntry } from '../types';
-import { offlineDb } from '../storage/offlineDb';
+import { DiagnosticsSummaryPayload, offlineDb } from '../storage/offlineDb';
 import { getSyncDiagnosticsState } from '../syncDiagnostics';
 import { syncPerf } from '../syncPerf';
 import { FRONTEND_SCHEMA_VERSION } from '../schemaHealth';
@@ -11,6 +11,8 @@ const MAX_VISIBLE_LOGS = 400;
 const INITIAL_RENDER_COUNT = 40;
 const LOAD_MORE_STEP = 40;
 const MAX_FIELD_CHARS = 2400;
+const MAX_DIAGNOSTICS_BYTES = 200 * 1024;
+const EXPORT_HARD_CAP_BYTES = 25 * 1024 * 1024;
 
 const formatTime = (value: number) => new Date(value).toLocaleString();
 const shortText = (value: string, max = MAX_FIELD_CHARS) => (value.length > max ? `${value.slice(0, max)}…` : value);
@@ -28,26 +30,50 @@ const toPreviewMeta = (meta: unknown) => {
   }
 };
 
-const buildDiagnosticsPayload = (logs: SystemLogEntry[], dbHealth: Record<string, { count: number; approxBytes: number }> | null, lastError: string) => {
+const toDiagnosticsPayload = (
+  summary: DiagnosticsSummaryPayload | null,
+  logs: SystemLogEntry[],
+  lastError: string,
+  timings: { durationMs: number; batches: number }
+) => {
   const syncState = getSyncDiagnosticsState();
-  return JSON.stringify({
+  const basePayload = {
     appVersion: (import.meta as any).env?.VITE_APP_VERSION || 'dev',
     schemaVersion: FRONTEND_SCHEMA_VERSION,
     localOnly: LOCAL_ONLY,
     localModeLabel: LOCAL_MODE_LABEL,
     lastError,
-    idbHealth: dbHealth,
+    idbSchemaVersion: summary?.schemaVersion || 'unknown',
+    idbStores: summary?.stores || {},
+    counts: summary?.entityCounts || { orders: 0, parts: 0, price_variants: 0, shops: 0, app_state_keys: 0 },
     syncStatus: syncState.syncStatus,
     lastIndexedDbError: syncState.lastIndexedDbError,
     lastSupabaseError: syncState.lastSupabaseError,
-    last50Logs: logs.slice(0, 50),
+    lastLogs: summary?.lastLogs || logs.slice(0, 50),
+    lastErrors: summary?.lastErrors || logs.filter((entry) => entry.level === 'error').slice(0, 20),
+    perf: timings,
     capturedAt: new Date().toISOString()
-  }, null, 2);
+  };
+
+  let json = JSON.stringify(basePayload, null, 2);
+  if (new Blob([json]).size <= MAX_DIAGNOSTICS_BYTES) return json;
+
+  const reduced = {
+    ...basePayload,
+    lastLogs: basePayload.lastLogs.slice(0, 20),
+    lastErrors: basePayload.lastErrors.slice(0, 10),
+    diagnosticsNote: 'Payload trimmed to stay under iOS-safe diagnostics size limit.'
+  };
+  json = JSON.stringify(reduced, null, 2);
+  return json;
 };
 
 const DebugLogsScreen: React.FC = () => {
   const renderCountRef = useRef(0);
   renderCountRef.current += 1;
+
+  const diagnosticsAbortRef = useRef<AbortController | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
 
   const [logs, setLogs] = useState<SystemLogEntry[]>(() => logger.getRecentBuffered(MAX_VISIBLE_LOGS));
   const [visibleCount, setVisibleCount] = useState(INITIAL_RENDER_COUNT);
@@ -58,15 +84,26 @@ const DebugLogsScreen: React.FC = () => {
   const [severity, setSeverity] = useState<'all' | 'info' | 'warn' | 'error'>('all');
   const [tab, setTab] = useState<'overview' | 'raw'>('overview');
   const [diagnosticsLoaded, setDiagnosticsLoaded] = useState(false);
-  const [dbHealth, setDbHealth] = useState<Record<string, { count: number; approxBytes: number }> | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsSummary, setDiagnosticsSummary] = useState<DiagnosticsSummaryPayload | null>(null);
+  const [diagnosticsBatches, setDiagnosticsBatches] = useState(0);
+  const [diagnosticsDurationMs, setDiagnosticsDurationMs] = useState(0);
+  const [diagnosticsStatus, setDiagnosticsStatus] = useState<string>('idle');
   const [perfSnapshot, setPerfSnapshot] = useState(syncPerf.snapshot());
   const [actionMs, setActionMs] = useState<number | null>(null);
   const [lastError, setLastError] = useState('none');
+  const [exportingDb, setExportingDb] = useState(false);
+  const [exportProgress, setExportProgress] = useState<string>('idle');
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedQuery(query.trim().toLowerCase()), 180);
     return () => window.clearTimeout(timeout);
   }, [query]);
+
+  useEffect(() => () => {
+    diagnosticsAbortRef.current?.abort();
+    exportAbortRef.current?.abort();
+  }, []);
 
   const withDuration = async (fn: () => Promise<void>) => {
     const start = performance.now();
@@ -89,12 +126,51 @@ const DebugLogsScreen: React.FC = () => {
   };
 
   const loadDiagnostics = async () => {
+    diagnosticsAbortRef.current?.abort();
+    const controller = new AbortController();
+    diagnosticsAbortRef.current = controller;
+    setDiagnosticsLoading(true);
+    setDiagnosticsStatus('loading');
+    setDiagnosticsBatches(0);
+
     await withDuration(async () => {
-      const nextDbHealth = await offlineDb.getDiagnosticsSnapshot();
-      setDbHealth(nextDbHealth);
-      setPerfSnapshot(syncPerf.snapshot());
-      setDiagnosticsLoaded(true);
+      const startedAt = performance.now();
+      try {
+        const summary = await offlineDb.getDiagnosticsSummary({
+          signal: controller.signal,
+          sampleLimit: 50,
+          onBatch: async () => {
+            setDiagnosticsBatches((prev) => prev + 1);
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+          }
+        });
+        setDiagnosticsSummary(summary);
+        setPerfSnapshot(syncPerf.snapshot());
+        setDiagnosticsLoaded(true);
+        setDiagnosticsStatus('ready');
+      } catch (error) {
+        const fallbackLogs = logs.slice(0, 50);
+        const fallbackSummary: DiagnosticsSummaryPayload = {
+          schemaVersion: FRONTEND_SCHEMA_VERSION,
+          stores: { fallback: { count: fallbackLogs.length, approxBytes: new Blob([JSON.stringify(fallbackLogs)]).size } },
+          entityCounts: { orders: 0, parts: 0, price_variants: 0, shops: 0, app_state_keys: 0 },
+          lastLogs: fallbackLogs,
+          lastErrors: fallbackLogs.filter((entry) => entry.level === 'error').slice(0, 20)
+        };
+        setDiagnosticsSummary(fallbackSummary);
+        setDiagnosticsLoaded(true);
+        setDiagnosticsStatus(error instanceof DOMException && error.name === 'AbortError' ? 'cancelled' : 'fallback');
+      } finally {
+        setDiagnosticsDurationMs(Math.round(performance.now() - startedAt));
+      }
+    }).finally(() => {
+      setDiagnosticsLoading(false);
+      diagnosticsAbortRef.current = null;
     });
+  };
+
+  const cancelDiagnostics = () => {
+    diagnosticsAbortRef.current?.abort();
   };
 
   const onCopy = async (text: string, success: string) => {
@@ -108,10 +184,70 @@ const DebugLogsScreen: React.FC = () => {
   };
 
   const exportDbSlow = async () => {
+    if (!window.confirm('Export is slow and may create a large file. Continue?')) return;
+
+    exportAbortRef.current?.abort();
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    setExportingDb(true);
+    setExportProgress('starting');
+
     await withDuration(async () => {
-      const dump = await offlineDb.exportAllData();
-      await onCopy(JSON.stringify(dump), 'DB export copied');
+      let bytes = 0;
+      let firstStore = true;
+      const rowCountByStore = new Map<string, number>();
+      const blobParts: BlobPart[] = ['{'];
+
+      const append = (piece: string) => {
+        bytes += new Blob([piece]).size;
+        if (bytes > EXPORT_HARD_CAP_BYTES) {
+          throw new Error('Export exceeded safe size cap (25 MB).');
+        }
+        blobParts.push(piece);
+      };
+
+      await offlineDb.exportAllDataChunked({
+        signal: controller.signal,
+        batchSize: 100,
+        onStoreChunk: async ({ store, rows, isLastChunk }) => {
+          if (!rowCountByStore.has(store)) {
+            append(`${firstStore ? '' : ','}\n"${store}":[`);
+            firstStore = false;
+            rowCountByStore.set(store, 0);
+          }
+          let rowCount = rowCountByStore.get(store) || 0;
+          for (const row of rows) {
+            const serialized = JSON.stringify(row);
+            append(`${rowCount > 0 ? ',' : ''}${serialized}`);
+            rowCount += 1;
+          }
+          rowCountByStore.set(store, rowCount);
+          if (isLastChunk) append(']');
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+        },
+        onStoreProgress: async ({ store, processed, total, elapsedMs }) => {
+          setExportProgress(`${store}: ${processed}/${total} rows (${elapsedMs} ms)`);
+        }
+      });
+
+      append('\n}');
+      const blob = new Blob(blobParts, { type: 'application/json' });
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = `offline-db-export-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      link.click();
+      URL.revokeObjectURL(href);
+      setExportProgress(`done (${Math.round(blob.size / 1024)} KB)`);
+    }).finally(() => {
+      setExportingDb(false);
+      exportAbortRef.current = null;
     });
+  };
+
+  const cancelExport = () => {
+    exportAbortRef.current?.abort();
+    setExportProgress('cancelled');
   };
 
   const filteredLogs = useMemo(() => logs.filter((entry) => {
@@ -124,8 +260,8 @@ const DebugLogsScreen: React.FC = () => {
   const visibleLogs = useMemo(() => filteredLogs.slice(0, visibleCount), [filteredLogs, visibleCount]);
 
   const diagnosticsPayload = useMemo(
-    () => buildDiagnosticsPayload(logs, dbHealth, lastError),
-    [logs, dbHealth, lastError]
+    () => toDiagnosticsPayload(diagnosticsSummary, logs, lastError, { durationMs: diagnosticsDurationMs, batches: diagnosticsBatches }),
+    [diagnosticsSummary, logs, lastError, diagnosticsDurationMs, diagnosticsBatches]
   );
 
   const toggleExpanded = (id: string) => {
@@ -158,20 +294,32 @@ const DebugLogsScreen: React.FC = () => {
             <p>Last action time: {actionMs === null ? 'n/a' : `${actionMs} ms`}</p>
           </div>
 
-          {!diagnosticsLoaded && (
-            <button className="rounded-lg bg-blue-600 text-white px-3 py-2 font-black" type="button" onClick={() => void loadDiagnostics()}>
-              Load diagnostics
+          <div className="flex flex-wrap gap-2">
+            <button className="rounded-lg bg-blue-600 text-white px-3 py-2 font-black" type="button" onClick={() => void loadDiagnostics()} disabled={diagnosticsLoading}>
+              {diagnosticsLoading ? 'Loading diagnostics…' : 'Load diagnostics'}
             </button>
-          )}
+            {diagnosticsLoading && (
+              <button className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 font-black" type="button" onClick={cancelDiagnostics}>
+                Cancel
+              </button>
+            )}
+          </div>
 
-          {diagnosticsLoaded && (
+          {diagnosticsLoaded && diagnosticsSummary && (
             <div className="rounded-xl border bg-white p-3 space-y-1">
+              <p>Status: {diagnosticsStatus}</p>
+              <p>Timing: {diagnosticsDurationMs} ms ({diagnosticsBatches} batches)</p>
               <p>Sync status: {getSyncDiagnosticsState().syncStatus}</p>
               <p>Queue length: {perfSnapshot.queueLength}</p>
               <p>IDB tx/sec: {perfSnapshot.txCountPerSecond}</p>
               <p>Last IDB error: {perfSnapshot.lastIdbError || 'none'}</p>
-              {dbHealth && Object.entries(dbHealth).map(([name, stat]) => (
-                <p key={name}>{name}: {stat.count} rows (~{(stat.approxBytes / 1024).toFixed(1)} KB)</p>
+              <p>orders: {diagnosticsSummary.entityCounts.orders}</p>
+              <p>parts(sampled): {diagnosticsSummary.entityCounts.parts}</p>
+              <p>price_variants(sampled): {diagnosticsSummary.entityCounts.price_variants}</p>
+              <p>shops: {diagnosticsSummary.entityCounts.shops}</p>
+              <p>app_state keys: {diagnosticsSummary.entityCounts.app_state_keys}</p>
+              {Object.entries(diagnosticsSummary.stores).map(([name, stat]) => (
+                <p key={name}>{name}: {stat.count} rows (~{(stat.approxBytes / 1024).toFixed(1)} KB sample)</p>
               ))}
             </div>
           )}
@@ -180,10 +328,16 @@ const DebugLogsScreen: React.FC = () => {
             <button className="rounded-lg bg-slate-900 text-white px-3 py-2 font-black" type="button" onClick={() => void onCopy(diagnosticsPayload, 'Diagnostics copied')}>
               Copy diagnostics
             </button>
-            <button className="rounded-lg bg-amber-600 text-white px-3 py-2 font-black" type="button" onClick={() => void exportDbSlow()}>
-              Export DB (slow)
+            <button className="rounded-lg bg-amber-600 text-white px-3 py-2 font-black" type="button" onClick={() => void exportDbSlow()} disabled={exportingDb}>
+              {exportingDb ? 'Exporting…' : 'Export DB (slow)'}
             </button>
+            {exportingDb && (
+              <button className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 font-black" type="button" onClick={cancelExport}>
+                Cancel export
+              </button>
+            )}
           </div>
+          <p className="text-[11px] text-gray-500">{exportProgress}</p>
         </div>
       )}
 
