@@ -1,4 +1,5 @@
 import { Order, RadarInteraction, SystemLogEntry } from '../types';
+import { logSyncCategory, syncPerf } from '../syncPerf';
 
 type MutationType = 'upsert' | 'delete';
 
@@ -13,10 +14,11 @@ export interface OfflineMutation {
   createdAt: number;
   retryCount?: number;
   lastError?: string | null;
+  nextRetryAt?: number;
 }
 
 const DB_NAME = 'dubai-spares-offline';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const ORDERS_STORE = 'orders';
 const MUTATIONS_STORE = 'mutations';
 const SYSTEM_LOGS_STORE = 'system_logs';
@@ -53,7 +55,9 @@ const unsafeOpenDb = (): Promise<IDBDatabase> =>
         db.createObjectStore(ORDERS_STORE, { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains(MUTATIONS_STORE)) {
-        db.createObjectStore(MUTATIONS_STORE, { keyPath: 'id' });
+        const mutationsStore = db.createObjectStore(MUTATIONS_STORE, { keyPath: 'id' });
+        mutationsStore.createIndex('by_order_id', 'orderId', { unique: false });
+        mutationsStore.createIndex('by_next_retry_at', 'nextRetryAt', { unique: false });
       }
       if (!db.objectStoreNames.contains(SYSTEM_LOGS_STORE)) {
         db.createObjectStore(SYSTEM_LOGS_STORE, { keyPath: 'id' });
@@ -127,6 +131,7 @@ export const offlineDb = {
     await txRequest(store.clear());
     for (const order of orders) {
       await txRequest(store.put(order));
+      syncPerf.recordIdbWrite();
     }
   },
 
@@ -134,12 +139,15 @@ export const offlineDb = {
     const db = await openDb();
     const tx = db.transaction(ORDERS_STORE, 'readwrite');
     await txRequest(tx.objectStore(ORDERS_STORE).put(order));
+    syncPerf.recordIdbWrite();
+    logSyncCategory('IDB_TX', 'save_order', { orderId: order.id });
   },
 
   async deleteOrder(orderId: string): Promise<void> {
     const db = await openDb();
     const tx = db.transaction(ORDERS_STORE, 'readwrite');
     await txRequest(tx.objectStore(ORDERS_STORE).delete(orderId));
+    syncPerf.recordIdbWrite();
   },
 
   async enqueueMutation(mutation: OfflineMutation): Promise<void> {
@@ -153,12 +161,14 @@ export const offlineDb = {
       entityId: mutation.entityId || mutation.orderId,
       operation: mutation.operation || mutation.type,
       retryCount: Number(mutation.retryCount || 0),
-      lastError: mutation.lastError || null
+      lastError: mutation.lastError || null,
+      nextRetryAt: Number(mutation.nextRetryAt || 0)
     };
 
     const duplicate = rows.find((item) => item.entity === normalized.entity && item.entityId === normalized.entityId && (item.operation || item.type) === (normalized.operation || normalized.type));
     if (duplicate) {
       await txRequest(store.put({ ...duplicate, ...normalized, id: duplicate.id, createdAt: duplicate.createdAt }));
+      syncPerf.recordIdbWrite();
       return;
     }
 
@@ -167,6 +177,7 @@ export const offlineDb = {
     }
 
     await txRequest(store.put(normalized));
+    syncPerf.recordIdbWrite();
   },
 
   async getMutations(): Promise<OfflineMutation[]> {
@@ -186,6 +197,7 @@ export const offlineDb = {
     const db = await openDb();
     const tx = db.transaction(MUTATIONS_STORE, 'readwrite');
     await txRequest(tx.objectStore(MUTATIONS_STORE).delete(mutationId));
+    syncPerf.recordIdbWrite();
   },
 
   async clearMutations(): Promise<void> {

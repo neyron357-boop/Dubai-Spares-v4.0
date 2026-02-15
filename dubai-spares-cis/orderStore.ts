@@ -8,6 +8,8 @@ import { logDatabaseIntegrity } from './dbIntegrity';
 import { NotificationType, pushNotification, sendBrowserNotification } from './notificationCenter';
 import { loadAppSettings } from './appSettings';
 import { addMissingColumns, normalizeSyncError, setLastIndexedDbError, setLastSupabaseError, setSyncStatus } from './syncDiagnostics';
+import { ORDER_GRAPH_COLUMNS } from './syncSchema';
+import { logSyncCategory, syncPerf } from './syncPerf';
 
 type OrderState = {
   orders: Order[];
@@ -124,6 +126,8 @@ let syncInProgress = false;
 let wasCloudHydratedAtLeastOnce = false;
 const schemaMissingColumns = new Set<string>();
 const MAX_MUTATION_RETRY = 5;
+const MUTATION_COALESCE_MS = 650;
+const mutationTimers = new Map<string, number>();
 
 const isOfflineFirstEnabled = () => loadAppSettings().offlineFirst;
 
@@ -273,47 +277,7 @@ const fetchOrderGraphWithoutJoin = async (orderColumns: string[]) => {
 const fetchOrdersGraphWithSchemaFallbacks = async () => {
   if (!supabase) return { data: null, error: null };
 
-  let orderColumns = [
-    'id',
-    'brand',
-    'model',
-    'year',
-    'body_type',
-    'vin',
-    'vin_photo_url',
-    'priority',
-    'client_name',
-    'source',
-    'car_photo_url',
-    'car_photos',
-    'markup_percent',
-    'markup_type',
-    'markup_fixed_aed',
-    'use_markup_as_default_for_new_parts',
-    'client_currency',
-    'fx_updated_at',
-    'logistics',
-    'exchange_rate',
-    'created_at',
-    'is_archived',
-    'is_sold',
-    'sold_profit_usd',
-    'is_vip',
-    'is_pinned',
-    'is_lead',
-    'notes',
-    'status',
-    'sales_status',
-    'customer_contact',
-    'social_nickname',
-    'updated_at',
-    'recommended_shop_ids',
-    'dismissed_shop_ids',
-    'lead_unread',
-    'lead_source',
-    'lead_read_at',
-    'pricing_events'
-  ];
+  let orderColumns = [...ORDER_GRAPH_COLUMNS];
 
   while (true) {
     const query = `${orderColumns.join(',')}, parts(*, price_variants(*))`;
@@ -336,6 +300,8 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
     if (!schemaMissingColumns.has(missingColumn)) {
       schemaMissingColumns.add(missingColumn);
       addMissingColumns([missingColumn]);
+      syncPerf.addSchemaWarning(`orders.${missingColumn}`);
+      logSyncCategory('SCHEMA_MISMATCH', 'column_missing', { table: 'orders', column: missingColumn });
       await logger.warn('sync:fetch', `schema_missing_columns: ["${missingColumn}"]`);
       await logDatabaseIntegrity('sync:fetch', response.error, { column: missingColumn });
     }
@@ -382,6 +348,7 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 
 const broadcastSyncError = (error: unknown, fallback: string) => {
   const normalized = normalizeSyncError(error, fallback);
+  syncPerf.setLastError(normalized.message);
   const message = `${normalized.humanMessage} [${normalized.code}]`;
   void logger.error('sync:error', message, { fallback, code: normalized.code, actions: normalized.actions, error: serializeError(error) });
   void logDatabaseIntegrity('sync:error', error, { fallback });
@@ -711,10 +678,16 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
   });
 
   const queueCount = await offlineDb.getMutationCount();
+  syncPerf.setQueueLength(queueCount);
   await logger.info('sync:queue', `Queue size is now ${queueCount}`);
 
   if (navigator.onLine) {
-    void flushOfflineMutations();
+    const existing = mutationTimers.get(orderId);
+    if (existing) window.clearTimeout(existing);
+    mutationTimers.set(orderId, window.setTimeout(() => {
+      mutationTimers.delete(orderId);
+      void flushOfflineMutations();
+    }, MUTATION_COALESCE_MS));
   }
 
   if ('serviceWorker' in navigator) {
@@ -737,8 +710,14 @@ export const flushOfflineMutations = async () => {
 
   try {
     const pending = await offlineDb.getMutations();
+    let earliestDeferredRetryAt = 0;
+    syncPerf.setQueueLength(pending.length);
     await logger.info('sync:flush', `Flush started with ${pending.length} pending mutations`);
     for (const mutation of pending) {
+      if (Number(mutation.nextRetryAt || 0) > Date.now()) {
+        if (!earliestDeferredRetryAt || Number(mutation.nextRetryAt) < earliestDeferredRetryAt) earliestDeferredRetryAt = Number(mutation.nextRetryAt);
+        continue;
+      }
       if (Number(mutation.retryCount || 0) >= MAX_MUTATION_RETRY) {
         await logger.error('sync:flush', `Mutation ${mutation.id} reached retry limit`, { retryCount: mutation.retryCount, lastError: mutation.lastError });
         continue;
@@ -763,15 +742,27 @@ export const flushOfflineMutations = async () => {
 
         await offlineDb.removeMutation(mutation.id);
         const queueCount = await offlineDb.getMutationCount();
+        syncPerf.setQueueLength(queueCount);
         await logger.info('sync:flush', `Mutation ${mutation.id} removed from queue`, { queueCount });
       } catch (error) {
         const retryCount = Number(mutation.retryCount || 0) + 1;
-        await offlineDb.enqueueMutation({ ...mutation, retryCount, lastError: getErrorMessage(error, 'Mutation failed') });
-        await logger.warn('sync:flush', `Mutation ${mutation.id} failed`, { retryCount, error: serializeError(error) });
+        const baseDelay = Math.min(30000, 800 * (2 ** Math.min(retryCount, 6)));
+        const jitter = Math.floor(Math.random() * 700);
+        const nextRetryAt = Date.now() + baseDelay + jitter;
+        syncPerf.markRetry();
+        await offlineDb.enqueueMutation({ ...mutation, retryCount, lastError: getErrorMessage(error, 'Mutation failed'), nextRetryAt });
+        await logger.warn('sync:flush', `Mutation ${mutation.id} failed`, { retryCount, nextRetryAt, error: serializeError(error) });
       }
     }
 
     await logger.info('sync:flush', 'Flush completed');
+    if (earliestDeferredRetryAt > Date.now()) {
+      const delay = Math.max(250, earliestDeferredRetryAt - Date.now());
+      window.setTimeout(() => {
+        if (navigator.onLine) void flushOfflineMutations();
+      }, delay);
+    }
+    syncPerf.markSynced();
     setSyncStatus('online');
   } catch (error: unknown) {
     broadcastSyncError(error, 'Offline sync failed');

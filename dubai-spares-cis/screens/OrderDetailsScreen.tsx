@@ -39,6 +39,7 @@ import { QuoteCurrency, QuoteRates, buildPartShareText, shareMessage, shareQuote
 import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
 import { logger } from '../logging';
+import { syncPerf } from '../syncPerf';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -152,6 +153,10 @@ const OrderDetailsScreen: React.FC = () => {
   const logisticsCommitTimersRef = useRef<Partial<Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', number>>>({});
   const markupCommitTimerRef = useRef<number | null>(null);
   const exchangeRateCommitTimerRef = useRef<number | null>(null);
+  const deferredFieldTimersRef = useRef<Partial<Record<keyof Order, number>>>({});
+  const deferredFieldValuesRef = useRef<Partial<Record<keyof Order, any>>>({});
+  const [draftFields, setDraftFields] = useState<Partial<Record<keyof Order, any>>>({});
+  const lastKeystrokeAtRef = useRef<number>(0);
   const renderPerfStart = performance.now();
 
   // Sync local rate input if order changes
@@ -180,6 +185,7 @@ const OrderDetailsScreen: React.FC = () => {
     if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
     if (markupCommitTimerRef.current) window.clearTimeout(markupCommitTimerRef.current);
     if (exchangeRateCommitTimerRef.current) window.clearTimeout(exchangeRateCommitTimerRef.current);
+    Object.values(deferredFieldTimersRef.current).forEach((timerId) => { if (timerId) window.clearTimeout(timerId); });
     (Object.values(logisticsCommitTimersRef.current) as number[]).forEach((timerId) => {
       if (timerId) window.clearTimeout(timerId);
     });
@@ -470,7 +476,8 @@ const OrderDetailsScreen: React.FC = () => {
     updateOrder({ ...order, dismissedShopIds: [] });
   };
 
-  const updateOrderField = (field: keyof Order, value: any) => {
+  const commitDeferredOrderField = (field: keyof Order, rawValue?: any) => {
+    const value = rawValue ?? deferredFieldValuesRef.current[field];
     const trackedFieldLabels: Partial<Record<keyof Order, string>> = {
       markupPercent: 'Наценка %',
       markupType: 'Тип наценки',
@@ -489,7 +496,44 @@ const OrderDetailsScreen: React.FC = () => {
       [field]: value,
       pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents
     });
+
+    setDraftFields((prev) => {
+      const { [field]: _unused, ...rest } = prev;
+      return rest;
+    });
+    deferredFieldValuesRef.current[field] = undefined;
+    deferredFieldTimersRef.current[field] = undefined;
   };
+
+  const flushDeferredOrderField = (field: keyof Order) => {
+    const timer = deferredFieldTimersRef.current[field];
+    if (timer) window.clearTimeout(timer);
+    if (deferredFieldValuesRef.current[field] !== undefined) {
+      commitDeferredOrderField(field);
+    }
+  };
+
+  const updateOrderField = (field: keyof Order, value: any) => {
+    const shouldDebounce = (typeof value === 'string' || typeof value === 'number')
+      && !['markupType', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType'].includes(String(field));
+
+    if (!shouldDebounce) {
+      commitDeferredOrderField(field, value);
+      return;
+    }
+
+    lastKeystrokeAtRef.current = performance.now();
+    setDraftFields((prev) => ({ ...prev, [field]: value }));
+    deferredFieldValuesRef.current[field] = value;
+    const existingTimer = deferredFieldTimersRef.current[field];
+    if (existingTimer) window.clearTimeout(existingTimer);
+    deferredFieldTimersRef.current[field] = window.setTimeout(() => {
+      const elapsed = Math.round((performance.now() - lastKeystrokeAtRef.current) * 100) / 100;
+      void logger.debug('PRICING_PERF', 'typing_commit_latency', { orderId: order.id, field, elapsedMs: elapsed });
+      commitDeferredOrderField(field);
+    }, 650);
+  };
+
 
   const updatePriority = (nextPriority: Priority) => {
     updateOrder({ ...order, priority: nextPriority, priorityChangedAt: Date.now() });
@@ -572,6 +616,7 @@ const OrderDetailsScreen: React.FC = () => {
       return;
     }
 
+    const keyStart = performance.now();
     const sanitized = sanitizeNumericInput(value);
     setLogisticsInputs((prev) => ({ ...prev, [field]: sanitized }));
     const timerId = logisticsCommitTimersRef.current[field];
@@ -579,10 +624,12 @@ const OrderDetailsScreen: React.FC = () => {
     logisticsCommitTimersRef.current[field] = window.setTimeout(() => {
       commitLogisticsField(field, Number(sanitized || 0));
       logisticsCommitTimersRef.current[field] = undefined;
-    }, 1000);
+    }, 700);
+    syncPerf.recordTypingSample(Math.round((performance.now() - keyStart) * 100) / 100);
   };
 
   const handleRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const startedAt = performance.now();
     const rawVal = e.target.value;
     if (!/^[\d]*[.,]?[\d]*$/.test(rawVal)) return;
 
@@ -597,6 +644,7 @@ const OrderDetailsScreen: React.FC = () => {
         updateOrderField('exchangeRate', num);
         exchangeRateCommitTimerRef.current = null;
       }, 600);
+      syncPerf.recordTypingSample(Math.round((performance.now() - startedAt) * 100) / 100);
     }
   };
 
@@ -961,8 +1009,9 @@ const OrderDetailsScreen: React.FC = () => {
               <label className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1 mb-1"><User size={10} /> Клиент</label>
               <input
                 type="text"
-                value={order.clientName || ''}
+                value={String(draftFields.clientName ?? order.clientName ?? '')}
                 onChange={(e) => updateOrderField('clientName', e.target.value)}
+                onBlur={() => flushDeferredOrderField('clientName')}
                 placeholder="Имя клиента..."
                 className="w-full text-sm font-bold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
               />
@@ -972,8 +1021,9 @@ const OrderDetailsScreen: React.FC = () => {
               <div className="flex gap-2">
                 <input
                   type="tel"
-                  value={order.customerContact || ''}
+                  value={String(draftFields.customerContact ?? order.customerContact ?? '')}
                   onChange={(e) => updateOrderField('customerContact', e.target.value)}
+                  onBlur={() => flushDeferredOrderField('customerContact')}
                   placeholder="+971..."
                   className="flex-1 text-sm font-bold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
                 />
@@ -985,7 +1035,7 @@ const OrderDetailsScreen: React.FC = () => {
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Источник</label>
               <select
-                value={order.source}
+                value={String(draftFields.source ?? order.source)}
                 onChange={(e) => updateOrderField('source', e.target.value)}
                 className="w-full h-10 text-sm font-bold bg-gray-50 rounded-xl px-2 outline-none border border-gray-100"
               >
@@ -1018,8 +1068,9 @@ const OrderDetailsScreen: React.FC = () => {
             <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Модель</label>
             <input
               type="text"
-              value={order.model || ''}
+              value={String(draftFields.model ?? order.model ?? '')}
               onChange={(e) => updateOrderField('model', e.target.value)}
+              onBlur={() => flushDeferredOrderField('model')}
               className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
             />
           </div>
@@ -1027,8 +1078,9 @@ const OrderDetailsScreen: React.FC = () => {
             <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Год</label>
             <input
               type="text"
-              value={order.year || ''}
+              value={String(draftFields.year ?? order.year ?? '')}
               onChange={(e) => updateOrderField('year', e.target.value)}
+              onBlur={() => flushDeferredOrderField('year')}
               className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
             />
           </div>
@@ -1036,8 +1088,9 @@ const OrderDetailsScreen: React.FC = () => {
             <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Тип кузова</label>
             <input
               type="text"
-              value={order.bodyType || ''}
+              value={String(draftFields.bodyType ?? order.bodyType ?? '')}
               onChange={(e) => updateOrderField('bodyType', e.target.value)}
+              onBlur={() => flushDeferredOrderField('bodyType')}
               placeholder="E39 / F10 / S-Class"
               className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
             />
@@ -1068,8 +1121,9 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
             {(order.markupType || 'percent') === 'percent' ? (
               <select
-                value={order.markupPercent}
+                value={Number(draftFields.markupPercent ?? order.markupPercent)}
                 onChange={(e) => updateOrderField('markupPercent', Number(e.target.value))}
+                onBlur={() => flushDeferredOrderField('markupPercent')}
                 className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100"
               >
                 {MARKUP_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}%</option>)}

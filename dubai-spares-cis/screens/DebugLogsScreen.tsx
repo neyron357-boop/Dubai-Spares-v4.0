@@ -6,6 +6,7 @@ import { loadAppSettings } from '../appSettings';
 import { checkSchemaHealth, FRONTEND_SCHEMA_VERSION } from '../schemaHealth';
 import { supabase } from '../supabase';
 import { getSyncDiagnosticsState } from '../syncDiagnostics';
+import { syncPerf } from '../syncPerf';
 
 const formatTime = (value: number) => new Date(value).toLocaleString();
 const maskPhone = (value: string) => value.replace(/\+?\d[\d\s-]{7,}/g, (match) => `${match.slice(0, 4)}***${match.slice(-4)}`);
@@ -45,6 +46,7 @@ const DebugLogsScreen: React.FC = () => {
   const [dbStats, setDbStats] = useState<Record<string, { count: number; approxBytes: number }>>({});
   const [gps, setGps] = useState<{ lat: number; lng: number; accuracy: number; time: number } | null>(null);
   const [showExactGps, setShowExactGps] = useState(false);
+  const [perfSnapshot, setPerfSnapshot] = useState(syncPerf.snapshot());
 
   const loadLogs = async () => {
     setLoading(true);
@@ -62,8 +64,12 @@ const DebugLogsScreen: React.FC = () => {
       void loadLogs();
     };
 
+    const perfTimer = window.setInterval(() => setPerfSnapshot(syncPerf.snapshot()), 1000);
     window.addEventListener('system-log-updated', onLogUpdate);
-    return () => window.removeEventListener('system-log-updated', onLogUpdate);
+    return () => {
+      window.clearInterval(perfTimer);
+      window.removeEventListener('system-log-updated', onLogUpdate);
+    };
   }, []);
 
   useEffect(() => {
@@ -218,6 +224,7 @@ const DebugLogsScreen: React.FC = () => {
           <div className="rounded-xl border bg-white p-3 space-y-1"><div className="font-black">Local DB (IndexedDB)</div>{Object.entries(dbStats).map(([name, stat]) => <p key={name}>{name}: {stat.count} rows (~{(stat.approxBytes / 1024).toFixed(1)} KB)</p>)}</div>
           <div className="rounded-xl border bg-white p-3 space-y-1"><div className="font-black">Sync Engine</div><p>pending: {dbStats.mutations?.count || 0}</p><p>last 20 sync events:</p><ul className="list-disc pl-4">{logs.filter((entry) => entry.scope.includes('sync')).slice(0, 20).map((entry) => <li key={entry.id}>{entry.message}</li>)}</ul></div>
           <div className="rounded-xl border bg-white p-3 space-y-1"><div className="font-black">Supabase</div><p>project: {maskSensitive((import.meta as any).env?.VITE_SUPABASE_URL || 'not set')}</p><p>last error code: {(logs.find((entry) => entry.scope.includes('supabase') && entry.level === 'error')?.message.match(/code:\s*([A-Z0-9]+)/i)?.[1]) || '—'}</p></div>
+          <div className="rounded-xl border bg-white p-3 space-y-1"><div className="font-black">Sync diagnostics</div><p>last sync: {perfSnapshot.lastSyncAt ? formatTime(perfSnapshot.lastSyncAt) : '—'}</p><p>queue length: {perfSnapshot.queueLength}</p><p>retry count: {perfSnapshot.retryCount}</p><p>last error: {perfSnapshot.lastError || '—'}</p><p>schema warnings: {perfSnapshot.schemaWarnings.length ? perfSnapshot.schemaWarnings.join(', ') : 'none'}</p><p>typing avg: {perfSnapshot.typingAvgMs} ms</p><p>IDB writes/sec: {perfSnapshot.idbWritesPerSecond}</p><p>network req/sec: {perfSnapshot.networkRequestsPerSecond}</p><button className="rounded-lg bg-amber-600 text-white px-2 py-1 text-[11px] font-black" type="button" onClick={async () => { if (!window.confirm('Rebuild local cache?')) return; await offlineDb.rebuildIndex(); window.location.reload(); }}>Rebuild local cache</button></div>
           <div className="rounded-xl border bg-white p-3 space-y-1"><div className="font-black">Geo</div><p>coords: {gps ? (showExactGps ? `${gps.lat.toFixed(5)}, ${gps.lng.toFixed(5)}` : 'hidden') : 'n/a'} <button className="underline" type="button" onClick={() => setShowExactGps((v) => !v)}>{showExactGps ? 'hide' : 'show'}</button></p><p>accuracy: {gps?.accuracy?.toFixed(1) || 'n/a'} m</p><p>last update: {gps ? formatTime(gps.time) : '—'}</p></div>
           <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 space-y-2">
             <div className="font-black text-indigo-800">Radar диагностика (полная)</div>
