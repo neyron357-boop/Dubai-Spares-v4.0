@@ -124,16 +124,16 @@ let state: OrderState = {
 let syncInProgress = false;
 let wasCloudHydratedAtLeastOnce = false;
 const schemaMissingColumns = new Set<string>();
-const MAX_MUTATION_RETRY = 5;
-const RETRY_STEPS_MS = [1000, 2000, 4000, 8000, 16000, 30000] as const;
+const MAX_MUTATION_RETRY = 8;
+const RETRY_STEPS_MS = [1000, 2000, 4000, 8000, 16000, 30000, 60000, 120000] as const;
 const ORDER_PAGE_SIZE = 50;
-const MUTATION_COALESCE_MS = 650;
 const mutationTimers = new Map<string, number>();
 const localCommitTimers = new Map<string, number>();
 const networkFlushTimerMs = 3000;
 const hotFieldKeys: Array<keyof Order> = ['markupPercent', 'markupType', 'markupFixedAed', 'exchangeRate', 'clientCurrency', 'fxUpdatedAt', 'logistics', 'pricingEvents', 'updatedAt'];
 let cachedQueueLength = 0;
 let retryTimer: number | null = null;
+let syncPausedUntil = 0;
 let syncMutex: Promise<void> = Promise.resolve();
 
 const runWithSyncMutex = async <T>(task: () => Promise<T>): Promise<T> => {
@@ -438,7 +438,9 @@ const classifySyncError = (error: unknown): 'network' | 'schema' | 'unknown' => 
 
 const computeRetryDelay = (retryCount: number) => {
   const index = Math.max(0, Math.min(RETRY_STEPS_MS.length - 1, retryCount - 1));
-  return RETRY_STEPS_MS[index];
+  const baseDelay = RETRY_STEPS_MS[index];
+  const jitter = Math.floor(baseDelay * (0.15 + Math.random() * 0.2));
+  return baseDelay + jitter;
 };
 
 const scheduleRetryFlush = (nextRetryAt: number) => {
@@ -447,7 +449,7 @@ const scheduleRetryFlush = (nextRetryAt: number) => {
   const delay = Math.max(250, nextRetryAt - Date.now());
   retryTimer = window.setTimeout(() => {
     retryTimer = null;
-    if (navigator.onLine) void flushOfflineMutations();
+    if (navigator.onLine && document.visibilityState === 'visible') void flushOfflineMutations();
   }, delay);
 };
 
@@ -653,11 +655,11 @@ const persistOrderGraph = async (order: Order) => {
     ]);
 
     let payload: Record<string, unknown> = { ...fallbackOrderPayload };
-    let { error: orderError } = await supabase.from('orders').upsert(payload);
+    let { error: orderError } = await supabase.from('orders').upsert(payload, { onConflict: 'id' });
 
     if (orderError && isOrderTimestampInputError(orderError)) {
       await logger.warn('sync:persist', 'Order timestamp normalization detected invalid input; retrying with ISO datetime values');
-      ({ error: orderError } = await supabase.from('orders').upsert(payload));
+      ({ error: orderError } = await supabase.from('orders').upsert(payload, { onConflict: 'id' }));
     }
 
     while (orderError) {
@@ -670,7 +672,7 @@ const persistOrderGraph = async (order: Order) => {
       await logDatabaseIntegrity('sync:persist', orderError, { column: missingColumn });
       const { [missingColumn]: _ignored, ...reducedPayload } = payload;
       payload = reducedPayload;
-      ({ error: orderError } = await supabase.from('orders').upsert(payload));
+      ({ error: orderError } = await supabase.from('orders').upsert(payload, { onConflict: 'id' }));
     }
 
     return orderError;
@@ -685,63 +687,61 @@ const persistOrderGraph = async (order: Order) => {
 
   await logger.info('sync:persist', `Step 1/3 success for order ${uploadedOrder.id}`);
 
-  const { error: deletePartsError } = await supabase.from('parts').delete().eq('order_id', uploadedOrder.id);
-  if (deletePartsError) {
-    await logger.error('sync:persist', `Cleanup parts failed for order ${uploadedOrder.id}`, { error: serializeError(deletePartsError) });
-    throw deletePartsError;
-  }
+  const partRows = (cloudOrder.parts || []).map((part) => ({
+    id: part.id,
+    order_id: uploadedOrder.id,
+    name: part.name,
+    photo_url: part.photoUrl,
+    photos: part.photos || [],
+    is_found: !!part.isFound
+  }));
 
-  for (const part of cloudOrder.parts || []) {
-    await logger.info('sync:persist', `Step 2/3 upsert part ${part.id} (order ${uploadedOrder.id})`);
-    const { error: partError } = await supabase.from('parts').upsert({
-      id: part.id,
-      order_id: uploadedOrder.id,
-      name: part.name,
-      photo_url: part.photoUrl,
-      photos: part.photos || [],
-      is_found: !!part.isFound
+  for (let i = 0; i < partRows.length; i += 50) {
+    const batch = partRows.slice(i, i + 50);
+    await logger.info('sync:persist', `Step 2/3 upsert parts batch for order ${uploadedOrder.id}`, {
+      batchSize: batch.length,
+      payloadBytes: JSON.stringify(batch).length
     });
+    const { error: partError } = await supabase.from('parts').upsert(batch, { onConflict: 'id' });
     if (partError) {
-      await logger.error('sync:persist', `Step 2/3 failed for part ${part.id}`, { error: serializeError(partError) });
+      await logger.error('sync:persist', `Step 2/3 failed for order ${uploadedOrder.id}`, { error: serializeError(partError) });
       throw partError;
     }
+  }
 
-    await logger.info('sync:persist', `Step 2/3 success for part ${part.id}`);
+  const variantRows = (cloudOrder.parts || []).flatMap((part) =>
+    (part.variants || []).map((variant) => ({
+      id: variant.id,
+      part_id: part.id,
+      price_aed: variant.priceAed,
+      shop_name: variant.shopName,
+      phone: variant.phone,
+      location: variant.location,
+      photo_url: variant.photoUrl,
+      photos: variant.photos || [],
+      created_at: parseTimestamp(variant.createdAt)
+    }))
+  );
 
-    for (const variant of part.variants || []) {
-      await logger.info('sync:persist', `Step 3/3 upsert variant ${variant.id} (part ${part.id})`);
-      const variantCreatedAt = parseTimestamp(variant.createdAt);
-      const variantPayload = {
-        id: variant.id,
-        part_id: part.id,
-        price_aed: variant.priceAed,
-        shop_name: variant.shopName,
-        phone: variant.phone,
-        location: variant.location,
-        photo_url: variant.photoUrl,
-        photos: variant.photos || [],
-        created_at: variantCreatedAt
-      };
+  for (let i = 0; i < variantRows.length; i += 50) {
+    const batch = variantRows.slice(i, i + 50);
+    await logger.info('sync:persist', `Step 3/3 upsert variants batch for order ${uploadedOrder.id}`, {
+      batchSize: batch.length,
+      payloadBytes: JSON.stringify(batch).length
+    });
+    let { error: variantError } = await supabase.from('price_variants').upsert(batch, { onConflict: 'id' });
 
-      let { error: variantError } = await supabase.from('price_variants').upsert(variantPayload);
+    if (variantError && isTimestamptzTimestampInputError(variantError)) {
+      await logger.warn('sync:persist', 'price_variants.created_at expects timestamptz; retrying with ISO timestamps');
+      ({ error: variantError } = await supabase.from('price_variants').upsert(
+        batch.map((row) => ({ ...row, created_at: toIsoTimestamp(row.created_at) })),
+        { onConflict: 'id' }
+      ));
+    }
 
-      if (variantError && isTimestamptzTimestampInputError(variantError)) {
-        await logger.warn(
-          'sync:persist',
-          'price_variants.created_at expects timestamptz in remote schema; retrying upsert with ISO string timestamp'
-        );
-        ({ error: variantError } = await supabase.from('price_variants').upsert({
-          ...variantPayload,
-          created_at: toIsoTimestamp(variantCreatedAt)
-        }));
-      }
-
-      if (variantError) {
-        await logger.error('sync:persist', `Step 3/3 failed for variant ${variant.id}`, { error: serializeError(variantError) });
-        throw variantError;
-      }
-
-      await logger.info('sync:persist', `Step 3/3 success for variant ${variant.id}`);
+    if (variantError) {
+      await logger.error('sync:persist', `Step 3/3 failed for order ${uploadedOrder.id}`, { error: serializeError(variantError) });
+      throw variantError;
     }
   }
 
@@ -772,21 +772,21 @@ const scheduleBackgroundFlush = () => {
   if (existing) window.clearTimeout(existing);
   mutationTimers.set(timerKey, window.setTimeout(() => {
     mutationTimers.delete(timerKey);
-    if (navigator.onLine) void flushOfflineMutations();
+    if (navigator.onLine && document.visibilityState === 'visible') void flushOfflineMutations();
   }, networkFlushTimerMs));
 };
 
 const scheduleLocalCommit = (order: Order, patchOnly?: Partial<Order>) => {
   const existing = localCommitTimers.get(order.id);
-  if (existing) window.clearTimeout(existing);
-  localCommitTimers.set(order.id, window.setTimeout(() => {
+  if (existing) {
+    window.clearTimeout(existing);
     localCommitTimers.delete(order.id);
-    if (patchOnly && Object.keys(patchOnly).length > 0) {
-      void offlineDb.saveOrderPatch(order.id, patchOnly);
-      return;
-    }
-    void offlineDb.saveOrder(order);
-  }, MUTATION_COALESCE_MS));
+  }
+  if (patchOnly && Object.keys(patchOnly).length > 0) {
+    void offlineDb.saveOrderPatch(order.id, patchOnly);
+    return;
+  }
+  void offlineDb.saveOrder(order);
 };
 
 
@@ -806,32 +806,40 @@ const persistOrderPatch = async (orderId: string, patch: Partial<Order>) => {
   if (!supabase || !Object.keys(patch).length) return;
   const payload = toOrderPatchPayload(patch);
   const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
+  const payloadBytes = JSON.stringify(cleanPayload).length;
+  const startedAt = Date.now();
   syncPerf.recordNetworkRequest();
-  syncPerf.setLastNetworkRequest({ operation: 'orders.patch', orderId, bytes: JSON.stringify(cleanPayload).length });
+  syncPerf.setLastNetworkRequest({ operation: 'orders.patch', orderId, bytes: payloadBytes });
+  await logger.info('sync:persist', `PATCH orders ${orderId}`, { payloadBytes });
   const { error } = await supabase.from('orders').update(cleanPayload).eq('id', orderId);
   if (error) throw error;
+  await logger.info('sync:persist', `PATCH orders success ${orderId}`, { durationMs: Date.now() - startedAt, payloadBytes });
 };
 
 const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined, orderId: string, patch?: Partial<Order>) => {
   await logger.warn('sync:queue', `Queueing ${type} for order ${orderId}`);
-  const mutationId = `${type}:${orderId}`;
+  const mutationId = createUuid();
   await offlineDb.enqueueMutation({
     id: mutationId,
-    type,
+    mutationId,
+    type: patch && !order ? 'patch' : type,
+    table: 'orders',
+    primaryKey: orderId,
     orderId,
     entity: 'orders',
     entityId: orderId,
-    operation: type,
+    operation: patch && !order ? 'patch' : type,
     payload: order,
     patch,
     createdAt: Date.now(),
+    attemptCount: 0,
     retryCount: 0,
     lastError: null
   });
-  cachedQueueLength = Math.max(1, cachedQueueLength + 1);
+  cachedQueueLength = await offlineDb.getMutationCount();
   syncPerf.setQueueLength(cachedQueueLength);
 
-  if (navigator.onLine) scheduleBackgroundFlush();
+  if (navigator.onLine && document.visibilityState === 'visible') scheduleBackgroundFlush();
 
   if ('serviceWorker' in navigator) {
     try {
@@ -845,8 +853,15 @@ const queueMutation = async (type: 'upsert' | 'delete', order: Order | undefined
   }
 };
 
-export const flushOfflineMutations = async () => runWithSyncMutex(async () => {
+export const flushOfflineMutations = async (options?: { force?: boolean }) => runWithSyncMutex(async () => {
+  const force = options?.force === true;
   if (syncInProgress || !navigator.onLine || !isCloudSyncConfigured || !supabase || isIdbAutoSyncPaused()) return;
+  if (!force && document.visibilityState !== 'visible') return;
+  if (!force && syncPausedUntil > Date.now()) {
+    scheduleRetryFlush(syncPausedUntil);
+    return;
+  }
+
   syncInProgress = true;
   logSyncCategory('SYNC_STATE', 'flush_started');
   setSyncStatus('online');
@@ -854,131 +869,128 @@ export const flushOfflineMutations = async () => runWithSyncMutex(async () => {
 
   try {
     const pending = await offlineDb.getMutations();
-    const coalesced = Array.from(
-      pending.reduce((acc, mutation) => {
-        const current = acc.get(mutation.orderId);
-        if (!current) {
-          acc.set(mutation.orderId, { ...mutation });
-          return acc;
-        }
+    if (!pending.length) {
+      syncPerf.setQueueLength(0);
+      syncPerf.setNextRetryAt(null);
+      syncPerf.markSynced();
+      return;
+    }
 
-        if (mutation.type === 'delete') {
-          acc.set(mutation.orderId, { ...mutation, payload: undefined, patch: undefined });
-          return acc;
-        }
-
-        acc.set(mutation.orderId, {
-          ...current,
-          ...mutation,
-          payload: mutation.payload || current.payload,
-          patch: mutation.patch ? { ...(current.patch || {}), ...mutation.patch } : current.patch,
-          type: 'upsert'
-        });
-        return acc;
-      }, new Map<string, OfflineMutation>()).values()
-    ).sort((a, b) => a.createdAt - b.createdAt);
     let earliestDeferredRetryAt = 0;
-    let hadActiveRequest = false;
     syncPerf.setQueueLength(pending.length);
-    await logger.info('sync:flush', `Flush started with ${pending.length} pending mutations (${coalesced.length} after coalesce)`);
-    for (const mutation of coalesced) {
+    await logger.info('sync:flush', `Flush started with ${pending.length} pending mutations`);
+
+    for (const mutation of pending) {
       if (Number(mutation.nextRetryAt || 0) > Date.now()) {
         if (!earliestDeferredRetryAt || Number(mutation.nextRetryAt) < earliestDeferredRetryAt) earliestDeferredRetryAt = Number(mutation.nextRetryAt);
         continue;
       }
-      if (Number(mutation.retryCount || 0) >= MAX_MUTATION_RETRY) {
-        await logger.error('sync:flush', `Mutation ${mutation.id} reached retry limit`, { retryCount: mutation.retryCount, lastError: mutation.lastError });
-        continue;
-      }
-      await logger.info('sync:flush', `Processing mutation ${mutation.id}`, { type: mutation.type, orderId: mutation.orderId });
+
+      await logger.info('sync:flush', `Processing mutation ${mutation.id}`, {
+        operation: mutation.operation || mutation.type,
+        table: mutation.table || mutation.entity || 'orders',
+        orderId: mutation.orderId,
+        attempt: Number((mutation.attemptCount ?? mutation.retryCount) || 0)
+      });
+
       try {
-        hadActiveRequest = true;
         setSyncStatus('syncing');
         setState({ isSyncing: true });
         syncPerf.setActiveRequest(true);
-        if (mutation.type === 'delete') {
-          await logger.info('sync:flush', `Delete order ${mutation.orderId}`);
+        const startedAt = Date.now();
+
+        if (mutation.table === 'public_quote_snapshots' && mutation.payload) {
+          const payloadBytes = JSON.stringify(mutation.payload).length;
+          syncPerf.recordNetworkRequest();
+          syncPerf.setLastNetworkRequest({ operation: 'public_quote_snapshots.upsert', orderId: mutation.orderId, bytes: payloadBytes });
+          const { error } = await supabase
+            .from('public_quote_snapshots')
+            .upsert(mutation.payload as Record<string, unknown>, { onConflict: 'token' });
+          if (error) throw error;
+        } else if (mutation.type === 'delete') {
           if (isUuid(mutation.orderId)) {
             await deleteRemoteOrderWithStorageCleanup(mutation.orderId);
           }
         } else if (mutation.patch && !mutation.payload) {
-          await persistOrderPatch(mutation.orderId, mutation.patch);
+          await persistOrderPatch(mutation.orderId, mutation.patch as Partial<Order>);
         } else if (mutation.payload) {
+          const typedPayload = mutation.payload as Order;
+          const payloadBytes = JSON.stringify(typedPayload).length;
           syncPerf.recordNetworkRequest();
-          syncPerf.setLastNetworkRequest({ operation: 'orders.graph_upsert', orderId: mutation.orderId, bytes: JSON.stringify(mutation.payload).length });
-          const saved = await persistOrderGraph(mutation.payload);
+          syncPerf.setLastNetworkRequest({ operation: 'orders.graph_upsert', orderId: mutation.orderId, bytes: payloadBytes });
+          await logger.info('sync:flush', `Sending payload for ${mutation.orderId}`, { payloadBytes, table: mutation.table || 'orders' });
+          const saved = await persistOrderGraph(typedPayload);
           await offlineDb.saveOrder(saved);
         }
 
-        await logger.info('sync:flush', `Mutation ${mutation.id} synced`);
-
-        if (import.meta.env.DEV) {
-          console.log(`☁️ Synced offline mutation ${mutation.id} for order ${mutation.orderId} to Supabase`);
-        }
-
-        const sameOrderMutations = pending.filter((item) => item.orderId === mutation.orderId);
-        for (const oldMutation of sameOrderMutations) {
-          await offlineDb.removeMutation(oldMutation.id);
-        }
-        cachedQueueLength = Math.max(0, cachedQueueLength - sameOrderMutations.length);
-        syncPerf.setQueueLength(cachedQueueLength);
+        await offlineDb.removeMutation(mutation.id);
+        const queueLength = await offlineDb.getMutationCount();
+        cachedQueueLength = queueLength;
+        syncPerf.setQueueLength(queueLength);
         syncPerf.setLastErrorType(null);
+        syncPerf.setLastError(null);
+        syncPausedUntil = 0;
+
+        await logger.info('sync:flush', `Mutation ${mutation.id} synced`, {
+          durationMs: Date.now() - startedAt,
+          queueLength
+        });
       } catch (error) {
         const errorType = classifySyncError(error);
+        const retryCount = Number((mutation.attemptCount ?? mutation.retryCount) || 0) + 1;
+        const nextRetryAt = Date.now() + computeRetryDelay(retryCount);
+        const isTimeoutLike = isNetworkError(error);
+
         syncPerf.setLastErrorType(errorType);
         syncPerf.setLastError(getErrorMessage(error, 'Mutation failed'));
-        syncPerf.setActiveRequest(false);
-        setState({ isSyncing: false });
 
         if (errorType === 'schema') {
-          const sameOrderMutations = pending.filter((item) => item.orderId === mutation.orderId);
-          for (const oldMutation of sameOrderMutations) {
-            await offlineDb.removeMutation(oldMutation.id);
-          }
-          cachedQueueLength = Math.max(0, cachedQueueLength - sameOrderMutations.length);
-          syncPerf.setQueueLength(cachedQueueLength);
-          setSyncStatus('error');
-          broadcastSyncError(error, 'Schema mismatch. Run migrations and refresh schema cache.');
+          await offlineDb.removeMutation(mutation.id);
           await logger.error('sync:flush', `Schema mismatch for mutation ${mutation.id}; retries stopped`, {
             error: serializeError(error),
             orderId: mutation.orderId
           });
-          continue;
+        } else if (retryCount > MAX_MUTATION_RETRY) {
+          await offlineDb.removeMutation(mutation.id);
+          await logger.error('sync:flush', `Mutation ${mutation.id} dropped after max retries`, { error: serializeError(error) });
+        } else {
+          syncPerf.markRetry();
+          await offlineDb.enqueueMutation({
+            ...mutation,
+            attemptCount: retryCount,
+            retryCount,
+            lastError: getErrorMessage(error, 'Mutation failed'),
+            nextRetryAt
+          });
+          if (!earliestDeferredRetryAt || nextRetryAt < earliestDeferredRetryAt) earliestDeferredRetryAt = nextRetryAt;
+          if (isTimeoutLike) {
+            syncPausedUntil = Math.max(syncPausedUntil, nextRetryAt);
+            setSyncStatus('error');
+          }
+          await logger.warn('sync:flush', `Mutation ${mutation.id} failed`, {
+            retryCount,
+            nextRetryAt,
+            pausedUntil: syncPausedUntil || null,
+            error: serializeError(error)
+          });
         }
 
-        const retryCount = Number(mutation.retryCount || 0) + 1;
-        if (retryCount > MAX_MUTATION_RETRY) {
-          await offlineDb.removeMutation(mutation.id);
-          cachedQueueLength = Math.max(0, cachedQueueLength - 1);
-          syncPerf.setQueueLength(cachedQueueLength);
-          await logger.error('sync:flush', `Mutation ${mutation.id} dropped after max retries`, { error: serializeError(error) });
-          continue;
-        }
-        const nextRetryAt = Date.now() + computeRetryDelay(retryCount);
-        syncPerf.markRetry();
-        await offlineDb.enqueueMutation({ ...mutation, retryCount, lastError: getErrorMessage(error, 'Mutation failed'), nextRetryAt });
-        await logger.warn('sync:flush', `Mutation ${mutation.id} failed`, { retryCount, nextRetryAt, error: serializeError(error) });
-        if (!earliestDeferredRetryAt || nextRetryAt < earliestDeferredRetryAt) earliestDeferredRetryAt = nextRetryAt;
-        setSyncStatus('error');
+        cachedQueueLength = await offlineDb.getMutationCount();
+        syncPerf.setQueueLength(cachedQueueLength);
+      } finally {
+        syncPerf.setActiveRequest(false);
+        setState({ isSyncing: false });
       }
-      syncPerf.setActiveRequest(false);
-      setState({ isSyncing: false });
-      if (hadActiveRequest) setSyncStatus('online');
     }
 
-    await logger.info('sync:flush', 'Flush completed');
-    cachedQueueLength = await offlineDb.getMutationCount();
-    syncPerf.setQueueLength(cachedQueueLength);
     if (earliestDeferredRetryAt > Date.now()) {
       setSyncStatus('error');
       scheduleRetryFlush(earliestDeferredRetryAt);
     } else {
-      syncPerf.setNextRetryAt(null);
-    }
-    syncPerf.markSynced();
-    logSyncCategory('SYNC_STATE', 'flush_completed');
-    if (!hadActiveRequest) {
       setSyncStatus('online');
+      syncPerf.setNextRetryAt(null);
+      syncPerf.markSynced();
+      logSyncCategory('SYNC_STATE', 'flush_completed');
     }
   } catch (error: unknown) {
     logSyncCategory('SYNC_STATE', 'flush_failed');
@@ -1236,18 +1248,12 @@ export const useOrderStore = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'price_variants' }, scheduleRefresh)
       .subscribe();
 
-    if (navigator.onLine) {
+    if (navigator.onLine && document.visibilityState === 'visible') {
       void flushOfflineMutations();
     }
 
-    const syncTimer = window.setInterval(() => {
-      if (navigator.onLine) void flushOfflineMutations();
-    }, 15000);
     const onVisible = () => {
       if (document.visibilityState === 'visible' && navigator.onLine) void flushOfflineMutations();
-    };
-    const onBlur = () => {
-      if (navigator.onLine) void flushOfflineMutations();
     };
 
     const onIdbPaused = () => {
@@ -1256,17 +1262,14 @@ export const useOrderStore = () => {
     };
 
     window.addEventListener('online', onOnline);
-    window.addEventListener('blur', onBlur);
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('idb-autosync-paused', onIdbPaused as EventListener);
     navigator.serviceWorker?.addEventListener?.('message', onSwMessage);
     return () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       window.removeEventListener('online', onOnline);
-      window.removeEventListener('blur', onBlur);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('idb-autosync-paused', onIdbPaused as EventListener);
-      window.clearInterval(syncTimer);
       navigator.serviceWorker?.removeEventListener?.('message', onSwMessage);
       if (ordersChannel) {
         void supabase?.removeChannel(ordersChannel);
@@ -1284,6 +1287,6 @@ export const useOrderStore = () => {
     deleteOrder: useCallback(deleteOrderItem, []),
     updatePart: useCallback(updatePartItem, []),
     updatePriceVariant: useCallback(updatePriceVariantItem, []),
-    flushOfflineMutations: useCallback(flushOfflineMutations, [])
+    flushOfflineMutations: useCallback(() => flushOfflineMutations({ force: true }), [])
   };
 };

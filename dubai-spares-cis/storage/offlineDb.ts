@@ -1,18 +1,22 @@
 import { Order, RadarInteraction, SystemLogEntry } from '../types';
 import { logSyncCategory, syncPerf } from '../syncPerf';
 
-type MutationType = 'upsert' | 'delete';
+type MutationType = 'upsert' | 'delete' | 'patch';
 
 export interface OfflineMutation {
   id: string;
+  mutationId?: string;
   type: MutationType;
+  table?: 'orders' | 'parts' | 'price_variants' | 'public_quote_snapshots';
+  primaryKey?: string;
   orderId: string;
   entity?: 'orders';
   entityId?: string;
   operation?: MutationType;
-  payload?: Order;
-  patch?: Partial<Order>;
+  payload?: Order | Record<string, unknown>;
+  patch?: Partial<Order> | Record<string, unknown>;
   createdAt: number;
+  attemptCount?: number;
   retryCount?: number;
   lastError?: string | null;
   nextRetryAt?: number;
@@ -473,10 +477,14 @@ export const offlineDb = {
   async enqueueMutation(mutation: OfflineMutation): Promise<void> {
     const normalized: OfflineMutation = {
       ...mutation,
+      mutationId: mutation.mutationId || mutation.id,
+      table: mutation.table || 'orders',
+      primaryKey: mutation.primaryKey || mutation.entityId || mutation.orderId,
       entity: mutation.entity || 'orders',
       entityId: mutation.entityId || mutation.orderId,
       operation: mutation.operation || mutation.type,
-      retryCount: Number(mutation.retryCount || 0),
+      attemptCount: Number((mutation.attemptCount ?? mutation.retryCount) || 0),
+      retryCount: Number((mutation.retryCount ?? mutation.attemptCount) || 0),
       lastError: mutation.lastError || null,
       nextRetryAt: Number(mutation.nextRetryAt || 0),
       payload: Object.prototype.hasOwnProperty.call(mutation, 'payload') ? mutation.payload : undefined,
