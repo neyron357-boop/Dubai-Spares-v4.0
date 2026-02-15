@@ -151,6 +151,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [showEngineCode, setShowEngineCode] = useState(false);
   const [engineCode, setEngineCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitController, setSubmitController] = useState<AbortController | null>(null);
   const [showThanks, setShowThanks] = useState(false);
   const [createdOrderId, setCreatedOrderId] = useState('');
   const [recordingPartId, setRecordingPartId] = useState<string | null>(null);
@@ -446,7 +447,9 @@ const PublicOrderFormScreen: React.FC = () => {
         };
       }));
 
-      await leadCreate({
+      const controller = new AbortController();
+      setSubmitController(controller);
+      const leadResult = await leadCreate({
         orderId,
         name: clientAlias.trim() || 'Public Lead',
         phone: `${contactCountryCode}${customerContact.trim()}`.trim(),
@@ -459,7 +462,9 @@ const PublicOrderFormScreen: React.FC = () => {
           bodyType: bodyType.trim() || null,
           requestedParts: filledRequestedParts.map((part) => part.name.trim())
         })
-      });
+      }, { signal: controller.signal });
+      setSubmitController(null);
+      if (!leadResult.ok) throw new Error(leadResult.error);
 
       pushNotification({
         type: NotificationType.ORDER_NEW,
@@ -479,6 +484,7 @@ const PublicOrderFormScreen: React.FC = () => {
       void logger.error('public-form', 'Lead submit failed', { error: message });
       alert(message);
     } finally {
+      setSubmitController(null);
       setIsSubmitting(false);
     }
   };
@@ -781,7 +787,10 @@ const PublicOrderFormScreen: React.FC = () => {
           {step < TOTAL_STEPS ? (
             <button type="button" onClick={goNext} disabled={!canContinue || isSubmitting} className="flex h-12 min-w-[160px] items-center justify-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40">Далее<ArrowRight className="h-4 w-4" /></button>
           ) : (
-            <button type="button" onClick={submitOrder} disabled={!canContinue || isSubmitting} className="flex h-12 min-w-[180px] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-200 to-white px-6 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40">{isSubmitting ? 'Отправка...' : 'Подтвердить заявку'}<Copy className="h-4 w-4" /></button>
+            <>
+              <button type="button" onClick={submitOrder} disabled={!canContinue || isSubmitting} className="flex h-12 min-w-[180px] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-200 to-white px-6 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40">{isSubmitting ? 'Отправка...' : 'Подтвердить заявку'}<Copy className="h-4 w-4" /></button>
+              {submitController && <button type="button" onClick={() => submitController.abort('user_cancelled')} className="flex h-12 min-w-[160px] items-center justify-center gap-2 rounded-full border border-white/40 px-6 text-sm font-semibold text-white">Отменить отправку</button>}
+            </>
           )}
         </div>
       </div>

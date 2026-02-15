@@ -4,7 +4,6 @@ import App from './App';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import { extractOrderIdFromQuoteSlug } from './shareUtils';
-import { LOCAL_ONLY } from './localMode';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');
@@ -56,16 +55,13 @@ const playLeadAlertSound = () => {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    if (LOCAL_ONLY) {
-      void navigator.serviceWorker.getRegistrations().then((registrations) => {
-        registrations.forEach((registration) => {
-          void registration.unregister();
-        });
-      });
-      return;
-    }
+    void navigator.serviceWorker.register('/sw.js').then(async (registration) => {
 
-    void navigator.serviceWorker.register('/sw.js').then(async () => {
+      (window as any).forceServiceWorkerUpdate = async () => {
+        const active = registration.active || registration.waiting;
+        active?.postMessage({ type: 'FORCE_SW_UPDATE' });
+        await registration.update();
+      };
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         void Notification.requestPermission();
       }

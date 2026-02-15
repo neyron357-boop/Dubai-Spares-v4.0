@@ -1,5 +1,4 @@
-const SUPABASE_URL = ((import.meta as any).env?.VITE_SUPABASE_URL as string | undefined)?.trim() || 'https://jntgicfiehdprwhtjbuf.supabase.co';
-const SUPABASE_ANON_KEY = ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || 'sb_publishable_ZwcvMV3ccFi0xVapLOorsw_6wLL_9SC';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from './cloudConfig';
 
 export type ImageManifestItem = {
   path: string;
@@ -8,18 +7,27 @@ export type ImageManifestItem = {
   width: number;
   height: number;
   size: number;
+  originalSize: number;
   format: 'webp' | 'jpeg';
+  mime: string;
 };
 
 type ActionScope = 'backup' | 'quote' | 'lead';
 
 const MAX_DIMENSION_BY_SCOPE: Record<ActionScope, number> = {
-  backup: 1600,
-  quote: 1200,
-  lead: 1000
+  backup: 1920,
+  quote: 1600,
+  lead: 1600
 };
 
-const qualitySteps = [0.72, 0.62, 0.52];
+const TARGET_BYTES_BY_SCOPE: Record<ActionScope, number> = {
+  backup: 400 * 1024,
+  quote: 250 * 1024,
+  lead: 250 * 1024
+};
+
+const HARD_CAP_BYTES = 1024 * 1024;
+const qualitySteps = [0.75, 0.62, 0.52, 0.46];
 
 const randomId = () => Math.random().toString(36).slice(2, 10);
 const yieldToUi = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -69,10 +77,11 @@ const dataUrlToBlob = async (value: string): Promise<Blob> => {
   return response.blob();
 };
 
-const getStoragePublicUrl = (path: string) => `${SUPABASE_URL}/storage/v1/object/public/images/${path}`;
+const getBucketByScope = (scope: ActionScope) => (scope === 'backup' ? 'backups' : scope === 'quote' ? 'public-quote' : 'client-form');
+const getStoragePublicUrl = (bucket: string, path: string) => `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
 
-const uploadBlobToStorage = async (path: string, blob: Blob, signal?: AbortSignal): Promise<string> => {
-  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/images/${path}`, {
+const uploadBlobToStorage = async (bucket: string, path: string, blob: Blob, signal?: AbortSignal): Promise<string> => {
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
     method: 'POST',
     headers: {
       apikey: SUPABASE_ANON_KEY,
@@ -89,15 +98,30 @@ const uploadBlobToStorage = async (path: string, blob: Blob, signal?: AbortSigna
     throw new Error(`Image upload failed ${response.status}: ${text.slice(0, 140)}`);
   }
 
-  return getStoragePublicUrl(path);
+  return getStoragePublicUrl(bucket, path);
 };
 
 const isDataImage = (value: unknown): value is string => typeof value === 'string' && value.startsWith('data:image');
 
 const getRootPath = (scope: ActionScope, rootId: string): string => {
-  if (scope === 'backup') return `backups/${rootId}`;
-  if (scope === 'quote') return `quotes/${rootId}`;
-  return `leads/${rootId}`;
+  if (scope === 'backup') return `${rootId}`;
+  if (scope === 'quote') return `${rootId}`;
+  return `${rootId}`;
+};
+
+const compressForScope = async (source: Blob, scope: ActionScope) => {
+  let best = await resizeAndEncode(source, MAX_DIMENSION_BY_SCOPE[scope], qualitySteps[0]);
+  for (const quality of qualitySteps.slice(1)) {
+    if (best.blob.size <= TARGET_BYTES_BY_SCOPE[scope]) break;
+    best = await resizeAndEncode(source, MAX_DIMENSION_BY_SCOPE[scope], quality);
+  }
+  if (best.blob.size > HARD_CAP_BYTES) {
+    best = await resizeAndEncode(source, Math.round(MAX_DIMENSION_BY_SCOPE[scope] * 0.72), 0.4);
+  }
+  if (best.blob.size > HARD_CAP_BYTES) {
+    throw new Error('Image is larger than 1MB after compression. Choose a smaller image.');
+  }
+  return best;
 };
 
 const mapPayloadWithUploads = async (
@@ -121,6 +145,7 @@ const mapPayloadWithUploads = async (
     const out: Record<string, unknown> = {};
     for (const [key, value] of entries) {
       out[key] = await mapPayloadWithUploads(value, scope, rootId, manifest, options);
+      await yieldToUi();
     }
     return out;
   }
@@ -128,24 +153,21 @@ const mapPayloadWithUploads = async (
   if (!isDataImage(input)) return input;
 
   const source = await dataUrlToBlob(input);
-  const maxDimension = MAX_DIMENSION_BY_SCOPE[scope];
-  let best = await resizeAndEncode(source, maxDimension, qualitySteps[0]);
-  for (const q of qualitySteps.slice(1)) {
-    if (best.blob.size <= 250 * 1024) break;
-    best = await resizeAndEncode(source, maxDimension, q);
-  }
+  const main = await compressForScope(source, scope);
+  const thumb = await resizeAndEncode(source, 480, 0.6);
 
   const imageId = randomId();
-  const basePath = `${getRootPath(scope, rootId)}/${imageId}_main.${best.format === 'webp' ? 'webp' : 'jpg'}`;
-  const thumb = await resizeAndEncode(source, 480, 0.6);
-  const thumbPath = `${getRootPath(scope, rootId)}/${imageId}_thumb.${thumb.format === 'webp' ? 'webp' : 'jpg'}`;
+  const rootPath = getRootPath(scope, rootId);
+  const basePath = `${rootPath}/${imageId}_main.${main.format === 'webp' ? 'webp' : 'jpg'}`;
+  const thumbPath = `${rootPath}/${imageId}_thumb.${thumb.format === 'webp' ? 'webp' : 'jpg'}`;
+  const bucket = getBucketByScope(scope);
 
-  const mainUrl = await uploadBlobToStorage(basePath, best.blob, options?.signal);
-  const thumbUrl = await uploadBlobToStorage(thumbPath, thumb.blob, options?.signal);
+  const mainUrl = await uploadBlobToStorage(bucket, basePath, main.blob, options?.signal);
+  const thumbUrl = await uploadBlobToStorage(bucket, thumbPath, thumb.blob, options?.signal);
 
   manifest.push(
-    { path: basePath, url: mainUrl, kind: 'main', width: best.width, height: best.height, size: best.blob.size, format: best.format },
-    { path: thumbPath, url: thumbUrl, kind: 'thumb', width: thumb.width, height: thumb.height, size: thumb.blob.size, format: thumb.format }
+    { path: `${bucket}/${basePath}`, url: mainUrl, kind: 'main', width: main.width, height: main.height, size: main.blob.size, originalSize: source.size, format: main.format, mime: main.blob.type || 'image/webp' },
+    { path: `${bucket}/${thumbPath}`, url: thumbUrl, kind: 'thumb', width: thumb.width, height: thumb.height, size: thumb.blob.size, originalSize: source.size, format: thumb.format, mime: thumb.blob.type || 'image/webp' }
   );
 
   return mainUrl;
@@ -157,17 +179,12 @@ export const preparePayloadWithImageManifest = async (
   rootId: string,
   options?: { signal?: AbortSignal; allowUploadLater?: boolean }
 ): Promise<{ payload: unknown; imageManifest: ImageManifestItem[]; pendingUpload: boolean }> => {
-  const startedAt = performance.now();
   const imageManifest: ImageManifestItem[] = [];
   try {
     const payload = await mapPayloadWithUploads(input, scope, rootId, imageManifest, options);
-    console.info('[cloudMedia] prepared', { scope, images: imageManifest.length, durationMs: Math.round(performance.now() - startedAt) });
     return { payload, imageManifest, pendingUpload: false };
   } catch (error) {
-    if (options?.allowUploadLater) {
-      console.warn('[cloudMedia] upload deferred', { scope, error: error instanceof Error ? error.message : String(error) });
-      return { payload: input, imageManifest: [], pendingUpload: true };
-    }
+    if (options?.allowUploadLater) return { payload: input, imageManifest: [], pendingUpload: true };
     throw error;
   }
 };

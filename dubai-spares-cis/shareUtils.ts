@@ -208,10 +208,13 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
   const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
   const snapshotToken = createQuoteToken();
   const snapshotResponse = await saveQuoteSnapshot(order, expiresAt, snapshotToken);
+  if (!snapshotResponse.ok) {
+    throw new Error(`Share quote failed: ${snapshotResponse.error}`);
+  }
   const link = buildPublicQuoteLink(order, {
     ...options,
     expiresAt,
-    snapshotToken: snapshotResponse?.token || snapshotToken
+    snapshotToken: snapshotResponse.data.token || snapshotToken
   });
   const text = `Quote for ${order.brand} ${order.model} ${order.year}`;
 
