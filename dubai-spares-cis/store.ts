@@ -11,6 +11,8 @@ const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 let globalSuppliers: Supplier[] = [];
 let listeners = new Set<() => void>();
 
+let suppliersCloudSyncedThisSession = false;
+
 const normalizeSupplier = (supplier: Supplier): Supplier => ({
   ...supplier,
   id: ensureUuid(supplier.id),
@@ -86,7 +88,7 @@ const mapShopToSupplier = (shop: any): Supplier => {
 };
 
 const syncSuppliersFromCloud = async () => {
-  if (!supabase || !navigator.onLine) return;
+  if (suppliersCloudSyncedThisSession || !supabase || !navigator.onLine) return;
 
   const { data, error } = await supabase
     .from('shops')
@@ -106,6 +108,7 @@ const syncSuppliersFromCloud = async () => {
   [...localOnly, ...remote].forEach((supplier) => byId.set(supplier.id, supplier));
   globalSuppliers = Array.from(byId.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   notifySupplierListeners();
+  suppliersCloudSyncedThisSession = true;
 };
 
 export const subscribeStore = (listener: () => void) => {
@@ -147,18 +150,6 @@ export const useStore = () => {
 
   useEffect(() => {
     void syncSuppliersFromCloud();
-    if (!supabase) return;
-
-    const channel = supabase
-      .channel('suppliers-store-shops-sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'shops' }, () => {
-        void syncSuppliersFromCloud();
-      })
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
   }, []);
 
   const addSupplier = useCallback((supplier: Supplier) => {

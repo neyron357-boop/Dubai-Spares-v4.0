@@ -153,10 +153,20 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setSyncState(getSyncDiagnosticsState().syncStatus);
-    }, 700);
-    return () => window.clearInterval(timer);
+    const updateSyncState = () => setSyncState(getSyncDiagnosticsState().syncStatus);
+    updateSyncState();
+    window.addEventListener('cloud-sync-error', updateSyncState);
+    window.addEventListener('cloud-save-success', updateSyncState);
+    window.addEventListener('online', updateSyncState);
+    window.addEventListener('offline', updateSyncState);
+    window.addEventListener('idb-autosync-paused', updateSyncState as EventListener);
+    return () => {
+      window.removeEventListener('cloud-sync-error', updateSyncState);
+      window.removeEventListener('cloud-save-success', updateSyncState);
+      window.removeEventListener('online', updateSyncState);
+      window.removeEventListener('offline', updateSyncState);
+      window.removeEventListener('idb-autosync-paused', updateSyncState as EventListener);
+    };
   }, []);
 
   useEffect(() => {
