@@ -28,13 +28,14 @@ if (!isCloudSyncConfigured) {
 }
 
 const SUPABASE_GET_TIMEOUT_MS = 45000;
-const SUPABASE_WRITE_TIMEOUT_MS = 45000;
+const SUPABASE_WRITE_TIMEOUT_MS = 90000;
 const SUPABASE_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000, 30000] as const;
+const RETRYABLE_HTTP_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']);
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const shouldRetrySupabaseRequest = (error: unknown, method: string) => {
-  if (method !== 'GET' && method !== 'HEAD') return false;
+  if (!RETRYABLE_HTTP_METHODS.has(method)) return false;
   if (!(error instanceof Error)) return false;
   const message = `${error.name}:${error.message}`.toLowerCase();
   return message.includes('aborterror') || message.includes('timeout') || message.includes('failed to fetch') || message.includes('network');
@@ -46,6 +47,7 @@ const instrumentedFetch: typeof fetch = async (input, init) => {
   const method = init?.method ?? (typeof input !== 'string' && !(input instanceof URL) ? input.method : 'GET') ?? 'GET';
   const upperMethod = method.toUpperCase();
   const requestTimeoutMs = upperMethod === 'GET' ? SUPABASE_GET_TIMEOUT_MS : SUPABASE_WRITE_TIMEOUT_MS;
+  const shouldUseClientTimeout = upperMethod === 'GET';
 
   const headers = new Headers(init?.headers ?? (typeof input !== 'string' && !(input instanceof URL) ? input.headers : undefined));
   const hasApiKey = Boolean(headers.get('apikey') || headers.get('x-api-key'));
@@ -59,14 +61,26 @@ const instrumentedFetch: typeof fetch = async (input, init) => {
   });
 
   for (let attempt = 0; attempt <= SUPABASE_RETRY_DELAYS_MS.length; attempt += 1) {
+    const controller = new AbortController();
+    const externalSignal = init?.signal;
+    const abortFromExternalSignal = () => controller.abort(externalSignal?.reason ?? 'Upstream request aborted');
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        abortFromExternalSignal();
+      } else {
+        externalSignal.addEventListener('abort', abortFromExternalSignal, { once: true });
+      }
+    }
+
+    const timeoutId = shouldUseClientTimeout
+      ? window.setTimeout(() => controller.abort(`Timeout after ${requestTimeoutMs}ms`), requestTimeoutMs)
+      : null;
+
     try {
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(`Timeout after ${requestTimeoutMs}ms`), requestTimeoutMs);
       const response = await fetch(input, {
         ...init,
-        signal: init?.signal ?? controller.signal
+        signal: controller.signal
       });
-      window.clearTimeout(timeoutId);
       await logger.info('supabase:response', `${response.status} ${method} ${rawUrl}`, {
         ok: response.ok,
         durationMs: Date.now() - start,
@@ -118,6 +132,9 @@ const instrumentedFetch: typeof fetch = async (input, init) => {
       }
 
       await sleep(SUPABASE_RETRY_DELAYS_MS[attempt]);
+    } finally {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      externalSignal?.removeEventListener('abort', abortFromExternalSignal);
     }
   }
 

@@ -2,6 +2,7 @@ import { Order, Part } from './types';
 import { supabase } from './supabase';
 import { logSyncCategory, syncPerf } from './syncPerf';
 import { markMissingColumn } from './syncSchema';
+import { offlineDb } from './storage/offlineDb';
 
 export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS';
 export type QuoteRates = Record<QuoteCurrency, number>;
@@ -14,6 +15,13 @@ export const DEFAULT_QUOTE_RATES: QuoteRates = {
 };
 
 const firstHttpPhoto = (images: string[]) => images.find((item) => item.startsWith('http'));
+
+
+const createMutationId = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `snapshot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
 
 export const getShareText = (brand: string, partName: string, price: string, cloudLink: string) =>
   `Brand: ${brand} | Part: ${partName} | Price: ${price} | Photos: ${cloudLink}`;
@@ -221,6 +229,26 @@ const saveQuoteSnapshot = async (order: Order, expiresAt: number, token: string)
     const missingMatch = message.match(/Could not find the '([^']+)' column|column\s+public_quote_snapshots\.([a-zA-Z0-9_]+)/i);
     const missingColumn = missingMatch?.[1] || missingMatch?.[2];
     if (!missingColumn || !(missingColumn in payload)) {
+      const isNetworkIssue = /abort|timeout|network|fetch/i.test(message);
+      if (isNetworkIssue) {
+        const mutationId = createMutationId();
+        await offlineDb.enqueueMutation({
+          id: mutationId,
+          mutationId,
+          type: 'upsert',
+          operation: 'upsert',
+          table: 'public_quote_snapshots',
+          primaryKey: token,
+          orderId: order.id,
+          payload,
+          createdAt: Date.now(),
+          attemptCount: 0,
+          retryCount: 0
+        });
+        syncPerf.setQueueLength(await offlineDb.getMutationCount());
+        logSyncCategory('MUTATION_QUEUE', 'public_quote_snapshot_enqueued', { token, orderId: order.id });
+        return true;
+      }
       logSyncCategory('SUPABASE_REQ', 'public_quote_snapshot_failed', { message });
       return false;
     }
