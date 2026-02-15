@@ -49,7 +49,13 @@ export type EncodedPayload = {
 export const encodePayloadToCompressedTransport = async (payload: unknown): Promise<EncodedPayload> => {
   const rawText = JSON.stringify(payload);
   const rawBytes = new TextEncoder().encode(rawText);
-  const compressed = await gzipBytes(rawBytes);
+  let compressed = rawBytes;
+  let codec = 'identity+b64';
+
+  if (typeof CompressionStream !== 'undefined') {
+    compressed = await gzipBytes(rawBytes);
+    codec = 'gzip+b64';
+  }
 
   if (compressed.byteLength > MAX_COMPRESSED_BYTES) {
     throw new Error('Backup слишком большой — удалите тяжёлые медиа или используйте частичный бекап');
@@ -57,7 +63,7 @@ export const encodePayloadToCompressedTransport = async (payload: unknown): Prom
 
   return {
     payloadB64: bytesToBase64(compressed),
-    payloadCodec: 'gzip+pako+b64',
+    payloadCodec: codec,
     payloadJson: rawBytes.byteLength <= SMALL_JSON_LIMIT_BYTES ? payload : null,
     compressedBytes: compressed.byteLength,
     rawBytes: rawBytes.byteLength
@@ -69,12 +75,12 @@ export const decodePayloadFromCompressedTransport = async <T>(payloadB64: string
     throw new Error('Compressed payload is empty');
   }
 
-  if (payloadCodec && !payloadCodec.startsWith('gzip')) {
+  if (payloadCodec && !payloadCodec.startsWith('gzip') && !payloadCodec.startsWith('identity')) {
     throw new Error(`Unsupported payload codec: ${payloadCodec}`);
   }
 
   const compressed = base64ToBytes(payloadB64);
-  const rawBytes = await ungzipBytes(compressed);
+  const rawBytes = payloadCodec?.startsWith('gzip') ? await ungzipBytes(compressed) : compressed;
   const json = new TextDecoder().decode(rawBytes);
   return JSON.parse(json) as T;
 };

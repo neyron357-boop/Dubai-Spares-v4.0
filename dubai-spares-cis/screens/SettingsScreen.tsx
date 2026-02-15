@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ChevronRight, ShieldAlert, Wrench } from 'lucide-react';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
-import { backupUpload, isServerApiAvailable } from '../serverApi';
+import { backupUpload } from '../serverApi';
+import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLastCloudCall, isCloudConfigured, SUPABASE_HOST } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 
 const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger' }> = ({ title, children, tone = 'default' }) => (
@@ -29,7 +30,8 @@ const SettingsScreen: React.FC = () => {
   const [busy, setBusy] = useState<string | null>(null);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
-  const [serverStatus, setServerStatus] = useState<'available' | 'unavailable'>(() => (isServerApiAvailable() ? 'available' : 'unavailable'));
+  const [serverStatus, setServerStatus] = useState<'available' | 'unavailable'>(() => (isCloudConfigured ? 'available' : 'unavailable'));
+  const [lastCloudResult, setLastCloudResult] = useState(() => getLastCloudCall());
   const [backupProgress, setBackupProgress] = useState(0);
   const [backupController, setBackupController] = useState<AbortController | null>(null);
   const [lastBackupId, setLastBackupId] = useState('');
@@ -48,12 +50,17 @@ const SettingsScreen: React.FC = () => {
 
 
   useEffect(() => {
+    const onCloudCall = (event: Event) => setLastCloudResult((event as CustomEvent).detail);
+    window.addEventListener('cloud:last-call', onCloudCall as EventListener);
     const onRequest = (event: Event) => {
       const count = Number((event as CustomEvent<{ count?: number }>).detail?.count || 0);
       setRequestCount(count);
     };
     window.addEventListener('server-api:request', onRequest as EventListener);
-    return () => window.removeEventListener('server-api:request', onRequest as EventListener);
+    return () => {
+      window.removeEventListener('server-api:request', onRequest as EventListener);
+      window.removeEventListener('cloud:last-call', onCloudCall as EventListener);
+    };
   }, []);
 
 
@@ -97,6 +104,9 @@ const SettingsScreen: React.FC = () => {
     setBusy(label);
     try {
       await fn();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Cloud action failed';
+      alert(`${message}. Use "Copy diagnostics" and retry.`);
     } finally {
       setBusy(null);
     }
@@ -253,13 +263,14 @@ const SettingsScreen: React.FC = () => {
           <p>Режим: <b>LOCAL</b></p>
           <p>Server: {serverStatus === 'available' ? 'available' : 'unavailable'}</p>
           <p>Supabase requests (dev check): {requestCount}</p>
+          {!isCloudConfigured && <p className="text-rose-600">{cloudBuildGuardMessage}</p>}
         </div>
 
         <div className="flex flex-col gap-2">
           <button
             className="w-full rounded-xl bg-blue-600 text-white px-3 py-2 font-black text-sm disabled:opacity-50"
             type="button"
-            disabled={!!backupController}
+            disabled={!!backupController || !isCloudConfigured}
             onClick={() => void withBusy('backup-upload', async () => {
               const controller = new AbortController();
               setBackupController(controller);
@@ -267,12 +278,15 @@ const SettingsScreen: React.FC = () => {
               try {
                 const payload = buildCompactBackupPayload();
                 const uploaded = await backupUpload(payload, { signal: controller.signal });
-                setLastBackupId(uploaded.backupId);
+                if (!uploaded.ok) {
+                  setServerStatus('unavailable');
+                  throw new Error(uploaded.error);
+                }
+                setLastBackupId(uploaded.data.backupId);
                 setServerStatus('available');
                 setBackupProgress(100);
-              } catch {
-                setServerStatus('unavailable');
-                throw new Error('Backup upload failed');
+              } catch (error) {
+                throw new Error(error instanceof Error ? error.message : 'Backup upload failed');
               } finally {
                 window.setTimeout(() => setBackupProgress(0), 600);
                 setBackupController(null);
@@ -307,9 +321,10 @@ const SettingsScreen: React.FC = () => {
                 const controller = new AbortController();
                 setBackupController(controller);
                 try {
-                  const backup = await backupUpload.restoreById(lastBackupId, { signal: controller.signal });
-                  await offlineDb.importAllData(backup.payload);
-                  if ((backup.payload as any)?.orders) restoreData({ orders: (backup.payload as any).orders, suppliers: [] });
+                  const backup = await backupUpload({}, { mode: 'restore', backupId: lastBackupId, signal: controller.signal, timeoutMs: 45000 });
+                  if (!backup.ok || !backup.data.payload) throw new Error(backup.ok ? 'Backup payload missing' : backup.error);
+                  await offlineDb.importAllData(backup.data.payload);
+                  if ((backup.data.payload as any)?.orders) restoreData({ orders: (backup.data.payload as any).orders, suppliers: [] });
                   setServerStatus('available');
                 } finally {
                   setBackupController(null);
@@ -334,7 +349,18 @@ const SettingsScreen: React.FC = () => {
           </label>
         </div>
 
-        <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => { (window as any).__serverApiRequestCount = 0; setRequestCount(0); }}>Reset request counter</button>
+        <div className="flex gap-3">
+          <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => { (window as any).__serverApiRequestCount = 0; setRequestCount(0); }}>Reset request counter</button>
+          <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => navigator.clipboard.writeText(cloudDiagnosticsText())}>Copy diagnostics</button>
+        </div>
+        {devUnlocked && (
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 space-y-1">
+            <p className="font-black text-gray-900">Cloud diagnostics (dev)</p>
+            <p>Supabase host: {SUPABASE_HOST || 'invalid'}</p>
+            <p>Features: backup={String(cloudFeatureFlags.backup)}, quote={String(cloudFeatureFlags.publicQuote)}, form={String(cloudFeatureFlags.clientForm)}</p>
+            <p>Last call: {lastCloudResult ? `${lastCloudResult.action} • ${lastCloudResult.ok ? 'ok' : lastCloudResult.code}` : 'none'}</p>
+          </div>
+        )}
         <Link to="/debug" className="inline-block text-xs font-bold text-blue-600 underline underline-offset-2">→ Расширенная диагностика</Link>
       </Section>
 
