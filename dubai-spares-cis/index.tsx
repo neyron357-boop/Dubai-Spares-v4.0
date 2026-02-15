@@ -65,19 +65,7 @@ if ('serviceWorker' in navigator) {
       return;
     }
 
-    void navigator.serviceWorker.register('/sw.js').then(async (registration) => {
-      const swUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-      const swKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-
-      if (swUrl && swKey) {
-        const pushConfig = () => {
-          registration.active?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
-          registration.waiting?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
-          registration.installing?.postMessage({ type: 'supabase-config', url: swUrl, anonKey: swKey });
-        };
-        pushConfig();
-      }
-
+    void navigator.serviceWorker.register('/sw.js').then(async () => {
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         void Notification.requestPermission();
       }

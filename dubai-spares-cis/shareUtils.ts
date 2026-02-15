@@ -199,16 +199,15 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
   return url.toString();
 };
 
-const saveQuoteSnapshot = async (order: Order, expiresAt: number) => {
+const saveQuoteSnapshot = async (order: Order, expiresAt: number, token: string) => {
   const snapshot = buildQuoteSnapshot(order);
-  const ttlHours = Math.max(1, Math.round((expiresAt - Date.now()) / (60 * 60 * 1000)));
-  return publicQuoteCreate(order.id, snapshot, ttlHours);
+  return publicQuoteCreate({ token, payload: snapshot, expiresAt });
 };
 
 export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
   const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
   const snapshotToken = createQuoteToken();
-  const snapshotResponse = await saveQuoteSnapshot(order, expiresAt);
+  const snapshotResponse = await saveQuoteSnapshot(order, expiresAt, snapshotToken);
   const link = buildPublicQuoteLink(order, {
     ...options,
     expiresAt,

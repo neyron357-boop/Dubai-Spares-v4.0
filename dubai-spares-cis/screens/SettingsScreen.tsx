@@ -32,6 +32,8 @@ const SettingsScreen: React.FC = () => {
   const [serverStatus, setServerStatus] = useState<'available' | 'unavailable'>(() => (isServerApiAvailable() ? 'available' : 'unavailable'));
   const [backupProgress, setBackupProgress] = useState(0);
   const [backupController, setBackupController] = useState<AbortController | null>(null);
+  const [lastBackupId, setLastBackupId] = useState('');
+  const [requestCount, setRequestCount] = useState<number>(() => ((window as any).__serverApiRequestCount || 0));
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -44,6 +46,17 @@ const SettingsScreen: React.FC = () => {
     setDraftSettings(settings);
   }, [settings]);
 
+
+  useEffect(() => {
+    const onRequest = (event: Event) => {
+      const count = Number((event as CustomEvent<{ count?: number }>).detail?.count || 0);
+      setRequestCount(count);
+    };
+    window.addEventListener('server-api:request', onRequest as EventListener);
+    return () => window.removeEventListener('server-api:request', onRequest as EventListener);
+  }, []);
+
+
   const updateDraft = (patch: Partial<AppSettings>) => {
     setDraftSettings((prev) => ({ ...prev, ...patch }));
     setSaveNotice(null);
@@ -54,6 +67,30 @@ const SettingsScreen: React.FC = () => {
   const saveChanges = () => {
     updateSettings(draftSettings);
     setSaveNotice('Изменения сохранены и применены во всех разделах.');
+  };
+
+
+  const buildCompactBackupPayload = () => {
+    const raw = exportData();
+    return {
+      ...raw,
+      orders: (raw.orders || []).map((order: any) => ({
+        ...order,
+        carPhotoUrl: '',
+        carPhotos: [],
+        vinPhotoUrl: '',
+        parts: (order.parts || []).map((part: any) => ({
+          ...part,
+          photoUrl: '',
+          photos: [],
+          variants: (part.variants || []).map((variant: any) => ({
+            ...variant,
+            photoUrl: '',
+            photos: []
+          }))
+        }))
+      }))
+    };
   };
 
   const withBusy = async (label: string, fn: () => Promise<void>) => {
@@ -215,6 +252,7 @@ const SettingsScreen: React.FC = () => {
         <div className="text-sm text-gray-700 space-y-1">
           <p>Режим: <b>LOCAL</b></p>
           <p>Server: {serverStatus === 'available' ? 'available' : 'unavailable'}</p>
+          <p>Supabase requests (dev check): {requestCount}</p>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -223,12 +261,13 @@ const SettingsScreen: React.FC = () => {
             type="button"
             disabled={!!backupController}
             onClick={() => void withBusy('backup-upload', async () => {
-              const payload = exportData();
               const controller = new AbortController();
               setBackupController(controller);
               setBackupProgress(15);
               try {
-                await backupUpload(payload, { signal: controller.signal });
+                const payload = buildCompactBackupPayload();
+                const uploaded = await backupUpload(payload, { signal: controller.signal });
+                setLastBackupId(uploaded.backupId);
                 setServerStatus('available');
                 setBackupProgress(100);
               } catch {
@@ -253,6 +292,34 @@ const SettingsScreen: React.FC = () => {
             <div className="h-full bg-blue-600 transition-all" style={{ width: `${backupProgress}%` }} />
           </div>
 
+          <div className="flex gap-2">
+            <input
+              value={lastBackupId}
+              onChange={(e) => setLastBackupId(e.target.value.trim())}
+              placeholder="Backup ID"
+              className="flex-1 rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            />
+            <button
+              className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold disabled:opacity-50"
+              type="button"
+              disabled={!lastBackupId || !!backupController}
+              onClick={() => void withBusy('backup-restore', async () => {
+                const controller = new AbortController();
+                setBackupController(controller);
+                try {
+                  const backup = await backupUpload.restoreById(lastBackupId, { signal: controller.signal });
+                  await offlineDb.importAllData(backup.payload);
+                  if ((backup.payload as any)?.orders) restoreData({ orders: (backup.payload as any).orders, suppliers: [] });
+                  setServerStatus('available');
+                } finally {
+                  setBackupController(null);
+                }
+              })}
+            >
+              Restore by ID
+            </button>
+          </div>
+
           <label className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-center text-sm font-bold cursor-pointer">Restore from backup
             <input type="file" accept="application/json" className="hidden" onChange={(e) => {
               const file = e.target.files?.[0];
@@ -267,6 +334,7 @@ const SettingsScreen: React.FC = () => {
           </label>
         </div>
 
+        <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => { (window as any).__serverApiRequestCount = 0; setRequestCount(0); }}>Reset request counter</button>
         <Link to="/debug" className="inline-block text-xs font-bold text-blue-600 underline underline-offset-2">→ Расширенная диагностика</Link>
       </Section>
 
