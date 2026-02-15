@@ -1,6 +1,7 @@
--- Normalized schema for orders -> parts -> price_variants
+-- Normalized schema for orders -> parts -> price_variants (+ app settings/public links helpers)
 create extension if not exists pgcrypto;
 
+-- Legacy cleanup (safe / idempotent)
 alter table if exists public.orders drop column if exists data;
 drop table if exists public.app_state;
 
@@ -38,8 +39,10 @@ create table if not exists public.orders (
   body_type text,
   status text not null default 'active' check (status in ('active','archive','sold','vip','lead','new_inquiry','in_progress')),
   priority text not null default 'MEDIUM' check (priority in ('LOW','MEDIUM','HIGH')),
+  sales_status text not null default 'Inquiry',
   client_name text not null default '',
   source text not null default 'Другое',
+  source_platform text,
   customer_contact text not null default '',
   social_nickname text not null default '',
   car_photo_url text,
@@ -47,7 +50,11 @@ create table if not exists public.orders (
   markup_percent numeric not null default 20,
   markup_type text not null default 'percent' check (markup_type in ('percent','fixed')),
   markup_fixed_aed numeric not null default 0,
+  use_markup_as_default_for_new_parts boolean not null default false,
   exchange_rate numeric not null default 3.67,
+  client_currency text,
+  fx_updated_at timestamptz,
+  logistics jsonb,
   is_archived boolean not null default false,
   is_sold boolean not null default false,
   sold_profit_usd numeric,
@@ -90,10 +97,69 @@ create index if not exists idx_orders_created_at on public.orders (created_at de
 create index if not exists idx_parts_order_id on public.parts (order_id);
 create index if not exists idx_price_variants_part_id on public.price_variants (part_id);
 
+alter table public.orders enable row level security;
+alter table public.parts enable row level security;
+alter table public.price_variants enable row level security;
+
+drop policy if exists "anon_all_orders" on public.orders;
+create policy "anon_all_orders"
+  on public.orders
+  for all
+  to anon
+  using (true)
+  with check (true);
+
+drop policy if exists "anon_all_parts" on public.parts;
+create policy "anon_all_parts"
+  on public.parts
+  for all
+  to anon
+  using (true)
+  with check (true);
+
+drop policy if exists "anon_all_price_variants" on public.price_variants;
+create policy "anon_all_price_variants"
+  on public.price_variants
+  for all
+  to anon
+  using (true)
+  with check (true);
+
 insert into storage.buckets (id, name, public)
 values ('images', 'images', true)
-on conflict (id) do nothing;
+on conflict (id) do update
+set public = excluded.public;
 
+alter table storage.objects enable row level security;
+
+drop policy if exists "anon_read_images" on storage.objects;
+create policy "anon_read_images"
+  on storage.objects
+  for select
+  to anon
+  using (bucket_id = 'images');
+
+drop policy if exists "anon_insert_images" on storage.objects;
+create policy "anon_insert_images"
+  on storage.objects
+  for insert
+  to anon
+  with check (bucket_id = 'images');
+
+drop policy if exists "anon_update_images" on storage.objects;
+create policy "anon_update_images"
+  on storage.objects
+  for update
+  to anon
+  using (bucket_id = 'images')
+  with check (bucket_id = 'images');
+
+drop policy if exists "anon_delete_images" on storage.objects;
+create policy "anon_delete_images"
+  on storage.objects
+  for delete
+  to anon
+  using (bucket_id = 'images');
 
 create table if not exists public.shops (
   id uuid primary key default gen_random_uuid(),
@@ -110,21 +176,73 @@ create table if not exists public.shops (
   specialization text[] not null default '{}',
   specialization_models text[] not null default '{}',
   specialization_years integer[] not null default '{}',
+  specialization_body_types text[] not null default '{}',
+  specialization_tag text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 create index if not exists idx_shops_geo on public.shops (latitude, longitude);
+create index if not exists idx_shops_specialization_tag on public.shops (specialization_tag);
 
 alter table if exists public.shops enable row level security;
 
+drop policy if exists "anon_read_shops" on public.shops;
 create policy "anon_read_shops"
   on public.shops
   for select
   using (true);
 
+drop policy if exists "anon_write_shops" on public.shops;
 create policy "anon_write_shops"
   on public.shops
   for all
+  using (true)
+  with check (true);
+
+create table if not exists public.push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  user_agent text,
+  is_active boolean not null default true,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create index if not exists idx_push_subscriptions_active
+  on public.push_subscriptions (is_active)
+  where is_active = true;
+
+alter table public.push_subscriptions enable row level security;
+
+drop policy if exists "Service role can manage push subscriptions" on public.push_subscriptions;
+create policy "Service role can manage push subscriptions"
+  on public.push_subscriptions
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+create table if not exists public.public_quote_snapshots (
+  token text primary key,
+  order_id text not null,
+  payload jsonb not null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_public_quote_snapshots_order_id
+  on public.public_quote_snapshots (order_id);
+create index if not exists idx_public_quote_snapshots_expires_at
+  on public.public_quote_snapshots (expires_at);
+
+alter table public.public_quote_snapshots enable row level security;
+
+drop policy if exists "anon_all_public_quote_snapshots" on public.public_quote_snapshots;
+create policy "anon_all_public_quote_snapshots"
+  on public.public_quote_snapshots
+  for all
+  to anon
   using (true)
   with check (true);
