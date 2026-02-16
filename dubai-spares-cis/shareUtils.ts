@@ -82,15 +82,10 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 
 export type PublicQuoteKey = { value: string };
 
-export const parsePublicQuoteKey = (params: URLSearchParams, pathParam: string): PublicQuoteKey | null => {
-  const tokenFromQuery = (params.get('quote') || params.get('token') || params.get('snapshot') || '').trim();
-  if (tokenFromQuery) return { value: tokenFromQuery };
-
-  const candidateFromPath = decodeURIComponent((pathParam || '').trim());
-  if (!candidateFromPath) return null;
-
-  if (UUID_REGEX.test(candidateFromPath) || candidateFromPath.includes('--')) return null;
-  return { value: candidateFromPath };
+export const parsePublicQuoteKey = (params: URLSearchParams, _pathParam: string): PublicQuoteKey | null => {
+  const tokenFromQuery = (params.get('token') || '').trim();
+  if (!tokenFromQuery) return null;
+  return { value: tokenFromQuery };
 };
 
 export const serializeQuoteRates = (rates: QuoteRates) => (
@@ -218,9 +213,15 @@ const buildQuoteSnapshot = (order: Pick<Order,
 };
 
 export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
-  const url = new URL(`${window.location.origin}/#/q/${encodeURIComponent(options?.snapshotToken || createQuoteToken())}`);
+  const slug = typeof order === 'string' ? encodeURIComponent(order) : encodeURIComponent(buildPublicQuoteSlug(order));
+  const token = options?.snapshotToken || createQuoteToken();
+  const url = new URL(`${window.location.origin}/quote/${slug}`);
+  url.searchParams.set('token', token);
   const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
   url.searchParams.set('exp', String(expiresAt));
+  if (typeof order !== 'string') {
+    url.searchParams.set('oid', order.id);
+  }
 
   if (options?.rates) {
     url.searchParams.set('rates', serializeQuoteRates(options.rates));
@@ -249,7 +250,8 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
     owner: {
       whatsappPhone: settings.publicWhatsappNumber,
       displayName: 'Dubai Spares CIS'
-    }
+    },
+    rates: options?.rates
   });
   const link = snapshot.url;
   const text = `Quote for ${order.brand} ${order.model} ${order.year}`;

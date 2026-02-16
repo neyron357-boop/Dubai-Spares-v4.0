@@ -153,14 +153,14 @@ export const backupUpload = async (
   }
 };
 
-export const publicQuoteCreate = async (
+export const createPublicQuoteSnapshot = async (
   input: { token: string; payload: unknown; expiresAt: string | number | Date },
   options?: RequestOptions
 ): Promise<Result<{ id: string; token: string; expires_at: string }>> => {
   const guard = assertCloudFeatureEnabled(cloudFeatureFlags.publicQuote);
-  if (!guard.ok) return recordCall('publicQuoteCreate', guard);
-  const lockKey = 'publicQuoteCreate';
-  if (inFlight.has(lockKey)) return recordCall('publicQuoteCreate', denyDuplicate('Quote share'));
+  if (!guard.ok) return recordCall('createPublicQuoteSnapshot', guard);
+  const lockKey = 'createPublicQuoteSnapshot';
+  if (inFlight.has(lockKey)) return recordCall('createPublicQuoteSnapshot', denyDuplicate('Quote share'));
   inFlight.add(lockKey);
 
   try {
@@ -179,40 +179,52 @@ export const publicQuoteCreate = async (
         ...(options || {}),
         timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
       }));
-    if (!response.ok) return recordCall('publicQuoteCreate', response);
+    if (!response.ok) return recordCall('createPublicQuoteSnapshot', response);
     const row = response.data?.[0];
     if (!row?.id || !row?.token || !row?.expires_at) {
-      return recordCall('publicQuoteCreate', { ok: false, code: 'empty_response', error: 'Quote created but id/token/expires_at was not returned' });
+      return recordCall('createPublicQuoteSnapshot', { ok: false, code: 'empty_response', error: 'Quote created but id/token/expires_at was not returned' });
     }
-    return recordCall('publicQuoteCreate', { ok: true, data: row });
+    return recordCall('createPublicQuoteSnapshot', { ok: true, data: row });
   } catch (error) {
-    return recordCall('publicQuoteCreate', { ok: false, code: 'unexpected_error', error: error instanceof Error ? error.message : 'Share quote failed' });
+    return recordCall('createPublicQuoteSnapshot', { ok: false, code: 'unexpected_error', error: error instanceof Error ? error.message : 'Share quote failed' });
   } finally {
     inFlight.delete(lockKey);
   }
 };
 
-export const publicQuoteGetByToken = async (
+export const getPublicQuoteSnapshot = async (
   token: string,
   options?: RequestOptions
 ): Promise<Result<{ token: string; expires_at: string; payload: unknown; payload_b64?: string | null; payload_codec?: string | null; payload_json?: unknown }>> => {
   const guard = assertCloudFeatureEnabled(cloudFeatureFlags.publicQuote);
-  if (!guard.ok) return recordCall('publicQuoteGetByToken', guard);
+  if (!guard.ok) return recordCall('getPublicQuoteSnapshot', guard);
   const normalizedToken = token.trim();
-  if (!normalizedToken) return recordCall('publicQuoteGetByToken', { ok: false, code: 'invalid_token', error: 'Snapshot token is required' });
+  if (!normalizedToken) return recordCall('getPublicQuoteSnapshot', { ok: false, code: 'invalid_token', error: 'Snapshot token is required' });
 
   const endpoint = `public_quote_snapshots?token=eq.${encodeURIComponent(normalizedToken)}&select=token,expires_at,payload,payload_b64,payload_codec,payload_json,image_manifest&limit=1`;
-  const response = await withSingleFlight(`quote:get:${normalizedToken}`,
+  let response = await withSingleFlight(`quote:get:${normalizedToken}:1`,
     () => callRest<Array<{ token: string; expires_at: string; payload: unknown; payload_b64?: string | null; payload_codec?: string | null; payload_json?: unknown }>>(endpoint, 'GET', undefined, {
       ...(options || {}),
       timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
     }));
 
-  if (!response.ok) return recordCall('publicQuoteGetByToken', response);
+  if (!response.ok && (response.code === 'aborted_or_timeout' || response.code === 'network_error')) {
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    response = await withSingleFlight(`quote:get:${normalizedToken}:2`,
+      () => callRest<Array<{ token: string; expires_at: string; payload: unknown; payload_b64?: string | null; payload_codec?: string | null; payload_json?: unknown }>>(endpoint, 'GET', undefined, {
+        ...(options || {}),
+        timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
+      }));
+  }
+
+  if (!response.ok) return recordCall('getPublicQuoteSnapshot', response);
   const row = response.data?.[0];
-  if (!row) return recordCall('publicQuoteGetByToken', { ok: false, code: 'not_found', error: 'Quote snapshot not found' });
-  return recordCall('publicQuoteGetByToken', { ok: true, data: row });
+  if (!row) return recordCall('getPublicQuoteSnapshot', { ok: false, code: 'not_found', error: 'Quote snapshot not found' });
+  return recordCall('getPublicQuoteSnapshot', { ok: true, data: row });
 };
+
+export const publicQuoteCreate = createPublicQuoteSnapshot;
+export const publicQuoteGetByToken = getPublicQuoteSnapshot;
 
 export const leadCreate = async (
   payload: { name: string; phone: string; message?: string; orderId?: string | null; [key: string]: unknown },

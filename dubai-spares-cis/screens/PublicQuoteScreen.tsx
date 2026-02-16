@@ -21,6 +21,7 @@ type Language = 'en' | 'ru';
 const CURRENCY_LABELS: Record<QuoteCurrency, string> = { AED: 'Dirham', USD: 'Dollar', RUB: 'Ruble', TJS: 'Somoni' };
 
 enum EstimateErrorType {
+  INVALID_LINK = 'INVALID_LINK',
   NOT_FOUND = 'NOT_FOUND',
   NO_ACCESS = 'NO_ACCESS',
   OFFLINE = 'OFFLINE',
@@ -31,6 +32,8 @@ enum EstimateErrorType {
 const i18n = {
   en: {
     quoteUnavailable: 'Quote not available.',
+    invalidTitle: 'Invalid link',
+    invalidBody: 'This quote link is missing a token.',
     quoteExpired: 'Quote expired',
     quoteExpiredBody: 'This quote link is no longer active. Please contact us to refresh pricing and availability.',
     contactUs: 'Contact us',
@@ -84,6 +87,8 @@ const i18n = {
   },
   ru: {
     quoteUnavailable: 'Предложение недоступно.',
+    invalidTitle: 'Неверная ссылка',
+    invalidBody: 'В ссылке отсутствует токен сметы.',
     quoteExpired: 'Срок предложения истёк',
     quoteExpiredBody: 'Ссылка на смету больше не активна. Напишите нам, чтобы обновить цену и наличие.',
     contactUs: 'Связаться с нами',
@@ -339,8 +344,10 @@ const mapSnapshotOrder = (row: any): Order => {
   createdAt: parseTimestamp(row?.createdAt ?? row?.created_at),
   isArchived: !!row?.isArchived || !!row?.is_archived,
   isSold: !!row?.isSold || !!row?.is_sold,
-  pricingEvents: Array.isArray(row?.pricingEvents || row?.pricing_events) ? (row?.pricingEvents || row?.pricing_events) : []
-});
+  pricingEvents: Array.isArray(row?.pricingEvents || row?.pricing_events) ? (row?.pricingEvents || row?.pricing_events) : [],
+  payloadOwner: row?.owner || null,
+  public_settings: row?.public_settings || null
+} as Order & { payloadOwner?: unknown; public_settings?: unknown });
 };
 
 const isRelationQueryError = (error: unknown) => {
@@ -478,7 +485,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const embeddedSnapshot = useMemo(() => parseEmbeddedSnapshot(params.get('data')), [params]);
   const publicQuoteKey = useMemo(() => parsePublicQuoteKey(params, orderId), [params, orderId]);
-  const hasSecurityToken = (publicQuoteKey?.value || '').length >= 24;
+  const hasSecurityToken = (publicQuoteKey?.value || '').length === 32;
 
   const logEvent = (event: string, meta?: Record<string, unknown>) => {
     void logger.info('public-quote-analytics', event, { event, orderId, ...meta });
@@ -587,7 +594,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const loadQuote = useCallback(async () => {
     if (!publicQuoteKey?.value) {
       setOrder(null);
-      setErrorType(EstimateErrorType.NOT_FOUND);
+      setErrorType(EstimateErrorType.INVALID_LINK);
       setLoading(false);
       return false;
     }
@@ -721,8 +728,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const confirmMessage = lang === 'ru'
     ? `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nИтого: ${totals.totalAed.toFixed(2)} AED.\nДетали: ${partsLine}.\nГотов(а) оформить. Подскажите срок и способ доставки.`
     : `Hello! I confirm the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nTotal: ${totals.totalAed.toFixed(2)} AED.\nPart: ${partsLine}.\nPlease confirm delivery time and shipping options.`;
-  const payloadOwner = (order as any)?.owner || {};
-  const whatsappPhoneRaw = typeof payloadOwner.whatsapp_phone === 'string' ? payloadOwner.whatsapp_phone : '';
+  const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
+  const payloadSettings = (order as any)?.public_settings || {};
+  const whatsappPhoneRaw = typeof payloadOwner.whatsapp_phone === 'string' && payloadOwner.whatsapp_phone.trim()
+    ? payloadOwner.whatsapp_phone
+    : (typeof payloadSettings.whatsapp_phone === 'string' ? payloadSettings.whatsapp_phone : '');
   const whatsappPhoneDigits = whatsappPhoneRaw.replace(/\D/g, '');
   const whatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(confirmMessage)}` : '';
 
@@ -752,6 +762,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   if (errorType || !order) {
     const errorMeta: Record<EstimateErrorType, { title: string; body: string; tone: string; canRetry: boolean; canGoHome: boolean; canOpenOffline: boolean }> = {
+      [EstimateErrorType.INVALID_LINK]: { title: t.invalidTitle, body: t.invalidBody, tone: 'text-amber-500', canRetry: false, canGoHome: true, canOpenOffline: false },
       [EstimateErrorType.NOT_FOUND]: { title: t.notFoundTitle, body: t.notFoundBody, tone: 'text-rose-500', canRetry: true, canGoHome: true, canOpenOffline: false },
       [EstimateErrorType.NO_ACCESS]: { title: t.noAccessTitle, body: t.noAccessBody, tone: 'text-violet-500', canRetry: false, canGoHome: true, canOpenOffline: false },
       [EstimateErrorType.OFFLINE]: { title: t.offlineTitle, body: t.offlineBody, tone: 'text-amber-500', canRetry: true, canGoHome: false, canOpenOffline: true },
