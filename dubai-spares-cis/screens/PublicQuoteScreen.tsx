@@ -245,7 +245,7 @@ const resolveOrderLogistics = (row: any) => {
 
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
 
-const fetchPublicSnapshot = (token: string, snapshotId?: string | null, signal?: AbortSignal) => publicQuoteGetSnapshot(token, { signal, timeoutMs: 20_000, snapshotId });
+const fetchPublicSnapshot = (token: string, signal?: AbortSignal) => publicQuoteGetSnapshot(token, { signal, timeoutMs: 20_000 });
 
 const mapDbOrder = (row: any): Order => ({
   id: String(row.id),
@@ -561,7 +561,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       loadControllerRef.current?.abort();
       const controller = new AbortController();
       loadControllerRef.current = controller;
-      const data = await fetchPublicSnapshot(token, publicQuoteKey?.snapshotId, controller.signal);
+      if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+        console.info('[public-quote] lookup token', { lookupToken: token, source: publicQuoteKey?.source, urlToken: publicQuoteKey?.urlToken, urlSnapshot: publicQuoteKey?.urlSnapshot });
+      }
+      const data = await fetchPublicSnapshot(token, controller.signal);
       if (!data) return { order: null, expired: false, notFound: true, corrupted: false };
 
       const expiresAt = typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : NaN;
@@ -573,7 +576,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const snapshotOrder = mapSnapshotOrder(payloadObj);
       return { order: snapshotOrder.id ? snapshotOrder : null, expired, notFound: false, corrupted: !!data.isPayloadCorrupted };
     } catch (error) {
-      await logger.warn('quote-shared-snapshot-miss', 'Unable to load shared public quote snapshot', { quoteId: orderId, token: publicQuoteKey?.value, error: error instanceof Error ? error.message : 'unknown' });
+      await logger.warn('quote-shared-snapshot-miss', 'Unable to load shared public quote snapshot', { quoteId: orderId, lookupToken: publicQuoteKey?.value, urlToken: publicQuoteKey?.urlToken, urlSnapshot: publicQuoteKey?.urlSnapshot, error: error instanceof Error ? error.message : 'unknown' });
       return { order: null, expired: false, notFound: true, corrupted: false };
     }
   }, [orderId, publicQuoteKey]);
@@ -770,7 +773,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       [EstimateErrorType.EXPIRED_LINK]: { title: t.expiredTitle, body: t.expiredBody, tone: 'text-slate-500', canRetry: false, canGoHome: true, canOpenOffline: false }
     };
     const current = errorMeta[errorType || EstimateErrorType.SERVER_ERROR];
-    const lookupHint = publicQuoteKey ? `token: ${publicQuoteKey.value}` : `path: ${orderId}`;
+    const lookupHint = publicQuoteKey ? `${publicQuoteKey.source}: ${publicQuoteKey.value}` : `path: ${orderId}`;
     return (
       <div className="min-h-screen bg-[#f5f5f7] text-slate-900 flex items-center justify-center px-4 text-center">
         <div ref={errorCardRef} className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_12px_28px_rgba(15,23,42,0.08)]">
@@ -779,6 +782,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           <p className="mt-2 text-sm text-slate-600">{isPayloadCorrupted ? 'Смета повреждена. Запросите новую ссылку.' : current.body}</p>
           <p className="mt-2 text-xs text-slate-400">ID: <code>{orderId}</code></p>
           <p className="mt-1 text-xs text-slate-400">Lookup key: <code>{lookupHint}</code></p>
+          <p className="mt-1 text-xs text-slate-400">URL token/snapshot: <code>{`${publicQuoteKey?.urlToken || '-'} / ${publicQuoteKey?.urlSnapshot || '-'}`}</code></p>
           <div className="mt-5 flex flex-col gap-2">
             {current.canRetry && (
               <button type="button" disabled={isRetrying} onClick={() => void onRetry()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
