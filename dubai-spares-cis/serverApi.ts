@@ -156,7 +156,7 @@ export const backupUpload = async (
 export const publicQuoteCreate = async (
   input: { token: string; payload: unknown; expiresAt: string | number | Date },
   options?: RequestOptions
-): Promise<Result<{ token: string }>> => {
+): Promise<Result<{ id: string; token: string; expires_at: string }>> => {
   const guard = assertCloudFeatureEnabled(cloudFeatureFlags.publicQuote);
   if (!guard.ok) return recordCall('publicQuoteCreate', guard);
   const lockKey = 'publicQuoteCreate';
@@ -175,12 +175,16 @@ export const publicQuoteCreate = async (
       image_manifest: prepared.imageManifest
     }];
     const response = await withSingleFlight(`quote:create:${JSON.stringify(requestPayload)}`,
-      () => callRest<Array<{ token: string }>>('public_quote_snapshots', 'POST', requestPayload, {
+      () => callRest<Array<{ id: string; token: string; expires_at: string }>>('public_quote_snapshots?select=id,token,expires_at', 'POST', requestPayload, {
         ...(options || {}),
         timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
       }));
     if (!response.ok) return recordCall('publicQuoteCreate', response);
-    return recordCall('publicQuoteCreate', { ok: true, data: { token: response.data?.[0]?.token || input.token } });
+    const row = response.data?.[0];
+    if (!row?.id || !row?.token || !row?.expires_at) {
+      return recordCall('publicQuoteCreate', { ok: false, code: 'empty_response', error: 'Quote created but id/token/expires_at was not returned' });
+    }
+    return recordCall('publicQuoteCreate', { ok: true, data: row });
   } catch (error) {
     return recordCall('publicQuoteCreate', { ok: false, code: 'unexpected_error', error: error instanceof Error ? error.message : 'Share quote failed' });
   } finally {

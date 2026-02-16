@@ -11,7 +11,8 @@ if (!rootElement) throw new Error('Root element not found');
 const root = ReactDOM.createRoot(rootElement);
 const isPublicOrderFormRoute = window.location.pathname === '/request' || window.location.pathname === '/order-form';
 const publicQuoteMatch = window.location.pathname.match(/^\/(?:order\/([^/]+)\/quote|quote\/([^/]+))\/?$/i);
-const publicQuoteOrderId = publicQuoteMatch ? extractOrderIdFromQuoteSlug(publicQuoteMatch[2] || publicQuoteMatch[1] || '') : null;
+const publicQuotePathParam = publicQuoteMatch ? decodeURIComponent((publicQuoteMatch[2] || publicQuoteMatch[1] || '').trim()) : null;
+const publicQuoteOrderId = publicQuotePathParam ? extractOrderIdFromQuoteSlug(publicQuotePathParam) : null;
 const isPublicScrollableRoute = isPublicOrderFormRoute || !!publicQuoteOrderId;
 
 if (isPublicScrollableRoute) {
@@ -22,7 +23,7 @@ if (isPublicScrollableRoute) {
 
 root.render(
   <React.StrictMode>
-    {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : publicQuoteOrderId ? <PublicQuoteScreen orderId={publicQuoteOrderId} /> : <App />}
+    {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : publicQuotePathParam ? <PublicQuoteScreen orderId={publicQuotePathParam} /> : <App />}
   </React.StrictMode>
 );
 
