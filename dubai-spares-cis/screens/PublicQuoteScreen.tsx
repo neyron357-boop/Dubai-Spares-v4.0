@@ -11,11 +11,11 @@ import {
 } from 'lucide-react';
 import { Order, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
-import { DEFAULT_QUOTE_RATES, extractOrderIdFromQuoteSlug, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
+import { DEFAULT_QUOTE_RATES, extractOrderIdFromQuoteSlug, parsePublicQuoteKey, parseQuoteRates, PublicQuoteKey, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
 import { useAppSettings } from '../appSettings';
-import { publicQuoteGetSnapshot } from '../publicQuoteApi';
+import { publicQuoteGetSnapshotByKey } from '../publicQuoteApi';
 
 type Language = 'en' | 'ru';
 
@@ -241,7 +241,7 @@ const resolveOrderLogistics = (row: any) => {
 
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
 
-const fetchPublicSnapshot = (token: string) => publicQuoteGetSnapshot(token);
+const fetchPublicSnapshot = (key: PublicQuoteKey) => publicQuoteGetSnapshotByKey(key);
 
 const mapDbOrder = (row: any): Order => ({
   id: String(row.id),
@@ -485,9 +485,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     .filter(Boolean)
     .map((candidate) => normalizeCandidateOrderId(candidate))));
   const embeddedSnapshot = useMemo(() => parseEmbeddedSnapshot(params.get('data')), [params]);
-  const snapshotToken = (params.get('token') || params.get('snapshot') || '').trim();
-  const token = params.get('token') || snapshotToken;
-  const hasSecurityToken = token.length >= 32;
+  const publicQuoteKey = useMemo(() => parsePublicQuoteKey(params, orderId), [params, orderId]);
+  const hasSecurityToken = (publicQuoteKey?.mode === 'token' ? publicQuoteKey.value : '').length >= 32;
   const isExpired = hasSecurityToken && Number.isFinite(expiresAt) && expiresAt <= Date.now();
 
   const logEvent = (event: string, meta?: Record<string, unknown>) => {
@@ -553,10 +552,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   };
 
   const loadQuoteFromSharedSnapshot = useCallback(async (): Promise<Order | null> => {
-    if (!snapshotToken) return null;
+    if (!publicQuoteKey) return null;
 
     try {
-      const data = await fetchPublicSnapshot(snapshotToken);
+      const data = await fetchPublicSnapshot(publicQuoteKey);
       if (!data?.payload_json) return null;
 
       const expiresAtIso = typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : NaN;
@@ -568,10 +567,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
       return snapshotOrder.id ? snapshotOrder : null;
     } catch (error) {
-      await logger.warn('quote-shared-snapshot-miss', 'Unable to load shared public quote snapshot', { quoteId: orderId, snapshotToken, error });
+      await logger.warn('quote-shared-snapshot-miss', 'Unable to load shared public quote snapshot', { quoteId: orderId, publicQuoteKey, error });
       return null;
     }
-  }, [orderId, snapshotToken]);
+  }, [orderId, publicQuoteKey]);
 
   const readQuoteFromCache = useCallback(() => {
     const raw = window.localStorage.getItem(`public-quote-cache:${orderId}`);
@@ -588,7 +587,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
   const loadQuote = useCallback(async () => {
-    if (snapshotToken) {
+    if (publicQuoteKey) {
       const sharedSnapshotOrder = await loadQuoteFromSharedSnapshot();
       if (sharedSnapshotOrder) {
         setOrder(sharedSnapshotOrder);
@@ -628,12 +627,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       return true;
     }
 
-    await logger.warn('quote-not-found', 'Quote lookup failed', { quoteId: orderId, snapshotToken });
+    await logger.warn('quote-not-found', 'Quote lookup failed', { quoteId: orderId, publicQuoteKey });
     setOrder(null);
-    setErrorType(detectErrorType(new Error('Quote not found'), false));
+    const lookup = publicQuoteKey ? `${publicQuoteKey.mode}=${publicQuoteKey.value}` : `path=${orderId}`;
+    setErrorType(detectErrorType(new Error(`Quote not found for ${lookup}`), false));
     setLoading(false);
     return false;
-  }, [orderId, readQuoteFromCache, loadQuoteFromSharedSnapshot, embeddedSnapshot, snapshotToken]);
+  }, [orderId, readQuoteFromCache, loadQuoteFromSharedSnapshot, embeddedSnapshot, publicQuoteKey]);
 
   useEffect(() => {
     void loadQuote();
@@ -762,6 +762,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       [EstimateErrorType.EXPIRED_LINK]: { title: t.expiredTitle, body: t.expiredBody, tone: 'text-slate-500', canRetry: false, canGoHome: true, canOpenOffline: false }
     };
     const current = errorMeta[errorType || EstimateErrorType.SERVER_ERROR];
+    const lookupHint = publicQuoteKey ? `${publicQuoteKey.mode}: ${publicQuoteKey.value}` : `path: ${orderId}`;
     return (
       <div className="min-h-screen bg-[#f5f5f7] text-slate-900 flex items-center justify-center px-4 text-center">
         <div ref={errorCardRef} className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_12px_28px_rgba(15,23,42,0.08)]">
@@ -769,6 +770,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           <h1 className="text-xl font-semibold">{current.title}</h1>
           <p className="mt-2 text-sm text-slate-600">{current.body}</p>
           <p className="mt-2 text-xs text-slate-400">ID: <code>{orderId}</code></p>
+          <p className="mt-1 text-xs text-slate-400">Lookup key: <code>{lookupHint}</code></p>
           <div className="mt-5 flex flex-col gap-2">
             {current.canRetry && (
               <button type="button" disabled={isRetrying} onClick={() => void onRetry()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">

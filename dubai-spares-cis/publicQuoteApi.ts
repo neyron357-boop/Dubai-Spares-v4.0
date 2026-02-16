@@ -31,13 +31,17 @@ type PublicSnapshotPayload = {
 };
 
 type SnapshotRow = {
+  id: string;
+  token: string;
   payload_json: PublicSnapshotPayload;
   expires_at: string;
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const createInFlight = new Map<string, Promise<{ token: string; url: string }>>();
+type PublicQuoteLookupKey = { mode: 'id' | 'token'; value: string };
+
+const createInFlight = new Map<string, Promise<{ id: string; token: string; expiresAt: string; url: string }>>();
 
 const parseMoney = (...values: Array<unknown>) => {
   for (const value of values) {
@@ -137,10 +141,14 @@ const buildSnapshotPayload = (order: Order, currency: string, exchangeRate: numb
   };
 };
 
-const quoteUrlForToken = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'>, token: string) => {
+const quoteUrlForToken = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'>, token: string, snapshotId?: string) => {
   const slugBase = [order.brand, order.model, order.year].filter(Boolean).join(' ').toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
   const slug = slugBase ? `${slugBase}--${order.id}` : order.id;
-  return `${window.location.origin}/quote/${slug}?token=${encodeURIComponent(token)}&oid=${encodeURIComponent(order.id)}`;
+  const url = new URL(`${window.location.origin}/quote/${slug}`);
+  url.searchParams.set('token', token);
+  url.searchParams.set('oid', order.id);
+  if (snapshotId) url.searchParams.set('id', snapshotId);
+  return url.toString();
 };
 
 export const publicQuoteCreateSnapshot = async (
@@ -154,13 +162,17 @@ export const publicQuoteCreateSnapshot = async (
 
   const promise = (async () => {
     const token = createToken();
-    const expiresAt = new Date(Date.now() + SNAPSHOT_TTL_MS).toISOString();
+    const expiresAtMs = Date.now() + SNAPSHOT_TTL_MS;
+    const expiresAt = new Date(expiresAtMs).toISOString();
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+      throw new Error('Invalid snapshot expiration timestamp');
+    }
     const payload_json = buildSnapshotPayload(order, options?.currency || order.clientCurrency || 'USD', Number(options?.exchangeRate || order.exchangeRate || 3.67));
 
     const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
 
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots`, {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,expires_at`, {
         method: 'POST',
         headers: {
           apikey: SUPABASE_ANON_KEY,
@@ -177,7 +189,18 @@ export const publicQuoteCreateSnapshot = async (
         throw new Error(text || `Share quote failed (${response.status})`);
       }
 
-      return { token, url: quoteUrlForToken(order, token) };
+      const rows = (await response.json()) as Array<{ id: string; token: string; expires_at: string }>;
+      const created = rows[0];
+      if (!created?.id || !created?.token || !created?.expires_at) {
+        throw new Error('Share quote created, but response is missing id/token/expires_at');
+      }
+
+      return {
+        id: created.id,
+        token: created.token,
+        expiresAt: created.expires_at,
+        url: quoteUrlForToken(order, created.token, created.id)
+      };
     } finally {
       request.cleanup();
     }
@@ -187,29 +210,46 @@ export const publicQuoteCreateSnapshot = async (
   return promise;
 };
 
-export const publicQuoteGetSnapshot = async (token: string, options?: { signal?: AbortSignal; timeoutMs?: number }) => {
+export const publicQuoteGetSnapshotByKey = async (key: PublicQuoteLookupKey, options?: { signal?: AbortSignal; timeoutMs?: number }) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
-  const normalizedToken = token.trim();
-  if (!normalizedToken) throw new Error('Snapshot token is required');
+  const normalizedValue = key.value.trim();
+  if (!normalizedValue) throw new Error(`Snapshot ${key.mode} is required`);
+
+  const filterField = key.mode === 'id' ? 'id' : 'token';
+  const endpoint = `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,payload_json,expires_at&${filterField}=eq.${encodeURIComponent(normalizedValue)}`;
 
   const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
   try {
-    const endpoint = `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=payload_json,expires_at&token=eq.${encodeURIComponent(normalizedToken)}&limit=1`;
     const response = await fetch(endpoint, {
       method: 'GET',
       headers: {
         apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        Accept: 'application/vnd.pgrst.object+json',
+        Prefer: 'count=exact'
       },
       signal: request.signal
     });
+    if (response.status === 406) {
+      if (import.meta.env.DEV) {
+        console.debug('[public-quote] lookup', { mode: key.mode, value: normalizedValue, rowCount: 0 });
+      }
+      return null;
+    }
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || `Failed to load quote (${response.status})`);
     }
-    const rows = (await response.json()) as SnapshotRow[];
-    return rows[0] || null;
+    const row = (await response.json()) as SnapshotRow;
+    if (import.meta.env.DEV) {
+      console.debug('[public-quote] lookup', { mode: key.mode, value: normalizedValue, rowCount: row ? 1 : 0 });
+    }
+    return row || null;
   } finally {
     request.cleanup();
   }
 };
+
+export const publicQuoteGetSnapshot = async (token: string, options?: { signal?: AbortSignal; timeoutMs?: number }) => (
+  publicQuoteGetSnapshotByKey({ mode: 'token', value: token }, options)
+);

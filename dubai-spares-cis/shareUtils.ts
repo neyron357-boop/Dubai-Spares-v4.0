@@ -77,6 +77,27 @@ export const extractOrderIdFromQuoteSlug = (slugOrId: string) => {
   return trimmed;
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export type PublicQuoteKey = {
+  mode: 'id' | 'token';
+  value: string;
+};
+
+export const parsePublicQuoteKey = (params: URLSearchParams, pathParam: string): PublicQuoteKey | null => {
+  const tokenFromQuery = (params.get('token') || params.get('snapshot') || '').trim();
+  if (tokenFromQuery) return { mode: 'token', value: tokenFromQuery };
+
+  const idFromQuery = (params.get('id') || '').trim();
+  if (idFromQuery && UUID_REGEX.test(idFromQuery)) return { mode: 'id', value: idFromQuery };
+
+  const candidateFromPath = decodeURIComponent((pathParam || '').trim());
+  if (!candidateFromPath) return null;
+
+  if (UUID_REGEX.test(candidateFromPath)) return { mode: 'id', value: candidateFromPath };
+  return { mode: 'token', value: candidateFromPath };
+};
+
 export const serializeQuoteRates = (rates: QuoteRates) => (
   (Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[])
     .map((code) => `${code}:${Number(rates[code]).toFixed(6)}`)
@@ -207,7 +228,7 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
   const canonicalOrderId = typeof order === 'string' ? extractOrderIdFromQuoteSlug(order) : order.id;
   url.searchParams.set('oid', canonicalOrderId);
   const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
-  url.searchParams.set('token', createQuoteToken());
+  url.searchParams.set('token', options?.snapshotToken || createQuoteToken());
   url.searchParams.set('exp', String(expiresAt));
 
   if (options?.rates) {
@@ -217,9 +238,6 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
     url.searchParams.set('currency', options.currency);
   }
 
-  if (options?.snapshotToken) {
-    url.searchParams.set('snapshot', options.snapshotToken);
-  }
 
   if (options?.embedSnapshotInUrl && options?.snapshot) {
     const encodedSnapshot = encodeSnapshot(options.snapshot);
