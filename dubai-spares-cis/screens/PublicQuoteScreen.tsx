@@ -11,11 +11,10 @@ import {
 } from 'lucide-react';
 import { Order, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
-import { DEFAULT_QUOTE_RATES, extractOrderIdFromQuoteSlug, parsePublicQuoteKey, parseQuoteRates, PublicQuoteKey, QuoteCurrency, QuoteRates } from '../shareUtils';
+import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
-import { useAppSettings } from '../appSettings';
-import { publicQuoteGetSnapshotByKey } from '../publicQuoteApi';
+import { publicQuoteGetSnapshot } from '../publicQuoteApi';
 
 type Language = 'en' | 'ru';
 
@@ -241,7 +240,7 @@ const resolveOrderLogistics = (row: any) => {
 
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
 
-const fetchPublicSnapshot = (key: PublicQuoteKey) => publicQuoteGetSnapshotByKey(key);
+const fetchPublicSnapshot = (token: string, signal?: AbortSignal) => publicQuoteGetSnapshot(token, { signal, timeoutMs: 20_000 });
 
 const mapDbOrder = (row: any): Order => ({
   id: String(row.id),
@@ -471,23 +470,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
   const [lang, setLang] = useState<Language>('en');
   const [partsVerified, setPartsVerified] = useState(false);
-  const { settings } = useAppSettings();
   const detailRef = useRef<HTMLDivElement | null>(null);
   const errorCardRef = useRef<HTMLDivElement | null>(null);
   const errorIconRef = useRef<HTMLDivElement | null>(null);
 
   const t = i18n[lang];
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
-  const expiresAt = Number(params.get('exp') || 0);
-  const fallbackOrderId = extractOrderIdFromQuoteSlug(params.get('oid') || params.get('orderId') || '');
-  const rawOid = (params.get('oid') || params.get('orderId') || '').trim();
-  const candidateOrderIds = Array.from(new Set([orderId, fallbackOrderId, rawOid]
-    .filter(Boolean)
-    .map((candidate) => normalizeCandidateOrderId(candidate))));
   const embeddedSnapshot = useMemo(() => parseEmbeddedSnapshot(params.get('data')), [params]);
   const publicQuoteKey = useMemo(() => parsePublicQuoteKey(params, orderId), [params, orderId]);
-  const hasSecurityToken = (publicQuoteKey?.mode === 'token' ? publicQuoteKey.value : '').length >= 32;
-  const isExpired = hasSecurityToken && Number.isFinite(expiresAt) && expiresAt <= Date.now();
+  const hasSecurityToken = (publicQuoteKey?.value || '').length >= 24;
 
   const logEvent = (event: string, meta?: Record<string, unknown>) => {
     void logger.info('public-quote-analytics', event, { event, orderId, ...meta });
@@ -513,7 +504,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   }, [params]);
 
   useEffect(() => {
-    logEvent('view', { isExpired, hasSecurityToken });
+    logEvent('view', { hasSecurityToken });
   }, []);
 
   useEffect(() => {
@@ -551,24 +542,32 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     return EstimateErrorType.NOT_FOUND;
   };
 
-  const loadQuoteFromSharedSnapshot = useCallback(async (): Promise<Order | null> => {
-    if (!publicQuoteKey) return null;
+  const [expiresAtIso, setExpiresAtIso] = useState<string>('');
+  const [isPayloadCorrupted, setIsPayloadCorrupted] = useState(false);
+  const loadControllerRef = useRef<AbortController | null>(null);
+
+  const loadQuoteFromSharedSnapshot = useCallback(async (): Promise<{ order: Order | null; expired: boolean; notFound: boolean; corrupted: boolean }> => {
+    const token = publicQuoteKey?.value?.trim();
+    if (!token) return { order: null, expired: false, notFound: true, corrupted: false };
 
     try {
-      const data = await fetchPublicSnapshot(publicQuoteKey);
-      if (!data?.payload_json) return null;
+      loadControllerRef.current?.abort();
+      const controller = new AbortController();
+      loadControllerRef.current = controller;
+      const data = await fetchPublicSnapshot(token, controller.signal);
+      if (!data) return { order: null, expired: false, notFound: true, corrupted: false };
 
-      const expiresAtIso = typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : NaN;
-      if (!Number.isNaN(expiresAtIso) && expiresAtIso <= Date.now()) return null;
+      const expiresAt = typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : NaN;
+      const expired = !Number.isNaN(expiresAt) && expiresAt <= Date.now();
+      setExpiresAtIso(typeof data.expires_at === 'string' ? data.expires_at : '');
+      const payloadObj = data.payload && typeof data.payload === 'object' ? data.payload as Record<string, unknown> : null;
+      if (!payloadObj) return { order: null, expired, notFound: false, corrupted: true };
 
-      const snapshotOrder = mapSnapshotOrder(typeof data.payload_json === 'object' && data.payload_json
-        ? data.payload_json as Record<string, unknown>
-        : {});
-
-      return snapshotOrder.id ? snapshotOrder : null;
+      const snapshotOrder = mapSnapshotOrder(payloadObj);
+      return { order: snapshotOrder.id ? snapshotOrder : null, expired, notFound: false, corrupted: !!data.isPayloadCorrupted };
     } catch (error) {
-      await logger.warn('quote-shared-snapshot-miss', 'Unable to load shared public quote snapshot', { quoteId: orderId, publicQuoteKey, error });
-      return null;
+      await logger.warn('quote-shared-snapshot-miss', 'Unable to load shared public quote snapshot', { quoteId: orderId, token: publicQuoteKey?.value, error: error instanceof Error ? error.message : 'unknown' });
+      return { order: null, expired: false, notFound: true, corrupted: false };
     }
   }, [orderId, publicQuoteKey]);
 
@@ -584,59 +583,54 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     }
   }, [orderId]);
 
-  const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
   const loadQuote = useCallback(async () => {
-    if (publicQuoteKey) {
-      const sharedSnapshotOrder = await loadQuoteFromSharedSnapshot();
-      if (sharedSnapshotOrder) {
-        setOrder(sharedSnapshotOrder);
-        setErrorType(null);
-        setLoading(false);
-        return true;
-      }
-    }
-
-    if (!navigator.onLine && readQuoteFromCache()) {
+    if (!publicQuoteKey?.value) {
+      setOrder(null);
+      setErrorType(EstimateErrorType.NOT_FOUND);
       setLoading(false);
-      return true;
+      return false;
     }
 
-    const sharedSnapshotOrder = await loadQuoteFromSharedSnapshot();
-    if (sharedSnapshotOrder) {
-      window.localStorage.setItem(`public-quote-cache:${orderId}`, JSON.stringify(sharedSnapshotOrder));
-      setOrder(sharedSnapshotOrder);
+    const sharedSnapshot = await loadQuoteFromSharedSnapshot();
+    if (sharedSnapshot.order) {
+      if (sharedSnapshot.expired) {
+        setOrder(null);
+        setErrorType(EstimateErrorType.EXPIRED_LINK);
+        setLoading(false);
+        return false;
+      }
+      setOrder(sharedSnapshot.order);
+      setIsPayloadCorrupted(sharedSnapshot.corrupted);
       setErrorType(null);
       setLoading(false);
       return true;
     }
 
-    if (embeddedSnapshot) {
-      const embeddedOrder = mapSnapshotOrder(embeddedSnapshot);
-      if (embeddedOrder.id) {
-        setOrder(embeddedOrder);
-        setErrorType(null);
-        setLoading(false);
-        return true;
-      }
-    }
-
-    const fromCache = readQuoteFromCache();
-    if (fromCache) {
+    if (sharedSnapshot.expired) {
+      setOrder(null);
+      setErrorType(EstimateErrorType.EXPIRED_LINK);
       setLoading(false);
-      return true;
+      return false;
     }
 
-    await logger.warn('quote-not-found', 'Quote lookup failed', { quoteId: orderId, publicQuoteKey });
+    if (sharedSnapshot.corrupted) {
+      setOrder(null);
+      setIsPayloadCorrupted(true);
+      setErrorType(EstimateErrorType.SERVER_ERROR);
+      setLoading(false);
+      return false;
+    }
+
     setOrder(null);
-    const lookup = publicQuoteKey ? `${publicQuoteKey.mode}=${publicQuoteKey.value}` : `path=${orderId}`;
-    setErrorType(detectErrorType(new Error(`Quote not found for ${lookup}`), false));
+    setErrorType(EstimateErrorType.NOT_FOUND);
     setLoading(false);
     return false;
-  }, [orderId, readQuoteFromCache, loadQuoteFromSharedSnapshot, embeddedSnapshot, publicQuoteKey]);
+  }, [loadQuoteFromSharedSnapshot, publicQuoteKey]);
 
   useEffect(() => {
     void loadQuote();
+    return () => loadControllerRef.current?.abort();
   }, [loadQuote]);
 
   useEffect(() => {
@@ -727,8 +721,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const confirmMessage = lang === 'ru'
     ? `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nИтого: ${totals.totalAed.toFixed(2)} AED.\nДетали: ${partsLine}.\nГотов(а) оформить. Подскажите срок и способ доставки.`
     : `Hello! I confirm the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nTotal: ${totals.totalAed.toFixed(2)} AED.\nPart: ${partsLine}.\nPlease confirm delivery time and shipping options.`;
-  const whatsappPhone = (settings.publicWhatsappNumber || '971000000000').replace(/[^\d]/g, '') || '971000000000';
-  const whatsappUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(confirmMessage)}`;
+  const payloadOwner = (order as any)?.owner || {};
+  const whatsappPhoneRaw = typeof payloadOwner.whatsapp_phone === 'string' ? payloadOwner.whatsapp_phone : '';
+  const whatsappPhoneDigits = whatsappPhoneRaw.replace(/\D/g, '');
+  const whatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(confirmMessage)}` : '';
+
 
   const downloadPdf = () => {
     if (!order) return;
@@ -737,10 +734,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       `${order.brand} ${order.model} ${order.year}`,
       `VIN: ${maskVin(order.vin)}`,
       `Total: ${totals.totalAed.toFixed(2)} AED`,
-      `Valid until: ${new Date(expiresAt).toLocaleString()}`,
+      `Valid until: ${expiresAtIso ? new Date(expiresAtIso).toLocaleString() : '-'}`,
       '--- Parts ---',
       ...foundParts.map(({ part, clientAed }) => `${part.name}: ${clientAed.toFixed(2)} AED`),
-      `Contact: +${whatsappPhone}`
+      `Contact: ${whatsappPhoneDigits ? `+${whatsappPhoneDigits}` : 'Not configured'}`
     ];
     const blob = createSimplePdf(lines);
     const link = document.createElement('a');
@@ -762,13 +759,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       [EstimateErrorType.EXPIRED_LINK]: { title: t.expiredTitle, body: t.expiredBody, tone: 'text-slate-500', canRetry: false, canGoHome: true, canOpenOffline: false }
     };
     const current = errorMeta[errorType || EstimateErrorType.SERVER_ERROR];
-    const lookupHint = publicQuoteKey ? `${publicQuoteKey.mode}: ${publicQuoteKey.value}` : `path: ${orderId}`;
+    const lookupHint = publicQuoteKey ? `token: ${publicQuoteKey.value}` : `path: ${orderId}`;
     return (
       <div className="min-h-screen bg-[#f5f5f7] text-slate-900 flex items-center justify-center px-4 text-center">
         <div ref={errorCardRef} className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_12px_28px_rgba(15,23,42,0.08)]">
           <div ref={errorIconRef}><AlertCircle className={`mx-auto mb-3 ${current.tone}`} /></div>
           <h1 className="text-xl font-semibold">{current.title}</h1>
-          <p className="mt-2 text-sm text-slate-600">{current.body}</p>
+          <p className="mt-2 text-sm text-slate-600">{isPayloadCorrupted ? 'Смета повреждена. Запросите новую ссылку.' : current.body}</p>
           <p className="mt-2 text-xs text-slate-400">ID: <code>{orderId}</code></p>
           <p className="mt-1 text-xs text-slate-400">Lookup key: <code>{lookupHint}</code></p>
           <div className="mt-5 flex flex-col gap-2">
@@ -794,9 +791,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               </button>
             )}
             {errorType === EstimateErrorType.EXPIRED_LINK && (
-              <a href={`https://wa.me/${whatsappPhone}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white">
-                <MessageCircle size={15} /> {t.contactUs}
-              </a>
+              whatsappPhoneDigits ? (
+                <a href={`https://wa.me/${whatsappPhoneDigits}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white">
+                  <MessageCircle size={15} /> {t.contactUs}
+                </a>
+              ) : (
+                <div className="text-sm text-slate-500">Контакт не настроен</div>
+              )
             )}
           </div>
         </div>
@@ -844,12 +845,16 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
               <span className="rounded-full bg-emerald-500/90 px-3 py-1.5">✅ Verified UAE supplier</span>
               <span className="rounded-full bg-indigo-500/90 px-3 py-1.5">⚡ Fast response (5–15 min)</span>
-              <span className="rounded-full bg-amber-500/90 px-3 py-1.5">🧾 {t.validUntil}: {new Date(expiresAt).toLocaleString()}</span>
+              <span className="rounded-full bg-amber-500/90 px-3 py-1.5">🧾 {t.validUntil}: {expiresAtIso ? new Date(expiresAtIso).toLocaleString() : '-'}</span>
             </div>
             <div className="mt-5 flex flex-wrap gap-2">
+              {whatsappUrl ? (
               <a href={whatsappUrl} target="_blank" rel="noreferrer" onClick={() => logEvent('confirm_click', { placement: 'hero' })} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white">
                 <MessageCircle size={16} /> {t.confirmWhatsApp}
               </a>
+            ) : (
+              <div className="inline-flex items-center rounded-xl bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">Контакт не настроен</div>
+            )}
               <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold text-white backdrop-blur">📄 {t.viewParts}</button>
             </div>
           </div>
@@ -862,7 +867,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.partsGallery} ({foundParts.length})</h2>
           {foundParts.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => {
             const partMessage = `Hello! I confirm ${part.name} for ${order.brand} ${order.model} ${order.year}.\nVIN: ${maskVin(order.vin || '')}.\nPrice: ${converted.toFixed(2)} ${currency}.`;
-            const partWhatsappUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(partMessage)}`;
+            const partWhatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(partMessage)}` : '';
 
             return (
             <article key={part.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
@@ -889,9 +894,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 <p className="text-right text-2xl font-semibold">{converted.toFixed(2)} {currency}</p>
               </div>
 
+              {partWhatsappUrl ? (
               <a href={partWhatsappUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">
                 <MessageCircle size={14} /> {t.confirmWhatsApp}
               </a>
+            ) : (
+              <div className="mt-4 text-xs text-slate-500">Контакт не настроен</div>
+            )}
             </article>
             );
           })}
@@ -935,7 +944,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           </ul>
           <div className="mt-3 rounded-2xl bg-slate-50 p-3">
             <p className="font-semibold text-slate-800">{t.companyProfile}: Dubai Spares UAE</p>
-            <p>WhatsApp: +{whatsappPhone}</p>
+            <p>WhatsApp: {whatsappPhoneDigits ? `+${whatsappPhoneDigits}` : 'Not configured'}</p>
             {settings.publicTelegramUrl && <p>Telegram: {settings.publicTelegramUrl}</p>}
             {settings.publicInstagramUrl && <p>Instagram: {settings.publicInstagramUrl}</p>}
           </div>

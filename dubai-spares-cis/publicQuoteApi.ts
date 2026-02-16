@@ -1,45 +1,56 @@
 import { SUPABASE_ANON_KEY, SUPABASE_URL, cloudBuildGuardMessage, isCloudConfigured } from './cloudConfig';
+import { decodePayloadFromCompressedTransport } from './cloudCodec';
 import { Order } from './types';
 
-type PublicSnapshotPayload = {
-  order_id: string;
-  currency: string;
-  exchange_rate: number;
+export type PublicQuotePayloadV1 = {
+  version: 'public_quote_payload_v1';
+  created_at: string;
+  order: {
+    id: string;
+    brand: string;
+    model: string;
+    year: string;
+    vin: string;
+    body_type?: string;
+  };
+  pricing: {
+    currency: string;
+    fx_rate: number;
+  };
+  totals: {
+    parts_sum_aed: number;
+    logistics_aed: number;
+    packing_aed: number;
+    commission_aed: number;
+    grand_total_aed: number;
+  };
   parts: Array<{
     id: string;
     name: string;
     qty: number;
-    final_price_aed: number;
+    supplier_price_aed: number;
+    client_price_aed: number;
     photo_urls: string[];
   }>;
-  totals: {
-    parts_subtotal_aed: number;
-    markup_aed: number;
-    logistics_total_aed: number;
-    grand_total_aed: number;
+  owner: {
+    whatsapp_phone: string | null;
+    display_name?: string | null;
   };
-  logistics: {
-    delivery_aed: number;
-    packing_aed: number;
-    commission_aed: number;
-    logistics_total_aed: number;
-    delivery?: number;
-    packing?: number;
-    commission?: number;
-  };
-  order: Record<string, unknown>;
+  image_manifest?: unknown;
 };
 
 type SnapshotRow = {
   id: string;
   token: string;
-  payload_json: PublicSnapshotPayload;
   expires_at: string;
+  payload?: unknown;
+  payload_json?: unknown;
+  payload_b64?: string | null;
+  payload_codec?: string | null;
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-type PublicQuoteLookupKey = { mode: 'id' | 'token'; value: string };
 
 const createInFlight = new Map<string, Promise<{ id: string; token: string; expiresAt: string; url: string }>>();
 
@@ -54,7 +65,15 @@ const parseMoney = (...values: Array<unknown>) => {
   return 0;
 };
 
-const createToken = (size = 18) => {
+const normalizeWhatsappE164 = (raw: string | null | undefined): string | null => {
+  if (!raw) return null;
+  const plus = raw.trim().startsWith('+');
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return null;
+  return `${plus ? '+' : '+'}${digits}`;
+};
+
+const createToken = (size = 24) => {
   const bytes = new Uint8Array(size);
   crypto.getRandomValues(bytes);
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -62,7 +81,11 @@ const createToken = (size = 18) => {
 
 const withTimeoutSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(new DOMException('Request timeout', 'AbortError')), timeoutMs);
+  let timedOut = false;
+  const timeoutId = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort(new DOMException('Request timeout', 'AbortError'));
+  }, timeoutMs);
   const parentAbort = () => controller.abort(parentSignal?.reason || new DOMException('Request aborted', 'AbortError'));
 
   if (parentSignal) {
@@ -72,6 +95,7 @@ const withTimeoutSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
 
   return {
     signal: controller.signal,
+    isTimedOut: () => timedOut,
     cleanup: () => {
       window.clearTimeout(timeoutId);
       parentSignal?.removeEventListener('abort', parentAbort);
@@ -79,18 +103,22 @@ const withTimeoutSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
   };
 };
 
-const buildSnapshotPayload = (order: Order, currency: string, exchangeRate: number): PublicSnapshotPayload => {
+const buildSnapshotPayload = (
+  order: Order,
+  currency: string,
+  exchangeRate: number,
+  owner: { whatsappPhone?: string | null; displayName?: string | null }
+): PublicQuotePayloadV1 => {
   const deliveryAed = parseMoney(order.logistics?.deliveryAed, (order as any).logistics?.delivery, (order as any).deliveryAed, (order as any).delivery);
   const packingAed = parseMoney(order.logistics?.packingAed, (order as any).logistics?.packing, (order as any).packingAed, (order as any).packing);
   const commissionAed = parseMoney(order.logistics?.serviceFeeAed, (order as any).logistics?.commission, (order as any).commissionAed, (order as any).commission);
-  const logisticsTotalAed = deliveryAed + packingAed + commissionAed;
 
   const pricedParts = (order.parts || [])
     .filter((part) => part.isFound && part.variants.length > 0)
     .map((part) => {
       const variant = part.variants[0];
       const supplierAed = parseMoney(variant?.priceAed);
-      const finalPriceAed = (order.markupType || 'percent') === 'fixed'
+      const clientAed = (order.markupType || 'percent') === 'fixed'
         ? supplierAed
         : supplierAed * (1 + parseMoney(order.markupPercent) / 100);
 
@@ -98,62 +126,50 @@ const buildSnapshotPayload = (order: Order, currency: string, exchangeRate: numb
         id: String(part.id),
         name: String(part.name || 'Part'),
         qty: 1,
-        final_price_aed: finalPriceAed,
+        supplier_price_aed: supplierAed,
+        client_price_aed: clientAed,
         photo_urls: [part.photoUrl || '', ...(part.photos || [])].filter(Boolean).slice(0, 2)
       };
     });
 
-  const partsSubtotalAed = pricedParts.reduce((sum, part) => sum + part.final_price_aed, 0);
-  const markupAed = parseMoney(order.markupType === 'fixed' ? order.markupFixedAed : 0);
+  const partsSumAed = pricedParts.reduce((sum, part) => sum + part.client_price_aed, 0);
+  const grandTotalAed = partsSumAed + deliveryAed + packingAed + commissionAed;
 
   return {
-    order_id: order.id,
-    currency,
-    exchange_rate: exchangeRate,
-    parts: pricedParts,
-    totals: {
-      parts_subtotal_aed: partsSubtotalAed,
-      markup_aed: markupAed,
-      logistics_total_aed: logisticsTotalAed,
-      grand_total_aed: partsSubtotalAed + logisticsTotalAed + markupAed
-    },
-    logistics: {
-      delivery_aed: deliveryAed,
-      packing_aed: packingAed,
-      commission_aed: commissionAed,
-      logistics_total_aed: logisticsTotalAed,
-      delivery: deliveryAed,
-      packing: packingAed,
-      commission: commissionAed
-    },
+    version: 'public_quote_payload_v1',
+    created_at: new Date().toISOString(),
     order: {
       id: order.id,
       brand: order.brand,
       model: order.model,
       year: order.year,
       vin: order.vin,
-      clientCurrency: order.clientCurrency,
-      markupType: order.markupType,
-      markupPercent: order.markupPercent,
-      markupFixedAed: order.markupFixedAed,
-      exchangeRate: order.exchangeRate
+      body_type: order.bodyType
+    },
+    pricing: {
+      currency,
+      fx_rate: exchangeRate
+    },
+    totals: {
+      parts_sum_aed: partsSumAed,
+      logistics_aed: deliveryAed,
+      packing_aed: packingAed,
+      commission_aed: commissionAed,
+      grand_total_aed: grandTotalAed
+    },
+    parts: pricedParts,
+    owner: {
+      whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone),
+      display_name: owner.displayName || null
     }
   };
 };
 
-const quoteUrlForToken = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'>, token: string, snapshotId?: string) => {
-  const slugBase = [order.brand, order.model, order.year].filter(Boolean).join(' ').toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
-  const slug = slugBase ? `${slugBase}--${order.id}` : order.id;
-  const url = new URL(`${window.location.origin}/quote/${slug}`);
-  url.searchParams.set('token', token);
-  url.searchParams.set('oid', order.id);
-  if (snapshotId) url.searchParams.set('id', snapshotId);
-  return url.toString();
-};
+const quoteUrlForToken = (token: string) => `${window.location.origin}/#/q/${encodeURIComponent(token)}`;
 
 export const publicQuoteCreateSnapshot = async (
   order: Order,
-  options?: { currency?: string; exchangeRate?: number; signal?: AbortSignal; timeoutMs?: number }
+  options?: { currency?: string; exchangeRate?: number; owner?: { whatsappPhone?: string | null; displayName?: string | null }; signal?: AbortSignal; timeoutMs?: number }
 ) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
   const key = order.id;
@@ -162,12 +178,13 @@ export const publicQuoteCreateSnapshot = async (
 
   const promise = (async () => {
     const token = createToken();
-    const expiresAtMs = Date.now() + SNAPSHOT_TTL_MS;
-    const expiresAt = new Date(expiresAtMs).toISOString();
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
-      throw new Error('Invalid snapshot expiration timestamp');
-    }
-    const payload_json = buildSnapshotPayload(order, options?.currency || order.clientCurrency || 'USD', Number(options?.exchangeRate || order.exchangeRate || 3.67));
+    const expiresAt = new Date(Date.now() + SNAPSHOT_TTL_MS).toISOString();
+    const payload = buildSnapshotPayload(
+      order,
+      options?.currency || order.clientCurrency || 'USD',
+      Number(options?.exchangeRate || order.exchangeRate || 3.67),
+      options?.owner || {}
+    );
 
     const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
 
@@ -180,7 +197,7 @@ export const publicQuoteCreateSnapshot = async (
           'Content-Type': 'application/json',
           Prefer: 'return=representation'
         },
-        body: JSON.stringify([{ token, expires_at: expiresAt, payload_json, payload_codec: 'json' }]),
+        body: JSON.stringify([{ token, expires_at: expiresAt, payload }]),
         signal: request.signal
       });
 
@@ -199,7 +216,7 @@ export const publicQuoteCreateSnapshot = async (
         id: created.id,
         token: created.token,
         expiresAt: created.expires_at,
-        url: quoteUrlForToken(order, created.token, created.id)
+        url: quoteUrlForToken(created.token)
       };
     } finally {
       request.cleanup();
@@ -210,46 +227,65 @@ export const publicQuoteCreateSnapshot = async (
   return promise;
 };
 
-export const publicQuoteGetSnapshotByKey = async (key: PublicQuoteLookupKey, options?: { signal?: AbortSignal; timeoutMs?: number }) => {
-  if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
-  const normalizedValue = key.value.trim();
-  if (!normalizedValue) throw new Error(`Snapshot ${key.mode} is required`);
-
-  const filterField = key.mode === 'id' ? 'id' : 'token';
-  const endpoint = `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,payload_json,expires_at&${filterField}=eq.${encodeURIComponent(normalizedValue)}`;
-
-  const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
-  try {
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        Accept: 'application/vnd.pgrst.object+json',
-        Prefer: 'count=exact'
-      },
-      signal: request.signal
-    });
-    if (response.status === 406) {
-      if (import.meta.env.DEV) {
-        console.debug('[public-quote] lookup', { mode: key.mode, value: normalizedValue, rowCount: 0 });
-      }
+const readPayloadWithFallback = async (row: SnapshotRow): Promise<unknown | null> => {
+  if (row.payload && typeof row.payload === 'object') return row.payload;
+  if (row.payload_json && typeof row.payload_json === 'object') return row.payload_json;
+  if (row.payload_b64) {
+    try {
+      return await decodePayloadFromCompressedTransport(row.payload_b64, row.payload_codec || 'gzip+b64');
+    } catch {
       return null;
     }
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `Failed to load quote (${response.status})`);
-    }
-    const row = (await response.json()) as SnapshotRow;
-    if (import.meta.env.DEV) {
-      console.debug('[public-quote] lookup', { mode: key.mode, value: normalizedValue, rowCount: row ? 1 : 0 });
-    }
-    return row || null;
-  } finally {
-    request.cleanup();
   }
+  return null;
 };
 
-export const publicQuoteGetSnapshot = async (token: string, options?: { signal?: AbortSignal; timeoutMs?: number }) => (
-  publicQuoteGetSnapshotByKey({ mode: 'token', value: token }, options)
-);
+export const publicQuoteGetSnapshot = async (token: string, options?: { signal?: AbortSignal; timeoutMs?: number }) => {
+  if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
+  const normalizedToken = token.trim();
+  if (!normalizedToken) throw new Error('Snapshot token is required');
+
+  const endpoint = `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,expires_at,payload,payload_json,payload_b64,payload_codec&token=eq.${encodeURIComponent(normalizedToken)}&limit=1`;
+
+  const runSelect = async () => {
+    const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          Accept: 'application/json'
+        },
+        signal: request.signal
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Failed to load quote (${response.status})`);
+      }
+      const rows = (await response.json()) as SnapshotRow[];
+      return { row: rows[0] || null, timedOut: false };
+    } catch (error) {
+      if (request.isTimedOut()) return { row: null, timedOut: true };
+      throw error;
+    } finally {
+      request.cleanup();
+    }
+  };
+
+  let attempt = await runSelect();
+  if (attempt.timedOut) {
+    attempt = await runSelect();
+  }
+
+  if (!attempt.row) return null;
+  const payload = await readPayloadWithFallback(attempt.row);
+
+  return {
+    id: attempt.row.id,
+    token: attempt.row.token,
+    expires_at: attempt.row.expires_at,
+    payload,
+    isPayloadCorrupted: !payload
+  };
+};

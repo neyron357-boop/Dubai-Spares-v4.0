@@ -1,5 +1,6 @@
 import { Order, Part } from './types';
 import { publicQuoteCreateSnapshot } from './publicQuoteApi';
+import { loadAppSettings } from './appSettings';
 
 export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS';
 export type QuoteRates = Record<QuoteCurrency, number>;
@@ -79,23 +80,17 @@ export const extractOrderIdFromQuoteSlug = (slugOrId: string) => {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type PublicQuoteKey = {
-  mode: 'id' | 'token';
-  value: string;
-};
+export type PublicQuoteKey = { value: string };
 
 export const parsePublicQuoteKey = (params: URLSearchParams, pathParam: string): PublicQuoteKey | null => {
-  const tokenFromQuery = (params.get('token') || params.get('snapshot') || '').trim();
-  if (tokenFromQuery) return { mode: 'token', value: tokenFromQuery };
-
-  const idFromQuery = (params.get('id') || '').trim();
-  if (idFromQuery && UUID_REGEX.test(idFromQuery)) return { mode: 'id', value: idFromQuery };
+  const tokenFromQuery = (params.get('quote') || params.get('token') || params.get('snapshot') || '').trim();
+  if (tokenFromQuery) return { value: tokenFromQuery };
 
   const candidateFromPath = decodeURIComponent((pathParam || '').trim());
   if (!candidateFromPath) return null;
 
-  if (UUID_REGEX.test(candidateFromPath)) return { mode: 'id', value: candidateFromPath };
-  return { mode: 'token', value: candidateFromPath };
+  if (UUID_REGEX.test(candidateFromPath) || candidateFromPath.includes('--')) return null;
+  return { value: candidateFromPath };
 };
 
 export const serializeQuoteRates = (rates: QuoteRates) => (
@@ -223,12 +218,8 @@ const buildQuoteSnapshot = (order: Pick<Order,
 };
 
 export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
-  const slug = typeof order === 'string' ? order : buildPublicQuoteSlug(order);
-  const url = new URL(`${window.location.origin}/quote/${slug}`);
-  const canonicalOrderId = typeof order === 'string' ? extractOrderIdFromQuoteSlug(order) : order.id;
-  url.searchParams.set('oid', canonicalOrderId);
+  const url = new URL(`${window.location.origin}/#/q/${encodeURIComponent(options?.snapshotToken || createQuoteToken())}`);
   const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
-  url.searchParams.set('token', options?.snapshotToken || createQuoteToken());
   url.searchParams.set('exp', String(expiresAt));
 
   if (options?.rates) {
@@ -251,9 +242,14 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
 };
 
 export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
+  const settings = loadAppSettings();
   const snapshot = await publicQuoteCreateSnapshot(order, {
     currency: options?.currency,
-    exchangeRate: options?.rates?.[options?.currency || 'USD']
+    exchangeRate: options?.rates?.[options?.currency || 'USD'],
+    owner: {
+      whatsappPhone: settings.publicWhatsappNumber,
+      displayName: 'Dubai Spares CIS'
+    }
   });
   const link = snapshot.url;
   const text = `Quote for ${order.brand} ${order.model} ${order.year}`;
