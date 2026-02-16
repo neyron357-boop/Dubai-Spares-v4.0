@@ -12,8 +12,10 @@ const root = ReactDOM.createRoot(rootElement);
 const isPublicOrderFormRoute = window.location.pathname === '/request' || window.location.pathname === '/order-form';
 const publicQuoteMatch = window.location.pathname.match(/^\/(?:order\/([^/]+)\/quote|quote\/([^/]+))\/?$/i);
 const publicQuotePathParam = publicQuoteMatch ? decodeURIComponent((publicQuoteMatch[2] || publicQuoteMatch[1] || '').trim()) : null;
+const hashQuoteMatch = window.location.hash.match(/^#\/q\/([^/?#]+).*$/i);
+const hashQuoteToken = hashQuoteMatch ? decodeURIComponent(hashQuoteMatch[1].trim()) : null;
 const publicQuoteOrderId = publicQuotePathParam ? extractOrderIdFromQuoteSlug(publicQuotePathParam) : null;
-const isPublicScrollableRoute = isPublicOrderFormRoute || !!publicQuoteOrderId;
+const isPublicScrollableRoute = isPublicOrderFormRoute || !!publicQuoteOrderId || !!hashQuoteToken;
 
 if (isPublicScrollableRoute) {
   document.documentElement.classList.add('public-order-form');
@@ -23,7 +25,7 @@ if (isPublicScrollableRoute) {
 
 root.render(
   <React.StrictMode>
-    {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : publicQuotePathParam ? <PublicQuoteScreen orderId={publicQuotePathParam} /> : <App />}
+    {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : hashQuoteToken ? <PublicQuoteScreen orderId={hashQuoteToken} /> : publicQuotePathParam ? <PublicQuoteScreen orderId={publicQuotePathParam} /> : <App />}
   </React.StrictMode>
 );
 

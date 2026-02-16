@@ -302,7 +302,17 @@ const OrderDetailsScreen: React.FC = () => {
 
   const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency }) => {
     if (!order) return;
-    await shareQuoteLink(order, options);
+    const quoteOrder = {
+      ...order,
+      logistics: {
+        ...(order.logistics || {}),
+        deliveryAed: Number(logisticsInputs.deliveryAed || 0),
+        packingAed: Number(logisticsInputs.packingAed || 0),
+        serviceFeeAed: Number(logisticsInputs.serviceFeeAed || 0)
+      },
+      markupFixedAed: Number(markupFixedInput || order.markupFixedAed || 0)
+    };
+    await shareQuoteLink(quoteOrder, options);
   };
 
   if (!order) return <div className="p-10 text-center text-gray-400 font-bold">ЗАКАЗ НЕ НАЙДЕН</div>;
