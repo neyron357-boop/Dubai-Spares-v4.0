@@ -15,7 +15,7 @@ import { DEFAULT_QUOTE_RATES, extractOrderIdFromQuoteSlug, parseQuoteRates, Quot
 import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
 import { useAppSettings } from '../appSettings';
-import { publicQuoteGetByToken } from '../serverApi';
+import { publicQuoteGetSnapshot } from '../publicQuoteApi';
 
 type Language = 'en' | 'ru';
 
@@ -203,7 +203,7 @@ const normalizeLogistics = (raw: any) => {
   if (deliveryAed <= 0 && packingAed <= 0 && serviceFeeAed <= 0) return undefined;
 
   return {
-    deliveryType: deliveryType === 'export' ? 'export' : 'uae',
+    deliveryType: (deliveryType === 'export' ? 'export' : 'uae') as 'uae' | 'export',
     deliveryAed,
     packingAed,
     serviceFeeAed
@@ -241,11 +241,7 @@ const resolveOrderLogistics = (row: any) => {
 
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
 
-const fetchPublicSnapshot = async (token: string) => {
-  const response = await publicQuoteGetByToken(token);
-  if (!response.ok) throw new Error(response.error || 'Snapshot request failed');
-  return response.data;
-};
+const fetchPublicSnapshot = (token: string) => publicQuoteGetSnapshot(token);
 
 const mapDbOrder = (row: any): Order => ({
   id: String(row.id),
@@ -294,32 +290,37 @@ const mapDbOrder = (row: any): Order => ({
   pricingEvents: Array.isArray(row.pricing_events) ? row.pricing_events : []
 });
 
-const mapSnapshotOrder = (row: any): Order => ({
-  id: String(row?.id || ''),
-  brand: row?.brand || '',
-  model: row?.model || '',
-  year: row?.year || '',
+const mapSnapshotOrder = (row: any): Order => {
+  const header = row?.order && typeof row.order === 'object' ? row.order : row;
+  return ({
+  id: String(row?.order_id || header?.id || ''),
+  brand: header?.brand || row?.brand || '',
+  model: header?.model || row?.model || '',
+  year: header?.year || row?.year || '',
   bodyType: row?.bodyType || row?.body_type || '',
-  vin: row?.vin || '',
+  vin: header?.vin || row?.vin || '',
   vinPhotoUrl: row?.vinPhotoUrl || row?.vin_photo_url || '',
   priority: row?.priority || 'MEDIUM',
   status: row?.status || 'in_progress',
   salesStatus: row?.salesStatus || row?.sales_status,
   clientName: row?.clientName || row?.client_name || '',
-  source: row?.source || 'WhatsApp',
+  source: header?.source || row?.source || 'WhatsApp',
   carPhotoUrl: row?.carPhotoUrl || row?.car_photo_url || row?.carPhotos?.[0] || row?.car_photos?.[0] || row?.vinPhotoUrl || row?.vin_photo_url || '',
   carPhotos: row?.carPhotos || row?.car_photos || [],
   logistics: resolveOrderLogistics(row),
-  markupType: row?.markupType || row?.markup_type || 'percent',
-  markupFixedAed: Number(row?.markupFixedAed ?? row?.markup_fixed_aed ?? 0),
-  parts: (row?.parts || []).map((part: any) => ({
+  markupType: header?.markupType || row?.markupType || row?.markup_type || 'percent',
+  markupFixedAed: Number(header?.markupFixedAed ?? row?.markupFixedAed ?? row?.markup_fixed_aed ?? row?.totals?.markup_aed ?? 0),
+  parts: (row?.parts || []).map((part: any) => {
+    const variantPrice = Number(part?.final_price_aed ?? part?.priceAed ?? part?.price_aed ?? 0);
+    const photos = part?.photo_urls || part?.photos || [];
+    return ({
     id: String(part?.id || ''),
-    orderId: String(part?.orderId || part?.order_id || row?.id || ''),
+    orderId: String(part?.orderId || part?.order_id || row?.order_id || row?.id || ''),
     name: part?.name || 'Part',
-    photoUrl: part?.photoUrl || part?.photo_url || part?.photos?.[0] || '',
-    photos: part?.photos || [],
+    photoUrl: part?.photoUrl || part?.photo_url || photos?.[0] || '',
+    photos,
     isFound: !!part?.isFound || !!part?.is_found,
-    variants: (part?.variants || part?.price_variants || []).map((variant: any): PriceVariant => ({
+    variants: (part?.variants || part?.price_variants || [{ id: `${part?.id || 'variant'}-public`, priceAed: variantPrice, price_aed: variantPrice }]).map((variant: any): PriceVariant => ({
       id: String(variant?.id || ''),
       partId: String(variant?.partId || variant?.part_id || part?.id || ''),
       priceAed: Number(variant?.priceAed ?? variant?.price_aed ?? 0),
@@ -332,26 +333,15 @@ const mapSnapshotOrder = (row: any): Order => ({
       photos: variant?.photos || [],
       createdAt: parseTimestamp(variant?.createdAt ?? variant?.created_at)
     }))
-  })),
-  markupPercent: Number(row?.markupPercent ?? row?.markup_percent ?? 0),
-  exchangeRate: Number(row?.exchangeRate ?? row?.exchange_rate ?? 3.67),
+  });
+  }),
+  markupPercent: Number(header?.markupPercent ?? row?.markupPercent ?? row?.markup_percent ?? 0),
+  exchangeRate: Number(header?.exchangeRate ?? row?.exchangeRate ?? row?.exchange_rate ?? row?.exchange_rate ?? 3.67),
   createdAt: parseTimestamp(row?.createdAt ?? row?.created_at),
   isArchived: !!row?.isArchived || !!row?.is_archived,
   isSold: !!row?.isSold || !!row?.is_sold,
   pricingEvents: Array.isArray(row?.pricingEvents || row?.pricing_events) ? (row?.pricingEvents || row?.pricing_events) : []
 });
-
-const fetchLiveQuoteRates = async (): Promise<QuoteRates> => {
-  const response = await fetch('https://open.er-api.com/v6/latest/AED');
-  if (!response.ok) throw new Error(`Rate API error: ${response.status}`);
-  const payload = await response.json();
-  const rates = payload?.rates || {};
-  return {
-    AED: 1,
-    USD: Number(rates.USD) > 0 ? Number(rates.USD) : DEFAULT_QUOTE_RATES.USD,
-    RUB: Number(rates.RUB) > 0 ? Number(rates.RUB) : DEFAULT_QUOTE_RATES.RUB,
-    TJS: Number(rates.TJS) > 0 ? Number(rates.TJS) : DEFAULT_QUOTE_RATES.TJS
-  };
 };
 
 const isRelationQueryError = (error: unknown) => {
@@ -477,7 +467,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [currency, setCurrency] = useState<QuoteCurrency>('AED');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [rates, setRates] = useState<QuoteRates>(DEFAULT_QUOTE_RATES);
-  const [rateSource, setRateSource] = useState('Live market rates');
+  const [rateSource, setRateSource] = useState('Default rates');
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
   const [lang, setLang] = useState<Language>('en');
   const [partsVerified, setPartsVerified] = useState(false);
@@ -495,8 +485,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     .filter(Boolean)
     .map((candidate) => normalizeCandidateOrderId(candidate))));
   const embeddedSnapshot = useMemo(() => parseEmbeddedSnapshot(params.get('data')), [params]);
-  const snapshotToken = (params.get('snapshot') || '').trim();
-  const token = params.get('token') || '';
+  const snapshotToken = (params.get('token') || params.get('snapshot') || '').trim();
+  const token = params.get('token') || snapshotToken;
   const hasSecurityToken = token.length >= 32;
   const isExpired = hasSecurityToken && Number.isFinite(expiresAt) && expiresAt <= Date.now();
 
@@ -519,18 +509,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       return;
     }
 
-    void (async () => {
-      setIsRefreshingRates(true);
-      try {
-        setRates(await fetchLiveQuoteRates());
-        setRateSource('Live market rates');
-      } catch {
-        setRates(DEFAULT_QUOTE_RATES);
-        setRateSource('Default rates');
-      } finally {
-        setIsRefreshingRates(false);
-      }
-    })();
+    setRates(DEFAULT_QUOTE_RATES);
+    setRateSource('Default rates');
   }, [params]);
 
   useEffect(() => {
@@ -577,13 +557,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
     try {
       const data = await fetchPublicSnapshot(snapshotToken);
-      if (!data?.payload) return null;
+      if (!data?.payload_json) return null;
 
       const expiresAtIso = typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : NaN;
       if (!Number.isNaN(expiresAtIso) && expiresAtIso <= Date.now()) return null;
 
-      const snapshotOrder = mapSnapshotOrder(typeof data.payload === 'object' && data.payload
-        ? data.payload as Record<string, unknown>
+      const snapshotOrder = mapSnapshotOrder(typeof data.payload_json === 'object' && data.payload_json
+        ? data.payload_json as Record<string, unknown>
         : {});
 
       return snapshotOrder.id ? snapshotOrder : null;
@@ -841,17 +821,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         <div className="mx-auto mt-2 flex w-full max-w-5xl items-center justify-between text-[11px] text-slate-500">
           <span>{t.source}: {rateSource}</span>
           <button type="button" className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-slate-700" onClick={() => {
-            void (async () => {
-              setIsRefreshingRates(true);
-              try {
-                setRates(await fetchLiveQuoteRates());
-                setRateSource('Live market rates');
-              } catch {
-                setRateSource('Default rates');
-              } finally {
-                setIsRefreshingRates(false);
-              }
-            })();
+            setIsRefreshingRates(true);
+            window.setTimeout(() => {
+              setRates(DEFAULT_QUOTE_RATES);
+              setRateSource('Default rates');
+              setIsRefreshingRates(false);
+            }, 80);
           }}><RefreshCcw size={12} className={isRefreshingRates ? 'animate-spin' : ''} /> {t.refresh}</button>
         </div>
       </div>
