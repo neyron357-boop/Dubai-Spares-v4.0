@@ -565,6 +565,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         console.info('[public-quote] lookup token', { lookupToken: token, source: publicQuoteKey?.source, urlToken: publicQuoteKey?.urlToken, urlSnapshot: publicQuoteKey?.urlSnapshot });
       }
       const data = await fetchPublicSnapshot(token, controller.signal);
+      if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+        console.info('[public-quote] lookup result', {
+          urlToken: publicQuoteKey?.urlToken || token,
+          snapshot: publicQuoteKey?.urlSnapshot || null,
+          dbTokenFound: data?.token || null
+        });
+      }
       if (!data) return { order: null, expired: false, notFound: true, corrupted: false };
 
       const expiresAt = typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : NaN;

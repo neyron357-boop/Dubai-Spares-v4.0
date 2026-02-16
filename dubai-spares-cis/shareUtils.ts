@@ -82,7 +82,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 
 export type PublicQuoteKey = {
   value: string;
-  source: 'token' | 'snapshot';
+  source: 'token';
   urlToken: string | null;
   urlSnapshot: string | null;
 };
@@ -90,12 +90,11 @@ export type PublicQuoteKey = {
 export const parsePublicQuoteKey = (params: URLSearchParams, _pathParam: string): PublicQuoteKey | null => {
   const tokenFromQuery = (params.get('token') || '').trim();
   const snapshotFromQuery = (params.get('snapshot') || '').trim();
-  const lookupToken = tokenFromQuery || snapshotFromQuery;
-  if (!lookupToken) return null;
+  if (!tokenFromQuery) return null;
 
   return {
-    value: lookupToken,
-    source: tokenFromQuery ? 'token' : 'snapshot',
+    value: tokenFromQuery,
+    source: 'token',
     urlToken: tokenFromQuery || null,
     urlSnapshot: snapshotFromQuery || null
   };

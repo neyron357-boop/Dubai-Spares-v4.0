@@ -312,12 +312,20 @@ export const publicQuoteCreateSnapshot = async (
 
       const quoteUrl = new URL(`${window.location.origin}/quote/${encodeURIComponent(buildPublicQuoteSlug(order))}`);
       quoteUrl.searchParams.set('token', created.token);
-      quoteUrl.searchParams.set('snapshot', created.token);
+      quoteUrl.searchParams.set('snapshot', created.snapshot_id || snapshotId);
       quoteUrl.searchParams.set('exp', String(Date.parse(created.expires_at)));
       quoteUrl.searchParams.set('oid', order.id);
       quoteUrl.searchParams.set('currency', options?.currency || order.clientCurrency || 'USD');
       if (options?.rates) quoteUrl.searchParams.set('rates', serializeQuoteRates(options.rates));
       if (trimmed.photosOmitted) quoteUrl.searchParams.set('photos', 'omitted');
+
+      if (isDevBuild) {
+        console.info('[public-quote] snapshot inserted', {
+          urlToken: quoteToken,
+          snapshot: created.snapshot_id || snapshotId,
+          insertedToken: created.token
+        });
+      }
 
       return {
         id: created.id,
