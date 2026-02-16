@@ -451,6 +451,7 @@ const PublicOrderFormScreen: React.FC = () => {
       setSubmitController(controller);
       const leadResult = await leadCreate({
         orderId,
+        idempotency_key: orderId,
         name: clientAlias.trim() || 'Public Lead',
         phone: `${contactCountryCode}${customerContact.trim()}`.trim(),
         message: JSON.stringify({

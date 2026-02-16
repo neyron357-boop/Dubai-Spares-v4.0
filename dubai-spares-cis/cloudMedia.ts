@@ -77,7 +77,7 @@ const dataUrlToBlob = async (value: string): Promise<Blob> => {
   return response.blob();
 };
 
-const getBucketByScope = (scope: ActionScope) => (scope === 'backup' ? 'backups' : scope === 'quote' ? 'public-quote' : 'client-form');
+const getBucketByScope = (scope: ActionScope) => (scope === 'backup' ? 'backups' : scope === 'quote' ? 'quotes' : 'leads');
 const getStoragePublicUrl = (bucket: string, path: string) => `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
 
 const uploadBlobToStorage = async (bucket: string, path: string, blob: Blob, signal?: AbortSignal): Promise<string> => {

@@ -15,7 +15,7 @@ import { DEFAULT_QUOTE_RATES, extractOrderIdFromQuoteSlug, parseQuoteRates, Quot
 import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
 import { useAppSettings } from '../appSettings';
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../cloudConfig';
+import { publicQuoteGetByToken } from '../serverApi';
 
 type Language = 'en' | 'ru';
 
@@ -213,6 +213,8 @@ const normalizeLogistics = (raw: any) => {
 const resolveOrderLogistics = (row: any) => {
   const mergedSources = {
     ...(row?.logistics && typeof row.logistics === 'object' ? row.logistics : {}),
+    ...(row?.pricingBreakdown && typeof row.pricingBreakdown === 'object' ? row.pricingBreakdown : {}),
+    ...(row?.pricing_breakdown && typeof row.pricing_breakdown === 'object' ? row.pricing_breakdown : {}),
     deliveryAed: row?.deliveryAed,
     delivery_aed: row?.delivery_aed,
     delivery: row?.delivery,
@@ -240,16 +242,9 @@ const resolveOrderLogistics = (row: any) => {
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
 
 const fetchPublicSnapshot = async (token: string) => {
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?token=eq.${encodeURIComponent(token)}&select=token,expires_at,payload,payload_b64,payload_codec,payload_json,image_manifest&limit=1`, {
-    method: 'GET',
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`
-    }
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const data = await response.json();
-  return Array.isArray(data) ? (data[0] || null) : null;
+  const response = await publicQuoteGetByToken(token);
+  if (!response.ok) throw new Error(response.error || 'Snapshot request failed');
+  return response.data;
 };
 
 const mapDbOrder = (row: any): Order => ({
