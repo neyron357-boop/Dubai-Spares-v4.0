@@ -48,6 +48,7 @@ export type PublicQuotePayloadV1 = {
 type SnapshotRow = {
   id: string;
   token: string;
+  snapshot_id?: string | null;
   expires_at: string;
   payload?: unknown;
   payload_json?: unknown;
@@ -61,7 +62,7 @@ const MAX_PAYLOAD_BYTES = 700 * 1024;
 const MAX_IMAGE_WIDTH = 1280;
 const IMAGE_QUALITY = 0.72;
 
-const createInFlight = new Map<string, Promise<{ id: string; token: string; expiresAt: string; url: string }>>();
+const createInFlight = new Map<string, Promise<{ id: string; token: string; snapshotId: string; expiresAt: string; url: string }>>();
 
 const parseMoney = (...values: Array<unknown>) => {
   for (const value of values) {
@@ -86,6 +87,8 @@ const createToken = () => {
   crypto.getRandomValues(bytes);
   return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('');
 };
+
+const createSnapshotId = () => (typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : createToken());
 
 const withTimeoutSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
   const controller = new AbortController();
@@ -251,7 +254,7 @@ const buildSnapshotPayload = (
 
 export const publicQuoteCreateSnapshot = async (
   order: Order,
-  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; signal?: AbortSignal; timeoutMs?: number; token?: string }
+  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; signal?: AbortSignal; timeoutMs?: number; token?: string; snapshotId?: string }
 ) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
   const key = order.id;
@@ -259,7 +262,8 @@ export const publicQuoteCreateSnapshot = async (
   if (existing) return existing;
 
   const promise = (async () => {
-    const token = (options?.token || createToken()).trim();
+    const publicToken = (options?.token || createToken()).trim();
+    const snapshotId = (options?.snapshotId || createSnapshotId()).trim();
     const expiresAt = new Date(Date.now() + SNAPSHOT_TTL_MS).toISOString();
     const payload = buildSnapshotPayload(
       order,
@@ -274,7 +278,7 @@ export const publicQuoteCreateSnapshot = async (
     const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
 
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,expires_at`, {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at`, {
         method: 'POST',
         headers: {
           apikey: SUPABASE_ANON_KEY,
@@ -282,7 +286,7 @@ export const publicQuoteCreateSnapshot = async (
           'Content-Type': 'application/json',
           Prefer: 'return=representation'
         },
-        body: JSON.stringify([{ token, expires_at: expiresAt, payload: trimmed.payload }]),
+        body: JSON.stringify([{ token: publicToken, snapshot_id: snapshotId, expires_at: expiresAt, payload: trimmed.payload }]),
         signal: request.signal
       });
 
@@ -290,7 +294,7 @@ export const publicQuoteCreateSnapshot = async (
         throw new Error('Server unavailable, try again');
       }
 
-      const rows = (await response.json()) as Array<{ id: string; token: string; expires_at: string }>;
+      const rows = (await response.json()) as Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string }>;
       const created = rows[0];
       if (!created?.id || !created?.token || !created?.expires_at) {
         throw new Error('Share quote created, but response is missing id/token/expires_at');
@@ -298,6 +302,7 @@ export const publicQuoteCreateSnapshot = async (
 
       const quoteUrl = new URL(`${window.location.origin}/quote/${encodeURIComponent(buildPublicQuoteSlug(order))}`);
       quoteUrl.searchParams.set('token', created.token);
+      quoteUrl.searchParams.set('snapshot', (created.snapshot_id || snapshotId));
       quoteUrl.searchParams.set('exp', String(Date.parse(created.expires_at)));
       quoteUrl.searchParams.set('oid', order.id);
       quoteUrl.searchParams.set('currency', options?.currency || order.clientCurrency || 'USD');
@@ -307,6 +312,7 @@ export const publicQuoteCreateSnapshot = async (
       return {
         id: created.id,
         token: created.token,
+        snapshotId: created.snapshot_id || snapshotId,
         expiresAt: created.expires_at,
         url: quoteUrl.toString()
       };
@@ -332,17 +338,18 @@ const readPayloadWithFallback = async (row: SnapshotRow): Promise<unknown | null
   return null;
 };
 
-export const publicQuoteGetSnapshot = async (token: string, options?: { signal?: AbortSignal; timeoutMs?: number }) => {
+export const publicQuoteGetSnapshot = async (token: string, options?: { signal?: AbortSignal; timeoutMs?: number; snapshotId?: string | null }) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
   const normalizedToken = token.trim();
   if (!normalizedToken) throw new Error('Snapshot token is required');
 
-  const endpoint = `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,expires_at,payload,payload_json,payload_b64,payload_codec&token=eq.${encodeURIComponent(normalizedToken)}&limit=1`;
+  const endpoint = `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at,payload,payload_json,payload_b64,payload_codec&token=eq.${encodeURIComponent(normalizedToken)}&limit=1`;
+  const normalizedSnapshotId = (options?.snapshotId || '').trim();
 
-  const runSelect = async () => {
+  const runSelect = async (queryEndpoint: string) => {
     const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch(queryEndpoint, {
         method: 'GET',
         headers: {
           apikey: SUPABASE_ANON_KEY,
@@ -355,28 +362,26 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
         throw new Error(`Failed to load quote (${response.status})`);
       }
       const rows = (await response.json()) as SnapshotRow[];
-      return { row: rows[0] || null, timedOut: false };
-    } catch (error) {
-      if (request.isTimedOut()) return { row: null, timedOut: true };
-      throw error;
+      return rows[0] || null;
     } finally {
       request.cleanup();
     }
   };
 
-  let attempt = await runSelect();
-  if (attempt.timedOut) {
-    await new Promise((resolve) => window.setTimeout(resolve, 1000));
-    attempt = await runSelect();
+  let row = await runSelect(endpoint);
+  if (!row && normalizedSnapshotId) {
+    const fallbackEndpoint = `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at,payload,payload_json,payload_b64,payload_codec&snapshot_id=eq.${encodeURIComponent(normalizedSnapshotId)}&limit=1`;
+    row = await runSelect(fallbackEndpoint);
   }
 
-  if (!attempt.row) return null;
-  const payload = await readPayloadWithFallback(attempt.row);
+  if (!row) return null;
+  const payload = await readPayloadWithFallback(row);
 
   return {
-    id: attempt.row.id,
-    token: attempt.row.token,
-    expires_at: attempt.row.expires_at,
+    id: row.id,
+    token: row.token,
+    snapshot_id: row.snapshot_id || null,
+    expires_at: row.expires_at,
     payload,
     isPayloadCorrupted: !payload
   };

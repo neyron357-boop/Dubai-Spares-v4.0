@@ -80,12 +80,13 @@ export const extractOrderIdFromQuoteSlug = (slugOrId: string) => {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type PublicQuoteKey = { value: string };
+export type PublicQuoteKey = { value: string; snapshotId?: string | null };
 
 export const parsePublicQuoteKey = (params: URLSearchParams, _pathParam: string): PublicQuoteKey | null => {
   const tokenFromQuery = (params.get('token') || '').trim();
   if (!tokenFromQuery) return null;
-  return { value: tokenFromQuery };
+  const snapshotId = (params.get('snapshot') || '').trim() || null;
+  return { value: tokenFromQuery, snapshotId };
 };
 
 export const serializeQuoteRates = (rates: QuoteRates) => (

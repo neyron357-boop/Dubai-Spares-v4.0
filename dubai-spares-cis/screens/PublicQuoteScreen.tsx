@@ -245,7 +245,7 @@ const resolveOrderLogistics = (row: any) => {
 
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
 
-const fetchPublicSnapshot = (token: string, signal?: AbortSignal) => publicQuoteGetSnapshot(token, { signal, timeoutMs: 20_000 });
+const fetchPublicSnapshot = (token: string, snapshotId?: string | null, signal?: AbortSignal) => publicQuoteGetSnapshot(token, { signal, timeoutMs: 20_000, snapshotId });
 
 const mapDbOrder = (row: any): Order => ({
   id: String(row.id),
@@ -561,7 +561,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       loadControllerRef.current?.abort();
       const controller = new AbortController();
       loadControllerRef.current = controller;
-      const data = await fetchPublicSnapshot(token, controller.signal);
+      const data = await fetchPublicSnapshot(token, publicQuoteKey?.snapshotId, controller.signal);
       if (!data) return { order: null, expired: false, notFound: true, corrupted: false };
 
       const expiresAt = typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : NaN;
