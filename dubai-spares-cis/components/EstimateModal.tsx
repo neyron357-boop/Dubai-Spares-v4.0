@@ -94,17 +94,16 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     setRates((current) => ({ ...current, [code]: parsed }));
   };
 
-  const whatsappPhone = (settings.publicWhatsappNumber || '971000000000').replace(/[^\d]/g, '') || '971000000000';
+  const whatsappPhone = (settings.publicWhatsappNumber || '').replace(/[^\d]/g, '');
   const confirmMessage = `Здравствуйте! Подтверждаю смету по ${order.brand} ${order.model} ${order.year}. VIN: ${order.vin}`;
-  const confirmUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(confirmMessage)}`;
+  const confirmUrl = whatsappPhone ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(confirmMessage)}` : '';
 
   const runShare = async () => {
     setIsSharing(true);
     try {
       await onShare({ rates, currency });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Не удалось создать ссылку. Попробуйте снова.';
-      toast(`${message} Try again.`, 'error');
+      toast('Server unavailable, try again', 'error');
     } finally {
       setIsSharing(false);
     }
@@ -113,10 +112,10 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="bg-white w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-300 flex flex-col max-h-[90vh]"
+        className="bg-white w-full max-w-sm rounded-2xl shadow-2xl animate-in fade-in zoom-in duration-300 flex flex-col max-h-[90vh] overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        <div className="relative bg-gray-900 text-white p-3 shrink-0 overflow-hidden">
+        <div className="relative bg-gray-900 text-white p-3 overflow-hidden overflow-y-auto">
           {carPhoto && (
             <div className="absolute inset-0 z-0">
               <img src={carPhoto} className="w-full h-full object-cover opacity-40" />
@@ -246,9 +245,13 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
 >
             <Share2 size={12} /> {isSharing ? 'Creating link...' : 'Share quote link'}
           </button>
-          <a href={confirmUrl} target="_blank" rel="noreferrer" className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white">
-            <CheckCircle2 size={12} /> Подтвердить по WhatsApp
-          </a>
+          {confirmUrl ? (
+            <a href={confirmUrl} target="_blank" rel="noreferrer" className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white">
+              <CheckCircle2 size={12} /> Подтвердить по WhatsApp
+            </a>
+          ) : (
+            <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center text-[10px] font-bold text-emerald-700">WhatsApp number is not configured</div>
+          )}
         </div>
       </div>
 

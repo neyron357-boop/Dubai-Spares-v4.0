@@ -1,5 +1,6 @@
 import { SUPABASE_ANON_KEY, SUPABASE_URL, cloudBuildGuardMessage, isCloudConfigured } from './cloudConfig';
 import { decodePayloadFromCompressedTransport } from './cloudCodec';
+import { buildPublicQuoteSlug, QuoteRates, serializeQuoteRates } from './shareUtils';
 import { Order } from './types';
 
 export type PublicQuotePayloadV1 = {
@@ -12,10 +13,12 @@ export type PublicQuotePayloadV1 = {
     year: string;
     vin: string;
     body_type?: string;
+    photo_omitted_notice?: string;
   };
   pricing: {
     currency: string;
     fx_rate: number;
+    rates?: Record<string, number>;
   };
   totals: {
     parts_sum_aed: number;
@@ -36,6 +39,9 @@ export type PublicQuotePayloadV1 = {
     whatsapp_phone: string | null;
     display_name?: string | null;
   };
+  public_settings?: {
+    whatsapp_phone?: string | null;
+  };
   image_manifest?: unknown;
 };
 
@@ -51,6 +57,9 @@ type SnapshotRow = {
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_PAYLOAD_BYTES = 700 * 1024;
+const MAX_IMAGE_WIDTH = 1280;
+const IMAGE_QUALITY = 0.72;
 
 const createInFlight = new Map<string, Promise<{ id: string; token: string; expiresAt: string; url: string }>>();
 
@@ -67,16 +76,15 @@ const parseMoney = (...values: Array<unknown>) => {
 
 const normalizeWhatsappE164 = (raw: string | null | undefined): string | null => {
   if (!raw) return null;
-  const plus = raw.trim().startsWith('+');
   const digits = raw.replace(/\D/g, '');
   if (!digits) return null;
-  return `${plus ? '+' : '+'}${digits}`;
+  return `+${digits}`;
 };
 
-const createToken = (size = 24) => {
-  const bytes = new Uint8Array(size);
+const createToken = () => {
+  const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
 const withTimeoutSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
@@ -103,11 +111,83 @@ const withTimeoutSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
   };
 };
 
+const isDataImage = (value: unknown): value is string => typeof value === 'string' && value.startsWith('data:image');
+
+const compressDataImage = async (dataUrl: string): Promise<string> => {
+  if (typeof document === 'undefined') return dataUrl;
+  const sourceBlob = await fetch(dataUrl).then((response) => response.blob());
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(sourceBlob);
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Image decode failed'));
+    };
+    image.src = objectUrl;
+  });
+
+  const scale = Math.min(1, MAX_IMAGE_WIDTH / Math.max(img.naturalWidth || img.width, 1));
+  const width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+  const height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) return dataUrl;
+  context.drawImage(img, 0, 0, width, height);
+
+  const compressed = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Image encode failed'))), 'image/webp', IMAGE_QUALITY);
+  });
+
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || dataUrl));
+    reader.onerror = () => reject(new Error('Image read failed'));
+    reader.readAsDataURL(compressed);
+  });
+};
+
+const mapImagesInPayload = async (input: unknown): Promise<unknown> => {
+  if (Array.isArray(input)) {
+    return Promise.all(input.map((item) => mapImagesInPayload(item)));
+  }
+  if (input && typeof input === 'object') {
+    const entries = await Promise.all(Object.entries(input as Record<string, unknown>).map(async ([key, value]) => [key, await mapImagesInPayload(value)] as const));
+    return Object.fromEntries(entries);
+  }
+  if (!isDataImage(input)) return input;
+  try {
+    return await compressDataImage(input);
+  } catch {
+    return input;
+  }
+};
+
+const jsonBytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+
+const trimPayloadForSize = (payload: PublicQuotePayloadV1): { payload: PublicQuotePayloadV1; photosOmitted: boolean } => {
+  if (jsonBytes(payload) <= MAX_PAYLOAD_BYTES) return { payload, photosOmitted: false };
+  return {
+    photosOmitted: true,
+    payload: {
+      ...payload,
+      order: { ...payload.order, photo_omitted_notice: 'Photos omitted to keep link fast' },
+      parts: payload.parts.map((part) => ({ ...part, photo_urls: [] }))
+    }
+  };
+};
+
 const buildSnapshotPayload = (
   order: Order,
   currency: string,
   exchangeRate: number,
-  owner: { whatsappPhone?: string | null; displayName?: string | null }
+  owner: { whatsappPhone?: string | null; displayName?: string | null },
+  rates?: QuoteRates
 ): PublicQuotePayloadV1 => {
   const deliveryAed = parseMoney(order.logistics?.deliveryAed, (order as any).logistics?.delivery, (order as any).deliveryAed, (order as any).delivery);
   const packingAed = parseMoney(order.logistics?.packingAed, (order as any).logistics?.packing, (order as any).packingAed, (order as any).packing);
@@ -148,7 +228,8 @@ const buildSnapshotPayload = (
     },
     pricing: {
       currency,
-      fx_rate: exchangeRate
+      fx_rate: exchangeRate,
+      rates
     },
     totals: {
       parts_sum_aed: partsSumAed,
@@ -161,15 +242,16 @@ const buildSnapshotPayload = (
     owner: {
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone),
       display_name: owner.displayName || null
+    },
+    public_settings: {
+      whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone)
     }
   };
 };
 
-const quoteUrlForToken = (token: string) => `${window.location.origin}/#/q/${encodeURIComponent(token)}`;
-
 export const publicQuoteCreateSnapshot = async (
   order: Order,
-  options?: { currency?: string; exchangeRate?: number; owner?: { whatsappPhone?: string | null; displayName?: string | null }; signal?: AbortSignal; timeoutMs?: number }
+  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; signal?: AbortSignal; timeoutMs?: number; token?: string }
 ) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
   const key = order.id;
@@ -177,14 +259,17 @@ export const publicQuoteCreateSnapshot = async (
   if (existing) return existing;
 
   const promise = (async () => {
-    const token = createToken();
+    const token = (options?.token || createToken()).trim();
     const expiresAt = new Date(Date.now() + SNAPSHOT_TTL_MS).toISOString();
     const payload = buildSnapshotPayload(
       order,
       options?.currency || order.clientCurrency || 'USD',
       Number(options?.exchangeRate || order.exchangeRate || 3.67),
-      options?.owner || {}
+      options?.owner || {},
+      options?.rates
     );
+    const payloadWithCompressedImages = await mapImagesInPayload(payload) as PublicQuotePayloadV1;
+    const trimmed = trimPayloadForSize(payloadWithCompressedImages);
 
     const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
 
@@ -197,13 +282,12 @@ export const publicQuoteCreateSnapshot = async (
           'Content-Type': 'application/json',
           Prefer: 'return=representation'
         },
-        body: JSON.stringify([{ token, expires_at: expiresAt, payload }]),
+        body: JSON.stringify([{ token, expires_at: expiresAt, payload: trimmed.payload }]),
         signal: request.signal
       });
 
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Share quote failed (${response.status})`);
+        throw new Error('Server unavailable, try again');
       }
 
       const rows = (await response.json()) as Array<{ id: string; token: string; expires_at: string }>;
@@ -212,11 +296,19 @@ export const publicQuoteCreateSnapshot = async (
         throw new Error('Share quote created, but response is missing id/token/expires_at');
       }
 
+      const quoteUrl = new URL(`${window.location.origin}/quote/${encodeURIComponent(buildPublicQuoteSlug(order))}`);
+      quoteUrl.searchParams.set('token', created.token);
+      quoteUrl.searchParams.set('exp', String(Date.parse(created.expires_at)));
+      quoteUrl.searchParams.set('oid', order.id);
+      quoteUrl.searchParams.set('currency', options?.currency || order.clientCurrency || 'USD');
+      if (options?.rates) quoteUrl.searchParams.set('rates', serializeQuoteRates(options.rates));
+      if (trimmed.photosOmitted) quoteUrl.searchParams.set('photos', 'omitted');
+
       return {
         id: created.id,
         token: created.token,
         expiresAt: created.expires_at,
-        url: quoteUrlForToken(created.token)
+        url: quoteUrl.toString()
       };
     } finally {
       request.cleanup();
@@ -260,8 +352,7 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
         signal: request.signal
       });
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to load quote (${response.status})`);
+        throw new Error(`Failed to load quote (${response.status})`);
       }
       const rows = (await response.json()) as SnapshotRow[];
       return { row: rows[0] || null, timedOut: false };
@@ -275,6 +366,7 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
 
   let attempt = await runSelect();
   if (attempt.timedOut) {
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
     attempt = await runSelect();
   }
 
