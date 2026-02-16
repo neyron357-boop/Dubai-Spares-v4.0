@@ -1,5 +1,5 @@
 import { Order, Part } from './types';
-import { publicQuoteCreate } from './serverApi';
+import { publicQuoteCreateSnapshot } from './publicQuoteApi';
 
 export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS';
 export type QuoteRates = Record<QuoteCurrency, number>;
@@ -232,23 +232,12 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
   return url.toString();
 };
 
-const saveQuoteSnapshot = async (order: Order, expiresAt: number, token: string) => {
-  const snapshot = buildQuoteSnapshot(order);
-  return publicQuoteCreate({ token, payload: snapshot, expiresAt });
-};
-
 export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
-  const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
-  const snapshotToken = createQuoteToken();
-  const snapshotResponse = await saveQuoteSnapshot(order, expiresAt, snapshotToken);
-  if (!snapshotResponse.ok) {
-    throw new Error(`Share quote failed: ${snapshotResponse.error}`);
-  }
-  const link = buildPublicQuoteLink(order, {
-    ...options,
-    expiresAt,
-    snapshotToken: snapshotResponse.data.token || snapshotToken
+  const snapshot = await publicQuoteCreateSnapshot(order, {
+    currency: options?.currency,
+    exchangeRate: options?.rates?.[options?.currency || 'USD']
   });
+  const link = snapshot.url;
   const text = `Quote for ${order.brand} ${order.model} ${order.year}`;
 
   if (navigator.share) {

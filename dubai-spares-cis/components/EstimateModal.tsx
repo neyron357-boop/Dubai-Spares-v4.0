@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Order } from '../types';
 import { X, CheckCircle2, Share2, RefreshCcw, Images } from 'lucide-react';
 import { DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
 import ImagePreview from './ImagePreview';
 import { useAppSettings } from '../appSettings';
+import { toast } from '../feedback';
 
 interface Props {
   order: Order;
@@ -44,7 +45,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
   const [rateNotice, setRateNotice] = useState('');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
-  const [shareError, setShareError] = useState('');
   const [isSharing, setIsSharing] = useState(false);
   const { settings } = useAppSettings();
 
@@ -66,21 +66,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const finalTotalAed = subtotalWithoutLogisticsAed + logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed;
 
   const convertedTotal = finalTotalAed * rates[currency];
-
-  useEffect(() => {
-    void (async () => {
-      setIsRefreshingRates(true);
-      try {
-        const liveRates = await fetchLiveQuoteRates();
-        setRates(liveRates);
-        setRateNotice('Курс обновлён автоматически (реальный).');
-      } catch {
-        setRateNotice('Не удалось обновить автоматически. Используются значения по умолчанию.');
-      } finally {
-        setIsRefreshingRates(false);
-      }
-    })();
-  }, []);
 
   const carPhoto = (order.carPhotos && order.carPhotos.length > 0) ? order.carPhotos[0] : order.carPhotoUrl;
 
@@ -114,12 +99,12 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const confirmUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(confirmMessage)}`;
 
   const runShare = async () => {
-    setShareError('');
     setIsSharing(true);
     try {
       await onShare({ rates, currency });
     } catch (error) {
-      setShareError(error instanceof Error ? error.message : 'Не удалось создать ссылку. Проверьте интернет и попробуйте снова.');
+      const message = error instanceof Error ? error.message : 'Не удалось создать ссылку. Попробуйте снова.';
+      toast(`${message} Try again.`, 'error');
     } finally {
       setIsSharing(false);
     }
@@ -261,12 +246,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
 >
             <Share2 size={12} /> {isSharing ? 'Creating link...' : 'Share quote link'}
           </button>
-          {shareError && (
-            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[10px] text-amber-800">
-              <p>{shareError}</p>
-              <button type="button" onClick={() => void runShare()} className="mt-1 rounded-md border border-amber-300 bg-white px-2 py-1 font-bold">Retry</button>
-            </div>
-          )}
           <a href={confirmUrl} target="_blank" rel="noreferrer" className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white">
             <CheckCircle2 size={12} /> Подтвердить по WhatsApp
           </a>
