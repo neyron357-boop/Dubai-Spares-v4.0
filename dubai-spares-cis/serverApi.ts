@@ -9,6 +9,9 @@ type RequestOptions = { signal?: AbortSignal; timeoutMs?: number };
 const DEFAULT_TIMEOUT_MS = 20_000;
 const BACKUP_TIMEOUT_MS = 45_000;
 const inFlight = new Set<string>();
+const endpointRateLimit = new Map<string, number>();
+const singleFlight = new Map<string, Promise<Result<unknown>>>();
+const MIN_ENDPOINT_INTERVAL_MS = 1000;
 
 const bumpRequestCounter = (endpoint: string, method: string) => {
   const key = '__serverApiRequestCount';
@@ -21,13 +24,31 @@ const bumpRequestCounter = (endpoint: string, method: string) => {
 
 const denyDuplicate = <T>(action: string): Result<T> => ({ ok: false, code: 'duplicate_in_flight', error: `${action} already in progress` });
 
-const guardCloud = (featureEnabled: boolean): Result<true> => {
-  if (!featureEnabled) return { ok: false, code: 'feature_disabled', error: 'Feature disabled in local mode settings' };
+export const assertCloudFeatureEnabled = (featureEnabled: boolean): Result<true> => {
+  if (!featureEnabled) return { ok: false, code: 'feature_disabled', error: 'Cloud feature disabled by local mode settings' };
   if (!isCloudConfigured) return { ok: false, code: 'cloud_not_configured', error: cloudBuildGuardMessage };
   return { ok: true, data: true };
 };
 
+const waitForRateLimit = async (endpoint: string) => {
+  const now = Date.now();
+  const nextAllowedAt = endpointRateLimit.get(endpoint) || 0;
+  if (nextAllowedAt > now) {
+    await new Promise((resolve) => window.setTimeout(resolve, nextAllowedAt - now));
+  }
+  endpointRateLimit.set(endpoint, Date.now() + MIN_ENDPOINT_INTERVAL_MS);
+};
+
+const withSingleFlight = async <T>(key: string, factory: () => Promise<Result<T>>): Promise<Result<T>> => {
+  const existing = singleFlight.get(key) as Promise<Result<T>> | undefined;
+  if (existing) return existing;
+  const promise = factory().finally(() => singleFlight.delete(key));
+  singleFlight.set(key, promise as Promise<Result<unknown>>);
+  return promise;
+};
+
 const callRest = async <T>(endpoint: string, method: 'GET' | 'POST', payload: unknown, options: RequestOptions): Promise<Result<T>> => {
+  await waitForRateLimit(endpoint);
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort('timeout'), options.timeoutMs || DEFAULT_TIMEOUT_MS);
   const abortByCaller = () => controller.abort(options.signal?.reason || 'caller-abort');
@@ -81,7 +102,7 @@ export const backupUpload = async (
   payload: unknown,
   options?: RequestOptions & { mode?: 'upload' | 'restore'; backupId?: string }
 ): Promise<Result<{ backupId: string; uploadedAt?: string; payload?: unknown }>> => {
-  const guard = guardCloud(cloudFeatureFlags.backup);
+  const guard = assertCloudFeatureEnabled(cloudFeatureFlags.backup);
   if (!guard.ok) return recordCall('backupUpload', guard);
 
   const mode = options?.mode || 'upload';
@@ -136,7 +157,7 @@ export const publicQuoteCreate = async (
   input: { token: string; payload: unknown; expiresAt: string | number | Date },
   options?: RequestOptions
 ): Promise<Result<{ token: string }>> => {
-  const guard = guardCloud(cloudFeatureFlags.publicQuote);
+  const guard = assertCloudFeatureEnabled(cloudFeatureFlags.publicQuote);
   if (!guard.ok) return recordCall('publicQuoteCreate', guard);
   const lockKey = 'publicQuoteCreate';
   if (inFlight.has(lockKey)) return recordCall('publicQuoteCreate', denyDuplicate('Quote share'));
@@ -145,14 +166,19 @@ export const publicQuoteCreate = async (
   try {
     const prepared = await preparePayloadWithImageManifest(input.payload, 'quote', `q-${Date.now()}`, { signal: options?.signal });
     const encoded = await encodePayloadToCompressedTransport(prepared.payload);
-    const response = await callRest<Array<{ token: string }>>('public_quote_snapshots', 'POST', [{
+    const requestPayload = [{
       token: input.token,
       expires_at: new Date(input.expiresAt).toISOString(),
       payload: encoded.payloadJson ?? prepared.payload,
       payload_b64: encoded.payloadB64,
       payload_codec: encoded.payloadCodec,
       image_manifest: prepared.imageManifest
-    }], options || {});
+    }];
+    const response = await withSingleFlight(`quote:create:${JSON.stringify(requestPayload)}`,
+      () => callRest<Array<{ token: string }>>('public_quote_snapshots', 'POST', requestPayload, {
+        ...(options || {}),
+        timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
+      }));
     if (!response.ok) return recordCall('publicQuoteCreate', response);
     return recordCall('publicQuoteCreate', { ok: true, data: { token: response.data?.[0]?.token || input.token } });
   } catch (error) {
@@ -162,11 +188,33 @@ export const publicQuoteCreate = async (
   }
 };
 
+export const publicQuoteGetByToken = async (
+  token: string,
+  options?: RequestOptions
+): Promise<Result<{ token: string; expires_at: string; payload: unknown; payload_b64?: string | null; payload_codec?: string | null; payload_json?: unknown }>> => {
+  const guard = assertCloudFeatureEnabled(cloudFeatureFlags.publicQuote);
+  if (!guard.ok) return recordCall('publicQuoteGetByToken', guard);
+  const normalizedToken = token.trim();
+  if (!normalizedToken) return recordCall('publicQuoteGetByToken', { ok: false, code: 'invalid_token', error: 'Snapshot token is required' });
+
+  const endpoint = `public_quote_snapshots?token=eq.${encodeURIComponent(normalizedToken)}&select=token,expires_at,payload,payload_b64,payload_codec,payload_json,image_manifest&limit=1`;
+  const response = await withSingleFlight(`quote:get:${normalizedToken}`,
+    () => callRest<Array<{ token: string; expires_at: string; payload: unknown; payload_b64?: string | null; payload_codec?: string | null; payload_json?: unknown }>>(endpoint, 'GET', undefined, {
+      ...(options || {}),
+      timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
+    }));
+
+  if (!response.ok) return recordCall('publicQuoteGetByToken', response);
+  const row = response.data?.[0];
+  if (!row) return recordCall('publicQuoteGetByToken', { ok: false, code: 'not_found', error: 'Quote snapshot not found' });
+  return recordCall('publicQuoteGetByToken', { ok: true, data: row });
+};
+
 export const leadCreate = async (
   payload: { name: string; phone: string; message?: string; orderId?: string | null; [key: string]: unknown },
   options?: RequestOptions
 ): Promise<Result<{ leadId: string }>> => {
-  const guard = guardCloud(cloudFeatureFlags.clientForm);
+  const guard = assertCloudFeatureEnabled(cloudFeatureFlags.clientForm);
   if (!guard.ok) return recordCall('leadCreate', guard);
   const lockKey = 'leadCreate';
   if (inFlight.has(lockKey)) return recordCall('leadCreate', denyDuplicate('Lead submit'));
@@ -174,7 +222,11 @@ export const leadCreate = async (
   try {
     const prepared = await preparePayloadWithImageManifest(payload, 'lead', `l-${Date.now()}`, { signal: options?.signal });
     const encoded = await encodePayloadToCompressedTransport(prepared.payload);
-    const response = await callRest<Array<{ id: string }>>('client_leads', 'POST', [{
+    const idempotencyKey = typeof payload.idempotency_key === 'string' && payload.idempotency_key.trim()
+      ? payload.idempotency_key.trim()
+      : (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `lead-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+
+    const requestPayload = [{
       payload: encoded.payloadJson ?? prepared.payload,
       payload_b64: encoded.payloadB64,
       payload_codec: encoded.payloadCodec,
@@ -182,8 +234,15 @@ export const leadCreate = async (
       phone: payload.phone,
       message: payload.message || '',
       order_id: payload.orderId || null,
+      idempotency_key: idempotencyKey,
       image_manifest: prepared.imageManifest
-    }], options || {});
+    }];
+
+    const response = await withSingleFlight(`lead:create:${idempotencyKey}`,
+      () => callRest<Array<{ id: string }>>('client_leads', 'POST', requestPayload, {
+        ...(options || {}),
+        timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
+      }));
     if (!response.ok) return recordCall('leadCreate', response);
     return recordCall('leadCreate', { ok: true, data: { leadId: response.data?.[0]?.id || '' } });
   } catch (error) {

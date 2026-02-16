@@ -302,11 +302,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency }) => {
     if (!order) return;
-    try {
-      await shareQuoteLink(order, options);
-    } catch {
-      // ignore share cancel/failure in modal flow
-    }
+    await shareQuoteLink(order, options);
   };
 
   if (!order) return <div className="p-10 text-center text-gray-400 font-bold">ЗАКАЗ НЕ НАЙДЕН</div>;

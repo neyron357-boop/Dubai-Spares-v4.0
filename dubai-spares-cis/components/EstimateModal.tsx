@@ -44,6 +44,8 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
   const [rateNotice, setRateNotice] = useState('');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
+  const [shareError, setShareError] = useState('');
+  const [isSharing, setIsSharing] = useState(false);
   const { settings } = useAppSettings();
 
   const totalAed = foundParts.reduce((sum, p) => {
@@ -110,6 +112,18 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const whatsappPhone = (settings.publicWhatsappNumber || '971000000000').replace(/[^\d]/g, '') || '971000000000';
   const confirmMessage = `Здравствуйте! Подтверждаю смету по ${order.brand} ${order.model} ${order.year}. VIN: ${order.vin}`;
   const confirmUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(confirmMessage)}`;
+
+  const runShare = async () => {
+    setShareError('');
+    setIsSharing(true);
+    try {
+      await onShare({ rates, currency });
+    } catch (error) {
+      setShareError(error instanceof Error ? error.message : 'Не удалось создать ссылку. Проверьте интернет и попробуйте снова.');
+    } finally {
+      setIsSharing(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={onClose}>
@@ -205,7 +219,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
           </div>
         </div>
 
-        <div className="p-3 bg-gray-50 border-t border-gray-200 shrink-0">
+        <div className="p-3 bg-gray-50 border-t border-gray-200 shrink-0 pb-[calc(16px+env(safe-area-inset-bottom))]">
           <div className="mb-2 flex gap-1 overflow-x-auto no-scrollbar">
             {(Object.keys(CURRENCY_META) as QuoteCurrency[]).map((code) => (
               <button
@@ -241,11 +255,18 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
           {(settings.publicDeliveryTerms.trim() || settings.publicWorkTerms.trim()) && <p className="text-[10px] text-gray-500 text-center whitespace-pre-line">{[settings.publicDeliveryTerms.trim(), settings.publicWorkTerms.trim()].filter(Boolean).join('\n')}</p>}
           <button
             type="button"
-            onClick={() => void onShare({ rates, currency })}
-            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white"
+            onClick={() => void runShare()}
+            disabled={isSharing}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white disabled:opacity-50"
 >
-            <Share2 size={12} /> Share quote link
+            <Share2 size={12} /> {isSharing ? 'Creating link...' : 'Share quote link'}
           </button>
+          {shareError && (
+            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[10px] text-amber-800">
+              <p>{shareError}</p>
+              <button type="button" onClick={() => void runShare()} className="mt-1 rounded-md border border-amber-300 bg-white px-2 py-1 font-bold">Retry</button>
+            </div>
+          )}
           <a href={confirmUrl} target="_blank" rel="noreferrer" className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white">
             <CheckCircle2 size={12} /> Подтвердить по WhatsApp
           </a>

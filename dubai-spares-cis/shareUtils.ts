@@ -131,7 +131,18 @@ const encodeSnapshot = (snapshot: Record<string, unknown>) => {
 
 const buildQuoteSnapshot = (order: Pick<Order,
   'id' | 'brand' | 'model' | 'year' | 'bodyType' | 'vin' | 'vinPhotoUrl' | 'carPhotoUrl' | 'carPhotos' |
-  'markupType' | 'markupPercent' | 'markupFixedAed' | 'exchangeRate' | 'logistics' | 'pricingEvents' | 'parts'>) => ({
+  'markupType' | 'markupPercent' | 'markupFixedAed' | 'exchangeRate' | 'clientCurrency' | 'logistics' | 'pricingEvents' | 'parts'>) => {
+  const pricedParts = (order.parts || []).filter((part) => part.isFound && part.variants.length > 0);
+  const partsSumAed = pricedParts.reduce((sum, part) => sum + Number(part.variants[0]?.priceAed || 0), 0);
+  const deliveryAed = Number(order.logistics?.deliveryAed || 0);
+  const packingAed = Number(order.logistics?.packingAed || 0);
+  const commissionAed = Number(order.logistics?.serviceFeeAed || 0);
+  const markupAed = (order.markupType || 'percent') === 'fixed'
+    ? Number(order.markupFixedAed || 0)
+    : partsSumAed * (Number(order.markupPercent || 0) / 100);
+  const grandTotalAed = partsSumAed + markupAed + deliveryAed + packingAed + commissionAed;
+
+  return ({
   id: order.id,
   brand: order.brand,
   model: order.model,
@@ -145,7 +156,28 @@ const buildQuoteSnapshot = (order: Pick<Order,
   markupPercent: order.markupPercent,
   markupFixedAed: order.markupFixedAed,
   exchangeRate: order.exchangeRate,
-  logistics: order.logistics,
+  clientCurrency: order.clientCurrency || 'USD',
+  logistics: {
+    ...(order.logistics || {}),
+    deliveryAed,
+    packingAed,
+    serviceFeeAed: commissionAed,
+    delivery_aed: deliveryAed,
+    packing_aed: packingAed,
+    commission_aed: commissionAed,
+    logistics_total: deliveryAed + packingAed + commissionAed
+  },
+  pricingBreakdown: {
+    parts_sum: partsSumAed,
+    delivery_aed: deliveryAed,
+    packing_aed: packingAed,
+    commission_aed: commissionAed,
+    markup_aed: markupAed,
+    grand_total: grandTotalAed,
+    exchange_rate: Number(order.exchangeRate || 3.67),
+    client_currency: order.clientCurrency || 'USD',
+    created_at: new Date().toISOString()
+  },
   pricingEvents: order.pricingEvents || [],
   parts: (order.parts || []).map((part) => ({
     id: part.id,
@@ -166,7 +198,8 @@ const buildQuoteSnapshot = (order: Pick<Order,
       createdAt: variant.createdAt
     }))
   }))
-});
+  });
+};
 
 export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
   const slug = typeof order === 'string' ? order : buildPublicQuoteSlug(order);
