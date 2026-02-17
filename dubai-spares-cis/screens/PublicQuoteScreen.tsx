@@ -189,9 +189,10 @@ const normalizeLogistics = (raw: any) => {
     raw.delivery,
     raw.logisticsAed,
     raw.logistics_aed,
-    raw.logistics
+    raw.logistics,
+    raw.totalsLogisticsAed
   );
-  const packingAed = parseMoneyField(raw.packingAed, raw.packing_aed, raw.packing, raw.packagingAed, raw.packaging_aed, raw.packaging);
+  const packingAed = parseMoneyField(raw.packingAed, raw.packing_aed, raw.packing, raw.packagingAed, raw.packaging_aed, raw.packaging, raw.totalsPackingAed);
   const serviceFeeAed = parseMoneyField(
     raw.serviceFeeAed,
     raw.service_fee_aed,
@@ -200,7 +201,8 @@ const normalizeLogistics = (raw: any) => {
     raw.commissionAed,
     raw.commission_aed,
     raw.commission,
-    raw.fee
+    raw.fee,
+    raw.totalsCommissionAed
   );
   const deliveryType = raw.deliveryType || raw.delivery_type;
 
@@ -236,6 +238,9 @@ const resolveOrderLogistics = (row: any) => {
     commission_aed: row?.commission_aed,
     commission: row?.commission,
     fee: row?.fee,
+    totalsLogisticsAed: row?.totals?.logistics_aed,
+    totalsPackingAed: row?.totals?.packing_aed,
+    totalsCommissionAed: row?.totals?.commission_aed,
     deliveryType: row?.deliveryType,
     delivery_type: row?.delivery_type
   };
@@ -746,15 +751,27 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};
   const settings = {
-    publicWhatsappNumber: typeof payloadSettings.publicWhatsappNumber === 'string' ? payloadSettings.publicWhatsappNumber : '',
-    publicTelegramUrl: typeof payloadSettings.publicTelegramUrl === 'string' ? payloadSettings.publicTelegramUrl : '',
-    publicInstagramUrl: typeof payloadSettings.publicInstagramUrl === 'string' ? payloadSettings.publicInstagramUrl : '',
-    publicDeliveryTerms: typeof payloadSettings.publicDeliveryTerms === 'string' ? payloadSettings.publicDeliveryTerms : '',
-    publicWorkTerms: typeof payloadSettings.publicWorkTerms === 'string' ? payloadSettings.publicWorkTerms : ''
+    publicWhatsappNumber: typeof payloadSettings.publicWhatsappNumber === 'string'
+      ? payloadSettings.publicWhatsappNumber
+      : (typeof payloadSettings.whatsapp_phone === 'string' ? payloadSettings.whatsapp_phone : ''),
+    publicTelegramUrl: typeof payloadSettings.publicTelegramUrl === 'string'
+      ? payloadSettings.publicTelegramUrl
+      : (typeof payloadSettings.public_telegram_url === 'string' ? payloadSettings.public_telegram_url : ''),
+    publicInstagramUrl: typeof payloadSettings.publicInstagramUrl === 'string'
+      ? payloadSettings.publicInstagramUrl
+      : (typeof payloadSettings.public_instagram_url === 'string' ? payloadSettings.public_instagram_url : ''),
+    publicDeliveryTerms: typeof payloadSettings.publicDeliveryTerms === 'string'
+      ? payloadSettings.publicDeliveryTerms
+      : (typeof payloadSettings.public_delivery_terms === 'string' ? payloadSettings.public_delivery_terms : ''),
+    publicWorkTerms: typeof payloadSettings.publicWorkTerms === 'string'
+      ? payloadSettings.publicWorkTerms
+      : (typeof payloadSettings.public_work_terms === 'string' ? payloadSettings.public_work_terms : '')
   };
   const whatsappPhoneRaw = typeof payloadOwner.whatsapp_phone === 'string' && payloadOwner.whatsapp_phone.trim()
     ? payloadOwner.whatsapp_phone
-    : (typeof payloadSettings.whatsapp_phone === 'string' ? payloadSettings.whatsapp_phone : '');
+    : (typeof payloadSettings.whatsapp_phone === 'string' && payloadSettings.whatsapp_phone.trim()
+      ? payloadSettings.whatsapp_phone
+      : settings.publicWhatsappNumber);
   const whatsappPhoneDigits = whatsappPhoneRaw.replace(/\D/g, '');
   const whatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(confirmMessage)}` : '';
 

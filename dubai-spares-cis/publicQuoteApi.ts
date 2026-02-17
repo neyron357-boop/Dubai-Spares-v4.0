@@ -40,7 +40,17 @@ export type PublicQuotePayloadV1 = {
     display_name?: string | null;
   };
   public_settings?: {
+    publicWhatsappNumber?: string;
+    publicTelegramUrl?: string;
+    publicInstagramUrl?: string;
+    publicDeliveryTerms?: string;
+    publicWorkTerms?: string;
     whatsapp_phone?: string | null;
+  };
+  logistics?: {
+    deliveryAed?: number;
+    packingAed?: number;
+    serviceFeeAed?: number;
   };
   image_manifest?: unknown;
 };
@@ -190,6 +200,13 @@ const buildSnapshotPayload = (
   currency: string,
   exchangeRate: number,
   owner: { whatsappPhone?: string | null; displayName?: string | null },
+  publicSettings?: {
+    publicWhatsappNumber?: string;
+    publicTelegramUrl?: string;
+    publicInstagramUrl?: string;
+    publicDeliveryTerms?: string;
+    publicWorkTerms?: string;
+  },
   rates?: QuoteRates
 ): PublicQuotePayloadV1 => {
   const deliveryAed = parseMoney(order.logistics?.deliveryAed, (order as any).logistics?.delivery, (order as any).deliveryAed, (order as any).delivery);
@@ -242,11 +259,21 @@ const buildSnapshotPayload = (
       grand_total_aed: grandTotalAed
     },
     parts: pricedParts,
+    logistics: {
+      deliveryAed,
+      packingAed,
+      serviceFeeAed: commissionAed
+    },
     owner: {
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone),
       display_name: owner.displayName || null
     },
     public_settings: {
+      publicWhatsappNumber: publicSettings?.publicWhatsappNumber || '',
+      publicTelegramUrl: publicSettings?.publicTelegramUrl || '',
+      publicInstagramUrl: publicSettings?.publicInstagramUrl || '',
+      publicDeliveryTerms: publicSettings?.publicDeliveryTerms || '',
+      publicWorkTerms: publicSettings?.publicWorkTerms || '',
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone)
     }
   };
@@ -254,7 +281,7 @@ const buildSnapshotPayload = (
 
 export const publicQuoteCreateSnapshot = async (
   order: Order,
-  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; signal?: AbortSignal; timeoutMs?: number; token?: string; snapshotId?: string }
+  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; publicSettings?: { publicWhatsappNumber?: string; publicTelegramUrl?: string; publicInstagramUrl?: string; publicDeliveryTerms?: string; publicWorkTerms?: string }; signal?: AbortSignal; timeoutMs?: number; token?: string; snapshotId?: string }
 ) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
   const key = order.id;
@@ -270,6 +297,7 @@ export const publicQuoteCreateSnapshot = async (
       options?.currency || order.clientCurrency || 'USD',
       Number(options?.exchangeRate || order.exchangeRate || 3.67),
       options?.owner || {},
+      options?.publicSettings,
       options?.rates
     );
     const payloadWithCompressedImages = await mapImagesInPayload(payload) as PublicQuotePayloadV1;
