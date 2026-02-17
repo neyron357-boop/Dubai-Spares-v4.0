@@ -2,6 +2,7 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL, cloudBuildGuardMessage, isCloudConfigu
 import { decodePayloadFromCompressedTransport } from './cloudCodec';
 import { buildPublicQuoteSlug, QuoteRates, serializeQuoteRates } from './shareUtils';
 import { Order } from './types';
+import { logger } from './logging';
 
 export type PublicQuotePayloadV1 = {
   version: 'public_quote_payload_v1';
@@ -303,6 +304,17 @@ export const publicQuoteCreateSnapshot = async (
     const payloadWithCompressedImages = await mapImagesInPayload(payload) as PublicQuotePayloadV1;
     const trimmed = trimPayloadForSize(payloadWithCompressedImages);
 
+    void logger.info('public-quote:create', 'Prepared snapshot payload', {
+      orderId: order.id,
+      quoteToken,
+      snapshotToken,
+      currency: options?.currency || order.clientCurrency || 'USD',
+      totals: trimmed.payload.totals,
+      hasPublicSettings: !!trimmed.payload.public_settings,
+      hasOwner: !!trimmed.payload.owner,
+      photosOmitted: trimmed.photosOmitted
+    });
+
     if (isDevBuild) {
       console.info('[public-quote] generated share token', { quoteToken, orderId: order.id });
     }
@@ -327,12 +339,14 @@ export const publicQuoteCreateSnapshot = async (
       });
 
       if (!response.ok) {
+        void logger.warn('public-quote:create', 'Snapshot insert failed', { orderId: order.id, status: response.status, quoteToken });
         throw new Error('Server unavailable, try again');
       }
 
       const rows = (await response.json()) as Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string }>;
       const created = rows[0];
       if (!created?.id || !created?.token || !created?.expires_at) {
+        void logger.warn('public-quote:create', 'Snapshot insert returned incomplete data', { orderId: order.id, created });
         throw new Error('Share quote created, but response is missing id/token/expires_at');
       }
       const effectiveSnapshotId = (created.snapshot_id || created.id || '').trim();
@@ -360,6 +374,13 @@ export const publicQuoteCreateSnapshot = async (
           }
         });
       }
+
+      void logger.info('public-quote:create', 'Snapshot insert success', {
+        orderId: order.id,
+        token: created.token,
+        snapshotId: effectiveSnapshotId,
+        expiresAt: created.expires_at
+      });
 
       return {
         id: created.id,
@@ -421,6 +442,7 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
       });
       if (!response.ok) {
         if (silent) return null;
+        void logger.warn('public-quote:fetch', 'Snapshot lookup failed', { token: normalizedToken, status: response.status, endpoint: queryEndpoint });
         throw new Error(`Failed to load quote (${response.status})`);
       }
       const rows = (await response.json()) as SnapshotRow[];
@@ -455,8 +477,20 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
     row = await runSelect(endpointBySnapshotToken, true);
   }
 
-  if (!row) return null;
+  if (!row) {
+    void logger.info('public-quote:fetch', 'Snapshot not found', { token: normalizedToken, snapshotFromUrl: snapshotFromUrl || null });
+    return null;
+  }
   const payload = await readPayloadWithFallback(row);
+
+  void logger.info('public-quote:fetch', 'Snapshot loaded', {
+    token: normalizedToken,
+    dbToken: row.token,
+    rowId: row.id,
+    snapshotId: row.snapshot_id || row.id,
+    hasPayload: !!payload,
+    isPayloadCorrupted: !payload
+  });
 
   return {
     id: row.id,
