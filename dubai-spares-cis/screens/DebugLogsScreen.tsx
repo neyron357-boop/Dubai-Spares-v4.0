@@ -264,6 +264,23 @@ const DebugLogsScreen: React.FC = () => {
     [diagnosticsSummary, logs, lastError, diagnosticsDurationMs, diagnosticsBatches]
   );
 
+
+  const publicQuoteDiagnostics = useMemo(() => {
+    const quoteLogs = logs.filter((entry) => entry.scope.startsWith('public-quote'));
+    const summary = {
+      total: quoteLogs.length,
+      create: quoteLogs.filter((entry) => entry.scope === 'public-quote:create').length,
+      fetch: quoteLogs.filter((entry) => entry.scope === 'public-quote:fetch').length,
+      view: quoteLogs.filter((entry) => entry.scope === 'public-quote:view').length,
+      warnings: quoteLogs.filter((entry) => entry.level === 'warn' || entry.level === 'error').length
+    };
+
+    return {
+      ...summary,
+      latest: quoteLogs[0] || null
+    };
+  }, [logs]);
+
   const toggleExpanded = (id: string) => {
     setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -292,6 +309,17 @@ const DebugLogsScreen: React.FC = () => {
             <p>Schema: {FRONTEND_SCHEMA_VERSION}</p>
             <p>In-memory logs: {logs.length}</p>
             <p>Last action time: {actionMs === null ? 'n/a' : `${actionMs} ms`}</p>
+          </div>
+
+
+          <div className="rounded-xl border bg-white p-3 space-y-1">
+            <p className="font-black">Public quote diagnostics</p>
+            <p>Total logs: {publicQuoteDiagnostics.total}</p>
+            <p>Create flow logs: {publicQuoteDiagnostics.create}</p>
+            <p>Fetch flow logs: {publicQuoteDiagnostics.fetch}</p>
+            <p>View flow logs: {publicQuoteDiagnostics.view}</p>
+            <p>Warnings/errors: {publicQuoteDiagnostics.warnings}</p>
+            <p>Latest: {publicQuoteDiagnostics.latest ? `${new Date(publicQuoteDiagnostics.latest.createdAt).toLocaleTimeString()} • ${publicQuoteDiagnostics.latest.scope} • ${publicQuoteDiagnostics.latest.message}` : 'none'}</p>
           </div>
 
           <div className="flex flex-wrap gap-2">

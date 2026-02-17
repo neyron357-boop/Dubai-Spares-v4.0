@@ -301,6 +301,8 @@ const mapDbOrder = (row: any): Order => ({
 
 const mapSnapshotOrder = (row: any): Order => {
   const header = row?.order && typeof row.order === 'object' ? row.order : row;
+  const publicSettingsRaw = row?.public_settings || row?.publicSettings || row?.public_contact_settings || null;
+  const payloadOwner = row?.owner || row?.payloadOwner || row?.payload_owner || null;
   return ({
   id: String(row?.order_id || header?.id || ''),
   brand: header?.brand || row?.brand || '',
@@ -350,9 +352,42 @@ const mapSnapshotOrder = (row: any): Order => {
   isArchived: !!row?.isArchived || !!row?.is_archived,
   isSold: !!row?.isSold || !!row?.is_sold,
   pricingEvents: Array.isArray(row?.pricingEvents || row?.pricing_events) ? (row?.pricingEvents || row?.pricing_events) : [],
-  payloadOwner: row?.owner || null,
-  public_settings: row?.public_settings || null
+  payloadOwner,
+  public_settings: publicSettingsRaw
 } as Order & { payloadOwner?: unknown; public_settings?: unknown });
+};
+
+const normalizePublicSettings = (raw: unknown) => {
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const read = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = src[key];
+      if (typeof value === 'string') return value;
+    }
+    return '';
+  };
+
+  return {
+    publicWhatsappNumber: read('publicWhatsappNumber', 'public_whatsapp_number', 'whatsapp_phone', 'phone', 'whatsappPhone'),
+    publicTelegramUrl: read('publicTelegramUrl', 'public_telegram_url', 'telegram', 'telegramUrl'),
+    publicInstagramUrl: read('publicInstagramUrl', 'public_instagram_url', 'instagram', 'instagramUrl'),
+    publicDeliveryTerms: read('publicDeliveryTerms', 'public_delivery_terms', 'deliveryTerms', 'delivery_terms'),
+    publicWorkTerms: read('publicWorkTerms', 'public_work_terms', 'workTerms', 'work_terms')
+  };
+};
+
+const normalizePayloadOwner = (raw: unknown) => {
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const read = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = src[key];
+      if (typeof value === 'string' && value.trim()) return value;
+    }
+    return '';
+  };
+  return {
+    whatsappPhone: read('whatsapp_phone', 'whatsappPhone', 'phone', 'publicWhatsappNumber')
+  };
 };
 
 const isRelationQueryError = (error: unknown) => {
@@ -560,7 +595,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const loadQuoteFromSharedSnapshot = useCallback(async (): Promise<{ order: Order | null; expired: boolean; notFound: boolean; corrupted: boolean }> => {
     const token = publicQuoteKey?.value?.trim();
-    if (!token) return { order: null, expired: false, notFound: true, corrupted: false };
+    if (!token) {
+      void logger.warn('public-quote:view', 'Missing public token in URL', { orderId, source: publicQuoteKey?.source || null });
+      return { order: null, expired: false, notFound: true, corrupted: false };
+    }
 
     try {
       loadControllerRef.current?.abort();
@@ -582,15 +620,34 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           }
         });
       }
-      if (!data) return { order: null, expired: false, notFound: true, corrupted: false };
+      if (!data) {
+        void logger.warn('public-quote:view', 'Snapshot lookup returned empty result', { orderId, token, snapshot: publicQuoteKey?.urlSnapshot || null });
+        return { order: null, expired: false, notFound: true, corrupted: false };
+      }
 
       const expiresAt = typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : NaN;
       const expired = !Number.isNaN(expiresAt) && expiresAt <= Date.now();
       setExpiresAtIso(typeof data.expires_at === 'string' ? data.expires_at : '');
       const payloadObj = data.payload && typeof data.payload === 'object' ? data.payload as Record<string, unknown> : null;
-      if (!payloadObj) return { order: null, expired, notFound: false, corrupted: true };
+      if (!payloadObj) {
+        void logger.warn('public-quote:view', 'Snapshot payload is missing/corrupted', { orderId, token, snapshot: data.snapshot_id || data.id || null });
+        return { order: null, expired, notFound: false, corrupted: true };
+      }
 
       const snapshotOrder = mapSnapshotOrder(payloadObj);
+      const diagnosticsLogistics = resolveOrderLogistics(payloadObj);
+      const diagnosticsSettings = normalizePublicSettings((snapshotOrder as any)?.public_settings || payloadObj.public_settings || payloadObj.publicSettings);
+      const diagnosticsOwner = normalizePayloadOwner((snapshotOrder as any)?.payloadOwner || payloadObj.owner);
+      void logger.info('public-quote:view', 'Snapshot mapped to public order', {
+        orderId: snapshotOrder.id || orderId,
+        token,
+        expired,
+        hasLogistics: !!diagnosticsLogistics,
+        logistics: diagnosticsLogistics || null,
+        hasPublicTerms: !!(diagnosticsSettings.publicDeliveryTerms.trim() || diagnosticsSettings.publicWorkTerms.trim()),
+        hasContacts: !!(diagnosticsSettings.publicWhatsappNumber || diagnosticsOwner.whatsappPhone),
+        hasPayloadCorruptionFlag: !!data.isPayloadCorrupted
+      });
       return { order: snapshotOrder.id ? snapshotOrder : null, expired, notFound: false, corrupted: !!data.isPayloadCorrupted };
     } catch (error) {
       await logger.warn('quote-shared-snapshot-miss', 'Unable to load shared public quote snapshot', { quoteId: orderId, lookupToken: publicQuoteKey?.value, urlToken: publicQuoteKey?.urlToken, urlSnapshot: publicQuoteKey?.urlSnapshot, error: error instanceof Error ? error.message : 'unknown' });
@@ -750,28 +807,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     : `Hello! I confirm the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nTotal: ${totals.totalAed.toFixed(2)} AED.\nPart: ${partsLine}.\nPlease confirm delivery time and shipping options.`;
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};
-  const settings = {
-    publicWhatsappNumber: typeof payloadSettings.publicWhatsappNumber === 'string'
-      ? payloadSettings.publicWhatsappNumber
-      : (typeof payloadSettings.whatsapp_phone === 'string' ? payloadSettings.whatsapp_phone : ''),
-    publicTelegramUrl: typeof payloadSettings.publicTelegramUrl === 'string'
-      ? payloadSettings.publicTelegramUrl
-      : (typeof payloadSettings.public_telegram_url === 'string' ? payloadSettings.public_telegram_url : ''),
-    publicInstagramUrl: typeof payloadSettings.publicInstagramUrl === 'string'
-      ? payloadSettings.publicInstagramUrl
-      : (typeof payloadSettings.public_instagram_url === 'string' ? payloadSettings.public_instagram_url : ''),
-    publicDeliveryTerms: typeof payloadSettings.publicDeliveryTerms === 'string'
-      ? payloadSettings.publicDeliveryTerms
-      : (typeof payloadSettings.public_delivery_terms === 'string' ? payloadSettings.public_delivery_terms : ''),
-    publicWorkTerms: typeof payloadSettings.publicWorkTerms === 'string'
-      ? payloadSettings.publicWorkTerms
-      : (typeof payloadSettings.public_work_terms === 'string' ? payloadSettings.public_work_terms : '')
-  };
-  const whatsappPhoneRaw = typeof payloadOwner.whatsapp_phone === 'string' && payloadOwner.whatsapp_phone.trim()
-    ? payloadOwner.whatsapp_phone
-    : (typeof payloadSettings.whatsapp_phone === 'string' && payloadSettings.whatsapp_phone.trim()
-      ? payloadSettings.whatsapp_phone
-      : settings.publicWhatsappNumber);
+  const settings = normalizePublicSettings(payloadSettings);
+  const normalizedOwner = normalizePayloadOwner(payloadOwner);
+  const whatsappPhoneRaw = normalizedOwner.whatsappPhone || settings.publicWhatsappNumber;
   const whatsappPhoneDigits = whatsappPhoneRaw.replace(/\D/g, '');
   const whatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(confirmMessage)}` : '';
 
