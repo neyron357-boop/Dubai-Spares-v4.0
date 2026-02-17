@@ -745,6 +745,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     : `Hello! I confirm the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nTotal: ${totals.totalAed.toFixed(2)} AED.\nPart: ${partsLine}.\nPlease confirm delivery time and shipping options.`;
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};
+  const settings = {
+    publicWhatsappNumber: typeof payloadSettings.publicWhatsappNumber === 'string' ? payloadSettings.publicWhatsappNumber : '',
+    publicTelegramUrl: typeof payloadSettings.publicTelegramUrl === 'string' ? payloadSettings.publicTelegramUrl : '',
+    publicInstagramUrl: typeof payloadSettings.publicInstagramUrl === 'string' ? payloadSettings.publicInstagramUrl : '',
+    publicDeliveryTerms: typeof payloadSettings.publicDeliveryTerms === 'string' ? payloadSettings.publicDeliveryTerms : '',
+    publicWorkTerms: typeof payloadSettings.publicWorkTerms === 'string' ? payloadSettings.publicWorkTerms : ''
+  };
   const whatsappPhoneRaw = typeof payloadOwner.whatsapp_phone === 'string' && payloadOwner.whatsapp_phone.trim()
     ? payloadOwner.whatsapp_phone
     : (typeof payloadSettings.whatsapp_phone === 'string' ? payloadSettings.whatsapp_phone : '');
