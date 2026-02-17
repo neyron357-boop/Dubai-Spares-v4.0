@@ -263,6 +263,13 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
       whatsappPhone: settings.publicWhatsappNumber,
       displayName: 'Dubai Spares CIS'
     },
+    publicSettings: {
+      publicWhatsappNumber: settings.publicWhatsappNumber,
+      publicTelegramUrl: settings.publicTelegramUrl,
+      publicInstagramUrl: settings.publicInstagramUrl,
+      publicDeliveryTerms: settings.publicDeliveryTerms,
+      publicWorkTerms: settings.publicWorkTerms
+    },
     rates: options?.rates
   });
   const link = snapshot.url;
