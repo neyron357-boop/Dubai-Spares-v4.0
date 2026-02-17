@@ -364,11 +364,14 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
 
   const snapshotFromUrl = (options?.snapshotId || '').trim();
   const endpointByToken = `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,expires_at,payload,payload_json,payload_b64,payload_codec&token=eq.${encodeURIComponent(normalizedToken)}&limit=1`;
+  const endpointBySnapshotToken = snapshotFromUrl && snapshotFromUrl !== normalizedToken
+    ? `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,expires_at,payload,payload_json,payload_b64,payload_codec&token=eq.${encodeURIComponent(snapshotFromUrl)}&limit=1`
+    : null;
   const endpointBySnapshot = snapshotFromUrl
     ? `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,expires_at,payload,payload_json,payload_b64,payload_codec&id=eq.${encodeURIComponent(snapshotFromUrl)}&limit=1`
     : null;
 
-  const runSelect = async (queryEndpoint: string) => {
+  const runSelect = async (queryEndpoint: string, silent = false) => {
     const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
     try {
       const response = await fetch(queryEndpoint, {
@@ -381,6 +384,7 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
         signal: request.signal
       });
       if (!response.ok) {
+        if (silent) return null;
         throw new Error(`Failed to load quote (${response.status})`);
       }
       const rows = (await response.json()) as SnapshotRow[];
@@ -390,7 +394,7 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
     }
   };
 
-  let row = endpointBySnapshot ? await runSelect(endpointBySnapshot) : null;
+  let row = endpointBySnapshot ? await runSelect(endpointBySnapshot, true) : null;
   if (row && row.token !== normalizedToken) {
     if (isDevBuild) {
       console.info('[public-quote] snapshot/token mismatch', {
@@ -400,11 +404,15 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
         dbRowToken: row.token
       });
     }
-    return null;
+    row = null;
   }
 
   if (!row) {
     row = await runSelect(endpointByToken);
+  }
+
+  if (!row && endpointBySnapshotToken) {
+    row = await runSelect(endpointBySnapshotToken, true);
   }
 
   if (!row) return null;
