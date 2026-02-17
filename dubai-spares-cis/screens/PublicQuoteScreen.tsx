@@ -245,7 +245,7 @@ const resolveOrderLogistics = (row: any) => {
 
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
 
-const fetchPublicSnapshot = (token: string, signal?: AbortSignal) => publicQuoteGetSnapshot(token, { signal, timeoutMs: 20_000 });
+const fetchPublicSnapshot = (token: string, signal?: AbortSignal, snapshotId?: string | null) => publicQuoteGetSnapshot(token, { signal, timeoutMs: 20_000, snapshotId });
 
 const mapDbOrder = (row: any): Order => ({
   id: String(row.id),
@@ -564,12 +564,17 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
         console.info('[public-quote] lookup token', { lookupToken: token, source: publicQuoteKey?.source, urlToken: publicQuoteKey?.urlToken, urlSnapshot: publicQuoteKey?.urlSnapshot });
       }
-      const data = await fetchPublicSnapshot(token, controller.signal);
+      const data = await fetchPublicSnapshot(token, controller.signal, publicQuoteKey?.urlSnapshot || null);
       if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
         console.info('[public-quote] lookup result', {
           urlToken: publicQuoteKey?.urlToken || token,
           snapshot: publicQuoteKey?.urlSnapshot || null,
-          dbTokenFound: data?.token || null
+          dbTokenFound: data?.token || null,
+          dbSnapshotFound: data?.id || null,
+          matches: {
+            snapshotMatchesRowId: !!data?.id && data.id === (publicQuoteKey?.urlSnapshot || null),
+            tokenMatchesRowToken: !!data?.token && data.token === (publicQuoteKey?.urlToken || token)
+          }
         });
       }
       if (!data) return { order: null, expired: false, notFound: true, corrupted: false };
