@@ -241,8 +241,12 @@ export const leadCreate = async (
   payload: { name: string; phone: string; message?: string; orderId?: string | null; [key: string]: unknown },
   options?: RequestOptions
 ): Promise<Result<{ leadId: string }>> => {
+  console.log('[leadCreate] cloudFeatureFlags.clientForm:', cloudFeatureFlags.clientForm);
   const guard = assertCloudFeatureEnabled(cloudFeatureFlags.clientForm);
-  if (!guard.ok) return recordCall('leadCreate', guard);
+  if (!guard.ok) {
+    console.error('[leadCreate] Feature disabled:', guard);
+    return recordCall('leadCreate', guard);
+  }
   const lockKey = 'leadCreate';
   if (inFlight.has(lockKey)) return recordCall('leadCreate', denyDuplicate('Lead submit'));
   inFlight.add(lockKey);
@@ -265,15 +269,23 @@ export const leadCreate = async (
       image_manifest: prepared.imageManifest
     }];
 
+    console.log('[leadCreate] Request payload:', requestPayload);
+    console.log('[leadCreate] Supabase URL:', SUPABASE_URL);
+
     const response = await withSingleFlight(`lead:create:${idempotencyKey}`,
       () => callRest<Array<{ id: string }>>('client_leads', 'POST', requestPayload, {
         ...(options || {}),
         timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
         preferRepresentation: false
       }));
-    if (!response.ok) return recordCall('leadCreate', response);
+    console.log('[leadCreate] Response:', response);
+    if (!response.ok) {
+      console.error('[leadCreate] API error:', response);
+      return recordCall('leadCreate', response);
+    }
     return recordCall('leadCreate', { ok: true, data: { leadId: response.data?.[0]?.id || idempotencyKey } });
   } catch (error) {
+    console.error('[leadCreate] Exception:', error);
     return recordCall('leadCreate', { ok: false, code: 'unexpected_error', error: error instanceof Error ? error.message : 'Lead submit failed' });
   } finally {
     inFlight.delete(lockKey);
