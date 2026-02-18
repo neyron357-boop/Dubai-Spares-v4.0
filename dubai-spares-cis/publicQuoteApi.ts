@@ -947,8 +947,48 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
 export const publicQuoteGetPublicContactSettings = async (options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<PublicContactSettings | null> => {
   if (!isCloudConfigured) return null;
   const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
+  const readPublicContactSettings = (raw: Record<string, any> | null | undefined): PublicContactSettings => {
+    const container = raw || {};
+    const nested = [
+      container,
+      container.data,
+      container.public_settings,
+      container.publicSettings,
+      container.contacts,
+      container.publicContacts,
+      container.settings,
+      container.appSettings
+    ].filter((item): item is Record<string, any> => !!item && typeof item === 'object');
+
+    const first = (...keys: string[]) => {
+      for (const key of keys) {
+        for (const scope of nested) {
+          const value = scope[key];
+          if (typeof value === 'string' && value.trim()) return value;
+        }
+      }
+      return '';
+    };
+
+    return {
+      publicWhatsappNumber: toDigits(first('publicWhatsappNumber', 'public_whatsapp_number', 'whatsapp_phone', 'whatsappPhone', 'whatsapp', 'phone')),
+      publicTelegramUrl: first('publicTelegramUrl', 'public_telegram_url', 'telegram', 'telegramUrl'),
+      publicInstagramUrl: first('publicInstagramUrl', 'public_instagram_url', 'instagram', 'instagramUrl'),
+      publicDeliveryTerms: first('publicDeliveryTerms', 'public_delivery_terms', 'deliveryTerms', 'delivery_terms'),
+      publicWorkTerms: first('publicWorkTerms', 'public_work_terms', 'workTerms', 'work_terms')
+    };
+  };
+
+  const mergeSettings = (preferred: PublicContactSettings, fallback?: PublicContactSettings | null): PublicContactSettings => ({
+    publicWhatsappNumber: preferred.publicWhatsappNumber || fallback?.publicWhatsappNumber || '',
+    publicTelegramUrl: preferred.publicTelegramUrl || fallback?.publicTelegramUrl || '',
+    publicInstagramUrl: preferred.publicInstagramUrl || fallback?.publicInstagramUrl || '',
+    publicDeliveryTerms: preferred.publicDeliveryTerms || fallback?.publicDeliveryTerms || '',
+    publicWorkTerms: preferred.publicWorkTerms || fallback?.publicWorkTerms || ''
+  });
+
   try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state?select=data&id=eq.public_settings&limit=1`, {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state?select=id,data&id=in.(public_settings,global)&limit=2`, {
       method: 'GET',
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -961,14 +1001,14 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
     });
     if (!response.ok) return null;
     const rows = (await response.json()) as AppStatePublicSettingsRow[];
-    const raw = rows?.[0]?.data || {};
-    return {
-      publicWhatsappNumber: toDigits(raw.publicWhatsappNumber || raw.public_whatsapp_number || raw.whatsapp_phone || raw.whatsappPhone),
-      publicTelegramUrl: raw.publicTelegramUrl || raw.public_telegram_url || raw.telegram || raw.telegramUrl || '',
-      publicInstagramUrl: raw.publicInstagramUrl || raw.public_instagram_url || raw.instagram || raw.instagramUrl || '',
-      publicDeliveryTerms: raw.publicDeliveryTerms || raw.public_delivery_terms || raw.deliveryTerms || raw.delivery_terms || '',
-      publicWorkTerms: raw.publicWorkTerms || raw.public_work_terms || raw.workTerms || raw.work_terms || ''
-    };
+    const byId = new Map(rows.map((row) => [String((row as any)?.id || ''), row]));
+    const fromPublicSettings = readPublicContactSettings((byId.get('public_settings')?.data || null) as Record<string, any> | null);
+    const fromGlobal = readPublicContactSettings((byId.get('global')?.data || null) as Record<string, any> | null);
+    const merged = mergeSettings(fromPublicSettings, fromGlobal);
+    if (merged.publicWhatsappNumber || merged.publicTelegramUrl || merged.publicInstagramUrl || merged.publicDeliveryTerms || merged.publicWorkTerms) {
+      return merged;
+    }
+    return null;
   } catch {
     return null;
   } finally {
