@@ -14,7 +14,7 @@ import ImagePreview from '../components/ImagePreview';
 import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
-import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot } from '../publicQuoteApi';
+import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot, resolveClientUnitPriceAed } from '../publicQuoteApi';
 
 type Language = 'en' | 'ru';
 
@@ -197,7 +197,8 @@ type SnapshotDebugMeta = {
   snapshot: string;
   token: string;
   snapshotRowId: string;
-  contactsSource: 'snapshot' | 'settings_fallback' | 'legacy';
+  snapshotSource: 'payload_json' | 'payload_b64' | 'payload' | 'none';
+  contactsSource: 'snapshot' | 'settings' | 'legacy';
 };
 
 type NormalizedPayloadItem = {
@@ -260,12 +261,10 @@ const resolveContactFromPayload = (payload: Record<string, unknown>, fallbackSet
   const ownerObj = payload.owner && typeof payload.owner === 'object' ? payload.owner as Record<string, unknown> : {};
   const settingsObj = normalizePublicSettings(payload.public_settings || payload.publicSettings || {});
   const merged = fallbackSettings || settingsObj;
-  const whatsapp = normalizeWhatsappPhone(String(
-    contactsObj.whatsapp
-    || contactsObj.whatsapp_phone
-    || contactsObj.whatsappPhone
-    || contactsObj.phone
-    || publicContactObj.whatsapp
+  const snapshotWhatsapp = String(contactsObj.whatsapp || contactsObj.whatsapp_phone || contactsObj.whatsappPhone || contactsObj.phone || '');
+  const settingsWhatsapp = String(merged.publicWhatsappNumber || '');
+  const legacyWhatsapp = String(
+    publicContactObj.whatsapp
     || publicContactObj.whatsapp_phone
     || publicContactObj.whatsappPhone
     || publicContactObj.phone
@@ -280,16 +279,21 @@ const resolveContactFromPayload = (payload: Record<string, unknown>, fallbackSet
     || ownerObj.whatsapp_phone
     || ownerObj.whatsappPhone
     || ownerObj.phone
-    || merged.publicWhatsappNumber
     || ''
-  ));
+  );
+  const whatsapp = normalizeWhatsappPhone(snapshotWhatsapp || settingsWhatsapp || legacyWhatsapp);
+
+  const snapshotTelegram = String(contactsObj.telegram || '');
+  const legacyTelegram = String(publicContactObj.telegram || contactObj.telegram || '');
+  const snapshotInstagram = String(contactsObj.instagram || '');
+  const legacyInstagram = String(publicContactObj.instagram || contactObj.instagram || '');
 
   return {
     whatsappPhone: whatsapp,
     displayName: String(managerContactObj.display_name || contactObj.display_name || ownerObj.display_name || 'Dubai Spares UAE'),
     phone: normalizeWhatsappPhone(String(contactObj.phone || merged.publicWhatsappNumber || whatsapp || '')),
-    instagram: String(contactsObj.instagram || publicContactObj.instagram || contactObj.instagram || merged.publicInstagramUrl || ''),
-    telegram: String(contactsObj.telegram || publicContactObj.telegram || contactObj.telegram || merged.publicTelegramUrl || '')
+    instagram: String(snapshotInstagram || merged.publicInstagramUrl || legacyInstagram || ''),
+    telegram: String(snapshotTelegram || merged.publicTelegramUrl || legacyTelegram || '')
   };
 };
 
@@ -301,17 +305,10 @@ const getItemRowsFromPayload = (payload: Record<string, unknown>) => {
 
 const normalizePayloadItems = (payload: Record<string, unknown>, managerCurrency: QuoteCurrency | 'AED'): NormalizedPayloadItem[] => {
   const rows = getItemRowsFromPayload(payload);
+  const markupPercent = parseMoneyField(payload.markupPercent, payload.markup_percent, (payload.order as any)?.markupPercent, (payload.order as any)?.markup_percent, 0);
   return rows.map((row, index) => {
     const qty = parseMoneyField(row.qty, row.quantity, row.count, 1) || 1;
-    const explicitUnitPrice = parseMoneyField(
-      row.unit_price,
-      row.unitPrice,
-      row.client_price_aed,
-      row.clientPriceAed,
-      row.price,
-      row.amount,
-      row.value
-    );
+    const explicitUnitPrice = resolveClientUnitPriceAed(row, { markupPercent });
     const lineTotal = parseMoneyField(row.line_total, row.lineTotal, row.total, explicitUnitPrice * qty);
     const unitPrice = explicitUnitPrice > 0 ? explicitUnitPrice : (qty > 0 ? lineTotal / qty : lineTotal);
     const currency = normalizeCurrencyCode(row.currency || row.price_currency || managerCurrency);
@@ -358,14 +355,8 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
     const unitPriceAed = convertFromSourceToAed(item.unitPrice, item.currency, mergedRates);
     return sum + unitPriceAed * item.qty;
   }, 0);
-  const partsTotalAed = parseMoneyField(
-    totalsObj.parts_total,
-    totalsObj.parts_sum_aed,
-    breakdownObj.parts_total,
-    payload.parts_total,
-    payload.partsTotal,
-    itemsTotalAedFromLines
-  );
+  const partsTotalFromTotals = parseMoneyValue(totalsObj.parts_total) ?? parseMoneyValue(totalsObj.parts_sum_aed);
+  const partsTotalAed = parseMoneyField(partsTotalFromTotals, totalsObj.parts_sum_aed, breakdownObj.parts_total, payload.parts_total, payload.partsTotal, itemsTotalAedFromLines);
 
   const deliveryAed = parseMoneyField(
     feesObj.logistics,
@@ -394,6 +385,7 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
   );
   const feesTotalAed = deliveryAed + packingAed + commissionAed;
   const computedGrandTotalAed = partsTotalAed + feesTotalAed;
+  const grandTotalFromTotals = parseMoneyValue(totalsObj.grand_total) ?? parseMoneyValue(totalsObj.grand_total_aed);
   const grandTotalAed = parseMoneyField(
     totalsObj.grand_total,
     totalsObj.grand_total_aed,
@@ -419,7 +411,8 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
     });
   }
 
-  return { items, itemsTotalAed: partsTotalAed, deliveryAed, packingAed, commissionAed, feesTotalAed, grandTotalAed: normalizedGrandTotalAed };
+  const computedFrom: 'totals' | 'recompute(items)' = partsTotalFromTotals !== null && grandTotalFromTotals !== null ? 'totals' : 'recompute(items)';
+  return { items, itemsTotalAed: partsTotalAed, deliveryAed, packingAed, commissionAed, feesTotalAed, grandTotalAed: normalizedGrandTotalAed, computedFrom };
 };
 
 const parseEmbeddedSnapshot = (raw: string | null): any | null => {
@@ -786,8 +779,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     snapshot: '-',
     token: '-',
     snapshotRowId: '-',
+    snapshotSource: 'none',
     contactsSource: 'legacy'
   });
+  const [resolvedSettings, setResolvedSettings] = useState(() => normalizePublicSettings({}));
   const detailRef = useRef<HTMLDivElement | null>(null);
   const errorCardRef = useRef<HTMLDivElement | null>(null);
   const errorIconRef = useRef<HTMLDivElement | null>(null);
@@ -926,10 +921,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         snapshot: publicQuoteKey?.urlSnapshot || data.snapshot_id || '-',
         token: publicQuoteKey?.urlToken || data.token || token,
         snapshotRowId: (data as any).row_id || data.id || '-',
+        snapshotSource: ((data as any).snapshot_source || 'none') as SnapshotDebugMeta['snapshotSource'],
         contactsSource: ((data as any).contacts_source || 'legacy') as SnapshotDebugMeta['contactsSource']
       });
       setQuoteBreakdown(resolvedBreakdown);
       setQuoteContact(resolvedContact);
+      setResolvedSettings(diagnosticsSettings);
       void logger.info('public-quote:view', 'Snapshot mapped to public order', {
         orderId: snapshotOrder.id || orderId,
         token,
@@ -968,8 +965,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       snapshot: publicQuoteKey?.urlSnapshot || '-',
       token: publicQuoteKey?.urlToken || publicQuoteKey?.value || '-',
       snapshotRowId: '-',
+      snapshotSource: 'none',
       contactsSource: 'legacy'
     });
+    setResolvedSettings(normalizePublicSettings({}));
     if (!publicQuoteKey?.value) {
       setOrder(null);
       setErrorType(EstimateErrorType.INVALID_LINK);
@@ -1073,12 +1072,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
       const supplierAed = best?.priceAed || 0;
       const isReady = !!best && part.isFound;
-      const embeddedClientAed = Number((best as any)?.priceClientAed ?? (best as any)?.price_client_aed ?? (best as any)?.priceWithMarkupAed ?? (best as any)?.price_with_markup_aed ?? (best as any)?.finalPriceAed ?? (best as any)?.final_price_aed ?? (best as any)?.client_price_aed ?? (best as any)?.clientPriceAed ?? NaN);
-      const clientAed = Number.isFinite(embeddedClientAed)
-        ? embeddedClientAed
-        : (isFixedMarkup
+      const clientAed = isFixedMarkup
+        ? (isReady
           ? supplierAed + (isReady ? fixedMarkupPerPart : 0)
-          : Math.round((supplierAed * (1 + order.markupPercent / 100) + Number.EPSILON) * 100) / 100);
+          : supplierAed)
+        : resolveClientUnitPriceAed(best as unknown as Record<string, unknown>, { markupPercent: order.markupPercent });
       const converted = clientAed * rates[currency];
       const variantPhotos = [best?.photoUrl || '', ...(best?.photos || [])].filter(Boolean) as string[];
       const basePartPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean) as string[];
@@ -1113,15 +1111,19 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       delivery,
       packing,
       logistics,
+      feesTotalAed: serviceFee + logistics,
       totalAed,
       totalConverted: totalAed * rates[currency],
+      computedFrom: payloadTotals?.computedFrom || 'recompute(items)',
       hasPositions: (payloadTotals?.items.length ?? foundParts.length) > 0
     };
   }, [foundParts, currency, rates, snapshotPayload]);
-  const confirmMessage = `Здравствуйте! Подтверждаю заказ по смете: ${order?.brand || ''} ${order?.model || ''}. ID: ${order?.id || ''}. Ссылка: ${window.location.href}`;
+  const confirmMessage = `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}. ID: ${order?.id || ''}`;
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};
-  const settings = normalizePublicSettings(payloadSettings);
+  const settings = resolvedSettings.publicWhatsappNumber || resolvedSettings.publicTelegramUrl || resolvedSettings.publicInstagramUrl || resolvedSettings.publicDeliveryTerms || resolvedSettings.publicWorkTerms
+    ? resolvedSettings
+    : normalizePublicSettings(payloadSettings);
   const normalizedOwner = normalizePayloadOwner(payloadOwner);
   const whatsappPhoneRaw = quoteContact?.whatsappPhone || normalizedOwner.whatsappPhone || settings.publicWhatsappNumber;
   const whatsappPhoneDigits = normalizeWhatsappPhone(whatsappPhoneRaw);
@@ -1366,25 +1368,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         </section>
 
         {showDebug && (
-          <section className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
-            <p>snapshot: {snapshotDebugMeta.snapshot}</p>
-            <p>token: {snapshotDebugMeta.token}</p>
-            <p>snapshotRow.id: {snapshotDebugMeta.snapshotRowId}</p>
-            <p>payload_json.version: {String((snapshotPayload as any)?.version || '-')}</p>
-            <p>items_count: {snapshotPayload ? resolveTotalsFromPayload(snapshotPayload, rates).items.length : foundParts.length}</p>
-            <p>payload_json.totals.parts_total: {String((snapshotPayload as any)?.totals?.parts_total ?? '-')}</p>
-            <p>payload_json.totals.grand_total: {String((snapshotPayload as any)?.totals?.grand_total ?? (snapshotPayload as any)?.totals?.grand_total_aed ?? '-')}</p>
-            <p>payload_json.fees: {JSON.stringify((snapshotPayload as any)?.fees || {})}</p>
-            <p>payload_json.contacts.whatsapp: {String((snapshotPayload as any)?.contacts?.whatsapp || 'empty')}</p>
-            <p>contacts_source: {snapshotDebugMeta.contactsSource}</p>
-            <p>parts_total_aed: {totals.subtotal.toFixed(2)}</p>
-            <p>logistics_aed: {totals.delivery.toFixed(2)}</p>
-            <p>packaging_aed: {totals.packing.toFixed(2)}</p>
-            <p>commission_aed: {totals.serviceFee.toFixed(2)}</p>
-            <p>grand_total_aed: {totals.totalAed.toFixed(2)}</p>
-            <p>contact_whatsapp: {whatsappPhoneDigits || 'empty'}</p>
-            <p>rates_source: {rateSource}</p>
-            <p>currency: {currency}</p>
+          <section className="rounded-3xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
+            <p className="break-all">buildStamp={APP_VERSION}/{GIT_SHA}/{BUILD_TIME} | snapshotSource={snapshotDebugMeta.snapshotSource} | hasContactsInSnapshot={Boolean((snapshotPayload as any)?.contacts?.whatsapp)} | contactsResolvedFrom={snapshotDebugMeta.contactsSource} | partsTotal={totals.subtotal.toFixed(2)} | feesTotal={totals.feesTotalAed.toFixed(2)} | grandTotal={totals.totalAed.toFixed(2)} | computedFrom={totals.computedFrom}</p>
           </section>
         )}
 

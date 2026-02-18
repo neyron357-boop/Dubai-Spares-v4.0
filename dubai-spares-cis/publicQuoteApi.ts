@@ -118,7 +118,8 @@ type SnapshotRow = {
   payload_codec?: string | null;
 };
 
-type SnapshotContactsSource = 'snapshot' | 'settings_fallback' | 'legacy';
+type SnapshotContactsSource = 'snapshot' | 'settings' | 'legacy';
+type SnapshotPayloadSource = 'payload_json' | 'payload_b64' | 'payload' | 'none';
 
 type AppStatePublicSettingsRow = {
   data?: {
@@ -187,7 +188,7 @@ const pickNumeric = (...values: Array<unknown>) => {
 
 const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
-const resolveClientUnitPrice = (
+export const resolveClientUnitPriceAed = (
   variantLike: Record<string, unknown>,
   options?: { markupPercent?: number }
 ) => {
@@ -247,7 +248,7 @@ const resolveContactsSource = (payload: Record<string, unknown>): SnapshotContac
   if (hasContacts) return 'snapshot';
 
   const settingsObj = payload.public_settings && typeof payload.public_settings === 'object' ? payload.public_settings as Record<string, unknown> : {};
-  if (String(settingsObj.publicWhatsappNumber || '').trim()) return 'settings_fallback';
+  if (String(settingsObj.publicWhatsappNumber || '').trim()) return 'settings';
 
   return 'legacy';
 };
@@ -264,7 +265,7 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
     const variants = Array.isArray(part.variants) ? part.variants as Array<Record<string, unknown>> : [];
     const variant = variants[0] || {};
     const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
-    const unitPrice = resolveClientUnitPrice({ ...part, ...variant }, { markupPercent });
+    const unitPrice = resolveClientUnitPriceAed({ ...part, ...variant }, { markupPercent });
 
     return {
       name: String(part.name || 'Part'),
@@ -356,7 +357,7 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
 const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
   if (!payload || typeof payload !== 'object') return { payload, contactsSource: 'legacy' as SnapshotContactsSource, wasPatched: false };
   const source = payload as Record<string, unknown>;
-  const needsLegacyBackfill = (!row.payload_json || typeof row.payload_json !== 'object') && !!row.payload && typeof row.payload === 'object';
+  const needsLegacyBackfill = !row.payload_json || typeof row.payload_json !== 'object';
   const basePayload = needsLegacyBackfill ? buildNormalizedPayloadJson(source) : source;
   const feesObj = basePayload.fees && typeof basePayload.fees === 'object' ? basePayload.fees as Record<string, unknown> : {};
   const logistics = parseMoney(feesObj.logistics, (basePayload.logistics as any)?.deliveryAed, (basePayload.totals as any)?.logistics_aed);
@@ -373,7 +374,7 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
   ) || 0);
   const normalizedItemsFromParts = partRows.map((part) => {
     const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
-    const unitPrice = resolveClientUnitPrice(part, { markupPercent });
+    const unitPrice = resolveClientUnitPriceAed(part, { markupPercent });
     return {
       name: String(part.name || 'Part'),
       qty,
@@ -386,7 +387,7 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
     ? normalizedItemsFromParts
     : itemRows.map((item) => {
       const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
-      const unitPrice = resolveClientUnitPrice(item, { markupPercent });
+      const unitPrice = resolveClientUnitPriceAed(item, { markupPercent });
       return {
         name: String(item.name || 'Part'),
         qty,
@@ -569,7 +570,7 @@ const buildSnapshotPayload = (
     .map((part) => {
       const variant = part.variants[0];
       const supplierAed = parseMoney(variant?.priceAed);
-      const clientAed = resolveClientUnitPrice(variant as unknown as Record<string, unknown>, {
+      const clientAed = resolveClientUnitPriceAed(variant as unknown as Record<string, unknown>, {
         markupPercent: parseMoney(order.markupPercent)
       });
 
@@ -835,6 +836,13 @@ const readPayloadWithFallback = async (row: SnapshotRow): Promise<unknown | null
   return null;
 };
 
+const resolveSnapshotPayloadSource = (row: SnapshotRow): SnapshotPayloadSource => {
+  if (row.payload_json && typeof row.payload_json === 'object') return 'payload_json';
+  if (row.payload_b64) return 'payload_b64';
+  if (row.payload && typeof row.payload === 'object') return 'payload';
+  return 'none';
+};
+
 export const publicQuoteGetSnapshot = async (token: string, options?: { signal?: AbortSignal; timeoutMs?: number; snapshotId?: string | null }) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
   const normalizedToken = token.trim();
@@ -860,8 +868,10 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
         headers: {
           apikey: SUPABASE_ANON_KEY,
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          Accept: 'application/json'
+          Accept: 'application/json',
+          'Cache-Control': 'no-store'
         },
+        cache: 'no-store',
         signal: request.signal
       });
       if (!response.ok) {
@@ -907,6 +917,7 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
   }
   const payload = await readPayloadWithFallback(row);
   const normalizedPayload = await ensurePayloadReadModel(row, payload);
+  const snapshotSource = resolveSnapshotPayloadSource(row);
 
   void logger.info('public-quote:fetch', 'Snapshot loaded', {
     token: normalizedToken,
@@ -915,6 +926,7 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
     snapshotId: row.snapshot_id || row.id,
     hasPayload: !!normalizedPayload.payload,
     isPayloadCorrupted: !normalizedPayload.payload,
+    snapshotSource,
     contactsSource: normalizedPayload.contactsSource,
     wasPatched: normalizedPayload.wasPatched
   });
@@ -927,7 +939,8 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
     payload: normalizedPayload.payload,
     isPayloadCorrupted: !normalizedPayload.payload,
     row_id: row.id,
-    contacts_source: normalizedPayload.contactsSource
+    contacts_source: normalizedPayload.contactsSource,
+    snapshot_source: snapshotSource
   };
 };
 
@@ -940,8 +953,10 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
       headers: {
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        Accept: 'application/json'
+        Accept: 'application/json',
+        'Cache-Control': 'no-store'
       },
+      cache: 'no-store',
       signal: request.signal
     });
     if (!response.ok) return null;
