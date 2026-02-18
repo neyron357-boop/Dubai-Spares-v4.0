@@ -1,5 +1,5 @@
 export const LOCAL_FIRST = true;
-export const LOCAL_ONLY = true;
+export const LOCAL_ONLY = false;
 export const LOCAL_MODE_LABEL = 'LOCAL';
 
 export const CLOUD_FEATURES = {

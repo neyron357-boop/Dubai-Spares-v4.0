@@ -173,12 +173,22 @@ const isUnreadPublicLead = (order: Order) =>
 
 const notifyAboutIncomingLeads = (previousOrders: Order[], nextOrders: Order[]) => {
   const previousIds = new Set(previousOrders.map((order) => order.id));
-  const incomingLeads = nextOrders.filter((order) => isUnreadPublicLead(order) && !previousIds.has(order.id));
-  if (incomingLeads.length === 0) return;
+  const newUnreadLeads = nextOrders.filter((order) => isUnreadPublicLead(order) && !previousIds.has(order.id));
 
-  incomingLeads.forEach((lead) => {
-    const title = `Новый лид: ${lead.brand || '-'} ${lead.model || ''}`.trim();
-    const message = `Клиент: ${lead.clientName || 'без имени'} · ${lead.year || 'год не указан'}`;
+  console.log('[orderStore] New unread leads:', newUnreadLeads.length);
+
+  if (newUnreadLeads.length === 0) return;
+
+  newUnreadLeads.forEach((lead) => {
+    console.log('[orderStore] Sending notification for lead:', {
+      id: lead.id,
+      name: lead.clientName,
+      brand: lead.brand,
+      model: lead.model
+    });
+
+    const title = '🔔 Новый лид!';
+    const message = `${lead.brand || '-'} ${lead.model || ''} - ${lead.clientName || 'без имени'}`.trim();
 
     pushNotification({
       type: NotificationType.ORDER_NEW,
@@ -190,19 +200,20 @@ const notifyAboutIncomingLeads = (previousOrders: Order[], nextOrders: Order[]) 
       carModel: lead.model,
       carYear: Number(lead.year) || undefined,
       source: 'web_form',
-      route: `/orders/${lead.id}`,
-      severity: 'critical',
+      route: `/order/${lead.id}`,
+      severity: 'success',
       signature: `incoming-lead:${lead.id}:${lead.updatedAt || lead.createdAt || ''}`
     });
 
     void sendBrowserNotification(title, {
       body: message,
-      tag: `incoming-lead-${lead.id}`,
+      icon: '/icon-192.png',
+      tag: `lead-${lead.id}`,
       renotify: true,
       requireInteraction: true,
       silent: false,
       vibrate: [250, 120, 250, 120, 250],
-      route: `/orders/${lead.id}`
+      route: `/order/${lead.id}`
     });
   });
 };
@@ -956,9 +967,26 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
   }
 
   let orders = (data || []).map(mapDbOrder);
+  console.log('[orderStore] Calling leadsSync...');
   const leadsResponse = await leadsSync();
+
+  console.log('[orderStore] leadsSync result:', {
+    ok: leadsResponse.ok,
+    count: leadsResponse.ok ? leadsResponse.data?.length : 0
+  });
+
   if (leadsResponse.ok && Array.isArray(leadsResponse.data)) {
+    const beforeMerge = orders.length;
     orders = mergeCloudLeadsWithOrders(orders, leadsResponse.data);
+    const afterMerge = orders.length;
+
+    console.log('[orderStore] Merged leads:', {
+      cloudLeads: leadsResponse.data.length,
+      beforeMerge,
+      afterMerge,
+      newLeads: afterMerge - beforeMerge
+    });
+
     await logger.info('sync:fetch', `Merged ${leadsResponse.data.length} cloud leads into orders`);
   } else if (!leadsResponse.ok) {
     await logger.warn('sync:fetch', 'Lead sync failed, continuing with cloud orders only', {
@@ -1153,6 +1181,13 @@ export const useOrderStore = () => {
   const [, setVersion] = useState(0);
 
   useEffect(() => subscribeOrderStore(() => setVersion((v) => v + 1)), []);
+
+  useEffect(() => {
+    if (!state.isHydrated) {
+      console.log('[useOrderStore] Starting initial hydration...');
+      void fetchOrders();
+    }
+  }, []);
 
   useEffect(() => {
     if (LOCAL_ONLY) return;

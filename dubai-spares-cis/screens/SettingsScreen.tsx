@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ChevronRight, ShieldAlert, Wrench } from 'lucide-react';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
-import { backupUpload } from '../serverApi';
+import { backupUpload, leadsSync } from '../serverApi';
 import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLastCloudCall, isCloudConfigured, SUPABASE_HOST } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
@@ -37,6 +37,7 @@ const SettingsScreen: React.FC = () => {
   const [backupController, setBackupController] = useState<AbortController | null>(null);
   const [lastBackupId, setLastBackupId] = useState('');
   const [requestCount, setRequestCount] = useState<number>(() => ((window as any).__serverApiRequestCount || 0));
+  const [isSyncingLeads, setIsSyncingLeads] = useState(false);
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -110,6 +111,29 @@ const SettingsScreen: React.FC = () => {
       alert(`${message}. Use "Copy diagnostics" and retry.`);
     } finally {
       setBusy(null);
+    }
+  };
+
+
+  const handleManualLeadsSync = async () => {
+    setIsSyncingLeads(true);
+    console.log('[Settings] Manual leads sync started');
+
+    try {
+      const result = await leadsSync();
+
+      if (result.ok) {
+        console.log('[Settings] Leads synced:', result.data?.length);
+        alert(`✅ Синхронизировано лидов: ${result.data?.length || 0}`);
+      } else {
+        console.error('[Settings] Sync failed:', result.error);
+        alert(`❌ Ошибка синхронизации: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('[Settings] Sync exception:', error);
+      alert(`❌ Исключение: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsSyncingLeads(false);
     }
   };
 
@@ -365,6 +389,15 @@ const SettingsScreen: React.FC = () => {
             Test Connection
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={() => void handleManualLeadsSync()}
+          disabled={isSyncingLeads || !cloudFeatureFlags.clientForm}
+          className="w-full rounded-xl border border-blue-300 bg-blue-600 px-3 py-2 font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isSyncingLeads ? '⏳ Синхронизация...' : '🔄 Синхронизировать лиды'}
+        </button>
         {devUnlocked && (
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 space-y-1">
             <p className="font-black text-gray-900">Cloud diagnostics (dev)</p>

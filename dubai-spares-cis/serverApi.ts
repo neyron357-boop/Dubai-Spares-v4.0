@@ -383,11 +383,16 @@ export const leadCreate = async (
 export const leadsSync = async (
   options?: RequestOptions
 ): Promise<Result<CloudLeadRow[]>> => {
+  console.log('[leadsSync] START');
   const guard = assertCloudFeatureEnabled(cloudFeatureFlags.clientForm);
-  if (!guard.ok) return recordCall('leadsSync', guard);
+  if (!guard.ok) {
+    console.error('[leadsSync] Guard failed:', guard);
+    return recordCall('leadsSync', guard);
+  }
 
   try {
     const endpoint = 'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id';
+    console.log('[leadsSync] Fetching from endpoint:', endpoint);
     const response = await withSingleFlight('leads:sync:1',
       () => callRest<CloudLeadRow[]>(endpoint, 'GET', undefined, {
         ...(options || {}),
@@ -395,9 +400,16 @@ export const leadsSync = async (
       })
     );
 
+    console.log('[leadsSync] Response:', {
+      ok: response.ok,
+      count: response.ok ? response.data?.length : 0,
+      error: !response.ok ? response.error : null
+    });
+
     if (!response.ok) return recordCall('leadsSync', response);
     return recordCall('leadsSync', { ok: true, data: response.data || [] });
   } catch (error) {
+    console.error('[leadsSync] Exception:', error);
     return recordCall('leadsSync', {
       ok: false,
       code: 'unexpected_error',
