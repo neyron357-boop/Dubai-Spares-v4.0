@@ -1,3 +1,4 @@
+import { decodePayloadFromCompressedTransport } from './cloudCodec';
 import { Order, Priority, Source } from './types';
 
 export type CloudLead = {
@@ -9,7 +10,15 @@ export type CloudLead = {
   updated_at: string;
   payload_json?: unknown;
   order_id?: string | null;
+  payload_b64?: string;
+  payload_codec?: string;
+  payload?: unknown;
 };
+
+const createId = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 const toTimestamp = (value: string | number | null | undefined): number => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -23,31 +32,107 @@ const toTimestamp = (value: string | number | null | undefined): number => {
 };
 
 const toPayloadRecord = (payload: unknown): Record<string, unknown> => {
-  if (!payload) return {};
+  console.log('[toPayloadRecord] Input type:', typeof payload, payload);
+
+  if (!payload) {
+    console.warn('[toPayloadRecord] Empty payload');
+    return {};
+  }
+
+  if (typeof payload === 'object' && !Array.isArray(payload)) {
+    console.log('[toPayloadRecord] Already object');
+    return payload as Record<string, unknown>;
+  }
+
   if (typeof payload === 'string') {
     try {
       const parsed = JSON.parse(payload);
-      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
-    } catch {
+      console.log('[toPayloadRecord] Parsed from string:', parsed);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+    } catch (error) {
+      console.error('[toPayloadRecord] JSON parse error:', error, 'Input:', payload.substring(0, 100));
       return {};
     }
   }
-  return payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+
+  console.warn('[toPayloadRecord] Unknown payload type, returning empty object');
+  return {};
+};
+
+const extractPayloadFromLead = async (lead: CloudLead): Promise<Record<string, unknown>> => {
+  console.log('[extractPayloadFromLead] Lead ID:', lead.id);
+
+  if (lead.payload_json) {
+    const payload = toPayloadRecord(lead.payload_json);
+    if (Object.keys(payload).length > 0) {
+      console.log('[extractPayloadFromLead] Using payload_json');
+      return payload;
+    }
+  }
+
+  if (typeof lead.payload_b64 === 'string' && lead.payload_b64.trim()) {
+    try {
+      console.log('[extractPayloadFromLead] Trying payload_b64');
+      const decoded = await decodePayloadFromCompressedTransport({
+        payloadB64: lead.payload_b64,
+        payloadCodec: lead.payload_codec || 'gzip'
+      });
+
+      if (decoded && typeof decoded === 'object' && !Array.isArray(decoded)) {
+        console.log('[extractPayloadFromLead] Decoded from payload_b64');
+        return decoded as Record<string, unknown>;
+      }
+    } catch (error) {
+      console.error('[extractPayloadFromLead] Failed to decode payload_b64:', error);
+    }
+  }
+
+  if (lead.payload) {
+    const payload = toPayloadRecord(lead.payload);
+    if (Object.keys(payload).length > 0) {
+      console.log('[extractPayloadFromLead] Using legacy payload');
+      return payload;
+    }
+  }
+
+  console.warn('[extractPayloadFromLead] No valid payload found for lead:', lead.id);
+  return {};
+};
+
+export const validateCloudLead = (lead: unknown): lead is CloudLead => {
+  if (!lead || typeof lead !== 'object') {
+    console.error('[validateCloudLead] Not an object:', lead);
+    return false;
+  }
+
+  const entry = lead as Record<string, unknown>;
+  const requiredFields = ['id', 'name', 'phone', 'created_at'] as const;
+  const missingFields = requiredFields.filter((field) => !entry[field]);
+
+  if (missingFields.length > 0) {
+    console.error('[validateCloudLead] Missing fields:', missingFields, 'in lead:', entry.id);
+    return false;
+  }
+
+  return true;
 };
 
 /**
  * Преобразует лид из Supabase в Order-объект.
  * Важно: выставляет leadUnread=true, чтобы входящий лид попал в уведомления.
  */
-export const mapCloudLeadToOrder = (lead: CloudLead): Order => {
-  const payload = toPayloadRecord(lead.payload_json);
+export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
+  const payload = await extractPayloadFromLead(lead);
   const year = payload.year;
 
   console.log('[mapCloudLeadToOrder] Mapping lead:', {
     id: lead.id,
     name: lead.name,
     phone: lead.phone,
-    order_id: lead.order_id
+    order_id: lead.order_id,
+    payloadKeys: Object.keys(payload)
   });
 
   return {
@@ -60,7 +145,7 @@ export const mapCloudLeadToOrder = (lead: CloudLead): Order => {
     vinPhotoUrl: '',
     carPhotoUrl: '',
     carPhotos: [],
-    parts: [],
+    parts: Array.isArray(payload.parts) ? payload.parts : [],
     clientName: lead.name || 'Public Lead',
     customerContact: lead.phone || '',
     priority: Priority.HIGH,
@@ -80,7 +165,9 @@ export const mapCloudLeadToOrder = (lead: CloudLead): Order => {
     exchangeRate: 3.67,
     clientCurrency: 'AED',
     fxUpdatedAt: Date.now(),
-    notes: [],
+    notes: typeof payload.message === 'string'
+      ? [{ id: createId(), text: payload.message, createdAt: Date.now() }]
+      : [],
     pricingEvents: []
   };
 };
@@ -88,31 +175,53 @@ export const mapCloudLeadToOrder = (lead: CloudLead): Order => {
 /**
  * Объединяет облачные лиды с существующими заказами без дубликатов.
  */
-export const mergeCloudLeadsWithOrders = (existingOrders: Order[], cloudLeads: CloudLead[]): Order[] => {
-  if (cloudLeads.length === 0) return existingOrders;
+export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLeads: CloudLead[]): Promise<Order[]> => {
+  if (cloudLeads.length === 0) {
+    console.log('[mergeCloudLeadsWithOrders] No cloud leads to merge');
+    return existingOrders;
+  }
+
+  console.log('[mergeCloudLeadsWithOrders] Merging', cloudLeads.length, 'cloud leads');
 
   const existingById = new Map(existingOrders.map((order) => [order.id, order]));
   const merged = [...existingOrders];
 
-  cloudLeads.forEach((lead) => {
-    const mapped = mapCloudLeadToOrder(lead);
-    const existing = existingById.get(mapped.id);
-
-    if (!existing) {
-      merged.push(mapped);
-      return;
+  for (const lead of cloudLeads) {
+    if (!validateCloudLead(lead)) {
+      console.warn('[mergeCloudLeadsWithOrders] Skipping invalid lead:', lead);
+      continue;
     }
 
-    if (existing.leadSource === 'public_form') {
-      const index = merged.findIndex((order) => order.id === existing.id);
-      if (index >= 0) {
-        merged[index] = {
-          ...existing,
-          leadUnread: existing.leadUnread === false ? false : true,
-          updatedAt: Math.max(Number(existing.updatedAt || 0), mapped.updatedAt || 0)
-        };
+    try {
+      const mapped = await mapCloudLeadToOrder(lead);
+      const existing = existingById.get(mapped.id);
+
+      if (!existing) {
+        console.log('[mergeCloudLeadsWithOrders] Adding new lead:', mapped.id);
+        merged.push(mapped);
+        continue;
       }
+
+      if (existing.leadSource === 'public_form') {
+        const index = merged.findIndex((order) => order.id === existing.id);
+        if (index >= 0) {
+          console.log('[mergeCloudLeadsWithOrders] Updating existing lead:', existing.id);
+          merged[index] = {
+            ...existing,
+            leadUnread: existing.leadUnread === false ? false : true,
+            updatedAt: Math.max(Number(existing.updatedAt || 0), mapped.updatedAt || 0)
+          };
+        }
+      }
+    } catch (error) {
+      console.error('[mergeCloudLeadsWithOrders] Failed to map lead:', lead.id, error);
     }
+  }
+
+  console.log('[mergeCloudLeadsWithOrders] Result:', {
+    before: existingOrders.length,
+    after: merged.length,
+    added: merged.length - existingOrders.length
   });
 
   return merged;

@@ -967,31 +967,56 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
   }
 
   let orders = (data || []).map(mapDbOrder);
-  console.log('[orderStore] Calling leadsSync...');
-  const leadsResponse = await leadsSync();
 
-  console.log('[orderStore] leadsSync result:', {
-    ok: leadsResponse.ok,
-    count: leadsResponse.ok ? leadsResponse.data?.length : 0
-  });
+  try {
+    console.log('[orderStore] Calling leadsSync...');
+    const leadsResponse = await leadsSync();
 
-  if (leadsResponse.ok && Array.isArray(leadsResponse.data)) {
-    const beforeMerge = orders.length;
-    orders = mergeCloudLeadsWithOrders(orders, leadsResponse.data);
-    const afterMerge = orders.length;
-
-    console.log('[orderStore] Merged leads:', {
-      cloudLeads: leadsResponse.data.length,
-      beforeMerge,
-      afterMerge,
-      newLeads: afterMerge - beforeMerge
+    console.log('[orderStore] leadsSync result:', {
+      ok: leadsResponse.ok,
+      count: leadsResponse.ok ? leadsResponse.data?.length || 0 : 0,
+      error: !leadsResponse.ok ? leadsResponse.error : undefined
     });
 
-    await logger.info('sync:fetch', `Merged ${leadsResponse.data.length} cloud leads into orders`);
-  } else if (!leadsResponse.ok) {
-    await logger.warn('sync:fetch', 'Lead sync failed, continuing with cloud orders only', {
-      error: leadsResponse.error,
-      code: leadsResponse.code
+    if (leadsResponse.ok && Array.isArray(leadsResponse.data)) {
+      const beforeMerge = orders.length;
+      orders = await mergeCloudLeadsWithOrders(orders, leadsResponse.data);
+      const afterMerge = orders.length;
+      const newLeads = afterMerge - beforeMerge;
+
+      console.log('[orderStore] Merged leads:', {
+        cloudLeads: leadsResponse.data.length,
+        beforeMerge,
+        afterMerge,
+        newLeads
+      });
+
+      await logger.info('sync:fetch', `Merged ${leadsResponse.data.length} cloud leads into orders`, {
+        newLeads
+      });
+
+      if (newLeads > 0) {
+        const unreadLeads = orders.filter((order) => order.isLead && order.leadUnread === true);
+        console.log('[orderStore] Sending notifications for', unreadLeads.length, 'unread leads');
+      }
+    } else if (!leadsResponse.ok) {
+      await logger.warn('sync:fetch', 'Lead sync failed, continuing with cloud orders only', {
+        error: leadsResponse.error,
+        code: leadsResponse.code
+      });
+    }
+  } catch (error) {
+    console.error('[orderStore] Lead sync failed with exception:', error);
+    await logger.error('sync:fetch', 'Lead sync exception, continuing with orders only', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+
+    pushNotification({
+      type: NotificationType.SYNC_ERROR,
+      title: '⚠️ Ошибка синхронизации лидов',
+      message: 'Не удалось загрузить новые лиды. Попробуйте обновить позже.',
+      severity: 'warning',
+      source: 'sync'
     });
   }
 

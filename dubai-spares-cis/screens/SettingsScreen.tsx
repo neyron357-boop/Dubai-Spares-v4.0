@@ -25,7 +25,7 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
 const SettingsScreen: React.FC = () => {
   const navigate = useNavigate();
   const { settings, updateSettings } = useAppSettings();
-  const { restoreData, exportData } = useStore();
+  const { restoreData, exportData, fetchOrders } = useStore();
   const [devUnlocked, setDevUnlocked] = useState(false);
   const [tapCount, setTapCount] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
@@ -38,6 +38,7 @@ const SettingsScreen: React.FC = () => {
   const [lastBackupId, setLastBackupId] = useState('');
   const [requestCount, setRequestCount] = useState<number>(() => ((window as any).__serverApiRequestCount || 0));
   const [isSyncingLeads, setIsSyncingLeads] = useState(false);
+  const [lastSyncResult, setLastSyncResult] = useState('');
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -117,21 +118,30 @@ const SettingsScreen: React.FC = () => {
 
   const handleManualLeadsSync = async () => {
     setIsSyncingLeads(true);
+    setLastSyncResult('');
     console.log('[Settings] Manual leads sync started');
 
     try {
       const result = await leadsSync();
 
       if (result.ok) {
-        console.log('[Settings] Leads synced:', result.data?.length);
-        alert(`✅ Синхронизировано лидов: ${result.data?.length || 0}`);
+        const count = result.data?.length || 0;
+        console.log('[Settings] Leads synced:', count);
+        setLastSyncResult(`✅ Загружено лидов: ${count}`);
+        await fetchOrders();
+        alert(`✅ Синхронизировано лидов: ${count}`);
       } else {
         console.error('[Settings] Sync failed:', result.error);
-        alert(`❌ Ошибка синхронизации: ${result.error}`);
+        setLastSyncResult(`❌ Ошибка: ${result.error}`);
+        alert(`❌ Ошибка синхронизации:
+${result.error}
+Код: ${result.code}`);
       }
     } catch (error) {
       console.error('[Settings] Sync exception:', error);
-      alert(`❌ Исключение: ${error instanceof Error ? error.message : String(error)}`);
+      const message = error instanceof Error ? error.message : String(error);
+      setLastSyncResult(`❌ Исключение: ${message}`);
+      alert(`❌ Исключение: ${message}`);
     } finally {
       setIsSyncingLeads(false);
     }
@@ -396,8 +406,11 @@ const SettingsScreen: React.FC = () => {
           disabled={isSyncingLeads || !cloudFeatureFlags.clientForm}
           className="w-full rounded-xl border border-blue-300 bg-blue-600 px-3 py-2 font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSyncingLeads ? '⏳ Синхронизация...' : '🔄 Синхронизировать лиды'}
+          {isSyncingLeads ? '⏳ Синхронизация...' : '🔄 Синхронизировать лиды вручную'}
         </button>
+        {lastSyncResult && (
+          <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">{lastSyncResult}</div>
+        )}
         {devUnlocked && (
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 space-y-1">
             <p className="font-black text-gray-900">Cloud diagnostics (dev)</p>
