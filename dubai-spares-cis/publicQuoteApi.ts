@@ -185,6 +185,45 @@ const pickNumeric = (...values: Array<unknown>) => {
   return null;
 };
 
+const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+const resolveClientUnitPrice = (
+  variantLike: Record<string, unknown>,
+  options?: { markupPercent?: number }
+) => {
+  const clientPrice = pickNumeric(
+    variantLike.priceClientAed,
+    variantLike.price_client_aed,
+    variantLike.priceWithMarkupAed,
+    variantLike.price_with_markup_aed,
+    variantLike.finalPriceAed,
+    variantLike.final_price_aed,
+    variantLike.client_price_aed,
+    variantLike.clientPriceAed,
+    variantLike.unit_price_aed,
+    variantLike.unitPriceAed,
+    variantLike.unit_price,
+    variantLike.unitPrice
+  );
+  if (clientPrice !== null) return round2(clientPrice);
+
+  const basePrice = pickNumeric(
+    variantLike.priceAed,
+    variantLike.price_aed,
+    variantLike.supplier_price_aed,
+    variantLike.supplierPriceAed,
+    variantLike.base_price_aed,
+    variantLike.basePriceAed,
+    variantLike.base_price,
+    variantLike.basePrice,
+    variantLike.price,
+    variantLike.amount,
+    variantLike.value
+  ) || 0;
+  const markupPercent = Number(options?.markupPercent || 0);
+  return round2(basePrice * (1 + markupPercent / 100));
+};
+
 const computeLineTotal = (item: Record<string, unknown>) => {
   const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
   const unitPrice = pickNumeric(item.unit_price, item.unitPrice, item.client_price_aed, item.clientPriceAed);
@@ -201,19 +240,6 @@ const computeTotalsFromItems = (items: Array<Record<string, unknown>>, fees: { l
   };
 };
 
-const computeTotalsFromParts = (parts: Array<Record<string, unknown>>, fees: { logistics: number; packaging: number; commission: number }) => {
-  const partsTotal = parts.reduce((sum, part) => {
-    const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
-    const unit = pickNumeric(part.client_price_aed, part.clientPriceAed, part.unit_price_aed, part.unitPriceAed, part.price_aed, part.priceAed, part.price, part.amount, part.value) || 0;
-    const explicitLineTotal = pickNumeric(part.line_total, part.lineTotal, part.total);
-    return sum + (explicitLineTotal ?? (unit * qty));
-  }, 0);
-
-  return {
-    partsTotal,
-    grandTotal: partsTotal + fees.logistics + fees.packaging + fees.commission
-  };
-};
 
 const resolveContactsSource = (payload: Record<string, unknown>): SnapshotContactsSource => {
   const contactsObj = payload.contacts && typeof payload.contacts === 'object' ? payload.contacts as Record<string, unknown> : {};
@@ -227,28 +253,24 @@ const resolveContactsSource = (payload: Record<string, unknown>): SnapshotContac
 };
 
 const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
+  const markupPercent = Number(pickNumeric(
+    payload.markupPercent,
+    payload.markup_percent,
+    (payload.order as any)?.markupPercent,
+    (payload.order as any)?.markup_percent
+  ) || 0);
   const legacyParts = Array.isArray(payload.parts) ? payload.parts as Array<Record<string, unknown>> : [];
   const items = legacyParts.map((part) => {
     const variants = Array.isArray(part.variants) ? part.variants as Array<Record<string, unknown>> : [];
     const variant = variants[0] || {};
     const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
-    const unitPrice = parseMoney(
-      variant.priceAed,
-      variant.price_aed,
-      part.client_price_aed,
-      part.clientPriceAed,
-      part.unit_price,
-      part.unitPrice,
-      part.priceAed,
-      part.price_aed,
-      part.price
-    );
+    const unitPrice = resolveClientUnitPrice({ ...part, ...variant }, { markupPercent });
 
     return {
       name: String(part.name || 'Part'),
       qty,
       unit_price: unitPrice,
-      line_total: unitPrice * qty
+      line_total: round2(unitPrice * qty)
     };
   });
 
@@ -262,15 +284,15 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
         name: String(item.name || 'Part'),
         qty,
         unit_price: unitPrice,
-        line_total: parseMoney(item.line_total, item.lineTotal, unitPrice * qty)
+        line_total: round2(parseMoney(item.line_total, item.lineTotal, unitPrice * qty))
       };
     });
 
-  const partsTotal = normalizedItems.reduce((sum, item) => sum + parseMoney(item.line_total), 0);
+  const partsTotal = round2(normalizedItems.reduce((sum, item) => sum + parseMoney(item.line_total), 0));
   const logistics = parseMoney((payload.logistics as any)?.deliveryAed, (payload.fees as any)?.logistics, (payload.totals as any)?.logistics_aed);
   const commission = parseMoney((payload.logistics as any)?.serviceFeeAed, (payload.fees as any)?.commission, (payload.totals as any)?.commission_aed);
   const packaging = 0;
-  const grandTotal = partsTotal + logistics + commission + packaging;
+  const grandTotal = round2(partsTotal + logistics + commission + packaging);
 
   const contacts = payload.contacts && typeof payload.contacts === 'object'
     ? payload.contacts as Record<string, unknown>
@@ -343,10 +365,37 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
 
   const itemRows = Array.isArray(basePayload.items) ? basePayload.items as Array<Record<string, unknown>> : [];
   const partRows = Array.isArray(basePayload.parts) ? basePayload.parts as Array<Record<string, unknown>> : [];
-  const hasItemTotals = itemRows.some((item) => computeLineTotal(item) > 0);
-  const computedFromItems = computeTotalsFromItems(itemRows, { logistics, packaging, commission });
-  const computedFromParts = computeTotalsFromParts(partRows, { logistics, packaging, commission });
-  const computed = hasItemTotals || itemRows.length > 0 ? computedFromItems : computedFromParts;
+  const markupPercent = Number(pickNumeric(
+    basePayload.markupPercent,
+    basePayload.markup_percent,
+    (basePayload.order as any)?.markupPercent,
+    (basePayload.order as any)?.markup_percent
+  ) || 0);
+  const normalizedItemsFromParts = partRows.map((part) => {
+    const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
+    const unitPrice = resolveClientUnitPrice(part, { markupPercent });
+    return {
+      name: String(part.name || 'Part'),
+      qty,
+      unit_price: unitPrice,
+      line_total: round2(unitPrice * qty),
+      currency: 'AED'
+    };
+  });
+  const normalizedItems = normalizedItemsFromParts.length > 0
+    ? normalizedItemsFromParts
+    : itemRows.map((item) => {
+      const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
+      const unitPrice = resolveClientUnitPrice(item, { markupPercent });
+      return {
+        name: String(item.name || 'Part'),
+        qty,
+        unit_price: unitPrice,
+        line_total: round2(unitPrice * qty),
+        currency: 'AED'
+      };
+    });
+  const computed = computeTotalsFromItems(normalizedItems as Array<Record<string, unknown>>, { logistics, packaging, commission });
   const existingTotals = basePayload.totals && typeof basePayload.totals === 'object' ? basePayload.totals as Record<string, unknown> : {};
 
   const nextContacts = basePayload.contacts && typeof basePayload.contacts === 'object'
@@ -359,15 +408,16 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
 
   const nextPayload: Record<string, unknown> = {
     ...basePayload,
+    items: normalizedItems,
     totals: {
       ...existingTotals,
-      parts_total: parseMoney(existingTotals.parts_total, existingTotals.parts_sum_aed, computed.partsTotal),
-      parts_sum_aed: parseMoney(existingTotals.parts_sum_aed, existingTotals.parts_total, computed.partsTotal),
+      parts_total: round2(computed.partsTotal),
+      parts_sum_aed: round2(computed.partsTotal),
       logistics_aed: parseMoney(existingTotals.logistics_aed, logistics),
       packing_aed: parseMoney(existingTotals.packing_aed, packaging),
       commission_aed: parseMoney(existingTotals.commission_aed, commission),
-      grand_total: parseMoney(existingTotals.grand_total, existingTotals.grand_total_aed, computed.grandTotal),
-      grand_total_aed: parseMoney(existingTotals.grand_total_aed, existingTotals.grand_total, computed.grandTotal)
+      grand_total: round2(computed.grandTotal),
+      grand_total_aed: round2(computed.grandTotal)
     },
     fees: {
       logistics,
@@ -519,16 +569,16 @@ const buildSnapshotPayload = (
     .map((part) => {
       const variant = part.variants[0];
       const supplierAed = parseMoney(variant?.priceAed);
-      const clientAed = (order.markupType || 'percent') === 'fixed'
-        ? supplierAed
-        : supplierAed * (1 + parseMoney(order.markupPercent) / 100);
+      const clientAed = resolveClientUnitPrice(variant as unknown as Record<string, unknown>, {
+        markupPercent: parseMoney(order.markupPercent)
+      });
 
       return {
         id: String(part.id),
         name: String(part.name || 'Part'),
         qty: 1,
         supplier_price_aed: supplierAed,
-        client_price_aed: clientAed,
+        client_price_aed: round2(clientAed),
         photo_urls: [part.photoUrl || '', ...(part.photos || [])].filter(Boolean).slice(0, 2)
       };
     });
@@ -537,7 +587,7 @@ const buildSnapshotPayload = (
     name: part.name,
     qty: part.qty,
     unit_price: part.client_price_aed,
-    line_total: part.client_price_aed * part.qty,
+    line_total: round2(part.client_price_aed * part.qty),
     currency: 'AED'
   }));
   const computed = computeTotalsFromItems(snapshotItems as Array<Record<string, unknown>>, {

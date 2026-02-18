@@ -580,7 +580,7 @@ const mapSnapshotOrder = (row: any): Order => {
   markupType: header?.markupType || row?.markupType || row?.markup_type || 'percent',
   markupFixedAed: Number(header?.markupFixedAed ?? row?.markupFixedAed ?? row?.markup_fixed_aed ?? row?.totals?.markup_aed ?? 0),
   parts: (row?.parts || []).map((part: any) => {
-    const variantPrice = Number(part?.final_price_aed ?? part?.client_price_aed ?? part?.clientPriceAed ?? part?.unit_price_aed ?? part?.unitPriceAed ?? part?.priceAed ?? part?.price_aed ?? part?.price ?? 0);
+    const variantPrice = Number(part?.supplier_price_aed ?? part?.supplierPriceAed ?? part?.priceAed ?? part?.price_aed ?? part?.price ?? 0);
     const photos = part?.photo_urls || part?.photos || [];
     return ({
     id: String(part?.id || ''),
@@ -600,8 +600,12 @@ const mapSnapshotOrder = (row: any): Order => {
       location: variant?.location || '',
       photoUrl: variant?.photoUrl || variant?.photo_url || variant?.photos?.[0] || '',
       photos: variant?.photos || [],
-      createdAt: parseTimestamp(variant?.createdAt ?? variant?.created_at)
-    }))
+      createdAt: parseTimestamp(variant?.createdAt ?? variant?.created_at),
+      priceClientAed: variant?.priceClientAed ?? variant?.price_client_aed,
+      priceWithMarkupAed: variant?.priceWithMarkupAed ?? variant?.price_with_markup_aed,
+      finalPriceAed: variant?.finalPriceAed ?? variant?.final_price_aed,
+      clientPriceAed: variant?.clientPriceAed ?? variant?.client_price_aed
+    } as PriceVariant & Record<string, unknown>))
   });
   }),
   markupPercent: Number(header?.markupPercent ?? row?.markupPercent ?? row?.markup_percent ?? 0),
@@ -1069,9 +1073,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
       const supplierAed = best?.priceAed || 0;
       const isReady = !!best && part.isFound;
-      const clientAed = isFixedMarkup
-        ? supplierAed + (isReady ? fixedMarkupPerPart : 0)
-        : supplierAed * (1 + order.markupPercent / 100);
+      const embeddedClientAed = Number((best as any)?.priceClientAed ?? (best as any)?.price_client_aed ?? (best as any)?.priceWithMarkupAed ?? (best as any)?.price_with_markup_aed ?? (best as any)?.finalPriceAed ?? (best as any)?.final_price_aed ?? (best as any)?.client_price_aed ?? (best as any)?.clientPriceAed ?? NaN);
+      const clientAed = Number.isFinite(embeddedClientAed)
+        ? embeddedClientAed
+        : (isFixedMarkup
+          ? supplierAed + (isReady ? fixedMarkupPerPart : 0)
+          : Math.round((supplierAed * (1 + order.markupPercent / 100) + Number.EPSILON) * 100) / 100);
       const converted = clientAed * rates[currency];
       const variantPhotos = [best?.photoUrl || '', ...(best?.photos || [])].filter(Boolean) as string[];
       const basePartPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean) as string[];
@@ -1092,7 +1099,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     const subtotalFromPayload = payloadTotals?.itemsTotalAed ?? 0;
     const shouldUseFallbackSubtotal = fallbackSubtotal > 0 && subtotalFromPayload <= 0;
     const subtotal = shouldUseFallbackSubtotal ? fallbackSubtotal : subtotalFromPayload;
-    const markup = 0;
     const serviceFee = payloadTotals?.commissionAed ?? 0;
     const delivery = payloadTotals?.deliveryAed ?? 0;
     const packing = payloadTotals?.packingAed ?? 0;
@@ -1102,7 +1108,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     const totalAed = payloadTotalAed > 0 ? payloadTotalAed : (subtotalWithoutExtras + serviceFee + logistics);
     return {
       subtotal,
-      markup,
       subtotalWithoutExtras,
       serviceFee,
       delivery,
@@ -1352,7 +1357,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.priceBreakdown}</h2>
           <div className="mt-2 space-y-1.5">
             <div className="flex items-center justify-between"><span>{t.partsSubtotal}</span><strong>{(totals.subtotal * rates[currency]).toFixed(2)} {currency}</strong></div>
-            {totals.markup > 0 && <div className="flex items-center justify-between"><span>{t.markup}</span><strong>{(totals.markup * rates[currency]).toFixed(2)} {currency}</strong></div>}
             <div className="flex items-center justify-between"><span>{t.whatIncluded} ({t.partsSubtotal})</span><strong>{(totals.subtotalWithoutExtras * rates[currency]).toFixed(2)} {currency}</strong></div>
             <div className="flex items-center justify-between"><span>{t.logistics}</span><strong>{(totals.delivery * rates[currency]).toFixed(2)} {currency}</strong></div>
             <div className="flex items-center justify-between"><span>{t.packing}</span><strong>{(totals.packing * rates[currency]).toFixed(2)} {currency}</strong></div>
