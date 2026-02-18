@@ -6,6 +6,7 @@ import { getSyncDiagnosticsState } from '../syncDiagnostics';
 import { syncPerf } from '../syncPerf';
 import { FRONTEND_SCHEMA_VERSION } from '../schemaHealth';
 import { LOCAL_ONLY, LOCAL_MODE_LABEL } from '../localMode';
+import { loadAppSettings } from '../appSettings';
 
 const MAX_VISIBLE_LOGS = 400;
 const INITIAL_RENDER_COUNT = 40;
@@ -265,6 +266,37 @@ const DebugLogsScreen: React.FC = () => {
   );
 
 
+  const buildPublicQuoteDiagnosticsReport = () => {
+    const appSettings = loadAppSettings();
+    const publicQuoteLogs = logs.filter((entry) => entry.scope.startsWith('public-quote'));
+    const recentPublicQuoteLogs = publicQuoteLogs.slice(0, 80).map((entry) => ({
+      at: new Date(entry.createdAt).toISOString(),
+      level: entry.level,
+      scope: entry.scope,
+      message: entry.message,
+      meta: entry.meta || null
+    }));
+
+    return JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      diagnostics: {
+        totalLogs: publicQuoteLogs.length,
+        createLogs: publicQuoteLogs.filter((entry) => entry.scope === 'public-quote:create').length,
+        fetchLogs: publicQuoteLogs.filter((entry) => entry.scope === 'public-quote:fetch').length,
+        viewLogs: publicQuoteLogs.filter((entry) => entry.scope === 'public-quote:view').length,
+        diagnosticsLogs: publicQuoteLogs.filter((entry) => entry.scope === 'public-quote:diagnostics').length
+      },
+      publicSettings: {
+        whatsapp: appSettings.publicWhatsappNumber || '',
+        telegram: appSettings.publicTelegramUrl || '',
+        instagram: appSettings.publicInstagramUrl || '',
+        deliveryTerms: appSettings.publicDeliveryTerms || '',
+        workTerms: appSettings.publicWorkTerms || ''
+      },
+      recentPublicQuoteLogs
+    }, null, 2);
+  };
+
   const publicQuoteDiagnostics = useMemo(() => {
     const quoteLogs = logs.filter((entry) => entry.scope.startsWith('public-quote'));
     const summary = {
@@ -355,6 +387,9 @@ const DebugLogsScreen: React.FC = () => {
           <div className="flex flex-wrap gap-2">
             <button className="rounded-lg bg-slate-900 text-white px-3 py-2 font-black" type="button" onClick={() => void onCopy(diagnosticsPayload, 'Diagnostics copied')}>
               Copy diagnostics
+            </button>
+            <button className="rounded-lg bg-indigo-600 text-white px-3 py-2 font-black" type="button" onClick={() => void onCopy(buildPublicQuoteDiagnosticsReport(), 'Public quote diagnostics copied')}>
+              Public quote full diagnostics
             </button>
             <button className="rounded-lg bg-amber-600 text-white px-3 py-2 font-black" type="button" onClick={() => void exportDbSlow()} disabled={exportingDb}>
               {exportingDb ? 'Exporting…' : 'Export DB (slow)'}

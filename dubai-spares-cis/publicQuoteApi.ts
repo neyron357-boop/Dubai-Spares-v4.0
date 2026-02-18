@@ -292,7 +292,7 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
   const partsTotal = round2(normalizedItems.reduce((sum, item) => sum + parseMoney(item.line_total), 0));
   const logistics = parseMoney((payload.logistics as any)?.deliveryAed, (payload.fees as any)?.logistics, (payload.totals as any)?.logistics_aed);
   const commission = parseMoney((payload.logistics as any)?.serviceFeeAed, (payload.fees as any)?.commission, (payload.totals as any)?.commission_aed);
-  const packaging = 0;
+  const packaging = parseMoney((payload.logistics as any)?.packingAed, (payload.fees as any)?.packaging, (payload.totals as any)?.packing_aed);
   const grandTotal = round2(partsTotal + logistics + commission + packaging);
 
   const contacts = payload.contacts && typeof payload.contacts === 'object'
