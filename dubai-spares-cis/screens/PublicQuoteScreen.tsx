@@ -640,7 +640,13 @@ const mergePublicSettings = (
   preferred: ReturnType<typeof normalizePublicSettings>,
   fallback: ReturnType<typeof normalizePublicSettings> | null
 ) => ({
-  publicWhatsappNumber: preferred.publicWhatsappNumber || fallback?.publicWhatsappNumber || '',
+  publicWhatsappNumber: (() => {
+    const preferredWhatsapp = normalizeWhatsappPhone(preferred.publicWhatsappNumber || '');
+    const fallbackWhatsapp = normalizeWhatsappPhone(fallback?.publicWhatsappNumber || '');
+    if (preferredWhatsapp && !isPlaceholderWhatsapp(preferredWhatsapp)) return preferredWhatsapp;
+    if (fallbackWhatsapp && !isPlaceholderWhatsapp(fallbackWhatsapp)) return fallbackWhatsapp;
+    return '';
+  })(),
   publicTelegramUrl: preferred.publicTelegramUrl || fallback?.publicTelegramUrl || '',
   publicInstagramUrl: preferred.publicInstagramUrl || fallback?.publicInstagramUrl || '',
   publicDeliveryTerms: preferred.publicDeliveryTerms || fallback?.publicDeliveryTerms || '',
