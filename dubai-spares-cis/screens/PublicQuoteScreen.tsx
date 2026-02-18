@@ -193,6 +193,13 @@ type QuoteContact = {
   telegram: string;
 };
 
+type SnapshotDebugMeta = {
+  snapshot: string;
+  token: string;
+  snapshotRowId: string;
+  contactsSource: 'snapshot' | 'settings_fallback' | 'legacy';
+};
+
 type NormalizedPayloadItem = {
   title: string;
   qty: number;
@@ -480,6 +487,10 @@ const resolveOrderLogistics = (row: any) => {
 
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
 
+const APP_VERSION = (import.meta as any).env?.VITE_APP_VERSION || 'dev';
+const GIT_SHA = (import.meta as any).env?.VITE_GIT_SHA || 'local';
+const BUILD_TIME = (import.meta as any).env?.VITE_BUILD_TIME || 'unknown';
+
 const fetchPublicSnapshot = (token: string, signal?: AbortSignal, snapshotId?: string | null) => publicQuoteGetSnapshot(token, { signal, timeoutMs: 20_000, snapshotId });
 
 const mapDbOrder = (row: any): Order => ({
@@ -750,6 +761,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [quoteBreakdown, setQuoteBreakdown] = useState<QuoteBreakdown | null>(null);
   const [quoteContact, setQuoteContact] = useState<QuoteContact | null>(null);
   const [snapshotPayload, setSnapshotPayload] = useState<Record<string, unknown> | null>(null);
+  const [snapshotDebugMeta, setSnapshotDebugMeta] = useState<SnapshotDebugMeta>({
+    snapshot: '-',
+    token: '-',
+    snapshotRowId: '-',
+    contactsSource: 'legacy'
+  });
   const detailRef = useRef<HTMLDivElement | null>(null);
   const errorCardRef = useRef<HTMLDivElement | null>(null);
   const errorIconRef = useRef<HTMLDivElement | null>(null);
@@ -884,6 +901,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         console.log('[PUBLIC_QUOTE] contact:', resolvedContact);
       }
       setSnapshotPayload(payloadObj);
+      setSnapshotDebugMeta({
+        snapshot: publicQuoteKey?.urlSnapshot || data.snapshot_id || '-',
+        token: publicQuoteKey?.urlToken || data.token || token,
+        snapshotRowId: (data as any).row_id || data.id || '-',
+        contactsSource: ((data as any).contacts_source || 'legacy') as SnapshotDebugMeta['contactsSource']
+      });
       setQuoteBreakdown(resolvedBreakdown);
       setQuoteContact(resolvedContact);
       void logger.info('public-quote:view', 'Snapshot mapped to public order', {
@@ -920,6 +943,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     setQuoteBreakdown(null);
     setQuoteContact(null);
     setSnapshotPayload(null);
+    setSnapshotDebugMeta({
+      snapshot: publicQuoteKey?.urlSnapshot || '-',
+      token: publicQuoteKey?.urlToken || publicQuoteKey?.value || '-',
+      snapshotRowId: '-',
+      contactsSource: 'legacy'
+    });
     if (!publicQuoteKey?.value) {
       setOrder(null);
       setErrorType(EstimateErrorType.INVALID_LINK);
@@ -1159,9 +1188,16 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             )}
             {errorType === EstimateErrorType.EXPIRED_LINK && (
               whatsappPhoneDigits ? (
-                <a href={`https://wa.me/${whatsappPhoneDigits}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent('Здравствуйте! Нужна новая ссылка на смету.')}`;
+                    window.location.href = url;
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white"
+                >
                   <MessageCircle size={15} /> {t.contactUs}
-                </a>
+                </button>
               ) : (
                 <div className="text-sm text-slate-500">Свяжитесь с менеджером</div>
               )
@@ -1262,9 +1298,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               </div>
 
               {partWhatsappUrl ? (
-              <a href={partWhatsappUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">
+              <button type="button" onClick={() => { window.location.href = partWhatsappUrl; }} className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">
                 <MessageCircle size={14} /> {t.confirmWhatsApp}
-              </a>
+              </button>
             ) : (
               <div className="mt-4 text-xs text-slate-500">{t.contactNotConfigured}</div>
             )}
@@ -1307,7 +1343,16 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
         {showDebug && (
           <section className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+            <p>snapshot: {snapshotDebugMeta.snapshot}</p>
+            <p>token: {snapshotDebugMeta.token}</p>
+            <p>snapshotRow.id: {snapshotDebugMeta.snapshotRowId}</p>
+            <p>payload_json.version: {String((snapshotPayload as any)?.version || '-')}</p>
             <p>items_count: {snapshotPayload ? resolveTotalsFromPayload(snapshotPayload, rates).items.length : foundParts.length}</p>
+            <p>payload_json.totals.parts_total: {String((snapshotPayload as any)?.totals?.parts_total ?? '-')}</p>
+            <p>payload_json.totals.grand_total: {String((snapshotPayload as any)?.totals?.grand_total ?? (snapshotPayload as any)?.totals?.grand_total_aed ?? '-')}</p>
+            <p>payload_json.fees: {JSON.stringify((snapshotPayload as any)?.fees || {})}</p>
+            <p>payload_json.contacts.whatsapp: {String((snapshotPayload as any)?.contacts?.whatsapp || 'empty')}</p>
+            <p>contacts_source: {snapshotDebugMeta.contactsSource}</p>
             <p>parts_total_aed: {totals.subtotal.toFixed(2)}</p>
             <p>logistics_aed: {totals.delivery.toFixed(2)}</p>
             <p>packaging_aed: {totals.packing.toFixed(2)}</p>
@@ -1349,6 +1394,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           <button type="button" disabled={!canOpenWhatsapp} onClick={() => openWhatsappChat('sticky')} className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 px-3 text-xs font-bold text-white shadow-[0_14px_42px_rgba(16,185,129,0.42)] disabled:cursor-not-allowed disabled:opacity-50">
             <MessageCircle size={16} /> {canOpenWhatsapp ? t.confirmWhatsApp : t.contactNotConfigured} <ChevronRight size={16} />
           </button>
+        </div>
+        <div className="mx-auto mt-1 w-full max-w-5xl text-center text-[10px] text-slate-400">
+          Build stamp: {APP_VERSION} / {GIT_SHA} / {BUILD_TIME}
         </div>
       </div>
 
