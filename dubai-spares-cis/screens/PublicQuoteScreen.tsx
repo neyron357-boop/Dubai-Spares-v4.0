@@ -14,7 +14,7 @@ import ImagePreview from '../components/ImagePreview';
 import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
-import { publicQuoteGetSnapshot } from '../publicQuoteApi';
+import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot } from '../publicQuoteApi';
 
 type Language = 'en' | 'ru';
 
@@ -246,20 +246,30 @@ const resolveBreakdownFromPayload = (payload: Record<string, unknown>): QuoteBre
 };
 
 const resolveContactFromPayload = (payload: Record<string, unknown>, fallbackSettings?: ReturnType<typeof normalizePublicSettings>): QuoteContact => {
+  const contactsObj = payload.contacts && typeof payload.contacts === 'object' ? payload.contacts as Record<string, unknown> : {};
   const managerContactObj = payload.manager_contact && typeof payload.manager_contact === 'object' ? payload.manager_contact as Record<string, unknown> : {};
   const contactObj = payload.contact && typeof payload.contact === 'object' ? payload.contact as Record<string, unknown> : {};
   const publicContactObj = payload.public_contact && typeof payload.public_contact === 'object' ? payload.public_contact as Record<string, unknown> : {};
   const ownerObj = payload.owner && typeof payload.owner === 'object' ? payload.owner as Record<string, unknown> : {};
   const settingsObj = normalizePublicSettings(payload.public_settings || payload.publicSettings || {});
   const merged = fallbackSettings || settingsObj;
-  const whatsapp = normalizeWhatsappPhone(String(publicContactObj.whatsapp || managerContactObj.whatsapp_phone || contactObj.whatsapp_phone || ownerObj.whatsapp_phone || ownerObj.whatsappPhone || merged.publicWhatsappNumber || ''));
+  const whatsapp = normalizeWhatsappPhone(String(
+    contactsObj.whatsapp
+    || publicContactObj.whatsapp
+    || managerContactObj.whatsapp_phone
+    || contactObj.whatsapp_phone
+    || ownerObj.whatsapp_phone
+    || ownerObj.whatsappPhone
+    || merged.publicWhatsappNumber
+    || ''
+  ));
 
   return {
     whatsappPhone: whatsapp,
     displayName: String(managerContactObj.display_name || contactObj.display_name || ownerObj.display_name || 'Dubai Spares UAE'),
     phone: normalizeWhatsappPhone(String(contactObj.phone || merged.publicWhatsappNumber || whatsapp || '')),
-    instagram: String(publicContactObj.instagram || contactObj.instagram || merged.publicInstagramUrl || ''),
-    telegram: String(publicContactObj.telegram || contactObj.telegram || merged.publicTelegramUrl || '')
+    instagram: String(contactsObj.instagram || publicContactObj.instagram || contactObj.instagram || merged.publicInstagramUrl || ''),
+    telegram: String(contactsObj.telegram || publicContactObj.telegram || contactObj.telegram || merged.publicTelegramUrl || '')
   };
 };
 
@@ -273,16 +283,17 @@ const normalizePayloadItems = (payload: Record<string, unknown>, managerCurrency
   const rows = getItemRowsFromPayload(payload);
   return rows.map((row, index) => {
     const qty = parseMoneyField(row.qty, row.quantity, row.count, 1) || 1;
-    const unitPrice = parseMoneyField(
+    const explicitUnitPrice = parseMoneyField(
       row.unit_price,
       row.unitPrice,
       row.client_price_aed,
       row.clientPriceAed,
       row.price,
       row.amount,
-      row.total,
       row.value
     );
+    const lineTotal = parseMoneyField(row.line_total, row.lineTotal, row.total, explicitUnitPrice * qty);
+    const unitPrice = explicitUnitPrice > 0 ? explicitUnitPrice : (qty > 0 ? lineTotal / qty : lineTotal);
     const currency = normalizeCurrencyCode(row.currency || row.price_currency || managerCurrency);
     return {
       title: String(row.title || row.name || row.part_name || `Item ${index + 1}`),
@@ -311,6 +322,7 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
   const totalsObj = payload.totals && typeof payload.totals === 'object' ? payload.totals as Record<string, unknown> : {};
   const logisticsObj = payload.logistics && typeof payload.logistics === 'object' ? payload.logistics as Record<string, unknown> : {};
   const pricingObj = payload.pricing && typeof payload.pricing === 'object' ? payload.pricing as Record<string, unknown> : {};
+  const feesObj = payload.fees && typeof payload.fees === 'object' ? payload.fees as Record<string, unknown> : {};
 
   const payloadRates = ((breakdownObj.rates && typeof breakdownObj.rates === 'object' ? breakdownObj.rates : pricingObj.rates) || {}) as Record<string, number>;
   const mergedRates: QuoteRates = {
@@ -322,16 +334,52 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
 
   const managerCurrency = normalizeCurrencyCode(pricingObj.currency || payload.currency || breakdownObj.currency);
   const items = normalizePayloadItems(payload, managerCurrency);
-  const itemsTotalAed = items.reduce((sum, item) => {
+  const itemsTotalAedFromLines = items.reduce((sum, item) => {
     const unitPriceAed = convertFromSourceToAed(item.unitPrice, item.currency, mergedRates);
     return sum + unitPriceAed * item.qty;
   }, 0);
+  const partsTotalAed = parseMoneyField(
+    totalsObj.parts_total,
+    totalsObj.parts_sum_aed,
+    breakdownObj.parts_total,
+    payload.parts_total,
+    payload.partsTotal,
+    itemsTotalAedFromLines
+  );
 
-  const deliveryAed = parseMoneyField(logisticsObj.deliveryAed, logisticsObj.delivery, breakdownObj.delivery, totalsObj.logistics_aed, payload.delivery);
-  const packingAed = parseMoneyField(logisticsObj.packingAed, logisticsObj.packing, logisticsObj.packaging, breakdownObj.packaging, totalsObj.packing_aed, payload.packing);
-  const commissionAed = parseMoneyField(logisticsObj.serviceFeeAed, logisticsObj.commission, breakdownObj.commission, totalsObj.commission_aed, payload.commission);
+  const deliveryAed = parseMoneyField(
+    feesObj.logistics,
+    logisticsObj.deliveryAed,
+    logisticsObj.delivery,
+    breakdownObj.delivery,
+    totalsObj.logistics_aed,
+    payload.delivery
+  );
+  const packingAed = parseMoneyField(
+    feesObj.packaging,
+    logisticsObj.packingAed,
+    logisticsObj.packing,
+    logisticsObj.packaging,
+    breakdownObj.packaging,
+    totalsObj.packing_aed,
+    payload.packing
+  );
+  const commissionAed = parseMoneyField(
+    feesObj.commission,
+    logisticsObj.serviceFeeAed,
+    logisticsObj.commission,
+    breakdownObj.commission,
+    totalsObj.commission_aed,
+    payload.commission
+  );
   const feesTotalAed = deliveryAed + packingAed + commissionAed;
-  const grandTotalAed = itemsTotalAed + feesTotalAed;
+  const grandTotalAed = parseMoneyField(
+    totalsObj.grand_total,
+    totalsObj.grand_total_aed,
+    breakdownObj.total,
+    payload.total,
+    partsTotalAed + feesTotalAed
+  );
 
   if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
     console.log('[PUBLIC_QUOTE] totals diagnostics:', {
@@ -341,13 +389,13 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
       deliveryAed,
       packingAed,
       commissionAed,
-      itemsTotalAed,
+      itemsTotalAed: partsTotalAed,
       feesTotalAed,
       grandTotalAed
     });
   }
 
-  return { items, itemsTotalAed, deliveryAed, packingAed, commissionAed, feesTotalAed, grandTotalAed };
+  return { items, itemsTotalAed: partsTotalAed, deliveryAed, packingAed, commissionAed, feesTotalAed, grandTotalAed };
 };
 
 const parseEmbeddedSnapshot = (raw: string | null): any | null => {
@@ -823,7 +871,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
       const snapshotOrder = mapSnapshotOrder(payloadObj);
       const diagnosticsLogistics = resolveOrderLogistics(payloadObj);
-      const diagnosticsSettings = normalizePublicSettings((snapshotOrder as any)?.public_settings || payloadObj.public_settings || payloadObj.publicSettings || {});
+      const snapshotSettings = normalizePublicSettings((snapshotOrder as any)?.public_settings || payloadObj.public_settings || payloadObj.publicSettings || {});
+      const dbFallbackSettingsRaw = await publicQuoteGetPublicContactSettings({ signal: controller.signal });
+      const dbFallbackSettings = dbFallbackSettingsRaw ? normalizePublicSettings(dbFallbackSettingsRaw) : null;
+      const diagnosticsSettings = dbFallbackSettings || snapshotSettings;
       const diagnosticsOwner = normalizePayloadOwner((snapshotOrder as any)?.payloadOwner || payloadObj.owner);
       const resolvedBreakdown = resolveBreakdownFromPayload(payloadObj);
       const resolvedContact = resolveContactFromPayload(payloadObj, diagnosticsSettings);
@@ -992,11 +1043,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const totals = useMemo(() => {
     const payloadTotals = snapshotPayload ? resolveTotalsFromPayload(snapshotPayload, rates) : null;
     const fallbackSubtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
-    const subtotal = payloadTotals ? payloadTotals.itemsTotalAed : (fallbackSubtotal || quoteBreakdown?.partsTotal || 0);
+    const subtotal = payloadTotals?.itemsTotalAed ?? fallbackSubtotal;
     const markup = 0;
-    const serviceFee = payloadTotals?.commissionAed ?? quoteBreakdown?.commission ?? parseMoneyField(order?.logistics?.serviceFeeAed);
-    const delivery = payloadTotals?.deliveryAed ?? quoteBreakdown?.delivery ?? parseMoneyField(order?.logistics?.deliveryAed);
-    const packing = payloadTotals?.packingAed ?? quoteBreakdown?.packaging ?? parseMoneyField(order?.logistics?.packingAed);
+    const serviceFee = payloadTotals?.commissionAed ?? 0;
+    const delivery = payloadTotals?.deliveryAed ?? 0;
+    const packing = payloadTotals?.packingAed ?? 0;
     const logistics = delivery + packing;
     const subtotalWithoutExtras = subtotal;
     const totalAed = payloadTotals?.grandTotalAed ?? (subtotalWithoutExtras + serviceFee + logistics);
@@ -1012,12 +1063,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       totalConverted: totalAed * rates[currency],
       hasPositions: (payloadTotals?.items.length ?? foundParts.length) > 0
     };
-  }, [foundParts, currency, rates, order, quoteBreakdown, snapshotPayload]);
-
-  const partsLine = foundParts.map(({ part }) => `${part.name} (${t.inStock})`).join(', ') || 'Selected parts';
-  const confirmMessage = lang === 'ru'
-    ? `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nИтого: ${totals.totalAed.toFixed(2)} AED.\nДетали: ${partsLine}.\nГотов(а) оформить. Подскажите срок и способ доставки.`
-    : `Hello! I confirm the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nTotal: ${totals.totalAed.toFixed(2)} AED.\nPart: ${partsLine}.\nPlease confirm delivery time and shipping options.`;
+  }, [foundParts, currency, rates, snapshotPayload]);
+  const confirmMessage = `Здравствуйте! Подтверждаю заказ по смете: ${order?.brand || ''} ${order?.model || ''}. ID: ${order?.id || ''}. Ссылка: ${window.location.href}`;
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};
   const settings = normalizePublicSettings(payloadSettings);
@@ -1035,11 +1082,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const whatsappConfirmUrl = useMemo(() => {
     if (!canOpenWhatsapp) return '';
-    const linkToQuote = window.location.href;
-    const encoded = encodeURIComponent(`${confirmMessage}\nQuote link: ${linkToQuote}`);
+    const encoded = encodeURIComponent(confirmMessage);
     return `https://wa.me/${whatsappPhoneDigits}?text=${encoded}`;
   }, [canOpenWhatsapp, confirmMessage, whatsappPhoneDigits]);
 
+  const openWhatsappChat = useCallback((placement: 'hero' | 'sticky') => {
+    if (!whatsappConfirmUrl) return;
+    logEvent('confirm_click', { placement });
+    window.location.href = whatsappConfirmUrl;
+  }, [whatsappConfirmUrl]);
 
   const downloadPdf = () => {
     if (!order) return;
@@ -1165,9 +1216,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             </div>
             <div className="mt-5 flex flex-wrap gap-2">
               {canOpenWhatsapp ? (
-              <a href={whatsappConfirmUrl} target="_blank" rel="noopener noreferrer" onClick={() => { logEvent('confirm_click', { placement: 'hero' }); }} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white">
+              <button type="button" onClick={() => openWhatsappChat('hero')} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white">
                 <MessageCircle size={16} /> {t.confirmWhatsApp}
-              </a>
+              </button>
             ) : (
               <div className="inline-flex items-center rounded-xl bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">Свяжитесь с менеджером</div>
             )}
@@ -1295,9 +1346,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             <p className="text-lg font-bold text-slate-900">{totals.totalConverted.toFixed(2)} {currency}</p>
             {partsVerified && <p className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600"><CheckCircle2 size={12} /> {t.partsVerified}</p>}
           </div>
-          <a href={canOpenWhatsapp ? whatsappConfirmUrl : undefined} target="_blank" rel="noopener noreferrer" onClick={() => { if (canOpenWhatsapp) logEvent('confirm_click', { placement: 'sticky' }); }} className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 px-3 text-xs font-bold text-white shadow-[0_14px_42px_rgba(16,185,129,0.42)] disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" disabled={!canOpenWhatsapp} onClick={() => openWhatsappChat('sticky')} className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 px-3 text-xs font-bold text-white shadow-[0_14px_42px_rgba(16,185,129,0.42)] disabled:cursor-not-allowed disabled:opacity-50">
             <MessageCircle size={16} /> {canOpenWhatsapp ? t.confirmWhatsApp : t.contactNotConfigured} <ChevronRight size={16} />
-          </a>
+          </button>
         </div>
       </div>
 
