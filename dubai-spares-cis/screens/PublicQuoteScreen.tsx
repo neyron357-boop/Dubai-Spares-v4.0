@@ -193,6 +193,13 @@ type QuoteContact = {
   telegram: string;
 };
 
+type NormalizedPayloadItem = {
+  title: string;
+  qty: number;
+  unitPrice: number;
+  currency: QuoteCurrency | 'AED';
+};
+
 const toPhoneDigits = (value: string | null | undefined) => (value || '').replace(/\D/g, '');
 
 const normalizeWhatsappPhone = (value: string | null | undefined) => {
@@ -241,17 +248,18 @@ const resolveBreakdownFromPayload = (payload: Record<string, unknown>): QuoteBre
 const resolveContactFromPayload = (payload: Record<string, unknown>, fallbackSettings?: ReturnType<typeof normalizePublicSettings>): QuoteContact => {
   const managerContactObj = payload.manager_contact && typeof payload.manager_contact === 'object' ? payload.manager_contact as Record<string, unknown> : {};
   const contactObj = payload.contact && typeof payload.contact === 'object' ? payload.contact as Record<string, unknown> : {};
+  const publicContactObj = payload.public_contact && typeof payload.public_contact === 'object' ? payload.public_contact as Record<string, unknown> : {};
   const ownerObj = payload.owner && typeof payload.owner === 'object' ? payload.owner as Record<string, unknown> : {};
   const settingsObj = normalizePublicSettings(payload.public_settings || payload.publicSettings || {});
   const merged = fallbackSettings || settingsObj;
-  const whatsapp = normalizeWhatsappPhone(String(managerContactObj.whatsapp_phone || contactObj.whatsapp_phone || ownerObj.whatsapp_phone || ownerObj.whatsappPhone || merged.publicWhatsappNumber || ''));
+  const whatsapp = normalizeWhatsappPhone(String(publicContactObj.whatsapp || managerContactObj.whatsapp_phone || contactObj.whatsapp_phone || ownerObj.whatsapp_phone || ownerObj.whatsappPhone || merged.publicWhatsappNumber || ''));
 
   return {
     whatsappPhone: whatsapp,
     displayName: String(managerContactObj.display_name || contactObj.display_name || ownerObj.display_name || 'Dubai Spares UAE'),
     phone: normalizeWhatsappPhone(String(contactObj.phone || merged.publicWhatsappNumber || whatsapp || '')),
-    instagram: String(contactObj.instagram || merged.publicInstagramUrl || ''),
-    telegram: String(contactObj.telegram || merged.publicTelegramUrl || '')
+    instagram: String(publicContactObj.instagram || contactObj.instagram || merged.publicInstagramUrl || ''),
+    telegram: String(publicContactObj.telegram || contactObj.telegram || merged.publicTelegramUrl || '')
   };
 };
 
@@ -259,6 +267,30 @@ const getItemRowsFromPayload = (payload: Record<string, unknown>) => {
   const candidates = ['items', 'parts', 'lines', 'positions'].map((key) => payload[key]);
   const rows = candidates.find((value) => Array.isArray(value)) as Array<Record<string, unknown>> | undefined;
   return Array.isArray(rows) ? rows : [];
+};
+
+const normalizePayloadItems = (payload: Record<string, unknown>, managerCurrency: QuoteCurrency | 'AED'): NormalizedPayloadItem[] => {
+  const rows = getItemRowsFromPayload(payload);
+  return rows.map((row, index) => {
+    const qty = parseMoneyField(row.qty, row.quantity, row.count, 1) || 1;
+    const unitPrice = parseMoneyField(
+      row.unit_price,
+      row.unitPrice,
+      row.client_price_aed,
+      row.clientPriceAed,
+      row.price,
+      row.amount,
+      row.total,
+      row.value
+    );
+    const currency = normalizeCurrencyCode(row.currency || row.price_currency || managerCurrency);
+    return {
+      title: String(row.title || row.name || row.part_name || `Item ${index + 1}`),
+      qty,
+      unitPrice,
+      currency
+    };
+  });
 };
 
 const normalizeCurrencyCode = (value: unknown): QuoteCurrency | 'AED' => {
@@ -275,7 +307,6 @@ const convertFromSourceToAed = (amount: number, sourceCurrency: QuoteCurrency | 
 };
 
 const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates: QuoteRates) => {
-  const rows = getItemRowsFromPayload(payload);
   const breakdownObj = payload.breakdown && typeof payload.breakdown === 'object' ? payload.breakdown as Record<string, unknown> : {};
   const totalsObj = payload.totals && typeof payload.totals === 'object' ? payload.totals as Record<string, unknown> : {};
   const logisticsObj = payload.logistics && typeof payload.logistics === 'object' ? payload.logistics as Record<string, unknown> : {};
@@ -290,12 +321,10 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
   };
 
   const managerCurrency = normalizeCurrencyCode(pricingObj.currency || payload.currency || breakdownObj.currency);
-  const itemsTotalAed = rows.reduce((sum, row) => {
-    const qty = parseMoneyField(row.qty, row.quantity, row.count, 1) || 1;
-    const unitPriceRaw = parseMoneyField(row.unit_price, row.unitPrice, row.client_price_aed, row.clientPriceAed, row.price, row.amount, row.total);
-    const rowCurrency = normalizeCurrencyCode(row.currency || row.price_currency || managerCurrency);
-    const unitPriceAed = convertFromSourceToAed(unitPriceRaw, rowCurrency, mergedRates);
-    return sum + unitPriceAed * qty;
+  const items = normalizePayloadItems(payload, managerCurrency);
+  const itemsTotalAed = items.reduce((sum, item) => {
+    const unitPriceAed = convertFromSourceToAed(item.unitPrice, item.currency, mergedRates);
+    return sum + unitPriceAed * item.qty;
   }, 0);
 
   const deliveryAed = parseMoneyField(logisticsObj.deliveryAed, logisticsObj.delivery, breakdownObj.delivery, totalsObj.logistics_aed, payload.delivery);
@@ -306,8 +335,8 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
 
   if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
     console.log('[PUBLIC_QUOTE] totals diagnostics:', {
-      itemFieldResolved: rows.length > 0 ? 'items/parts/lines/positions' : 'none',
-      itemsCount: rows.length,
+      itemFieldResolved: items.length > 0 ? 'items/parts/lines/positions' : 'none',
+      itemsCount: items.length,
       managerCurrency,
       deliveryAed,
       packingAed,
@@ -318,7 +347,7 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
     });
   }
 
-  return { rows, itemsTotalAed, deliveryAed, packingAed, commissionAed, feesTotalAed, grandTotalAed };
+  return { items, itemsTotalAed, deliveryAed, packingAed, commissionAed, feesTotalAed, grandTotalAed };
 };
 
 const parseEmbeddedSnapshot = (raw: string | null): any | null => {
@@ -475,7 +504,7 @@ const mapSnapshotOrder = (row: any): Order => {
   markupType: header?.markupType || row?.markupType || row?.markup_type || 'percent',
   markupFixedAed: Number(header?.markupFixedAed ?? row?.markupFixedAed ?? row?.markup_fixed_aed ?? row?.totals?.markup_aed ?? 0),
   parts: (row?.parts || []).map((part: any) => {
-    const variantPrice = Number(part?.final_price_aed ?? part?.priceAed ?? part?.price_aed ?? 0);
+    const variantPrice = Number(part?.final_price_aed ?? part?.client_price_aed ?? part?.clientPriceAed ?? part?.unit_price_aed ?? part?.unitPriceAed ?? part?.priceAed ?? part?.price_aed ?? part?.price ?? 0);
     const photos = part?.photo_urls || part?.photos || [];
     return ({
     id: String(part?.id || ''),
@@ -963,7 +992,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const totals = useMemo(() => {
     const payloadTotals = snapshotPayload ? resolveTotalsFromPayload(snapshotPayload, rates) : null;
     const fallbackSubtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
-    const subtotal = payloadTotals?.itemsTotalAed ?? quoteBreakdown?.partsTotal ?? fallbackSubtotal;
+    const subtotal = payloadTotals ? payloadTotals.itemsTotalAed : (fallbackSubtotal || quoteBreakdown?.partsTotal || 0);
     const markup = 0;
     const serviceFee = payloadTotals?.commissionAed ?? quoteBreakdown?.commission ?? parseMoneyField(order?.logistics?.serviceFeeAed);
     const delivery = payloadTotals?.deliveryAed ?? quoteBreakdown?.delivery ?? parseMoneyField(order?.logistics?.deliveryAed);
@@ -981,7 +1010,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       logistics,
       totalAed,
       totalConverted: totalAed * rates[currency],
-      hasPositions: (payloadTotals?.rows.length ?? foundParts.length) > 0
+      hasPositions: (payloadTotals?.items.length ?? foundParts.length) > 0
     };
   }, [foundParts, currency, rates, order, quoteBreakdown, snapshotPayload]);
 
@@ -996,19 +1025,19 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const whatsappPhoneRaw = quoteContact?.whatsappPhone || normalizedOwner.whatsappPhone || settings.publicWhatsappNumber;
   const whatsappPhoneDigits = normalizeWhatsappPhone(whatsappPhoneRaw);
   const canOpenWhatsapp = Boolean(whatsappPhoneDigits);
+  const showDebug = useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('debug') === '1';
+    } catch {
+      return false;
+    }
+  }, []);
 
-  const openWhatsApp = useCallback(() => {
-    if (!canOpenWhatsapp) return;
+  const whatsappConfirmUrl = useMemo(() => {
+    if (!canOpenWhatsapp) return '';
     const linkToQuote = window.location.href;
-    const messageWithLink = `${confirmMessage}
-Ссылка: ${linkToQuote}`;
-    const encoded = encodeURIComponent(messageWithLink);
-    const isMobile = /Android|iPhone|iPad|iPod|IEMobile|Mobile/i.test(navigator.userAgent || '');
-    const waMeUrl = `https://wa.me/${whatsappPhoneDigits}?text=${encoded}`;
-    const webUrl = `https://web.whatsapp.com/send?phone=${whatsappPhoneDigits}&text=${encoded}`;
-    const targetUrl = isMobile ? waMeUrl : webUrl;
-    window.location.href = targetUrl;
-    if (!isMobile) window.open(waMeUrl, '_blank', 'noopener,noreferrer');
+    const encoded = encodeURIComponent(`${confirmMessage}\nQuote link: ${linkToQuote}`);
+    return `https://wa.me/${whatsappPhoneDigits}?text=${encoded}`;
   }, [canOpenWhatsapp, confirmMessage, whatsappPhoneDigits]);
 
 
@@ -1136,11 +1165,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             </div>
             <div className="mt-5 flex flex-wrap gap-2">
               {canOpenWhatsapp ? (
-              <button type="button" onClick={() => { logEvent('confirm_click', { placement: 'hero' }); openWhatsApp(); }} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white">
+              <a href={whatsappConfirmUrl} target="_blank" rel="noopener noreferrer" onClick={() => { logEvent('confirm_click', { placement: 'hero' }); }} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white">
                 <MessageCircle size={16} /> {t.confirmWhatsApp}
-              </button>
+              </a>
             ) : (
-              <div className="inline-flex items-center rounded-xl bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">{t.contactNotConfigured}</div>
+              <div className="inline-flex items-center rounded-xl bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">Свяжитесь с менеджером</div>
             )}
               <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold text-white backdrop-blur">📄 {t.viewParts}</button>
             </div>
@@ -1225,6 +1254,20 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           </div>
         </section>
 
+        {showDebug && (
+          <section className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+            <p>items_count: {snapshotPayload ? resolveTotalsFromPayload(snapshotPayload, rates).items.length : foundParts.length}</p>
+            <p>parts_total_aed: {totals.subtotal.toFixed(2)}</p>
+            <p>logistics_aed: {totals.delivery.toFixed(2)}</p>
+            <p>packaging_aed: {totals.packing.toFixed(2)}</p>
+            <p>commission_aed: {totals.serviceFee.toFixed(2)}</p>
+            <p>grand_total_aed: {totals.totalAed.toFixed(2)}</p>
+            <p>contact_whatsapp: {whatsappPhoneDigits || 'empty'}</p>
+            <p>rates_source: {rateSource}</p>
+            <p>currency: {currency}</p>
+          </section>
+        )}
+
         <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.trust}</h2>
           <ul className="mt-2 space-y-1">
@@ -1252,9 +1295,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             <p className="text-lg font-bold text-slate-900">{totals.totalConverted.toFixed(2)} {currency}</p>
             {partsVerified && <p className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600"><CheckCircle2 size={12} /> {t.partsVerified}</p>}
           </div>
-          <button type="button" disabled={!canOpenWhatsapp} onClick={() => { logEvent('confirm_click', { placement: 'sticky' }); openWhatsApp(); }} className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 px-3 text-xs font-bold text-white shadow-[0_14px_42px_rgba(16,185,129,0.42)] disabled:cursor-not-allowed disabled:opacity-50">
+          <a href={canOpenWhatsapp ? whatsappConfirmUrl : undefined} target="_blank" rel="noopener noreferrer" onClick={() => { if (canOpenWhatsapp) logEvent('confirm_click', { placement: 'sticky' }); }} className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 px-3 text-xs font-bold text-white shadow-[0_14px_42px_rgba(16,185,129,0.42)] disabled:cursor-not-allowed disabled:opacity-50">
             <MessageCircle size={16} /> {canOpenWhatsapp ? t.confirmWhatsApp : t.contactNotConfigured} <ChevronRight size={16} />
-          </button>
+          </a>
         </div>
       </div>
 
