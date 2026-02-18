@@ -5,8 +5,9 @@ import { leadCreate } from '../serverApi';
 import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
 import { NotificationType, pushNotification } from '../notificationCenter';
 import { logger } from '../logging';
-import { Source } from '../types';
+import { Priority, Source } from '../types';
 import { useAppSettings } from '../appSettings';
+import { addOrderItem } from '../orderStore';
 
 type FormStep = 1 | 2 | 3 | 4 | 5;
 
@@ -55,7 +56,7 @@ const DELIVERY_CITIES: Record<(typeof DELIVERY_COUNTRIES)[number], string[]> = {
 interface RequestedPartInput {
   id: string;
   name: string;
-  photoData: string | null;
+  photoDataList: string[];
   audioNote?: string | null;
 }
 
@@ -67,9 +68,33 @@ const createId = () =>
 const createRequestedPartInput = (): RequestedPartInput => ({
   id: createId(),
   name: '',
-  photoData: null,
+  photoDataList: [],
   audioNote: null
 });
+
+
+const MAX_PART_PHOTOS = 8;
+
+const normalizeDraftRequestedParts = (input: unknown): RequestedPartInput[] => {
+  if (!Array.isArray(input)) return [createRequestedPartInput()];
+
+  const normalized = input.map((item) => {
+    if (!item || typeof item !== 'object') return null;
+    const part = item as Record<string, unknown>;
+    const photoDataList = Array.isArray(part.photoDataList)
+      ? part.photoDataList.filter((photo): photo is string => typeof photo === 'string' && photo.startsWith('data:image')).slice(0, MAX_PART_PHOTOS)
+      : (typeof part.photoData === 'string' && part.photoData.startsWith('data:image') ? [part.photoData] : []);
+
+    return {
+      id: typeof part.id === 'string' && part.id ? part.id : createId(),
+      name: typeof part.name === 'string' ? part.name : '',
+      photoDataList,
+      audioNote: typeof part.audioNote === 'string' ? part.audioNote : null
+    } satisfies RequestedPartInput;
+  }).filter((part): part is RequestedPartInput => Boolean(part));
+
+  return normalized.length ? normalized : [createRequestedPartInput()];
+};
 
 const formatVinInput = (value: string) => value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 17);
 
@@ -187,7 +212,7 @@ const PublicOrderFormScreen: React.FC = () => {
         setYear(draft.year || '');
         setBodyType((draft.bodyType || '').slice(0, 40));
         setVin(draft.vin || '');
-        setRequestedParts(Array.isArray(draft.requestedParts) && draft.requestedParts.length ? draft.requestedParts : [createRequestedPartInput()]);
+        setRequestedParts(normalizeDraftRequestedParts(draft.requestedParts));
         setCustomerContact(draft.customerContact || '');
         setContactCountryCode(draft.contactCountryCode || PHONE_CODES[0].code);
         setDeliveryCountry(draft.deliveryCountry || '');
@@ -209,7 +234,7 @@ const PublicOrderFormScreen: React.FC = () => {
         year,
         bodyType,
         vin,
-        requestedParts,
+        requestedParts: requestedParts.map((part) => ({ id: part.id, name: part.name })),
         customerContact,
         contactCountryCode,
         deliveryCountry,
@@ -232,6 +257,21 @@ const PublicOrderFormScreen: React.FC = () => {
     const reader = new FileReader();
     reader.onloadend = () => onLoad(String(reader.result || ''));
     reader.readAsDataURL(file);
+  };
+
+
+  const handleFilesToDataUrls = async (files: FileList | File[], onLoad: (values: string[]) => void) => {
+    const picked = Array.from(files || []).filter((file) => file.type.startsWith('image/'));
+    if (!picked.length) return;
+
+    const optimized = await Promise.all(
+      picked.map(async (file) => {
+        const source = await new Promise<string>((resolve) => handleFileToDataUrl(file, resolve));
+        return optimizeImageForUpload(source, `public-form:pick:${file.name || file.type}`);
+      })
+    );
+
+    onLoad(optimized.filter(Boolean));
   };
 
   const detectByVin = (value: string) => {
@@ -431,12 +471,14 @@ const PublicOrderFormScreen: React.FC = () => {
       }];
 
       const partsToInsert = await Promise.all(filledRequestedParts.map(async (part) => {
-        const uploadedPartPhotos = !part.photoData
+        const uploadedPartPhotos = !part.photoDataList.length
           ? []
-          : await (async (photoData: string) => {
-            const compressedPartPhoto = await optimizeImageForUpload(photoData, `public-order:${orderId}:${part.id}`);
-            return ensurePublicImageUrls([compressedPartPhoto], `orders/${orderId}/parts/${part.id}`);
-          })(part.photoData);
+          : await (async (photos: string[]) => {
+            const compressedPartPhotos = await Promise.all(
+              photos.slice(0, MAX_PART_PHOTOS).map((photoData, index) => optimizeImageForUpload(photoData, `public-order:${orderId}:${part.id}:${index}`))
+            );
+            return ensurePublicImageUrls(compressedPartPhotos, `orders/${orderId}/parts/${part.id}`);
+          })(part.photoDataList);
 
         return {
           id: createId(),
@@ -462,20 +504,67 @@ const PublicOrderFormScreen: React.FC = () => {
           vin: vin.trim(),
           bodyType: bodyType.trim() || null,
           requestedParts: filledRequestedParts.map((part) => part.name.trim())
-        })
+        }),
+        parts: partsToInsert,
+        notes,
+        carPhotos: uploadedCarPhotos,
+        vinPhotos: uploadedVinPhotos
       }, { signal: controller.signal });
       setSubmitController(null);
-      if (!leadResult.ok) throw new Error(leadResult.error);
 
-      pushNotification({
-        type: NotificationType.ORDER_NEW,
-        title: 'Новая LEAD заявка',
-        message: `${brand} ${model} • ${filledRequestedParts.length} детали`,
-        orderId,
-        source: 'web_form',
-        route: `/orders/${orderId}`
+      if (!leadResult.ok) {
+        await logger.warn('public-form', 'Lead create failed, using local lead fallback', {
+          reason: leadResult.error,
+          orderId
+        });
+      }
+
+      await addOrderItem({
+        id: orderId,
+        brand: brand.trim(),
+        model: model.trim(),
+        year: year.trim(),
+        bodyType: bodyType.trim() || undefined,
+        vin: vin.trim(),
+        vinPhotoUrl: uploadedVinPhotos[0],
+        status: 'lead',
+        priority: Priority.MEDIUM,
+        clientName: clientAlias.trim() || 'Public Lead',
+        source: messageSource,
+        carPhotoUrl: uploadedCarPhotos[0],
+        carPhotos: uploadedCarPhotos,
+        parts: partsToInsert,
+        markupPercent: 0,
+        exchangeRate: 3.67,
+        createdAt: Date.now(),
+        isArchived: false,
+        isSold: false,
+        isLead: true,
+        notes,
+        customerContact: `${contactCountryCode}${customerContact.trim()}`.trim(),
+        socialNickname: clientAlias.trim() || undefined,
+        leadUnread: true,
+        leadSource: 'public_form'
       });
-      void logger.info('public-form', `Lead created ${orderId}`, { source: messageSource, parts: filledRequestedParts.length, orderId });
+
+      if (!leadResult.ok) {
+        pushNotification({
+          type: NotificationType.SYNC_ERROR,
+          title: 'Заявка сохранена локально',
+          message: 'Сервер временно недоступен: лид сохранён в приложении и будет досинхронизирован.',
+          orderId,
+          source: 'web_form',
+          route: `/orders/${orderId}`,
+          severity: 'warning'
+        });
+      }
+
+      void logger.info('public-form', `Lead created ${orderId}`, {
+        source: messageSource,
+        parts: filledRequestedParts.length,
+        orderId,
+        remoteLeadOk: leadResult.ok
+      });
 
       setCreatedOrderId(orderId);
       setShowThanks(true);
@@ -656,26 +745,33 @@ const PublicOrderFormScreen: React.FC = () => {
                     className="h-14 w-full rounded-2xl border border-white/15 bg-white/10 px-4 outline-none"
                   />
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                    <input id={`${part.id}-gallery`} type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, (value) => { updateRequestedPart(index, { photoData: value }); void logger.info('public-form:media', 'Part photo attached from gallery', { partId: part.id, index }); }); }} className="hidden" />
-                    <input id={`${part.id}-camera`} type="file" accept="image/*" capture="environment" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, (value) => { updateRequestedPart(index, { photoData: value }); void logger.info('public-form:media', 'Part photo attached from camera', { partId: part.id, index }); }); }} className="hidden" />
+                    <input id={`${part.id}-gallery`} type="file" accept="image/*" multiple onChange={(e) => { if (e.target.files?.length) { void handleFilesToDataUrls(e.target.files, (values) => { updateRequestedPart(index, { photoDataList: [...part.photoDataList, ...values].slice(0, MAX_PART_PHOTOS) }); void logger.info('public-form:media', 'Part photo attached from gallery', { partId: part.id, index, count: values.length }); }); } }} className="hidden" />
+                    <input id={`${part.id}-camera`} type="file" accept="image/*" capture="environment" onChange={(e) => { if (e.target.files?.length) { void handleFilesToDataUrls(e.target.files, (values) => { updateRequestedPart(index, { photoDataList: [...part.photoDataList, ...values].slice(0, MAX_PART_PHOTOS) }); void logger.info('public-form:media', 'Part photo attached from camera', { partId: part.id, index, count: values.length }); }); } }} className="hidden" />
                     <label htmlFor={`${part.id}-gallery`} className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs"><Upload className="h-3 w-3" />Фото</label>
                     <label htmlFor={`${part.id}-camera`} className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs"><Camera className="h-3 w-3" />Камера</label>
                     <button type="button" onClick={() => void togglePartVoiceRecording(part.id, index)} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs">{recordingPartId === part.id ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}{recordingPartId === part.id ? 'Стоп' : 'Голос'}</button>
                   </div>
                   {recordingPartId === part.id && <div className="mt-2 flex h-5 items-end gap-1">{Array.from({ length: 18 }).map((_, waveIndex) => <span key={`${part.id}-record-${waveIndex}`} className="w-1 rounded-full bg-rose-300 transition-all" style={{ height: `${25 + Math.abs(Math.sin((recordingTick + waveIndex) * 0.8)) * 75}%` }} />)}</div>}
-                  {part.photoData && (
-                    <div className="relative mt-2 overflow-hidden rounded-2xl border border-white/20 bg-black/20">
-                      <img src={part.photoData} alt={`part-${index}-preview`} className="h-36 w-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          updateRequestedPart(index, { photoData: null });
-                          void logger.info('public-form:media', 'Part photo removed', { partId: part.id, index });
-                        }}
-                        className="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold text-white"
-                      >
-                        Удалить фото
-                      </button>
+                  {part.photoDataList.length > 0 && (
+                    <div className="mt-2 rounded-2xl border border-white/20 bg-black/20 p-2">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {part.photoDataList.map((photo, photoIndex) => (
+                          <div key={`${part.id}-photo-${photoIndex}`} className="relative">
+                            <img src={photo} alt={`part-${index}-preview-${photoIndex}`} className="h-24 w-full rounded-xl object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateRequestedPart(index, { photoDataList: part.photoDataList.filter((_, idx) => idx !== photoIndex) });
+                                void logger.info('public-form:media', 'Part photo removed', { partId: part.id, index, photoIndex });
+                              }}
+                              className="absolute right-1 top-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-2 px-1 text-xs text-slate-300">Фото: {part.photoDataList.length}/{MAX_PART_PHOTOS}</p>
                     </div>
                   )}
                   {part.audioNote && (
