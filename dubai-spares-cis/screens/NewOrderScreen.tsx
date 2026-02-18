@@ -650,8 +650,8 @@ const NewOrderScreen: React.FC = () => {
               ))}
             </div>
           )}
-          <input ref={carGalleryRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-gallery')} />
-          <input ref={carCameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-camera')} />
+          <input ref={carGalleryRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-gallery'); e.target.value = ''; }} />
+          <input ref={carCameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-camera'); e.target.value = ''; }} />
         </div>
       </section>
 
@@ -693,13 +693,13 @@ const NewOrderScreen: React.FC = () => {
                 accept="image/*"
                 multiple
                 className="hidden"
-                onChange={(e) => void attachCompressedImages(e.target.files, (updater) => {
+                onChange={(e) => { void attachCompressedImages(e.target.files, (updater) => {
                   setParts((prev) => prev.map((item) => {
                     if (item.id !== part.id) return item;
                     const nextPhotos = typeof updater === 'function' ? updater(item.photos) : updater;
                     return { ...item, photos: nextPhotos };
                   }));
-                }, 10, 'new-order:part')}
+                }, 10, 'new-order:part'); e.target.value = ''; }}
               />
             </div>
           ))}
@@ -758,13 +758,13 @@ const NewOrderScreen: React.FC = () => {
                 accept="image/*"
                 multiple
                 className="hidden"
-                onChange={(e) => void attachCompressedImages(e.target.files, (updater) => {
+                onChange={(e) => { void attachCompressedImages(e.target.files, (updater) => {
                   setNotes((prev) => prev.map((item) => {
                     if (item.id !== note.id) return item;
                     const nextPhotos = typeof updater === 'function' ? updater(item.photos) : updater;
                     return { ...item, photos: nextPhotos };
                   }));
-                }, 10, 'new-order:note')}
+                }, 10, 'new-order:note'); e.target.value = ''; }}
               />
             </div>
           ))}

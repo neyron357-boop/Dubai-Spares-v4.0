@@ -730,6 +730,7 @@ const OrderDetailsScreen: React.FC = () => {
         };
         reader.readAsDataURL(file as Blob);
       });
+      e.target.value = '';
     }
   };
 
@@ -819,6 +820,7 @@ const OrderDetailsScreen: React.FC = () => {
         reader.onloadend = () => setNewNotePhotos(prev => [...prev, reader.result as string]);
         reader.readAsDataURL(file as Blob);
       });
+      e.target.value = '';
     }
   };
 

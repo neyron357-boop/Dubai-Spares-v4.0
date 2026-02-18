@@ -126,6 +126,16 @@ const DebugLogsScreen: React.FC = () => {
     });
   };
 
+  useEffect(() => {
+    void loadStoredLogs();
+  }, []);
+
+  useEffect(() => {
+    const onLogUpdated = () => setLogs(logger.getRecentBuffered(MAX_VISIBLE_LOGS));
+    window.addEventListener('system-log-updated', onLogUpdated);
+    return () => window.removeEventListener('system-log-updated', onLogUpdated);
+  }, []);
+
   const loadDiagnostics = async () => {
     diagnosticsAbortRef.current?.abort();
     const controller = new AbortController();

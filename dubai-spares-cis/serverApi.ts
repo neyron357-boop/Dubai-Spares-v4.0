@@ -4,7 +4,7 @@ import { preparePayloadWithImageManifest } from './cloudMedia';
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string; code: string };
 
-type RequestOptions = { signal?: AbortSignal; timeoutMs?: number };
+type RequestOptions = { signal?: AbortSignal; timeoutMs?: number; preferRepresentation?: boolean };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const BACKUP_TIMEOUT_MS = 45_000;
@@ -65,7 +65,7 @@ const callRest = async <T>(endpoint: string, method: 'GET' | 'POST', payload: un
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         'Content-Type': 'application/json',
-        Prefer: 'return=representation'
+        Prefer: options.preferRepresentation === false ? 'return=minimal' : 'return=representation'
       },
       body: payload === undefined ? undefined : JSON.stringify(payload),
       signal: controller.signal
@@ -257,10 +257,11 @@ export const leadCreate = async (
     const response = await withSingleFlight(`lead:create:${idempotencyKey}`,
       () => callRest<Array<{ id: string }>>('client_leads', 'POST', requestPayload, {
         ...(options || {}),
-        timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
+        timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
+        preferRepresentation: false
       }));
     if (!response.ok) return recordCall('leadCreate', response);
-    return recordCall('leadCreate', { ok: true, data: { leadId: response.data?.[0]?.id || '' } });
+    return recordCall('leadCreate', { ok: true, data: { leadId: response.data?.[0]?.id || idempotencyKey } });
   } catch (error) {
     return recordCall('leadCreate', { ok: false, code: 'unexpected_error', error: error instanceof Error ? error.message : 'Lead submit failed' });
   } finally {
