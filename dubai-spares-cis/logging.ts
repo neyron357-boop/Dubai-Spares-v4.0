@@ -73,5 +73,6 @@ export const logger = {
   clear: async () => {
     memoryLogBuffer.length = 0;
     await offlineDb.clearSystemLogs();
+    window.dispatchEvent(new CustomEvent('system-log-updated', { detail: { count: 0 } }));
   }
 };

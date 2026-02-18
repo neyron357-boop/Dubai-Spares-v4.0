@@ -217,6 +217,7 @@ const PartDetailsScreen: React.FC = () => {
       };
       reader.readAsDataURL(file as Blob);
     });
+    e.target.value = '';
   };
 
   const removeVariantPhoto = (index: number) => {
