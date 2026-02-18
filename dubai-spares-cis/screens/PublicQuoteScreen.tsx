@@ -262,11 +262,24 @@ const resolveContactFromPayload = (payload: Record<string, unknown>, fallbackSet
   const merged = fallbackSettings || settingsObj;
   const whatsapp = normalizeWhatsappPhone(String(
     contactsObj.whatsapp
+    || contactsObj.whatsapp_phone
+    || contactsObj.whatsappPhone
+    || contactsObj.phone
     || publicContactObj.whatsapp
+    || publicContactObj.whatsapp_phone
+    || publicContactObj.whatsappPhone
+    || publicContactObj.phone
     || managerContactObj.whatsapp_phone
+    || managerContactObj.whatsapp
+    || managerContactObj.whatsappPhone
+    || managerContactObj.phone
     || contactObj.whatsapp_phone
+    || contactObj.whatsapp
+    || contactObj.whatsappPhone
+    || contactObj.phone
     || ownerObj.whatsapp_phone
     || ownerObj.whatsappPhone
+    || ownerObj.phone
     || merged.publicWhatsappNumber
     || ''
   ));
@@ -380,13 +393,17 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
     payload.commission
   );
   const feesTotalAed = deliveryAed + packingAed + commissionAed;
+  const computedGrandTotalAed = partsTotalAed + feesTotalAed;
   const grandTotalAed = parseMoneyField(
     totalsObj.grand_total,
     totalsObj.grand_total_aed,
     breakdownObj.total,
     payload.total,
-    partsTotalAed + feesTotalAed
+    computedGrandTotalAed
   );
+  const normalizedGrandTotalAed = grandTotalAed + 0.01 < computedGrandTotalAed
+    ? computedGrandTotalAed
+    : grandTotalAed;
 
   if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
     console.log('[PUBLIC_QUOTE] totals diagnostics:', {
@@ -398,11 +415,11 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
       commissionAed,
       itemsTotalAed: partsTotalAed,
       feesTotalAed,
-      grandTotalAed
+      grandTotalAed: normalizedGrandTotalAed
     });
   }
 
-  return { items, itemsTotalAed: partsTotalAed, deliveryAed, packingAed, commissionAed, feesTotalAed, grandTotalAed };
+  return { items, itemsTotalAed: partsTotalAed, deliveryAed, packingAed, commissionAed, feesTotalAed, grandTotalAed: normalizedGrandTotalAed };
 };
 
 const parseEmbeddedSnapshot = (raw: string | null): any | null => {
