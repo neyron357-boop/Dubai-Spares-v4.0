@@ -226,32 +226,139 @@ const resolveContactsSource = (payload: Record<string, unknown>): SnapshotContac
   return 'legacy';
 };
 
+const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
+  const legacyParts = Array.isArray(payload.parts) ? payload.parts as Array<Record<string, unknown>> : [];
+  const items = legacyParts.map((part) => {
+    const variants = Array.isArray(part.variants) ? part.variants as Array<Record<string, unknown>> : [];
+    const variant = variants[0] || {};
+    const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
+    const unitPrice = parseMoney(
+      variant.priceAed,
+      variant.price_aed,
+      part.client_price_aed,
+      part.clientPriceAed,
+      part.unit_price,
+      part.unitPrice,
+      part.priceAed,
+      part.price_aed,
+      part.price
+    );
+
+    return {
+      name: String(part.name || 'Part'),
+      qty,
+      unit_price: unitPrice,
+      line_total: unitPrice * qty
+    };
+  });
+
+  const fallbackItems = Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : [];
+  const normalizedItems = items.length > 0
+    ? items
+    : fallbackItems.map((item) => {
+      const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
+      const unitPrice = parseMoney(item.unit_price, item.unitPrice, item.price, item.amount, item.value);
+      return {
+        name: String(item.name || 'Part'),
+        qty,
+        unit_price: unitPrice,
+        line_total: parseMoney(item.line_total, item.lineTotal, unitPrice * qty)
+      };
+    });
+
+  const partsTotal = normalizedItems.reduce((sum, item) => sum + parseMoney(item.line_total), 0);
+  const logistics = parseMoney((payload.logistics as any)?.deliveryAed, (payload.fees as any)?.logistics, (payload.totals as any)?.logistics_aed);
+  const commission = parseMoney((payload.logistics as any)?.serviceFeeAed, (payload.fees as any)?.commission, (payload.totals as any)?.commission_aed);
+  const packaging = 0;
+  const grandTotal = partsTotal + logistics + commission + packaging;
+
+  const contacts = payload.contacts && typeof payload.contacts === 'object'
+    ? payload.contacts as Record<string, unknown>
+    : {};
+  const managerSettings = payload.public_settings && typeof payload.public_settings === 'object'
+    ? payload.public_settings as Record<string, unknown>
+    : {};
+
+  const normalizedWhatsapp = toDigits(String(
+    contacts.whatsapp
+    || managerSettings.whatsapp
+    || managerSettings.publicWhatsappNumber
+    || (payload.public_contact as any)?.whatsapp
+    || (payload.contact as any)?.whatsapp_phone
+    || (payload.owner as any)?.whatsapp_phone
+    || ''
+  ));
+  const normalizedTelegram = String(
+    contacts.telegram
+    || managerSettings.telegram
+    || managerSettings.publicTelegramUrl
+    || (payload.public_contact as any)?.telegram
+    || (payload.contact as any)?.telegram
+    || ''
+  );
+  const normalizedInstagram = String(
+    contacts.instagram
+    || managerSettings.instagram
+    || managerSettings.publicInstagramUrl
+    || (payload.public_contact as any)?.instagram
+    || (payload.contact as any)?.instagram
+    || ''
+  );
+
+  return {
+    ...payload,
+    items: normalizedItems,
+    fees: {
+      logistics,
+      packaging,
+      commission
+    },
+    totals: {
+      ...(payload.totals && typeof payload.totals === 'object' ? payload.totals as Record<string, unknown> : {}),
+      parts_total: partsTotal,
+      grand_total: grandTotal,
+      parts_sum_aed: partsTotal,
+      logistics_aed: logistics,
+      packing_aed: packaging,
+      commission_aed: commission,
+      grand_total_aed: grandTotal
+    },
+    contacts: {
+      whatsapp: normalizedWhatsapp || null,
+      telegram: normalizedTelegram || null,
+      instagram: normalizedInstagram || null
+    }
+  };
+};
+
 const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
   if (!payload || typeof payload !== 'object') return { payload, contactsSource: 'legacy' as SnapshotContactsSource, wasPatched: false };
   const source = payload as Record<string, unknown>;
-  const feesObj = source.fees && typeof source.fees === 'object' ? source.fees as Record<string, unknown> : {};
-  const logistics = parseMoney(feesObj.logistics, (source.logistics as any)?.deliveryAed, (source.totals as any)?.logistics_aed);
-  const packaging = parseMoney(feesObj.packaging, (source.logistics as any)?.packingAed, (source.totals as any)?.packing_aed);
-  const commission = parseMoney(feesObj.commission, (source.logistics as any)?.serviceFeeAed, (source.totals as any)?.commission_aed);
+  const needsLegacyBackfill = (!row.payload_json || typeof row.payload_json !== 'object') && !!row.payload && typeof row.payload === 'object';
+  const basePayload = needsLegacyBackfill ? buildNormalizedPayloadJson(source) : source;
+  const feesObj = basePayload.fees && typeof basePayload.fees === 'object' ? basePayload.fees as Record<string, unknown> : {};
+  const logistics = parseMoney(feesObj.logistics, (basePayload.logistics as any)?.deliveryAed, (basePayload.totals as any)?.logistics_aed);
+  const packaging = parseMoney(feesObj.packaging, (basePayload.logistics as any)?.packingAed, (basePayload.totals as any)?.packing_aed);
+  const commission = parseMoney(feesObj.commission, (basePayload.logistics as any)?.serviceFeeAed, (basePayload.totals as any)?.commission_aed);
 
-  const itemRows = Array.isArray(source.items) ? source.items as Array<Record<string, unknown>> : [];
-  const partRows = Array.isArray(source.parts) ? source.parts as Array<Record<string, unknown>> : [];
+  const itemRows = Array.isArray(basePayload.items) ? basePayload.items as Array<Record<string, unknown>> : [];
+  const partRows = Array.isArray(basePayload.parts) ? basePayload.parts as Array<Record<string, unknown>> : [];
   const hasItemTotals = itemRows.some((item) => computeLineTotal(item) > 0);
   const computedFromItems = computeTotalsFromItems(itemRows, { logistics, packaging, commission });
   const computedFromParts = computeTotalsFromParts(partRows, { logistics, packaging, commission });
   const computed = hasItemTotals || itemRows.length > 0 ? computedFromItems : computedFromParts;
-  const existingTotals = source.totals && typeof source.totals === 'object' ? source.totals as Record<string, unknown> : {};
+  const existingTotals = basePayload.totals && typeof basePayload.totals === 'object' ? basePayload.totals as Record<string, unknown> : {};
 
-  const nextContacts = source.contacts && typeof source.contacts === 'object'
-    ? source.contacts as Record<string, unknown>
+  const nextContacts = basePayload.contacts && typeof basePayload.contacts === 'object'
+    ? basePayload.contacts as Record<string, unknown>
     : {
-      whatsapp: toDigits(String((source.public_settings as any)?.publicWhatsappNumber || (source.owner as any)?.whatsapp_phone || '')),
-      telegram: String((source.public_settings as any)?.publicTelegramUrl || ''),
-      instagram: String((source.public_settings as any)?.publicInstagramUrl || '')
+      whatsapp: toDigits(String((basePayload.public_settings as any)?.publicWhatsappNumber || (basePayload.owner as any)?.whatsapp_phone || '')),
+      telegram: String((basePayload.public_settings as any)?.publicTelegramUrl || ''),
+      instagram: String((basePayload.public_settings as any)?.publicInstagramUrl || '')
     };
 
   const nextPayload: Record<string, unknown> = {
-    ...source,
+    ...basePayload,
     totals: {
       ...existingTotals,
       parts_total: parseMoney(existingTotals.parts_total, existingTotals.parts_sum_aed, computed.partsTotal),
@@ -270,7 +377,7 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
     contacts: nextContacts
   };
 
-  const currentSnapshot = JSON.stringify(source);
+  const currentSnapshot = JSON.stringify(basePayload);
   const patchedSnapshot = JSON.stringify(nextPayload);
   const wasPatched = currentSnapshot !== patchedSnapshot;
   if (wasPatched) {
@@ -560,6 +667,7 @@ export const publicQuoteCreateSnapshot = async (
     }
     const payloadWithCompressedImages = await mapImagesInPayload(payload) as PublicQuotePayloadV1;
     const trimmed = trimPayloadForSize(payloadWithCompressedImages);
+    const normalizedPayloadJson = buildNormalizedPayloadJson(trimmed.payload as unknown as Record<string, unknown>);
 
     void logger.info('public-quote:create', 'Prepared snapshot payload', {
       orderId: order.id,
@@ -583,7 +691,7 @@ export const publicQuoteCreateSnapshot = async (
         console.info('[public-quote] inserting snapshot', { token: quoteToken, expiresAt });
       }
 
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at`, {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at,payload_json`, {
         method: 'POST',
         headers: {
           apikey: SUPABASE_ANON_KEY,
@@ -596,7 +704,7 @@ export const publicQuoteCreateSnapshot = async (
           snapshot_id: snapshotToken,
           expires_at: expiresAt,
           payload: trimmed.payload,
-          payload_json: trimmed.payload
+          payload_json: normalizedPayloadJson
         }]),
         signal: request.signal
       });
@@ -606,11 +714,14 @@ export const publicQuoteCreateSnapshot = async (
         throw new Error('Server unavailable, try again');
       }
 
-      const rows = (await response.json()) as Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string }>;
+      const rows = (await response.json()) as Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; payload_json?: unknown }>;
       const created = rows[0];
       if (!created?.id || !created?.token || !created?.expires_at) {
         void logger.warn('public-quote:create', 'Snapshot insert returned incomplete data', { orderId: order.id, created });
         throw new Error('Share quote created, but response is missing id/token/expires_at');
+      }
+      if (!created.payload_json || typeof created.payload_json !== 'object') {
+        throw new Error('Share quote created with invalid payload_json');
       }
       const effectiveSnapshotId = (created.snapshot_id || created.id || '').trim();
 
