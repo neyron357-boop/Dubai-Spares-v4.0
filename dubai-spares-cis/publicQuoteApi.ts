@@ -40,6 +40,13 @@ export type PublicQuotePayloadV1 = {
     whatsapp_phone: string | null;
     display_name?: string | null;
   };
+  manager_contact?: {
+    whatsapp_phone: string | null;
+    display_name?: string | null;
+  };
+  brand?: {
+    name?: string | null;
+  };
   breakdown?: {
     parts_total: number;
     delivery: number;
@@ -315,6 +322,13 @@ const buildSnapshotPayload = (
     owner: {
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone),
       display_name: owner.displayName || null
+    },
+    manager_contact: {
+      whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone) || normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),
+      display_name: owner.displayName || null
+    },
+    brand: {
+      name: order.brand || null
     },
     contact: {
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone) || normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),
