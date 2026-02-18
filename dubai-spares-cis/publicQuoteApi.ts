@@ -201,6 +201,20 @@ const computeTotalsFromItems = (items: Array<Record<string, unknown>>, fees: { l
   };
 };
 
+const computeTotalsFromParts = (parts: Array<Record<string, unknown>>, fees: { logistics: number; packaging: number; commission: number }) => {
+  const partsTotal = parts.reduce((sum, part) => {
+    const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
+    const unit = pickNumeric(part.client_price_aed, part.clientPriceAed, part.unit_price_aed, part.unitPriceAed, part.price_aed, part.priceAed, part.price, part.amount, part.value) || 0;
+    const explicitLineTotal = pickNumeric(part.line_total, part.lineTotal, part.total);
+    return sum + (explicitLineTotal ?? (unit * qty));
+  }, 0);
+
+  return {
+    partsTotal,
+    grandTotal: partsTotal + fees.logistics + fees.packaging + fees.commission
+  };
+};
+
 const resolveContactsSource = (payload: Record<string, unknown>): SnapshotContactsSource => {
   const contactsObj = payload.contacts && typeof payload.contacts === 'object' ? payload.contacts as Record<string, unknown> : {};
   const hasContacts = Boolean(String(contactsObj.whatsapp || '').trim());
@@ -221,7 +235,11 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
   const commission = parseMoney(feesObj.commission, (source.logistics as any)?.serviceFeeAed, (source.totals as any)?.commission_aed);
 
   const itemRows = Array.isArray(source.items) ? source.items as Array<Record<string, unknown>> : [];
-  const computed = computeTotalsFromItems(itemRows, { logistics, packaging, commission });
+  const partRows = Array.isArray(source.parts) ? source.parts as Array<Record<string, unknown>> : [];
+  const hasItemTotals = itemRows.some((item) => computeLineTotal(item) > 0);
+  const computedFromItems = computeTotalsFromItems(itemRows, { logistics, packaging, commission });
+  const computedFromParts = computeTotalsFromParts(partRows, { logistics, packaging, commission });
+  const computed = hasItemTotals || itemRows.length > 0 ? computedFromItems : computedFromParts;
   const existingTotals = source.totals && typeof source.totals === 'object' ? source.totals as Record<string, unknown> : {};
 
   const nextContacts = source.contacts && typeof source.contacts === 'object'
@@ -236,13 +254,13 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
     ...source,
     totals: {
       ...existingTotals,
-      parts_total: computed.partsTotal,
-      parts_sum_aed: parseMoney(existingTotals.parts_sum_aed, computed.partsTotal),
+      parts_total: parseMoney(existingTotals.parts_total, existingTotals.parts_sum_aed, computed.partsTotal),
+      parts_sum_aed: parseMoney(existingTotals.parts_sum_aed, existingTotals.parts_total, computed.partsTotal),
       logistics_aed: parseMoney(existingTotals.logistics_aed, logistics),
       packing_aed: parseMoney(existingTotals.packing_aed, packaging),
       commission_aed: parseMoney(existingTotals.commission_aed, commission),
-      grand_total: computed.grandTotal,
-      grand_total_aed: parseMoney(existingTotals.grand_total_aed, computed.grandTotal)
+      grand_total: parseMoney(existingTotals.grand_total, existingTotals.grand_total_aed, computed.grandTotal),
+      grand_total_aed: parseMoney(existingTotals.grand_total_aed, existingTotals.grand_total, computed.grandTotal)
     },
     fees: {
       logistics,
@@ -769,11 +787,11 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
     const rows = (await response.json()) as AppStatePublicSettingsRow[];
     const raw = rows?.[0]?.data || {};
     return {
-      publicWhatsappNumber: toDigits(raw.publicWhatsappNumber),
-      publicTelegramUrl: raw.publicTelegramUrl || '',
-      publicInstagramUrl: raw.publicInstagramUrl || '',
-      publicDeliveryTerms: raw.publicDeliveryTerms || '',
-      publicWorkTerms: raw.publicWorkTerms || ''
+      publicWhatsappNumber: toDigits(raw.publicWhatsappNumber || raw.public_whatsapp_number || raw.whatsapp_phone || raw.whatsappPhone),
+      publicTelegramUrl: raw.publicTelegramUrl || raw.public_telegram_url || raw.telegram || raw.telegramUrl || '',
+      publicInstagramUrl: raw.publicInstagramUrl || raw.public_instagram_url || raw.instagram || raw.instagramUrl || '',
+      publicDeliveryTerms: raw.publicDeliveryTerms || raw.public_delivery_terms || raw.deliveryTerms || raw.delivery_terms || '',
+      publicWorkTerms: raw.publicWorkTerms || raw.public_work_terms || raw.workTerms || raw.work_terms || ''
     };
   } catch {
     return null;
