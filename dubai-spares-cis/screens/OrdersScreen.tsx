@@ -6,6 +6,7 @@ import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
+import { useLeadsPolling } from '../hooks/useLeadsPolling';
 
 type TabType = 'active' | 'leads' | 'vip' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -315,6 +316,8 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
 const OrdersScreen: React.FC = () => {
   const { orders, isLoading, syncOrders, updateOrder, deleteOrder } = useStore();
   const navigate = useNavigate();
+
+  useLeadsPolling(true);
 
   const [activeTab, setActiveTab] = useState<TabType>('active');
   const [sortBy, setSortBy] = useState<SortType>('date_desc');

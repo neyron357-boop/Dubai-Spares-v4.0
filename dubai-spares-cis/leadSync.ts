@@ -43,6 +43,13 @@ export const mapCloudLeadToOrder = (lead: CloudLead): Order => {
   const payload = toPayloadRecord(lead.payload_json);
   const year = payload.year;
 
+  console.log('[mapCloudLeadToOrder] Mapping lead:', {
+    id: lead.id,
+    name: lead.name,
+    phone: lead.phone,
+    order_id: lead.order_id
+  });
+
   return {
     id: lead.order_id || lead.id,
     brand: typeof payload.brand === 'string' ? payload.brand : '-',
