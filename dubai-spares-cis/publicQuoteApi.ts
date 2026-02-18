@@ -64,6 +64,11 @@ export type PublicQuotePayloadV1 = {
     instagram?: string | null;
     telegram?: string | null;
   };
+  public_contact?: {
+    whatsapp?: string | null;
+    telegram?: string | null;
+    instagram?: string | null;
+  };
   public_settings?: {
     publicWhatsappNumber?: string;
     publicTelegramUrl?: string;
@@ -336,6 +341,11 @@ const buildSnapshotPayload = (
       phone: normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),
       instagram: publicSettings?.publicInstagramUrl || null,
       telegram: publicSettings?.publicTelegramUrl || null
+    },
+    public_contact: {
+      whatsapp: normalizeWhatsappE164(publicSettings?.publicWhatsappNumber) || normalizeWhatsappE164(owner.whatsappPhone),
+      telegram: publicSettings?.publicTelegramUrl || null,
+      instagram: publicSettings?.publicInstagramUrl || null
     },
     public_settings: {
       publicWhatsappNumber: publicSettings?.publicWhatsappNumber || '',
