@@ -118,6 +118,8 @@ type SnapshotRow = {
   payload_codec?: string | null;
 };
 
+type SnapshotContactsSource = 'snapshot' | 'settings_fallback' | 'legacy';
+
 type AppStatePublicSettingsRow = {
   data?: {
     publicWhatsappNumber?: string;
@@ -171,6 +173,106 @@ const createToken = () => {
 };
 
 const toDigits = (value: string | null | undefined) => (value || '').replace(/\D/g, '');
+
+const pickNumeric = (...values: Array<unknown>) => {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value.replace(',', '.'));
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+};
+
+const computeLineTotal = (item: Record<string, unknown>) => {
+  const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
+  const unitPrice = pickNumeric(item.unit_price, item.unitPrice, item.client_price_aed, item.clientPriceAed);
+  const explicitLineTotal = pickNumeric(item.line_total, item.lineTotal);
+  const fallbackPrice = pickNumeric(item.price, item.amount, item.value);
+  return explicitLineTotal ?? (unitPrice !== null ? qty * unitPrice : fallbackPrice ?? 0);
+};
+
+const computeTotalsFromItems = (items: Array<Record<string, unknown>>, fees: { logistics: number; packaging: number; commission: number }) => {
+  const partsTotal = items.reduce((sum, item) => sum + computeLineTotal(item), 0);
+  return {
+    partsTotal,
+    grandTotal: partsTotal + fees.logistics + fees.packaging + fees.commission
+  };
+};
+
+const resolveContactsSource = (payload: Record<string, unknown>): SnapshotContactsSource => {
+  const contactsObj = payload.contacts && typeof payload.contacts === 'object' ? payload.contacts as Record<string, unknown> : {};
+  const hasContacts = Boolean(String(contactsObj.whatsapp || '').trim());
+  if (hasContacts) return 'snapshot';
+
+  const settingsObj = payload.public_settings && typeof payload.public_settings === 'object' ? payload.public_settings as Record<string, unknown> : {};
+  if (String(settingsObj.publicWhatsappNumber || '').trim()) return 'settings_fallback';
+
+  return 'legacy';
+};
+
+const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
+  if (!payload || typeof payload !== 'object') return { payload, contactsSource: 'legacy' as SnapshotContactsSource, wasPatched: false };
+  const source = payload as Record<string, unknown>;
+  const feesObj = source.fees && typeof source.fees === 'object' ? source.fees as Record<string, unknown> : {};
+  const logistics = parseMoney(feesObj.logistics, (source.logistics as any)?.deliveryAed, (source.totals as any)?.logistics_aed);
+  const packaging = parseMoney(feesObj.packaging, (source.logistics as any)?.packingAed, (source.totals as any)?.packing_aed);
+  const commission = parseMoney(feesObj.commission, (source.logistics as any)?.serviceFeeAed, (source.totals as any)?.commission_aed);
+
+  const itemRows = Array.isArray(source.items) ? source.items as Array<Record<string, unknown>> : [];
+  const computed = computeTotalsFromItems(itemRows, { logistics, packaging, commission });
+  const existingTotals = source.totals && typeof source.totals === 'object' ? source.totals as Record<string, unknown> : {};
+
+  const nextContacts = source.contacts && typeof source.contacts === 'object'
+    ? source.contacts as Record<string, unknown>
+    : {
+      whatsapp: toDigits(String((source.public_settings as any)?.publicWhatsappNumber || (source.owner as any)?.whatsapp_phone || '')),
+      telegram: String((source.public_settings as any)?.publicTelegramUrl || ''),
+      instagram: String((source.public_settings as any)?.publicInstagramUrl || '')
+    };
+
+  const nextPayload: Record<string, unknown> = {
+    ...source,
+    totals: {
+      ...existingTotals,
+      parts_total: computed.partsTotal,
+      parts_sum_aed: parseMoney(existingTotals.parts_sum_aed, computed.partsTotal),
+      logistics_aed: parseMoney(existingTotals.logistics_aed, logistics),
+      packing_aed: parseMoney(existingTotals.packing_aed, packaging),
+      commission_aed: parseMoney(existingTotals.commission_aed, commission),
+      grand_total: computed.grandTotal,
+      grand_total_aed: parseMoney(existingTotals.grand_total_aed, computed.grandTotal)
+    },
+    fees: {
+      logistics,
+      packaging,
+      commission
+    },
+    contacts: nextContacts
+  };
+
+  const currentSnapshot = JSON.stringify(source);
+  const patchedSnapshot = JSON.stringify(nextPayload);
+  const wasPatched = currentSnapshot !== patchedSnapshot;
+  if (wasPatched) {
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?id=eq.${encodeURIComponent(row.id)}`, {
+        method: 'PATCH',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ payload_json: nextPayload })
+      });
+    } catch {
+      // best effort backfill on read
+    }
+  }
+
+  return { payload: nextPayload, contactsSource: resolveContactsSource(nextPayload), wasPatched };
+};
 
 const withTimeoutSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
   const controller = new AbortController();
@@ -306,8 +408,20 @@ const buildSnapshotPayload = (
       };
     });
 
-  const partsSumAed = pricedParts.reduce((sum, part) => sum + part.client_price_aed, 0);
-  const grandTotalAed = partsSumAed + deliveryAed + packingAed + commissionAed;
+  const snapshotItems = pricedParts.map((part) => ({
+    name: part.name,
+    qty: part.qty,
+    unit_price: part.client_price_aed,
+    line_total: part.client_price_aed * part.qty,
+    currency: 'AED'
+  }));
+  const computed = computeTotalsFromItems(snapshotItems as Array<Record<string, unknown>>, {
+    logistics: deliveryAed,
+    packaging: packingAed,
+    commission: commissionAed
+  });
+  const partsSumAed = computed.partsTotal;
+  const grandTotalAed = computed.grandTotal;
   const normalizedWhatsapp = toDigits(publicSettings?.publicWhatsappNumber) || toDigits(owner.whatsappPhone);
   const normalizedTelegram = publicSettings?.publicTelegramUrl || '';
   const normalizedInstagram = publicSettings?.publicInstagramUrl || '';
@@ -351,13 +465,7 @@ const buildSnapshotPayload = (
       packingAed,
       serviceFeeAed: commissionAed
     },
-    items: pricedParts.map((part) => ({
-      name: part.name,
-      qty: part.qty,
-      unit_price: part.client_price_aed,
-      line_total: part.client_price_aed * part.qty,
-      currency: 'AED'
-    })),
+    items: snapshotItems,
     fees: {
       logistics: deliveryAed,
       packaging: packingAed,
@@ -428,6 +536,10 @@ export const publicQuoteCreateSnapshot = async (
       options?.publicSettings,
       options?.rates
     );
+    const hasPricedItems = Array.isArray(payload.items) && payload.items.some((item) => computeLineTotal(item as unknown as Record<string, unknown>) > 0);
+    if (!hasPricedItems) {
+      throw new Error('Нет цен по позициям');
+    }
     const payloadWithCompressedImages = await mapImagesInPayload(payload) as PublicQuotePayloadV1;
     const trimmed = trimPayloadForSize(payloadWithCompressedImages);
 
@@ -615,14 +727,17 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
     return null;
   }
   const payload = await readPayloadWithFallback(row);
+  const normalizedPayload = await ensurePayloadReadModel(row, payload);
 
   void logger.info('public-quote:fetch', 'Snapshot loaded', {
     token: normalizedToken,
     dbToken: row.token,
     rowId: row.id,
     snapshotId: row.snapshot_id || row.id,
-    hasPayload: !!payload,
-    isPayloadCorrupted: !payload
+    hasPayload: !!normalizedPayload.payload,
+    isPayloadCorrupted: !normalizedPayload.payload,
+    contactsSource: normalizedPayload.contactsSource,
+    wasPatched: normalizedPayload.wasPatched
   });
 
   return {
@@ -630,8 +745,10 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
     token: row.token,
     snapshot_id: row.snapshot_id || row.id,
     expires_at: row.expires_at,
-    payload,
-    isPayloadCorrupted: !payload
+    payload: normalizedPayload.payload,
+    isPayloadCorrupted: !normalizedPayload.payload,
+    row_id: row.id,
+    contacts_source: normalizedPayload.contactsSource
   };
 };
 
