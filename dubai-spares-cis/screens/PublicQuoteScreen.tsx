@@ -14,7 +14,7 @@ import ImagePreview from '../components/ImagePreview';
 import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
-import { publicQuoteGetSnapshot } from '../publicQuoteApi';
+import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot } from '../publicQuoteApi';
 
 type Language = 'en' | 'ru';
 
@@ -166,6 +166,88 @@ const parseMoneyField = (...values: Array<unknown>) => {
     if (parsed !== null) return parsed;
   }
   return 0;
+};
+
+
+
+type QuoteBreakdown = {
+  partsTotal: number;
+  delivery: number;
+  packaging: number;
+  commission: number;
+  total: number;
+  currency: string;
+  fxRate: number;
+  rates?: Record<string, number>;
+};
+
+type QuoteContact = {
+  whatsappPhone: string;
+  displayName: string;
+  phone: string;
+  instagram: string;
+  telegram: string;
+};
+
+const toPhoneDigits = (value: string | null | undefined) => (value || '').replace(/\D/g, '');
+
+const normalizeWhatsappPhone = (value: string | null | undefined) => {
+  const digits = toPhoneDigits(value);
+  if (!digits) return '';
+  if (digits.startsWith('971')) return digits;
+  if (digits.startsWith('00971')) return digits.slice(2);
+  if (digits.startsWith('05') && digits.length === 10) return `971${digits.slice(1)}`;
+  if (digits.startsWith('5') && digits.length === 9) return `971${digits}`;
+  return digits;
+};
+
+const warnMissingField = (field: string) => {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+    console.warn(`[PUBLIC_QUOTE] missing field in payload: ${field}`);
+  }
+};
+
+const resolveBreakdownFromPayload = (payload: Record<string, unknown>): QuoteBreakdown => {
+  const breakdownObj = payload.breakdown && typeof payload.breakdown === 'object' ? payload.breakdown as Record<string, unknown> : {};
+  const totalsObj = payload.totals && typeof payload.totals === 'object' ? payload.totals as Record<string, unknown> : {};
+  const pricingObj = payload.pricing && typeof payload.pricing === 'object' ? payload.pricing as Record<string, unknown> : {};
+  const logisticsObj = payload.logistics && typeof payload.logistics === 'object' ? payload.logistics as Record<string, unknown> : {};
+
+  const readWithFallback = (name: string, ...values: Array<unknown>) => {
+    const parsed = parseMoneyValue(values.find((value) => parseMoneyValue(value) !== null));
+    if (parsed === null) {
+      warnMissingField(name);
+      return 0;
+    }
+    return parsed;
+  };
+
+  const partsTotal = readWithFallback('breakdown.parts_total', breakdownObj.parts_total, breakdownObj.partsTotal, totalsObj.parts_sum_aed, payload.parts_total, payload.partsTotal);
+  const delivery = readWithFallback('breakdown.delivery', breakdownObj.delivery, payload.delivery, payload.logistics, payload.shipping_fee, logisticsObj.deliveryAed, logisticsObj.delivery, totalsObj.logistics_aed);
+  const packaging = readWithFallback('breakdown.packaging', breakdownObj.packaging, payload.packaging, payload.packing_fee, logisticsObj.packingAed, logisticsObj.packaging, totalsObj.packing_aed);
+  const commission = readWithFallback('breakdown.commission', breakdownObj.commission, payload.commission, payload.service_fee, logisticsObj.serviceFeeAed, logisticsObj.commission, totalsObj.commission_aed);
+  const total = readWithFallback('breakdown.total', breakdownObj.total, totalsObj.grand_total_aed, payload.total);
+  const currency = String(breakdownObj.currency || pricingObj.currency || payload.currency || 'AED');
+  const fxRate = parseMoneyField(breakdownObj.fx_rate, breakdownObj.fxRate, pricingObj.fx_rate, payload.exchange_rate, 1);
+  const rates = (breakdownObj.rates && typeof breakdownObj.rates === 'object' ? breakdownObj.rates : pricingObj.rates) as Record<string, number> | undefined;
+
+  return { partsTotal, delivery, packaging, commission, total, currency, fxRate, rates };
+};
+
+const resolveContactFromPayload = (payload: Record<string, unknown>, fallbackSettings?: ReturnType<typeof normalizePublicSettings>): QuoteContact => {
+  const contactObj = payload.contact && typeof payload.contact === 'object' ? payload.contact as Record<string, unknown> : {};
+  const ownerObj = payload.owner && typeof payload.owner === 'object' ? payload.owner as Record<string, unknown> : {};
+  const settingsObj = normalizePublicSettings(payload.public_settings || payload.publicSettings || {});
+  const merged = fallbackSettings || settingsObj;
+  const whatsapp = normalizeWhatsappPhone(String(contactObj.whatsapp_phone || ownerObj.whatsapp_phone || ownerObj.whatsappPhone || merged.publicWhatsappNumber || ''));
+
+  return {
+    whatsappPhone: whatsapp,
+    displayName: String(contactObj.display_name || ownerObj.display_name || 'Dubai Spares UAE'),
+    phone: normalizeWhatsappPhone(String(contactObj.phone || merged.publicWhatsappNumber || whatsapp || '')),
+    instagram: String(contactObj.instagram || merged.publicInstagramUrl || ''),
+    telegram: String(contactObj.telegram || merged.publicTelegramUrl || '')
+  };
 };
 
 const parseEmbeddedSnapshot = (raw: string | null): any | null => {
@@ -517,6 +599,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
   const [lang, setLang] = useState<Language>('en');
   const [partsVerified, setPartsVerified] = useState(false);
+  const [quoteBreakdown, setQuoteBreakdown] = useState<QuoteBreakdown | null>(null);
+  const [quoteContact, setQuoteContact] = useState<QuoteContact | null>(null);
+  const [fallbackPublicSettings, setFallbackPublicSettings] = useState<ReturnType<typeof normalizePublicSettings> | null>(null);
   const detailRef = useRef<HTMLDivElement | null>(null);
   const errorCardRef = useRef<HTMLDivElement | null>(null);
   const errorIconRef = useRef<HTMLDivElement | null>(null);
@@ -533,6 +618,18 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   useEffect(() => {
     setLang((navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en');
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const remote = await publicQuoteGetPublicContactSettings();
+      if (!active || !remote) return;
+      setFallbackPublicSettings(normalizePublicSettings(remote));
+    })();
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -636,8 +733,17 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
       const snapshotOrder = mapSnapshotOrder(payloadObj);
       const diagnosticsLogistics = resolveOrderLogistics(payloadObj);
-      const diagnosticsSettings = normalizePublicSettings((snapshotOrder as any)?.public_settings || payloadObj.public_settings || payloadObj.publicSettings);
+      const diagnosticsSettings = normalizePublicSettings((snapshotOrder as any)?.public_settings || payloadObj.public_settings || payloadObj.publicSettings || fallbackPublicSettings || {});
       const diagnosticsOwner = normalizePayloadOwner((snapshotOrder as any)?.payloadOwner || payloadObj.owner);
+      const resolvedBreakdown = resolveBreakdownFromPayload(payloadObj);
+      const resolvedContact = resolveContactFromPayload(payloadObj, fallbackPublicSettings || diagnosticsSettings);
+      if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+        console.log('[PUBLIC_QUOTE] payload keys:', Object.keys(payloadObj));
+        console.log('[PUBLIC_QUOTE] breakdown:', resolvedBreakdown);
+        console.log('[PUBLIC_QUOTE] contact:', resolvedContact);
+      }
+      setQuoteBreakdown(resolvedBreakdown);
+      setQuoteContact(resolvedContact);
       void logger.info('public-quote:view', 'Snapshot mapped to public order', {
         orderId: snapshotOrder.id || orderId,
         token,
@@ -645,7 +751,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         hasLogistics: !!diagnosticsLogistics,
         logistics: diagnosticsLogistics || null,
         hasPublicTerms: !!(diagnosticsSettings.publicDeliveryTerms.trim() || diagnosticsSettings.publicWorkTerms.trim()),
-        hasContacts: !!(diagnosticsSettings.publicWhatsappNumber || diagnosticsOwner.whatsappPhone),
+        hasContacts: !!(resolvedContact.whatsappPhone || diagnosticsOwner.whatsappPhone),
         hasPayloadCorruptionFlag: !!data.isPayloadCorrupted
       });
       return { order: snapshotOrder.id ? snapshotOrder : null, expired, notFound: false, corrupted: !!data.isPayloadCorrupted };
@@ -653,7 +759,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       await logger.warn('quote-shared-snapshot-miss', 'Unable to load shared public quote snapshot', { quoteId: orderId, lookupToken: publicQuoteKey?.value, urlToken: publicQuoteKey?.urlToken, urlSnapshot: publicQuoteKey?.urlSnapshot, error: error instanceof Error ? error.message : 'unknown' });
       return { order: null, expired: false, notFound: true, corrupted: false };
     }
-  }, [orderId, publicQuoteKey]);
+  }, [orderId, publicQuoteKey, fallbackPublicSettings]);
 
   const readQuoteFromCache = useCallback(() => {
     const raw = window.localStorage.getItem(`public-quote-cache:${orderId}`);
@@ -669,6 +775,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
 
   const loadQuote = useCallback(async () => {
+    setQuoteBreakdown(null);
+    setQuoteContact(null);
     if (!publicQuoteKey?.value) {
       setOrder(null);
       setErrorType(EstimateErrorType.INVALID_LINK);
@@ -790,16 +898,17 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const pendingParts = partCards.filter((item) => !item.isReady);
 
   const totals = useMemo(() => {
-    const subtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
+    const fallbackSubtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
+    const subtotal = quoteBreakdown?.partsTotal ?? fallbackSubtotal;
     const markup = 0;
-    const serviceFee = parseMoneyField(order?.logistics?.serviceFeeAed);
-    const delivery = parseMoneyField(order?.logistics?.deliveryAed);
-    const packing = parseMoneyField(order?.logistics?.packingAed);
+    const serviceFee = quoteBreakdown?.commission ?? parseMoneyField(order?.logistics?.serviceFeeAed);
+    const delivery = quoteBreakdown?.delivery ?? parseMoneyField(order?.logistics?.deliveryAed);
+    const packing = quoteBreakdown?.packaging ?? parseMoneyField(order?.logistics?.packingAed);
     const logistics = delivery + packing;
     const subtotalWithoutExtras = subtotal;
-    const totalAed = subtotalWithoutExtras + serviceFee + logistics;
+    const totalAed = quoteBreakdown?.total ?? (subtotalWithoutExtras + serviceFee + logistics);
     return { subtotal, markup, subtotalWithoutExtras, serviceFee, delivery, packing, logistics, totalAed, totalConverted: totalAed * rates[currency] };
-  }, [foundParts, currency, rates, order]);
+  }, [foundParts, currency, rates, order, quoteBreakdown]);
 
   const partsLine = foundParts.map(({ part }) => `${part.name} (${t.inStock})`).join(', ') || 'Selected parts';
   const confirmMessage = lang === 'ru'
@@ -807,10 +916,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     : `Hello! I confirm the quote for ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}.\nVIN: ${maskVin(order?.vin || '')}\nTotal: ${totals.totalAed.toFixed(2)} AED.\nPart: ${partsLine}.\nPlease confirm delivery time and shipping options.`;
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};
-  const settings = normalizePublicSettings(payloadSettings);
+  const settings = normalizePublicSettings({ ...(fallbackPublicSettings || {}), ...payloadSettings });
   const normalizedOwner = normalizePayloadOwner(payloadOwner);
-  const whatsappPhoneRaw = normalizedOwner.whatsappPhone || settings.publicWhatsappNumber;
-  const whatsappPhoneDigits = whatsappPhoneRaw.replace(/\D/g, '');
+  const whatsappPhoneRaw = quoteContact?.whatsappPhone || normalizedOwner.whatsappPhone || settings.publicWhatsappNumber;
+  const whatsappPhoneDigits = normalizeWhatsappPhone(whatsappPhoneRaw);
   const whatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(confirmMessage)}` : '';
 
 
@@ -885,7 +994,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                   <MessageCircle size={15} /> {t.contactUs}
                 </a>
               ) : (
-                <div className="text-sm text-slate-500">Контакт не настроен</div>
+                <div className="text-sm text-slate-500">Свяжитесь с менеджером</div>
               )
             )}
           </div>
@@ -942,7 +1051,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 <MessageCircle size={16} /> {t.confirmWhatsApp}
               </a>
             ) : (
-              <div className="inline-flex items-center rounded-xl bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">Контакт не настроен</div>
+              <div className="inline-flex items-center rounded-xl bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">Свяжитесь с менеджером</div>
             )}
               <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold text-white backdrop-blur">📄 {t.viewParts}</button>
             </div>
@@ -988,7 +1097,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 <MessageCircle size={14} /> {t.confirmWhatsApp}
               </a>
             ) : (
-              <div className="mt-4 text-xs text-slate-500">Контакт не настроен</div>
+              <div className="mt-4 text-xs text-slate-500">Свяжитесь с менеджером</div>
             )}
             </article>
             );
