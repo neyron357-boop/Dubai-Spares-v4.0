@@ -23,6 +23,23 @@ const inFlight = new Set<string>();
 const endpointRateLimit = new Map<string, number>();
 const singleFlight = new Map<string, Promise<Result<unknown>>>();
 const MIN_ENDPOINT_INTERVAL_MS = 1000;
+const RETRYABLE_CODES = new Set(['aborted_or_timeout', 'network_error']);
+
+const toErrorMessage = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
+
+const maskSupabaseUrl = (value: string) => {
+  if (!value) return '❌ MISSING';
+  try {
+    return `✅ SET (${new URL(value).hostname})`;
+  } catch {
+    return '⚠️ INVALID URL';
+  }
+};
+
+const maskAnonKey = (value: string) => {
+  if (!value) return '❌ MISSING';
+  return `✅ SET (${value.slice(0, 16)}...)`;
+};
 
 const bumpRequestCounter = (endpoint: string, method: string) => {
   const key = '__serverApiRequestCount';
@@ -36,9 +53,43 @@ const bumpRequestCounter = (endpoint: string, method: string) => {
 const denyDuplicate = <T>(action: string): Result<T> => ({ ok: false, code: 'duplicate_in_flight', error: `${action} already in progress` });
 
 export const assertCloudFeatureEnabled = (featureEnabled: boolean): Result<true> => {
-  if (!featureEnabled) return { ok: false, code: 'feature_disabled', error: 'Cloud feature disabled by local mode settings' };
-  if (!isCloudConfigured) return { ok: false, code: 'cloud_not_configured', error: cloudBuildGuardMessage };
+  if (!featureEnabled) {
+    console.error('[leadCreate] Guard blocked: cloud feature disabled by local settings');
+    return { ok: false, code: 'feature_disabled', error: 'Cloud feature disabled by local mode settings' };
+  }
+  if (!isCloudConfigured || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.error('[leadCreate] Guard blocked: cloud configuration invalid', {
+      isCloudConfigured,
+      SUPABASE_URL: maskSupabaseUrl(SUPABASE_URL),
+      SUPABASE_ANON_KEY: maskAnonKey(SUPABASE_ANON_KEY)
+    });
+    return {
+      ok: false,
+      code: 'cloud_disabled',
+      error: 'Cloud features are disabled. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env'
+    };
+  }
   return { ok: true, data: true };
+};
+
+const handleSupabaseError = (response: { status?: number; details?: unknown; text?: string; endpoint?: string; method?: string }): Result<never> => {
+  const errorMap: Record<number, string> = {
+    400: 'Неверный формат данных. Проверьте payload.',
+    401: 'Ошибка аутентификации. Проверьте VITE_SUPABASE_ANON_KEY.',
+    403: 'Доступ запрещен. Проверьте RLS политики в Supabase.',
+    404: 'Таблица client_leads не найдена. Выполните миграцию.',
+    409: 'Конфликт данных. Возможно дублирующийся idempotency_key.',
+    500: 'Внутренняя ошибка сервера Supabase.',
+    503: 'Supabase временно недоступен.'
+  };
+
+  const statusCode = response.status || 0;
+  const defaultMessage = 'Неизвестная ошибка при сохранении лида';
+  return {
+    ok: false,
+    code: `supabase_${statusCode}`,
+    error: errorMap[statusCode] || response.text || defaultMessage
+  };
 };
 
 const waitForRateLimit = async (endpoint: string) => {
@@ -60,42 +111,75 @@ const withSingleFlight = async <T>(key: string, factory: () => Promise<Result<T>
 
 const callRest = async <T>(endpoint: string, method: 'GET' | 'POST', payload: unknown, options: RequestOptions): Promise<Result<T>> => {
   await waitForRateLimit(endpoint);
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort('timeout'), options.timeoutMs || DEFAULT_TIMEOUT_MS);
-  const abortByCaller = () => controller.abort(options.signal?.reason || 'caller-abort');
-  if (options.signal) {
-    if (options.signal.aborted) abortByCaller();
-    else options.signal.addEventListener('abort', abortByCaller, { once: true });
-  }
+  const maxAttempts = 2;
+  let lastResult: Result<T> = { ok: false, code: 'unknown_error', error: 'Unknown cloud error' };
 
-  try {
-    bumpRequestCounter(endpoint, method);
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/${endpoint}`, {
-      method,
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json',
-        Prefer: options.preferRepresentation === false ? 'return=minimal' : 'return=representation'
-      },
-      body: payload === undefined ? undefined : JSON.stringify(payload),
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      return { ok: false, code: `http_${response.status}`, error: text.slice(0, 220) || 'Cloud request failed' };
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort('timeout'), options.timeoutMs || DEFAULT_TIMEOUT_MS);
+    const abortByCaller = () => controller.abort(options.signal?.reason || 'caller-abort');
+    if (options.signal) {
+      if (options.signal.aborted) abortByCaller();
+      else options.signal.addEventListener('abort', abortByCaller, { once: true });
     }
 
-    const text = await response.text();
-    return { ok: true, data: (text ? JSON.parse(text) : null) as T };
-  } catch (error) {
-    const code = error instanceof DOMException && error.name === 'AbortError' ? 'aborted_or_timeout' : 'network_error';
-    return { ok: false, code, error: error instanceof Error ? error.message : 'Network error' };
-  } finally {
-    window.clearTimeout(timeoutId);
-    options.signal?.removeEventListener('abort', abortByCaller);
+    const requestUrl = `${SUPABASE_URL}/rest/v1/${endpoint}`;
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: options.preferRepresentation === false ? 'return=minimal' : 'return=representation'
+    };
+
+    try {
+      bumpRequestCounter(endpoint, method);
+      console.log('[leadCreate] [callRest] Request', {
+        endpoint,
+        method,
+        attempt,
+        url: requestUrl,
+        headers: {
+          apikey: headers.apikey ? '✅ SET' : '❌ MISSING',
+          Authorization: headers.Authorization ? '✅ SET' : '❌ MISSING',
+          'Content-Type': headers['Content-Type']
+        }
+      });
+      const response = await fetch(requestUrl, {
+        method,
+        headers,
+        body: payload === undefined ? undefined : JSON.stringify(payload),
+        signal: controller.signal
+      });
+
+      const text = await response.text();
+      console.log('[leadCreate] [callRest] Response', {
+        endpoint,
+        method,
+        attempt,
+        status: response.status,
+        ok: response.ok
+      });
+
+      if (!response.ok) {
+        lastResult = handleSupabaseError({ status: response.status, text: text.slice(0, 220), endpoint, method }) as Result<T>;
+        console.error('[leadCreate] [callRest] HTTP error', { endpoint, method, attempt, status: response.status, body: text.slice(0, 400) });
+        return lastResult;
+      }
+
+      return { ok: true, data: (text ? JSON.parse(text) : null) as T };
+    } catch (error) {
+      const code = error instanceof DOMException && error.name === 'AbortError' ? 'aborted_or_timeout' : 'network_error';
+      lastResult = { ok: false, code, error: toErrorMessage(error, 'Network error') };
+      console.error('[leadCreate] [callRest] Request failed', { endpoint, method, attempt, code, error: lastResult.error });
+      if (!RETRYABLE_CODES.has(code) || attempt === maxAttempts) return lastResult;
+      await new Promise((resolve) => window.setTimeout(resolve, 400 * attempt));
+    } finally {
+      window.clearTimeout(timeoutId);
+      options.signal?.removeEventListener('abort', abortByCaller);
+    }
   }
+
+  return lastResult;
 };
 
 const recordCall = <T>(action: string, result: Result<T>) => {
@@ -241,10 +325,12 @@ export const leadCreate = async (
   payload: { name: string; phone: string; message?: string; orderId?: string | null; [key: string]: unknown },
   options?: RequestOptions
 ): Promise<Result<{ leadId: string }>> => {
-  console.log('[leadCreate] cloudFeatureFlags.clientForm:', cloudFeatureFlags.clientForm);
+  console.log('[leadCreate] START - Feature flag:', cloudFeatureFlags.clientForm);
+  console.log('[leadCreate] Config - URL:', maskSupabaseUrl(SUPABASE_URL));
+  console.log('[leadCreate] Config - ANON_KEY:', maskAnonKey(SUPABASE_ANON_KEY));
   const guard = assertCloudFeatureEnabled(cloudFeatureFlags.clientForm);
   if (!guard.ok) {
-    console.error('[leadCreate] Feature disabled:', guard);
+    console.error('[leadCreate] Guard failed:', guard);
     return recordCall('leadCreate', guard);
   }
   const lockKey = 'leadCreate';
@@ -269,8 +355,7 @@ export const leadCreate = async (
       image_manifest: prepared.imageManifest
     }];
 
-    console.log('[leadCreate] Request payload:', requestPayload);
-    console.log('[leadCreate] Supabase URL:', SUPABASE_URL);
+    console.log('[leadCreate] Payload:', { name: payload.name, phone: payload.phone, orderId: payload.orderId || null, idempotencyKey });
 
     const response = await withSingleFlight(`lead:create:${idempotencyKey}`,
       () => callRest<Array<{ id: string }>>('client_leads', 'POST', requestPayload, {
@@ -278,15 +363,18 @@ export const leadCreate = async (
         timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
         preferRepresentation: false
       }));
-    console.log('[leadCreate] Response:', response);
+    console.log('[leadCreate] Response status:', response.ok ? '✅ SUCCESS' : '❌ FAILED', response);
     if (!response.ok) {
-      console.error('[leadCreate] API error:', response);
-      return recordCall('leadCreate', response);
+      console.error('[leadCreate] Error details:', { code: response.code, error: response.error });
+      return recordCall('leadCreate', response.code.startsWith('supabase_') ? response : handleSupabaseError({ status: Number(response.code.replace(/\D+/g, '')) || 0, details: response }));
     }
     return recordCall('leadCreate', { ok: true, data: { leadId: response.data?.[0]?.id || idempotencyKey } });
   } catch (error) {
-    console.error('[leadCreate] Exception:', error);
-    return recordCall('leadCreate', { ok: false, code: 'unexpected_error', error: error instanceof Error ? error.message : 'Lead submit failed' });
+    console.error('[leadCreate] Exception:', {
+      error,
+      payload: { name: payload.name, phone: payload.phone, orderId: payload.orderId || null }
+    });
+    return recordCall('leadCreate', { ok: false, code: 'unexpected_error', error: toErrorMessage(error, 'Lead submit failed') });
   } finally {
     inFlight.delete(lockKey);
   }

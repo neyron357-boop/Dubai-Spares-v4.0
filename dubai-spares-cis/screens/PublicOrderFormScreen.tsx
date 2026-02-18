@@ -8,6 +8,8 @@ import { logger } from '../logging';
 import { Priority, Source } from '../types';
 import { useAppSettings } from '../appSettings';
 import { addOrderItem } from '../orderStore';
+import { cloudFeatureFlags, isCloudConfigured } from '../cloudConfig';
+import { runCloudDiagnostics } from '../utils/cloudDiagnostics';
 
 type FormStep = 1 | 2 | 3 | 4 | 5;
 
@@ -74,6 +76,25 @@ const createRequestedPartInput = (): RequestedPartInput => ({
 
 
 const MAX_PART_PHOTOS = 8;
+const LEAD_RETRY_QUEUE_KEY = 'public_order_pending_leads_v1';
+
+type PendingLeadPayload = {
+  orderId: string;
+  leadPayload: Parameters<typeof leadCreate>[0];
+};
+
+const readPendingLeadQueue = (): PendingLeadPayload[] => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LEAD_RETRY_QUEUE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const writePendingLeadQueue = (items: PendingLeadPayload[]) => {
+  localStorage.setItem(LEAD_RETRY_QUEUE_KEY, JSON.stringify(items));
+};
 
 const normalizeDraftRequestedParts = (input: unknown): RequestedPartInput[] => {
   if (!Array.isArray(input)) return [createRequestedPartInput()];
@@ -196,6 +217,41 @@ const PublicOrderFormScreen: React.FC = () => {
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
   const deliveryCityOptions = useMemo(() => DELIVERY_CITIES[deliveryCountry as keyof typeof DELIVERY_CITIES] || [], [deliveryCountry]);
   const smartSuggestionKey = `${brand}|${model}|${bodyType}`;
+
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      void runCloudDiagnostics();
+    }
+  }, []);
+
+  useEffect(() => {
+    const retryPendingLeads = async () => {
+      const queued = readPendingLeadQueue();
+      if (!queued.length || !navigator.onLine) return;
+
+      for (const item of queued) {
+        const retryResult = await leadCreate(item.leadPayload);
+        if (!retryResult.ok) {
+          console.warn('[leadCreate] Retry still failing', { orderId: item.orderId, code: retryResult.code, error: retryResult.error });
+          continue;
+        }
+
+        await logger.info('public-form', 'Pending lead synced after reconnect', {
+          orderId: item.orderId,
+          leadId: retryResult.data.leadId
+        });
+        writePendingLeadQueue(readPendingLeadQueue().filter((queuedItem) => queuedItem.orderId !== item.orderId));
+      }
+    };
+
+    const onOnline = () => {
+      void retryPendingLeads();
+    };
+
+    window.addEventListener('online', onOnline);
+    void retryPendingLeads();
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
 
   useEffect(() => {
     try {
@@ -527,27 +583,29 @@ Country: ${deliveryCountry}`,
       const controller = new AbortController();
       setSubmitController(controller);
 
+      const leadPayload = {
+        orderId,
+        idempotency_key: orderId,
+        name: clientAlias.trim() || 'Public Lead',
+        phone: `${contactCountryCode}${customerContact.trim()}`.trim(),
+        message: JSON.stringify({
+          source: messageSource,
+          brand: brand.trim(),
+          model: model.trim(),
+          year: year.trim(),
+          vin: vin.trim(),
+          bodyType: bodyType.trim() || null,
+          requestedParts: filledRequestedParts.map((part) => part.name.trim())
+        }),
+        parts: partsToInsert,
+        notes,
+        carPhotos: uploadedCarPhotos,
+        vinPhotos: uploadedVinPhotos
+      };
+
       let leadResult;
       try {
-        leadResult = await leadCreate({
-          orderId,
-          idempotency_key: orderId,
-          name: clientAlias.trim() || 'Public Lead',
-          phone: `${contactCountryCode}${customerContact.trim()}`.trim(),
-          message: JSON.stringify({
-            source: messageSource,
-            brand: brand.trim(),
-            model: model.trim(),
-            year: year.trim(),
-            vin: vin.trim(),
-            bodyType: bodyType.trim() || null,
-            requestedParts: filledRequestedParts.map((part) => part.name.trim())
-          }),
-          parts: partsToInsert,
-          notes,
-          carPhotos: uploadedCarPhotos,
-          vinPhotos: uploadedVinPhotos
-        }, { signal: controller.signal });
+        leadResult = await leadCreate(leadPayload, { signal: controller.signal });
       } catch (leadCreateError) {
         const leadErrorMsg = leadCreateError instanceof Error ? leadCreateError.message : 'Ошибка подключения к серверу';
         console.error('Lead create error:', leadCreateError);
@@ -557,6 +615,9 @@ Country: ${deliveryCountry}`,
       }
 
       if (!leadResult.ok) {
+        const nextQueue = [...readPendingLeadQueue().filter((item) => item.orderId !== orderId), { orderId, leadPayload }];
+        writePendingLeadQueue(nextQueue);
+
         await logger.warn('public-form', 'Lead create failed - will save locally', {
           reason: leadResult.error,
           code: leadResult.code,
@@ -566,7 +627,7 @@ Country: ${deliveryCountry}`,
         pushNotification({
           type: NotificationType.SYNC_ERROR,
           title: '⚠️ Частичная ошибка',
-          message: 'Сервер недоступен. Заявка сохранена локально и будет синхронизирована позже.',
+          message: '⚠️ Заявка сохранена локально и будет отправлена при восстановлении соединения',
           orderId,
           source: 'web_form',
           route: `/orders/${orderId}`,
@@ -684,6 +745,13 @@ Country: ${deliveryCountry}`,
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black px-4 py-4 pb-32 text-white sm:py-8">
+      {import.meta.env.DEV && (
+        <div className="fixed top-2 right-2 z-50 text-xs font-mono bg-black/80 text-white px-3 py-2 rounded-lg">
+          Cloud: {isCloudConfigured ? '✅ ON' : (cloudFeatureFlags.clientForm ? '⚠️ PARTIAL' : '❌ OFF')}
+          {' | '}
+          Form: {cloudFeatureFlags.clientForm ? '✅' : '❌'}
+        </div>
+      )}
       <div className="mx-auto w-full max-w-2xl rounded-[32px] border border-white/10 bg-white/5 p-5 shadow-[0_25px_80px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-8">
         <p className="text-xs uppercase tracking-[0.26em] text-slate-300">Dubai Spares Concierge</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Премиальная заявка на запчасти</h1>
