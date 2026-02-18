@@ -10,6 +10,8 @@ import { addMissingColumns, normalizeSyncError, setLastIndexedDbError, setLastSu
 import { getSelectableColumns, markMissingColumn } from './syncSchema';
 import { logSyncCategory, syncPerf } from './syncPerf';
 import { LOCAL_ONLY } from './localMode';
+import { mergeCloudLeadsWithOrders } from './leadSync';
+import { leadsSync } from './serverApi';
 
 type OrderState = {
   orders: Order[];
@@ -953,7 +955,18 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
     return;
   }
 
-  const orders = (data || []).map(mapDbOrder);
+  let orders = (data || []).map(mapDbOrder);
+  const leadsResponse = await leadsSync();
+  if (leadsResponse.ok && Array.isArray(leadsResponse.data)) {
+    orders = mergeCloudLeadsWithOrders(orders, leadsResponse.data);
+    await logger.info('sync:fetch', `Merged ${leadsResponse.data.length} cloud leads into orders`);
+  } else if (!leadsResponse.ok) {
+    await logger.warn('sync:fetch', 'Lead sync failed, continuing with cloud orders only', {
+      error: leadsResponse.error,
+      code: leadsResponse.code
+    });
+  }
+
   const previousOrders = state.orders;
   await logger.info('sync:fetch', `Loaded ${orders.length} cloud orders`);
   const pendingMutations = await offlineDb.getMutations();

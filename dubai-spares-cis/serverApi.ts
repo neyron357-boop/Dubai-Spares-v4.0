@@ -6,6 +6,17 @@ export type Result<T> = { ok: true; data: T } | { ok: false; error: string; code
 
 type RequestOptions = { signal?: AbortSignal; timeoutMs?: number; preferRepresentation?: boolean };
 
+export type CloudLeadRow = {
+  id: string;
+  name: string;
+  phone: string;
+  message?: string;
+  created_at: string;
+  updated_at: string;
+  payload_json?: unknown;
+  order_id?: string | null;
+};
+
 const DEFAULT_TIMEOUT_MS = 20_000;
 const BACKUP_TIMEOUT_MS = 45_000;
 const inFlight = new Set<string>();
@@ -266,5 +277,31 @@ export const leadCreate = async (
     return recordCall('leadCreate', { ok: false, code: 'unexpected_error', error: error instanceof Error ? error.message : 'Lead submit failed' });
   } finally {
     inFlight.delete(lockKey);
+  }
+};
+
+export const leadsSync = async (
+  options?: RequestOptions
+): Promise<Result<CloudLeadRow[]>> => {
+  const guard = assertCloudFeatureEnabled(cloudFeatureFlags.clientForm);
+  if (!guard.ok) return recordCall('leadsSync', guard);
+
+  try {
+    const endpoint = 'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id';
+    const response = await withSingleFlight('leads:sync:1',
+      () => callRest<CloudLeadRow[]>(endpoint, 'GET', undefined, {
+        ...(options || {}),
+        timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
+      })
+    );
+
+    if (!response.ok) return recordCall('leadsSync', response);
+    return recordCall('leadsSync', { ok: true, data: response.data || [] });
+  } catch (error) {
+    return recordCall('leadsSync', {
+      ok: false,
+      code: 'unexpected_error',
+      error: error instanceof Error ? error.message : 'Lead sync failed'
+    });
   }
 };
