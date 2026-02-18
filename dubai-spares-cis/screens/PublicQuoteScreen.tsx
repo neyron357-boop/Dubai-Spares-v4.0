@@ -1072,14 +1072,17 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const totals = useMemo(() => {
     const payloadTotals = snapshotPayload ? resolveTotalsFromPayload(snapshotPayload, rates) : null;
     const fallbackSubtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
-    const subtotal = payloadTotals?.itemsTotalAed ?? fallbackSubtotal;
+    const subtotalFromPayload = payloadTotals?.itemsTotalAed ?? 0;
+    const shouldUseFallbackSubtotal = fallbackSubtotal > 0 && subtotalFromPayload <= 0;
+    const subtotal = shouldUseFallbackSubtotal ? fallbackSubtotal : subtotalFromPayload;
     const markup = 0;
     const serviceFee = payloadTotals?.commissionAed ?? 0;
     const delivery = payloadTotals?.deliveryAed ?? 0;
     const packing = payloadTotals?.packingAed ?? 0;
     const logistics = delivery + packing;
     const subtotalWithoutExtras = subtotal;
-    const totalAed = payloadTotals?.grandTotalAed ?? (subtotalWithoutExtras + serviceFee + logistics);
+    const payloadTotalAed = payloadTotals?.grandTotalAed ?? 0;
+    const totalAed = payloadTotalAed > 0 ? payloadTotalAed : (subtotalWithoutExtras + serviceFee + logistics);
     return {
       subtotal,
       markup,
