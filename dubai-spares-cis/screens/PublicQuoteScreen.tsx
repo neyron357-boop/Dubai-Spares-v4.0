@@ -631,6 +631,22 @@ const normalizePublicSettings = (raw: unknown) => {
   };
 };
 
+const isPlaceholderWhatsapp = (value: string | null | undefined) => {
+  const digits = toPhoneDigits(value);
+  return digits === '971000000000';
+};
+
+const mergePublicSettings = (
+  preferred: ReturnType<typeof normalizePublicSettings>,
+  fallback: ReturnType<typeof normalizePublicSettings> | null
+) => ({
+  publicWhatsappNumber: preferred.publicWhatsappNumber || fallback?.publicWhatsappNumber || '',
+  publicTelegramUrl: preferred.publicTelegramUrl || fallback?.publicTelegramUrl || '',
+  publicInstagramUrl: preferred.publicInstagramUrl || fallback?.publicInstagramUrl || '',
+  publicDeliveryTerms: preferred.publicDeliveryTerms || fallback?.publicDeliveryTerms || '',
+  publicWorkTerms: preferred.publicWorkTerms || fallback?.publicWorkTerms || ''
+});
+
 const normalizePayloadOwner = (raw: unknown) => {
   const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const read = (...keys: string[]) => {
@@ -907,7 +923,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const snapshotSettings = normalizePublicSettings((snapshotOrder as any)?.public_settings || payloadObj.public_settings || payloadObj.publicSettings || {});
       const dbFallbackSettingsRaw = await publicQuoteGetPublicContactSettings({ signal: controller.signal });
       const dbFallbackSettings = dbFallbackSettingsRaw ? normalizePublicSettings(dbFallbackSettingsRaw) : null;
-      const diagnosticsSettings = dbFallbackSettings || snapshotSettings;
+      const diagnosticsSettings = mergePublicSettings(snapshotSettings, dbFallbackSettings);
       const diagnosticsOwner = normalizePayloadOwner((snapshotOrder as any)?.payloadOwner || payloadObj.owner);
       const resolvedBreakdown = resolveBreakdownFromPayload(payloadObj);
       const resolvedContact = resolveContactFromPayload(payloadObj, diagnosticsSettings);
@@ -936,6 +952,25 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         hasPublicTerms: !!(diagnosticsSettings.publicDeliveryTerms.trim() || diagnosticsSettings.publicWorkTerms.trim()),
         hasContacts: !!(resolvedContact.whatsappPhone || diagnosticsOwner.whatsappPhone),
         hasPayloadCorruptionFlag: !!data.isPayloadCorrupted
+      });
+      void logger.info('public-quote:diagnostics', 'Snapshot diagnostics', {
+        orderId: snapshotOrder.id || orderId,
+        totals: {
+          parts: resolvedBreakdown.partsTotal,
+          delivery: resolvedBreakdown.delivery,
+          packing: resolvedBreakdown.packaging,
+          commission: resolvedBreakdown.commission,
+          total: resolvedBreakdown.total
+        },
+        contacts: {
+          whatsapp: resolvedContact.whatsappPhone,
+          telegram: resolvedContact.telegram,
+          instagram: resolvedContact.instagram
+        },
+        settingsSource: {
+          snapshotHasWhatsapp: Boolean(snapshotSettings.publicWhatsappNumber),
+          dbHasWhatsapp: Boolean(dbFallbackSettings?.publicWhatsappNumber)
+        }
       });
       return { order: snapshotOrder.id ? snapshotOrder : null, expired, notFound: false, corrupted: !!data.isPayloadCorrupted };
     } catch (error) {
@@ -1103,7 +1138,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     const logistics = delivery + packing;
     const subtotalWithoutExtras = subtotal;
     const payloadTotalAed = payloadTotals?.grandTotalAed ?? 0;
-    const totalAed = payloadTotalAed > 0 ? payloadTotalAed : (subtotalWithoutExtras + serviceFee + logistics);
+    const recomputedTotalAed = subtotalWithoutExtras + serviceFee + logistics;
+    const totalAed = payloadTotalAed > 0
+      ? Math.max(payloadTotalAed, recomputedTotalAed)
+      : recomputedTotalAed;
     return {
       subtotal,
       subtotalWithoutExtras,
@@ -1121,11 +1159,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const confirmMessage = `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}. ID: ${order?.id || ''}`;
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};
-  const settings = resolvedSettings.publicWhatsappNumber || resolvedSettings.publicTelegramUrl || resolvedSettings.publicInstagramUrl || resolvedSettings.publicDeliveryTerms || resolvedSettings.publicWorkTerms
-    ? resolvedSettings
-    : normalizePublicSettings(payloadSettings);
+  const settingsFromPayload = normalizePublicSettings(payloadSettings);
+  const settings = mergePublicSettings(settingsFromPayload, resolvedSettings);
   const normalizedOwner = normalizePayloadOwner(payloadOwner);
-  const whatsappPhoneRaw = quoteContact?.whatsappPhone || normalizedOwner.whatsappPhone || settings.publicWhatsappNumber;
+  const whatsappPhoneRaw = quoteContact?.whatsappPhone
+    || settings.publicWhatsappNumber
+    || (isPlaceholderWhatsapp(normalizedOwner.whatsappPhone) ? '' : normalizedOwner.whatsappPhone);
   const whatsappPhoneDigits = normalizeWhatsappPhone(whatsappPhoneRaw);
   const canOpenWhatsapp = Boolean(whatsappPhoneDigits);
   const showDebug = useMemo(() => {
