@@ -15,6 +15,9 @@ export type CloudLeadRow = {
   updated_at: string;
   payload_json?: unknown;
   order_id?: string | null;
+  payload_b64?: string;
+  payload_codec?: string;
+  payload?: unknown;
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -391,8 +394,8 @@ export const leadsSync = async (
   }
 
   try {
-    const endpoint = 'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id';
-    console.log('[leadsSync] Fetching from endpoint:', endpoint);
+    const endpoint = 'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload_b64,payload_codec,payload';
+    console.log('[leadsSync] Fetching from:', endpoint);
     const response = await withSingleFlight('leads:sync:1',
       () => callRest<CloudLeadRow[]>(endpoint, 'GET', undefined, {
         ...(options || {}),
@@ -402,11 +405,21 @@ export const leadsSync = async (
 
     console.log('[leadsSync] Response:', {
       ok: response.ok,
-      count: response.ok ? response.data?.length : 0,
-      error: !response.ok ? response.error : null
+      count: response.ok ? response.data?.length || 0 : 0,
+      code: !response.ok ? response.code : undefined,
+      error: !response.ok ? response.error : undefined
     });
 
     if (!response.ok) return recordCall('leadsSync', response);
+
+    if (response.ok && response.data && response.data.length > 0) {
+      console.log('[leadsSync] Sample lead:', {
+        id: response.data[0].id,
+        hasPayloadJson: Boolean(response.data[0].payload_json),
+        hasPayloadB64: Boolean(response.data[0].payload_b64),
+        hasPayload: Boolean(response.data[0].payload)
+      });
+    }
     return recordCall('leadsSync', { ok: true, data: response.data || [] });
   } catch (error) {
     console.error('[leadsSync] Exception:', error);
