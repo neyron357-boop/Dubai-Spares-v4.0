@@ -6,6 +6,7 @@ import { offlineDb } from '../storage/offlineDb';
 import { backupUpload } from '../serverApi';
 import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLastCloudCall, isCloudConfigured, SUPABASE_HOST } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
+import { testSupabaseConnection } from '../utils/testSupabaseConnection';
 
 const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger' }> = ({ title, children, tone = 'default' }) => (
   <section className={`rounded-2xl border p-4 space-y-3 ${tone === 'danger' ? 'border-rose-200 bg-rose-50' : 'border-gray-200 bg-white'}`}>
@@ -352,6 +353,17 @@ const SettingsScreen: React.FC = () => {
         <div className="flex gap-3">
           <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => { (window as any).__serverApiRequestCount = 0; setRequestCount(0); }}>Reset request counter</button>
           <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => navigator.clipboard.writeText(cloudDiagnosticsText())}>Copy diagnostics</button>
+          <button
+            type="button"
+            className="text-xs font-bold text-emerald-700 underline underline-offset-2 text-left disabled:opacity-50"
+            disabled={!isCloudConfigured || busy === 'cloud-test'}
+            onClick={() => void withBusy('cloud-test', async () => {
+              const result = await testSupabaseConnection();
+              if (!result.success) throw new Error('Supabase test connection failed');
+            })}
+          >
+            Test Connection
+          </button>
         </div>
         {devUnlocked && (
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 space-y-1">
