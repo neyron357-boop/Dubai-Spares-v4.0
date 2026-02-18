@@ -209,6 +209,7 @@ type NormalizedPayloadItem = {
 };
 
 const toPhoneDigits = (value: string | null | undefined) => (value || '').replace(/\D/g, '');
+const DEFAULT_PUBLIC_WHATSAPP = '971521574546';
 
 const normalizeWhatsappPhone = (value: string | null | undefined) => {
   const digits = toPhoneDigits(value);
@@ -645,7 +646,7 @@ const mergePublicSettings = (
     const fallbackWhatsapp = normalizeWhatsappPhone(fallback?.publicWhatsappNumber || '');
     if (preferredWhatsapp && !isPlaceholderWhatsapp(preferredWhatsapp)) return preferredWhatsapp;
     if (fallbackWhatsapp && !isPlaceholderWhatsapp(fallbackWhatsapp)) return fallbackWhatsapp;
-    return '';
+    return DEFAULT_PUBLIC_WHATSAPP;
   })(),
   publicTelegramUrl: preferred.publicTelegramUrl || fallback?.publicTelegramUrl || '',
   publicInstagramUrl: preferred.publicInstagramUrl || fallback?.publicInstagramUrl || '',
@@ -1170,7 +1171,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const normalizedOwner = normalizePayloadOwner(payloadOwner);
   const whatsappPhoneRaw = quoteContact?.whatsappPhone
     || settings.publicWhatsappNumber
-    || (isPlaceholderWhatsapp(normalizedOwner.whatsappPhone) ? '' : normalizedOwner.whatsappPhone);
+    || (isPlaceholderWhatsapp(normalizedOwner.whatsappPhone) ? '' : normalizedOwner.whatsappPhone)
+    || DEFAULT_PUBLIC_WHATSAPP;
   const whatsappPhoneDigits = normalizeWhatsappPhone(whatsappPhoneRaw);
   const canOpenWhatsapp = Boolean(whatsappPhoneDigits);
   const showDebug = useMemo(() => {
