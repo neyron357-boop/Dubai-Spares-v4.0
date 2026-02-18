@@ -82,6 +82,28 @@ export type PublicQuotePayloadV1 = {
     packingAed?: number;
     serviceFeeAed?: number;
   };
+  items?: Array<{
+    name: string;
+    qty: number;
+    unit_price: number;
+    line_total: number;
+    currency: string;
+  }>;
+  fees?: {
+    logistics: number;
+    packaging: number;
+    commission: number;
+  };
+  contacts?: {
+    whatsapp: string;
+    telegram: string;
+    instagram: string;
+  };
+  meta?: {
+    oid: string;
+    exp: number;
+    created_at: string;
+  };
   image_manifest?: unknown;
 };
 
@@ -259,6 +281,8 @@ const buildSnapshotPayload = (
   },
   rates?: QuoteRates
 ): PublicQuotePayloadV1 => {
+  const createdAtIso = new Date().toISOString();
+  const expiresAtMs = Date.now() + SNAPSHOT_TTL_MS;
   const deliveryAed = parseMoney(order.logistics?.deliveryAed, (order as any).logistics?.delivery, (order as any).deliveryAed, (order as any).delivery);
   const packingAed = parseMoney(order.logistics?.packingAed, (order as any).logistics?.packing, (order as any).packingAed, (order as any).packing);
   const commissionAed = parseMoney(order.logistics?.serviceFeeAed, (order as any).logistics?.commission, (order as any).commissionAed, (order as any).commission);
@@ -284,10 +308,13 @@ const buildSnapshotPayload = (
 
   const partsSumAed = pricedParts.reduce((sum, part) => sum + part.client_price_aed, 0);
   const grandTotalAed = partsSumAed + deliveryAed + packingAed + commissionAed;
+  const normalizedWhatsapp = toDigits(publicSettings?.publicWhatsappNumber) || toDigits(owner.whatsappPhone);
+  const normalizedTelegram = publicSettings?.publicTelegramUrl || '';
+  const normalizedInstagram = publicSettings?.publicInstagramUrl || '';
 
   return {
     version: 'public_quote_payload_v1',
-    created_at: new Date().toISOString(),
+    created_at: createdAtIso,
     order: {
       id: order.id,
       brand: order.brand,
@@ -323,6 +350,28 @@ const buildSnapshotPayload = (
       deliveryAed,
       packingAed,
       serviceFeeAed: commissionAed
+    },
+    items: pricedParts.map((part) => ({
+      name: part.name,
+      qty: part.qty,
+      unit_price: part.client_price_aed,
+      line_total: part.client_price_aed * part.qty,
+      currency: 'AED'
+    })),
+    fees: {
+      logistics: deliveryAed,
+      packaging: packingAed,
+      commission: commissionAed
+    },
+    contacts: {
+      whatsapp: normalizedWhatsapp,
+      telegram: normalizedTelegram,
+      instagram: normalizedInstagram
+    },
+    meta: {
+      oid: order.id,
+      exp: expiresAtMs,
+      created_at: createdAtIso
     },
     owner: {
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone),
@@ -412,7 +461,13 @@ export const publicQuoteCreateSnapshot = async (
           'Content-Type': 'application/json',
           Prefer: 'return=representation'
         },
-        body: JSON.stringify([{ token: quoteToken, snapshot_id: snapshotToken, expires_at: expiresAt, payload: trimmed.payload }]),
+        body: JSON.stringify([{
+          token: quoteToken,
+          snapshot_id: snapshotToken,
+          expires_at: expiresAt,
+          payload: trimmed.payload,
+          payload_json: trimmed.payload
+        }]),
         signal: request.signal
       });
 
@@ -477,8 +532,8 @@ export const publicQuoteCreateSnapshot = async (
 };
 
 const readPayloadWithFallback = async (row: SnapshotRow): Promise<unknown | null> => {
-  if (row.payload && typeof row.payload === 'object') return row.payload;
   if (row.payload_json && typeof row.payload_json === 'object') return row.payload_json;
+  if (row.payload && typeof row.payload === 'object') return row.payload;
   if (row.payload_b64) {
     try {
       return await decodePayloadFromCompressedTransport(row.payload_b64, row.payload_codec || 'gzip+b64');
