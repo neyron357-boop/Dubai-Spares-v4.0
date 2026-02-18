@@ -4,6 +4,37 @@ import App from './App';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import { extractOrderIdFromQuoteSlug } from './shareUtils';
+import { logger } from './logging';
+
+const serializeUnhandledError = (error: unknown) => {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    };
+  }
+
+  return {
+    message: String(error)
+  };
+};
+
+window.addEventListener('error', (event) => {
+  void logger.error('ui:window', 'window_error', {
+    message: event.message,
+    filename: event.filename,
+    line: event.lineno,
+    column: event.colno,
+    error: serializeUnhandledError(event.error)
+  });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  void logger.error('ui:window', 'unhandled_promise_rejection', {
+    reason: serializeUnhandledError(event.reason)
+  });
+});
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');

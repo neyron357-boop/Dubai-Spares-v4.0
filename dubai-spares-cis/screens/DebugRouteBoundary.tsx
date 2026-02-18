@@ -1,5 +1,6 @@
 import React from 'react';
 import { LOCAL_ONLY } from '../localMode';
+import { logger } from '../logging';
 
 type DebugRouteBoundaryState = {
   hasError: boolean;
@@ -23,6 +24,15 @@ export class DebugRouteBoundary extends React.Component<React.PropsWithChildren,
       hasError: true,
       message: error instanceof Error ? error.message : String(error)
     };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo): void {
+    void logger.error('ui:error-boundary', 'route_render_failed', {
+      error: error instanceof Error
+        ? { name: error.name, message: error.message, stack: error.stack }
+        : { message: String(error) },
+      componentStack: info.componentStack
+    });
   }
 
   private onCopy = async () => {
