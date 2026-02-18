@@ -40,6 +40,23 @@ export type PublicQuotePayloadV1 = {
     whatsapp_phone: string | null;
     display_name?: string | null;
   };
+  breakdown?: {
+    parts_total: number;
+    delivery: number;
+    packaging: number;
+    commission: number;
+    total: number;
+    currency: string;
+    fx_rate: number;
+    rates?: Record<string, number>;
+  };
+  contact?: {
+    whatsapp_phone: string | null;
+    display_name?: string | null;
+    phone?: string | null;
+    instagram?: string | null;
+    telegram?: string | null;
+  };
   public_settings?: {
     publicWhatsappNumber?: string;
     publicTelegramUrl?: string;
@@ -65,6 +82,24 @@ type SnapshotRow = {
   payload_json?: unknown;
   payload_b64?: string | null;
   payload_codec?: string | null;
+};
+
+type AppStatePublicSettingsRow = {
+  data?: {
+    publicWhatsappNumber?: string;
+    publicTelegramUrl?: string;
+    publicInstagramUrl?: string;
+    publicDeliveryTerms?: string;
+    publicWorkTerms?: string;
+  };
+};
+
+export type PublicContactSettings = {
+  publicWhatsappNumber: string;
+  publicTelegramUrl: string;
+  publicInstagramUrl: string;
+  publicDeliveryTerms: string;
+  publicWorkTerms: string;
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -100,6 +135,8 @@ const createToken = () => {
   crypto.getRandomValues(bytes);
   return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('');
 };
+
+const toDigits = (value: string | null | undefined) => (value || '').replace(/\D/g, '');
 
 const withTimeoutSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
   const controller = new AbortController();
@@ -259,6 +296,16 @@ const buildSnapshotPayload = (
       commission_aed: commissionAed,
       grand_total_aed: grandTotalAed
     },
+    breakdown: {
+      parts_total: partsSumAed,
+      delivery: deliveryAed,
+      packaging: packingAed,
+      commission: commissionAed,
+      total: grandTotalAed,
+      currency,
+      fx_rate: exchangeRate,
+      rates
+    },
     parts: pricedParts,
     logistics: {
       deliveryAed,
@@ -268,6 +315,13 @@ const buildSnapshotPayload = (
     owner: {
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone),
       display_name: owner.displayName || null
+    },
+    contact: {
+      whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone) || normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),
+      display_name: owner.displayName || null,
+      phone: normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),
+      instagram: publicSettings?.publicInstagramUrl || null,
+      telegram: publicSettings?.publicTelegramUrl || null
     },
     public_settings: {
       publicWhatsappNumber: publicSettings?.publicWhatsappNumber || '',
@@ -500,4 +554,34 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
     payload,
     isPayloadCorrupted: !payload
   };
+};
+
+export const publicQuoteGetPublicContactSettings = async (options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<PublicContactSettings | null> => {
+  if (!isCloudConfigured) return null;
+  const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
+  try {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state?select=data&id=eq.public_settings&limit=1`, {
+      method: 'GET',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        Accept: 'application/json'
+      },
+      signal: request.signal
+    });
+    if (!response.ok) return null;
+    const rows = (await response.json()) as AppStatePublicSettingsRow[];
+    const raw = rows?.[0]?.data || {};
+    return {
+      publicWhatsappNumber: toDigits(raw.publicWhatsappNumber),
+      publicTelegramUrl: raw.publicTelegramUrl || '',
+      publicInstagramUrl: raw.publicInstagramUrl || '',
+      publicDeliveryTerms: raw.publicDeliveryTerms || '',
+      publicWorkTerms: raw.publicWorkTerms || ''
+    };
+  } catch {
+    return null;
+  } finally {
+    request.cleanup();
+  }
 };
