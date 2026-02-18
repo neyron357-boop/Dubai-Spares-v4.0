@@ -426,14 +426,26 @@ const PublicOrderFormScreen: React.FC = () => {
   };
 
   const submitOrder = async () => {
-    if (!validateStep(1) || !validateStep(4)) return;
-
-    const filledRequestedParts = requestedParts.filter((part) => part.name.trim());
-    if (!filledRequestedParts.length) {
-      alert('Добавьте минимум одну деталь');
+    if (!validateStep(1) || !validateStep(4)) {
+      pushNotification({
+        type: NotificationType.SYNC_ERROR,
+        title: 'Ошибка валидации',
+        message: 'Пожалуйста, заполните все обязательные поля',
+        severity: 'error'
+      });
       return;
     }
 
+    const filledRequestedParts = requestedParts.filter((part) => part.name.trim());
+    if (!filledRequestedParts.length) {
+      pushNotification({
+        type: NotificationType.SYNC_ERROR,
+        title: 'Нет деталей',
+        message: 'Добавьте минимум одну деталь',
+        severity: 'error'
+      });
+      return;
+    }
 
     setIsSubmitting(true);
     void logger.info('public-form', 'Lead submit started', {
@@ -447,146 +459,208 @@ const PublicOrderFormScreen: React.FC = () => {
       const orderId = createId();
       const now = new Date().toISOString();
 
-      const [uploadedCarPhotos, uploadedVinPhotos] = await Promise.all([
-        (async () => {
-          if (!carPhotoData) return [] as string[];
-          const compressed = await optimizeImageForUpload(carPhotoData, `public-order:${orderId}:car`);
-          return ensurePublicImageUrls([compressed], `orders/${orderId}/car`);
-        })(),
-        (async () => {
-          if (!vinPhotoData) return [] as string[];
-          const compressedVin = await optimizeImageForUpload(vinPhotoData, `public-order:${orderId}:vin`);
-          return ensurePublicImageUrls([compressedVin], `orders/${orderId}/vin`);
-        })()
-      ]);
+      let uploadedCarPhotos: string[] = [];
+      let uploadedVinPhotos: string[] = [];
+
+      try {
+        [uploadedCarPhotos, uploadedVinPhotos] = await Promise.all([
+          (async () => {
+            if (!carPhotoData) return [];
+            const compressed = await optimizeImageForUpload(carPhotoData, `public-order:${orderId}:car`);
+            return ensurePublicImageUrls([compressed], `orders/${orderId}/car`);
+          })(),
+          (async () => {
+            if (!vinPhotoData) return [];
+            const compressedVin = await optimizeImageForUpload(vinPhotoData, `public-order:${orderId}:vin`);
+            return ensurePublicImageUrls([compressedVin], `orders/${orderId}/vin`);
+          })()
+        ]);
+      } catch (photoError) {
+        const photoErrorMsg = photoError instanceof Error ? photoError.message : 'Ошибка загрузки фотографий';
+        console.error('Photo upload error:', photoError);
+        throw new Error(`Не удалось загрузить фотографии: ${photoErrorMsg}`);
+      }
 
       const uploadedAudios = filledRequestedParts.map((part) => part.audioNote || '').filter(Boolean);
 
       const notes = [{
         id: createId(),
-        text: `Public Lead\nИсточник: ${messageSource}\nИмя/ник: ${clientAlias || '—'}\nVIN: ${vin || '—'}\nEngine code: ${engineCode || '—'}\nCountry: ${deliveryCountry}`,
+        text: `Public Lead
+Источник: ${messageSource}
+Имя/ник: ${clientAlias || '—'}
+VIN: ${vin || '—'}
+Engine code: ${engineCode || '—'}
+Country: ${deliveryCountry}`,
         photos: uploadedVinPhotos,
         audios: uploadedAudios,
         createdAt: Date.now()
       }];
 
-      const partsToInsert = await Promise.all(filledRequestedParts.map(async (part) => {
-        const uploadedPartPhotos = !part.photoDataList.length
-          ? []
-          : await (async (photos: string[]) => {
-            const compressedPartPhotos = await Promise.all(
-              photos.slice(0, MAX_PART_PHOTOS).map((photoData, index) => optimizeImageForUpload(photoData, `public-order:${orderId}:${part.id}:${index}`))
-            );
-            return ensurePublicImageUrls(compressedPartPhotos, `orders/${orderId}/parts/${part.id}`);
-          })(part.photoDataList);
+      let partsToInsert: typeof requestedParts = [];
+      try {
+        partsToInsert = await Promise.all(filledRequestedParts.map(async (part) => {
+          const uploadedPartPhotos = !part.photoDataList.length
+            ? []
+            : await (async (photos: string[]) => {
+              const compressedPartPhotos = await Promise.all(
+                photos.slice(0, MAX_PART_PHOTOS).map((photoData, index) =>
+                  optimizeImageForUpload(photoData, `public-order:${orderId}:${part.id}:${index}`)
+                )
+              );
+              return ensurePublicImageUrls(compressedPartPhotos, `orders/${orderId}/parts/${part.id}`);
+            })(part.photoDataList);
 
-        return {
-          id: createId(),
-          name: part.name.trim(),
-          photos: uploadedPartPhotos,
-          photoUrl: uploadedPartPhotos[0] || null,
-          isFound: false
-        };
-      }));
+          return {
+            id: createId(),
+            name: part.name.trim(),
+            photos: uploadedPartPhotos,
+            photoUrl: uploadedPartPhotos[0] || null,
+            isFound: false
+          };
+        }));
+      } catch (partsError) {
+        const partsErrorMsg = partsError instanceof Error ? partsError.message : 'Ошибка загрузки деталей';
+        console.error('Parts upload error:', partsError);
+        throw new Error(`Не удалось загрузить детали: ${partsErrorMsg}`);
+      }
 
       const controller = new AbortController();
       setSubmitController(controller);
-      const leadResult = await leadCreate({
-        orderId,
-        idempotency_key: orderId,
-        name: clientAlias.trim() || 'Public Lead',
-        phone: `${contactCountryCode}${customerContact.trim()}`.trim(),
-        message: JSON.stringify({
-          source: messageSource,
-          brand: brand.trim(),
-          model: model.trim(),
-          year: year.trim(),
-          vin: vin.trim(),
-          bodyType: bodyType.trim() || null,
-          requestedParts: filledRequestedParts.map((part) => part.name.trim())
-        }),
-        parts: partsToInsert,
-        notes,
-        carPhotos: uploadedCarPhotos,
-        vinPhotos: uploadedVinPhotos
-      }, { signal: controller.signal });
-      setSubmitController(null);
 
-      if (!leadResult.ok) {
-        await logger.warn('public-form', 'Lead create failed, using local lead fallback', {
-          reason: leadResult.error,
-          orderId
-        });
+      let leadResult;
+      try {
+        leadResult = await leadCreate({
+          orderId,
+          idempotency_key: orderId,
+          name: clientAlias.trim() || 'Public Lead',
+          phone: `${contactCountryCode}${customerContact.trim()}`.trim(),
+          message: JSON.stringify({
+            source: messageSource,
+            brand: brand.trim(),
+            model: model.trim(),
+            year: year.trim(),
+            vin: vin.trim(),
+            bodyType: bodyType.trim() || null,
+            requestedParts: filledRequestedParts.map((part) => part.name.trim())
+          }),
+          parts: partsToInsert,
+          notes,
+          carPhotos: uploadedCarPhotos,
+          vinPhotos: uploadedVinPhotos
+        }, { signal: controller.signal });
+      } catch (leadCreateError) {
+        const leadErrorMsg = leadCreateError instanceof Error ? leadCreateError.message : 'Ошибка подключения к серверу';
+        console.error('Lead create error:', leadCreateError);
+        throw new Error(`Не удалось создать лид: ${leadErrorMsg}`);
+      } finally {
+        setSubmitController(null);
       }
 
-      await addOrderItem({
-        id: orderId,
-        brand: brand.trim(),
-        model: model.trim(),
-        year: year.trim(),
-        bodyType: bodyType.trim() || undefined,
-        vin: vin.trim(),
-        vinPhotoUrl: uploadedVinPhotos[0],
-        status: 'lead',
-        priority: Priority.MEDIUM,
-        clientName: clientAlias.trim() || 'Public Lead',
-        source: messageSource,
-        carPhotoUrl: uploadedCarPhotos[0],
-        carPhotos: uploadedCarPhotos,
-        parts: partsToInsert,
-        markupPercent: 0,
-        exchangeRate: 3.67,
-        createdAt: Date.now(),
-        isArchived: false,
-        isSold: false,
-        isLead: true,
-        notes,
-        customerContact: `${contactCountryCode}${customerContact.trim()}`.trim(),
-        socialNickname: clientAlias.trim() || undefined,
-        leadUnread: true,
-        leadSource: 'public_form'
-      });
-
       if (!leadResult.ok) {
+        await logger.warn('public-form', 'Lead create failed - will save locally', {
+          reason: leadResult.error,
+          code: leadResult.code,
+          orderId
+        });
+
         pushNotification({
           type: NotificationType.SYNC_ERROR,
-          title: 'Заявка сохранена локально',
-          message: 'Сервер временно недоступен: лид сохранён в приложении и будет досинхронизирован.',
+          title: '⚠️ Частичная ошибка',
+          message: 'Сервер недоступен. Заявка сохранена локально и будет синхронизирована позже.',
           orderId,
           source: 'web_form',
           route: `/orders/${orderId}`,
           severity: 'warning'
         });
+      } else {
+        await logger.info('public-form', 'Lead successfully created on server', {
+          orderId,
+          leadId: leadResult.data?.leadId
+        });
       }
 
-      void logger.info('public-form', `Lead created ${orderId}`, {
-        source: messageSource,
-        parts: filledRequestedParts.length,
-        orderId,
-        remoteLeadOk: leadResult.ok
-      });
+      try {
+        await addOrderItem({
+          id: orderId,
+          brand: brand.trim(),
+          model: model.trim(),
+          year: year.trim(),
+          bodyType: bodyType.trim() || undefined,
+          vin: vin.trim(),
+          vinPhotoUrl: uploadedVinPhotos[0],
+          status: leadResult.ok ? 'lead' : 'lead_sync_pending',
+          priority: Priority.MEDIUM,
+          clientName: clientAlias.trim() || 'Public Lead',
+          source: messageSource,
+          carPhotoUrl: uploadedCarPhotos[0],
+          carPhotos: uploadedCarPhotos,
+          parts: partsToInsert,
+          markupPercent: 0,
+          exchangeRate: 3.67,
+          createdAt: Date.now(),
+          isArchived: false,
+          isSold: false,
+          isLead: true,
+          notes,
+          customerContact: `${contactCountryCode}${customerContact.trim()}`.trim(),
+          socialNickname: clientAlias.trim() || undefined,
+          leadUnread: true,
+          leadSource: 'public_form',
+          leadSyncPending: !leadResult.ok,
+          leadSyncError: leadResult.ok ? undefined : leadResult.error || 'Lead create failed'
+        });
+
+        await logger.info('public-form', `Lead created locally ${orderId}`, {
+          source: messageSource,
+          parts: filledRequestedParts.length,
+          orderId,
+          remoteLeadOk: leadResult.ok
+        });
+      } catch (localError) {
+        const localErrorMsg = localError instanceof Error ? localError.message : 'Ошибка локального хранилища';
+        console.error('Local order save error:', localError);
+        throw new Error(`Не удалось сохранить заявку локально: ${localErrorMsg}`);
+      }
 
       setCreatedOrderId(orderId);
       setShowThanks(true);
       resetForm();
+
+      if (leadResult.ok) {
+        pushNotification({
+          type: NotificationType.INFO,
+          title: '✅ Заявка успешно отправлена!',
+          message: `Номер заявки: ${orderId}. Ожидайте ответ в течение 10-20 минут.`,
+          orderId,
+          source: 'web_form',
+          route: `/orders/${orderId}`,
+          severity: 'success'
+        });
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Не удалось отправить заявку.';
+      const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка при отправке заявки';
+
+      console.error('submitOrder error:', error);
+
       await logger.error('public-form', 'Lead submit failed', {
-        error: message,
+        error: errorMessage,
         source: messageSource,
         brand: brand.trim(),
         model: model.trim(),
         vin: vin.trim() || null
       });
-      alert(message);
+
+      pushNotification({
+        type: NotificationType.SYNC_ERROR,
+        title: '❌ Ошибка отправки',
+        message: errorMessage,
+        severity: 'error'
+      });
     } finally {
       setSubmitController(null);
       setIsSubmitting(false);
     }
   };
-
-  const progress = (step / TOTAL_STEPS) * 100;
-  const whatsappPhone = (settings.publicWhatsappNumber || '971000000000').replace(/[^\d]/g, '') || '971000000000';
 
   if (showThanks) {
     return (
