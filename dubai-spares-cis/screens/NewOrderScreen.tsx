@@ -76,6 +76,20 @@ const createDraftNote = (): DraftNote => ({
   voices: []
 });
 
+const serializeError = (error: unknown) => {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    };
+  }
+
+  return {
+    message: String(error)
+  };
+};
+
 const inputClass = 'h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-slate-300 focus:ring-4 focus:ring-slate-100';
 
 const cardClass = 'space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200';
@@ -377,25 +391,71 @@ const NewOrderScreen: React.FC = () => {
     const selected = Array.from(files || []);
     if (!selected.length) return;
 
+    await logger.info('ui:new-order:images', 'image_batch_started', {
+      labelPrefix,
+      selectedCount: selected.length,
+      maxCount
+    });
+
     const prepared: string[] = [];
     for (const file of selected) {
       try {
         const compressed = await optimizeImageForUpload(file, `${labelPrefix}:${file.name}`);
         prepared.push(compressed);
-      } catch {
+        await logger.debug('ui:new-order:images', 'image_prepared', {
+          labelPrefix,
+          fileName: file.name,
+          fileSizeBytes: file.size,
+          fileType: file.type,
+          source: 'optimized'
+        });
+      } catch (error) {
+        await logger.warn('ui:new-order:images', 'image_optimization_failed_using_fallback', {
+          labelPrefix,
+          fileName: file.name,
+          fileSizeBytes: file.size,
+          fileType: file.type,
+          error: serializeError(error)
+        });
+
         await new Promise<void>((resolve) => {
           const reader = new FileReader();
           reader.onloadend = () => {
             prepared.push(String(reader.result || ''));
             resolve();
           };
-          reader.onerror = () => resolve();
+          reader.onerror = async () => {
+            await logger.error('ui:new-order:images', 'image_file_reader_failed', {
+              labelPrefix,
+              fileName: file.name,
+              fileSizeBytes: file.size,
+              fileType: file.type,
+              error: serializeError(reader.error)
+            });
+            resolve();
+          };
           reader.readAsDataURL(file);
         });
       }
     }
 
-    setter((prev) => [...prev, ...prepared].slice(0, maxCount));
+    try {
+      setter((prev) => [...prev, ...prepared].slice(0, maxCount));
+      await logger.info('ui:new-order:images', 'image_batch_completed', {
+        labelPrefix,
+        selectedCount: selected.length,
+        preparedCount: prepared.length,
+        maxCount
+      });
+    } catch (error) {
+      await logger.error('ui:new-order:images', 'image_batch_state_update_failed', {
+        labelPrefix,
+        selectedCount: selected.length,
+        preparedCount: prepared.length,
+        error: serializeError(error)
+      });
+      throw error;
+    }
   };
 
   const submit = async (e: React.FormEvent) => {
