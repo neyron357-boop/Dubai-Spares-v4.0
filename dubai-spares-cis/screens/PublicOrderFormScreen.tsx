@@ -482,7 +482,13 @@ const PublicOrderFormScreen: React.FC = () => {
       resetForm();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось отправить заявку.';
-      void logger.error('public-form', 'Lead submit failed', { error: message });
+      await logger.error('public-form', 'Lead submit failed', {
+        error: message,
+        source: messageSource,
+        brand: brand.trim(),
+        model: model.trim(),
+        vin: vin.trim() || null
+      });
       alert(message);
     } finally {
       setSubmitController(null);
