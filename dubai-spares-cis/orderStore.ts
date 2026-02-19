@@ -1203,7 +1203,7 @@ export const restoreOrdersExternal = (orders: Order[]) => {
 };
 
 export const syncLeadsToState = async (cloudLeads: CloudLeadRow[]) => {
-  if (!cloudLeads || cloudLeads.length === 0) {
+  if (cloudLeads.length === 0) {
     console.log('[syncLeadsToState] No leads to sync');
     return;
   }
@@ -1213,16 +1213,13 @@ export const syncLeadsToState = async (cloudLeads: CloudLeadRow[]) => {
   const previousOrders = state.orders;
   const mergedOrders = await mergeCloudLeadsWithOrders(previousOrders, cloudLeads);
   
-  if (mergedOrders.length === previousOrders.length) {
-    console.log('[syncLeadsToState] No new leads added');
-    return;
-  }
-
-  console.log('[syncLeadsToState] Updating state with', mergedOrders.length - previousOrders.length, 'new leads');
+  // Always update state to ensure we have the latest data, even if count is the same
+  console.log('[syncLeadsToState] Updating state with merged leads');
   setState({ orders: mergedOrders });
   
   await offlineDb.saveOrders(mergedOrders);
   
+  // Notify about new incoming leads
   if (wasCloudHydratedAtLeastOnce) {
     notifyAboutIncomingLeads(previousOrders, mergedOrders);
   }
