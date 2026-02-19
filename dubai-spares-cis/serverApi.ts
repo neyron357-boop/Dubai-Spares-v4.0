@@ -28,6 +28,37 @@ const singleFlight = new Map<string, Promise<Result<unknown>>>();
 const MIN_ENDPOINT_INTERVAL_MS = 1000;
 const RETRYABLE_CODES = new Set(['aborted_or_timeout', 'network_error']);
 
+
+const LEADS_SYNC_VARIANT_STORAGE_KEY = 'server_api_leads_sync_variant_v2';
+const LEADS_SYNC_VARIANTS = [
+  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload_b64,payload_codec,payload',
+  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload',
+  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,order_id,payload',
+  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at'
+] as const;
+
+const loadLeadsSyncVariant = (): number => {
+  try {
+    const raw = window.localStorage.getItem(LEADS_SYNC_VARIANT_STORAGE_KEY);
+    const parsed = raw ? Number(raw) : 0;
+    if (Number.isInteger(parsed) && parsed >= 0 && parsed < LEADS_SYNC_VARIANTS.length) {
+      return parsed;
+    }
+  } catch (error) {
+    console.warn('[leadsSync] Failed to load stored endpoint variant:', error);
+  }
+  return 0;
+};
+
+const saveLeadsSyncVariant = (variantIndex: number) => {
+  try {
+    window.localStorage.setItem(LEADS_SYNC_VARIANT_STORAGE_KEY, String(variantIndex));
+  } catch (error) {
+    console.warn('[leadsSync] Failed to persist endpoint variant:', error);
+  }
+};
+
+
 const toErrorMessage = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
 
 const maskSupabaseUrl = (value: string) => {
@@ -46,10 +77,11 @@ const maskAnonKey = (value: string) => {
 
 const bumpRequestCounter = (endpoint: string, method: string) => {
   const key = '__serverApiRequestCount';
-  const win = window as Window & { [key: string]: number };
-  win[key] = (win[key] || 0) + 1;
+  const win = window as Window & Record<string, unknown>;
+  const current = typeof win[key] === 'number' ? win[key] as number : 0;
+  win[key] = current + 1;
   window.dispatchEvent(new CustomEvent('server-api:request', {
-    detail: { endpoint, method, count: win[key] }
+    detail: { endpoint, method, count: win[key] as number }
   }));
 };
 
@@ -394,34 +426,45 @@ export const leadsSync = async (
   }
 
   try {
-    const endpointVariants = [
-      'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload_b64,payload_codec,payload',
-      'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload',
-      'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,order_id,payload',
-      'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at'
+    const preferredVariant = loadLeadsSyncVariant();
+    const attempts = [
+      ...LEADS_SYNC_VARIANTS.slice(preferredVariant),
+      ...LEADS_SYNC_VARIANTS.slice(0, preferredVariant)
     ];
 
     let response: Result<CloudLeadRow[]> = { ok: false, code: 'unknown_error', error: 'Lead sync failed' };
 
-    for (let index = 0; index < endpointVariants.length; index += 1) {
-      const endpoint = endpointVariants[index];
+    for (let index = 0; index < attempts.length; index += 1) {
+      const endpoint = attempts[index];
+      const variantIndex = LEADS_SYNC_VARIANTS.indexOf(endpoint);
       console.log('[leadsSync] Fetching from:', endpoint);
-      response = await withSingleFlight(`leads:sync:${index + 1}`,
+      response = await withSingleFlight(`leads:sync:${variantIndex + 1}`,
         () => callRest<CloudLeadRow[]>(endpoint, 'GET', undefined, {
           ...(options || {}),
           timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
         })
       );
 
-      if (response.ok) break;
+      if (response.ok) {
+        if (variantIndex !== preferredVariant) {
+          console.warn('[leadsSync] Cloud schema mismatch detected. Using compatibility endpoint variant.', {
+            fromVariant: preferredVariant + 1,
+            toVariant: variantIndex + 1,
+            recommendation: 'Apply latest Supabase migrations to restore full payload columns.'
+          });
+        }
+        saveLeadsSyncVariant(variantIndex);
+        break;
+      }
 
-      const isPayloadFormatIssue = response.code === 'supabase_400' || response.code === 'supabase_404';
-      if (!isPayloadFormatIssue || index === endpointVariants.length - 1) break;
+      const isSchemaIssue = response.code === 'supabase_400' || response.code === 'supabase_404';
+      if (!isSchemaIssue || index === attempts.length - 1) break;
 
       console.warn('[leadsSync] Endpoint variant failed, retrying with reduced column set', {
         attempt: index + 1,
         code: response.code,
-        error: response.error
+        error: response.error,
+        recommendation: 'Run supabase migrations to sync client_leads schema.'
       });
     }
 

@@ -75,10 +75,10 @@ const extractPayloadFromLead = async (lead: CloudLead): Promise<Record<string, u
   if (typeof lead.payload_b64 === 'string' && lead.payload_b64.trim()) {
     try {
       console.log('[extractPayloadFromLead] Trying payload_b64');
-      const decoded = await decodePayloadFromCompressedTransport({
-        payloadB64: lead.payload_b64,
-        payloadCodec: lead.payload_codec || 'gzip'
-      });
+      const decoded = await decodePayloadFromCompressedTransport<Record<string, unknown>>(
+        lead.payload_b64,
+        lead.payload_codec || 'gzip+b64'
+      );
 
       if (decoded && typeof decoded === 'object' && !Array.isArray(decoded)) {
         console.log('[extractPayloadFromLead] Decoded from payload_b64');
