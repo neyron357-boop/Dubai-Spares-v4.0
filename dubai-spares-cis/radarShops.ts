@@ -34,6 +34,7 @@ const manualFixShops = new Set<string>();
 const SHOPS_CACHE_TTL_MS = 10 * 60 * 1000;
 let shopsFetchInFlight: Promise<Shop[]> | null = null;
 let shopsCache: { expiresAt: number; data: Shop[] } | null = null;
+let shopsTableMissing = false;
 
 
 const extractCityHints = (location: string): string[] => {
@@ -105,6 +106,14 @@ const getMissingShopsColumnName = (error: unknown): string | null => {
   if (anyErr.code !== 'PGRST204' || typeof anyErr.message !== 'string') return null;
   const match = anyErr.message.match(/Could not find the '([^']+)' column of 'shops'/);
   return match?.[1] || null;
+};
+
+const isMissingShopsTable = (error: unknown): boolean => {
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  return anyErr.code === 'PGRST205'
+    && typeof anyErr.message === 'string'
+    && anyErr.message.includes("'public.shops'");
 };
 
 export const normalizeSupplierMetadata = (supplier: Supplier): Supplier => {
@@ -249,7 +258,7 @@ const rerunCriticalCoordinatesParser = async (rows: any[]) => {
 
 const fetchRadarShopsFresh = async (suppliers: Supplier[]): Promise<Shop[]> => {
   const supplierShops = mapSuppliersToShops(suppliers);
-  if (!supabase) {
+  if (!supabase || shopsTableMissing) {
     return supplierShops;
   }
 
@@ -297,6 +306,15 @@ const fetchRadarShopsFresh = async (suppliers: Supplier[]): Promise<Shop[]> => {
   }
 
   if (lastError) {
+    if (isMissingShopsTable(lastError)) {
+      shopsTableMissing = true;
+      await logDatabaseIntegrity('shops:fetch', lastError, { table: 'shops', phase: 'missing-table-fallback' });
+      await logger.warn('shops:fetch', 'Remote shops table is missing; using local supplier fallback only', {
+        hint: 'Run latest Supabase migrations to create public.shops.'
+      });
+      return supplierShops;
+    }
+
     await logDatabaseIntegrity('shops:fetch', lastError, { table: 'shops', phase: 'select' });
     if (lastError.code === '42501') {
       await logger.error('shops:fetch', 'RLS denied access to shops table', { hint: 'Check shops select policy for anon/authenticated roles' });

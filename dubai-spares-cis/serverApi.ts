@@ -260,16 +260,30 @@ export const backupUpload = async (
     const prepared = await preparePayloadWithImageManifest(payload, 'backup', `b-${Date.now()}`, { signal: options?.signal });
     const encoded = await encodePayloadToCompressedTransport(prepared.payload);
 
-    const uploadAttempt = async () => callRest<Array<{ id: string; created_at?: string }>>(
+    const buildBackupPayload = (includeImageManifest: boolean) => [{
+      payload: encoded.payloadJson ?? prepared.payload,
+      payload_b64: encoded.payloadB64,
+      payload_codec: encoded.payloadCodec,
+      ...(includeImageManifest ? { image_manifest: prepared.imageManifest } : {})
+    }];
+
+    const uploadAttempt = async (includeImageManifest: boolean) => callRest<Array<{ id: string; created_at?: string }>>(
       'backups',
       'POST',
-      [{ payload: encoded.payloadJson ?? prepared.payload, payload_b64: encoded.payloadB64, payload_codec: encoded.payloadCodec, image_manifest: prepared.imageManifest }],
+      buildBackupPayload(includeImageManifest),
       { ...options, timeoutMs: options?.timeoutMs || BACKUP_TIMEOUT_MS }
     );
 
-    let response = await uploadAttempt();
+    let response = await uploadAttempt(true);
     if (!response.ok && response.code === 'aborted_or_timeout') {
-      response = await uploadAttempt();
+      response = await uploadAttempt(true);
+    }
+
+    if (!response.ok && response.code === 'supabase_400') {
+      console.warn('[backupUpload] Falling back to legacy payload without image_manifest column', {
+        recommendation: 'Apply latest Supabase migrations to restore backup image metadata support.'
+      });
+      response = await uploadAttempt(false);
     }
 
     if (!response.ok) return recordCall('backupUpload', response);
