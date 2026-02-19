@@ -1124,7 +1124,7 @@ export const addOrderItem = async (order: Order) => {
     carModel: localOrder.model,
     carYear: Number(localOrder.year) || undefined,
     source: 'app',
-    route: `/orders/${localOrder.id}`,
+    route: `/order/${localOrder.id}`,
     severity: localOrder.isVip ? 'critical' : 'info'
   });
   const next = [localOrder, ...state.orders.filter((o) => o.id !== localOrder.id)];
@@ -1148,7 +1148,7 @@ export const updateOrderItem = async (order: Order) => {
       brand: normalized.brand,
       carModel: normalized.model,
       source: 'app',
-      route: `/orders/${normalized.id}`,
+      route: `/order/${normalized.id}`,
       severity: normalized.status === 'vip' ? 'critical' : 'info'
     });
   }

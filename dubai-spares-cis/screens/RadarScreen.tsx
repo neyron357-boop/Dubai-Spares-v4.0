@@ -462,7 +462,7 @@ const RadarScreen: React.FC = () => {
       brand: entry.order.brand,
       carModel: entry.order.model,
       carYear: Number(entry.order.year) || undefined,
-      route: `/orders/${entry.order.id}`,
+      route: `/order/${entry.order.id}`,
       source: 'radar',
       minutes: 30
     });
@@ -533,7 +533,7 @@ const RadarScreen: React.FC = () => {
         brand: entry.order.brand,
         carModel: entry.order.model,
         carYear: Number(entry.order.year) || undefined,
-        route: `/orders/${entry.order.id}`,
+        route: `/order/${entry.order.id}`,
         source: 'radar',
         minutes: 30
       });

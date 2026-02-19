@@ -23,6 +23,7 @@ import {
   Star,
   Copy,
   MoreVertical,
+  RefreshCw,
   Clock3,
   Undo2,
   Check,
@@ -103,11 +104,17 @@ const createPricingEvent = (field: OrderPricingEvent['field'], label: string, pr
   };
 };
 
+const MAX_RETRY_ATTEMPTS = 3;
+
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { orders, isLoading, updateOrder, suppliers, fetchOrderDetails } = useStore();
   const order = orders.find(o => o.id === id);
+  
+  // State for handling missing order
+  const [retryAttempts, setRetryAttempts] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const [isEstimateOpen, setIsEstimateOpen] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
@@ -289,6 +296,30 @@ const OrderDetailsScreen: React.FC = () => {
       });
   }, [order, shops, shopsLoaded]);
 
+  // Auto-retry loading order if not found
+  useEffect(() => {
+    if (!id || order || isLoading || isRetrying || retryAttempts >= MAX_RETRY_ATTEMPTS) return;
+    
+    let cancelled = false;
+    const retryTimer = window.setTimeout(() => {
+      if (cancelled) return;
+      console.log(`[OrderDetailsScreen] Order not found, retrying... (attempt ${retryAttempts + 1}/${MAX_RETRY_ATTEMPTS})`);
+      setIsRetrying(true);
+      setRetryAttempts(prev => prev + 1);
+      
+      fetchOrderDetails(id)
+        .catch(err => console.error('[OrderDetailsScreen] Retry failed:', err))
+        .finally(() => {
+          if (!cancelled) setIsRetrying(false);
+        });
+    }, 1000); // Wait 1 second before retrying
+    
+    return () => {
+      cancelled = true;
+      window.clearTimeout(retryTimer);
+    };
+  }, [id, order, isLoading, isRetrying, retryAttempts, fetchOrderDetails]);
+
   if (!order && isLoading) {
     return (
       <div className="p-4 space-y-4 animate-pulse">
@@ -315,7 +346,56 @@ const OrderDetailsScreen: React.FC = () => {
     await shareQuoteLink(quoteOrder, options);
   };
 
-  if (!order) return <div className="p-10 text-center text-gray-400 font-bold">ЗАКАЗ НЕ НАЙДЕН</div>;
+  if (!order) {
+    return (
+      <div className="p-4 flex flex-col items-center justify-center min-h-screen space-y-4">
+        <div className="text-center space-y-3">
+          <AlertTriangle size={48} className="mx-auto text-amber-500" />
+          <h2 className="text-lg font-black text-gray-900">Заказ не найден</h2>
+          <p className="text-sm text-gray-600">
+            Заказ с ID <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{id}</span> не найден в системе.
+          </p>
+          {isRetrying && (
+            <p className="text-xs text-blue-600 flex items-center justify-center gap-2">
+              <RefreshCw size={14} className="animate-spin" />
+              Попытка загрузки... ({retryAttempts}/{MAX_RETRY_ATTEMPTS})
+            </p>
+          )}
+          {retryAttempts >= MAX_RETRY_ATTEMPTS && (
+            <p className="text-xs text-amber-600">
+              Не удалось загрузить заказ после {MAX_RETRY_ATTEMPTS} попыток
+            </p>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm"
+          >
+            ← Назад к заказам
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setRetryAttempts(0);
+              setIsRetrying(true);
+              if (id) {
+                fetchOrderDetails(id)
+                  .catch(err => console.error('[OrderDetailsScreen] Manual retry failed:', err))
+                  .finally(() => setIsRetrying(false));
+              }
+            }}
+            disabled={isRetrying}
+            className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center gap-2 disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={isRetrying ? 'animate-spin' : ''} />
+            Повторить попытку
+          </button>
+        </div>
+      </div>
+    );
+  }
 
 
   const selectedOfferTotal = useMemo(() => order.parts.reduce((sum, p) => sum + (p.variants[0]?.priceAed || 0), 0), [order.parts]);

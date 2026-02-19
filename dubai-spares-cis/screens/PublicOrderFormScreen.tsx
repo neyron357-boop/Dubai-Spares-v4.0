@@ -630,7 +630,7 @@ Country: ${deliveryCountry}`,
           message: '⚠️ Заявка сохранена локально и будет отправлена при восстановлении соединения',
           orderId,
           source: 'web_form',
-          route: `/orders/${orderId}`,
+          route: `/order/${orderId}`,
           severity: 'warning'
         });
       } else {
@@ -694,7 +694,7 @@ Country: ${deliveryCountry}`,
           message: `Номер заявки: ${orderId}. Ожидайте ответ в течение 10-20 минут.`,
           orderId,
           source: 'web_form',
-          route: `/orders/${orderId}`,
+          route: `/order/${orderId}`,
           severity: 'success'
         });
       }
