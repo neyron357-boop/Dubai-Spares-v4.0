@@ -7,6 +7,7 @@ import { backupUpload, leadsSync } from '../serverApi';
 import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLastCloudCall, isCloudConfigured, SUPABASE_HOST } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
+import { refreshSupabaseSchemaCache } from '../schemaCache';
 
 const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger' }> = ({ title, children, tone = 'default' }) => (
   <section className={`rounded-2xl border p-4 space-y-3 ${tone === 'danger' ? 'border-rose-200 bg-rose-50' : 'border-gray-200 bg-white'}`}>
@@ -122,7 +123,12 @@ const SettingsScreen: React.FC = () => {
     console.log('[Settings] Manual leads sync started');
 
     try {
-      const result = await leadsSync();
+      let result = await leadsSync();
+
+      if (!result.ok && (result.code === 'supabase_404' || result.code === 'supabase_400')) {
+        await refreshSupabaseSchemaCache('manual-leads-sync-button');
+        result = await leadsSync();
+      }
 
       if (result.ok) {
         const count = result.data?.length || 0;

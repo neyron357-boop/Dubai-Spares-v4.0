@@ -5,6 +5,7 @@ import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
 import { ensureUuid, isUuid } from './id';
 import { resolveCoordinatesFromLocation } from './mapsLocation';
+import { refreshSupabaseSchemaCache } from './schemaCache';
 
 const toNumberArray = (values: unknown): number[] => {
   if (!Array.isArray(values)) return [];
@@ -307,12 +308,20 @@ const fetchRadarShopsFresh = async (suppliers: Supplier[]): Promise<Shop[]> => {
 
   if (lastError) {
     if (isMissingShopsTable(lastError)) {
-      shopsTableMissing = true;
       await logDatabaseIntegrity('shops:fetch', lastError, { table: 'shops', phase: 'missing-table-fallback' });
-      await logger.warn('shops:fetch', 'Remote shops table is missing; using local supplier fallback only', {
-        hint: 'Run latest Supabase migrations to create public.shops.'
-      });
-      return supplierShops;
+      await refreshSupabaseSchemaCache('shops-fetch-missing-table');
+      const retryResponse = await supabase.from('shops').select(selectFields.join(','));
+      if (!retryResponse.error) {
+        shopsTableMissing = false;
+        data = Array.isArray(retryResponse.data) ? retryResponse.data : null;
+        lastError = null;
+      } else {
+        shopsTableMissing = true;
+        await logger.warn('shops:fetch', 'Remote shops table is missing; using local supplier fallback only', {
+          hint: 'Run latest Supabase migrations to create public.shops.'
+        });
+        return supplierShops;
+      }
     }
 
     await logDatabaseIntegrity('shops:fetch', lastError, { table: 'shops', phase: 'select' });
