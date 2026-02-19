@@ -1253,7 +1253,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <button
                 type="button"
                 onClick={() => {
-                  window.location.href = '/#/request';
+                  window.location.href = '/order-form';
                 }}
                 className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700"
               >
