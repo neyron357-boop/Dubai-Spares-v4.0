@@ -223,7 +223,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [manualModelMode, setManualModelMode] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { settings } = useAppSettings();
-  const publicFormUrl = `${window.location.origin}/#/request`;
+  const publicFormUrl = `${window.location.origin}/order-form`;
   const whatsappPhone = (settings.publicWhatsappNumber || '').replace(/\D/g, '');
 
   const carInputRef = useRef<HTMLInputElement | null>(null);
