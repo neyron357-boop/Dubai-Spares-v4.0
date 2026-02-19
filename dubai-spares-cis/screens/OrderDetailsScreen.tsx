@@ -111,7 +111,8 @@ const OrderDetailsScreen: React.FC = () => {
   const order = orders.find(o => o.id === id);
   
   // State for handling missing order
-  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRY_ATTEMPTS = 3;
+  const [retryAttempts, setRetryAttempts] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
 
   const [isEstimateOpen, setIsEstimateOpen] = useState(false);
@@ -296,18 +297,27 @@ const OrderDetailsScreen: React.FC = () => {
 
   // Auto-retry loading order if not found
   useEffect(() => {
-    if (!id || order || isLoading || retryCount >= 3) return;
+    if (!id || order || isLoading || retryAttempts >= MAX_RETRY_ATTEMPTS) return;
     
-    const retryTimer = window.setTimeout(async () => {
-      console.log(`[OrderDetailsScreen] Order not found, retrying... (attempt ${retryCount + 1}/3)`);
+    let cancelled = false;
+    const retryTimer = window.setTimeout(() => {
+      if (cancelled) return;
+      console.log(`[OrderDetailsScreen] Order not found, retrying... (attempt ${retryAttempts + 1}/${MAX_RETRY_ATTEMPTS})`);
       setIsRetrying(true);
-      await fetchOrderDetails(id);
-      setRetryCount(prev => prev + 1);
-      setIsRetrying(false);
+      setRetryAttempts(prev => prev + 1);
+      
+      fetchOrderDetails(id)
+        .catch(err => console.error('[OrderDetailsScreen] Retry failed:', err))
+        .finally(() => {
+          if (!cancelled) setIsRetrying(false);
+        });
     }, 1000); // Wait 1 second before retrying
     
-    return () => window.clearTimeout(retryTimer);
-  }, [id, order, isLoading, retryCount, fetchOrderDetails]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(retryTimer);
+    };
+  }, [id, order, isLoading, retryAttempts, fetchOrderDetails, MAX_RETRY_ATTEMPTS]);
 
   if (!order && isLoading) {
     return (
@@ -347,7 +357,12 @@ const OrderDetailsScreen: React.FC = () => {
           {isRetrying && (
             <p className="text-xs text-blue-600 flex items-center justify-center gap-2">
               <RefreshCw size={14} className="animate-spin" />
-              Попытка загрузки... ({retryCount}/3)
+              Попытка загрузки... ({retryAttempts}/{MAX_RETRY_ATTEMPTS})
+            </p>
+          )}
+          {retryAttempts >= MAX_RETRY_ATTEMPTS && (
+            <p className="text-xs text-amber-600">
+              Не удалось загрузить заказ после {MAX_RETRY_ATTEMPTS} попыток
             </p>
           )}
         </div>
@@ -361,11 +376,13 @@ const OrderDetailsScreen: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={async () => {
+            onClick={() => {
               setIsRetrying(true);
-              setRetryCount(0);
-              if (id) await fetchOrderDetails(id);
-              setIsRetrying(false);
+              if (id) {
+                fetchOrderDetails(id)
+                  .catch(err => console.error('[OrderDetailsScreen] Manual retry failed:', err))
+                  .finally(() => setIsRetrying(false));
+              }
             }}
             disabled={isRetrying}
             className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center gap-2 disabled:opacity-50"
