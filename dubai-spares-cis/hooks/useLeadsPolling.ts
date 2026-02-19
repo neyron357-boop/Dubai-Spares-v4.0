@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { leadsSync } from '../serverApi';
 import { logger } from '../logging';
 import { syncLeadsToState } from '../orderStore';
+import { supabase } from '../supabase';
 
 const POLL_INTERVAL_MS = 60_000;
 
@@ -43,16 +44,40 @@ export const useLeadsPolling = (enabled: boolean = true) => {
       }
     };
 
+    // Initial poll
     void poll();
 
+    // Set up periodic polling
     intervalRef.current = window.setInterval(() => {
       void poll();
     }, POLL_INTERVAL_MS);
+
+    // Set up realtime subscription for instant updates
+    let leadsChannel: ReturnType<typeof supabase.channel> | null = null;
+    
+    if (supabase) {
+      console.log('[useLeadsPolling] Setting up realtime subscription for client_leads');
+      leadsChannel = supabase
+        .channel('client-leads-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'client_leads' }, (payload) => {
+          console.log('[useLeadsPolling] Realtime event received:', payload.eventType);
+          // Poll immediately when a change is detected
+          void poll();
+        })
+        .subscribe((status) => {
+          console.log('[useLeadsPolling] Realtime subscription status:', status);
+        });
+    }
 
     return () => {
       if (intervalRef.current) {
         console.log('[useLeadsPolling] Stopping polling');
         clearInterval(intervalRef.current);
+      }
+      
+      if (leadsChannel && supabase) {
+        console.log('[useLeadsPolling] Removing realtime subscription');
+        void supabase.removeChannel(leadsChannel);
       }
     };
   }, [enabled]);
