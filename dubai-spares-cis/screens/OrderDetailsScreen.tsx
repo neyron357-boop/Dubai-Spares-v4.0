@@ -23,6 +23,7 @@ import {
   Star,
   Copy,
   MoreVertical,
+  RefreshCw,
   Clock3,
   Undo2,
   Check,
@@ -108,6 +109,10 @@ const OrderDetailsScreen: React.FC = () => {
   const navigate = useNavigate();
   const { orders, isLoading, updateOrder, suppliers, fetchOrderDetails } = useStore();
   const order = orders.find(o => o.id === id);
+  
+  // State for handling missing order
+  const [retryCount, setRetryCount] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const [isEstimateOpen, setIsEstimateOpen] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
@@ -289,6 +294,21 @@ const OrderDetailsScreen: React.FC = () => {
       });
   }, [order, shops, shopsLoaded]);
 
+  // Auto-retry loading order if not found
+  useEffect(() => {
+    if (!id || order || isLoading || retryCount >= 3) return;
+    
+    const retryTimer = window.setTimeout(async () => {
+      console.log(`[OrderDetailsScreen] Order not found, retrying... (attempt ${retryCount + 1}/3)`);
+      setIsRetrying(true);
+      await fetchOrderDetails(id);
+      setRetryCount(prev => prev + 1);
+      setIsRetrying(false);
+    }, 1000); // Wait 1 second before retrying
+    
+    return () => window.clearTimeout(retryTimer);
+  }, [id, order, isLoading, retryCount, fetchOrderDetails]);
+
   if (!order && isLoading) {
     return (
       <div className="p-4 space-y-4 animate-pulse">
@@ -315,7 +335,48 @@ const OrderDetailsScreen: React.FC = () => {
     await shareQuoteLink(quoteOrder, options);
   };
 
-  if (!order) return <div className="p-10 text-center text-gray-400 font-bold">ЗАКАЗ НЕ НАЙДЕН</div>;
+  if (!order) {
+    return (
+      <div className="p-4 flex flex-col items-center justify-center min-h-screen space-y-4">
+        <div className="text-center space-y-3">
+          <AlertTriangle size={48} className="mx-auto text-amber-500" />
+          <h2 className="text-lg font-black text-gray-900">Заказ не найден</h2>
+          <p className="text-sm text-gray-600">
+            Заказ с ID <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{id}</span> не найден в системе.
+          </p>
+          {isRetrying && (
+            <p className="text-xs text-blue-600 flex items-center justify-center gap-2">
+              <RefreshCw size={14} className="animate-spin" />
+              Попытка загрузки... ({retryCount}/3)
+            </p>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm"
+          >
+            ← Назад к заказам
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              setIsRetrying(true);
+              setRetryCount(0);
+              if (id) await fetchOrderDetails(id);
+              setIsRetrying(false);
+            }}
+            disabled={isRetrying}
+            className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center gap-2 disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={isRetrying ? 'animate-spin' : ''} />
+            Повторить попытку
+          </button>
+        </div>
+      </div>
+    );
+  }
 
 
   const selectedOfferTotal = useMemo(() => order.parts.reduce((sum, p) => sum + (p.variants[0]?.priceAed || 0), 0), [order.parts]);
