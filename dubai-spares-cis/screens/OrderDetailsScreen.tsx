@@ -104,6 +104,8 @@ const createPricingEvent = (field: OrderPricingEvent['field'], label: string, pr
   };
 };
 
+const MAX_RETRY_ATTEMPTS = 3;
+
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -111,7 +113,6 @@ const OrderDetailsScreen: React.FC = () => {
   const order = orders.find(o => o.id === id);
   
   // State for handling missing order
-  const MAX_RETRY_ATTEMPTS = 3;
   const [retryAttempts, setRetryAttempts] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
 
@@ -317,7 +318,7 @@ const OrderDetailsScreen: React.FC = () => {
       cancelled = true;
       window.clearTimeout(retryTimer);
     };
-  }, [id, order, isLoading, retryAttempts, fetchOrderDetails, MAX_RETRY_ATTEMPTS]);
+  }, [id, order, isLoading, retryAttempts, fetchOrderDetails]);
 
   if (!order && isLoading) {
     return (
@@ -377,6 +378,7 @@ const OrderDetailsScreen: React.FC = () => {
           <button
             type="button"
             onClick={() => {
+              setRetryAttempts(0);
               setIsRetrying(true);
               if (id) {
                 fetchOrderDetails(id)
