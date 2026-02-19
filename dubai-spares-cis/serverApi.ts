@@ -35,7 +35,11 @@ const LEADS_SYNC_VARIANTS = [
   'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload_b64,payload_codec,payload',
   'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload',
   'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,order_id,payload',
-  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at'
+  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at',
+  'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload_b64,payload_codec,payload',
+  'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload',
+  'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at,order_id,payload',
+  'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at'
 ] as const;
 
 const loadLeadsSyncVariant = (): number => {
