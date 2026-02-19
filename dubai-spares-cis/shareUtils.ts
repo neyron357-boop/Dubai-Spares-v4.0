@@ -227,7 +227,7 @@ const buildQuoteSnapshot = (order: Pick<Order,
 export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
   const slug = typeof order === 'string' ? encodeURIComponent(order) : encodeURIComponent(buildPublicQuoteSlug(order));
   const token = options?.snapshotToken || createQuoteToken();
-  const url = new URL(`${window.location.origin}/quote/${slug}`);
+  const url = new URL(`${window.location.origin}/#/q/${slug}`);
   url.searchParams.set('token', token);
   const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
   url.searchParams.set('exp', String(expiresAt));
