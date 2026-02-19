@@ -104,9 +104,20 @@ const clearGeocodeFailure = (shopId: string) => {
 const getMissingShopsColumnName = (error: unknown): string | null => {
   if (typeof error !== 'object' || !error) return null;
   const anyErr = error as { code?: unknown; message?: unknown };
-  if (anyErr.code !== 'PGRST204' || typeof anyErr.message !== 'string') return null;
-  const match = anyErr.message.match(/Could not find the '([^']+)' column of 'shops'/);
-  return match?.[1] || null;
+  if (typeof anyErr.message !== 'string') return null;
+
+  if (anyErr.code === 'PGRST204') {
+    const match = anyErr.message.match(/Could not find the '([^']+)' column of 'shops'/);
+    return match?.[1] || null;
+  }
+
+  if (anyErr.code === '42703') {
+    const postgresMatch = anyErr.message.match(/column\s+shops\.([a-zA-Z0-9_]+)\s+does not exist/i);
+    const quotedMatch = anyErr.message.match(/column\s+["']?shops["']?\.["']?([a-zA-Z0-9_]+)["']?\s+does not exist/i);
+    return postgresMatch?.[1] || quotedMatch?.[1] || null;
+  }
+
+  return null;
 };
 
 const isMissingShopsTable = (error: unknown): boolean => {
