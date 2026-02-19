@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { HashRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
+import { HashRouter, Routes, Route, NavLink, useLocation, useParams } from 'react-router-dom';
 import OrdersScreen from './screens/OrdersScreen';
 import NewOrderScreen from './screens/NewOrderScreen';
 import OrderDetailsScreen from './screens/OrderDetailsScreen';
@@ -10,6 +10,7 @@ import RadarScreen from './screens/RadarScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import RadarLiveSettingsScreen from './screens/RadarLiveSettingsScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
+import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-react';
 import { useStore } from './store';
@@ -18,6 +19,11 @@ import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
 
 const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
+
+const HashPublicQuoteRoute: React.FC = () => {
+  const { orderId = '' } = useParams();
+  return <PublicQuoteScreen orderId={orderId} />;
+};
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
@@ -176,6 +182,7 @@ const App: React.FC = () => {
               <Route path="/settings/radar-live" element={<RadarLiveSettingsScreen />} />
               <Route path="/request" element={<PublicOrderFormScreen />} />
               <Route path="/order-form" element={<PublicOrderFormScreen />} />
+              <Route path="/q/:orderId" element={<HashPublicQuoteRoute />} />
             </Routes>
           </Layout>
         </HashRouter>

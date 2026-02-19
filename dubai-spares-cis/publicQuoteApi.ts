@@ -776,7 +776,7 @@ export const publicQuoteCreateSnapshot = async (
       }
       const effectiveSnapshotId = (created.snapshot_id || created.id || '').trim();
 
-      const quoteUrl = new URL(`${window.location.origin}/quote/${encodeURIComponent(buildPublicQuoteSlug(order))}`);
+      const quoteUrl = new URL(`${window.location.origin}/#/q/${encodeURIComponent(buildPublicQuoteSlug(order))}`);
       quoteUrl.searchParams.set('token', created.token);
       quoteUrl.searchParams.set('snapshot', effectiveSnapshotId);
       quoteUrl.searchParams.set('exp', String(Date.parse(created.expires_at)));
