@@ -329,6 +329,17 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
+const isOrdersTableMissingFromSchemaCache = (error: unknown) => {
+  if (typeof error !== 'object' || !error) return false;
+  const anyErr = error as { code?: unknown; message?: unknown; details?: unknown };
+  const code = typeof anyErr.code === 'string' ? anyErr.code : '';
+  const message = typeof anyErr.message === 'string' ? anyErr.message : '';
+  const details = typeof anyErr.details === 'string' ? anyErr.details : '';
+  const probe = `${message} ${details}`.toLowerCase();
+
+  return code === 'PGRST205' && probe.includes('public.orders') && probe.includes('schema cache');
+};
+
 const broadcastSyncError = (error: unknown, fallback: string) => {
   const normalized = normalizeSyncError(error, fallback);
   syncPerf.setLastError(normalized.message);
@@ -959,14 +970,23 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
 
   const { data, error } = await fetchOrdersGraphWithSchemaFallbacks();
 
-  if (error) {
+  const useLeadsOnlyFallback = isOrdersTableMissingFromSchemaCache(error);
+  if (error && !useLeadsOnlyFallback) {
     await logger.error('sync:fetch', 'Cloud orders fetch failed', { error: serializeError(error) });
     broadcastSyncError(error, error.message || 'Failed to load orders from Supabase');
     setState({ isLoading: false, isHydrated: true });
     return;
   }
 
-  let orders = (data || []).map(mapDbOrder);
+  if (useLeadsOnlyFallback) {
+    await logger.warn('sync:fetch', 'Orders table missing in cloud schema cache; continuing with leads-only sync', {
+      error: serializeError(error)
+    });
+  }
+
+  let orders = useLeadsOnlyFallback
+    ? localOrders.map(normalizeOrder)
+    : (data || []).map(mapDbOrder);
 
   try {
     console.log('[orderStore] Calling leadsSync...');
@@ -1000,7 +1020,9 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
         console.log('[orderStore] Sending notifications for', unreadLeads.length, 'unread leads');
       }
     } else if (!leadsResponse.ok) {
-      await logger.warn('sync:fetch', 'Lead sync failed, continuing with cloud orders only', {
+      await logger.warn('sync:fetch', useLeadsOnlyFallback
+        ? 'Lead sync failed while using leads-only fallback'
+        : 'Lead sync failed, continuing with cloud orders only', {
         error: leadsResponse.error,
         code: leadsResponse.code
       });

@@ -394,14 +394,36 @@ export const leadsSync = async (
   }
 
   try {
-    const endpoint = 'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload_b64,payload_codec,payload';
-    console.log('[leadsSync] Fetching from:', endpoint);
-    const response = await withSingleFlight('leads:sync:1',
-      () => callRest<CloudLeadRow[]>(endpoint, 'GET', undefined, {
-        ...(options || {}),
-        timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
-      })
-    );
+    const endpointVariants = [
+      'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload_b64,payload_codec,payload',
+      'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload',
+      'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,order_id,payload',
+      'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at'
+    ];
+
+    let response: Result<CloudLeadRow[]> = { ok: false, code: 'unknown_error', error: 'Lead sync failed' };
+
+    for (let index = 0; index < endpointVariants.length; index += 1) {
+      const endpoint = endpointVariants[index];
+      console.log('[leadsSync] Fetching from:', endpoint);
+      response = await withSingleFlight(`leads:sync:${index + 1}`,
+        () => callRest<CloudLeadRow[]>(endpoint, 'GET', undefined, {
+          ...(options || {}),
+          timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
+        })
+      );
+
+      if (response.ok) break;
+
+      const isPayloadFormatIssue = response.code === 'supabase_400' || response.code === 'supabase_404';
+      if (!isPayloadFormatIssue || index === endpointVariants.length - 1) break;
+
+      console.warn('[leadsSync] Endpoint variant failed, retrying with reduced column set', {
+        attempt: index + 1,
+        code: response.code,
+        error: response.error
+      });
+    }
 
     console.log('[leadsSync] Response:', {
       ok: response.ok,
