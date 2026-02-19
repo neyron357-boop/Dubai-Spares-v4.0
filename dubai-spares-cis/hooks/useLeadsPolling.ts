@@ -1,15 +1,16 @@
 import { useEffect, useRef } from 'react';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { leadsSync } from '../serverApi';
 import { logger } from '../logging';
 import { syncLeadsToState } from '../orderStore';
 import { supabase } from '../supabase';
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 30_000;
 const DEBOUNCE_DELAY_MS = 2000; // Debounce realtime polls to prevent rapid successive calls
 
 export const useLeadsPolling = (enabled: boolean = true) => {
   const intervalRef = useRef<number | null>(null);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
   const debounceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
