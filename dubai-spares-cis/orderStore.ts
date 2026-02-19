@@ -11,7 +11,7 @@ import { getSelectableColumns, markMissingColumn } from './syncSchema';
 import { logSyncCategory, syncPerf } from './syncPerf';
 import { LOCAL_ONLY } from './localMode';
 import { mergeCloudLeadsWithOrders } from './leadSync';
-import { leadsSync } from './serverApi';
+import { CloudLeadRow, leadsSync } from './serverApi';
 
 type OrderState = {
   orders: Order[];
@@ -1200,6 +1200,32 @@ export const restoreOrdersExternal = (orders: Order[]) => {
   const normalized = orders.map(normalizeOrder);
   setState({ orders: normalized, isHydrated: true });
   void offlineDb.saveOrders(normalized);
+};
+
+export const syncLeadsToState = async (cloudLeads: CloudLeadRow[]) => {
+  if (!cloudLeads || cloudLeads.length === 0) {
+    console.log('[syncLeadsToState] No leads to sync');
+    return;
+  }
+
+  console.log('[syncLeadsToState] Syncing', cloudLeads.length, 'cloud leads to state');
+  
+  const previousOrders = state.orders;
+  const mergedOrders = await mergeCloudLeadsWithOrders(previousOrders, cloudLeads);
+  
+  if (mergedOrders.length === previousOrders.length) {
+    console.log('[syncLeadsToState] No new leads added');
+    return;
+  }
+
+  console.log('[syncLeadsToState] Updating state with', mergedOrders.length - previousOrders.length, 'new leads');
+  setState({ orders: mergedOrders });
+  
+  await offlineDb.saveOrders(mergedOrders);
+  
+  if (wasCloudHydratedAtLeastOnce) {
+    notifyAboutIncomingLeads(previousOrders, mergedOrders);
+  }
 };
 
 export const useOrderStore = () => {
