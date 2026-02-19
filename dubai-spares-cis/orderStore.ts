@@ -12,6 +12,7 @@ import { logSyncCategory, syncPerf } from './syncPerf';
 import { LOCAL_ONLY } from './localMode';
 import { mergeCloudLeadsWithOrders } from './leadSync';
 import { CloudLeadRow, leadsSync } from './serverApi';
+import { refreshSupabaseSchemaCache } from './schemaCache';
 
 type OrderState = {
   orders: Order[];
@@ -995,7 +996,17 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
     return;
   }
 
-  const { data, error } = await fetchOrdersGraphWithSchemaFallbacks();
+  let { data, error } = await fetchOrdersGraphWithSchemaFallbacks();
+
+  if (isOrdersTableMissingFromSchemaCache(error)) {
+    await refreshSupabaseSchemaCache('orders-fetch-missing-table');
+    const retry = await fetchOrdersGraphWithSchemaFallbacks();
+    if (!retry.error) {
+      data = retry.data;
+      error = null;
+      await logger.warn('sync:fetch', 'Orders sync recovered after schema cache refresh retry');
+    }
+  }
 
   const useLeadsOnlyFallback = isOrdersTableMissingFromSchemaCache(error);
   if (error && !useLeadsOnlyFallback) {

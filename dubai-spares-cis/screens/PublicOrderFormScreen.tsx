@@ -124,6 +124,24 @@ const splitParts = (value: string) => value
   .map((item) => item.trim())
   .filter(Boolean);
 
+const validateAndPrepareLeadPayload = (payload: Parameters<typeof leadCreate>[0]) => {
+  const normalizedName = String(payload.name || '').trim();
+  const normalizedPhone = String(payload.phone || '').replace(/\s+/g, '');
+  if (!normalizedName) {
+    throw new Error('Укажите ваше имя перед отправкой заявки.');
+  }
+  if (!normalizedPhone || normalizedPhone.replace(/\D/g, '').length < 8) {
+    throw new Error('Укажите корректный номер телефона для связи.');
+  }
+
+  return {
+    ...payload,
+    name: normalizedName,
+    phone: normalizedPhone,
+    message: typeof payload.message === 'string' ? payload.message : JSON.stringify(payload.message || {})
+  };
+};
+
 const ButtonDropdown: React.FC<{
   value: string;
   placeholder: string;
@@ -605,9 +623,17 @@ Country: ${deliveryCountry}`,
         vinPhotos: uploadedVinPhotos
       };
 
+      const validatedLeadPayload = validateAndPrepareLeadPayload(leadPayload);
+      console.log('[public-form] lead payload diagnostics', {
+        orderId,
+        parts: partsToInsert.length,
+        hasNotes: notes.length,
+        payloadBytes: JSON.stringify(validatedLeadPayload).length
+      });
+
       let leadResult;
       try {
-        leadResult = await leadCreate(leadPayload, { signal: controller.signal });
+        leadResult = await leadCreate(validatedLeadPayload, { signal: controller.signal });
       } catch (leadCreateError) {
         const leadErrorMsg = leadCreateError instanceof Error ? leadCreateError.message : 'Ошибка подключения к серверу';
         console.error('Lead create error:', leadCreateError);
@@ -617,7 +643,7 @@ Country: ${deliveryCountry}`,
       }
 
       if (!leadResult.ok) {
-        const nextQueue = [...readPendingLeadQueue().filter((item) => item.orderId !== orderId), { orderId, leadPayload }];
+        const nextQueue = [...readPendingLeadQueue().filter((item) => item.orderId !== orderId), { orderId, leadPayload: validatedLeadPayload }];
         writePendingLeadQueue(nextQueue);
 
         await logger.warn('public-form', 'Lead create failed - will save locally', {

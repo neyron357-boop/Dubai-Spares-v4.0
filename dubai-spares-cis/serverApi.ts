@@ -27,6 +27,7 @@ const endpointRateLimit = new Map<string, number>();
 const singleFlight = new Map<string, Promise<Result<unknown>>>();
 const MIN_ENDPOINT_INTERVAL_MS = 1000;
 const RETRYABLE_CODES = new Set(['aborted_or_timeout', 'network_error']);
+const SCHEMA_MISMATCH_CODES = new Set(['PGRST205', 'PGRST204', 'SCHEMA_MISMATCH']);
 
 
 const LEADS_SYNC_VARIANT_STORAGE_KEY = 'server_api_leads_sync_variant_v2';
@@ -60,6 +61,78 @@ const saveLeadsSyncVariant = (variantIndex: number) => {
 
 
 const toErrorMessage = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
+
+const asObject = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {});
+
+const isSchemaMismatchErrorText = (message: string) => {
+  const probe = message.toLowerCase();
+  return probe.includes('schema cache') || probe.includes('schema_mismatch') || probe.includes('pgrst205') || probe.includes('public.orders') || probe.includes('public.shops');
+};
+
+const isSchemaMismatchStatus = (status?: number) => status === 404 || status === 406;
+
+const isSchemaMismatchResponse = (status?: number, text?: string) => {
+  if (isSchemaMismatchStatus(status) && text && isSchemaMismatchErrorText(text)) return true;
+  if (!text) return false;
+  try {
+    const parsed = JSON.parse(text);
+    const code = String(parsed?.code || '').toUpperCase();
+    const message = String(parsed?.message || '');
+    return SCHEMA_MISMATCH_CODES.has(code) || isSchemaMismatchErrorText(message);
+  } catch {
+    return isSchemaMismatchErrorText(text);
+  }
+};
+
+const normalizeForSupabaseJson = (input: unknown): unknown => {
+  if (input === undefined) return null;
+  if (input === null) return null;
+  if (typeof input === 'number') return Number.isFinite(input) ? input : null;
+  if (typeof input === 'bigint') return input.toString();
+  if (typeof input === 'string' || typeof input === 'boolean') return input;
+  if (Array.isArray(input)) return input.map((value) => normalizeForSupabaseJson(value));
+  if (typeof input === 'object') {
+    return Object.entries(input as Record<string, unknown>).reduce<Record<string, unknown>>((acc, [key, value]) => {
+      if (value === undefined) return acc;
+      acc[key] = normalizeForSupabaseJson(value);
+      return acc;
+    }, {});
+  }
+  return null;
+};
+
+let schemaRefreshInFlight: Promise<void> | null = null;
+const refreshSchemaCache = async () => {
+  if (schemaRefreshInFlight) return schemaRefreshInFlight;
+
+  schemaRefreshInFlight = (async () => {
+    const endpoint = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/refresh_schema_cache`;
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: '{}' 
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        console.warn('[schema] refresh_schema_cache rpc failed', { status: response.status, body: text.slice(0, 200) });
+      } else {
+        console.warn('[schema] refresh_schema_cache rpc executed before retry');
+      }
+    } catch (error) {
+      console.warn('[schema] refresh_schema_cache rpc error', error);
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+  })().finally(() => {
+    schemaRefreshInFlight = null;
+  });
+
+  return schemaRefreshInFlight;
+};
 
 const maskSupabaseUrl = (value: string) => {
   if (!value) return '❌ MISSING';
@@ -196,6 +269,22 @@ const callRest = async <T>(endpoint: string, method: 'GET' | 'POST', payload: un
       });
 
       if (!response.ok) {
+        if (isSchemaMismatchResponse(response.status, text)) {
+          await refreshSchemaCache();
+          const retryResponse = await fetch(requestUrl, {
+            method,
+            headers,
+            body: payload === undefined ? undefined : JSON.stringify(payload),
+            signal: controller.signal
+          });
+          const retryText = await retryResponse.text();
+          if (retryResponse.ok) {
+            return { ok: true, data: (retryText ? JSON.parse(retryText) : null) as T };
+          }
+          lastResult = handleSupabaseError({ status: retryResponse.status, text: retryText.slice(0, 220), endpoint, method }) as Result<T>;
+          console.error('[leadCreate] [callRest] HTTP error after schema refresh retry', { endpoint, method, attempt, status: retryResponse.status, body: retryText.slice(0, 400) });
+          return lastResult;
+        }
         lastResult = handleSupabaseError({ status: response.status, text: text.slice(0, 220), endpoint, method }) as Result<T>;
         console.error('[leadCreate] [callRest] HTTP error', { endpoint, method, attempt, status: response.status, body: text.slice(0, 400) });
         return lastResult;
@@ -257,7 +346,13 @@ export const backupUpload = async (
       return recordCall('backupRestore', { ok: true, data: { backupId: row.id, payload: decoded } });
     }
 
-    const prepared = await preparePayloadWithImageManifest(payload, 'backup', `b-${Date.now()}`, { signal: options?.signal });
+    const normalizedPayload = normalizeForSupabaseJson(payload);
+    console.log('[backupUpload] payload diagnostics', {
+      type: typeof normalizedPayload,
+      hasOrders: Array.isArray(asObject(normalizedPayload).orders),
+      orderCount: Array.isArray(asObject(normalizedPayload).orders) ? (asObject(normalizedPayload).orders as unknown[]).length : 0
+    });
+    const prepared = await preparePayloadWithImageManifest(normalizedPayload, 'backup', `b-${Date.now()}`, { signal: options?.signal });
     const encoded = await encodePayloadToCompressedTransport(prepared.payload);
 
     const buildBackupPayload = (includeImageManifest: boolean) => [{
@@ -386,7 +481,12 @@ export const leadCreate = async (
   if (inFlight.has(lockKey)) return recordCall('leadCreate', denyDuplicate('Lead submit'));
   inFlight.add(lockKey);
   try {
-    const prepared = await preparePayloadWithImageManifest(payload, 'lead', `l-${Date.now()}`, { signal: options?.signal });
+    const normalizedPayload = normalizeForSupabaseJson(payload) as Record<string, unknown>;
+    if (!String(normalizedPayload.name || '').trim() || !String(normalizedPayload.phone || '').trim()) {
+      return recordCall('leadCreate', { ok: false, code: 'validation_error', error: 'Поля имя и телефон обязательны для отправки заявки.' });
+    }
+
+    const prepared = await preparePayloadWithImageManifest(normalizedPayload, 'lead', `l-${Date.now()}`, { signal: options?.signal });
     const encoded = await encodePayloadToCompressedTransport(prepared.payload);
     const idempotencyKey = typeof payload.idempotency_key === 'string' && payload.idempotency_key.trim()
       ? payload.idempotency_key.trim()
@@ -396,15 +496,21 @@ export const leadCreate = async (
       payload: encoded.payloadJson ?? prepared.payload,
       payload_b64: encoded.payloadB64,
       payload_codec: encoded.payloadCodec,
-      name: payload.name,
-      phone: payload.phone,
-      message: payload.message || '',
-      order_id: payload.orderId || null,
+      name: String(normalizedPayload.name || ''),
+      phone: String(normalizedPayload.phone || ''),
+      message: String(normalizedPayload.message || ''),
+      order_id: normalizedPayload.orderId ? String(normalizedPayload.orderId) : null,
       idempotency_key: idempotencyKey,
       image_manifest: prepared.imageManifest
     }];
 
-    console.log('[leadCreate] Payload:', { name: payload.name, phone: payload.phone, orderId: payload.orderId || null, idempotencyKey });
+    console.log('[leadCreate] Payload:', {
+      name: requestPayload[0].name,
+      phone: requestPayload[0].phone,
+      orderId: requestPayload[0].order_id,
+      idempotencyKey,
+      payloadBytes: JSON.stringify(requestPayload[0]).length
+    });
 
     const response = await withSingleFlight(`lead:create:${idempotencyKey}`,
       () => callRest<Array<{ id: string }>>('client_leads', 'POST', requestPayload, {
