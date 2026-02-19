@@ -132,6 +132,13 @@ const App: React.FC = () => {
     }
   };
 
+  const normalizedPath = window.location.pathname.toLowerCase().replace(/\/+$/, '');
+  const isDirectPublicOrderFormPath = normalizedPath.endsWith('/request') || normalizedPath.endsWith('/order-form');
+
+  if (isDirectPublicOrderFormPath) {
+    return <PublicOrderFormScreen />;
+  }
+
   return (
     <div onKeyDown={handleKeyDown}>
       <div className="transition-opacity duration-500 opacity-100">
