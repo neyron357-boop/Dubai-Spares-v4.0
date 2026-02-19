@@ -108,7 +108,7 @@ export const validateCloudLead = (lead: unknown): lead is CloudLead => {
   }
 
   const entry = lead as Record<string, unknown>;
-  const requiredFields = ['id', 'name', 'phone', 'created_at'] as const;
+  const requiredFields = ['id', 'created_at'] as const;
   const missingFields = requiredFields.filter((field) => !entry[field]);
 
   if (missingFields.length > 0) {
@@ -126,6 +126,8 @@ export const validateCloudLead = (lead: unknown): lead is CloudLead => {
 export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
   const payload = await extractPayloadFromLead(lead);
   const year = payload.year;
+  const fallbackName = typeof payload.name === 'string' ? payload.name : 'Public Lead';
+  const fallbackPhone = typeof payload.phone === 'string' ? payload.phone : '';
 
   console.log('[mapCloudLeadToOrder] Mapping lead:', {
     id: lead.id,
@@ -146,8 +148,8 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
     carPhotoUrl: '',
     carPhotos: [],
     parts: Array.isArray(payload.parts) ? payload.parts : [],
-    clientName: lead.name || 'Public Lead',
-    customerContact: lead.phone || '',
+    clientName: lead.name || fallbackName,
+    customerContact: lead.phone || fallbackPhone,
     priority: Priority.HIGH,
     status: 'lead',
     source: Source.OTHER,

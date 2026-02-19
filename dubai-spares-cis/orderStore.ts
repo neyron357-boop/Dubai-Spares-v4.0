@@ -330,14 +330,41 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 };
 
 const isOrdersTableMissingFromSchemaCache = (error: unknown) => {
-  if (typeof error !== 'object' || !error) return false;
-  const anyErr = error as { code?: unknown; message?: unknown; details?: unknown };
-  const code = typeof anyErr.code === 'string' ? anyErr.code : '';
-  const message = typeof anyErr.message === 'string' ? anyErr.message : '';
-  const details = typeof anyErr.details === 'string' ? anyErr.details : '';
-  const probe = `${message} ${details}`.toLowerCase();
+  if (!error) return false;
 
-  return code === 'PGRST205' && probe.includes('public.orders') && probe.includes('schema cache');
+  const stack: unknown[] = [error];
+  const visited = new Set<unknown>();
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || visited.has(current)) continue;
+    visited.add(current);
+
+    if (typeof current === 'string') {
+      const probe = current.toLowerCase();
+      if (probe.includes('public.orders') && probe.includes('schema cache')) return true;
+      continue;
+    }
+
+    if (typeof current !== 'object') continue;
+
+    const anyErr = current as { code?: unknown; message?: unknown; details?: unknown; error?: unknown; raw?: unknown };
+    const code = typeof anyErr.code === 'string' ? anyErr.code.toUpperCase() : '';
+    const message = typeof anyErr.message === 'string' ? anyErr.message : '';
+    const details = typeof anyErr.details === 'string' ? anyErr.details : '';
+    const probe = `${message} ${details}`.toLowerCase();
+
+    if ((code === 'PGRST205' || code === 'SCHEMA_MISMATCH') && probe.includes('public.orders') && probe.includes('schema cache')) {
+      return true;
+    }
+
+    if (anyErr.error) stack.push(anyErr.error);
+    if (anyErr.raw) stack.push(anyErr.raw);
+    if (message) stack.push(message);
+    if (details) stack.push(details);
+  }
+
+  return false;
 };
 
 const broadcastSyncError = (error: unknown, fallback: string) => {
