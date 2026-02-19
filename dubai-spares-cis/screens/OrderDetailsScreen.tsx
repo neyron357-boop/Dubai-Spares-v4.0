@@ -298,7 +298,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   // Auto-retry loading order if not found
   useEffect(() => {
-    if (!id || order || isLoading || retryAttempts >= MAX_RETRY_ATTEMPTS) return;
+    if (!id || order || isLoading || isRetrying || retryAttempts >= MAX_RETRY_ATTEMPTS) return;
     
     let cancelled = false;
     const retryTimer = window.setTimeout(() => {
@@ -318,7 +318,7 @@ const OrderDetailsScreen: React.FC = () => {
       cancelled = true;
       window.clearTimeout(retryTimer);
     };
-  }, [id, order, isLoading, retryAttempts, fetchOrderDetails]);
+  }, [id, order, isLoading, isRetrying, retryAttempts, fetchOrderDetails]);
 
   if (!order && isLoading) {
     return (
