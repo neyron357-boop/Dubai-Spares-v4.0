@@ -185,3 +185,85 @@ begin
       raise notice 'Skipping storage.objects policy changes (insufficient privileges)';
   end;
 end $$;
+
+-- Additional cloud tables used by public form / quote / backups.
+create table if not exists public.client_leads (
+  id uuid primary key default gen_random_uuid(),
+  idempotency_key text,
+  order_id text,
+  name text,
+  phone text,
+  message text,
+  payload jsonb not null default '{}'::jsonb,
+  payload_json jsonb,
+  payload_b64 text,
+  payload_codec text,
+  image_manifest jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.client_leads add column if not exists idempotency_key text;
+alter table public.client_leads add column if not exists order_id text;
+alter table public.client_leads add column if not exists payload_json jsonb;
+alter table public.client_leads add column if not exists payload_b64 text;
+alter table public.client_leads add column if not exists payload_codec text;
+alter table public.client_leads add column if not exists image_manifest jsonb not null default '[]'::jsonb;
+alter table public.client_leads add column if not exists updated_at timestamptz not null default now();
+
+create table if not exists public.backups (
+  id uuid primary key default gen_random_uuid(),
+  payload jsonb not null default '{}'::jsonb,
+  payload_b64 text,
+  payload_codec text,
+  image_manifest jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.backups_meta (
+  id text primary key,
+  created_at timestamptz not null default now(),
+  size_bytes bigint,
+  sha256 text
+);
+
+create unique index if not exists idx_client_leads_idempotency_key on public.client_leads (idempotency_key);
+create index if not exists idx_client_leads_created_at on public.client_leads (created_at desc);
+
+alter table public.client_leads enable row level security;
+alter table public.backups enable row level security;
+alter table public.backups_meta enable row level security;
+
+drop policy if exists "client_leads_insert_anon" on public.client_leads;
+create policy "client_leads_insert_anon" on public.client_leads for insert to anon with check (true);
+drop policy if exists "client_leads_insert_authenticated" on public.client_leads;
+create policy "client_leads_insert_authenticated" on public.client_leads for insert to authenticated with check (true);
+drop policy if exists "client_leads_select_anon" on public.client_leads;
+create policy "client_leads_select_anon" on public.client_leads for select to anon using (true);
+drop policy if exists "client_leads_select_authenticated" on public.client_leads;
+create policy "client_leads_select_authenticated" on public.client_leads for select to authenticated using (true);
+
+drop policy if exists "backups_insert_anon" on public.backups;
+create policy "backups_insert_anon" on public.backups for insert to anon with check (true);
+drop policy if exists "backups_select_anon" on public.backups;
+create policy "backups_select_anon" on public.backups for select to anon using (true);
+
+drop policy if exists "backups_meta_insert_anon" on public.backups_meta;
+create policy "backups_meta_insert_anon" on public.backups_meta for insert to anon with check (true);
+drop policy if exists "backups_meta_select_anon" on public.backups_meta;
+create policy "backups_meta_select_anon" on public.backups_meta for select to anon using (true);
+
+create or replace function public.refresh_schema_cache()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform pg_notify('pgrst', 'reload schema');
+exception
+  when undefined_function then
+    null;
+end;
+$$;
+
+grant execute on function public.refresh_schema_cache() to anon, authenticated;
