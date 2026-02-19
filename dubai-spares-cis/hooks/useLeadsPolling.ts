@@ -5,10 +5,12 @@ import { syncLeadsToState } from '../orderStore';
 import { supabase } from '../supabase';
 
 const POLL_INTERVAL_MS = 60_000;
+const DEBOUNCE_DELAY_MS = 2000; // Debounce realtime polls to prevent rapid successive calls
 
 export const useLeadsPolling = (enabled: boolean = true) => {
   const intervalRef = useRef<number | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const debounceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!enabled) {
@@ -45,6 +47,19 @@ export const useLeadsPolling = (enabled: boolean = true) => {
       }
     };
 
+    const debouncedPoll = () => {
+      // Clear existing debounce timer
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      
+      // Schedule a new poll after debounce delay
+      debounceTimerRef.current = window.setTimeout(() => {
+        void poll();
+        debounceTimerRef.current = null;
+      }, DEBOUNCE_DELAY_MS);
+    };
+
     // Initial poll
     void poll();
 
@@ -53,15 +68,15 @@ export const useLeadsPolling = (enabled: boolean = true) => {
       void poll();
     }, POLL_INTERVAL_MS);
 
-    // Set up realtime subscription for instant updates
+    // Set up realtime subscription for instant updates (only if supabase is configured)
     if (supabase) {
       console.log('[useLeadsPolling] Setting up realtime subscription for client_leads');
       channelRef.current = supabase
         .channel('client-leads-realtime')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'client_leads' }, (payload) => {
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'client_leads' }, () => {
           console.log('[useLeadsPolling] Realtime INSERT event received');
-          // Poll immediately when a new lead is created
-          void poll();
+          // Use debounced poll to prevent rapid successive calls
+          debouncedPoll();
         })
         .subscribe((status) => {
           console.log('[useLeadsPolling] Realtime subscription status:', status);
@@ -72,6 +87,10 @@ export const useLeadsPolling = (enabled: boolean = true) => {
       if (intervalRef.current) {
         console.log('[useLeadsPolling] Stopping polling');
         clearInterval(intervalRef.current);
+      }
+      
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
       }
       
       if (channelRef.current) {

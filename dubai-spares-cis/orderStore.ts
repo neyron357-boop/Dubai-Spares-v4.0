@@ -1213,7 +1213,7 @@ export const syncLeadsToState = async (cloudLeads: CloudLeadRow[]) => {
   const previousOrders = state.orders;
   const mergedOrders = await mergeCloudLeadsWithOrders(previousOrders, cloudLeads);
   
-  // Always update state to ensure we have the latest data, even if count is the same
+  // Update state with merged leads to ensure UI reflects latest data
   console.log('[syncLeadsToState] Updating state with merged leads');
   setState({ orders: mergedOrders });
   
