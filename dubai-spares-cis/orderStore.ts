@@ -238,12 +238,17 @@ const getMissingColumnName = (error: unknown): string | null => {
   return null;
 };
 
-const fetchOrdersPageWithoutJoin = async (orderColumns: string[], from: number, to: number) => {
+const fetchOrdersPage = async (orderColumns: string[], from: number, to: number) => {
   if (!supabase) return { data: null, error: null };
+
+  const partColumns = getSelectableColumns('parts');
+  const variantColumns = getSelectableColumns('price_variants');
+  const partsJoin = `parts(${partColumns.join(',')}, price_variants(${variantColumns.join(',')}))`;
+  const selectQuery = `${orderColumns.join(',')}, ${partsJoin}`;
 
   const ordersResponse = await supabase
     .from('orders')
-    .select(orderColumns.join(','))
+    .select(selectQuery)
     .order('created_at', { ascending: false })
     .range(from, to);
 
@@ -263,7 +268,7 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
   let offset = 0;
 
   while (true) {
-    const response = await fetchOrdersPageWithoutJoin(orderColumns, offset, offset + ORDER_PAGE_SIZE - 1);
+    const response = await fetchOrdersPage(orderColumns, offset, offset + ORDER_PAGE_SIZE - 1);
 
     if (!response.error) {
       const page = Array.isArray(response.data) ? response.data : [];
@@ -666,7 +671,15 @@ const persistOrderGraph = async (order: Order) => {
       batchSize: batch.length,
       payloadBytes: JSON.stringify(batch).length
     });
-    const { error: partError } = await supabase.from('parts').upsert(batch, { onConflict: 'id' });
+    let { error: partError } = await supabase.from('parts').upsert(batch, { onConflict: 'id' });
+    let currentPartBatch: Record<string, unknown>[] = batch as Record<string, unknown>[];
+    while (partError) {
+      const missingPartCol = getMissingColumnName(partError);
+      if (!missingPartCol) break;
+      await logger.warn('sync:persist', `parts.${missingPartCol} missing; retrying without it`);
+      currentPartBatch = currentPartBatch.map(({ [missingPartCol]: _ignored, ...rest }) => rest);
+      ({ error: partError } = await supabase.from('parts').upsert(currentPartBatch, { onConflict: 'id' }));
+    }
     if (partError) {
       await logger.error('sync:persist', `Step 2/3 failed for order ${uploadedOrder.id}`, { error: serializeError(partError) });
       throw partError;
@@ -701,6 +714,15 @@ const persistOrderGraph = async (order: Order) => {
         batch.map((row) => ({ ...row, created_at: toIsoTimestamp(row.created_at) })),
         { onConflict: 'id' }
       ));
+    }
+
+    let currentVariantBatch: Record<string, unknown>[] = batch as Record<string, unknown>[];
+    while (variantError) {
+      const missingVariantCol = getMissingColumnName(variantError);
+      if (!missingVariantCol) break;
+      await logger.warn('sync:persist', `price_variants.${missingVariantCol} missing; retrying without it`);
+      currentVariantBatch = currentVariantBatch.map(({ [missingVariantCol]: _ignored, ...rest }) => rest);
+      ({ error: variantError } = await supabase.from('price_variants').upsert(currentVariantBatch, { onConflict: 'id' }));
     }
 
     if (variantError) {
