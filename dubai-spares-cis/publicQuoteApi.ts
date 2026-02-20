@@ -742,14 +742,17 @@ export const publicQuoteCreateSnapshot = async (
         console.info('[public-quote] inserting snapshot', { token: quoteToken, expiresAt });
       }
 
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at,payload_json`, {
+      const insertHeaders = {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation'
+      };
+
+      // Attempt 1: full schema (snapshot_id + payload columns present)
+      let response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at,payload_json`, {
         method: 'POST',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-          Prefer: 'return=representation'
-        },
+        headers: insertHeaders,
         body: JSON.stringify([{
           token: quoteToken,
           snapshot_id: snapshotToken,
@@ -759,6 +762,22 @@ export const publicQuoteCreateSnapshot = async (
         }]),
         signal: request.signal
       });
+
+      // Attempt 2: 400 means a column in the body/select doesn't exist in the current schema.
+      // Retry with only the minimal columns that have existed in every schema version.
+      if (response.status === 400) {
+        void logger.info('public-quote:create', 'Retrying insert with minimal columns (schema may be missing snapshot_id/payload)', { orderId: order.id });
+        response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,expires_at,payload_json`, {
+          method: 'POST',
+          headers: insertHeaders,
+          body: JSON.stringify([{
+            token: quoteToken,
+            expires_at: expiresAt,
+            payload_json: normalizedPayloadJson
+          }]),
+          signal: request.signal
+        });
+      }
 
       if (!response.ok) {
         void logger.warn('public-quote:create', 'Snapshot insert failed', { orderId: order.id, status: response.status, quoteToken });
@@ -771,8 +790,8 @@ export const publicQuoteCreateSnapshot = async (
         void logger.warn('public-quote:create', 'Snapshot insert returned incomplete data', { orderId: order.id, created });
         throw new Error('Share quote created, but response is missing id/token/expires_at');
       }
-      if (!created.payload_json || typeof created.payload_json !== 'object') {
-        throw new Error('Share quote created with invalid payload_json');
+      if (isDevBuild && (!created.payload_json || typeof created.payload_json !== 'object')) {
+        void logger.warn('public-quote:create', 'payload_json not echoed back from insert', { orderId: order.id });
       }
       const effectiveSnapshotId = (created.snapshot_id || created.id || '').trim();
 
@@ -862,18 +881,37 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
 
   const runSelect = async (queryEndpoint: string, silent = false) => {
     const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
+    const fetchOptions = {
+      method: 'GET',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        Accept: 'application/json',
+        'Cache-Control': 'no-store'
+      },
+      cache: 'no-store' as const,
+      signal: request.signal
+    };
     try {
-      const response = await fetch(queryEndpoint, {
-        method: 'GET',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          Accept: 'application/json',
-          'Cache-Control': 'no-store'
-        },
-        cache: 'no-store',
-        signal: request.signal
-      });
+      let response = await fetch(queryEndpoint, fetchOptions);
+
+      // 400 from PostgREST means a column in the select or filter clause doesn't exist.
+      if (response.status === 400) {
+        // Endpoints that filter on snapshot_id can't be made to work if that column doesn't exist.
+        if (queryEndpoint.includes('snapshot_id=eq.')) return null;
+        // For all other endpoints, retry with the minimal column set that has always existed.
+        const fallbackEndpoint = (() => {
+          try {
+            const url = new URL(queryEndpoint);
+            url.searchParams.set('select', 'id,token,expires_at,payload_json');
+            return url.toString();
+          } catch {
+            return queryEndpoint.replace(/([?&]select=)[^&]+/, '$1id,token,expires_at,payload_json');
+          }
+        })();
+        response = await fetch(fallbackEndpoint, fetchOptions);
+      }
+
       if (!response.ok) {
         if (silent) return null;
         void logger.warn('public-quote:fetch', 'Snapshot lookup failed', { token: normalizedToken, status: response.status, endpoint: queryEndpoint });

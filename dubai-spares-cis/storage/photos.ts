@@ -1,3 +1,4 @@
+import { SUPABASE_ANON_KEY, SUPABASE_URL, isCloudConfigured } from '../cloudConfig';
 import { logger } from '../logging';
 
 const configuredBucket = (import.meta as any).env?.VITE_SUPABASE_STORAGE_BUCKET as string | undefined;
@@ -5,8 +6,9 @@ const BUCKET_CANDIDATES = [configuredBucket, 'images', 'order-images'].filter(
   (bucket, index, all): bucket is string => !!bucket && all.indexOf(bucket) === index
 );
 
-const MAX_IMAGE_DIMENSION = 1200;
-const WEBP_QUALITY = 0.72;
+const MAX_IMAGE_DIMENSION = 1024;
+const WEBP_QUALITY = 0.55;
+const TARGET_BYTES = 300 * 1024; // ~10x compression target for typical 3 MB photos
 const STORAGE_UPLOAD_RETRY_DELAYS_MS = [600, 1600];
 
 type ImageTransformOptions = {
@@ -88,6 +90,14 @@ const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality: number):
     }, type, quality);
   });
 
+const encodeCanvas = async (canvas: HTMLCanvasElement, quality: number): Promise<Blob> => {
+  try {
+    return await canvasToBlob(canvas, 'image/webp', quality);
+  } catch {
+    return canvasToBlob(canvas, 'image/jpeg', quality);
+  }
+};
+
 const compressBlob = async (blob: Blob): Promise<Blob> => {
   if (typeof document === 'undefined') return blob;
 
@@ -104,7 +114,14 @@ const compressBlob = async (blob: Blob): Promise<Blob> => {
     if (!context) return blob;
 
     context.drawImage(image, 0, 0, width, height);
-    return await canvasToBlob(canvas, 'image/webp', WEBP_QUALITY);
+
+    // Adaptive multi-step: reduce quality until target size is met (≈10x compression)
+    let result = await encodeCanvas(canvas, WEBP_QUALITY);
+    for (const q of [0.45, 0.35]) {
+      if (result.size <= TARGET_BYTES) break;
+      result = await encodeCanvas(canvas, q);
+    }
+    return result;
   } finally {
     URL.revokeObjectURL(imageUrl);
   }
@@ -162,13 +179,78 @@ export const uploadImageToStorage = async (
   fileName: string
 ): Promise<string> => {
   const blob = await toBlob(source);
-  const ext = extensionFromBlob(blob);
-  await logger.warn('storage:upload-disabled', 'Remote photo upload disabled in local-first mode', {
+  const compressed = await compressBlob(blob);
+  const ext = extensionFromBlob(compressed);
+  const path = `${folder}/${fileName}.${ext}`;
+
+  if (!isCloudConfigured) {
+    await logger.warn('storage:upload-skipped', 'Remote photo upload skipped: cloud not configured', {
+      folder,
+      fileName,
+      sizeBytes: compressed.size
+    });
+    return `local://${path}`;
+  }
+
+  let lastError: unknown;
+  for (const bucket of BUCKET_CANDIDATES) {
+    for (let attempt = 0; attempt <= STORAGE_UPLOAD_RETRY_DELAYS_MS.length; attempt++) {
+      if (attempt > 0) {
+        await wait(STORAGE_UPLOAD_RETRY_DELAYS_MS[attempt - 1]);
+      }
+      try {
+        const response = await fetch(
+          `${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`,
+          {
+            method: 'POST',
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              'x-upsert': 'true',
+              'Content-Type': compressed.type || 'image/webp'
+            },
+            body: compressed
+          }
+        );
+
+        if (response.ok) {
+          const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+          await logger.info('storage:upload-ok', `${folder}/${fileName} uploaded`, {
+            bucket,
+            path,
+            beforeBytes: blob.size,
+            afterBytes: compressed.size,
+            reductionPercent: blob.size > 0
+              ? Number((((blob.size - compressed.size) / blob.size) * 100).toFixed(2))
+              : 0
+          });
+          return publicUrl;
+        }
+
+        const text = await response.text().catch(() => '');
+        const err = new Error(`Upload failed ${response.status}: ${text.slice(0, 140)}`);
+        if (isBucketNotFoundError({ message: text, status: response.status })) {
+          lastError = err;
+          break; // try next bucket
+        }
+        if (!isTransientStorageUploadError({ status: response.status })) {
+          lastError = err;
+          break;
+        }
+        lastError = err;
+      } catch (error) {
+        lastError = error;
+        if (!isTransientStorageUploadError(error)) break;
+      }
+    }
+  }
+
+  await logger.warn('storage:upload-failed', 'Remote photo upload failed, falling back to local', {
     folder,
     fileName,
-    sizeBytes: blob.size
+    error: String(lastError)
   });
-  return `local://${folder}/${fileName}.${ext}`;
+  return `local://${path}`;
 };
 
 export const listStoragePathsRecursive = async (_bucket: string, _folder: string): Promise<string[]> => [];
