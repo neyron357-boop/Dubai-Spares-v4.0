@@ -244,6 +244,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
   const deliveryCityOptions = useMemo(() => DELIVERY_CITIES[deliveryCountry as keyof typeof DELIVERY_CITIES] || [], [deliveryCountry]);
   const smartSuggestionKey = `${brand}|${model}|${bodyType}`;
+  const progress = (step / TOTAL_STEPS) * 100;
 
   useEffect(() => {
     if (import.meta.env.DEV) {
