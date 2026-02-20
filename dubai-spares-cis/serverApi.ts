@@ -516,12 +516,25 @@ export const leadCreate = async (
       payloadBytes: JSON.stringify(requestPayload[0]).length
     });
 
-    const response = await withSingleFlight(`lead:create:${idempotencyKey}`,
+    let response = await withSingleFlight(`lead:create:${idempotencyKey}`,
       () => callRest<Array<{ id: string }>>('client_leads', 'POST', requestPayload, {
         ...(options || {}),
         timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
         preferRepresentation: false
       }));
+
+    if (!response.ok && response.code === 'supabase_400') {
+      console.warn('[leadCreate] Retrying without image_manifest (column may not exist in schema)');
+      const { image_manifest: _unusedManifest, ...rowWithoutManifest } = requestPayload[0];
+      const fallbackPayload = [rowWithoutManifest];
+      response = await withSingleFlight(`lead:create:${idempotencyKey}:fb`,
+        () => callRest<Array<{ id: string }>>('client_leads', 'POST', fallbackPayload, {
+          ...(options || {}),
+          timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
+          preferRepresentation: false
+        }));
+    }
+
     console.log('[leadCreate] Response status:', response.ok ? '✅ SUCCESS' : '❌ FAILED', response);
     if (!response.ok) {
       console.error('[leadCreate] Error details:', { code: response.code, error: response.error });

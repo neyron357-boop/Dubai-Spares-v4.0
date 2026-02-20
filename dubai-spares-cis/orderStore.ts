@@ -1315,12 +1315,28 @@ export const useOrderStore = () => {
       setState({ isSyncing: false });
     };
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchOrders();
+      }
+    };
+
+    const LEADS_POLL_INTERVAL_MS = 2 * 60 * 1000; // poll every 2 minutes
+    const pollIntervalId = window.setInterval(() => {
+      if (document.visibilityState !== 'hidden') {
+        void fetchOrders();
+      }
+    }, LEADS_POLL_INTERVAL_MS);
+
     window.addEventListener('online', onOnline);
     window.addEventListener('idb-autosync-paused', onIdbPaused as EventListener);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     navigator.serviceWorker?.addEventListener?.('message', onSwMessage);
     return () => {
+      window.clearInterval(pollIntervalId);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('idb-autosync-paused', onIdbPaused as EventListener);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       navigator.serviceWorker?.removeEventListener?.('message', onSwMessage);
     };
   }, []);
