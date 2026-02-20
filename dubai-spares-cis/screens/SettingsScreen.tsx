@@ -8,6 +8,7 @@ import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLas
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
 import { refreshSupabaseSchemaCache } from '../schemaCache';
+import { logger } from '../logging';
 
 const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger' }> = ({ title, children, tone = 'default' }) => (
   <section className={`rounded-2xl border p-4 space-y-3 ${tone === 'danger' ? 'border-rose-200 bg-rose-50' : 'border-gray-200 bg-white'}`}>
@@ -116,6 +117,23 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
+
+
+  const handleExportLogs = async () => {
+    try {
+      const logs = await logger.getRecent(100);
+      const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `dubai-spares-logs-${Date.now()}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Export logs failed';
+      alert(`Не удалось экспортировать логи: ${message}`);
+    }
+  };
 
   const handleManualLeadsSync = async () => {
     setIsSyncingLeads(true);
@@ -393,6 +411,7 @@ ${result.error}
         <div className="flex gap-3">
           <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => { (window as any).__serverApiRequestCount = 0; setRequestCount(0); }}>Reset request counter</button>
           <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => navigator.clipboard.writeText(cloudDiagnosticsText())}>Copy diagnostics</button>
+          <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => void handleExportLogs()}>Экспорт логов</button>
           <button
             type="button"
             className="text-xs font-bold text-emerald-700 underline underline-offset-2 text-left disabled:opacity-50"

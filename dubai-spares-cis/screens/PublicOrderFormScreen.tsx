@@ -223,7 +223,14 @@ const PublicOrderFormScreen: React.FC = () => {
   const [manualModelMode, setManualModelMode] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { settings } = useAppSettings();
-  const publicFormUrl = `${window.location.origin}/order-form`;
+  const publicFormUrl = `${window.location.origin}/public-order-form`;
+  const refCode = useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('ref') || '';
+    } catch {
+      return '';
+    }
+  }, []);
   const whatsappPhone = (settings.publicWhatsappNumber || '').replace(/\D/g, '');
 
   const carInputRef = useRef<HTMLInputElement | null>(null);
@@ -615,10 +622,12 @@ Country: ${deliveryCountry}`,
           year: year.trim(),
           vin: vin.trim(),
           bodyType: bodyType.trim() || null,
-          requestedParts: filledRequestedParts.map((part) => part.name.trim())
+          requestedParts: filledRequestedParts.map((part) => part.name.trim()),
+          refCode: refCode || null
         }),
         parts: partsToInsert,
         notes,
+        refCode: refCode || undefined,
         carPhotos: uploadedCarPhotos,
         vinPhotos: uploadedVinPhotos
       };
