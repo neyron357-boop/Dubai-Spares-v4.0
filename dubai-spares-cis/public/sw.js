@@ -1,4 +1,4 @@
-const APP_SHELL_CACHE = 'dubai-spares-shell-v5';
+const APP_SHELL_CACHE = 'dubai-spares-shell-v6';
 const APP_SHELL_FILES = ['/', '/index.html', '/manifest.json', '/icon-32.png', '/icon-180.png', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (event) => {
