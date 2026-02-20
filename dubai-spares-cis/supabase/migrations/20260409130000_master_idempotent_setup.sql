@@ -195,11 +195,11 @@ alter table public.public_quote_snapshots
   add column if not exists token          text,
   add column if not exists snapshot_id    text,
   add column if not exists order_id       text,
-  add column if not exists payload        jsonb       not null default '{}'::jsonb,
+  add column if not exists payload        jsonb       default '{}'::jsonb,
   add column if not exists payload_json   jsonb,
   add column if not exists payload_b64    text,
   add column if not exists payload_codec  text,
-  add column if not exists image_manifest jsonb       not null default '[]'::jsonb,
+  add column if not exists image_manifest jsonb       default '[]'::jsonb,
   add column if not exists expires_at     timestamptz;
 
 -- ────────────────────────────────────────────────────────────
@@ -353,16 +353,16 @@ create policy "Service role can manage push subscriptions"
 drop policy if exists "quote_insert_anon"           on public.public_quote_snapshots;
 create policy "quote_insert_anon"
   on public.public_quote_snapshots for insert to anon
-  with check (true);
+  with check (token is not null);
 
 drop policy if exists "quote_select_anon"           on public.public_quote_snapshots;
 create policy "quote_select_anon"
   on public.public_quote_snapshots for select to anon
-  using (true);
+  using (expires_at is null or expires_at > now());
 
 drop policy if exists "quote_update_anon"           on public.public_quote_snapshots;
 create policy "quote_update_anon"
-  on public.public_quote_snapshots for update to anon
+  on public.public_quote_snapshots for update to authenticated
   using (true) with check (true);
 
 drop policy if exists "client_leads_insert_anon"    on public.client_leads;
