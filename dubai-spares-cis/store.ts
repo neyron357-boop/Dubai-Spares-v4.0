@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useCallback } from 'react';
 import { Supplier } from './types';
 import { useOrderStore, subscribeOrderStore, getOrderState, restoreOrdersExternal, fetchOrderDetails } from './orderStore';
 import { ensureUuid } from './id';
-import { deleteSupplierFromShops } from './radarShops';
+import { deleteSupplierFromShops, fetchSuppliersFromShops } from './radarShops';
 
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
@@ -57,6 +57,27 @@ const notifySupplierListeners = () => {
     console.error('Failed to persist suppliers:', e);
   }
   listeners.forEach((listener) => listener());
+};
+
+let supplierSyncInFlight = false;
+
+export const syncSuppliersFromServer = async () => {
+  if (supplierSyncInFlight) return;
+  supplierSyncInFlight = true;
+  try {
+    const serverSuppliers = await fetchSuppliersFromShops();
+    if (serverSuppliers.length === 0) return;
+    const localIds = new Set(globalSuppliers.map((s) => s.id));
+    const newFromServer = serverSuppliers.filter((s) => !localIds.has(s.id));
+    if (newFromServer.length > 0) {
+      globalSuppliers = [...newFromServer.map(normalizeSupplier), ...globalSuppliers];
+      notifySupplierListeners();
+    }
+  } catch (e) {
+    console.error('Failed to sync suppliers from server:', e);
+  } finally {
+    supplierSyncInFlight = false;
+  }
 };
 
 

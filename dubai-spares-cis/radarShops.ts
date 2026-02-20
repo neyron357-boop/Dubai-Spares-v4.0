@@ -449,6 +449,54 @@ export const deleteSupplierFromShops = async (supplierId: string) => {
   }
 };
 
+const mapShopRowToSupplier = (row: any): Supplier => ({
+  id: String(row.id),
+  name: row.name || '',
+  phone: row.phone || '',
+  location: row.location || '',
+  type: row.shop_type || 'new_parts',
+  zone: row.zone || '',
+  heatLevel: Number.isFinite(Number(row.heat_level)) ? Number(row.heat_level) : 0,
+  brands: Array.isArray(row.specialization) ? row.specialization : [],
+  mainBrands: Array.isArray(row.main_brands) ? row.main_brands : [],
+  models: Array.isArray(row.specialization_models) ? row.specialization_models : [],
+  years: toNumberArray(row.specialization_years),
+  bodyTypes: Array.isArray(row.specialization_body_types) ? row.specialization_body_types : [],
+  coordinates: hasValidCoordinates(Number(row.latitude), Number(row.longitude))
+    ? { lat: Number(row.latitude), lng: Number(row.longitude) }
+    : undefined,
+  createdAt: row.created_at ? Date.parse(String(row.created_at)) : Date.now(),
+  updatedAt: row.updated_at ? Date.parse(String(row.updated_at)) : Date.now(),
+  syncStatus: 'synced',
+  trustLevel: 3,
+  hasWhatsapp: true,
+  hasDelivery: false,
+  whatsappFast: false,
+  foundCount: 0,
+  notFoundCount: 0,
+  wrongInfoCount: 0,
+  successRate: 0,
+  activityScore: 0,
+  lastContactAt: 0,
+  isFavorite: false,
+  workingHours: '',
+  comment: '',
+  website: ''
+});
+
+export const fetchSuppliersFromShops = async (): Promise<Supplier[]> => {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('shops')
+    .select('id,name,phone,location,latitude,longitude,shop_type,main_brands,zone,heat_level,specialization,specialization_models,specialization_years,specialization_body_types,created_at,updated_at')
+    .order('created_at', { ascending: false });
+  if (error || !Array.isArray(data)) {
+    void logger.warn('shops:fetch-suppliers', 'Failed to fetch suppliers from shops', { error: error?.message });
+    return [];
+  }
+  return data.map(mapShopRowToSupplier);
+};
+
 
 export const fetchShopsInRadius = async (
   latitude: number,

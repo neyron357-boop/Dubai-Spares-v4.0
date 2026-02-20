@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useStore } from '../store';
+import { useStore, syncSuppliersFromServer } from '../store';
 import { RadarInteraction, Supplier, SupplierType } from '../types';
 import {
   Search,
@@ -603,6 +603,7 @@ const SuppliersScreen: React.FC = () => {
   };
 
   useEffect(() => {
+    void syncSuppliersFromServer();
     void offlineDb.getRadarInteractions().then(setRadarInteractions);
     const onRadarUpdated = () => { void offlineDb.getRadarInteractions().then(setRadarInteractions); };
     window.addEventListener('radar-interaction-saved', onRadarUpdated);

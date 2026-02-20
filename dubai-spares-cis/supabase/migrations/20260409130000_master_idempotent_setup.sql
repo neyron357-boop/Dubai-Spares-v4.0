@@ -158,9 +158,24 @@ create table if not exists public.shops (
   specialization_years    integer[]   not null default '{}',
   specialization_body_types text[]    not null default '{}',
   specialization_tag      text,
+  is_active               boolean     not null default true,
   created_at              timestamptz not null default now(),
   updated_at              timestamptz not null default now()
 );
+alter table public.shops
+  add column if not exists location                  text        not null default '',
+  add column if not exists shop_type                 text        not null default 'new_parts',
+  add column if not exists main_brands               text[]      not null default '{}',
+  add column if not exists zone                      text        not null default '',
+  add column if not exists heat_level                integer     not null default 0,
+  add column if not exists needs_manual_fix          boolean     not null default false,
+  add column if not exists specialization            text[]      not null default '{}',
+  add column if not exists specialization_models     text[]      not null default '{}',
+  add column if not exists specialization_years      integer[]   not null default '{}',
+  add column if not exists specialization_body_types text[]      not null default '{}',
+  add column if not exists specialization_tag        text,
+  add column if not exists is_active                 boolean     not null default true,
+  add column if not exists updated_at                timestamptz not null default now();
 
 create table if not exists public.push_subscriptions (
   id         uuid        primary key default gen_random_uuid(),
@@ -201,6 +216,14 @@ alter table public.public_quote_snapshots
   add column if not exists payload_codec  text,
   add column if not exists image_manifest jsonb       default '[]'::jsonb,
   add column if not exists expires_at     timestamptz;
+-- Drop any legacy NOT NULL constraints that the original 20260226110000 migration
+-- left on order_id / payload / image_manifest. These are silently safe when the
+-- columns are already nullable, so this block is idempotent.
+alter table public.public_quote_snapshots alter column order_id      drop not null;
+alter table public.public_quote_snapshots alter column payload        drop not null;
+alter table public.public_quote_snapshots alter column payload        set  default '{}'::jsonb;
+alter table public.public_quote_snapshots alter column image_manifest drop not null;
+alter table public.public_quote_snapshots alter column image_manifest set  default '[]'::jsonb;
 
 -- ────────────────────────────────────────────────────────────
 -- 3. CLIENT LEADS / BACKUPS
@@ -362,7 +385,7 @@ create policy "quote_select_anon"
 
 drop policy if exists "quote_update_anon"           on public.public_quote_snapshots;
 create policy "quote_update_anon"
-  on public.public_quote_snapshots for update to authenticated
+  on public.public_quote_snapshots for update to anon
   using (true) with check (true);
 
 drop policy if exists "client_leads_insert_anon"    on public.client_leads;
