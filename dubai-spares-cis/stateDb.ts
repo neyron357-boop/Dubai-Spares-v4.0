@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { isTableMissingError } from './utils/tableMissing'
 
 export async function loadJsonState(): Promise<any> {
   if (!supabase) return {}
@@ -9,7 +10,10 @@ export async function loadJsonState(): Promise<any> {
     .eq('id', 'global')
     .maybeSingle()
 
-  if (error) throw error
+  if (error) {
+    if (!isTableMissingError(error)) throw error;
+    return {};
+  }
   return data?.data ?? {}
 }
 
@@ -27,5 +31,5 @@ export async function saveJsonState(json: any): Promise<void> {
       { onConflict: 'id' }
     )
 
-  if (error) throw error
+  if (error && !isTableMissingError(error)) throw error
 }

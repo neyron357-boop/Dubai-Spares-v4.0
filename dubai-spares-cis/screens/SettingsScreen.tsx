@@ -3,11 +3,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ChevronRight, ShieldAlert, Wrench } from 'lucide-react';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
-import { backupUpload, leadsSync } from '../serverApi';
+import { backupUpload } from '../serverApi';
 import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLastCloudCall, isCloudConfigured, SUPABASE_HOST } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
-import { refreshSupabaseSchemaCache } from '../schemaCache';
 import { logger } from '../logging';
 
 const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger' }> = ({ title, children, tone = 'default' }) => (
@@ -39,8 +38,6 @@ const SettingsScreen: React.FC = () => {
   const [backupController, setBackupController] = useState<AbortController | null>(null);
   const [lastBackupId, setLastBackupId] = useState('');
   const [requestCount, setRequestCount] = useState<number>(() => ((window as any).__serverApiRequestCount || 0));
-  const [isSyncingLeads, setIsSyncingLeads] = useState(false);
-  const [lastSyncResult, setLastSyncResult] = useState('');
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -135,42 +132,6 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
-  const handleManualLeadsSync = async () => {
-    setIsSyncingLeads(true);
-    setLastSyncResult('');
-    console.log('[Settings] Manual leads sync started');
-
-    try {
-      let result = await leadsSync();
-
-      if (!result.ok && (result.code === 'supabase_404' || result.code === 'supabase_400')) {
-        await refreshSupabaseSchemaCache('manual-leads-sync-button');
-        result = await leadsSync();
-      }
-
-      if (result.ok) {
-        const count = result.data?.length || 0;
-        console.log('[Settings] Leads synced:', count);
-        setLastSyncResult(`✅ Загружено лидов: ${count}`);
-        await fetchOrders();
-        alert(`✅ Синхронизировано лидов: ${count}`);
-      } else {
-        console.error('[Settings] Sync failed:', result.error);
-        setLastSyncResult(`❌ Ошибка: ${result.error}`);
-        alert(`❌ Ошибка синхронизации:
-${result.error}
-Код: ${result.code}`);
-      }
-    } catch (error) {
-      console.error('[Settings] Sync exception:', error);
-      const message = error instanceof Error ? error.message : String(error);
-      setLastSyncResult(`❌ Исключение: ${message}`);
-      alert(`❌ Исключение: ${message}`);
-    } finally {
-      setIsSyncingLeads(false);
-    }
-  };
-
   return (
     <div className="min-h-full max-w-full overflow-x-hidden bg-gray-50 p-4 pb-24 space-y-4">
       <div
@@ -251,6 +212,27 @@ ${result.error}
               className="h-4 w-4"
             />
           </label>
+        </div>
+      </Section>
+
+      <Section title="Ссылка для клиента">
+        <p className="text-xs text-gray-600">Отправьте эту ссылку клиенту — он заполняет форму, и вы получаете новый лид в разделе «Заказы»:</p>
+        <div className="flex items-center gap-2">
+          <input
+            readOnly
+            value={`${window.location.origin}${window.location.pathname}#/request`}
+            className="flex-1 min-w-0 rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-xs font-mono truncate"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}#/request`);
+              window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Ссылка скопирована', tone: 'success' } }));
+            }}
+            className="shrink-0 rounded-xl bg-blue-600 text-white px-3 py-2 text-sm font-bold"
+          >
+            Копировать
+          </button>
         </div>
       </Section>
 
@@ -408,34 +390,23 @@ ${result.error}
           </label>
         </div>
 
+        <button
+          type="button"
+          onClick={() => void withBusy('cloud-test', async () => {
+            const result = await testSupabaseConnection();
+            if (!result.success) throw new Error('Supabase test connection failed');
+          })}
+          disabled={!isCloudConfigured || busy === 'cloud-test'}
+          className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold disabled:opacity-50"
+        >
+          Test Connection
+        </button>
+
         <div className="flex gap-3">
           <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => { (window as any).__serverApiRequestCount = 0; setRequestCount(0); }}>Reset request counter</button>
           <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => navigator.clipboard.writeText(cloudDiagnosticsText())}>Copy diagnostics</button>
           <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => void handleExportLogs()}>Экспорт логов</button>
-          <button
-            type="button"
-            className="text-xs font-bold text-emerald-700 underline underline-offset-2 text-left disabled:opacity-50"
-            disabled={!isCloudConfigured || busy === 'cloud-test'}
-            onClick={() => void withBusy('cloud-test', async () => {
-              const result = await testSupabaseConnection();
-              if (!result.success) throw new Error('Supabase test connection failed');
-            })}
-          >
-            Test Connection
-          </button>
         </div>
-
-        <button
-          type="button"
-          onClick={() => void handleManualLeadsSync()}
-          disabled={isSyncingLeads || !cloudFeatureFlags.clientForm}
-          className="w-full rounded-xl border border-blue-300 bg-blue-600 px-3 py-2 font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isSyncingLeads ? '⏳ Синхронизация...' : '🔄 Синхронизировать лиды вручную'}
-        </button>
-        {lastSyncResult && (
-          <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">{lastSyncResult}</div>
-        )}
         {devUnlocked && (
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 space-y-1">
             <p className="font-black text-gray-900">Cloud diagnostics (dev)</p>
