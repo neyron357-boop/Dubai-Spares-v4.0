@@ -78,7 +78,21 @@ create policy "anon_write_shops"
   using (true) with check (true);
 
 -- ────────────────────────────────────────────────────────────
--- 3. public.public_quote_snapshots — drop legacy orphaned
+-- 3. public.public_quote_snapshots — drop legacy NOT NULL
+--    constraints left by the original 20260226110000 migration
+--    (order_id text not null, payload jsonb not null) that
+--    ADD COLUMN IF NOT EXISTS guards never remove.
+--    PostgreSQL silently ignores DROP NOT NULL on nullable columns.
+-- ────────────────────────────────────────────────────────────
+
+alter table public.public_quote_snapshots alter column order_id      drop not null;
+alter table public.public_quote_snapshots alter column payload        drop not null;
+alter table public.public_quote_snapshots alter column payload        set  default '{}'::jsonb;
+alter table public.public_quote_snapshots alter column image_manifest drop not null;
+alter table public.public_quote_snapshots alter column image_manifest set  default '[]'::jsonb;
+
+-- ────────────────────────────────────────────────────────────
+-- 4. public.public_quote_snapshots — drop legacy orphaned
 --    policies, then (re)create canonical set
 -- ────────────────────────────────────────────────────────────
 
@@ -109,7 +123,7 @@ create policy "quote_update_anon"
   using (true) with check (true);
 
 -- ────────────────────────────────────────────────────────────
--- 4. Re-confirm grants (idempotent)
+-- 5. Re-confirm grants (idempotent)
 -- ────────────────────────────────────────────────────────────
 
 grant usage on schema public to anon, authenticated;
@@ -117,7 +131,7 @@ grant all on table public.shops                  to anon, authenticated;
 grant all on table public.public_quote_snapshots to anon, authenticated;
 
 -- ────────────────────────────────────────────────────────────
--- 5. Refresh PostgREST schema cache
+-- 6. Refresh PostgREST schema cache
 -- ────────────────────────────────────────────────────────────
 
 select public.refresh_schema_cache();

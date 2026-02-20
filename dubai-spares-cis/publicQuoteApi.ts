@@ -758,6 +758,7 @@ export const publicQuoteCreateSnapshot = async (
         .insert({
           token: quoteToken,
           snapshot_id: snapshotToken,
+          order_id: order.id,
           expires_at: expiresAt,
           payload: trimmed.payload,
           payload_json: normalizedPayloadJson
@@ -772,7 +773,9 @@ export const publicQuoteCreateSnapshot = async (
           .from('public_quote_snapshots')
           .insert({
             token: quoteToken,
+            order_id: order.id,
             expires_at: expiresAt,
+            payload: trimmed.payload,
             payload_json: normalizedPayloadJson
           })
           .select('id,token,expires_at,payload_json')

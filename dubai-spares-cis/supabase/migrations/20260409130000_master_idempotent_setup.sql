@@ -216,6 +216,14 @@ alter table public.public_quote_snapshots
   add column if not exists payload_codec  text,
   add column if not exists image_manifest jsonb       default '[]'::jsonb,
   add column if not exists expires_at     timestamptz;
+-- Drop any legacy NOT NULL constraints that the original 20260226110000 migration
+-- left on order_id / payload / image_manifest. These are silently safe when the
+-- columns are already nullable, so this block is idempotent.
+alter table public.public_quote_snapshots alter column order_id      drop not null;
+alter table public.public_quote_snapshots alter column payload        drop not null;
+alter table public.public_quote_snapshots alter column payload        set  default '{}'::jsonb;
+alter table public.public_quote_snapshots alter column image_manifest drop not null;
+alter table public.public_quote_snapshots alter column image_manifest set  default '[]'::jsonb;
 
 -- ────────────────────────────────────────────────────────────
 -- 3. CLIENT LEADS / BACKUPS
