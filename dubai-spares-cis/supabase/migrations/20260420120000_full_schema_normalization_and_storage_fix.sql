@@ -1,6 +1,7 @@
--- Canonical normalized schema for the full application.
--- Run this to bootstrap or repair a Supabase database from scratch.
--- Every statement is idempotent (CREATE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS).
+-- Full idempotent schema normalization.
+-- Creates all tables / columns / indexes / policies / buckets if they do not exist.
+-- Safe to re-run at any time. Refreshes PostgREST schema cache at the end.
+
 create extension if not exists pgcrypto;
 
 -- ─── app_state ───────────────────────────────────────────────────────────────
@@ -181,8 +182,9 @@ create table if not exists public.push_subscriptions (
 );
 
 -- ─── public_quote_snapshots ──────────────────────────────────────────────────
--- id (uuid PK), token (unique), snapshot_id, payload_json and payload_b64 are
--- all required by the frontend (POST ?select=id,token,snapshot_id,expires_at,payload_json).
+-- Fix: old schema used token as PK with no id/snapshot_id/payload_json columns.
+-- The frontend posts {token, snapshot_id, payload, payload_json} and selects
+-- ?select=id,token,snapshot_id,expires_at,payload_json which requires all four.
 create table if not exists public.public_quote_snapshots (
   id uuid primary key default gen_random_uuid(),
   token text not null unique,
@@ -332,7 +334,7 @@ create policy "anon_all_price_variants" on public.price_variants for all to anon
 drop policy if exists "authenticated_all_price_variants" on public.price_variants;
 create policy "authenticated_all_price_variants" on public.price_variants for all to authenticated using (true) with check (true);
 
--- shops: anon/authenticated can read and write (required for supplier sync)
+-- shops: allow anon/authenticated full access for supplier sync
 drop policy if exists "anon_read_shops" on public.shops;
 drop policy if exists "anon_write_shops" on public.shops;
 drop policy if exists "Public shops are viewable by everyone" on public.shops;
@@ -344,16 +346,15 @@ drop policy if exists "Service role can manage push subscriptions" on public.pus
 create policy "Service role can manage push subscriptions" on public.push_subscriptions for all
   using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
 
-drop policy if exists "anon_all_public_quote_snapshots" on public.public_quote_snapshots;
 drop policy if exists "quote_insert_anon" on public.public_quote_snapshots;
-drop policy if exists "quote_select_anon" on public.public_quote_snapshots;
-drop policy if exists "quote_update_anon" on public.public_quote_snapshots;
-drop policy if exists "quote_all_authenticated" on public.public_quote_snapshots;
-drop policy if exists "public_quote_snapshots_update_anon" on public.public_quote_snapshots;
 create policy "quote_insert_anon" on public.public_quote_snapshots for insert to anon with check (true);
+drop policy if exists "quote_select_anon" on public.public_quote_snapshots;
 create policy "quote_select_anon" on public.public_quote_snapshots for select to anon using (true);
+drop policy if exists "quote_update_anon" on public.public_quote_snapshots;
+drop policy if exists "public_quote_snapshots_update_anon" on public.public_quote_snapshots;
 create policy "quote_update_anon" on public.public_quote_snapshots for update to anon
   using (token is not null) with check (token is not null);
+drop policy if exists "quote_all_authenticated" on public.public_quote_snapshots;
 create policy "quote_all_authenticated" on public.public_quote_snapshots for all to authenticated using (true) with check (true);
 
 drop policy if exists "client_leads_insert_anon" on public.client_leads;
@@ -383,10 +384,10 @@ drop policy if exists "authenticated_all_app_config" on public.app_config;
 create policy "authenticated_all_app_config" on public.app_config for all to authenticated using (true) with check (true);
 
 -- ─── storage buckets ─────────────────────────────────────────────────────────
--- images       : public  – legacy photo uploads
--- backups      : private – compressed backup uploads  (scope=backup in cloudMedia.ts)
--- public-quote : public  – compressed quote photo uploads (scope=quote in cloudMedia.ts)
--- client-form  : private – compressed lead photo uploads  (scope=lead  in cloudMedia.ts)
+-- images  : public  – used by legacy photo uploads
+-- backups : private – used by cloudMedia.ts (scope=backup)
+-- public-quote : public – used by cloudMedia.ts (scope=quote) and publicQuoteApi.ts
+-- client-form  : private – used by cloudMedia.ts (scope=lead)
 insert into storage.buckets (id, name, public)
 values
   ('images',       'images',       true),
@@ -397,6 +398,7 @@ on conflict (id) do update set public = excluded.public;
 
 alter table storage.objects enable row level security;
 
+-- images bucket
 drop policy if exists "anon_read_images" on storage.objects;
 create policy "anon_read_images" on storage.objects
   for select to anon using (bucket_id = 'images');
@@ -410,6 +412,7 @@ drop policy if exists "anon_delete_images" on storage.objects;
 create policy "anon_delete_images" on storage.objects
   for delete to anon using (bucket_id = 'images');
 
+-- backups bucket (compressed backup uploads)
 drop policy if exists "anon_insert_backups" on storage.objects;
 create policy "anon_insert_backups" on storage.objects
   for insert to anon with check (bucket_id = 'backups');
@@ -420,6 +423,7 @@ drop policy if exists "authenticated_all_backups" on storage.objects;
 create policy "authenticated_all_backups" on storage.objects
   for all to authenticated using (bucket_id = 'backups') with check (bucket_id = 'backups');
 
+-- public-quote bucket (compressed quote photo uploads – publicly readable)
 drop policy if exists "anon_insert_public_quote" on storage.objects;
 create policy "anon_insert_public_quote" on storage.objects
   for insert to anon with check (bucket_id = 'public-quote');
@@ -430,6 +434,7 @@ drop policy if exists "authenticated_all_public_quote" on storage.objects;
 create policy "authenticated_all_public_quote" on storage.objects
   for all to authenticated using (bucket_id = 'public-quote') with check (bucket_id = 'public-quote');
 
+-- client-form bucket (compressed lead photo uploads)
 drop policy if exists "anon_insert_client_form" on storage.objects;
 create policy "anon_insert_client_form" on storage.objects
   for insert to anon with check (bucket_id = 'client-form');
