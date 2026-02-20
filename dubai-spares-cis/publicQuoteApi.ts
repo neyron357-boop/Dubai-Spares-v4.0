@@ -148,7 +148,7 @@ const IMAGE_QUALITY = 0.72;
 
 const isDevBuild = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
 
-const createInFlight = new Map<string, Promise<{ id: string; token: string; snapshotId: string; expiresAt: string; url: string }>>();
+const createInFlight = new Map<string, Promise<{ id: string | null | undefined; token: string; snapshotId: string; expiresAt: string; url: string }>>();
 
 const parseMoney = (...values: Array<unknown>) => {
   for (const value of values) {
@@ -766,7 +766,7 @@ export const publicQuoteCreateSnapshot = async (
         .select('id,token,snapshot_id,expires_at,payload_json')
         .single();
 
-      // Attempt 2: schema may be missing snapshot_id or payload columns — retry with minimal set
+      // Attempt 2: schema may be missing snapshot_id, payload_json, or id columns — retry with truly minimal set
       if (insertResult.error && (insertResult.error.code === 'PGRST204' || insertResult.error.code === '42703' || String(insertResult.error.message).includes('Could not find'))) {
         void logger.info('public-quote:create', 'Retrying insert with minimal columns', { orderId: order.id, error: insertResult.error.message });
         insertResult = await supabase
@@ -775,10 +775,9 @@ export const publicQuoteCreateSnapshot = async (
             token: quoteToken,
             order_id: order.id,
             expires_at: expiresAt,
-            payload: trimmed.payload,
-            payload_json: normalizedPayloadJson
+            payload: trimmed.payload
           })
-          .select('id,token,expires_at,payload_json')
+          .select('token,expires_at')
           .single();
       }
 
@@ -787,10 +786,10 @@ export const publicQuoteCreateSnapshot = async (
         throw new Error(insertResult.error.message || 'Server unavailable, try again');
       }
 
-      const created = insertResult.data as { id: string; token: string; snapshot_id?: string | null; expires_at: string; payload_json?: unknown };
-      if (!created?.id || !created?.token || !created?.expires_at) {
+      const created = insertResult.data as { id?: string | null; token: string; snapshot_id?: string | null; expires_at: string; payload_json?: unknown };
+      if (!created?.token || !created?.expires_at) {
         void logger.warn('public-quote:create', 'Snapshot insert returned incomplete data', { orderId: order.id, created });
-        throw new Error('Share quote created, but response is missing id/token/expires_at');
+        throw new Error('Share quote created, but response is missing token/expires_at');
       }
       if (isDevBuild && (!created.payload_json || typeof created.payload_json !== 'object')) {
         void logger.warn('public-quote:create', 'payload_json not echoed back from insert', { orderId: order.id });
@@ -872,7 +871,7 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
 
   const snapshotFromUrl = (options?.snapshotId || '').trim();
   const COLS = 'id,token,snapshot_id,expires_at,payload,payload_json,payload_b64,payload_codec';
-  const COLS_MINIMAL = 'id,token,expires_at,payload_json';
+  const COLS_MINIMAL = 'token,expires_at,payload';
 
   // Helper: select by a specific column value, with column-missing fallback
   const selectBy = async (column: 'id' | 'token' | 'snapshot_id', value: string, silent = false): Promise<SnapshotRow | null> => {
