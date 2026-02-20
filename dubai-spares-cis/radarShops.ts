@@ -339,7 +339,7 @@ const fetchRadarShopsFresh = async (suppliers: Supplier[]): Promise<Shop[]> => {
     if (lastError.code === '42501') {
       await logger.error('shops:fetch', 'RLS denied access to shops table', { hint: 'Check shops select policy for anon/authenticated roles' });
     }
-    toast('Ошибка загрузки магазинов радара', 'error');
+    toast('Ошибка загрузки магазинов. Проверьте подключение к интернету.', 'error');
   }
 
   if (Array.isArray(data) && data.length > 0) {
@@ -447,4 +447,38 @@ export const deleteSupplierFromShops = async (supplierId: string) => {
       error: error.message
     });
   }
+};
+
+
+export const fetchShopsInRadius = async (
+  latitude: number,
+  longitude: number,
+  radiusKm: number
+): Promise<Shop[]> => {
+  if (!supabase) return [];
+
+  const latDelta = radiusKm / 111.32;
+  const lngDelta = radiusKm / 111.32;
+
+  const { data, error } = await supabase
+    .from('shops')
+    .select('*')
+    .eq('is_active', true)
+    .filter('latitude', 'gte', latitude - latDelta)
+    .filter('latitude', 'lte', latitude + latDelta)
+    .filter('longitude', 'gte', longitude - lngDelta)
+    .filter('longitude', 'lte', longitude + lngDelta);
+
+  if (error) {
+    await logger.error('shops:fetch-radius', 'Failed to fetch shops in radius', {
+      latitude,
+      longitude,
+      radiusKm,
+      code: error.code,
+      message: error.message
+    });
+    throw new Error(`shops:fetch: ${error.message}`);
+  }
+
+  return Array.isArray(data) ? data.map(mapShopRow) : [];
 };

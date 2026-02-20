@@ -24,6 +24,46 @@ const openShareFallback = (text: string) => {
   window.open(`https://wa.me/?text=${encoded}`, '_blank');
 };
 
+
+const PUBLIC_FORM_BASE_URL = 'https://dubai-spares-cis-ay24a.ondigitalocean.app/public-order-form';
+
+const createRefCode = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+export const buildPublicOrderFormLink = (refCode?: string) => {
+  const ref = (refCode || createRefCode()).trim();
+  return {
+    refCode: ref,
+    url: `${PUBLIC_FORM_BASE_URL}?ref=${encodeURIComponent(ref)}`
+  };
+};
+
+export const sharePublicOrderForm = async () => {
+  const payload = buildPublicOrderFormLink();
+  const text = `Заполните форму заявки: ${payload.url}`;
+
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(payload.url);
+  } catch (error) {
+    console.warn('[sharePublicOrderForm] Clipboard copy failed', error);
+  }
+
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Поделиться формой', text, url: payload.url });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return payload;
+      }
+      throw error;
+    }
+  }
+
+  return payload;
+};
+
 export const shareMessage = async (text: string) => {
   if (navigator.share) {
     await navigator.share({ text });

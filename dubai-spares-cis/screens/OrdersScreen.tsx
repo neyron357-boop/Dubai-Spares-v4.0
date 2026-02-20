@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, Clock3, Filter, MessageCircle, Smartphone, Star } from 'lucide-react';
+import { Archive, BarChart3, Clock3, Filter, MessageCircle, Share2, Smartphone, Star } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
+import { sharePublicOrderForm } from '../shareUtils';
 
 type TabType = 'active' | 'leads' | 'vip' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -465,6 +466,16 @@ const OrdersScreen: React.FC = () => {
   const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
 
 
+  const handleSharePublicForm = async () => {
+    try {
+      await sharePublicOrderForm();
+      toast('Ссылка на форму скопирована', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось поделиться формой';
+      toast(message, 'error');
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleteId) return;
     setIsDeleting(true);
@@ -480,6 +491,7 @@ const OrdersScreen: React.FC = () => {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-black tracking-tight text-slate-900">Заказы</h1>
           <div className="flex items-center gap-2">
+            <button type="button" onClick={() => void handleSharePublicForm()} className="h-11 px-3 rounded-xl border border-slate-200 bg-white text-[11px] font-black uppercase inline-flex items-center gap-1" aria-label="Поделиться формой"><Share2 size={14} />Поделиться формой</button>
             <button type="button" onClick={() => setIsIncomeOpen(true)} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Статистика"><BarChart3 size={18} /></button>
             <button type="button" onClick={() => navigate('/vendor')} className="h-11 px-3 rounded-xl border border-slate-200 bg-white text-[11px] font-black uppercase">Склад</button>
             <button type="button" disabled={isRefreshing} onClick={() => void refreshOrders()} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center disabled:opacity-50" aria-label="Обновить">

@@ -208,10 +208,18 @@ const RadarScreen: React.FC = () => {
     let active = true;
     const load = async () => {
       setIsFetchingShops(true);
-      const loadedShops = await fetchRadarShops(suppliers);
-      if (!active) return;
-      setShops(loadedShops);
-      setIsFetchingShops(false);
+      try {
+        const loadedShops = await fetchRadarShops(suppliers);
+        if (!active) return;
+        setShops(loadedShops);
+        setSyncError(null);
+      } catch (error) {
+        if (!active) return;
+        const message = error instanceof Error ? error.message : 'Ошибка загрузки магазинов';
+        setSyncError(message);
+      } finally {
+        if (active) setIsFetchingShops(false);
+      }
     };
     void load();
     return () => { active = false; };
@@ -593,6 +601,8 @@ const RadarScreen: React.FC = () => {
     })
     .filter((item): item is { key: string; order: Order; shop: Shop } => !!item);
 
+  const hasShopsInRadius = entries.some((entry) => Number.isFinite(entry.distance) && ((entry.distance || 0) / 1000) <= radiusKm);
+
   const visitedEntries = Array.from(visitedShopKeys)
     .map((key) => {
       const match = key.match(/^order:(.+):shop:(.+)$/);
@@ -727,7 +737,15 @@ const RadarScreen: React.FC = () => {
       {isFetchingShops ? (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 text-center text-slate-300"><Loader2 className="mx-auto mb-2 animate-spin" size={18} /> Загрузка точек...</div>
       ) : entries.length === 0 ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">Радар пока не нашел подходящих точек.</div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">
+          {syncError
+            ? 'Ошибка загрузки магазинов. Проверьте подключение к интернету.'
+            : `В радиусе ${radiusKm} км магазинов не найдено. Попробуйте увеличить радиус.`}
+        </div>
+      ) : !hasShopsInRadius ? (
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">
+          {`В радиусе ${radiusKm} км магазинов не найдено. Попробуйте увеличить радиус.`}
+        </div>
       ) : entries.map((entry) => {
         const recTone = entry.recommendation === 'high' ? 'bg-emerald-500/20 text-emerald-200' : entry.recommendation === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-rose-500/20 text-rose-200';
         return (

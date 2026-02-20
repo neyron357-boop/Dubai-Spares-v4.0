@@ -11,6 +11,7 @@ import SettingsScreen from './screens/SettingsScreen';
 import RadarLiveSettingsScreen from './screens/RadarLiveSettingsScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
+import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-react';
 import { useStore } from './store';
@@ -30,7 +31,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const hideNav = location.pathname.includes('/estimate')
     || location.pathname.includes('/vendor')
     || location.pathname.includes('/request')
-    || location.pathname.includes('/order-form');
+    || location.pathname.includes('/order-form')
+    || location.pathname.includes('/public-order-form');
   const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
 
   useEffect(() => {
@@ -133,7 +135,7 @@ const App: React.FC = () => {
   };
 
   const normalizedPath = window.location.pathname.toLowerCase().replace(/\/+$/, '');
-  const isDirectPublicOrderFormPath = normalizedPath.endsWith('/request') || normalizedPath.endsWith('/order-form');
+  const isDirectPublicOrderFormPath = normalizedPath.endsWith('/request') || normalizedPath.endsWith('/order-form') || normalizedPath.endsWith('/public-order-form');
 
   if (isDirectPublicOrderFormPath) {
     return <PublicOrderFormScreen />;
@@ -189,7 +191,9 @@ const App: React.FC = () => {
               <Route path="/settings/radar-live" element={<RadarLiveSettingsScreen />} />
               <Route path="/request" element={<PublicOrderFormScreen />} />
               <Route path="/order-form" element={<PublicOrderFormScreen />} />
+              <Route path="/public-order-form" element={<PublicOrderFormScreen />} />
               <Route path="/q/:orderId" element={<HashPublicQuoteRoute />} />
+              <Route path="*" element={<NotFoundScreen />} />
             </Routes>
           </Layout>
         </HashRouter>
