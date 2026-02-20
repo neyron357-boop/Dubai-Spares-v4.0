@@ -1,4 +1,5 @@
 import { SUPABASE_ANON_KEY, SUPABASE_URL, cloudBuildGuardMessage, isCloudConfigured } from './cloudConfig';
+import { supabase } from './supabase';
 import { decodePayloadFromCompressedTransport } from './cloudCodec';
 import { buildPublicQuoteSlug, QuoteRates, serializeQuoteRates } from './shareUtils';
 import { Order } from './types';
@@ -433,15 +434,22 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
   const wasPatched = currentSnapshot !== patchedSnapshot;
   if (wasPatched) {
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?id=eq.${encodeURIComponent(row.id)}`, {
-        method: 'PATCH',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ payload_json: nextPayload })
-      });
+      if (supabase) {
+        await supabase
+          .from('public_quote_snapshots')
+          .update({ payload_json: nextPayload })
+          .eq('id', row.id);
+      } else {
+        await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?id=eq.${encodeURIComponent(row.id)}`, {
+          method: 'PATCH',
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ payload_json: nextPayload })
+        });
+      }
     } catch {
       // best effort backfill on read
     }
@@ -742,50 +750,41 @@ export const publicQuoteCreateSnapshot = async (
         console.info('[public-quote] inserting snapshot', { token: quoteToken, expiresAt });
       }
 
-      const insertHeaders = {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=representation'
-      };
+      if (!supabase) throw new Error('Supabase client is not initialized');
 
       // Attempt 1: full schema (snapshot_id + payload columns present)
-      let response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at,payload_json`, {
-        method: 'POST',
-        headers: insertHeaders,
-        body: JSON.stringify([{
+      let insertResult = await supabase
+        .from('public_quote_snapshots')
+        .insert({
           token: quoteToken,
           snapshot_id: snapshotToken,
           expires_at: expiresAt,
           payload: trimmed.payload,
           payload_json: normalizedPayloadJson
-        }]),
-        signal: request.signal
-      });
+        })
+        .select('id,token,snapshot_id,expires_at,payload_json')
+        .single();
 
-      // Attempt 2: 400 means a column in the body/select doesn't exist in the current schema.
-      // Retry with only the minimal columns that have existed in every schema version.
-      if (response.status === 400) {
-        void logger.info('public-quote:create', 'Retrying insert with minimal columns (schema may be missing snapshot_id/payload)', { orderId: order.id });
-        response = await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,expires_at,payload_json`, {
-          method: 'POST',
-          headers: insertHeaders,
-          body: JSON.stringify([{
+      // Attempt 2: schema may be missing snapshot_id or payload columns — retry with minimal set
+      if (insertResult.error && (insertResult.error.code === 'PGRST204' || insertResult.error.code === '42703' || String(insertResult.error.message).includes('Could not find'))) {
+        void logger.info('public-quote:create', 'Retrying insert with minimal columns', { orderId: order.id, error: insertResult.error.message });
+        insertResult = await supabase
+          .from('public_quote_snapshots')
+          .insert({
             token: quoteToken,
             expires_at: expiresAt,
             payload_json: normalizedPayloadJson
-          }]),
-          signal: request.signal
-        });
+          })
+          .select('id,token,expires_at,payload_json')
+          .single();
       }
 
-      if (!response.ok) {
-        void logger.warn('public-quote:create', 'Snapshot insert failed', { orderId: order.id, status: response.status, quoteToken });
-        throw new Error('Server unavailable, try again');
+      if (insertResult.error) {
+        void logger.warn('public-quote:create', 'Snapshot insert failed', { orderId: order.id, code: insertResult.error.code, message: insertResult.error.message, quoteToken });
+        throw new Error(insertResult.error.message || 'Server unavailable, try again');
       }
 
-      const rows = (await response.json()) as Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; payload_json?: unknown }>;
-      const created = rows[0];
+      const created = insertResult.data as { id: string; token: string; snapshot_id?: string | null; expires_at: string; payload_json?: unknown };
       if (!created?.id || !created?.token || !created?.expires_at) {
         void logger.warn('public-quote:create', 'Snapshot insert returned incomplete data', { orderId: order.id, created });
         throw new Error('Share quote created, but response is missing id/token/expires_at');
@@ -864,89 +863,75 @@ const resolveSnapshotPayloadSource = (row: SnapshotRow): SnapshotPayloadSource =
 
 export const publicQuoteGetSnapshot = async (token: string, options?: { signal?: AbortSignal; timeoutMs?: number; snapshotId?: string | null }) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
+  if (!supabase) throw new Error('Supabase client is not initialized');
   const normalizedToken = token.trim();
   if (!normalizedToken) throw new Error('Snapshot token is required');
 
   const snapshotFromUrl = (options?.snapshotId || '').trim();
-  const endpointByToken = `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at,payload,payload_json,payload_b64,payload_codec&token=eq.${encodeURIComponent(normalizedToken)}&limit=1`;
-  const endpointBySnapshotToken = snapshotFromUrl && snapshotFromUrl !== normalizedToken
-    ? `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at,payload,payload_json,payload_b64,payload_codec&token=eq.${encodeURIComponent(snapshotFromUrl)}&limit=1`
-    : null;
-  const endpointBySnapshotAlt = snapshotFromUrl
-    ? `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at,payload,payload_json,payload_b64,payload_codec&snapshot_id=eq.${encodeURIComponent(snapshotFromUrl)}&limit=1`
-    : null;
-  const endpointBySnapshot = snapshotFromUrl
-    ? `${SUPABASE_URL}/rest/v1/public_quote_snapshots?select=id,token,snapshot_id,expires_at,payload,payload_json,payload_b64,payload_codec&id=eq.${encodeURIComponent(snapshotFromUrl)}&limit=1`
-    : null;
+  const COLS = 'id,token,snapshot_id,expires_at,payload,payload_json,payload_b64,payload_codec';
+  const COLS_MINIMAL = 'id,token,expires_at,payload_json';
 
-  const runSelect = async (queryEndpoint: string, silent = false) => {
-    const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
-    const fetchOptions = {
-      method: 'GET',
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        Accept: 'application/json',
-        'Cache-Control': 'no-store'
-      },
-      cache: 'no-store' as const,
-      signal: request.signal
-    };
-    try {
-      let response = await fetch(queryEndpoint, fetchOptions);
-
-      // 400 from PostgREST means a column in the select or filter clause doesn't exist.
-      if (response.status === 400) {
-        // Endpoints that filter on snapshot_id can't be made to work if that column doesn't exist.
-        if (queryEndpoint.includes('snapshot_id=eq.')) return null;
-        // For all other endpoints, retry with the minimal column set that has always existed.
-        const fallbackEndpoint = (() => {
-          try {
-            const url = new URL(queryEndpoint);
-            url.searchParams.set('select', 'id,token,expires_at,payload_json');
-            return url.toString();
-          } catch {
-            return queryEndpoint.replace(/([?&]select=)[^&]+/, '$1id,token,expires_at,payload_json');
-          }
-        })();
-        response = await fetch(fallbackEndpoint, fetchOptions);
+  // Helper: select by a specific column value, with column-missing fallback
+  const selectBy = async (column: 'id' | 'token' | 'snapshot_id', value: string, silent = false): Promise<SnapshotRow | null> => {
+    const q = supabase!
+      .from('public_quote_snapshots')
+      .select(COLS)
+      .eq(column, value)
+      .limit(1);
+    const { data, error } = await (q as any);
+    if (error) {
+      if (error.code === 'PGRST204' || error.code === '42703' || String(error.message).includes('Could not find')) {
+        // Missing column — retry with minimal columns (only for non-snapshot_id queries)
+        if (column === 'snapshot_id') return null;
+        const qMinimal = supabase!
+          .from('public_quote_snapshots')
+          .select(COLS_MINIMAL)
+          .eq(column, value)
+          .limit(1);
+        const { data: d2, error: e2 } = await (qMinimal as any);
+        if (e2) {
+          if (silent) return null;
+          throw new Error(`Failed to load quote (${e2.message})`);
+        }
+        const rows2 = Array.isArray(d2) ? d2 : (d2 ? [d2] : []);
+        return (rows2[0] as SnapshotRow) || null;
       }
-
-      if (!response.ok) {
-        if (silent) return null;
-        void logger.warn('public-quote:fetch', 'Snapshot lookup failed', { token: normalizedToken, status: response.status, endpoint: queryEndpoint });
-        throw new Error(`Failed to load quote (${response.status})`);
-      }
-      const rows = (await response.json()) as SnapshotRow[];
-      return rows[0] || null;
-    } finally {
-      request.cleanup();
+      if (silent) return null;
+      void logger.warn('public-quote:fetch', 'Snapshot lookup failed', { token: normalizedToken, column, value, code: error.code, message: error.message });
+      throw new Error(`Failed to load quote (${error.code || error.message})`);
     }
+    const rows = Array.isArray(data) ? data : (data ? [data] : []);
+    return (rows[0] as SnapshotRow) || null;
   };
 
-  let row = endpointBySnapshot ? await runSelect(endpointBySnapshot, true) : null;
-  if (row && row.token !== normalizedToken && row.snapshot_id !== normalizedToken) {
-    if (isDevBuild) {
-      console.info('[public-quote] snapshot/token mismatch', {
-        urlSnapshot: snapshotFromUrl,
-        urlToken: normalizedToken,
-        dbRowId: row.id,
-        dbRowToken: row.token
-      });
+  let row: SnapshotRow | null = null;
+
+  // Lookup order: by id (snapshotFromUrl) → by snapshot_id → by token → by token=snapshotFromUrl
+  if (snapshotFromUrl) {
+    row = await selectBy('id', snapshotFromUrl, true);
+    if (row && row.token !== normalizedToken && row.snapshot_id !== normalizedToken) {
+      if (isDevBuild) {
+        console.info('[public-quote] snapshot/token mismatch', {
+          urlSnapshot: snapshotFromUrl,
+          urlToken: normalizedToken,
+          dbRowId: row.id,
+          dbRowToken: row.token
+        });
+      }
+      row = null;
     }
-    row = null;
+  }
+
+  if (!row && snapshotFromUrl) {
+    row = await selectBy('snapshot_id', snapshotFromUrl, true);
   }
 
   if (!row) {
-    row = endpointBySnapshotAlt ? await runSelect(endpointBySnapshotAlt, true) : null;
+    row = await selectBy('token', normalizedToken);
   }
 
-  if (!row) {
-    row = await runSelect(endpointByToken);
-  }
-
-  if (!row && endpointBySnapshotToken) {
-    row = await runSelect(endpointBySnapshotToken, true);
+  if (!row && snapshotFromUrl && snapshotFromUrl !== normalizedToken) {
+    row = await selectBy('token', snapshotFromUrl, true);
   }
 
   if (!row) {
@@ -1026,19 +1011,14 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
   });
 
   try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state?select=id,data&id=in.(public_settings,global)&limit=2`, {
-      method: 'GET',
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        Accept: 'application/json',
-        'Cache-Control': 'no-store'
-      },
-      cache: 'no-store',
-      signal: request.signal
-    });
-    if (!response.ok) return null;
-    const rows = (await response.json()) as AppStatePublicSettingsRow[];
+    if (!supabase) return null;
+    const { data, error } = await supabase
+      .from('app_state')
+      .select('id,data')
+      .in('id', ['public_settings', 'global'])
+      .limit(2);
+    if (error || !Array.isArray(data)) return null;
+    const rows = data as AppStatePublicSettingsRow[];
     const byId = new Map(rows.map((row) => [String((row as any)?.id || ''), row]));
     const fromPublicSettings = readPublicContactSettings((byId.get('public_settings')?.data || null) as Record<string, any> | null);
     const fromGlobal = readPublicContactSettings((byId.get('global')?.data || null) as Record<string, any> | null);
