@@ -58,7 +58,7 @@ const normalizeSalesStatus = (value: unknown): SalesStatus => {
 
 const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | 'markupType' | 'markupFixedAed' | 'exchangeRate'>): number => {
   const totalCostAed = (order.parts || []).reduce((sum, part) => {
-    if (!part.isFound || part.variants.length === 0) return sum;
+    if (!part.isFound || (part.variants || []).length === 0) return sum;
     return sum + Number(part.variants[0].priceAed || 0);
   }, 0);
   if (totalCostAed <= 0) return 0;
@@ -88,7 +88,7 @@ const normalizeOrder = (order: Order): Order => {
     notes: Array.isArray(order.notes) ? order.notes : [],
     vinPhotoUrl: order.vinPhotoUrl || '',
     bodyType: order.bodyType || '',
-    parts: Array.isArray(order.parts) ? order.parts : [],
+    parts: Array.isArray(order.parts) ? order.parts.map((part) => ({ ...part, variants: Array.isArray(part.variants) ? part.variants : [] })) : [],
     updatedAt: order.updatedAt ?? order.createdAt ?? Date.now(),
     recommendedShopIds: Array.isArray(order.recommendedShopIds) ? order.recommendedShopIds : [],
     dismissedShopIds: Array.isArray(order.dismissedShopIds) ? order.dismissedShopIds : [],
