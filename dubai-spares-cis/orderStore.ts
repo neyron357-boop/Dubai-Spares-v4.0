@@ -354,13 +354,18 @@ const isOrdersTableMissingFromSchemaCache = (error: unknown) => {
 
     if (typeof current !== 'object') continue;
 
-    const anyErr = current as { code?: unknown; message?: unknown; details?: unknown; error?: unknown; raw?: unknown };
+    const anyErr = current as { code?: unknown; message?: unknown; details?: unknown; error?: unknown; raw?: unknown; status?: unknown };
     const code = typeof anyErr.code === 'string' ? anyErr.code.toUpperCase() : '';
+    const status = Number(anyErr.status);
     const message = typeof anyErr.message === 'string' ? anyErr.message : '';
     const details = typeof anyErr.details === 'string' ? anyErr.details : '';
     const probe = `${message} ${details}`.toLowerCase();
 
     if ((code === 'PGRST205' || code === 'SCHEMA_MISMATCH') && probe.includes('public.orders') && probe.includes('schema cache')) {
+      return true;
+    }
+    // Also treat a plain 404 on the orders table as a schema cache miss so we retry
+    if (status === 404 && (probe.includes('orders') || probe.includes('not found'))) {
       return true;
     }
 

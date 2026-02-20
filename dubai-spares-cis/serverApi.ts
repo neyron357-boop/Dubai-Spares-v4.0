@@ -12,7 +12,7 @@ export type CloudLeadRow = {
   phone: string;
   message?: string;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
   payload_json?: unknown;
   order_id?: string | null;
   payload_b64?: string;
@@ -30,8 +30,9 @@ const RETRYABLE_CODES = new Set(['aborted_or_timeout', 'network_error']);
 const SCHEMA_MISMATCH_CODES = new Set(['PGRST205', 'PGRST204', 'SCHEMA_MISMATCH']);
 
 
-const LEADS_SYNC_VARIANT_STORAGE_KEY = 'server_api_leads_sync_variant_v2';
+const LEADS_SYNC_VARIANT_STORAGE_KEY = 'server_api_leads_sync_variant_v3';
 const LEADS_SYNC_VARIANTS = [
+  // With updated_at (preferred, for DBs that have the column)
   'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload_b64,payload_codec,payload',
   'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload',
   'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,order_id,payload',
@@ -39,7 +40,16 @@ const LEADS_SYNC_VARIANTS = [
   'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload_b64,payload_codec,payload',
   'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload',
   'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at,order_id,payload',
-  'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at'
+  'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at',
+  // Without updated_at (fallback, for DBs that don't have the column)
+  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,payload_json,order_id,payload_b64,payload_codec,payload',
+  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,payload_json,order_id,payload',
+  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,order_id,payload',
+  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at',
+  'client_leads?limit=50&select=id,name,phone,message,created_at,payload_json,order_id,payload_b64,payload_codec,payload',
+  'client_leads?limit=50&select=id,name,phone,message,created_at,payload_json,order_id,payload',
+  'client_leads?limit=50&select=id,name,phone,message,created_at,order_id,payload',
+  'client_leads?limit=50&select=id,name,phone,message,created_at'
 ] as const;
 
 const loadLeadsSyncVariant = (): number => {
