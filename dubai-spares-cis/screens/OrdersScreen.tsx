@@ -34,8 +34,8 @@ const statusLabelMap: Record<SearchState, string> = {
   archived: 'Архив'
 };
 
-const isOrderFound = (order: Order) => order.parts.some((part) => part.isFound || part.variants.length > 0);
-const foundPartsCount = (order: Order) => order.parts.filter((part) => part.isFound || part.variants.length > 0).length;
+const isOrderFound = (order: Order) => order.parts.some((part) => part.isFound || (part.variants || []).length > 0);
+const foundPartsCount = (order: Order) => order.parts.filter((part) => part.isFound || (part.variants || []).length > 0).length;
 
 const getCardSearchStatus = (order: Order): SearchState => {
   if (order.isSold) return 'sold';
@@ -435,7 +435,7 @@ const OrdersScreen: React.FC = () => {
     }
 
     if (issueFilter === 'missing_price') {
-      list = list.filter((order) => order.parts.some((part) => part.variants.length === 0));
+      list = list.filter((order) => order.parts.some((part) => (part.variants || []).length === 0));
     }
     if (issueFilter === 'missing_contact') {
       list = list.filter((order) => !order.customerContact?.trim());

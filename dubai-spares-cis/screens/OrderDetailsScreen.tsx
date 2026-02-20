@@ -208,7 +208,7 @@ const OrderDetailsScreen: React.FC = () => {
   useEffect(() => {
     if (!id) return;
     const currentOrder = orders.find((item) => item.id === id);
-    if (currentOrder && currentOrder.parts && currentOrder.parts.length > 0) return;
+    if (currentOrder && (currentOrder.isLead || (currentOrder.parts && currentOrder.parts.length > 0))) return;
     void fetchOrderDetails(id);
   }, [id, orders, fetchOrderDetails]);
   useEffect(() => {

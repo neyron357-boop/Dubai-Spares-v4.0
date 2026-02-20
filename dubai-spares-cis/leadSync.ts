@@ -147,7 +147,12 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
     vinPhotoUrl: '',
     carPhotoUrl: '',
     carPhotos: [],
-    parts: Array.isArray(payload.parts) ? payload.parts : [],
+    parts: Array.isArray(payload.parts)
+      ? payload.parts.map((p: unknown) => {
+          const part = p && typeof p === 'object' && !Array.isArray(p) ? p as Record<string, unknown> : {};
+          return { ...part, variants: Array.isArray(part.variants) ? part.variants : [] };
+        })
+      : [],
     clientName: lead.name || fallbackName,
     customerContact: lead.phone || fallbackPhone,
     priority: Priority.HIGH,

@@ -58,7 +58,7 @@ const normalizeSalesStatus = (value: unknown): SalesStatus => {
 
 const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | 'markupType' | 'markupFixedAed' | 'exchangeRate'>): number => {
   const totalCostAed = (order.parts || []).reduce((sum, part) => {
-    if (!part.isFound || part.variants.length === 0) return sum;
+    if (!part.isFound || (part.variants || []).length === 0) return sum;
     return sum + Number(part.variants[0].priceAed || 0);
   }, 0);
   if (totalCostAed <= 0) return 0;
@@ -88,7 +88,7 @@ const normalizeOrder = (order: Order): Order => {
     notes: Array.isArray(order.notes) ? order.notes : [],
     vinPhotoUrl: order.vinPhotoUrl || '',
     bodyType: order.bodyType || '',
-    parts: Array.isArray(order.parts) ? order.parts : [],
+    parts: Array.isArray(order.parts) ? order.parts.map((part) => ({ ...part, variants: Array.isArray(part.variants) ? part.variants : [] })) : [],
     updatedAt: order.updatedAt ?? order.createdAt ?? Date.now(),
     recommendedShopIds: Array.isArray(order.recommendedShopIds) ? order.recommendedShopIds : [],
     dismissedShopIds: Array.isArray(order.dismissedShopIds) ? order.dismissedShopIds : [],
@@ -127,6 +127,7 @@ let state: OrderState = {
 
 let syncInProgress = false;
 let wasCloudHydratedAtLeastOnce = false;
+let ordersTableUnavailable = false;
 const schemaMissingColumns = new Set<string>();
 const MAX_MUTATION_RETRY = 1;
 const ORDER_PAGE_SIZE = 50;
@@ -1044,9 +1045,12 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
   }
 
   if (useLeadsOnlyFallback) {
+    ordersTableUnavailable = true;
     await logger.warn('sync:fetch', 'Orders table missing in cloud schema cache; continuing with leads-only sync', {
       error: serializeError(error)
     });
+  } else {
+    ordersTableUnavailable = false;
   }
 
   let orders = useLeadsOnlyFallback
@@ -1149,7 +1153,7 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
 });
 
 export const fetchOrderDetails = async (orderId: string) => {
-  if (!orderId || LOCAL_ONLY || !supabase || !navigator.onLine || !isCloudSyncConfigured) return;
+  if (!orderId || !isUuid(orderId) || ordersTableUnavailable || LOCAL_ONLY || !supabase || !navigator.onLine || !isCloudSyncConfigured) return;
   const orderColumns = getSelectableColumns('orders');
   const query = `${orderColumns.join(',')}, parts(*, price_variants(*))`;
   const response = await supabase.from('orders').select(query).eq('id', orderId).maybeSingle();
