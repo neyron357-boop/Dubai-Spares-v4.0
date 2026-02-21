@@ -385,7 +385,11 @@ const broadcastSyncError = (error: unknown, fallback: string) => {
   void logDatabaseIntegrity('sync:error', error, { fallback });
   setState({ error: message });
   setSyncStatus(navigator.onLine ? 'error' : 'offline');
-  if (normalized.code.startsWith('PGRST') || normalized.code.startsWith('42')) {
+  if (
+    normalized.code.startsWith('PGRST')
+    || normalized.code.startsWith('42')
+    || normalized.code.startsWith('SUPABASE_')
+  ) {
     setLastSupabaseError(normalized);
   }
   if (normalized.code.includes('IDB') || normalized.code.includes('QUEUE')) {

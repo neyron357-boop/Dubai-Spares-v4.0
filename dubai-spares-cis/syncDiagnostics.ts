@@ -53,6 +53,7 @@ const getErrorMessage = (error: unknown) => {
 
 export const normalizeSyncError = (error: unknown, fallback: string): NormalizedSyncError => {
   const baseMessage = getErrorMessage(error) || fallback;
+  const normalizedMessage = baseMessage.toLowerCase();
   const errorCode = typeof error === 'object' && error && 'code' in error && typeof (error as { code?: unknown }).code === 'string'
     ? (error as { code: string }).code
     : 'SYNC_UNKNOWN';
@@ -99,6 +100,21 @@ export const normalizeSyncError = (error: unknown, fallback: string): Normalized
       message: baseMessage,
       humanMessage: 'Offline queue is full. Export backup, then clear/reset local cache.',
       actions: ['reset_local_cache', 'copy_diagnostics'],
+      raw: error
+    };
+  }
+
+  if (
+    normalizedMessage.includes('load failed')
+    || normalizedMessage.includes('failed to fetch')
+    || normalizedMessage.includes('networkerror')
+    || normalizedMessage.includes('network request failed')
+  ) {
+    return {
+      code: 'SUPABASE_NETWORK_UNAVAILABLE',
+      message: baseMessage,
+      humanMessage: 'Не удалось подключиться к Supabase. Проверьте статус проекта в Supabase Dashboard и повторите синхронизацию через 1-2 минуты.',
+      actions: ['retry', 'copy_diagnostics'],
       raw: error
     };
   }
