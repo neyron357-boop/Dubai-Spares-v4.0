@@ -83,13 +83,15 @@ const sanitizeNumericInput = (raw: string) => {
 
 
 const LogisticsAmountInput = React.memo(({
+  field,
   label,
   value,
   onCommit
 }: {
+  field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed';
   label: string;
   value: number;
-  onCommit: (nextValue: string) => void;
+  onCommit: (field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', nextValue: string) => void;
 }) => {
   const [inputValue, setInputValue] = useState(String(Number(value || 0)));
 
@@ -111,7 +113,7 @@ const LogisticsAmountInput = React.memo(({
           const sanitized = sanitizeNumericInput(e.currentTarget.value);
           const normalized = sanitized || '0';
           if (normalized !== inputValue) setInputValue(normalized);
-          onCommit(normalized);
+          onCommit(field, normalized);
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur();
@@ -1246,9 +1248,10 @@ const OrderDetailsScreen: React.FC = () => {
             ] as const).map(({ field, label }) => (
               <LogisticsAmountInput
                 key={field}
+                field={field}
                 label={label}
                 value={Number(order.logistics?.[field] || 0)}
-                onCommit={(nextValue) => flushLogisticsFieldCommit(field, nextValue)}
+                onCommit={flushLogisticsFieldCommit}
               />
             ))}
           </div>
