@@ -223,7 +223,7 @@ const RadarScreen: React.FC = () => {
     };
     void load();
     return () => { active = false; };
-  }, [suppliers]);
+  }, [suppliers, location.key]);
 
   const activeOrderId = useMemo(() => new URLSearchParams(location.search).get('orderId'), [location.search]);
   const activeOrder = useMemo(() => orders.find((order) => order.id === activeOrderId) || null, [orders, activeOrderId]);

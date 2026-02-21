@@ -6,8 +6,10 @@ import {
   ChevronRight,
   Download,
   Globe,
+  Instagram,
   MessageCircle,
-  RefreshCcw
+  RefreshCcw,
+  Send
 } from 'lucide-react';
 import { Order, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
@@ -1338,46 +1340,55 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         </div>
       </header>
 
-      <main className="mx-auto -mt-6 w-full max-w-5xl space-y-4 px-3 pb-28 sm:px-5">
+      <main className="mx-auto -mt-6 w-full max-w-5xl space-y-5 px-4 pb-32 sm:px-6">
 
-        <section ref={detailRef} className="space-y-3">
+        <section ref={detailRef} className="space-y-4">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.partsGallery} ({foundParts.length})</h2>
           {foundParts.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => {
             const partMessage = `Hello! I confirm ${part.name} for ${order.brand} ${order.model} ${order.year}.\nVIN: ${maskVin(order.vin || '')}.\nPrice: ${converted.toFixed(2)} ${currency}.`;
             const partWhatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(partMessage)}` : '';
 
             return (
-            <article key={part.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex min-w-0 items-start gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (galleryPhotos.length === 0) return;
-                      setGallery({ images: galleryPhotos, index: 0 });
-                      logEvent('gallery_open', { partId: part.id });
-                    }}
-                    className="mt-0.5 inline-flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-slate-600 disabled:opacity-40"
-                    disabled={galleryPhotos.length === 0}
-                    title={galleryPhotos.length > 1 ? `Фото: ${galleryPhotos.length}` : 'Фото детали'}
-                  >
-                    {previewPhotos[0] ? <img src={previewPhotos[0]} alt={part.name} className="h-full w-full object-cover" /> : <Images size={18} />}
-                  </button>
-                  <div className="min-w-0">
-                    <h3 className="truncate text-xl font-semibold">{part.name}</h3>
-                    <span className="mt-2 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">{t.status}: {availability}</span>
-                  </div>
+            <article key={part.id} className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm sm:p-6">
+              <div className="flex items-center gap-4">
+                {/* Photo — left */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (galleryPhotos.length === 0) return;
+                    setGallery({ images: galleryPhotos, index: 0 });
+                    logEvent('gallery_open', { partId: part.id });
+                  }}
+                  className="relative shrink-0 inline-flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-slate-400 disabled:opacity-40"
+                  disabled={galleryPhotos.length === 0}
+                  title={galleryPhotos.length > 1 ? `Фото: ${galleryPhotos.length}` : 'Фото детали'}
+                >
+                  {previewPhotos[0] ? <img src={previewPhotos[0]} alt={part.name} className="h-full w-full object-cover" /> : <Images size={24} />}
+                  {galleryPhotos.length > 1 && (
+                    <span aria-label={`${galleryPhotos.length} photos`} className="absolute bottom-1 right-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[9px] font-bold text-white leading-none">{galleryPhotos.length}</span>
+                  )}
+                </button>
+
+                {/* Name + status — center */}
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-base font-bold leading-snug text-slate-900 sm:text-lg">{part.name}</h3>
+                  <span className="mt-1.5 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">{availability}</span>
                 </div>
-                <p className="text-right text-2xl font-semibold">{converted.toFixed(2)} {currency}</p>
+
+                {/* Price — right */}
+                <div className="shrink-0 text-right">
+                  <p className="text-2xl font-bold text-slate-900 sm:text-3xl">{converted.toFixed(2)}</p>
+                  <p className="text-sm font-semibold text-slate-500">{currency}</p>
+                </div>
               </div>
 
-              {partWhatsappUrl ? (
-              <button type="button" onClick={() => { window.location.href = partWhatsappUrl; }} className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">
-                <MessageCircle size={14} /> {t.confirmWhatsApp}
-              </button>
-            ) : (
-              <div className="mt-4 text-xs text-slate-500">{t.contactNotConfigured}</div>
-            )}
+              {partWhatsappUrl && (
+                <div className="mt-4 border-t border-slate-100 pt-4">
+                  <button type="button" onClick={() => { window.location.href = partWhatsappUrl; }} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white">
+                    <MessageCircle size={15} /> {t.confirmWhatsApp}
+                  </button>
+                </div>
+              )}
             </article>
             );
           })}
@@ -1402,15 +1413,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           </section>
         )}
 
-        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
+        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm sm:p-6 text-sm text-slate-700">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.priceBreakdown}</h2>
-          <div className="mt-2 space-y-1.5">
+          <div className="mt-3 space-y-2">
             <div className="flex items-center justify-between"><span>{t.partsSubtotal}</span><strong>{(totals.subtotal * rates[currency]).toFixed(2)} {currency}</strong></div>
             <div className="flex items-center justify-between"><span>{t.whatIncluded} ({t.partsSubtotal})</span><strong>{(totals.subtotalWithoutExtras * rates[currency]).toFixed(2)} {currency}</strong></div>
-            <div className="flex items-center justify-between"><span>{t.logistics}</span><strong>{(totals.delivery * rates[currency]).toFixed(2)} {currency}</strong></div>
-            <div className="flex items-center justify-between"><span>{t.packing}</span><strong>{(totals.packing * rates[currency]).toFixed(2)} {currency}</strong></div>
-            <div className="flex items-center justify-between"><span>{t.serviceFee}</span><strong>{(totals.serviceFee * rates[currency]).toFixed(2)} {currency}</strong></div>
-            <div className="mt-2 border-t border-dashed border-slate-200 pt-2 flex items-center justify-between text-base"><span className="font-semibold">{t.total}</span><strong>{totals.totalConverted.toFixed(2)} {currency}</strong></div>
+            {totals.delivery > 0 && <div className="flex items-center justify-between"><span>{t.delivery}</span><strong>{(totals.delivery * rates[currency]).toFixed(2)} {currency}</strong></div>}
+            {totals.packing > 0 && <div className="flex items-center justify-between"><span>{t.packing}</span><strong>{(totals.packing * rates[currency]).toFixed(2)} {currency}</strong></div>}
+            {totals.serviceFee > 0 && <div className="flex items-center justify-between"><span>{t.serviceFee}</span><strong>{(totals.serviceFee * rates[currency]).toFixed(2)} {currency}</strong></div>}
+            <div className="mt-3 border-t border-dashed border-slate-200 pt-3 flex items-center justify-between text-base"><span className="font-semibold">{t.total}</span><strong className="text-xl">{totals.totalConverted.toFixed(2)} {currency}</strong></div>
           </div>
         </section>
 
@@ -1420,18 +1431,30 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           </section>
         )}
 
-        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
+        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm sm:p-6 text-sm text-slate-700">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.trust}</h2>
-          <ul className="mt-2 space-y-1">
+          <ul className="mt-3 space-y-2">
             <li>• {t.trustedBy}</li>
             <li>• {t.yards}</li>
             <li>• {t.response}</li>
           </ul>
-          <div className="mt-3 rounded-2xl bg-slate-50 p-3">
+          <div className="mt-4 rounded-2xl bg-slate-50 p-4 space-y-3">
             <p className="font-semibold text-slate-800">{t.companyProfile}: Dubai Spares UAE</p>
-            <p>WhatsApp: {whatsappPhoneDigits ? `+${whatsappPhoneDigits}` : 'Not configured'}</p>
-            {settings.publicTelegramUrl && <p>Telegram: {settings.publicTelegramUrl}</p>}
-            {settings.publicInstagramUrl && <p>Instagram: {settings.publicInstagramUrl}</p>}
+            {whatsappPhoneDigits && (
+              <a href={`https://wa.me/${whatsappPhoneDigits}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white">
+                <MessageCircle size={16} /> WhatsApp
+              </a>
+            )}
+            {settings.publicTelegramUrl && (
+              <a href={settings.publicTelegramUrl} target="_blank" rel="noreferrer" className="ml-2 inline-flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white">
+                <Send size={16} /> Telegram
+              </a>
+            )}
+            {settings.publicInstagramUrl && (
+              <a href={settings.publicInstagramUrl} target="_blank" rel="noreferrer" className="ml-2 inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 px-4 py-2 text-sm font-bold text-white">
+                <Instagram size={16} /> Instagram
+              </a>
+            )}
           </div>
         </section>
 

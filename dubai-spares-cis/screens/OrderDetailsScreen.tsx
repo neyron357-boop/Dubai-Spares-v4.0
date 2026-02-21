@@ -1245,10 +1245,6 @@ const OrderDetailsScreen: React.FC = () => {
               </select>
             </div>
             <div>
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Курс $</span>
-              <input type="text" inputMode="decimal" value={rateInput} onChange={handleRateChange} onBlur={() => setRateInput(order.exchangeRate.toString())} className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100" />
-            </div>
-            <div>
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Тип доставки</span>
               <select value={logistics.deliveryType} onChange={(e) => updateLogisticsField('deliveryType', e.target.value)} className="w-full h-10 mt-1 font-bold bg-gray-50 rounded-xl px-3 border border-gray-100">
                 <option value="uae">Внутри UAE</option>
