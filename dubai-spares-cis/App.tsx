@@ -52,7 +52,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   return (
-    <div className="fixed inset-0 h-[100dvh] w-full max-w-md mx-auto bg-gray-50 flex flex-col overflow-hidden">
+    <div className="fixed inset-0 h-[100dvh] w-full bg-slate-100 flex justify-center overflow-hidden"><div className="h-full w-full max-w-md bg-gray-50 flex flex-col overflow-hidden shadow-sm">
       <main className="flex-1 overflow-y-auto no-scrollbar relative">
         <div className="fixed top-3 right-3 z-[90] px-2.5 py-1 rounded-full bg-slate-700/85 text-white text-[10px] font-black uppercase tracking-wide shadow">
           {LOCAL_MODE_LABEL}
@@ -72,6 +72,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <NavLink to="/settings" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настр.</span></NavLink>
         </nav>
       )}
+      </div>
     </div>
   );
 };
@@ -97,16 +98,21 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    let toastTimer: number | null = null;
     const onAppToast = (event: Event) => {
       const custom = event as CustomEvent<{ message?: string; tone?: 'error' | 'success' | 'info' }>;
       const message = custom.detail?.message;
       if (!message) return;
       setAppToast({ message, tone: custom.detail?.tone || 'info' });
-      window.setTimeout(() => setAppToast(null), 3200);
+      if (toastTimer) window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => setAppToast(null), 3200);
     };
 
     window.addEventListener('app-toast', onAppToast);
-    return () => window.removeEventListener('app-toast', onAppToast);
+    return () => {
+      window.removeEventListener('app-toast', onAppToast);
+      if (toastTimer) window.clearTimeout(toastTimer);
+    };
   }, []);
 
 
