@@ -157,7 +157,6 @@ const OrderDetailsScreen: React.FC = () => {
     serviceFeeAed: String(Number(order?.logistics?.serviceFeeAed || 0))
   });
   const pricingSaveDebounceRef = useRef<number | null>(null);
-  const logisticsCommitTimersRef = useRef<Partial<Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', number>>>({});
   const markupCommitTimerRef = useRef<number | null>(null);
   const exchangeRateCommitTimerRef = useRef<number | null>(null);
   const deferredFieldTimersRef = useRef<Partial<Record<keyof Order, number>>>({});
@@ -188,9 +187,6 @@ const OrderDetailsScreen: React.FC = () => {
     if (markupCommitTimerRef.current) window.clearTimeout(markupCommitTimerRef.current);
     if (exchangeRateCommitTimerRef.current) window.clearTimeout(exchangeRateCommitTimerRef.current);
     Object.values(deferredFieldTimersRef.current).forEach((timerId) => { if (timerId) window.clearTimeout(timerId); });
-    (Object.values(logisticsCommitTimersRef.current) as number[]).forEach((timerId) => {
-      if (timerId) window.clearTimeout(timerId);
-    });
   }, []);
 
   useEffect(() => {
@@ -654,8 +650,8 @@ const OrderDetailsScreen: React.FC = () => {
     }, 1000);
   }, []);
 
-  const commitLogisticsField = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', forcedValue?: number) => {
-    const nextValue = forcedValue ?? Number(logisticsInputs[field] || 0);
+  const commitLogisticsField = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed') => {
+    const nextValue = Number(logisticsInputs[field] || 0);
     const prevValue = Number(order.logistics?.[field] || 0);
     if (prevValue === nextValue) return;
 
@@ -683,10 +679,7 @@ const OrderDetailsScreen: React.FC = () => {
   }, [logisticsInputs, order, scheduleDebouncedSaveLog, updateOrder]);
 
   const flushLogisticsFieldCommit = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed') => {
-    const timerId = logisticsCommitTimersRef.current[field];
-    if (timerId) window.clearTimeout(timerId);
     commitLogisticsField(field);
-    logisticsCommitTimersRef.current[field] = undefined;
   }, [commitLogisticsField]);
 
   const updateLogisticsField = (field: 'deliveryType' | 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value: string) => {
@@ -696,16 +689,8 @@ const OrderDetailsScreen: React.FC = () => {
       return;
     }
 
-    const keyStart = performance.now();
     const sanitized = sanitizeNumericInput(value);
     setLogisticsInputs((prev) => ({ ...prev, [field]: sanitized }));
-    const timerId = logisticsCommitTimersRef.current[field];
-    if (timerId) window.clearTimeout(timerId);
-    logisticsCommitTimersRef.current[field] = window.setTimeout(() => {
-      commitLogisticsField(field, Number(sanitized || 0));
-      logisticsCommitTimersRef.current[field] = undefined;
-    }, 700);
-    syncPerf.recordTypingSample(Math.round((performance.now() - keyStart) * 100) / 100);
   };
 
   const handleRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
