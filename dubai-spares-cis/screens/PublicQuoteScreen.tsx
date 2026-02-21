@@ -1106,19 +1106,20 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     if (!order) return [];
     const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
     const fixedMarkupTotal = Number(order.markupFixedAed || 0);
-    const readyPartsCount = order.parts.filter((part) => {
+    const partsWithPriceCount = order.parts.filter((part) => {
       const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
-      return !!best && part.isFound;
+      return !!best;
     }).length;
-    const fixedMarkupPerPart = isFixedMarkup && readyPartsCount > 0 ? fixedMarkupTotal / readyPartsCount : 0;
+    const fixedMarkupPerPart = isFixedMarkup && partsWithPriceCount > 0 ? fixedMarkupTotal / partsWithPriceCount : 0;
 
     return order.parts.map((part) => {
       const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
       const supplierAed = best?.priceAed || 0;
+      const hasPrice = !!best;
       const isReady = !!best && part.isFound;
       const clientAed = isFixedMarkup
-        ? (isReady
-          ? supplierAed + (isReady ? fixedMarkupPerPart : 0)
+        ? (hasPrice
+          ? supplierAed + fixedMarkupPerPart
           : supplierAed)
         : resolveClientUnitPriceAed(best as unknown as Record<string, unknown>, { markupPercent: order.markupPercent });
       const converted = clientAed * rates[currency];
@@ -1133,7 +1134,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   }, [order, currency, rates, t.inStock, t.onOrder]);
 
   const foundParts = partCards.filter((item) => item.isReady);
-  const pendingParts = partCards.filter((item) => !item.isReady);
 
   const totals = useMemo(() => {
     const payloadTotals = snapshotPayload ? resolveTotalsFromPayload(snapshotPayload, rates) : null;
@@ -1162,9 +1162,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       totalAed,
       totalConverted: totalAed * rates[currency],
       computedFrom: payloadTotals?.computedFrom || 'recompute(items)',
-      hasPositions: (payloadTotals?.items.length ?? foundParts.length) > 0
+      hasPositions: (payloadTotals?.items.length ?? partCards.length) > 0
     };
-  }, [foundParts, currency, rates, snapshotPayload]);
+  }, [foundParts, partCards.length, currency, rates, snapshotPayload]);
   const confirmMessage = `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}. ID: ${order?.id || ''}`;
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};
@@ -1343,9 +1343,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
         <section ref={detailRef} className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{t.partsGallery} — {foundParts.length} {lang === 'ru' ? 'позиц.' : 'items'}</h2>
+            <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{t.partsGallery} — {partCards.length} {lang === 'ru' ? 'позиц.' : 'items'}</h2>
           </div>
-          {foundParts.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => {
+          {partCards.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => {
             const partMessage = `Hello! I confirm ${part.name} for ${order.brand} ${order.model} ${order.year}.\nVIN: ${maskVin(order.vin || '')}.\nPrice: ${converted.toFixed(2)} ${currency}.`;
             const partWhatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(partMessage)}` : '';
 
@@ -1396,14 +1396,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             );
           })}
 
-          {pendingParts.length > 0 && (
-            <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50 p-4">
-              <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-amber-500">{t.onOrder}</p>
-              <div className="flex flex-wrap gap-2">
-                {pendingParts.map(({ part }) => <span key={part.id} className="rounded-full bg-white border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700">{part.name}</span>)}
-              </div>
-            </div>
-          )}
           {!totals.hasPositions && (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">{t.noPositions}</div>
           )}
