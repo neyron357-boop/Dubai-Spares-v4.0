@@ -231,7 +231,7 @@ const withSingleFlight = async <T>(key: string, factory: () => Promise<Result<T>
   return promise;
 };
 
-const callRest = async <T>(endpoint: string, method: 'GET' | 'POST', payload: unknown, options: RequestOptions): Promise<Result<T>> => {
+const callRest = async <T>(endpoint: string, method: 'GET' | 'POST' | 'DELETE', payload: unknown, options: RequestOptions): Promise<Result<T>> => {
   await waitForRateLimit(endpoint);
   const maxAttempts = 2;
   let lastResult: Result<T> = { ok: false, code: 'unknown_error', error: 'Unknown cloud error' };
@@ -474,6 +474,33 @@ export const getPublicQuoteSnapshot = async (
   const row = response.data?.[0];
   if (!row) return recordCall('getPublicQuoteSnapshot', { ok: false, code: 'not_found', error: 'Quote snapshot not found' });
   return recordCall('getPublicQuoteSnapshot', { ok: true, data: row });
+};
+
+
+
+export const clearPublicQuoteSnapshots = async (options?: RequestOptions): Promise<Result<{ cleared: boolean }>> => {
+  const guard = assertCloudFeatureEnabled(cloudFeatureFlags.publicQuote);
+  if (!guard.ok) return recordCall('clearPublicQuoteSnapshots', guard);
+
+  const lockKey = 'clearPublicQuoteSnapshots';
+  if (inFlight.has(lockKey)) return recordCall('clearPublicQuoteSnapshots', denyDuplicate('Public snapshots cleanup'));
+  inFlight.add(lockKey);
+
+  try {
+    const endpoint = 'public_quote_snapshots?id=not.is.null';
+    const response = await callRest<null>(endpoint, 'DELETE', undefined, {
+      ...(options || {}),
+      preferRepresentation: false,
+      timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
+    });
+
+    if (!response.ok) return recordCall('clearPublicQuoteSnapshots', response);
+    return recordCall('clearPublicQuoteSnapshots', { ok: true, data: { cleared: true } });
+  } catch (error) {
+    return recordCall('clearPublicQuoteSnapshots', { ok: false, code: 'unexpected_error', error: toErrorMessage(error, 'Failed to clear quote snapshots') });
+  } finally {
+    inFlight.delete(lockKey);
+  }
 };
 
 export const publicQuoteCreate = createPublicQuoteSnapshot;
