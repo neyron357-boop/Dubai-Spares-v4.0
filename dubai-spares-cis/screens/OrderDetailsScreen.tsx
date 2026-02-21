@@ -650,8 +650,8 @@ const OrderDetailsScreen: React.FC = () => {
     }, 1000);
   }, []);
 
-  const commitLogisticsField = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed') => {
-    const nextValue = Number(logisticsInputs[field] || 0);
+  const commitLogisticsField = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', rawValue?: string) => {
+    const nextValue = Number((rawValue ?? logisticsInputs[field]) || 0);
     const prevValue = Number(order.logistics?.[field] || 0);
     if (prevValue === nextValue) return;
 
@@ -678,8 +678,8 @@ const OrderDetailsScreen: React.FC = () => {
     scheduleDebouncedSaveLog();
   }, [logisticsInputs, order, scheduleDebouncedSaveLog, updateOrder]);
 
-  const flushLogisticsFieldCommit = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed') => {
-    commitLogisticsField(field);
+  const flushLogisticsFieldCommit = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value?: string) => {
+    commitLogisticsField(field, value);
   }, [commitLogisticsField]);
 
   const updateLogisticsField = (field: 'deliveryType' | 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value: string) => {
@@ -689,8 +689,7 @@ const OrderDetailsScreen: React.FC = () => {
       return;
     }
 
-    const sanitized = sanitizeNumericInput(value);
-    setLogisticsInputs((prev) => ({ ...prev, [field]: sanitized }));
+    return sanitizeNumericInput(value);
   };
 
   const handleRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1216,7 +1215,37 @@ const OrderDetailsScreen: React.FC = () => {
             {(['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).map((field) => (
               <div key={field}>
                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{field === 'deliveryAed' ? 'Доставка' : field === 'packingAed' ? 'Упаковка' : 'Комиссия'} AED</span>
-                <input type="text" inputMode="numeric" value={logisticsInputs[field]} onFocus={() => { if (logisticsInputs[field] === '0') setLogisticsInputs((prev) => ({ ...prev, [field]: '' })); }} onBlur={() => { if (!logisticsInputs[field]) setLogisticsInputs((prev) => ({ ...prev, [field]: '0' })); flushLogisticsFieldCommit(field); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }} onChange={(e) => updateLogisticsField(field, e.target.value)} className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100" />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={logisticsInputs[field]}
+                  onFocus={(e) => {
+                    if (e.currentTarget.value === '0') {
+                      e.currentTarget.value = '';
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const sanitized = updateLogisticsField(field, e.currentTarget.value);
+                    const normalized = sanitized || '0';
+                    setLogisticsInputs((prev) => ({ ...prev, [field]: normalized }));
+                    if (e.currentTarget.value !== normalized) {
+                      e.currentTarget.value = normalized;
+                    }
+                    flushLogisticsFieldCommit(field, normalized);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  onChange={(e) => {
+                    const sanitized = updateLogisticsField(field, e.currentTarget.value);
+                    if (e.currentTarget.value !== sanitized) {
+                      e.currentTarget.value = sanitized;
+                    }
+                  }}
+                  className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100"
+                />
               </div>
             ))}
           </div>
