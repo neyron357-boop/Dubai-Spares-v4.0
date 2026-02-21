@@ -239,11 +239,15 @@ const getMissingColumnName = (error: unknown): string | null => {
   return null;
 };
 
-const fetchOrdersPage = async (orderColumns: string[], from: number, to: number) => {
+const fetchOrdersPage = async (
+  orderColumns: string[],
+  partColumns: string[],
+  variantColumns: string[],
+  from: number,
+  to: number
+) => {
   if (!supabase) return { data: null, error: null };
 
-  const partColumns = getSelectableColumns('parts');
-  const variantColumns = getSelectableColumns('price_variants');
   const partsJoin = `parts(${partColumns.join(',')}, price_variants(${variantColumns.join(',')}))`;
   const selectQuery = `${orderColumns.join(',')}, ${partsJoin}`;
 
@@ -261,15 +265,63 @@ const fetchOrdersPage = async (orderColumns: string[], from: number, to: number)
 };
 
 
+type GraphTableName = 'orders' | 'parts' | 'price_variants';
+
+const getMissingGraphColumn = (error: unknown): { table: GraphTableName; column: string } | null => {
+  if (typeof error !== 'object' || !error) return null;
+  const anyErr = error as { code?: unknown; message?: unknown };
+  if (typeof anyErr.message !== 'string') return null;
+
+  const message = anyErr.message;
+  const supportedTables: GraphTableName[] = ['orders', 'parts', 'price_variants'];
+
+  if (anyErr.code === 'PGRST204') {
+    const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/);
+    if (!match) return null;
+    const column = match[1];
+    const table = match[2] as GraphTableName;
+    if (!supportedTables.includes(table)) return null;
+    return { table, column };
+  }
+
+  if (anyErr.code === '42703') {
+    const pgMatch = message.match(/column\s+([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s+does not exist/i);
+    if (pgMatch) {
+      const table = pgMatch[1] as GraphTableName;
+      const column = pgMatch[2];
+      if (!supportedTables.includes(table)) return null;
+      return { table, column };
+    }
+
+    const quotedMatch = message.match(/column\s+["']?([a-zA-Z0-9_]+)["']?\.["']?([a-zA-Z0-9_]+)["']?\s+does not exist/i);
+    if (quotedMatch) {
+      const table = quotedMatch[1] as GraphTableName;
+      const column = quotedMatch[2];
+      if (!supportedTables.includes(table)) return null;
+      return { table, column };
+    }
+  }
+
+  return null;
+};
+
 const fetchOrdersGraphWithSchemaFallbacks = async () => {
   if (!supabase) return { data: null, error: null };
 
   let orderColumns = getSelectableColumns('orders');
+  let partColumns = getSelectableColumns('parts');
+  let variantColumns = getSelectableColumns('price_variants');
   const collectedOrders: DbOrderGraphRow[] = [];
   let offset = 0;
 
   while (true) {
-    const response = await fetchOrdersPage(orderColumns, offset, offset + ORDER_PAGE_SIZE - 1);
+    const response = await fetchOrdersPage(
+      orderColumns,
+      partColumns,
+      variantColumns,
+      offset,
+      offset + ORDER_PAGE_SIZE - 1
+    );
 
     if (!response.error) {
       const page = Array.isArray(response.data) ? response.data : [];
@@ -281,21 +333,33 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
       continue;
     }
 
-    const missingColumn = getMissingColumnName(response.error);
-    if (!missingColumn || !orderColumns.includes(missingColumn)) {
+    const missingColumnInfo = getMissingGraphColumn(response.error);
+    if (!missingColumnInfo) {
       return response;
     }
 
-    const isNewlyMissing = markMissingColumn('orders', missingColumn);
+    const { table, column: missingColumn } = missingColumnInfo;
+    const selectableForTable = table === 'orders' ? orderColumns : table === 'parts' ? partColumns : variantColumns;
+    if (!selectableForTable.includes(missingColumn)) {
+      return response;
+    }
+
+    const isNewlyMissing = markMissingColumn(table, missingColumn);
     if (isNewlyMissing && !schemaMissingColumns.has(missingColumn)) {
       schemaMissingColumns.add(missingColumn);
       addMissingColumns([missingColumn]);
-      syncPerf.addSchemaWarning(`orders.${missingColumn}`);
-      logSyncCategory('SCHEMA_MISMATCH', 'column_missing', { table: 'orders', column: missingColumn });
+      syncPerf.addSchemaWarning(`${table}.${missingColumn}`);
+      logSyncCategory('SCHEMA_MISMATCH', 'column_missing', { table, column: missingColumn });
       await logger.warn('sync:fetch', `schema_missing_columns: ["${missingColumn}"]`);
-      await logDatabaseIntegrity('sync:fetch', response.error, { column: missingColumn });
+      await logDatabaseIntegrity('sync:fetch', response.error, { table, column: missingColumn });
     }
-    orderColumns = orderColumns.filter((column) => column !== missingColumn);
+    if (table === 'orders') {
+      orderColumns = orderColumns.filter((column) => column !== missingColumn);
+    } else if (table === 'parts') {
+      partColumns = partColumns.filter((column) => column !== missingColumn);
+    } else {
+      variantColumns = variantColumns.filter((column) => column !== missingColumn);
+    }
   }
 };
 
