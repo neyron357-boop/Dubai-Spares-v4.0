@@ -1044,6 +1044,16 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
 
   const useLeadsOnlyFallback = isOrdersTableMissingFromSchemaCache(error);
   if (error && !useLeadsOnlyFallback) {
+    const syncErrorType = classifySyncError(error);
+    if (syncErrorType === 'network') {
+      await logger.warn('sync:fetch', 'Cloud orders fetch failed due to network issue; keeping local orders cache', {
+        error: serializeError(error)
+      });
+      setSyncStatus('offline');
+      setState({ isLoading: false, isHydrated: true, error: null });
+      return;
+    }
+
     await logger.error('sync:fetch', 'Cloud orders fetch failed', { error: serializeError(error) });
     broadcastSyncError(error, error.message || 'Failed to load orders from Supabase');
     setState({ isLoading: false, isHydrated: true });
