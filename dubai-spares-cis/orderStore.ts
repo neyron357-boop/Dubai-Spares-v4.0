@@ -184,18 +184,9 @@ const notifyAboutIncomingLeads = (previousOrders: Order[], nextOrders: Order[]) 
   const previousIds = new Set(previousOrders.map((order) => order.id));
   const newUnreadLeads = nextOrders.filter((order) => isUnreadPublicLead(order) && !previousIds.has(order.id));
 
-  console.log('[orderStore] New unread leads:', newUnreadLeads.length);
-
   if (newUnreadLeads.length === 0) return;
 
   newUnreadLeads.forEach((lead) => {
-    console.log('[orderStore] Sending notification for lead:', {
-      id: lead.id,
-      name: lead.clientName,
-      brand: lead.brand,
-      model: lead.model
-    });
-
     const title = '🔔 Новый лид!';
     const message = `${lead.brand || '-'} ${lead.model || ''} - ${lead.clientName || 'без имени'}`.trim();
 
@@ -1073,36 +1064,14 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
     : (data || []).map(mapDbOrder);
 
   try {
-    console.log('[orderStore] Calling leadsSync...');
     const leadsResponse = await leadsSync();
-
-    console.log('[orderStore] leadsSync result:', {
-      ok: leadsResponse.ok,
-      count: leadsResponse.ok ? leadsResponse.data?.length || 0 : 0,
-      error: !leadsResponse.ok ? leadsResponse.error : undefined
-    });
 
     if (leadsResponse.ok && Array.isArray(leadsResponse.data)) {
       const beforeMerge = orders.length;
       orders = await mergeCloudLeadsWithOrders(orders, leadsResponse.data);
-      const afterMerge = orders.length;
-      const newLeads = afterMerge - beforeMerge;
+      const newLeads = orders.length - beforeMerge;
 
-      console.log('[orderStore] Merged leads:', {
-        cloudLeads: leadsResponse.data.length,
-        beforeMerge,
-        afterMerge,
-        newLeads
-      });
-
-      await logger.info('sync:fetch', `Merged ${leadsResponse.data.length} cloud leads into orders`, {
-        newLeads
-      });
-
-      if (newLeads > 0) {
-        const unreadLeads = orders.filter((order) => order.isLead && order.leadUnread === true);
-        console.log('[orderStore] Sending notifications for', unreadLeads.length, 'unread leads');
-      }
+      await logger.info('sync:fetch', `Merged ${leadsResponse.data.length} cloud leads into orders`, { newLeads });
     } else if (!leadsResponse.ok) {
       await logger.warn('sync:fetch', useLeadsOnlyFallback
         ? 'Lead sync failed while using leads-only fallback'
@@ -1112,17 +1081,8 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
       });
     }
   } catch (error) {
-    console.error('[orderStore] Lead sync failed with exception:', error);
     await logger.error('sync:fetch', 'Lead sync exception, continuing with orders only', {
       error: error instanceof Error ? error.message : String(error)
-    });
-
-    pushNotification({
-      type: NotificationType.SYNC_ERROR,
-      title: '⚠️ Ошибка синхронизации лидов',
-      message: 'Не удалось загрузить новые лиды. Попробуйте обновить позже.',
-      severity: 'warning',
-      source: 'sync'
     });
   }
 
@@ -1337,24 +1297,24 @@ export const restoreOrdersExternal = (orders: Order[]) => {
   void offlineDb.saveOrders(normalized);
 };
 
-export const syncLeadsToState = async (cloudLeads: CloudLeadRow[]) => {
-  if (cloudLeads.length === 0) {
-    console.log('[syncLeadsToState] No leads to sync');
-    return;
-  }
+// Compact change-detection key for a list of orders.
+// Same pattern as `refreshLeadsOnly`. O(n) but called at most once per poll
+// interval and only when the server actually returns data.
+const ordersSignature = (orders: Order[]) =>
+  orders.map((o) => `${o.id}:${o.updatedAt || o.createdAt || 0}:${o.leadUnread ? 1 : 0}`).join('|');
 
-  console.log('[syncLeadsToState] Syncing', cloudLeads.length, 'cloud leads to state');
-  
+export const syncLeadsToState = async (cloudLeads: CloudLeadRow[]) => {
+  if (cloudLeads.length === 0) return;
+
   const previousOrders = state.orders;
   const mergedOrders = await mergeCloudLeadsWithOrders(previousOrders, cloudLeads);
-  
-  // Update state with merged leads to ensure UI reflects latest data
-  console.log('[syncLeadsToState] Updating state with merged leads');
+
+  // Skip re-render if nothing actually changed — prevents white flashes from polling
+  if (ordersSignature(mergedOrders) === ordersSignature(previousOrders)) return;
+
   setState({ orders: mergedOrders });
-  
   await offlineDb.saveOrders(mergedOrders);
-  
-  // Notify about new incoming leads
+
   if (wasCloudHydratedAtLeastOnce) {
     notifyAboutIncomingLeads(previousOrders, mergedOrders);
   }
@@ -1368,7 +1328,6 @@ export const useOrderStore = () => {
   useEffect(() => {
     if (!state.isHydrated && !lifecycleHydrationStarted) {
       lifecycleHydrationStarted = true;
-      console.log('[useOrderStore] Starting initial hydration...');
       void fetchOrders();
     }
   }, []);
