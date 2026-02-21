@@ -7,9 +7,9 @@ export type QuoteRates = Record<QuoteCurrency, number>;
 
 export const DEFAULT_QUOTE_RATES: QuoteRates = {
   AED: 1,
-  USD: 3.67,
-  RUB: 25,
-  TJS: 2.98
+  USD: 0.27,
+  RUB: 21,
+  TJS: 2.60
 };
 
 const firstHttpPhoto = (images: string[]) => images.find((item) => item.startsWith('http'));
