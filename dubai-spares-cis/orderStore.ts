@@ -140,6 +140,11 @@ let syncPausedUntil = 0;
 let syncMutex: Promise<void> = Promise.resolve();
 let lifecycleHydrationStarted = false;
 let lifecycleEventsBound = false;
+let lastFullFetchAt = 0;
+let lastLeadRefreshAt = 0;
+
+const MIN_FULL_FETCH_INTERVAL_MS = 45_000;
+const MIN_LEAD_REFRESH_INTERVAL_MS = 30_000;
 
 const runWithSyncMutex = async <T>(task: () => Promise<T>): Promise<T> => {
   const previous = syncMutex;
@@ -1012,6 +1017,14 @@ export const subscribeOrderStore = (listener: () => void) => {
 export const getOrderState = () => state;
 
 export const fetchOrders = async () => runWithSyncMutex(async () => {
+  const now = Date.now();
+  const shouldThrottleFetch = state.isHydrated
+    && !state.isLoading
+    && !syncInProgress
+    && now - lastFullFetchAt < MIN_FULL_FETCH_INTERVAL_MS;
+  if (shouldThrottleFetch) return;
+
+  lastFullFetchAt = now;
   setState({ isLoading: true, error: null });
   await logger.info('sync:fetch', 'Starting order hydration');
 
@@ -1153,6 +1166,35 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
     void flushOfflineMutations();
   }
 });
+
+const refreshLeadsOnly = async () => {
+  if (LOCAL_ONLY || !navigator.onLine || !isCloudSyncConfigured || !state.isHydrated) return;
+  if (syncInProgress || document.visibilityState !== 'visible') return;
+
+  const now = Date.now();
+  if (now - lastLeadRefreshAt < MIN_LEAD_REFRESH_INTERVAL_MS) return;
+  lastLeadRefreshAt = now;
+
+  try {
+    const leadsResponse = await leadsSync();
+    if (!leadsResponse.ok || !Array.isArray(leadsResponse.data) || leadsResponse.data.length === 0) return;
+    const previousOrders = state.orders;
+    const mergedOrders = await mergeCloudLeadsWithOrders(previousOrders, leadsResponse.data);
+    const signature = (orders: Order[]) => orders
+      .map((order) => `${order.id}:${order.updatedAt || order.createdAt || 0}:${order.leadUnread ? 1 : 0}`)
+      .join('|');
+    if (signature(mergedOrders) === signature(previousOrders)) return;
+    setState({ orders: mergedOrders });
+    await offlineDb.saveOrders(mergedOrders);
+    if (wasCloudHydratedAtLeastOnce) {
+      notifyAboutIncomingLeads(previousOrders, mergedOrders);
+    }
+  } catch (error) {
+    await logger.warn('sync:leads-refresh', 'Leads-only refresh failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+};
 
 export const fetchOrderDetails = async (orderId: string) => {
   if (!orderId || !isUuid(orderId) || ordersTableUnavailable || LOCAL_ONLY || !supabase || !navigator.onLine || !isCloudSyncConfigured) return;
@@ -1352,14 +1394,14 @@ export const useOrderStore = () => {
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void fetchOrders();
+        void refreshLeadsOnly();
       }
     };
 
     const LEADS_POLL_INTERVAL_MS = 2 * 60 * 1000; // poll every 2 minutes
     const pollIntervalId = window.setInterval(() => {
       if (document.visibilityState !== 'hidden') {
-        void fetchOrders();
+        void refreshLeadsOnly();
       }
     }, LEADS_POLL_INTERVAL_MS);
 
