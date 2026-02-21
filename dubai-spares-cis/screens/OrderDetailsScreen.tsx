@@ -164,7 +164,6 @@ const OrderDetailsScreen: React.FC = () => {
   const deferredFieldValuesRef = useRef<Partial<Record<keyof Order, any>>>({});
   const [draftFields, setDraftFields] = useState<Partial<Record<keyof Order, any>>>({});
   const lastKeystrokeAtRef = useRef<number>(0);
-  const renderPerfStart = performance.now();
 
   // Sync local rate input if order changes
   useEffect(() => {
@@ -181,12 +180,8 @@ const OrderDetailsScreen: React.FC = () => {
       packingAed: String(Number(order?.logistics?.packingAed || 0)),
       serviceFeeAed: String(Number(order?.logistics?.serviceFeeAed || 0))
     });
-  }, [order?.id, order?.logistics?.deliveryAed, order?.logistics?.packingAed, order?.logistics?.serviceFeeAed]);
+  }, [order?.id]);
 
-  useEffect(() => {
-    const renderMs = Math.round((performance.now() - renderPerfStart) * 100) / 100;
-    void logger.debug('PRICING_PERF', 'render_ms', { orderId: order?.id, renderMs });
-  });
 
   useEffect(() => () => {
     if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
@@ -623,8 +618,6 @@ const OrderDetailsScreen: React.FC = () => {
     const existingTimer = deferredFieldTimersRef.current[field];
     if (existingTimer) window.clearTimeout(existingTimer);
     deferredFieldTimersRef.current[field] = window.setTimeout(() => {
-      const elapsed = Math.round((performance.now() - lastKeystrokeAtRef.current) * 100) / 100;
-      void logger.debug('PRICING_PERF', 'typing_commit_latency', { orderId: order.id, field, elapsedMs: elapsed });
       commitDeferredOrderField(field);
     }, 650);
     syncPerf.recordTypingSample(Math.round((performance.now() - keyStart) * 100) / 100);
@@ -656,15 +649,12 @@ const OrderDetailsScreen: React.FC = () => {
 
   const scheduleDebouncedSaveLog = useCallback(() => {
     if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
-    void logger.debug('PRICING_PERF', 'save_debounced_scheduled', { orderId: order.id, delayMs: 1000 });
     pricingSaveDebounceRef.current = window.setTimeout(() => {
-      void logger.debug('PRICING_PERF', 'save_debounced_flush', { orderId: order.id });
       pricingSaveDebounceRef.current = null;
     }, 1000);
-  }, [order.id]);
+  }, []);
 
   const commitLogisticsField = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', forcedValue?: number) => {
-    const commitStart = performance.now();
     const nextValue = forcedValue ?? Number(logisticsInputs[field] || 0);
     const prevValue = Number(order.logistics?.[field] || 0);
     if (prevValue === nextValue) return;
@@ -679,11 +669,7 @@ const OrderDetailsScreen: React.FC = () => {
       packingAed: 'logistics.packingAed',
       serviceFeeAed: 'logistics.serviceFeeAed'
     };
-    void logger.debug('PRICING_PERF', 'pricing_commit_start', { orderId: order.id, field: eventFieldMap[field], oldValue: prevValue, newValue: nextValue, source: 'ui_commit' });
     const event = createPricingEvent(eventFieldMap[field], eventLabels[field], prevValue, nextValue);
-    if (event) {
-      void logger.debug('PRICING_PERF', 'pricing_event_appended', { orderId: order.id, field: event.field, oldValue: event.previousValue, newValue: event.nextValue });
-    }
 
     updateOrder({
       ...order,
@@ -693,8 +679,6 @@ const OrderDetailsScreen: React.FC = () => {
       },
       pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents
     });
-    const commitMs = Math.round((performance.now() - commitStart) * 100) / 100;
-    void logger.debug('PRICING_PERF', 'pricing_commit_end', { orderId: order.id, field: eventFieldMap[field], commitMs });
     scheduleDebouncedSaveLog();
   }, [logisticsInputs, order, scheduleDebouncedSaveLog, updateOrder]);
 
@@ -745,22 +729,15 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const commitMarkupFixed = useCallback((forcedValue?: number) => {
-    const commitStart = performance.now();
     const nextValue = forcedValue ?? Number(markupFixedInput || 0);
     const previousValue = Number(order.markupFixedAed || 0);
     const previousType = order.markupType || 'percent';
     if (nextValue === previousValue && previousType === 'fixed') return;
 
-    void logger.debug('PRICING_PERF', 'pricing_commit_start', { orderId: order.id, field: 'markupFixedAed', oldValue: previousValue, newValue: nextValue, source: 'ui_commit' });
     const amountEvent = createPricingEvent('markupFixedAed', 'Наценка (фикс AED)', previousValue, nextValue);
     const typeEvent = createPricingEvent('markupType', 'Тип наценки', previousType, 'fixed');
     const nextEvents = [amountEvent, typeEvent].filter(Boolean) as OrderPricingEvent[];
-    if (nextEvents.length) {
-      void logger.debug('PRICING_PERF', 'pricing_event_appended', { orderId: order.id, count: nextEvents.length, fields: nextEvents.map((event) => event.field) });
-    }
     updateOrder({ ...order, markupFixedAed: nextValue, markupType: 'fixed', pricingEvents: nextEvents.length ? [...nextEvents, ...(order.pricingEvents || [])] : order.pricingEvents });
-    const commitMs = Math.round((performance.now() - commitStart) * 100) / 100;
-    void logger.debug('PRICING_PERF', 'pricing_commit_end', { orderId: order.id, field: 'markupFixedAed', commitMs });
     scheduleDebouncedSaveLog();
   }, [markupFixedInput, order, scheduleDebouncedSaveLog, updateOrder]);
 
@@ -1243,10 +1220,6 @@ const OrderDetailsScreen: React.FC = () => {
               <select value={order.clientCurrency || 'USD'} onChange={(e) => updateOrderField('clientCurrency', e.target.value)} className="w-full h-10 mt-1 font-bold bg-gray-50 rounded-xl px-3 border border-gray-100">
                 <option value="AED">AED</option><option value="USD">USD</option><option value="RUB">RUB</option><option value="TJS">TJS</option>
               </select>
-            </div>
-            <div>
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Курс $</span>
-              <input type="text" inputMode="decimal" value={rateInput} onChange={handleRateChange} onBlur={() => setRateInput(order.exchangeRate.toString())} className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100" />
             </div>
             <div>
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Тип доставки</span>

@@ -131,15 +131,20 @@ const safeRebuildIndex = async () => {
 
     await deleteDb();
     const db = await openDb();
-    const tx = db.transaction([...ALL_STORES], 'readwrite');
-    for (const storeName of ALL_STORES) {
-      const store = tx.objectStore(storeName);
-      await txRequest(store.clear());
-      const rows = Array.isArray(snapshot[storeName]) ? snapshot[storeName] : [];
-      for (const row of rows) {
-        await txRequest(store.put(row));
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([...ALL_STORES], 'readwrite');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('safeRebuildIndex transaction failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('safeRebuildIndex transaction aborted'));
+      for (const storeName of ALL_STORES) {
+        const store = tx.objectStore(storeName);
+        store.clear();
+        const rows = Array.isArray(snapshot[storeName]) ? snapshot[storeName] : [];
+        for (const row of rows) {
+          store.put(row);
+        }
       }
-    }
+    });
   })();
 
   try {
@@ -787,23 +792,33 @@ export const offlineDb = {
 
   async importAllData(payload: Record<string, unknown[]>): Promise<void> {
     const db = await openDb();
-    const tx = db.transaction([...ALL_STORES], 'readwrite');
-    for (const storeName of ALL_STORES) {
-      const store = tx.objectStore(storeName);
-      await txRequest(store.clear());
-      const rows = Array.isArray(payload[storeName]) ? payload[storeName] : [];
-      for (const row of rows) {
-        await txRequest(store.put(row));
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([...ALL_STORES], 'readwrite');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('importAllData transaction failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('importAllData transaction aborted'));
+      for (const storeName of ALL_STORES) {
+        const store = tx.objectStore(storeName);
+        store.clear();
+        const rows = Array.isArray(payload[storeName]) ? payload[storeName] : [];
+        for (const row of rows) {
+          store.put(row);
+        }
       }
-    }
+    });
   },
 
   async clearAllOfflineData(): Promise<void> {
     const db = await openDb();
-    const tx = db.transaction([...ALL_STORES], 'readwrite');
-    for (const storeName of ALL_STORES) {
-      await txRequest(tx.objectStore(storeName).clear());
-    }
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([...ALL_STORES], 'readwrite');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('clearAllOfflineData transaction failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('clearAllOfflineData transaction aborted'));
+      for (const storeName of ALL_STORES) {
+        tx.objectStore(storeName).clear();
+      }
+    });
   },
 
   async rebuildIndex(): Promise<void> {

@@ -6,8 +6,10 @@ import {
   ChevronRight,
   Download,
   Globe,
+  Instagram,
   MessageCircle,
-  RefreshCcw
+  RefreshCcw,
+  Send
 } from 'lucide-react';
 import { Order, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
@@ -1283,109 +1285,122 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f5f7] text-slate-900">
-      <div className="sticky top-0 z-40 border-b border-black/5 bg-white/90 px-3 py-2 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Globe size={15} className="text-slate-500" />
-            <button type="button" onClick={() => setLang('en')} className={`rounded-full px-2 py-1 text-xs font-semibold ${lang === 'en' ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>EN</button>
-            <button type="button" onClick={() => setLang('ru')} className={`rounded-full px-2 py-1 text-xs font-semibold ${lang === 'ru' ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>RU</button>
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      {/* Sticky nav — language + currency switcher */}
+      <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-2 px-4 py-2.5">
+          <div className="flex items-center gap-1.5">
+            <Globe size={14} className="text-slate-400" />
+            <button type="button" onClick={() => setLang('en')} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${lang === 'en' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>EN</button>
+            <button type="button" onClick={() => setLang('ru')} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${lang === 'ru' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>RU</button>
           </div>
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t.currency}</span>
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 shrink-0">{t.currency}</span>
             {(Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[]).map((code) => (
-              <button key={code} type="button" onClick={() => { setCurrency(code); logEvent('currency_switch', { currency: code }); }} className={`min-h-9 min-w-[58px] rounded-full px-3 text-sm font-semibold ${currency === code ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>{code}</button>
+              <button key={code} type="button" onClick={() => { setCurrency(code); logEvent('currency_switch', { currency: code }); }} className={`min-h-8 min-w-[50px] rounded-full px-3 text-[11px] font-bold ${currency === code ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>{code}</button>
             ))}
           </div>
         </div>
-        <div className="mx-auto mt-2 flex w-full max-w-5xl items-center justify-between text-[11px] text-slate-500">
-          <span>{t.source}: {rateSource}</span>
-          <button type="button" className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-slate-700" onClick={() => {
-            setIsRefreshingRates(true);
-            window.setTimeout(() => {
-              setRates(DEFAULT_QUOTE_RATES);
-              setRateSource('Default rates');
-              setIsRefreshingRates(false);
-            }, 80);
-          }}><RefreshCcw size={12} className={isRefreshingRates ? 'animate-spin' : ''} /> {t.refresh}</button>
-        </div>
       </div>
 
-      <header className="relative min-h-[50vh] overflow-hidden">
-        {heroPhoto ? <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 bg-gradient-to-br from-slate-300 to-slate-500" />}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/45 to-black/70" />
-        <div className="relative mx-auto flex h-full w-full max-w-5xl flex-col justify-between px-4 pb-8 pt-8 text-white">
-          <div className="w-fit rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold backdrop-blur">VIN: {maskVin(order.vin)}</div>
+      {/* Hero */}
+      <header className="relative overflow-hidden bg-slate-900" style={{ minHeight: '52vw', maxHeight: 440 }}>
+        {heroPhoto ? <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="absolute inset-0 h-full w-full object-cover opacity-60" /> : null}
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-900/50 via-slate-900/60 to-slate-900/90" />
+        <div className="relative mx-auto flex h-full w-full max-w-4xl flex-col justify-end gap-4 px-5 pb-8 pt-10 text-white sm:px-6">
+          {/* Company badge */}
+          <div className="mb-2 inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-bold tracking-widest backdrop-blur-sm uppercase">
+            <span className="h-2 w-2 rounded-full bg-emerald-400"></span> Dubai Spares UAE
+          </div>
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-5xl">{order.brand} {order.model} {order.year}</h1>
-            <p className="mt-4 text-4xl font-bold sm:text-5xl">{totals.totalConverted.toFixed(2)} {currency}</p>
-            <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
-              <span className="rounded-full bg-emerald-500/90 px-3 py-1.5">✅ Verified UAE supplier</span>
-              <span className="rounded-full bg-indigo-500/90 px-3 py-1.5">⚡ Fast response (5–15 min)</span>
-              <span className="rounded-full bg-amber-500/90 px-3 py-1.5">🧾 {t.validUntil}: {expiresAtIso ? new Date(expiresAtIso).toLocaleString() : '-'}</span>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/50">Коммерческое предложение</p>
+            <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">{order.brand} {order.model} {order.year}</h1>
+            <p className="mt-1 text-xs font-mono text-white/50 tracking-widest">VIN: {maskVin(order.vin)}</p>
+          </div>
+          <div className="flex items-end justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-xs font-semibold text-white/50 uppercase tracking-widest">{t.quoteTotal}</p>
+              <p className="text-4xl font-black sm:text-5xl">{totals.totalConverted.toFixed(2)} <span className="text-2xl text-white/60">{currency}</span></p>
             </div>
-            <div className="mt-5 flex flex-wrap gap-2">
-              {canOpenWhatsapp ? (
-              <button type="button" onClick={() => openWhatsappChat('hero')} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white">
-                <MessageCircle size={16} /> {t.confirmWhatsApp}
-              </button>
-            ) : (
-              <div className="inline-flex items-center rounded-xl bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">Свяжитесь с менеджером</div>
-            )}
-              <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold text-white backdrop-blur">📄 {t.viewParts}</button>
+            <div className="flex flex-wrap gap-2">
+              {canOpenWhatsapp && (
+                <button type="button" onClick={() => openWhatsappChat('hero')} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white shadow-[0_8px_24px_rgba(16,185,129,0.4)]">
+                  <MessageCircle size={16} /> {t.confirmWhatsApp}
+                </button>
+              )}
+              <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white backdrop-blur">📄 {t.viewParts}</button>
             </div>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[11px] font-semibold">
+            <span className="rounded-full bg-emerald-500/20 border border-emerald-400/30 px-3 py-1 text-emerald-300">✅ Проверенный поставщик UAE</span>
+            <span className="rounded-full bg-white/10 border border-white/15 px-3 py-1 text-white/70">⚡ Ответ 5–15 мин</span>
+            {expiresAtIso && <span className="rounded-full bg-amber-500/20 border border-amber-400/30 px-3 py-1 text-amber-300">🕐 {t.validUntil}: {new Date(expiresAtIso).toLocaleDateString()}</span>}
           </div>
         </div>
       </header>
 
-      <main className="mx-auto -mt-6 w-full max-w-5xl space-y-4 px-3 pb-28 sm:px-5">
+      <main className="mx-auto w-full max-w-4xl space-y-5 px-4 py-6 pb-32 sm:px-6">
 
         <section ref={detailRef} className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.partsGallery} ({foundParts.length})</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{t.partsGallery} — {foundParts.length} {lang === 'ru' ? 'позиц.' : 'items'}</h2>
+          </div>
           {foundParts.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => {
             const partMessage = `Hello! I confirm ${part.name} for ${order.brand} ${order.model} ${order.year}.\nVIN: ${maskVin(order.vin || '')}.\nPrice: ${converted.toFixed(2)} ${currency}.`;
             const partWhatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(partMessage)}` : '';
 
             return (
-            <article key={part.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex min-w-0 items-start gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (galleryPhotos.length === 0) return;
-                      setGallery({ images: galleryPhotos, index: 0 });
-                      logEvent('gallery_open', { partId: part.id });
-                    }}
-                    className="mt-0.5 inline-flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-slate-600 disabled:opacity-40"
-                    disabled={galleryPhotos.length === 0}
-                    title={galleryPhotos.length > 1 ? `Фото: ${galleryPhotos.length}` : 'Фото детали'}
-                  >
-                    {previewPhotos[0] ? <img src={previewPhotos[0]} alt={part.name} className="h-full w-full object-cover" /> : <Images size={18} />}
-                  </button>
-                  <div className="min-w-0">
-                    <h3 className="truncate text-xl font-semibold">{part.name}</h3>
-                    <span className="mt-2 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">{t.status}: {availability}</span>
-                  </div>
+            <article key={part.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex items-center gap-4 p-4 sm:p-5">
+                {/* Photo — left */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (galleryPhotos.length === 0) return;
+                    setGallery({ images: galleryPhotos, index: 0 });
+                    logEvent('gallery_open', { partId: part.id });
+                  }}
+                  className="relative shrink-0 inline-flex h-[72px] w-[72px] items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-slate-400"
+                  disabled={galleryPhotos.length === 0}
+                  title={galleryPhotos.length > 1 ? `Фото: ${galleryPhotos.length}` : 'Фото детали'}
+                >
+                  {previewPhotos[0] ? <img src={previewPhotos[0]} alt={part.name} className="h-full w-full object-cover" /> : <Images size={22} />}
+                  {galleryPhotos.length > 1 && (
+                    <span aria-label={`${galleryPhotos.length} photos`} className="absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-0.5 text-[8px] font-bold text-white leading-none">{galleryPhotos.length}</span>
+                  )}
+                </button>
+
+                {/* Name + status — center */}
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-bold leading-snug text-slate-900 text-sm sm:text-base">{part.name}</h3>
+                  <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>{availability}
+                  </span>
                 </div>
-                <p className="text-right text-2xl font-semibold">{converted.toFixed(2)} {currency}</p>
+
+                {/* Price — right */}
+                <div className="shrink-0 text-right pl-2">
+                  <p className="text-2xl font-black text-slate-900 sm:text-3xl leading-none">{converted.toFixed(2)}</p>
+                  <p className="text-xs font-semibold text-slate-400 mt-0.5">{currency}</p>
+                </div>
               </div>
 
-              {partWhatsappUrl ? (
-              <button type="button" onClick={() => { window.location.href = partWhatsappUrl; }} className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">
-                <MessageCircle size={14} /> {t.confirmWhatsApp}
-              </button>
-            ) : (
-              <div className="mt-4 text-xs text-slate-500">{t.contactNotConfigured}</div>
-            )}
+              {partWhatsappUrl && (
+                <div className="border-t border-slate-100 bg-slate-50 px-4 py-2.5 sm:px-5">
+                  <button type="button" onClick={() => { window.location.href = partWhatsappUrl; }} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3.5 py-1.5 text-xs font-bold text-white">
+                    <MessageCircle size={13} /> {t.confirmWhatsApp}
+                  </button>
+                </div>
+              )}
             </article>
             );
           })}
 
           {pendingParts.length > 0 && (
-            <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-4 sm:p-5">
+            <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50 p-4">
+              <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-amber-500">{t.onOrder}</p>
               <div className="flex flex-wrap gap-2">
-                {pendingParts.map(({ part }) => <span key={part.id} className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">{part.name}</span>)}
+                {pendingParts.map(({ part }) => <span key={part.id} className="rounded-full bg-white border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700">{part.name}</span>)}
               </div>
             </div>
           )}
@@ -1396,21 +1411,43 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
 
         {(settings.publicDeliveryTerms.trim() || settings.publicWorkTerms.trim()) && (
-          <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm p-5 text-sm text-slate-700">
             {settings.publicDeliveryTerms.trim() && <p className="whitespace-pre-line">{settings.publicDeliveryTerms.trim()}</p>}
             {settings.publicWorkTerms.trim() && <p className="whitespace-pre-line mt-2">{settings.publicWorkTerms.trim()}</p>}
           </section>
         )}
 
-        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.priceBreakdown}</h2>
-          <div className="mt-2 space-y-1.5">
-            <div className="flex items-center justify-between"><span>{t.partsSubtotal}</span><strong>{(totals.subtotal * rates[currency]).toFixed(2)} {currency}</strong></div>
-            <div className="flex items-center justify-between"><span>{t.whatIncluded} ({t.partsSubtotal})</span><strong>{(totals.subtotalWithoutExtras * rates[currency]).toFixed(2)} {currency}</strong></div>
-            <div className="flex items-center justify-between"><span>{t.logistics}</span><strong>{(totals.delivery * rates[currency]).toFixed(2)} {currency}</strong></div>
-            <div className="flex items-center justify-between"><span>{t.packing}</span><strong>{(totals.packing * rates[currency]).toFixed(2)} {currency}</strong></div>
-            <div className="flex items-center justify-between"><span>{t.serviceFee}</span><strong>{(totals.serviceFee * rates[currency]).toFixed(2)} {currency}</strong></div>
-            <div className="mt-2 border-t border-dashed border-slate-200 pt-2 flex items-center justify-between text-base"><span className="font-semibold">{t.total}</span><strong>{totals.totalConverted.toFixed(2)} {currency}</strong></div>
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-3">
+            <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.priceBreakdown}</h2>
+          </div>
+          <div className="divide-y divide-slate-100 px-5">
+            <div className="flex items-center justify-between py-3 text-sm">
+              <span className="text-slate-600">{t.partsSubtotal}</span>
+              <strong className="text-slate-900">{(totals.subtotal * rates[currency]).toFixed(2)} {currency}</strong>
+            </div>
+            {totals.delivery > 0 && (
+              <div className="flex items-center justify-between py-3 text-sm">
+                <span className="text-slate-600">{t.delivery}</span>
+                <strong className="text-slate-900">{(totals.delivery * rates[currency]).toFixed(2)} {currency}</strong>
+              </div>
+            )}
+            {totals.packing > 0 && (
+              <div className="flex items-center justify-between py-3 text-sm">
+                <span className="text-slate-600">{t.packing}</span>
+                <strong className="text-slate-900">{(totals.packing * rates[currency]).toFixed(2)} {currency}</strong>
+              </div>
+            )}
+            {totals.serviceFee > 0 && (
+              <div className="flex items-center justify-between py-3 text-sm">
+                <span className="text-slate-600">{t.serviceFee}</span>
+                <strong className="text-slate-900">{(totals.serviceFee * rates[currency]).toFixed(2)} {currency}</strong>
+              </div>
+            )}
+            <div className="flex items-center justify-between py-4">
+              <span className="font-bold text-slate-900">{t.total}</span>
+              <strong className="text-2xl font-black text-slate-900">{totals.totalConverted.toFixed(2)} <span className="text-base text-slate-500">{currency}</span></strong>
+            </div>
           </div>
         </section>
 
@@ -1420,39 +1457,60 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           </section>
         )}
 
-        <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 text-sm text-slate-700">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.trust}</h2>
-          <ul className="mt-2 space-y-1">
-            <li>• {t.trustedBy}</li>
-            <li>• {t.yards}</li>
-            <li>• {t.response}</li>
-          </ul>
-          <div className="mt-3 rounded-2xl bg-slate-50 p-3">
-            <p className="font-semibold text-slate-800">{t.companyProfile}: Dubai Spares UAE</p>
-            <p>WhatsApp: {whatsappPhoneDigits ? `+${whatsappPhoneDigits}` : 'Not configured'}</p>
-            {settings.publicTelegramUrl && <p>Telegram: {settings.publicTelegramUrl}</p>}
-            {settings.publicInstagramUrl && <p>Instagram: {settings.publicInstagramUrl}</p>}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-3">
+            <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.trust}</h2>
+          </div>
+          <div className="p-5 space-y-4">
+            <ul className="space-y-1.5 text-sm text-slate-600">
+              <li className="flex items-start gap-2"><span className="mt-0.5 text-emerald-500">✓</span> {t.trustedBy}</li>
+              <li className="flex items-start gap-2"><span className="mt-0.5 text-emerald-500">✓</span> {t.yards}</li>
+              <li className="flex items-start gap-2"><span className="mt-0.5 text-emerald-500">✓</span> {t.response}</li>
+            </ul>
+            <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 space-y-3">
+              <p className="font-bold text-slate-800">{t.companyProfile}: Dubai Spares UAE</p>
+              <div className="flex flex-wrap gap-2">
+                {whatsappPhoneDigits && (
+                  <a href={`https://wa.me/${whatsappPhoneDigits}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white">
+                    <MessageCircle size={15} /> WhatsApp
+                  </a>
+                )}
+                {settings.publicTelegramUrl && (
+                  <a href={settings.publicTelegramUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white">
+                    <Send size={15} /> Telegram
+                  </a>
+                )}
+                {settings.publicInstagramUrl && (
+                  <a href={settings.publicInstagramUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 px-4 py-2 text-sm font-bold text-white">
+                    <Instagram size={15} /> Instagram
+                  </a>
+                )}
+              </div>
+            </div>
           </div>
         </section>
 
-        <button type="button" onClick={downloadPdf} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
-          <Download size={16} /> {t.downloadPdf}
+        <button type="button" onClick={downloadPdf} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-sm">
+          <Download size={15} /> {t.downloadPdf}
         </button>
+
+        {/* Footer branding */}
+        <div className="py-4 text-center">
+          <p className="text-[10px] text-slate-400">Dubai Spares UAE · Коммерческое предложение</p>
+          <p className="text-[9px] text-slate-300 mt-0.5">ID: {orderId}</p>
+        </div>
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-black/5 bg-white/95 p-3 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-5xl items-center gap-3">
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/98 p-3 pb-[calc(env(safe-area-inset-bottom)+10px)] backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-4xl items-center gap-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs text-slate-500">{t.quoteTotal}</p>
-            <p className="text-lg font-bold text-slate-900">{totals.totalConverted.toFixed(2)} {currency}</p>
-            {partsVerified && <p className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600"><CheckCircle2 size={12} /> {t.partsVerified}</p>}
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{t.quoteTotal}</p>
+            <p className="text-xl font-black text-slate-900 leading-tight">{totals.totalConverted.toFixed(2)} <span className="text-sm text-slate-400">{currency}</span></p>
+            {partsVerified && <p className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600"><CheckCircle2 size={10} /> {t.partsVerified}</p>}
           </div>
-          <button type="button" disabled={!canOpenWhatsapp} onClick={() => openWhatsappChat('sticky')} className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 px-3 text-xs font-bold text-white shadow-[0_14px_42px_rgba(16,185,129,0.42)] disabled:cursor-not-allowed disabled:opacity-50">
-            <MessageCircle size={16} /> {canOpenWhatsapp ? t.confirmWhatsApp : t.contactNotConfigured} <ChevronRight size={16} />
+          <button type="button" disabled={!canOpenWhatsapp} onClick={() => openWhatsappChat('sticky')} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-2xl bg-emerald-500 px-4 text-sm font-bold text-white shadow-[0_8px_24px_rgba(16,185,129,0.35)] disabled:cursor-not-allowed disabled:opacity-50">
+            <MessageCircle size={16} /> {canOpenWhatsapp ? t.confirmWhatsApp : t.contactNotConfigured} <ChevronRight size={14} />
           </button>
-        </div>
-        <div className="mx-auto mt-1 w-full max-w-5xl text-center text-[10px] text-slate-400">
-          Build stamp: {APP_VERSION} / {GIT_SHA} / {BUILD_TIME}
         </div>
       </div>
 

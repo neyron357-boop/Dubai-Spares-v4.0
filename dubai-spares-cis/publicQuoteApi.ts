@@ -16,6 +16,12 @@ export type PublicQuotePayloadV1 = {
     vin: string;
     body_type?: string;
     photo_omitted_notice?: string;
+    markupType?: string;
+    markup_type?: string;
+    markupFixedAed?: number;
+    markup_fixed_aed?: number;
+    markupPercent?: number;
+    markup_percent?: number;
   };
   pricing: {
     currency: string;
@@ -573,14 +579,22 @@ const buildSnapshotPayload = (
   const packingAed = parseMoney(order.logistics?.packingAed, (order as any).logistics?.packing, (order as any).packingAed, (order as any).packing);
   const commissionAed = parseMoney(order.logistics?.serviceFeeAed, (order as any).logistics?.commission, (order as any).commissionAed, (order as any).commission);
 
-  const pricedParts = (order.parts || [])
-    .filter((part) => part.isFound && part.variants.length > 0)
+  const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
+  const fixedMarkupTotal = parseMoney(order.markupFixedAed) || 0;
+  const readyPartsForMarkup = (order.parts || []).filter((part) => part.isFound && part.variants.length > 0);
+  const fixedMarkupPerPart = isFixedMarkup && readyPartsForMarkup.length > 0
+    ? fixedMarkupTotal / readyPartsForMarkup.length
+    : 0;
+
+  const pricedParts = readyPartsForMarkup
     .map((part) => {
       const variant = part.variants[0];
       const supplierAed = parseMoney(variant?.priceAed);
-      const clientAed = resolveClientUnitPriceAed(variant as unknown as Record<string, unknown>, {
-        markupPercent: parseMoney(order.markupPercent)
-      });
+      const clientAed = isFixedMarkup
+        ? round2(supplierAed + fixedMarkupPerPart)
+        : resolveClientUnitPriceAed(variant as unknown as Record<string, unknown>, {
+            markupPercent: parseMoney(order.markupPercent)
+          });
 
       return {
         id: String(part.id),
@@ -619,7 +633,13 @@ const buildSnapshotPayload = (
       model: order.model,
       year: order.year,
       vin: order.vin,
-      body_type: order.bodyType
+      body_type: order.bodyType,
+      markupType: order.markupType || 'percent',
+      markup_type: order.markupType || 'percent',
+      markupFixedAed: parseMoney(order.markupFixedAed) || 0,
+      markup_fixed_aed: parseMoney(order.markupFixedAed) || 0,
+      markupPercent: parseMoney(order.markupPercent) || 0,
+      markup_percent: parseMoney(order.markupPercent) || 0
     },
     pricing: {
       currency,
