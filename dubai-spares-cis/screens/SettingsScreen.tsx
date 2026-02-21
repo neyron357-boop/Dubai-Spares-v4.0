@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ChevronRight, ShieldAlert, Wrench } from 'lucide-react';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
-import { backupUpload } from '../serverApi';
+import { backupUpload, clearPublicQuoteSnapshots } from '../serverApi';
 import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLastCloudCall, isCloudConfigured, SUPABASE_HOST } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
@@ -432,6 +432,15 @@ const SettingsScreen: React.FC = () => {
             if (second !== 'DELETE') return;
             await offlineDb.clearAllOfflineData();
           })}>Очистить офлайн данные</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('public-snapshots', async () => {
+            const first = window.confirm('⚠️ Это удалит ВСЕ сохранённые публичные сметы (снапшоты) на сервере. Продолжить?');
+            if (!first) return;
+            const second = window.prompt('Введите DELETE SNAPSHOTS для подтверждения');
+            if (second !== 'DELETE SNAPSHOTS') return;
+            const result = await clearPublicQuoteSnapshots();
+            if (!result.ok) throw new Error(result.error);
+            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Серверные снапшоты смет очищены', tone: 'success' } }));
+          })}>Очистить снапшоты публичных смет на сервере</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('index', async () => {
             await offlineDb.exportAllData();
           })}>Перестроить индекс</button>

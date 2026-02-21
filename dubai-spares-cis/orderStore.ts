@@ -138,6 +138,8 @@ const hotFieldKeys: Array<keyof Order> = ['markupPercent', 'markupType', 'markup
 let cachedQueueLength = 0;
 let syncPausedUntil = 0;
 let syncMutex: Promise<void> = Promise.resolve();
+let lifecycleHydrationStarted = false;
+let lifecycleEventsBound = false;
 
 const runWithSyncMutex = async <T>(task: () => Promise<T>): Promise<T> => {
   const previous = syncMutex;
@@ -1322,14 +1324,16 @@ export const useOrderStore = () => {
   useEffect(() => subscribeOrderStore(() => setVersion((v) => v + 1)), []);
 
   useEffect(() => {
-    if (!state.isHydrated) {
+    if (!state.isHydrated && !lifecycleHydrationStarted) {
+      lifecycleHydrationStarted = true;
       console.log('[useOrderStore] Starting initial hydration...');
       void fetchOrders();
     }
   }, []);
 
   useEffect(() => {
-    if (LOCAL_ONLY) return;
+    if (LOCAL_ONLY || lifecycleEventsBound) return;
+    lifecycleEventsBound = true;
 
     const onOnline = () => {
       void fetchOrders();
@@ -1364,6 +1368,7 @@ export const useOrderStore = () => {
     document.addEventListener('visibilitychange', onVisibilityChange);
     navigator.serviceWorker?.addEventListener?.('message', onSwMessage);
     return () => {
+      lifecycleEventsBound = false;
       window.clearInterval(pollIntervalId);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('idb-autosync-paused', onIdbPaused as EventListener);
