@@ -81,6 +81,52 @@ const sanitizeNumericInput = (raw: string) => {
 };
 
 
+
+const LogisticsAmountInput = React.memo(({
+  field,
+  label,
+  value,
+  onCommit
+}: {
+  field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed';
+  label: string;
+  value: number;
+  onCommit: (field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', nextValue: string) => void;
+}) => {
+  const [inputValue, setInputValue] = useState(String(Number(value || 0)));
+
+  useEffect(() => {
+    setInputValue(String(Number(value || 0)));
+  }, [value]);
+
+  return (
+    <div>
+      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label} AED</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={inputValue}
+        onFocus={() => {
+          if (inputValue === '0') setInputValue('');
+        }}
+        onBlur={(e) => {
+          const sanitized = sanitizeNumericInput(e.currentTarget.value);
+          const normalized = sanitized || '0';
+          if (normalized !== inputValue) setInputValue(normalized);
+          onCommit(field, normalized);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+        onChange={(e) => {
+          setInputValue(sanitizeNumericInput(e.currentTarget.value));
+        }}
+        className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100"
+      />
+    </div>
+  );
+});
+
 const formatPricingEventValue = (value: unknown) => {
   if (value === undefined || value === null || value === '') return '—';
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '—';
@@ -151,11 +197,6 @@ const OrderDetailsScreen: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState(MESSAGE_TEMPLATES[0]);
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
-  const [logisticsInputs, setLogisticsInputs] = useState({
-    deliveryAed: String(Number(order?.logistics?.deliveryAed || 0)),
-    packingAed: String(Number(order?.logistics?.packingAed || 0)),
-    serviceFeeAed: String(Number(order?.logistics?.serviceFeeAed || 0))
-  });
   const pricingSaveDebounceRef = useRef<number | null>(null);
   const markupCommitTimerRef = useRef<number | null>(null);
   const exchangeRateCommitTimerRef = useRef<number | null>(null);
@@ -172,14 +213,6 @@ const OrderDetailsScreen: React.FC = () => {
   useEffect(() => {
     setMarkupFixedInput((order?.markupFixedAed || 0).toString());
   }, [order?.id, order?.markupFixedAed]);
-
-  useEffect(() => {
-    setLogisticsInputs({
-      deliveryAed: String(Number(order?.logistics?.deliveryAed || 0)),
-      packingAed: String(Number(order?.logistics?.packingAed || 0)),
-      serviceFeeAed: String(Number(order?.logistics?.serviceFeeAed || 0))
-    });
-  }, [order?.id]);
 
 
   useEffect(() => () => {
@@ -328,9 +361,9 @@ const OrderDetailsScreen: React.FC = () => {
       ...order,
       logistics: {
         ...(order.logistics || {}),
-        deliveryAed: Number(logisticsInputs.deliveryAed || 0),
-        packingAed: Number(logisticsInputs.packingAed || 0),
-        serviceFeeAed: Number(logisticsInputs.serviceFeeAed || 0)
+        deliveryAed: Number(order.logistics?.deliveryAed || 0),
+        packingAed: Number(order.logistics?.packingAed || 0),
+        serviceFeeAed: Number(order.logistics?.serviceFeeAed || 0)
       },
       markupFixedAed: Number(markupFixedInput || order.markupFixedAed || 0)
     };
@@ -392,10 +425,10 @@ const OrderDetailsScreen: React.FC = () => {
   const selectedOfferTotal = useMemo(() => order.parts.reduce((sum, p) => sum + (p.variants[0]?.priceAed || 0), 0), [order.parts]);
   const logistics = useMemo(() => ({
     deliveryType: order.logistics?.deliveryType || 'uae',
-    deliveryAed: Number(logisticsInputs.deliveryAed || 0),
-    packingAed: Number(logisticsInputs.packingAed || 0),
-    serviceFeeAed: Number(logisticsInputs.serviceFeeAed || 0)
-  }), [order.logistics?.deliveryType, logisticsInputs.deliveryAed, logisticsInputs.packingAed, logisticsInputs.serviceFeeAed]);
+    deliveryAed: Number(order.logistics?.deliveryAed || 0),
+    packingAed: Number(order.logistics?.packingAed || 0),
+    serviceFeeAed: Number(order.logistics?.serviceFeeAed || 0)
+  }), [order.logistics?.deliveryType, order.logistics?.deliveryAed, order.logistics?.packingAed, order.logistics?.serviceFeeAed]);
   const logisticsTotal = useMemo(() => logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed, [logistics.deliveryAed, logistics.packingAed, logistics.serviceFeeAed]);
   const markupType = order.markupType || 'percent';
   const markupAed = useMemo(() => (markupType === 'fixed'
@@ -651,7 +684,7 @@ const OrderDetailsScreen: React.FC = () => {
   }, []);
 
   const commitLogisticsField = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', rawValue?: string) => {
-    const nextValue = Number((rawValue ?? logisticsInputs[field]) || 0);
+    const nextValue = Number((rawValue ?? order.logistics?.[field] ?? 0) || 0);
     const prevValue = Number(order.logistics?.[field] || 0);
     if (prevValue === nextValue) return;
 
@@ -676,22 +709,16 @@ const OrderDetailsScreen: React.FC = () => {
       pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents
     });
     scheduleDebouncedSaveLog();
-  }, [logisticsInputs, order, scheduleDebouncedSaveLog, updateOrder]);
+  }, [order, scheduleDebouncedSaveLog, updateOrder]);
 
   const flushLogisticsFieldCommit = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value?: string) => {
     commitLogisticsField(field, value);
   }, [commitLogisticsField]);
 
-  const updateLogisticsField = (field: 'deliveryType' | 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value: string) => {
-    if (field === 'deliveryType') {
-      const event = createPricingEvent('logistics.deliveryType', 'Тип доставки', order.logistics?.deliveryType || 'uae', value);
-      updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value }, pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents });
-      return value;
-    }
-
-    const sanitized = sanitizeNumericInput(value);
-    setLogisticsInputs((prev) => (prev[field] === sanitized ? prev : { ...prev, [field]: sanitized }));
-    return sanitized;
+  const updateLogisticsField = (field: 'deliveryType', value: string) => {
+    const event = createPricingEvent('logistics.deliveryType', 'Тип доставки', order.logistics?.deliveryType || 'uae', value);
+    updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value }, pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents });
+    return value;
   };
 
   const handleRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1214,40 +1241,18 @@ const OrderDetailsScreen: React.FC = () => {
                 <option value="export">Экспорт</option>
               </select>
             </div>
-            {(['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).map((field) => (
-              <div key={field}>
-                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{field === 'deliveryAed' ? 'Доставка' : field === 'packingAed' ? 'Упаковка' : 'Комиссия'} AED</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={logisticsInputs[field]}
-                  onFocus={() => {
-                    if (logisticsInputs[field] === '0') {
-                      setLogisticsInputs((prev) => ({ ...prev, [field]: '' }));
-                    }
-                  }}
-                  onBlur={(e) => {
-                    const sanitized = updateLogisticsField(field, e.currentTarget.value);
-                    const normalized = sanitized || '0';
-                    if (logisticsInputs[field] !== normalized) {
-                      setLogisticsInputs((prev) => ({ ...prev, [field]: normalized }));
-                    }
-                    flushLogisticsFieldCommit(field, normalized);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.currentTarget.blur();
-                    }
-                  }}
-                  onChange={(e) => {
-                    const sanitized = updateLogisticsField(field, e.currentTarget.value);
-                    if (e.currentTarget.value !== sanitized) {
-                      e.currentTarget.value = sanitized;
-                    }
-                  }}
-                  className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100"
-                />
-              </div>
+            {([
+              { field: 'deliveryAed', label: 'Доставка' },
+              { field: 'packingAed', label: 'Упаковка' },
+              { field: 'serviceFeeAed', label: 'Комиссия' }
+            ] as const).map(({ field, label }) => (
+              <LogisticsAmountInput
+                key={field}
+                field={field}
+                label={label}
+                value={Number(order.logistics?.[field] || 0)}
+                onCommit={flushLogisticsFieldCommit}
+              />
             ))}
           </div>
 
