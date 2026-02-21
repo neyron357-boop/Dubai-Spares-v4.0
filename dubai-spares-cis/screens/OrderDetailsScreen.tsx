@@ -181,7 +181,7 @@ const OrderDetailsScreen: React.FC = () => {
       packingAed: String(Number(order?.logistics?.packingAed || 0)),
       serviceFeeAed: String(Number(order?.logistics?.serviceFeeAed || 0))
     });
-  }, [order?.id, order?.logistics?.deliveryAed, order?.logistics?.packingAed, order?.logistics?.serviceFeeAed]);
+  }, [order?.id]);
 
   useEffect(() => {
     const renderMs = Math.round((performance.now() - renderPerfStart) * 100) / 100;
