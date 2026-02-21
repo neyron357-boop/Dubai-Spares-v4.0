@@ -766,9 +766,25 @@ export const publicQuoteCreateSnapshot = async (
         .select('id,token,snapshot_id,expires_at,payload_json')
         .single();
 
-      // Attempt 2: schema may be missing snapshot_id, payload_json, or id columns — retry with truly minimal set
+      // Attempt 2: schema may be missing id/payload_json columns — keep snapshot_id to satisfy any NOT NULL constraint
       if (insertResult.error && (insertResult.error.code === 'PGRST204' || insertResult.error.code === '42703' || String(insertResult.error.message).includes('Could not find'))) {
-        void logger.info('public-quote:create', 'Retrying insert with minimal columns', { orderId: order.id, error: insertResult.error.message });
+        void logger.info('public-quote:create', 'Retrying insert with snapshot_id but without id/payload_json in select', { orderId: order.id, error: insertResult.error.message });
+        insertResult = await supabase
+          .from('public_quote_snapshots')
+          .insert({
+            token: quoteToken,
+            snapshot_id: snapshotToken,
+            order_id: order.id,
+            expires_at: expiresAt,
+            payload: trimmed.payload
+          })
+          .select('token,snapshot_id,expires_at')
+          .single();
+      }
+
+      // Attempt 3: snapshot_id column also missing — absolute minimal insert
+      if (insertResult.error && (insertResult.error.code === 'PGRST204' || insertResult.error.code === '42703' || String(insertResult.error.message).includes('Could not find'))) {
+        void logger.info('public-quote:create', 'Retrying insert without snapshot_id', { orderId: order.id, error: insertResult.error.message });
         insertResult = await supabase
           .from('public_quote_snapshots')
           .insert({
