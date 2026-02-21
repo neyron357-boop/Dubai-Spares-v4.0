@@ -682,13 +682,13 @@ const OrderDetailsScreen: React.FC = () => {
     commitLogisticsField(field, value);
   }, [commitLogisticsField]);
 
-  const updateLogisticsField = (field: 'deliveryType' | 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value: string) => {
-    if (field === 'deliveryType') {
-      const event = createPricingEvent('logistics.deliveryType', 'Тип доставки', order.logistics?.deliveryType || 'uae', value);
-      updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value }, pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents });
-      return value;
-    }
+  const updateLogisticsField = (field: 'deliveryType', value: string) => {
+    const event = createPricingEvent('logistics.deliveryType', 'Тип доставки', order.logistics?.deliveryType || 'uae', value);
+    updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value }, pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents });
+    return value;
+  };
 
+  const updateLogisticsInput = (field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value: string) => {
     const sanitized = sanitizeNumericInput(value);
     setLogisticsInputs((prev) => (prev[field] === sanitized ? prev : { ...prev, [field]: sanitized }));
     return sanitized;
@@ -1227,7 +1227,7 @@ const OrderDetailsScreen: React.FC = () => {
                     }
                   }}
                   onBlur={(e) => {
-                    const sanitized = updateLogisticsField(field, e.currentTarget.value);
+                    const sanitized = updateLogisticsInput(field, e.currentTarget.value);
                     const normalized = sanitized || '0';
                     if (logisticsInputs[field] !== normalized) {
                       setLogisticsInputs((prev) => ({ ...prev, [field]: normalized }));
@@ -1240,10 +1240,7 @@ const OrderDetailsScreen: React.FC = () => {
                     }
                   }}
                   onChange={(e) => {
-                    const sanitized = updateLogisticsField(field, e.currentTarget.value);
-                    if (e.currentTarget.value !== sanitized) {
-                      e.currentTarget.value = sanitized;
-                    }
+                    updateLogisticsInput(field, e.currentTarget.value);
                   }}
                   className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100"
                 />
