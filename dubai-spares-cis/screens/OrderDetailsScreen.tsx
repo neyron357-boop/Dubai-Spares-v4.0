@@ -686,10 +686,12 @@ const OrderDetailsScreen: React.FC = () => {
     if (field === 'deliveryType') {
       const event = createPricingEvent('logistics.deliveryType', 'Тип доставки', order.logistics?.deliveryType || 'uae', value);
       updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value }, pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents });
-      return;
+      return value;
     }
 
-    return sanitizeNumericInput(value);
+    const sanitized = sanitizeNumericInput(value);
+    setLogisticsInputs((prev) => (prev[field] === sanitized ? prev : { ...prev, [field]: sanitized }));
+    return sanitized;
   };
 
   const handleRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1219,17 +1221,16 @@ const OrderDetailsScreen: React.FC = () => {
                   type="text"
                   inputMode="numeric"
                   value={logisticsInputs[field]}
-                  onFocus={(e) => {
-                    if (e.currentTarget.value === '0') {
-                      e.currentTarget.value = '';
+                  onFocus={() => {
+                    if (logisticsInputs[field] === '0') {
+                      setLogisticsInputs((prev) => ({ ...prev, [field]: '' }));
                     }
                   }}
                   onBlur={(e) => {
                     const sanitized = updateLogisticsField(field, e.currentTarget.value);
                     const normalized = sanitized || '0';
-                    setLogisticsInputs((prev) => ({ ...prev, [field]: normalized }));
-                    if (e.currentTarget.value !== normalized) {
-                      e.currentTarget.value = normalized;
+                    if (logisticsInputs[field] !== normalized) {
+                      setLogisticsInputs((prev) => ({ ...prev, [field]: normalized }));
                     }
                     flushLogisticsFieldCommit(field, normalized);
                   }}
