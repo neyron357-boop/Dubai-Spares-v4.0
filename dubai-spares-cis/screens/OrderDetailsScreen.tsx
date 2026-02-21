@@ -86,40 +86,28 @@ const LogisticsAmountInput = React.memo(({
   field,
   label,
   value,
-  onCommit
+  onChange
 }: {
   field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed';
   label: string;
-  value: number;
-  onCommit: (field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', nextValue: string) => void;
+  value: string;
+  onChange: (field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', nextValue: string) => void;
 }) => {
-  const [inputValue, setInputValue] = useState(String(Number(value || 0)));
-
-  useEffect(() => {
-    setInputValue(String(Number(value || 0)));
-  }, [value]);
-
   return (
     <div>
       <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label} AED</span>
       <input
         type="text"
         inputMode="numeric"
-        value={inputValue}
+        value={value}
         onFocus={() => {
-          if (inputValue === '0') setInputValue('');
-        }}
-        onBlur={(e) => {
-          const sanitized = sanitizeNumericInput(e.currentTarget.value);
-          const normalized = sanitized || '0';
-          if (normalized !== inputValue) setInputValue(normalized);
-          onCommit(field, normalized);
+          if (value === '0') onChange(field, '');
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Enter') e.preventDefault();
         }}
         onChange={(e) => {
-          setInputValue(sanitizeNumericInput(e.currentTarget.value));
+          onChange(field, sanitizeNumericInput(e.currentTarget.value));
         }}
         className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100"
       />
@@ -197,6 +185,11 @@ const OrderDetailsScreen: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState(MESSAGE_TEMPLATES[0]);
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
+  const [logisticsDraft, setLogisticsDraft] = useState<Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string>>({
+    deliveryAed: String(Number(order?.logistics?.deliveryAed || 0)),
+    packingAed: String(Number(order?.logistics?.packingAed || 0)),
+    serviceFeeAed: String(Number(order?.logistics?.serviceFeeAed || 0))
+  });
   const pricingSaveDebounceRef = useRef<number | null>(null);
   const markupCommitTimerRef = useRef<number | null>(null);
   const exchangeRateCommitTimerRef = useRef<number | null>(null);
@@ -213,6 +206,15 @@ const OrderDetailsScreen: React.FC = () => {
   useEffect(() => {
     setMarkupFixedInput((order?.markupFixedAed || 0).toString());
   }, [order?.id, order?.markupFixedAed]);
+
+  useEffect(() => {
+    if (!order) return;
+    setLogisticsDraft({
+      deliveryAed: String(Number(order.logistics?.deliveryAed || 0)),
+      packingAed: String(Number(order.logistics?.packingAed || 0)),
+      serviceFeeAed: String(Number(order.logistics?.serviceFeeAed || 0))
+    });
+  }, [order?.id, order?.logistics?.deliveryAed, order?.logistics?.packingAed, order?.logistics?.serviceFeeAed]);
 
 
   useEffect(() => () => {
@@ -683,10 +685,21 @@ const OrderDetailsScreen: React.FC = () => {
     }, 1000);
   }, []);
 
-  const commitLogisticsField = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', rawValue?: string) => {
-    const nextValue = Number((rawValue ?? order.logistics?.[field] ?? 0) || 0);
-    const prevValue = Number(order.logistics?.[field] || 0);
-    if (prevValue === nextValue) return;
+  const onLogisticsDraftChange = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', nextValue: string) => {
+    setLogisticsDraft((prev) => ({ ...prev, [field]: nextValue }));
+  }, []);
+
+  const hasPendingLogisticsChanges = useMemo(() => {
+    if (!order) return false;
+    return (['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).some((field) => {
+      const draftValue = Number(logisticsDraft[field] || 0);
+      const savedValue = Number(order.logistics?.[field] || 0);
+      return draftValue !== savedValue;
+    });
+  }, [logisticsDraft, order]);
+
+  const saveLogisticsDraft = useCallback(() => {
+    if (!hasPendingLogisticsChanges) return;
 
     const eventLabels: Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string> = {
       deliveryAed: 'Логистика AED',
@@ -698,22 +711,31 @@ const OrderDetailsScreen: React.FC = () => {
       packingAed: 'logistics.packingAed',
       serviceFeeAed: 'logistics.serviceFeeAed'
     };
-    const event = createPricingEvent(eventFieldMap[field], eventLabels[field], prevValue, nextValue);
+
+    const nextLogistics = {
+      ...order.logistics,
+      deliveryAed: Number(logisticsDraft.deliveryAed || 0),
+      packingAed: Number(logisticsDraft.packingAed || 0),
+      serviceFeeAed: Number(logisticsDraft.serviceFeeAed || 0)
+    };
+
+    const nextEvents = (['deliveryAed', 'packingAed', 'serviceFeeAed'] as const)
+      .map((field) => createPricingEvent(
+        eventFieldMap[field],
+        eventLabels[field],
+        Number(order.logistics?.[field] || 0),
+        Number(nextLogistics[field] || 0)
+      ))
+      .filter(Boolean) as OrderPricingEvent[];
 
     updateOrder({
       ...order,
-      logistics: {
-        ...order.logistics,
-        [field]: nextValue
-      },
-      pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents
+      logistics: nextLogistics,
+      pricingEvents: nextEvents.length ? [...nextEvents, ...(order.pricingEvents || [])] : order.pricingEvents
     });
     scheduleDebouncedSaveLog();
-  }, [order, scheduleDebouncedSaveLog, updateOrder]);
-
-  const flushLogisticsFieldCommit = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', value?: string) => {
-    commitLogisticsField(field, value);
-  }, [commitLogisticsField]);
+    setToast({ message: 'Логистика сохранена' });
+  }, [hasPendingLogisticsChanges, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, order, scheduleDebouncedSaveLog, updateOrder]);
 
   const updateLogisticsField = (field: 'deliveryType', value: string) => {
     const event = createPricingEvent('logistics.deliveryType', 'Тип доставки', order.logistics?.deliveryType || 'uae', value);
@@ -1250,10 +1272,20 @@ const OrderDetailsScreen: React.FC = () => {
                 key={field}
                 field={field}
                 label={label}
-                value={Number(order.logistics?.[field] || 0)}
-                onCommit={flushLogisticsFieldCommit}
+                value={logisticsDraft[field]}
+                onChange={onLogisticsDraftChange}
               />
             ))}
+            <div className="col-span-2 pt-1">
+              <button
+                type="button"
+                onClick={saveLogisticsDraft}
+                disabled={!hasPendingLogisticsChanges}
+                className={`h-10 w-full rounded-xl text-xs font-black uppercase tracking-wide transition ${hasPendingLogisticsChanges ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+              >
+                Сохранить логистику
+              </button>
+            </div>
           </div>
 
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-2">
