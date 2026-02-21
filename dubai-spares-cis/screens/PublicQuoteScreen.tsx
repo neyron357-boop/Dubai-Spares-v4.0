@@ -1106,19 +1106,20 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     if (!order) return [];
     const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
     const fixedMarkupTotal = Number(order.markupFixedAed || 0);
-    const readyPartsCount = order.parts.filter((part) => {
+    const partsWithPriceCount = order.parts.filter((part) => {
       const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
-      return !!best && part.isFound;
+      return !!best;
     }).length;
-    const fixedMarkupPerPart = isFixedMarkup && readyPartsCount > 0 ? fixedMarkupTotal / readyPartsCount : 0;
+    const fixedMarkupPerPart = isFixedMarkup && partsWithPriceCount > 0 ? fixedMarkupTotal / partsWithPriceCount : 0;
 
     return order.parts.map((part) => {
       const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
       const supplierAed = best?.priceAed || 0;
+      const hasPrice = !!best;
       const isReady = !!best && part.isFound;
       const clientAed = isFixedMarkup
-        ? (isReady
-          ? supplierAed + (isReady ? fixedMarkupPerPart : 0)
+        ? (hasPrice
+          ? supplierAed + fixedMarkupPerPart
           : supplierAed)
         : resolveClientUnitPriceAed(best as unknown as Record<string, unknown>, { markupPercent: order.markupPercent });
       const converted = clientAed * rates[currency];
@@ -1133,7 +1134,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   }, [order, currency, rates, t.inStock, t.onOrder]);
 
   const foundParts = partCards.filter((item) => item.isReady);
-  const pendingParts = partCards.filter((item) => !item.isReady);
 
   const totals = useMemo(() => {
     const payloadTotals = snapshotPayload ? resolveTotalsFromPayload(snapshotPayload, rates) : null;
@@ -1162,9 +1162,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       totalAed,
       totalConverted: totalAed * rates[currency],
       computedFrom: payloadTotals?.computedFrom || 'recompute(items)',
-      hasPositions: (payloadTotals?.items.length ?? foundParts.length) > 0
+      hasPositions: (payloadTotals?.items.length ?? partCards.length) > 0
     };
-  }, [foundParts, currency, rates, snapshotPayload]);
+  }, [foundParts, partCards.length, currency, rates, snapshotPayload]);
   const confirmMessage = `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}. ID: ${order?.id || ''}`;
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};
@@ -1286,9 +1286,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* Sticky nav — language + currency switcher */}
       <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-2 px-4 py-2.5">
+        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-2 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-1.5">
             <Globe size={14} className="text-slate-400" />
             <button type="button" onClick={() => setLang('en')} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${lang === 'en' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>EN</button>
@@ -1303,38 +1302,34 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         </div>
       </div>
 
-      {/* Hero */}
-      <header className="relative overflow-hidden bg-slate-900" style={{ minHeight: '52vw', maxHeight: 440 }}>
-        {heroPhoto ? <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="absolute inset-0 h-full w-full object-cover opacity-60" /> : null}
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-900/50 via-slate-900/60 to-slate-900/90" />
-        <div className="relative mx-auto flex h-full w-full max-w-4xl flex-col justify-end gap-4 px-5 pb-8 pt-10 text-white sm:px-6">
-          {/* Company badge */}
-          <div className="mb-2 inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-bold tracking-widest backdrop-blur-sm uppercase">
-            <span className="h-2 w-2 rounded-full bg-emerald-400"></span> Dubai Spares UAE
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/50">Коммерческое предложение</p>
-            <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">{order.brand} {order.model} {order.year}</h1>
-            <p className="mt-1 text-xs font-mono text-white/50 tracking-widest">VIN: {maskVin(order.vin)}</p>
-          </div>
-          <div className="flex items-end justify-between flex-wrap gap-3">
+      <header className="mx-auto mt-4 w-full max-w-4xl px-4 sm:px-6">
+        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          {heroPhoto ? <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="h-44 w-full object-cover sm:h-52" /> : null}
+          <div className="space-y-4 p-5 sm:p-6">
+            <div className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Dubai Spares UAE</div>
             <div>
-              <p className="text-xs font-semibold text-white/50 uppercase tracking-widest">{t.quoteTotal}</p>
-              <p className="text-4xl font-black sm:text-5xl">{totals.totalConverted.toFixed(2)} <span className="text-2xl text-white/60">{currency}</span></p>
+              <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">{order.brand} {order.model} {order.year}</h1>
+              <p className="mt-1 text-xs font-medium uppercase tracking-[0.14em] text-slate-400">VIN: {maskVin(order.vin)}</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {canOpenWhatsapp && (
-                <button type="button" onClick={() => openWhatsappChat('hero')} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white shadow-[0_8px_24px_rgba(16,185,129,0.4)]">
-                  <MessageCircle size={16} /> {t.confirmWhatsApp}
-                </button>
-              )}
-              <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white backdrop-blur">📄 {t.viewParts}</button>
+            <div className="flex flex-wrap items-end justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t.quoteTotal}</p>
+                <p className="mt-1 text-3xl font-black text-slate-900 sm:text-4xl">{totals.totalConverted.toFixed(2)} <span className="text-lg font-bold text-slate-500">{currency}</span></p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {canOpenWhatsapp && (
+                  <button type="button" onClick={() => openWhatsappChat('hero')} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white">
+                    <MessageCircle size={16} /> {t.confirmWhatsApp}
+                  </button>
+                )}
+                <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">📄 {t.viewParts}</button>
+              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap gap-2 text-[11px] font-semibold">
-            <span className="rounded-full bg-emerald-500/20 border border-emerald-400/30 px-3 py-1 text-emerald-300">✅ Проверенный поставщик UAE</span>
-            <span className="rounded-full bg-white/10 border border-white/15 px-3 py-1 text-white/70">⚡ Ответ 5–15 мин</span>
-            {expiresAtIso && <span className="rounded-full bg-amber-500/20 border border-amber-400/30 px-3 py-1 text-amber-300">🕐 {t.validUntil}: {new Date(expiresAtIso).toLocaleDateString()}</span>}
+            <div className="flex flex-wrap gap-2 text-[11px] font-semibold text-slate-500">
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">Проверенный поставщик UAE</span>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">Ответ 5–15 мин</span>
+              {expiresAtIso && <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">{t.validUntil}: {new Date(expiresAtIso).toLocaleDateString()}</span>}
+            </div>
           </div>
         </div>
       </header>
@@ -1343,9 +1338,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
         <section ref={detailRef} className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{t.partsGallery} — {foundParts.length} {lang === 'ru' ? 'позиц.' : 'items'}</h2>
+            <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{t.partsGallery} — {partCards.length} {lang === 'ru' ? 'позиц.' : 'items'}</h2>
           </div>
-          {foundParts.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => {
+          {partCards.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => {
             const partMessage = `Hello! I confirm ${part.name} for ${order.brand} ${order.model} ${order.year}.\nVIN: ${maskVin(order.vin || '')}.\nPrice: ${converted.toFixed(2)} ${currency}.`;
             const partWhatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(partMessage)}` : '';
 
@@ -1396,14 +1391,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             );
           })}
 
-          {pendingParts.length > 0 && (
-            <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50 p-4">
-              <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-amber-500">{t.onOrder}</p>
-              <div className="flex flex-wrap gap-2">
-                {pendingParts.map(({ part }) => <span key={part.id} className="rounded-full bg-white border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700">{part.name}</span>)}
-              </div>
-            </div>
-          )}
           {!totals.hasPositions && (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">{t.noPositions}</div>
           )}
