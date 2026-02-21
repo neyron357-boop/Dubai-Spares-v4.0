@@ -255,17 +255,6 @@ const callRest = async <T>(endpoint: string, method: 'GET' | 'POST' | 'DELETE', 
 
     try {
       bumpRequestCounter(endpoint, method);
-      console.log('[leadCreate] [callRest] Request', {
-        endpoint,
-        method,
-        attempt,
-        url: requestUrl,
-        headers: {
-          apikey: headers.apikey ? '✅ SET' : '❌ MISSING',
-          Authorization: headers.Authorization ? '✅ SET' : '❌ MISSING',
-          'Content-Type': headers['Content-Type']
-        }
-      });
       const response = await fetch(requestUrl, {
         method,
         headers,
@@ -274,13 +263,6 @@ const callRest = async <T>(endpoint: string, method: 'GET' | 'POST' | 'DELETE', 
       });
 
       const text = await response.text();
-      console.log('[leadCreate] [callRest] Response', {
-        endpoint,
-        method,
-        attempt,
-        status: response.status,
-        ok: response.ok
-      });
 
       if (!response.ok) {
         if (isSchemaMismatchResponse(response.status, text)) {
@@ -296,11 +278,11 @@ const callRest = async <T>(endpoint: string, method: 'GET' | 'POST' | 'DELETE', 
             return { ok: true, data: (retryText ? JSON.parse(retryText) : null) as T };
           }
           lastResult = handleSupabaseError({ status: retryResponse.status, text: retryText.slice(0, 220), endpoint, method }) as Result<T>;
-          console.error('[leadCreate] [callRest] HTTP error after schema refresh retry', { endpoint, method, attempt, status: retryResponse.status, body: retryText.slice(0, 400) });
+          console.error('[callRest] HTTP error after schema refresh retry', { endpoint, method, attempt, status: retryResponse.status, body: retryText.slice(0, 400) });
           return lastResult;
         }
         lastResult = handleSupabaseError({ status: response.status, text: text.slice(0, 220), endpoint, method }) as Result<T>;
-        console.error('[leadCreate] [callRest] HTTP error', { endpoint, method, attempt, status: response.status, body: text.slice(0, 400) });
+        console.error('[callRest] HTTP error', { endpoint, method, attempt, status: response.status, body: text.slice(0, 400) });
         return lastResult;
       }
 
@@ -308,7 +290,7 @@ const callRest = async <T>(endpoint: string, method: 'GET' | 'POST' | 'DELETE', 
     } catch (error) {
       const code = error instanceof DOMException && error.name === 'AbortError' ? 'aborted_or_timeout' : 'network_error';
       lastResult = { ok: false, code, error: toErrorMessage(error, 'Network error') };
-      console.error('[leadCreate] [callRest] Request failed', { endpoint, method, attempt, code, error: lastResult.error });
+      console.error('[callRest] Request failed', { endpoint, method, attempt, code, error: lastResult.error });
       if (!RETRYABLE_CODES.has(code) || attempt === maxAttempts) return lastResult;
       await new Promise((resolve) => window.setTimeout(resolve, 400 * attempt));
     } finally {
@@ -510,12 +492,8 @@ export const leadCreate = async (
   payload: { name: string; phone: string; message?: string; orderId?: string | null; [key: string]: unknown },
   options?: RequestOptions
 ): Promise<Result<{ leadId: string }>> => {
-  console.log('[leadCreate] START - Feature flag:', cloudFeatureFlags.clientForm);
-  console.log('[leadCreate] Config - URL:', maskSupabaseUrl(SUPABASE_URL));
-  console.log('[leadCreate] Config - ANON_KEY:', maskAnonKey(SUPABASE_ANON_KEY));
   const guard = assertCloudFeatureEnabled(cloudFeatureFlags.clientForm);
   if (!guard.ok) {
-    console.error('[leadCreate] Guard failed:', guard);
     return recordCall('leadCreate', guard);
   }
   const lockKey = 'leadCreate';
@@ -545,14 +523,6 @@ export const leadCreate = async (
       image_manifest: prepared.imageManifest
     }];
 
-    console.log('[leadCreate] Payload:', {
-      name: requestPayload[0].name,
-      phone: requestPayload[0].phone,
-      orderId: requestPayload[0].order_id,
-      idempotencyKey,
-      payloadBytes: JSON.stringify(requestPayload[0]).length
-    });
-
     let response = await withSingleFlight(`lead:create:${idempotencyKey}`,
       () => callRest<Array<{ id: string }>>('client_leads', 'POST', requestPayload, {
         ...(options || {}),
@@ -561,7 +531,6 @@ export const leadCreate = async (
       }));
 
     if (!response.ok && response.code === 'supabase_400') {
-      console.warn('[leadCreate] Retrying without image_manifest (column may not exist in schema)');
       const { image_manifest: _unusedManifest, ...rowWithoutManifest } = requestPayload[0];
       const fallbackPayload = [rowWithoutManifest];
       response = await withSingleFlight(`lead:create:${idempotencyKey}:fb`,
@@ -572,17 +541,12 @@ export const leadCreate = async (
         }));
     }
 
-    console.log('[leadCreate] Response status:', response.ok ? '✅ SUCCESS' : '❌ FAILED', response);
     if (!response.ok) {
-      console.error('[leadCreate] Error details:', { code: response.code, error: response.error });
       return recordCall('leadCreate', response.code.startsWith('supabase_') ? response : handleSupabaseError({ status: Number(response.code.replace(/\D+/g, '')) || 0, details: response }));
     }
     return recordCall('leadCreate', { ok: true, data: { leadId: response.data?.[0]?.id || idempotencyKey } });
   } catch (error) {
-    console.error('[leadCreate] Exception:', {
-      error,
-      payload: { name: payload.name, phone: payload.phone, orderId: payload.orderId || null }
-    });
+    console.error('[leadCreate] Exception:', error);
     return recordCall('leadCreate', { ok: false, code: 'unexpected_error', error: toErrorMessage(error, 'Lead submit failed') });
   } finally {
     inFlight.delete(lockKey);
@@ -592,12 +556,8 @@ export const leadCreate = async (
 export const leadsSync = async (
   options?: RequestOptions
 ): Promise<Result<CloudLeadRow[]>> => {
-  console.log('[leadsSync] START');
   const guard = assertCloudFeatureEnabled(cloudFeatureFlags.clientForm);
-  if (!guard.ok) {
-    console.error('[leadsSync] Guard failed:', guard);
-    return recordCall('leadsSync', guard);
-  }
+  if (!guard.ok) return recordCall('leadsSync', guard);
 
   try {
     const preferredVariant = loadLeadsSyncVariant();
@@ -611,7 +571,6 @@ export const leadsSync = async (
     for (let index = 0; index < attempts.length; index += 1) {
       const endpoint = attempts[index];
       const variantIndex = LEADS_SYNC_VARIANTS.indexOf(endpoint);
-      console.log('[leadsSync] Fetching from:', endpoint);
       response = await withSingleFlight(`leads:sync:${variantIndex + 1}`,
         () => callRest<CloudLeadRow[]>(endpoint, 'GET', undefined, {
           ...(options || {}),
@@ -620,45 +579,15 @@ export const leadsSync = async (
       );
 
       if (response.ok) {
-        if (variantIndex !== preferredVariant) {
-          console.warn('[leadsSync] Cloud schema mismatch detected. Using compatibility endpoint variant.', {
-            fromVariant: preferredVariant + 1,
-            toVariant: variantIndex + 1,
-            recommendation: 'Apply latest Supabase migrations to restore full payload columns.'
-          });
-        }
         saveLeadsSyncVariant(variantIndex);
         break;
       }
 
       const isSchemaIssue = response.code === 'supabase_400' || response.code === 'supabase_404';
       if (!isSchemaIssue || index === attempts.length - 1) break;
-
-      console.warn('[leadsSync] Endpoint variant failed, retrying with reduced column set', {
-        attempt: index + 1,
-        code: response.code,
-        error: response.error,
-        recommendation: 'Run supabase migrations to sync client_leads schema.'
-      });
     }
-
-    console.log('[leadsSync] Response:', {
-      ok: response.ok,
-      count: response.ok ? response.data?.length || 0 : 0,
-      code: !response.ok ? response.code : undefined,
-      error: !response.ok ? response.error : undefined
-    });
 
     if (!response.ok) return recordCall('leadsSync', response);
-
-    if (response.ok && response.data && response.data.length > 0) {
-      console.log('[leadsSync] Sample lead:', {
-        id: response.data[0].id,
-        hasPayloadJson: Boolean(response.data[0].payload_json),
-        hasPayloadB64: Boolean(response.data[0].payload_b64),
-        hasPayload: Boolean(response.data[0].payload)
-      });
-    }
     return recordCall('leadsSync', { ok: true, data: response.data || [] });
   } catch (error) {
     console.error('[leadsSync] Exception:', error);
