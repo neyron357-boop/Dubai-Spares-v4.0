@@ -17,6 +17,7 @@ import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-re
 import { getUnreadNotificationsCount } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
+import { isInteractiveElement, playButtonSound, playTouchSound, playTransitionSound } from './uiSounds';
 
 const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
 
@@ -48,6 +49,17 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       document.removeEventListener('visibilitychange', updateUnread);
     };
   }, []);
+
+
+  const hasPlayedInitialRouteSoundRef = React.useRef(false);
+
+  useEffect(() => {
+    if (!hasPlayedInitialRouteSoundRef.current) {
+      hasPlayedInitialRouteSoundRef.current = true;
+      return;
+    }
+    playTransitionSound();
+  }, [location.pathname]);
 
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
@@ -94,6 +106,22 @@ const App: React.FC = () => {
     return () => {
       window.removeEventListener('cloud-save-success', onSave);
       if (timer) clearTimeout(timer);
+    };
+  }, []);
+
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (isInteractiveElement(event.target)) {
+        playButtonSound();
+        return;
+      }
+      playTouchSound();
+    };
+
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
     };
   }, []);
 
