@@ -30,6 +30,7 @@ export interface AppSettings {
   gpsHighAccuracy: boolean;
   gpsUpdateInterval: GpsUpdateInterval;
   fieldFocusMode: boolean;
+  soundsEnabled: boolean;
   hideSchemaWarningUntil: number;
   publicWhatsappNumber: string;
   publicTelegramUrl: string;
@@ -60,6 +61,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   gpsHighAccuracy: true,
   gpsUpdateInterval: '10s',
   fieldFocusMode: false,
+  soundsEnabled: true,
   hideSchemaWarningUntil: 0,
   publicWhatsappNumber: '971000000000',
   publicTelegramUrl: '',
