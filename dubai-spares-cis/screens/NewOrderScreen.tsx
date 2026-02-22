@@ -76,6 +76,26 @@ const createDraftNote = (): DraftNote => ({
   voices: []
 });
 
+const toPersistableDraft = (payload: {
+  mode: Mode;
+  vin: string;
+  brand: string;
+  model: string;
+  year: string;
+  bodyType: string;
+  seriesCode: string;
+  parts: DraftPart[];
+  notes: DraftNote[];
+  clientName: string;
+  customerContact: string;
+  country: string;
+  city: string;
+}) => ({
+  ...payload,
+  parts: (payload.parts || []).map((part) => ({ ...part, photos: [] })),
+  notes: (payload.notes || []).map((note) => ({ ...note, photos: [], voices: [] }))
+});
+
 const serializeError = (error: unknown) => {
   if (error instanceof Error) {
     return {
@@ -277,9 +297,9 @@ const NewOrderScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('new-order-draft-v2', JSON.stringify({
+    localStorage.setItem('new-order-draft-v2', JSON.stringify(toPersistableDraft({
       mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, customerContact, country, city
-    }));
+    })));
   }, [mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, customerContact, country, city]);
 
   useEffect(() => {
@@ -793,21 +813,19 @@ const NewOrderScreen: React.FC = () => {
           className={inputClass}
         />
 
-        {mode === 'full' && (
-          <div className="grid grid-cols-1 gap-3 transition-all duration-200 sm:grid-cols-2">
-            <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Страна" className={inputClass} />
-            <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Город" className={inputClass} />
-            <label className="space-y-1 sm:col-span-2">
-              <span className="text-xs font-semibold text-slate-500">Источник</span>
-              <select value={leadSource} onChange={(e) => setLeadSource(e.target.value as Source)} className={inputClass}>
-                <option value={Source.INSTAGRAM}>IG</option>
-                <option value={Source.TIKTOK}>TikTok</option>
-                <option value={Source.WHATSAPP}>WA</option>
-                <option value={Source.OTHER}>Other</option>
-              </select>
-            </label>
-          </div>
-        )}
+        <div className="grid grid-cols-1 gap-3 transition-all duration-200 sm:grid-cols-2">
+          <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Страна доставки" className={inputClass} />
+          <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Город доставки" className={inputClass} />
+          <label className="space-y-1 sm:col-span-2">
+            <span className="text-xs font-semibold text-slate-500">Источник</span>
+            <select value={leadSource} onChange={(e) => setLeadSource(e.target.value as Source)} className={inputClass}>
+              <option value={Source.INSTAGRAM}>IG</option>
+              <option value={Source.TIKTOK}>TikTok</option>
+              <option value={Source.WHATSAPP}>WA</option>
+              <option value={Source.OTHER}>Other</option>
+            </select>
+          </label>
+        </div>
       </section>
 
       <div style={{ bottom: `${keyboardOffset}px` }} className="fixed inset-x-0 z-40 mx-auto w-full max-w-md border-t border-slate-200 bg-white/95 px-3 pt-3 backdrop-blur" >

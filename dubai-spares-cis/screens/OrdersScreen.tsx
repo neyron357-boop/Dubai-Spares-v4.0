@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, Clock3, Filter, MessageCircle, Smartphone, Star } from 'lucide-react';
+import { Archive, BarChart3, Clock3, Filter, MessageCircle, Pin, Smartphone, Star } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
@@ -581,6 +581,18 @@ const OrdersScreen: React.FC = () => {
                 <div className="mt-2 flex items-center gap-2">
                   <span className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">{statusLabelMap[status]}</span>
                   {order.priority === Priority.HIGH && <span className="text-[10px] font-black text-rose-600 uppercase">Срочно</span>}
+                  {activeTab === 'active' && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void updateOrder({ ...order, isPinned: !order.isPinned });
+                      }}
+                      className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-black ${order.isPinned ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}
+                    >
+                      <Pin size={11} className={order.isPinned ? 'fill-current' : ''} /> {order.isPinned ? 'Закреплён' : 'Закрепить'}
+                    </button>
+                  )}
                 </div>
 
                 <p className="mt-3 text-xs text-slate-500">Детали: {totalParts} • Найдено: {foundParts} ({progress}%)</p>

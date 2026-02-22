@@ -73,11 +73,13 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
 
   const previewParts = useMemo(
     () => foundParts.map((part) => {
-      const costAed = part.variants[0].priceAed;
+      const cheapestVariant = part.variants[0];
+      const variantWithPhoto = part.variants.find((variant) => [variant.photoUrl || '', ...(variant.photos || [])].some(Boolean)) || cheapestVariant;
+      const costAed = cheapestVariant.priceAed;
       const sellAed = isFixedMarkup
         ? costAed + fixedMarkupPerPart
         : costAed * (1 + order.markupPercent / 100);
-      const variantPhotos = [part.variants[0]?.photoUrl || '', ...(part.variants[0]?.photos || [])].filter(Boolean);
+      const variantPhotos = [variantWithPhoto?.photoUrl || '', ...(variantWithPhoto?.photos || [])].filter(Boolean);
       const partPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean);
       const photos = Array.from(new Set((variantPhotos.length > 0 ? variantPhotos : partPhotos) as string[]));
       return {

@@ -1113,7 +1113,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     const fixedMarkupPerPart = isFixedMarkup && partsWithPriceCount > 0 ? fixedMarkupTotal / partsWithPriceCount : 0;
 
     return order.parts.map((part) => {
-      const best = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
+      const sortedVariants = [...part.variants].sort((a, b) => a.priceAed - b.priceAed);
+      const best = sortedVariants[0];
+      const variantWithPhoto = sortedVariants.find((variant) => [variant.photoUrl || '', ...(variant.photos || [])].some(Boolean));
       const supplierAed = best?.priceAed || 0;
       const hasPrice = !!best;
       const isReady = !!best && part.isFound;
@@ -1123,7 +1125,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           : supplierAed)
         : resolveClientUnitPriceAed(best as unknown as Record<string, unknown>, { markupPercent: order.markupPercent });
       const converted = clientAed * rates[currency];
-      const variantPhotos = [best?.photoUrl || '', ...(best?.photos || [])].filter(Boolean) as string[];
+      const variantPhotos = [variantWithPhoto?.photoUrl || '', ...(variantWithPhoto?.photos || [])].filter(Boolean) as string[];
       const basePartPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean) as string[];
       const photoSource = variantPhotos.length > 0 ? variantPhotos : basePartPhotos;
       const uniquePhotos = Array.from(new Set(photoSource));

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Filter, ImageOff, X } from 'lucide-react';
+import { ExternalLink, Filter, ImageOff, X } from 'lucide-react';
 import { vibrate } from '../feedback';
 import { useStore } from '../store';
 import { Priority, type Order, type Part } from '../types';
+import ImagePreview from './ImagePreview';
 
 type VendorSlide = {
   orderId: string;
@@ -45,6 +46,7 @@ const VendorSlider: React.FC = () => {
   const [brandFilter, setBrandFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | NonNullable<Part['status']>>('all');
+  const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
 
   const pressTimer = useRef<number | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -186,6 +188,29 @@ const VendorSlider: React.FC = () => {
               <span className={`h-3 w-3 rounded-full ${statusMeta.dot}`} />
               <span className="font-semibold text-white/85">{statusMeta.label}</span>
             </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!images.length) return;
+                  setGallery({ images, index: imgIndex });
+                }}
+                className="rounded-xl border border-slate-600 px-3 py-1.5 text-xs font-semibold text-white/90"
+              >
+                Preview
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/order/${order.id}/part/${part.id}`);
+                }}
+                className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-1.5 text-xs font-semibold text-white/90"
+              >
+                Карточка детали <ExternalLink size={12} />
+              </button>
+            </div>
           </div>
 
           <div className="rounded-3xl border border-slate-700/70 bg-[#0f172a] p-3">
@@ -267,6 +292,8 @@ const VendorSlider: React.FC = () => {
           </div>
         </div>
       )}
+
+      {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
 
       {partsSheetOpen && (
         <div className="absolute inset-0 z-10 bg-black/70 p-4" onClick={() => setPartsSheetOpen(false)}>

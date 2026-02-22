@@ -315,8 +315,8 @@ const PartDetailsScreen: React.FC = () => {
           models: nextModels,
           years: nextYears,
           bodyTypes: nextBodyTypes,
-          photoUrl: form.photos[0],
-          photos: form.photos,
+          photoUrl: '',
+          photos: [],
           coordinates: resolvedCoordinates
         };
         addSupplier(newSupplier);
@@ -327,8 +327,6 @@ const PartDetailsScreen: React.FC = () => {
         const nextModels = mergeUniqueStrings(existingSupplier.models || [], [order.model || '']);
         const nextYears = mergeUniqueYears(existingSupplier.years || [], [Number(order.year)]);
         const nextBodyTypes = mergeUniqueStrings(existingSupplier.bodyTypes || [], [order.bodyType || '']);
-        const nextPhotos = mergeUniqueStrings(existingSupplier.photos || (existingSupplier.photoUrl ? [existingSupplier.photoUrl] : []), form.photos || []);
-
         const updatedSupplier = {
           ...existingSupplier,
           phone: existingSupplier.phone || form.phone,
@@ -339,8 +337,8 @@ const PartDetailsScreen: React.FC = () => {
           models: nextModels,
           years: nextYears,
           bodyTypes: nextBodyTypes,
-          photoUrl: existingSupplier.photoUrl || form.photos[0],
-          photos: nextPhotos,
+          photoUrl: existingSupplier.photoUrl || '',
+          photos: existingSupplier.photos || [],
           coordinates: existingSupplier.coordinates || resolvedCoordinates
         };
         updateSupplier(updatedSupplier);
