@@ -125,6 +125,19 @@ export type PublicQuoteKey = {
 };
 
 export const parsePublicQuoteKey = (params: URLSearchParams, _pathParam: string): PublicQuoteKey | null => {
+  const packedKey = (params.get('k') || '').trim();
+  if (packedKey) {
+    const [token, snapshot] = packedKey.split('.');
+    if (token) {
+      return {
+        value: token,
+        source: 'token',
+        urlToken: token,
+        urlSnapshot: (snapshot || '').trim() || null
+      };
+    }
+  }
+
   const tokenFromQuery = (params.get('token') || '').trim();
   const snapshotFromQuery = (params.get('snapshot') || '').trim();
   if (!tokenFromQuery) return null;

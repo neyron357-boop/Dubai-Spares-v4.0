@@ -185,6 +185,7 @@ const OrderDetailsScreen: React.FC = () => {
   // Exchange Rate Input State (Controlled)
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
   const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState(MESSAGE_TEMPLATES[0]);
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
@@ -490,6 +491,7 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const updateCustomerStatus = (nextStatus: 'VIP' | 'LEAD' | 'INQUIRY') => {
+    if (!isEditMode) return;
     const prevStatus = order.customerStatus || (order.isVip ? 'VIP' : order.isLead ? 'LEAD' : 'INQUIRY');
     if (prevStatus === nextStatus) return;
     updateOrder({
@@ -636,6 +638,7 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const updateOrderField = (field: keyof Order, value: any) => {
+    if (!isEditMode) return;
     const keyStart = performance.now();
     const shouldDebounce = (typeof value === 'string' || typeof value === 'number')
       && !['markupType', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType'].includes(String(field));
@@ -659,6 +662,7 @@ const OrderDetailsScreen: React.FC = () => {
 
 
   const updatePriority = (nextPriority: Priority) => {
+    if (!isEditMode) return;
     updateOrder({ ...order, priority: nextPriority, priorityChangedAt: Date.now() });
   };
 
@@ -702,6 +706,7 @@ const OrderDetailsScreen: React.FC = () => {
   }, [logisticsDraft, order]);
 
   const saveLogisticsDraft = useCallback(() => {
+    if (!isEditMode) return;
     if (!hasPendingLogisticsChanges) return;
 
     const eventLabels: Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string> = {
@@ -741,6 +746,7 @@ const OrderDetailsScreen: React.FC = () => {
   }, [hasPendingLogisticsChanges, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, order, scheduleDebouncedSaveLog, updateOrder]);
 
   const updateLogisticsField = (field: 'deliveryType', value: string) => {
+    if (!isEditMode) return value;
     const event = createPricingEvent('logistics.deliveryType', 'Тип доставки', order.logistics?.deliveryType || 'uae', value);
     updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value }, pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents });
     return value;
@@ -834,6 +840,7 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const addNewPart = () => {
+    if (!isEditMode) return;
     if (!newPartName.trim()) return;
     const newPart: Part = {
       id: Math.random().toString(36).substr(2, 9),
@@ -1030,6 +1037,7 @@ const OrderDetailsScreen: React.FC = () => {
 
 
   const addNote = () => {
+    if (!isEditMode) return;
     if (!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0) return;
     const note: OrderNote = {
       id: Math.random().toString(36).slice(2, 9),
@@ -1122,6 +1130,7 @@ const OrderDetailsScreen: React.FC = () => {
             <option value={Priority.LOW}>LOW</option>
           </select>
           <button type="button" onClick={() => void pasteVinFromClipboard()} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">Вставить VIN</button>
+          <button type="button" onClick={() => setIsEditMode((prev) => !prev)} className={`text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight shrink-0 ${isEditMode ? 'bg-blue-600 text-white border border-blue-600' : 'bg-white border border-gray-200 text-gray-700'}`}>{isEditMode ? 'Режим: редактирование' : 'Режим: просмотр'}</button>
         </div>
       </div>
 
