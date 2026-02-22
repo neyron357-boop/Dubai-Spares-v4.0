@@ -148,6 +148,11 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
   const carPhotos = toStringArray(mergedPayload.carPhotos);
   const vinPhotos = toStringArray(mergedPayload.vinPhotos);
 
+  const incomingSource = typeof mergedPayload.source === 'string' ? mergedPayload.source : '';
+  const normalizedSource = Object.values(Source).includes(incomingSource as Source)
+    ? (incomingSource as Source)
+    : Source.OTHER;
+
   return {
     id: lead.order_id || lead.id,
     brand: typeof mergedPayload.brand === 'string' && mergedPayload.brand ? mergedPayload.brand : '-',
@@ -177,7 +182,7 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
     socialNickname: typeof mergedPayload.socialNickname === 'string' ? mergedPayload.socialNickname : undefined,
     priority: Priority.HIGH,
     status: 'lead',
-    source: Source.OTHER,
+    source: normalizedSource,
     leadSource: 'public_form',
     leadUnread: true,
     createdAt: toTimestamp(lead.created_at),

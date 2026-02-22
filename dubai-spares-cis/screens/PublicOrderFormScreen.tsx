@@ -304,6 +304,7 @@ const PublicOrderFormScreen: React.FC = () => {
         setDeliveryAddressNote(draft.deliveryAddressNote || '');
         setEngineCode(draft.engineCode || '');
         setClientAlias(draft.clientAlias || '');
+        setMessageSource(Object.values(Source).includes(draft.messageSource) ? draft.messageSource : Source.WHATSAPP);
       }
     } catch {
       // noop
@@ -325,13 +326,14 @@ const PublicOrderFormScreen: React.FC = () => {
         deliveryCity,
         deliveryAddressNote,
         engineCode,
-        clientAlias
+        clientAlias,
+        messageSource
       }));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown';
       void logger.warn('public-form:draft', 'Draft save skipped', { reason: message });
     }
-  }, [brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode, deliveryCountry, deliveryCity, deliveryAddressNote, engineCode, clientAlias]);
+  }, [brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode, deliveryCountry, deliveryCity, deliveryAddressNote, engineCode, clientAlias, messageSource]);
 
   useEffect(() => {
     if (brand === 'BMW') setShowEngineCode(true);
@@ -986,6 +988,7 @@ Country: ${deliveryCountry}`,
               </div>
               <input ref={vinInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setVinPhotoData); e.target.value = ''; }} />
               <input ref={vinCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setVinPhotoData); e.target.value = ''; }} />
+              {vinPhotoData && <img src={vinPhotoData} alt="vin-preview" className="h-28 w-full rounded-xl object-cover" />}
 
               <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ввести VIN вручную</span>
@@ -999,6 +1002,7 @@ Country: ${deliveryCountry}`,
               </div>
               <input ref={carInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); e.target.value = ''; }} />
               <input ref={carCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); e.target.value = ''; }} />
+              {carPhotoData && <img src={carPhotoData} alt="car-preview" className="h-28 w-full rounded-xl object-cover" />}
             </>
           )}
 

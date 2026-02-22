@@ -460,6 +460,32 @@ export const getPublicQuoteSnapshot = async (
 
 
 
+
+export const clearServerBackups = async (options?: RequestOptions): Promise<Result<{ cleared: boolean }>> => {
+  const guard = assertCloudFeatureEnabled(cloudFeatureFlags.backup);
+  if (!guard.ok) return recordCall('clearServerBackups', guard);
+
+  const lockKey = 'clearServerBackups';
+  if (inFlight.has(lockKey)) return recordCall('clearServerBackups', denyDuplicate('Backups cleanup'));
+  inFlight.add(lockKey);
+
+  try {
+    const endpoint = 'backups?id=not.is.null';
+    const response = await callRest<null>(endpoint, 'DELETE', undefined, {
+      ...(options || {}),
+      preferRepresentation: false,
+      timeoutMs: options?.timeoutMs || BACKUP_TIMEOUT_MS
+    });
+
+    if (!response.ok) return recordCall('clearServerBackups', response);
+    return recordCall('clearServerBackups', { ok: true, data: { cleared: true } });
+  } catch (error) {
+    return recordCall('clearServerBackups', { ok: false, code: 'unexpected_error', error: toErrorMessage(error, 'Failed to clear backups') });
+  } finally {
+    inFlight.delete(lockKey);
+  }
+};
+
 export const clearPublicQuoteSnapshots = async (options?: RequestOptions): Promise<Result<{ cleared: boolean }>> => {
   const guard = assertCloudFeatureEnabled(cloudFeatureFlags.publicQuote);
   if (!guard.ok) return recordCall('clearPublicQuoteSnapshots', guard);
