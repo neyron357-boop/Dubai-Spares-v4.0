@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { CheckCircle2, ChevronDown, ChevronUp, Clock3, EyeOff, HelpCircle, ListChecks, Loader2, MapPinned, MessageCircle, Navigation, PhoneCall, ShieldAlert, ShieldCheck, Telescope, XCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, EyeOff, HelpCircle, ListChecks, Loader2, MapPinned, MessageCircle, Navigation, PhoneCall, ShieldCheck, Telescope } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, RadarInteraction, RadarInteractionResult, Shop } from '../types';
 import { buildNearestShopsChain, buildRoutePlanMapLink, buildShopMapLink, getRadarShopMatches, getShopRecommendationDiagnostics } from '../shopMatching';
@@ -74,6 +74,22 @@ const parseHourMinute = (value: string) => {
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+
+  const applyRadarStatus = async (entry: RadarEntry, value: string) => {
+    if (value === 'hide') {
+      await hideShop(entry);
+      return;
+    }
+    if (value === 'at_shop') {
+      await markVisitedShop(entry);
+      await quickResult(entry, 'follow_up');
+      return;
+    }
+    if (value === 'found' || value === 'not_found' || value === 'follow_up' || value === 'wrong_info') {
+      await quickResult(entry, value);
+    }
+  };
+
   return (hours * 60) + minutes;
 };
 
@@ -789,11 +805,24 @@ const RadarScreen: React.FC = () => {
               {mode === 'detail' && <button type="button" onClick={() => navigate(`/order/${entry.order.id}`)} className="rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">Карточка</button>}
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => quickResult(entry, 'found')} className="inline-flex items-center gap-1 rounded-lg border border-emerald-400/40 px-2 py-1 text-[10px] font-black uppercase text-emerald-200"><CheckCircle2 size={11} /> Found</button>
-              <button type="button" onClick={() => quickResult(entry, 'not_found')} className="inline-flex items-center gap-1 rounded-lg border border-rose-400/40 px-2 py-1 text-[10px] font-black uppercase text-rose-200"><XCircle size={11} /> Not found</button>
-              <button type="button" onClick={() => quickResult(entry, 'follow_up')} className="inline-flex items-center gap-1 rounded-lg border border-amber-400/40 px-2 py-1 text-[10px] font-black uppercase text-amber-200"><Clock3 size={11} /> Follow-up</button>
-              <button type="button" onClick={() => quickResult(entry, 'wrong_info')} className="inline-flex items-center gap-1 rounded-lg border border-orange-400/40 px-2 py-1 text-[10px] font-black uppercase text-orange-200"><ShieldAlert size={11} /> Wrong info</button>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  const value = e.target.value;
+                  e.target.value = '';
+                  void applyRadarStatus(entry, value);
+                }}
+                className="h-10 min-w-[230px] rounded-xl border border-slate-600 bg-slate-900 px-3 text-[11px] font-black uppercase text-slate-100"
+              >
+                <option value="" disabled>Выбрать статус позиции…</option>
+                <option value="hide">Hide</option>
+                <option value="at_shop">Я у магазина</option>
+                <option value="found">Found</option>
+                <option value="not_found">Not found</option>
+                <option value="follow_up">Follow up</option>
+                <option value="wrong_info">Wrong info</option>
+              </select>
               {chainMode && <button type="button" onClick={() => setChainIndex((i) => Math.min(i + 1, chainRoute.length - 1))} className="inline-flex items-center gap-1 rounded-lg border border-blue-400/40 px-2 py-1 text-[10px] font-black uppercase text-blue-200">Next</button>}
             </div>
           </article>

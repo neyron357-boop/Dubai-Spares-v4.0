@@ -82,7 +82,7 @@ const DebugLogsScreen: React.FC = () => {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [severity, setSeverity] = useState<'all' | 'info' | 'warn' | 'error'>('all');
+  const [severity, setSeverity] = useState<'all' | 'info' | 'warn' | 'error'>('error');
   const [tab, setTab] = useState<'overview' | 'raw'>('overview');
   const [diagnosticsLoaded, setDiagnosticsLoaded] = useState(false);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
@@ -419,9 +419,6 @@ const DebugLogsScreen: React.FC = () => {
           <div className="grid grid-cols-2 gap-2 text-xs">
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="search logs" className="rounded-lg border p-2 col-span-2" />
             <select value={severity} onChange={(e) => setSeverity(e.target.value as any)} className="rounded-lg border p-2">
-              <option value="all">severity: all</option>
-              <option value="info">INFO</option>
-              <option value="warn">WARN</option>
               <option value="error">ERROR</option>
             </select>
             <div className="rounded-lg border p-2">showing {visibleLogs.length}/{filteredLogs.length}</div>
@@ -462,11 +459,17 @@ const DebugLogsScreen: React.FC = () => {
                   {safeMeta && (
                     <div className="mt-2 text-[10px] text-gray-600 whitespace-pre-wrap break-words">{isExpanded ? safeMeta : shortText(safeMeta, 180)}</div>
                   )}
-                  {(entry.message.length > 180 || safeMeta.length > 180) && (
-                    <button className="mt-2 underline text-[10px]" type="button" onClick={() => toggleExpanded(entry.id)}>
-                      {isExpanded ? 'Collapse details' : 'Expand details'}
+                  <div className="mt-2 flex items-center gap-3">
+                    <button className="rounded-md bg-slate-900 px-2 py-1 text-[10px] font-black text-white" type="button" onClick={() => void onCopy(`[${entry.level.toUpperCase()}] ${entry.scope}: ${entry.message}
+${safeMeta}`, 'Log copied')}>
+                      Быстро копировать
                     </button>
-                  )}
+                    {(entry.message.length > 180 || safeMeta.length > 180) && (
+                      <button className="underline text-[10px]" type="button" onClick={() => toggleExpanded(entry.id)}>
+                        {isExpanded ? 'Collapse details' : 'Expand details'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}

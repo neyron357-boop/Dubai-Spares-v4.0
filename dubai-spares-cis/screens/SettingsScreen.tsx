@@ -433,10 +433,6 @@ const SettingsScreen: React.FC = () => {
             await offlineDb.clearAllOfflineData();
           })}>Очистить офлайн данные</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('public-snapshots', async () => {
-            const first = window.confirm('⚠️ Это удалит ВСЕ сохранённые публичные сметы (снапшоты) на сервере. Продолжить?');
-            if (!first) return;
-            const second = window.prompt('Введите DELETE SNAPSHOTS для подтверждения');
-            if (second !== 'DELETE SNAPSHOTS') return;
             const result = await clearPublicQuoteSnapshots();
             if (!result.ok) throw new Error(result.error);
             window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Серверные снапшоты смет очищены', tone: 'success' } }));

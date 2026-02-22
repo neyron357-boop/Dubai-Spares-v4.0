@@ -14,17 +14,17 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
   const orderStats = orders
     .filter(o => o.isSold)
     .map(o => {
-      let profitUsd = o.soldProfitUsd;
+      let profitAed = Number(o.soldProfitUsd || 0) * Number(o.exchangeRate || 3.67);
       
-      if (profitUsd === undefined) {
-        const totalCostAed = o.parts.reduce((sum, p) => (p.isFound && p.variants.length > 0) ? sum + p.variants[0].priceAed : sum, 0);
-        profitUsd = totalCostAed > 0 ? ((totalCostAed * (1 + o.markupPercent / 100)) - totalCostAed) / o.exchangeRate : 0;
+      const totalCostAed = o.parts.reduce((sum, p) => (p.isFound && p.variants.length > 0) ? sum + p.variants[0].priceAed : sum, 0);
+      if (!Number.isFinite(profitAed) || profitAed === 0) {
+        profitAed = totalCostAed > 0 ? ((totalCostAed * (1 + o.markupPercent / 100)) - totalCostAed) : 0;
       }
-      
-      return { ...o, profitUsd };
+      const commissionAed = Number(o.logistics?.serviceFeeAed || 0);
+      return { ...o, profitAed, commissionAed, totalIncomeAed: profitAed + commissionAed };
     });
 
-  const totalIncome = orderStats.reduce((sum, o) => sum + o.profitUsd, 0);
+  const totalIncome = orderStats.reduce((sum, o) => sum + o.totalIncomeAed, 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
@@ -41,7 +41,7 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
           <div className="bg-green-600 text-white p-8 rounded-[24px] shadow-xl text-center relative overflow-hidden">
             <TrendingUp size={120} className="absolute -right-4 -bottom-4 opacity-10" />
             <span className="text-sm font-medium opacity-80 uppercase tracking-widest text-green-100">Итоговая чистая прибыль</span>
-            <div className="text-5xl font-black mt-2">${totalIncome.toFixed(0)}</div>
+            <div className="text-5xl font-black mt-2">{totalIncome.toFixed(0)} AED</div>
           </div>
 
           <div className="space-y-3 pb-10">
@@ -57,7 +57,10 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
                       <Calendar size={10} /> {new Date(o.createdAt).toLocaleDateString()}
                     </div>
                   </div>
-                  <div className="text-lg font-black text-green-600">+${o.profitUsd.toFixed(0)}</div>
+                  <div className="text-right">
+                    <div className="text-lg font-black text-green-600">+{o.totalIncomeAed.toFixed(0)} AED</div>
+                    {o.commissionAed > 0 && <div className="text-[10px] text-emerald-700">включая комиссию {o.commissionAed.toFixed(0)} AED</div>}
+                  </div>
                 </div>
               ))
             )}
