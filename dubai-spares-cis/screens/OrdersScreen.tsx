@@ -607,7 +607,6 @@ const OrdersScreen: React.FC = () => {
                   )}
                 </div>
 
-                <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] text-slate-400">Свайп → WhatsApp • Свайп ← Archive</p>
                 </div>
               </SwipeableOrderCard>
             );

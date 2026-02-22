@@ -1,7 +1,7 @@
 import { SUPABASE_ANON_KEY, SUPABASE_URL, cloudBuildGuardMessage, isCloudConfigured } from './cloudConfig';
 import { supabase } from './supabase';
 import { decodePayloadFromCompressedTransport } from './cloudCodec';
-import { buildPublicQuoteSlug, QuoteRates, serializeQuoteRates } from './shareUtils';
+import { buildPublicQuoteSlug, QuoteRates } from './shareUtils';
 import { Order } from './types';
 import { logger } from './logging';
 
@@ -602,7 +602,7 @@ const buildSnapshotPayload = (
         qty: 1,
         supplier_price_aed: supplierAed,
         client_price_aed: round2(clientAed),
-        photo_urls: [part.photoUrl || '', ...(part.photos || [])].filter(Boolean).slice(0, 2)
+        photo_urls: [part.photoUrl || '', ...(part.photos || []), variant?.photoUrl || '', ...(variant?.photos || [])].filter(Boolean).slice(0, 3)
       };
     });
 
@@ -634,6 +634,12 @@ const buildSnapshotPayload = (
       year: order.year,
       vin: order.vin,
       body_type: order.bodyType,
+      carPhotoUrl: order.carPhotoUrl || order.carPhotos?.[0] || order.vinPhotoUrl || '',
+      car_photo_url: order.carPhotoUrl || order.carPhotos?.[0] || order.vinPhotoUrl || '',
+      carPhotos: (order.carPhotos || []).slice(0, 3),
+      car_photos: (order.carPhotos || []).slice(0, 3),
+      vinPhotoUrl: order.vinPhotoUrl || '',
+      vin_photo_url: order.vinPhotoUrl || '',
       markupType: order.markupType || 'percent',
       markup_type: order.markupType || 'percent',
       markupFixedAed: parseMoney(order.markupFixedAed) || 0,
@@ -835,13 +841,7 @@ export const publicQuoteCreateSnapshot = async (
       const effectiveSnapshotId = (created.snapshot_id || created.id || '').trim();
 
       const quoteUrl = new URL(`${window.location.origin}/#/q/${encodeURIComponent(buildPublicQuoteSlug(order))}`);
-      quoteUrl.searchParams.set('token', created.token);
-      quoteUrl.searchParams.set('snapshot', effectiveSnapshotId);
-      quoteUrl.searchParams.set('exp', String(Date.parse(created.expires_at)));
-      quoteUrl.searchParams.set('oid', order.id);
-      quoteUrl.searchParams.set('currency', options?.currency || order.clientCurrency || 'USD');
-      if (options?.rates) quoteUrl.searchParams.set('rates', serializeQuoteRates(options.rates));
-      if (trimmed.photosOmitted) quoteUrl.searchParams.set('photos', 'omitted');
+      quoteUrl.searchParams.set('k', `${created.token}.${effectiveSnapshotId}`);
 
       if (isDevBuild) {
         console.info('[public-quote] snapshot inserted', {
@@ -851,9 +851,7 @@ export const publicQuoteCreateSnapshot = async (
           dbSnapshotId: created.snapshot_id || null,
           dbRowToken: created.token,
           matches: {
-            snapshotMatchesRowId: created.id === quoteUrl.searchParams.get('snapshot'),
-            snapshotMatchesSnapshotId: (created.snapshot_id || null) === quoteUrl.searchParams.get('snapshot'),
-            tokenMatchesRowToken: created.token === quoteUrl.searchParams.get('token')
+            packedKeyMatches: quoteUrl.searchParams.get('k') === `${created.token}.${effectiveSnapshotId}`
           }
         });
       }
