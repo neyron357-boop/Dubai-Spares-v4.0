@@ -17,6 +17,7 @@ import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-re
 import { getUnreadNotificationsCount } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
+import { playSound } from './utils/sounds';
 
 const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
 
@@ -61,15 +62,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       </main>
       {!hideNav && (
         <nav className="h-16 bg-white border-t border-gray-200 flex items-center justify-around px-2 pb-safe shrink-0 z-50">
-          <NavLink to="/" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
-          <NavLink to="/new" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">Новый</span></NavLink>
-          <NavLink to="/database" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">База</span></NavLink>
-          <NavLink to="/radar" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Radar size={22} /><span className="text-[10px] font-medium">Радар</span></NavLink>
-          <NavLink to="/notifications" className={({ isActive }) => `relative flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />
+          <NavLink to="/" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
+          <NavLink to="/new" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">Новый</span></NavLink>
+          <NavLink to="/database" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">База</span></NavLink>
+          <NavLink to="/radar" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Radar size={22} /><span className="text-[10px] font-medium">Радар</span></NavLink>
+          <NavLink to="/notifications" onClick={() => playSound('navigate')} className={({ isActive }) => `relative flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />
             {unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{badgeLabel}</span>}
             <span className="text-[10px] font-medium">Оповещ.</span>
           </NavLink>
-          <NavLink to="/settings" className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настр.</span></NavLink>
+          <NavLink to="/settings" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настр.</span></NavLink>
         </nav>
       )}
       </div>
@@ -86,6 +87,7 @@ const App: React.FC = () => {
 
     const onSave = () => {
       setSavePulse(true);
+      playSound('success');
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => setSavePulse(false), 950);
     };
@@ -103,7 +105,11 @@ const App: React.FC = () => {
       const custom = event as CustomEvent<{ message?: string; tone?: 'error' | 'success' | 'info' }>;
       const message = custom.detail?.message;
       if (!message) return;
-      setAppToast({ message, tone: custom.detail?.tone || 'info' });
+      const tone = custom.detail?.tone || 'info';
+      setAppToast({ message, tone });
+      if (tone === 'success') playSound('success');
+      else if (tone === 'error') playSound('error');
+      else playSound('tap');
       if (toastTimer) window.clearTimeout(toastTimer);
       toastTimer = window.setTimeout(() => setAppToast(null), 3200);
     };

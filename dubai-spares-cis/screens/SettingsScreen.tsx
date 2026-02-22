@@ -212,6 +212,19 @@ const SettingsScreen: React.FC = () => {
               className="h-4 w-4"
             />
           </label>
+
+          <label className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2">
+            <div>
+              <span className="text-sm font-bold text-gray-800">Звуки интерфейса</span>
+              <p className="text-xs text-gray-500">Тапы, переходы, уведомления, сохранение</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={draftSettings.soundsEnabled !== false}
+              onChange={(e) => updateDraft({ soundsEnabled: e.target.checked })}
+              className="h-4 w-4"
+            />
+          </label>
         </div>
       </Section>
 
