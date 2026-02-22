@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ChevronRight, ShieldAlert, Wrench } from 'lucide-react';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
-import { backupUpload, clearPublicQuoteSnapshots } from '../serverApi';
+import { backupUpload, clearPublicQuoteSnapshots, clearServerBackups } from '../serverApi';
 import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLastCloudCall, isCloudConfigured, SUPABASE_HOST } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
@@ -271,6 +271,7 @@ const SettingsScreen: React.FC = () => {
               onChange={(e) => updateDraft({ publicDeliveryTerms: e.target.value })}
               placeholder="Например: Доставка 3-8 рабочих дней после подтверждения и оплаты."
               className="min-h-20 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              rows={4}
             />
           </Field>
 
@@ -280,6 +281,7 @@ const SettingsScreen: React.FC = () => {
               onChange={(e) => updateDraft({ publicWorkTerms: e.target.value })}
               placeholder="Например: Проверка наличия/цены перед оплатой, фото-отчёт перед отправкой."
               className="min-h-20 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              rows={4}
             />
           </Field>
         </div>
@@ -438,6 +440,16 @@ const SettingsScreen: React.FC = () => {
             const tone = result.ok ? 'success' : 'error';
             window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, tone } }));
           })}>Очистить снапшоты публичных смет на сервере</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('server-backups', async () => {
+            const first = window.confirm('⚠️ Это удалит ВСЕ backup записи на сервере. Продолжить?');
+            if (!first) return;
+            const second = window.prompt('Введите DELETE BACKUPS для подтверждения');
+            if (second !== 'DELETE BACKUPS') return;
+            const result = await clearServerBackups();
+            const message = result.ok ? 'Все серверные backup записи удалены' : `Ошибка: ${result.error}`;
+            const tone = result.ok ? 'success' : 'error';
+            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, tone } }));
+          })}>Очистить все backup записи на сервере</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('index', async () => {
             await offlineDb.exportAllData();
           })}>Перестроить индекс</button>

@@ -1042,6 +1042,25 @@ const OrderDetailsScreen: React.FC = () => {
     setNewNoteAudios([]);
   };
 
+
+  const removeNoteById = (noteId: string) => {
+    updateOrder({ ...order, notes: (order.notes || []).filter((note) => note.id !== noteId) });
+  };
+
+  const removeNotePhoto = (noteId: string, photoIndex: number) => {
+    updateOrder({
+      ...order,
+      notes: (order.notes || []).map((note) => note.id === noteId ? { ...note, photos: (note.photos || []).filter((_, idx) => idx !== photoIndex) } : note)
+    });
+  };
+
+  const removeNoteAudio = (noteId: string, audioIndex: number) => {
+    updateOrder({
+      ...order,
+      notes: (order.notes || []).map((note) => note.id === noteId ? { ...note, audios: (note.audios || []).filter((_, idx) => idx !== audioIndex) } : note)
+    });
+  };
+
   const MARKUP_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 
   return (
@@ -1394,8 +1413,11 @@ const OrderDetailsScreen: React.FC = () => {
             <div className="space-y-2">
               {(order.notes || []).map(n => (
                 <div key={n.id} className="bg-gray-50 border border-gray-100 rounded-xl p-3">
-                  {n.text && <p className="text-sm font-semibold text-gray-700">{n.text}</p>}
-                  {n.photos && n.photos.length > 0 && <div className="flex gap-2 mt-2 overflow-x-auto no-scrollbar">{n.photos.map((ph, idx) => <button key={idx} type="button" onClick={() => setGallery({ images: n.photos || [], index: idx })} className="w-12 h-12 rounded-lg overflow-hidden"><img src={ph} className="w-full h-full object-cover" /></button>)}</div>}
+                  <div className="flex items-start justify-between gap-2">
+                    {n.text && <p className="text-sm font-semibold text-gray-700">{n.text}</p>}
+                    <button type="button" onClick={() => removeNoteById(n.id)} className="shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Удалить заметку</button>
+                  </div>
+                  {n.photos && n.photos.length > 0 && <div className="flex gap-2 mt-2 overflow-x-auto no-scrollbar">{n.photos.map((ph, idx) => <div key={idx} className="relative w-12 h-12 rounded-lg overflow-hidden"><button type="button" onClick={() => setGallery({ images: n.photos || [], index: idx })} className="w-full h-full"><img src={ph} className="w-full h-full object-cover" /></button><button type="button" onClick={() => removeNotePhoto(n.id, idx)} className="absolute right-0.5 top-0.5 rounded-full bg-black/60 px-1 text-[9px] text-white">✕</button></div>)}</div>}
                   {n.audios && n.audios.length > 0 && <div className="space-y-2 mt-2">{n.audios.map((audioSrc, idx) => {
                     const audioId = `note-${n.id}-${idx}`;
                     const isPlaying = playingAudioId === audioId;
@@ -1420,6 +1442,7 @@ const OrderDetailsScreen: React.FC = () => {
                           })}
                         </div>
                         <audio id={audioId} src={audioSrc} preload="metadata" playsInline />
+                        <button type="button" onClick={() => removeNoteAudio(n.id, idx)} className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Удалить</button>
                       </div>
                     );
                   })}</div>}
