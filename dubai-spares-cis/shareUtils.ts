@@ -102,10 +102,7 @@ const slugify = (value: string) =>
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-');
 
-export const buildPublicQuoteSlug = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'>) => {
-  const readable = slugify([order.brand, order.model, order.year].filter(Boolean).join(' '));
-  return readable ? `${readable}--${order.id}` : order.id;
-};
+export const buildPublicQuoteSlug = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'>) => order.id;
 
 export const extractOrderIdFromQuoteSlug = (slugOrId: string) => {
   const trimmed = decodeURIComponent(slugOrId.trim().replace(/^\/+|\/+$/g, ''));

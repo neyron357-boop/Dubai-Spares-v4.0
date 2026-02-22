@@ -891,6 +891,8 @@ const OrderDetailsScreen: React.FC = () => {
   const getPartPhotos = (part: Part) => {
       if (part.photos && part.photos.length > 0) return part.photos;
       if (part.photoUrl) return [part.photoUrl];
+      if (order.carPhotos && order.carPhotos.length > 0) return order.carPhotos;
+      if (order.carPhotoUrl) return [order.carPhotoUrl];
       return [];
   };
 
