@@ -75,21 +75,6 @@ const parseHourMinute = (value: string) => {
   const minutes = Number(match[2]);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
 
-  const applyRadarStatus = async (entry: RadarEntry, value: string) => {
-    if (value === 'hide') {
-      await hideShop(entry);
-      return;
-    }
-    if (value === 'at_shop') {
-      await markVisitedShop(entry);
-      await quickResult(entry, 'follow_up');
-      return;
-    }
-    if (value === 'found' || value === 'not_found' || value === 'follow_up' || value === 'wrong_info') {
-      await quickResult(entry, value);
-    }
-  };
-
   return (hours * 60) + minutes;
 };
 
@@ -493,8 +478,7 @@ const RadarScreen: React.FC = () => {
     toast('Шаблон WhatsApp открыт', 'success');
   };
 
-  const quickResult = async (entry: RadarEntry, result: RadarInteractionResult) => {
-    const primaryPart = getPrimaryPart(entry.order);
+  const quickResult = async (entry: RadarEntry, result: RadarInteractionResult) => {    const primaryPart = getPrimaryPart(entry.order);
     await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, partId: primaryPart?.id, result, availability: result === 'found' ? 'in_stock' : undefined, comment: primaryPart ? `Target part: ${primaryPart.name}` : undefined });
     pushNotification({
       type: NotificationType.RADAR_RESULT,
@@ -565,6 +549,21 @@ const RadarScreen: React.FC = () => {
   };
 
   const pendingSync = interactions.filter((item) => !item.syncedAt).length;
+
+  const applyRadarStatus = async (entry: RadarEntry, value: string) => {
+    if (value === 'hide') {
+      await hideShop(entry);
+      return;
+    }
+    if (value === 'at_shop') {
+      await markVisitedShop(entry);
+      await quickResult(entry, 'follow_up');
+      return;
+    }
+    if (value === 'found' || value === 'not_found' || value === 'follow_up' || value === 'wrong_info') {
+      await quickResult(entry, value);
+    }
+  };
 
   const toggleSelected = (shopId: string) => {
     setSelectedShopIds((prev) => {

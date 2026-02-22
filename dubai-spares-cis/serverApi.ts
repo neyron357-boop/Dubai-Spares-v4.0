@@ -469,6 +469,7 @@ export const clearPublicQuoteSnapshots = async (options?: RequestOptions): Promi
   inFlight.add(lockKey);
 
   try {
+    // Try REST DELETE with a broad filter (all rows where id is not null)
     const endpoint = 'public_quote_snapshots?id=not.is.null';
     const response = await callRest<null>(endpoint, 'DELETE', undefined, {
       ...(options || {}),

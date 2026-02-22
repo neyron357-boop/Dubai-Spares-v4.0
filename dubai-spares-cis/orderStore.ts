@@ -227,7 +227,7 @@ const isUnreadPublicLead = (order: Order) =>
 
 const playLeadAlertFeedback = () => {
   if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-    navigator.vibrate([120, 60, 120]);
+    navigator.vibrate([200, 100, 200, 100, 200]);
   }
 
   const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -242,11 +242,24 @@ const playLeadAlertFeedback = () => {
     osc.connect(gain);
     gain.connect(ctx.destination);
     const now = ctx.currentTime;
-    gain.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+    gain.gain.exponentialRampToValueAtTime(0.4, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
     osc.start(now);
-    osc.stop(now + 0.28);
-    window.setTimeout(() => { void ctx.close(); }, 450);
+    osc.stop(now + 0.45);
+    // Second beep
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.value = 1100;
+    gain2.gain.value = 0.0001;
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    gain2.gain.setValueAtTime(0.0001, now + 0.5);
+    gain2.gain.exponentialRampToValueAtTime(0.4, now + 0.55);
+    gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.85);
+    osc2.start(now + 0.5);
+    osc2.stop(now + 0.9);
+    window.setTimeout(() => { void ctx.close(); }, 1200);
   } catch {
     // no-op
   }
@@ -1188,14 +1201,18 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
 
   const localById = new Map(localOrders.map((item) => [item.id, normalizeOrder(item)]));
   const pendingUpsertIds = new Set(pendingMutations.filter((mutation) => mutation.type === 'upsert').map((mutation) => mutation.orderId));
+  const pendingDeleteIds = new Set(pendingMutations.filter((mutation) => mutation.type === 'delete').map((mutation) => mutation.orderId));
 
-  const mergedOrders = orders.map((cloudOrder) => {
-    if (!pendingUpsertIds.has(cloudOrder.id)) return cloudOrder;
-    return localById.get(cloudOrder.id) || cloudOrder;
-  });
+  const mergedOrders = orders
+    .filter((cloudOrder) => !pendingDeleteIds.has(cloudOrder.id))
+    .map((cloudOrder) => {
+      if (!pendingUpsertIds.has(cloudOrder.id)) return cloudOrder;
+      return localById.get(cloudOrder.id) || cloudOrder;
+    });
 
   localById.forEach((localOrder, localId) => {
     if (!pendingUpsertIds.has(localId)) return;
+    if (pendingDeleteIds.has(localId)) return;
     if (mergedOrders.some((order) => order.id === localId)) return;
     mergedOrders.push(localOrder);
   });

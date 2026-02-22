@@ -86,12 +86,14 @@ const LogisticsAmountInput = React.memo(({
   field,
   label,
   value,
-  onChange
+  onChange,
+  onBlur
 }: {
   field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed';
   label: string;
   value: string;
   onChange: (field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', nextValue: string) => void;
+  onBlur?: () => void;
 }) => {
   return (
     <div>
@@ -109,6 +111,7 @@ const LogisticsAmountInput = React.memo(({
         onChange={(e) => {
           onChange(field, sanitizeNumericInput(e.currentTarget.value));
         }}
+        onBlur={onBlur}
         className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100"
       />
     </div>
@@ -287,7 +290,7 @@ const OrderDetailsScreen: React.FC = () => {
     } catch {
       setShopTagMap({});
     }
-  }, [order.id, order.model, order.year]);
+  }, [order?.id, order?.model, order?.year]);
 
   useEffect(() => {
     if (!order || !shopsLoaded) return;
@@ -1274,6 +1277,7 @@ const OrderDetailsScreen: React.FC = () => {
                 label={label}
                 value={logisticsDraft[field]}
                 onChange={onLogisticsDraftChange}
+                onBlur={saveLogisticsDraft}
               />
             ))}
             <div className="col-span-2 pt-1">

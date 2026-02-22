@@ -122,24 +122,42 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
   const messagePayload = safeMessagePayload(payload.message);
   const mergedPayload: Record<string, unknown> = { ...messagePayload, ...payload };
   const year = mergedPayload.year;
-  const fallbackName = typeof mergedPayload.name === 'string' ? mergedPayload.name : 'Public Lead';
-  const fallbackPhone = typeof mergedPayload.phone === 'string' ? mergedPayload.phone : '';
+  const fallbackName = typeof mergedPayload.name === 'string' ? mergedPayload.name : (lead.name || 'Public Lead');
+  const fallbackPhone = typeof mergedPayload.phone === 'string' ? mergedPayload.phone : (lead.phone || '');
   const partNames = Array.isArray(mergedPayload.requestedParts) ? mergedPayload.requestedParts : [];
   const parsedParts = Array.isArray(mergedPayload.parts) ? mergedPayload.parts : partNames;
-  const notes = Array.isArray(mergedPayload.notes)
-    ? mergedPayload.notes
-    : (typeof mergedPayload.message === 'string' ? [{ id: createId(), text: mergedPayload.message, createdAt: Date.now() }] : []);
+
+  // Normalise notes: preserve audios and photos from existing note objects
+  const rawNotes = Array.isArray(mergedPayload.notes) ? mergedPayload.notes : [];
+  const notes = rawNotes.length > 0
+    ? rawNotes.map((n: unknown) => {
+        if (!n || typeof n !== 'object') return { id: createId(), text: typeof n === 'string' ? n : '', photos: [], audios: [], createdAt: Date.now() };
+        const note = n as Record<string, unknown>;
+        return {
+          ...note,
+          id: typeof note.id === 'string' ? note.id : createId(),
+          text: typeof note.text === 'string' ? note.text : '',
+          photos: toStringArray(note.photos),
+          audios: toStringArray(note.audios),
+          createdAt: typeof note.createdAt === 'number' ? note.createdAt : Date.now()
+        };
+      })
+    : (typeof mergedPayload.message === 'string' ? [{ id: createId(), text: mergedPayload.message, photos: [], audios: [], createdAt: Date.now() }] : []);
+
+  // Collect all carPhotos including from vinPhotos fallback
+  const carPhotos = toStringArray(mergedPayload.carPhotos);
+  const vinPhotos = toStringArray(mergedPayload.vinPhotos);
 
   return {
     id: lead.order_id || lead.id,
-    brand: typeof mergedPayload.brand === 'string' ? mergedPayload.brand : '-',
-    model: typeof mergedPayload.model === 'string' ? mergedPayload.model : '-',
+    brand: typeof mergedPayload.brand === 'string' && mergedPayload.brand ? mergedPayload.brand : '-',
+    model: typeof mergedPayload.model === 'string' && mergedPayload.model ? mergedPayload.model : '-',
     year: typeof year === 'number' || typeof year === 'string' ? `${year}` : '',
     bodyType: typeof mergedPayload.bodyType === 'string' ? mergedPayload.bodyType : '',
     vin: typeof mergedPayload.vin === 'string' ? mergedPayload.vin : '',
-    vinPhotoUrl: toStringArray(mergedPayload.vinPhotos)[0] || '',
-    carPhotoUrl: toStringArray(mergedPayload.carPhotos)[0] || '',
-    carPhotos: toStringArray(mergedPayload.carPhotos),
+    vinPhotoUrl: vinPhotos[0] || '',
+    carPhotoUrl: carPhotos[0] || '',
+    carPhotos,
     parts: parsedParts.map((p: unknown) => {
       if (typeof p === 'string') {
         return { id: createId(), name: p, variants: [], photos: [], isFound: false };
@@ -156,6 +174,7 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
     }),
     clientName: lead.name || fallbackName,
     customerContact: lead.phone || fallbackPhone,
+    socialNickname: typeof mergedPayload.socialNickname === 'string' ? mergedPayload.socialNickname : undefined,
     priority: Priority.HIGH,
     status: 'lead',
     source: Source.OTHER,
@@ -173,7 +192,7 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
     exchangeRate: 3.67,
     clientCurrency: 'AED',
     fxUpdatedAt: Date.now(),
-    notes: Array.isArray(notes) ? notes as any[] : [],
+    notes: notes as any[],
     pricingEvents: []
   };
 };
@@ -208,7 +227,7 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
         continue;
       }
 
-      if (existing.leadSource === 'public_form') {
+      if (existing.leadSource === 'public_form' || existing.isLead) {
         const index = merged.findIndex((order) => order.id === existing.id);
         if (index >= 0) {
           const isConverted = converted.has(existing.id);

@@ -230,12 +230,15 @@ export const buildRoutePlanMapLink = (
   const withCoords = chain.filter((shop) => hasValidCoordinates(shop.latitude, shop.longitude));
   if (withCoords.length === 0) return 'https://www.google.com/maps';
 
+  // Google Maps API supports up to 8 waypoints (10 stops including origin + destination)
+  const MAX_WAYPOINTS = 8;
+
   const destination = withCoords[withCoords.length - 1];
   const hasValidOrigin = !!origin && hasValidCoordinates(origin.lat, origin.lng);
   const originQuery = hasValidOrigin
     ? `${origin!.lat},${origin!.lng}`
     : `${withCoords[0].latitude},${withCoords[0].longitude}`;
-  const waypointShops = hasValidOrigin ? withCoords.slice(0, -1) : withCoords.slice(1, -1);
+  const waypointShops = (hasValidOrigin ? withCoords.slice(0, -1) : withCoords.slice(1, -1)).slice(0, MAX_WAYPOINTS);
   const waypoints = waypointShops.map((shop) => `${shop.latitude},${shop.longitude}`).join('|');
 
   return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(originQuery)}&destination=${encodeURIComponent(`${destination.latitude},${destination.longitude}`)}${waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : ''}`;

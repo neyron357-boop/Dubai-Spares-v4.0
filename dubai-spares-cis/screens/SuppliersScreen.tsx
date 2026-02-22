@@ -104,6 +104,9 @@ const daysAgoLabel = (ts?: number) => {
   return `${diff} дней назад`;
 };
 
+const formatRadarDate = (ts: number) =>
+  new Date(ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
 
 const radarResultLabel = (result: RadarInteraction['result']) => {
   if (result === 'found') return '✅ Found';
@@ -849,30 +852,59 @@ const SuppliersScreen: React.FC = () => {
                   <button type="button" onClick={() => setSupplierRadarHistoryExpandedId((prev) => (prev === s.id ? null : s.id))} className="w-full rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 inline-flex items-center justify-center gap-2"><Clock3 size={13} /> История радара</button>
                   {supplierRadarHistoryExpandedId === s.id && (
                     <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-2 space-y-2">
-                      {(radarInteractions
-                        .filter((item) => item.shopId === s.id)
-                        .sort((a, b) => b.createdAt - a.createdAt)
-                        .slice(0, 30)).length === 0 ? (
-                        <p className="text-[11px] text-slate-500">Пока нет событий по этому поставщику.</p>
-                      ) : (
-                        radarInteractions
+                      {(() => {
+                        const history = radarInteractions
                           .filter((item) => item.shopId === s.id)
                           .sort((a, b) => b.createdAt - a.createdAt)
-                          .slice(0, 30)
-                          .map((item) => {
-                            const order = orders.find((o) => o.id === item.orderId);
-                            const part = order?.parts?.find((p) => p.id === item.partId) || order?.parts?.[0];
-                            return (
-                              <div key={item.id} className="rounded-lg border border-violet-100 bg-white px-2 py-1.5 text-[10px] text-slate-700">
-                                <p className="font-black">{radarResultLabel(item.result)} • {new Date(item.createdAt).toLocaleString()}</p>
-                                <p>{order ? `${order.brand} ${order.model} ${order.year || ''}`.trim() : `Order: ${item.orderId}`}</p>
-                                {part && <p>Искали: {part.name}</p>}
-                                {item.result === 'not_found' && <p className="text-rose-600 font-semibold">Не найдено для авто выше.</p>}
-                                {item.comment && <p className="text-slate-500">{item.comment}</p>}
+                          .slice(0, 30);
+                        const totalFound = history.filter((item) => item.result === 'found').length;
+                        const totalContacts = history.filter((item) => ['message_sent', 'called'].includes(item.result)).length;
+                        const totalVisits = history.filter((item) => item.result === 'visited').length;
+                        return (
+                          <>
+                            {history.length > 0 && (
+                              <div className="grid grid-cols-3 gap-1 mb-2">
+                                <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-2 py-1 text-center">
+                                  <p className="text-[9px] text-emerald-600 font-black uppercase">Найдено</p>
+                                  <p className="text-sm font-black text-emerald-700">{totalFound}</p>
+                                </div>
+                                <div className="rounded-lg bg-blue-50 border border-blue-100 px-2 py-1 text-center">
+                                  <p className="text-[9px] text-blue-600 font-black uppercase">Контактов</p>
+                                  <p className="text-sm font-black text-blue-700">{totalContacts}</p>
+                                </div>
+                                <div className="rounded-lg bg-amber-50 border border-amber-100 px-2 py-1 text-center">
+                                  <p className="text-[9px] text-amber-600 font-black uppercase">Визитов</p>
+                                  <p className="text-sm font-black text-amber-700">{totalVisits}</p>
+                                </div>
                               </div>
-                            );
-                          })
-                      )}
+                            )}
+                            {history.length === 0 ? (
+                              <p className="text-[11px] text-slate-500">Пока нет событий по этому поставщику.</p>
+                            ) : (
+                              history.map((item) => {
+                                const order = orders.find((o) => o.id === item.orderId);
+                                const part = order?.parts?.find((p) => p.id === item.partId) || order?.parts?.[0];
+                                const bgClass = item.result === 'found' ? 'border-emerald-200 bg-emerald-50' : item.result === 'not_found' ? 'border-rose-200 bg-rose-50' : item.result === 'wrong_info' ? 'border-amber-200 bg-amber-50' : 'border-violet-100 bg-white';
+                                return (
+                                  <div key={item.id} className={`rounded-lg border px-2 py-1.5 text-[10px] text-slate-700 ${bgClass}`}>
+                                    <div className="flex items-start justify-between gap-1">
+                                      <p className="font-black">{radarResultLabel(item.result)}</p>
+                                      <p className="text-slate-400 shrink-0">{formatRadarDate(item.createdAt)}</p>
+                                    </div>
+                                    <p className="text-slate-600">{order ? `${order.brand} ${order.model} ${order.year || ''}`.trim() : `ID: ${item.orderId.slice(0, 8)}…`}</p>
+                                    {part && <p className="text-slate-500">🔩 {part.name}</p>}
+                                    {item.result === 'not_found' && <p className="text-rose-600 font-semibold">Деталь не найдена</p>}
+                                    {item.result === 'wrong_info' && <p className="text-amber-600 font-semibold">Неверная информация</p>}
+                                    {item.comment && item.comment !== 'Point hidden from radar list' && item.comment !== 'Marked as at shop' && item.comment !== 'Route opened from radar card' && (
+                                      <p className="text-slate-400 italic">{item.comment}</p>
+                                    )}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                   <button type="button" onClick={() => setActiveOrderLinkShopId(activeOrderLinkShopId === s.id ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-center gap-2"><Link2 size={13} /> Add to Active Order</button>
