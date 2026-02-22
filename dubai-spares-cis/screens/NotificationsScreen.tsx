@@ -29,8 +29,24 @@ const PAGE_SIZE = 60;
 const normalizeNotificationRoute = (route?: string, orderId?: string) => {
   const fallback = orderId ? `/order/${orderId}` : '/';
   if (!route) return fallback;
-  if (route.startsWith('/orders/')) return route.replace('/orders/', '/order/');
-  return route;
+
+  const trimmed = route.trim();
+  if (!trimmed) return fallback;
+
+  try {
+    if (/^https?:\/\//i.test(trimmed)) {
+      const parsed = new URL(trimmed);
+      const hashRoute = parsed.hash?.replace(/^#/, '') || '';
+      if (hashRoute.startsWith('/')) return hashRoute.replace('/orders/', '/order/');
+      return parsed.pathname.replace('/orders/', '/order/') || fallback;
+    }
+  } catch {
+    // noop
+  }
+
+  if (trimmed.startsWith('#/')) return trimmed.slice(1).replace('/orders/', '/order/');
+  if (trimmed.startsWith('/orders/')) return trimmed.replace('/orders/', '/order/');
+  return trimmed.startsWith('/') ? trimmed : fallback;
 };
 
 const NotificationsScreen: React.FC = () => {

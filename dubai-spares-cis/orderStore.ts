@@ -100,6 +100,50 @@ const normalizeOrder = (order: Order): Order => {
 };
 
 
+
+const LEAD_SYNC_STATE_KEY = 'lead_sync_state_v1';
+
+type LeadSyncState = { ignoredIds: string[]; convertedIds: string[] };
+
+const readLeadSyncState = (): LeadSyncState => {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(LEAD_SYNC_STATE_KEY) || '{}');
+    return {
+      ignoredIds: Array.isArray(parsed.ignoredIds) ? parsed.ignoredIds.filter((item: unknown): item is string => typeof item === 'string') : [],
+      convertedIds: Array.isArray(parsed.convertedIds) ? parsed.convertedIds.filter((item: unknown): item is string => typeof item === 'string') : []
+    };
+  } catch {
+    return { ignoredIds: [], convertedIds: [] };
+  }
+};
+
+const writeLeadSyncState = (state: LeadSyncState) => {
+  window.localStorage.setItem(LEAD_SYNC_STATE_KEY, JSON.stringify({
+    ignoredIds: Array.from(new Set(state.ignoredIds)),
+    convertedIds: Array.from(new Set(state.convertedIds))
+  }));
+};
+
+const rememberLeadDeleted = (orderId: string) => {
+  const state = readLeadSyncState();
+  state.ignoredIds.push(orderId);
+  writeLeadSyncState(state);
+};
+
+const rememberLeadConverted = (orderId: string) => {
+  const state = readLeadSyncState();
+  state.convertedIds.push(orderId);
+  writeLeadSyncState(state);
+};
+
+const forgetLeadSyncOverrides = (orderId: string) => {
+  const state = readLeadSyncState();
+  writeLeadSyncState({
+    ignoredIds: state.ignoredIds.filter((id) => id !== orderId),
+    convertedIds: state.convertedIds.filter((id) => id !== orderId)
+  });
+};
+
 const parseTimestamp = (value: string | number | null | undefined): number => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
@@ -180,11 +224,40 @@ const serializeError = (error: unknown) => {
 const isUnreadPublicLead = (order: Order) =>
   order.leadSource === 'public_form' && order.leadUnread === true && !order.isArchived;
 
+
+const playLeadAlertFeedback = () => {
+  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+    navigator.vibrate([120, 60, 120]);
+  }
+
+  const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextCtor) return;
+  try {
+    const ctx = new AudioContextCtor();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.value = 0.0001;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    const now = ctx.currentTime;
+    gain.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+    osc.start(now);
+    osc.stop(now + 0.28);
+    window.setTimeout(() => { void ctx.close(); }, 450);
+  } catch {
+    // no-op
+  }
+};
+
 const notifyAboutIncomingLeads = (previousOrders: Order[], nextOrders: Order[]) => {
   const previousIds = new Set(previousOrders.map((order) => order.id));
   const newUnreadLeads = nextOrders.filter((order) => isUnreadPublicLead(order) && !previousIds.has(order.id));
 
   if (newUnreadLeads.length === 0) return;
+  playLeadAlertFeedback();
 
   newUnreadLeads.forEach((lead) => {
     const title = '🔔 Новый лид!';
@@ -1221,6 +1294,7 @@ const compressOrderImagesForAddFlow = async (order: Order): Promise<Order> => {
 };
 
 export const addOrderItem = async (order: Order) => {
+  forgetLeadSyncOverrides(order.id);
   const compressedOrder = await compressOrderImagesForAddFlow(order);
   const localOrder = normalizeOrder({ ...compressedOrder, id: ensureUuid(compressedOrder.id) });
   pushNotification({
@@ -1248,6 +1322,13 @@ export const addOrderItem = async (order: Order) => {
 export const updateOrderItem = async (order: Order) => {
   const previousOrder = state.orders.find((o) => o.id === order.id);
   const normalized = normalizeOrder({ ...order, updatedAt: Date.now() });
+  if (normalized.leadSource === "public_form") {
+    if (!normalized.isLead || normalized.leadUnread === false || normalized.status !== "lead") {
+      rememberLeadConverted(normalized.id);
+    } else {
+      forgetLeadSyncOverrides(normalized.id);
+    }
+  }
   if (previousOrder && previousOrder.status !== normalized.status) {
     pushNotification({
       type: NotificationType.ORDER_STATUS_CHANGED,
@@ -1273,6 +1354,7 @@ export const updateOrderItem = async (order: Order) => {
 };
 
 export const deleteOrderItem = async (orderId: string) => {
+  rememberLeadDeleted(orderId);
   const next = state.orders.filter((o) => o.id !== orderId);
   setState({ orders: next, error: null });
   await offlineDb.deleteOrder(orderId);

@@ -15,6 +15,42 @@ export type CloudLead = {
   payload?: unknown;
 };
 
+
+const LEAD_SYNC_STATE_KEY = 'lead_sync_state_v1';
+
+type LeadSyncState = {
+  ignoredIds: string[];
+  convertedIds: string[];
+};
+
+const loadLeadSyncState = (): LeadSyncState => {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(LEAD_SYNC_STATE_KEY) || '{}');
+    return {
+      ignoredIds: Array.isArray(parsed.ignoredIds) ? parsed.ignoredIds.filter((item: unknown): item is string => typeof item === 'string') : [],
+      convertedIds: Array.isArray(parsed.convertedIds) ? parsed.convertedIds.filter((item: unknown): item is string => typeof item === 'string') : []
+    };
+  } catch {
+    return { ignoredIds: [], convertedIds: [] };
+  }
+};
+
+const safeMessagePayload = (value: unknown): Record<string, unknown> => {
+  if (!value) return {};
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  return {};
+};
+
+const toStringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+
 const createId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -83,26 +119,41 @@ export const validateCloudLead = (lead: unknown): lead is CloudLead => {
  */
 export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
   const payload = await extractPayloadFromLead(lead);
-  const year = payload.year;
-  const fallbackName = typeof payload.name === 'string' ? payload.name : 'Public Lead';
-  const fallbackPhone = typeof payload.phone === 'string' ? payload.phone : '';
+  const messagePayload = safeMessagePayload(payload.message);
+  const mergedPayload: Record<string, unknown> = { ...messagePayload, ...payload };
+  const year = mergedPayload.year;
+  const fallbackName = typeof mergedPayload.name === 'string' ? mergedPayload.name : 'Public Lead';
+  const fallbackPhone = typeof mergedPayload.phone === 'string' ? mergedPayload.phone : '';
+  const partNames = Array.isArray(mergedPayload.requestedParts) ? mergedPayload.requestedParts : [];
+  const parsedParts = Array.isArray(mergedPayload.parts) ? mergedPayload.parts : partNames;
+  const notes = Array.isArray(mergedPayload.notes)
+    ? mergedPayload.notes
+    : (typeof mergedPayload.message === 'string' ? [{ id: createId(), text: mergedPayload.message, createdAt: Date.now() }] : []);
 
   return {
     id: lead.order_id || lead.id,
-    brand: typeof payload.brand === 'string' ? payload.brand : '-',
-    model: typeof payload.model === 'string' ? payload.model : '-',
+    brand: typeof mergedPayload.brand === 'string' ? mergedPayload.brand : '-',
+    model: typeof mergedPayload.model === 'string' ? mergedPayload.model : '-',
     year: typeof year === 'number' || typeof year === 'string' ? `${year}` : '',
-    bodyType: typeof payload.bodyType === 'string' ? payload.bodyType : '',
-    vin: typeof payload.vin === 'string' ? payload.vin : '',
-    vinPhotoUrl: '',
-    carPhotoUrl: '',
-    carPhotos: [],
-    parts: Array.isArray(payload.parts)
-      ? payload.parts.map((p: unknown) => {
-          const part = p && typeof p === 'object' && !Array.isArray(p) ? p as Record<string, unknown> : {};
-          return { ...part, variants: Array.isArray(part.variants) ? part.variants : [] };
-        })
-      : [],
+    bodyType: typeof mergedPayload.bodyType === 'string' ? mergedPayload.bodyType : '',
+    vin: typeof mergedPayload.vin === 'string' ? mergedPayload.vin : '',
+    vinPhotoUrl: toStringArray(mergedPayload.vinPhotos)[0] || '',
+    carPhotoUrl: toStringArray(mergedPayload.carPhotos)[0] || '',
+    carPhotos: toStringArray(mergedPayload.carPhotos),
+    parts: parsedParts.map((p: unknown) => {
+      if (typeof p === 'string') {
+        return { id: createId(), name: p, variants: [], photos: [], isFound: false };
+      }
+      const part = p && typeof p === 'object' && !Array.isArray(p) ? p as Record<string, unknown> : {};
+      return {
+        ...part,
+        id: typeof part.id === 'string' ? part.id : createId(),
+        name: typeof part.name === 'string' ? part.name : 'Part',
+        variants: Array.isArray(part.variants) ? part.variants : [],
+        photos: toStringArray(part.photos),
+        isFound: !!part.isFound
+      };
+    }),
     clientName: lead.name || fallbackName,
     customerContact: lead.phone || fallbackPhone,
     priority: Priority.HIGH,
@@ -122,12 +173,11 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
     exchangeRate: 3.67,
     clientCurrency: 'AED',
     fxUpdatedAt: Date.now(),
-    notes: typeof payload.message === 'string'
-      ? [{ id: createId(), text: payload.message, createdAt: Date.now() }]
-      : [],
+    notes: Array.isArray(notes) ? notes as any[] : [],
     pricingEvents: []
   };
 };
+
 
 /**
  * Объединяет облачные лиды с существующими заказами без дубликатов.
@@ -136,6 +186,9 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
   if (cloudLeads.length === 0) return existingOrders;
 
   const existingById = new Map(existingOrders.map((order) => [order.id, order]));
+  const syncState = loadLeadSyncState();
+  const ignored = new Set(syncState.ignoredIds);
+  const converted = new Set(syncState.convertedIds);
   const merged = [...existingOrders];
 
   for (const lead of cloudLeads) {
@@ -143,9 +196,14 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
 
     try {
       const mapped = await mapCloudLeadToOrder(lead);
+      if (ignored.has(mapped.id)) continue;
       const existing = existingById.get(mapped.id);
 
       if (!existing) {
+        if (converted.has(mapped.id)) {
+          merged.push({ ...mapped, leadUnread: false, isLead: false, status: "active" });
+          continue;
+        }
         merged.push(mapped);
         continue;
       }
@@ -153,9 +211,12 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
       if (existing.leadSource === 'public_form') {
         const index = merged.findIndex((order) => order.id === existing.id);
         if (index >= 0) {
+          const isConverted = converted.has(existing.id);
           merged[index] = {
             ...existing,
-            leadUnread: existing.leadUnread === false ? false : true,
+            leadUnread: isConverted ? false : (existing.leadUnread === false ? false : true),
+            isLead: isConverted ? false : existing.isLead,
+            status: isConverted ? 'active' : existing.status,
             updatedAt: Math.max(Number(existing.updatedAt || 0), mapped.updatedAt || 0)
           };
         }
