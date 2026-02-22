@@ -434,8 +434,9 @@ const SettingsScreen: React.FC = () => {
           })}>Очистить офлайн данные</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('public-snapshots', async () => {
             const result = await clearPublicQuoteSnapshots();
-            if (!result.ok) throw new Error(result.error);
-            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Серверные снапшоты смет очищены', tone: 'success' } }));
+            const message = result.ok ? 'Серверные снапшоты смет очищены' : `Ошибка: ${result.error}`;
+            const tone = result.ok ? 'success' : 'error';
+            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, tone } }));
           })}>Очистить снапшоты публичных смет на сервере</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('index', async () => {
             await offlineDb.exportAllData();
