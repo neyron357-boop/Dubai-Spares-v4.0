@@ -8,7 +8,7 @@ import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLas
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
 import { logger } from '../logging';
-import { deleteStorageDuplicateMappings, runStorageImageMaintenance } from '../storage/photos';
+import { deleteStorageDuplicateMappings, runStorageImageMaintenance, uploadImageToStorage } from '../storage/photos';
 import { Order } from '../types';
 
 const normalizePhotoKey = (url: string) => {
@@ -266,6 +266,35 @@ const SettingsScreen: React.FC = () => {
     }));
   });
 
+
+
+  const uploadBrandingImage = async (file: File, type: 'logo' | 'signature') => {
+    const folder = type === 'logo' ? 'branding/logos' : 'branding/signatures';
+    const fileName = `${type}-${Date.now()}`;
+    const uploadedUrl = await uploadImageToStorage(file, folder, fileName);
+    if (!uploadedUrl) throw new Error('Не удалось загрузить изображение');
+    if (type === 'logo') {
+      updateDraft({ publicCompanyLogoUrl: uploadedUrl });
+    } else {
+      updateDraft({ publicInvoiceSignatureUrl: uploadedUrl });
+    }
+  };
+
+  const handleBrandingFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: 'logo' | 'signature') => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    void withBusy(`branding-${type}`, async () => {
+      await uploadBrandingImage(file, type);
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: {
+          tone: 'success',
+          message: type === 'logo' ? 'Логотип загружен' : 'Подпись загружена'
+        }
+      }));
+    });
+  };
+
   const busyLabel = (label: string, idle: string, running: string) => (busy === label ? running : idle);
 
   return (
@@ -412,6 +441,40 @@ const SettingsScreen: React.FC = () => {
               placeholder="https://instagram.com/your_account"
               className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
             />
+          </Field>
+
+          <Field label="Логотип компании (для публичной сметы и формы заявки)">
+            <div className="space-y-2">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(event) => handleBrandingFileChange(event, 'logo')}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              />
+              {draftSettings.publicCompanyLogoUrl && (
+                <div className="space-y-2">
+                  <img src={draftSettings.publicCompanyLogoUrl} alt="Company logo" className="h-16 w-auto rounded-lg border border-gray-200 bg-gray-50 p-1" />
+                  <button type="button" onClick={() => updateDraft({ publicCompanyLogoUrl: '' })} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700">Удалить логотип</button>
+                </div>
+              )}
+            </div>
+          </Field>
+
+          <Field label="Подпись владельца (для invoice)">
+            <div className="space-y-2">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(event) => handleBrandingFileChange(event, 'signature')}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              />
+              {draftSettings.publicInvoiceSignatureUrl && (
+                <div className="space-y-2">
+                  <img src={draftSettings.publicInvoiceSignatureUrl} alt="Owner signature" className="h-16 w-auto rounded-lg border border-gray-200 bg-gray-50 p-1" />
+                  <button type="button" onClick={() => updateDraft({ publicInvoiceSignatureUrl: '' })} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700">Удалить подпись</button>
+                </div>
+              )}
+            </div>
           </Field>
 
           <Field label="Условия доставки (для сметы клиенту)">

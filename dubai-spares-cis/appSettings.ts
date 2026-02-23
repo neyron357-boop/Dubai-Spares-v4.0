@@ -37,10 +37,12 @@ export interface AppSettings {
   publicInstagramUrl: string;
   publicDeliveryTerms: string;
   publicWorkTerms: string;
+  publicCompanyLogoUrl: string;
+  publicInvoiceSignatureUrl: string;
   publicContactsUpdatedAt: number;
 }
 
-type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms'>;
+type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl'>;
 type CloudPublicSettings = PublicAppSettings & Pick<AppSettings, 'publicContactsUpdatedAt'>;
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -68,6 +70,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   publicInstagramUrl: '',
   publicDeliveryTerms: '',
   publicWorkTerms: '',
+  publicCompanyLogoUrl: '',
+  publicInvoiceSignatureUrl: '',
   publicContactsUpdatedAt: 0
 };
 
@@ -83,6 +87,8 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
   publicInstagramUrl: typeof raw?.publicInstagramUrl === 'string' ? raw.publicInstagramUrl : '',
   publicDeliveryTerms: typeof raw?.publicDeliveryTerms === 'string' ? raw.publicDeliveryTerms : '',
   publicWorkTerms: typeof raw?.publicWorkTerms === 'string' ? raw.publicWorkTerms : '',
+  publicCompanyLogoUrl: typeof raw?.publicCompanyLogoUrl === 'string' ? raw.publicCompanyLogoUrl : '',
+  publicInvoiceSignatureUrl: typeof raw?.publicInvoiceSignatureUrl === 'string' ? raw.publicInvoiceSignatureUrl : '',
   publicContactsUpdatedAt: Number.isFinite(Number(raw?.publicContactsUpdatedAt)) ? Number(raw?.publicContactsUpdatedAt) : 0
 });
 
@@ -93,7 +99,9 @@ const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): Publi
     publicTelegramUrl: normalized.publicTelegramUrl,
     publicInstagramUrl: normalized.publicInstagramUrl,
     publicDeliveryTerms: normalized.publicDeliveryTerms,
-    publicWorkTerms: normalized.publicWorkTerms
+    publicWorkTerms: normalized.publicWorkTerms,
+    publicCompanyLogoUrl: normalized.publicCompanyLogoUrl,
+    publicInvoiceSignatureUrl: normalized.publicInvoiceSignatureUrl
   };
 };
 
@@ -155,7 +163,7 @@ export const loadAppSettings = (): AppSettings => {
 };
 
 export const saveAppSettings = (patch: Partial<AppSettings>): AppSettings => {
-  const touchesPublicContacts = ['publicWhatsappNumber', 'publicTelegramUrl', 'publicInstagramUrl', 'publicDeliveryTerms', 'publicWorkTerms']
+  const touchesPublicContacts = ['publicWhatsappNumber', 'publicTelegramUrl', 'publicInstagramUrl', 'publicDeliveryTerms', 'publicWorkTerms', 'publicCompanyLogoUrl', 'publicInvoiceSignatureUrl']
     .some((field) => Object.prototype.hasOwnProperty.call(patch, field));
   const next = normalizeSettings({
     ...loadAppSettings(),

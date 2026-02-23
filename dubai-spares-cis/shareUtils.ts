@@ -318,7 +318,9 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
       publicTelegramUrl: settings.publicTelegramUrl,
       publicInstagramUrl: settings.publicInstagramUrl,
       publicDeliveryTerms: settings.publicDeliveryTerms,
-      publicWorkTerms: settings.publicWorkTerms
+      publicWorkTerms: settings.publicWorkTerms,
+      publicCompanyLogoUrl: settings.publicCompanyLogoUrl,
+      publicInvoiceSignatureUrl: settings.publicInvoiceSignatureUrl
     },
     rates: options?.rates
   });

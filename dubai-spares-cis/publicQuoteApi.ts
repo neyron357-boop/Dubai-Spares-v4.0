@@ -82,6 +82,8 @@ export type PublicQuotePayloadV1 = {
     publicInstagramUrl?: string;
     publicDeliveryTerms?: string;
     publicWorkTerms?: string;
+    publicCompanyLogoUrl?: string;
+    publicInvoiceSignatureUrl?: string;
     whatsapp_phone?: string | null;
   };
   logistics?: {
@@ -135,6 +137,8 @@ type AppStatePublicSettingsRow = {
     publicInstagramUrl?: string;
     publicDeliveryTerms?: string;
     publicWorkTerms?: string;
+    publicCompanyLogoUrl?: string;
+    publicInvoiceSignatureUrl?: string;
   };
 };
 
@@ -144,6 +148,8 @@ export type PublicContactSettings = {
   publicInstagramUrl: string;
   publicDeliveryTerms: string;
   publicWorkTerms: string;
+  publicCompanyLogoUrl: string;
+  publicInvoiceSignatureUrl: string;
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -570,6 +576,8 @@ const buildSnapshotPayload = (
     publicInstagramUrl?: string;
     publicDeliveryTerms?: string;
     publicWorkTerms?: string;
+    publicCompanyLogoUrl?: string;
+    publicInvoiceSignatureUrl?: string;
   },
   rates?: QuoteRates
 ): PublicQuotePayloadV1 => {
@@ -720,6 +728,8 @@ const buildSnapshotPayload = (
       publicInstagramUrl: publicSettings?.publicInstagramUrl || '',
       publicDeliveryTerms: publicSettings?.publicDeliveryTerms || '',
       publicWorkTerms: publicSettings?.publicWorkTerms || '',
+      publicCompanyLogoUrl: publicSettings?.publicCompanyLogoUrl || '',
+      publicInvoiceSignatureUrl: publicSettings?.publicInvoiceSignatureUrl || '',
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone)
     }
   };
@@ -727,7 +737,7 @@ const buildSnapshotPayload = (
 
 export const publicQuoteCreateSnapshot = async (
   order: Order,
-  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; publicSettings?: { publicWhatsappNumber?: string; publicTelegramUrl?: string; publicInstagramUrl?: string; publicDeliveryTerms?: string; publicWorkTerms?: string }; signal?: AbortSignal; timeoutMs?: number; token?: string; snapshotId?: string }
+  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; publicSettings?: { publicWhatsappNumber?: string; publicTelegramUrl?: string; publicInstagramUrl?: string; publicDeliveryTerms?: string; publicWorkTerms?: string; publicCompanyLogoUrl?: string; publicInvoiceSignatureUrl?: string }; signal?: AbortSignal; timeoutMs?: number; token?: string; snapshotId?: string }
 ) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
   const key = order.id;
@@ -1036,7 +1046,9 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
       publicTelegramUrl: first('publicTelegramUrl', 'public_telegram_url', 'telegram', 'telegramUrl'),
       publicInstagramUrl: first('publicInstagramUrl', 'public_instagram_url', 'instagram', 'instagramUrl'),
       publicDeliveryTerms: first('publicDeliveryTerms', 'public_delivery_terms', 'deliveryTerms', 'delivery_terms'),
-      publicWorkTerms: first('publicWorkTerms', 'public_work_terms', 'workTerms', 'work_terms')
+      publicWorkTerms: first('publicWorkTerms', 'public_work_terms', 'workTerms', 'work_terms'),
+      publicCompanyLogoUrl: first('publicCompanyLogoUrl', 'public_company_logo_url', 'companyLogoUrl', 'logo', 'logoUrl'),
+      publicInvoiceSignatureUrl: first('publicInvoiceSignatureUrl', 'public_invoice_signature_url', 'invoiceSignatureUrl', 'signature', 'signatureUrl')
     };
   };
 
@@ -1045,7 +1057,9 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
     publicTelegramUrl: preferred.publicTelegramUrl || fallback?.publicTelegramUrl || '',
     publicInstagramUrl: preferred.publicInstagramUrl || fallback?.publicInstagramUrl || '',
     publicDeliveryTerms: preferred.publicDeliveryTerms || fallback?.publicDeliveryTerms || '',
-    publicWorkTerms: preferred.publicWorkTerms || fallback?.publicWorkTerms || ''
+    publicWorkTerms: preferred.publicWorkTerms || fallback?.publicWorkTerms || '',
+    publicCompanyLogoUrl: preferred.publicCompanyLogoUrl || fallback?.publicCompanyLogoUrl || '',
+    publicInvoiceSignatureUrl: preferred.publicInvoiceSignatureUrl || fallback?.publicInvoiceSignatureUrl || ''
   });
 
   try {
@@ -1061,7 +1075,7 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
     const fromPublicSettings = readPublicContactSettings((byId.get('public_settings')?.data || null) as Record<string, any> | null);
     const fromGlobal = readPublicContactSettings((byId.get('global')?.data || null) as Record<string, any> | null);
     const merged = mergeSettings(fromPublicSettings, fromGlobal);
-    if (merged.publicWhatsappNumber || merged.publicTelegramUrl || merged.publicInstagramUrl || merged.publicDeliveryTerms || merged.publicWorkTerms) {
+    if (merged.publicWhatsappNumber || merged.publicTelegramUrl || merged.publicInstagramUrl || merged.publicDeliveryTerms || merged.publicWorkTerms || merged.publicCompanyLogoUrl || merged.publicInvoiceSignatureUrl) {
       return merged;
     }
     return null;
