@@ -5,6 +5,7 @@ import NewOrderScreen from './screens/NewOrderScreen';
 import OrderDetailsScreen from './screens/OrderDetailsScreen';
 import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
+import SupplierProfileScreen from './screens/SupplierProfileScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import RadarScreen from './screens/RadarScreen';
 import SettingsScreen from './screens/SettingsScreen';
@@ -185,6 +186,7 @@ const App: React.FC = () => {
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
               <Route path="/database" element={<SuppliersScreen />} />
+              <Route path="/suppliers/:id" element={<SupplierProfileScreen />} />
               <Route path="/radar" element={<RadarScreen />} />
               <Route path="/notifications" element={<NotificationsScreen />} />
               <Route
