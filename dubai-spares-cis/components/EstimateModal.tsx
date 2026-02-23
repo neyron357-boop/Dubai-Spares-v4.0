@@ -116,9 +116,9 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/80 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-3 pb-[max(92px,calc(env(safe-area-inset-bottom)+84px))] pt-[max(12px,env(safe-area-inset-top))] backdrop-blur-sm" onClick={onClose}>
       <div
-        className="bg-white w-full max-w-md rounded-3xl shadow-2xl animate-in fade-in zoom-in duration-300 flex flex-col max-h-[94vh] overflow-hidden"
+        className="bg-white w-full max-w-md rounded-3xl shadow-2xl animate-in fade-in zoom-in duration-300 flex flex-col max-h-[min(820px,calc(100dvh-120px-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -131,7 +131,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
           )}
           {!carPhoto && <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900" />}
 
-          <div className="relative z-10 px-5 pt-5 pb-6">
+          <div className="relative z-10 px-5 pb-6 pt-[max(18px,calc(env(safe-area-inset-top)+8px))]">
             <div className="flex items-start justify-between mb-4">
               <span className="inline-block rounded-lg bg-blue-600 px-3 py-1 text-[10px] font-black tracking-widest uppercase text-white">DUBAI SPARES</span>
               <button onClick={onClose} className="rounded-full bg-white/10 p-1.5 text-white/70 hover:text-white transition-colors"><X size={18} /></button>

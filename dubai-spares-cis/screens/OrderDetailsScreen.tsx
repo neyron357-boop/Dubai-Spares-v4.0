@@ -198,12 +198,14 @@ const OrderDetailsScreen: React.FC = () => {
   // Multiple photos for new part
   const [newPartPhotos, setNewPartPhotos] = useState<string[]>([]);
   const partFileRef = useRef<HTMLInputElement>(null);
+  const partSampleFileRef = useRef<HTMLInputElement>(null);
+  const [partSampleTargetId, setPartSampleTargetId] = useState<string | null>(null);
   const partInputRef = useRef<HTMLInputElement>(null);
 
   // Exchange Rate Input State (Controlled)
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
   const [showActionsMenu, setShowActionsMenu] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(false);
+  const [isEditMode] = useState(true);
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
@@ -933,6 +935,41 @@ const OrderDetailsScreen: React.FC = () => {
       return [];
   };
 
+  const replacePartSamplePhotos = (partId: string, photos: string[]) => {
+    updateOrder({
+      ...order,
+      parts: order.parts.map((part) => part.id === partId ? { ...part, photos, photoUrl: photos[0] || '' } : part)
+    });
+  };
+
+  const removePartSamplePhoto = (partId: string, photoIndex: number) => {
+    const part = order.parts.find((item) => item.id === partId);
+    if (!part) return;
+    const next = getPartPhotos(part).filter((_, index) => index !== photoIndex);
+    replacePartSamplePhotos(partId, next);
+  };
+
+  const handlePartSamplePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const targetPartId = partSampleTargetId;
+    if (!files.length || !targetPartId) return;
+    Promise.all(files.map(async (file) => {
+      try {
+        return await optimizeImageForUpload(file, `order-details:part-sample:${file.name}`);
+      } catch {
+        return '';
+      }
+    })).then((photos) => {
+      const part = order.parts.find((item) => item.id === targetPartId);
+      if (!part) return;
+      const merged = Array.from(new Set([...(getPartPhotos(part) || []), ...photos.filter(Boolean)]));
+      replacePartSamplePhotos(targetPartId, merged);
+    }).finally(() => {
+      e.target.value = '';
+      setPartSampleTargetId(null);
+    });
+  };
+
   const openGallery = (e: React.MouseEvent, part: Part) => {
     e.stopPropagation();
     const images = getPartPhotos(part);
@@ -1196,13 +1233,6 @@ const OrderDetailsScreen: React.FC = () => {
             <option value={Priority.LOW}>LOW</option>
           </select>
           <button type="button" onClick={() => void pasteVinFromClipboard()} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">Вставить VIN</button>
-          <button
-            type="button"
-            onClick={() => setIsEditMode((prev) => !prev)}
-            className={`text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight border shrink-0 ${isEditMode ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-700'}`}
-          >
-            {isEditMode ? 'Завершить редакт.' : 'Редактировать'}
-          </button>
         </div>
       </div>
 
@@ -1668,9 +1698,13 @@ const OrderDetailsScreen: React.FC = () => {
                               +{displayPhotos.length - 1}
                           </div>
                       )}
+                      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/45 px-1 py-0.5">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setPartSampleTargetId(part.id); partSampleFileRef.current?.click(); }} className="text-[8px] font-bold uppercase text-white">+</button>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); removePartSamplePhoto(part.id, 0); }} className="text-[8px] font-bold uppercase text-white">✕</button>
+                      </div>
                     </>
                   ) : (
-                    <Package size={20} className="text-gray-200" />
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setPartSampleTargetId(part.id); partSampleFileRef.current?.click(); }} className="flex h-full w-full items-center justify-center"><Package size={20} className="text-gray-200" /></button>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -1743,6 +1777,7 @@ const OrderDetailsScreen: React.FC = () => {
           onClose={() => setGallery(null)} 
         />
       )}
+      <input type="file" ref={partSampleFileRef} onChange={handlePartSamplePhotoChange} className="hidden" accept="image/*" multiple />
     </div>
   );
 };

@@ -156,7 +156,7 @@ const VendorSlider: React.FC = () => {
 
   if (!selectedBrand && brandOptions.length > 0) {
     return (
-      <div className="absolute inset-0 z-50 bg-[#0B1220] text-white p-4">
+      <div className="absolute inset-0 z-50 bg-[#0B1220] pb-[max(84px,calc(env(safe-area-inset-bottom)+72px))] pt-[max(12px,env(safe-area-inset-top))] text-white px-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-black uppercase tracking-[0.2em] text-white/70">Выберите марку</p>
           <button type="button" onClick={() => navigate(-1)} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/45">
@@ -217,7 +217,7 @@ const VendorSlider: React.FC = () => {
         </div>
 
         <div
-          className="flex-1 space-y-3 overflow-hidden px-4 py-3"
+          className="flex-1 space-y-3 overflow-y-auto px-1 py-3"
           onClick={handleTap}
           onDoubleClick={() => setIsZoomed((prev) => !prev)}
           onTouchStart={onTouchStart}
@@ -260,7 +260,7 @@ const VendorSlider: React.FC = () => {
           </div>
 
           <div className="rounded-3xl border border-slate-700/70 bg-[#0f172a] p-3">
-            <div className="mx-auto h-[26vh] min-h-[180px] max-h-[280px] w-[78%] overflow-hidden rounded-2xl bg-slate-900">
+            <div className="mx-auto h-[32vh] min-h-[200px] max-h-[340px] w-[82%] overflow-hidden rounded-2xl bg-slate-900" onClick={(e) => { e.stopPropagation(); if (!images.length) return; setGallery({ images, index: imgIndex }); }}>
               {images.length > 0 ? (
                 <img
                   src={images[imgIndex]}
@@ -294,19 +294,6 @@ const VendorSlider: React.FC = () => {
           </div>
         </div>
 
-        <div className="h-16 shrink-0 border-t border-slate-800 px-4">
-          <div className="flex h-full items-center justify-center gap-3">
-            {slides.map((slide, dotIdx) => (
-              <button
-                key={`${slide.orderId}-${slide.partId}`}
-                type="button"
-                aria-label={`Деталь ${dotIdx + 1}`}
-                onClick={() => goTo(dotIdx)}
-                className={`h-4 w-4 rounded-full transition ${dotIdx === index ? 'bg-[#2563EB] scale-110' : 'bg-slate-600'}`}
-              />
-            ))}
-          </div>
-        </div>
       </div>
 
 
