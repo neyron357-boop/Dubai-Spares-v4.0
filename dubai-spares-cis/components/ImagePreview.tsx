@@ -26,6 +26,18 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) =>
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentIndex]);
 
+  useEffect(() => {
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      const direction = event.deltaY > 0 ? -0.15 : 0.15;
+      setZoom((z) => Math.min(4, Math.max(1, Number((z + direction).toFixed(2)))));
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    return () => window.removeEventListener('wheel', handleWheel);
+  }, []);
+
   const minSwipeDistance = 50;
 
   const onTouchStart = (e: React.TouchEvent) => {
@@ -121,12 +133,13 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) =>
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        style={{ touchAction: zoom > 1 ? 'none' : 'pan-y' }}
       >
         <img
           src={images[currentIndex]}
           alt={`Preview ${currentIndex + 1}`}
-          className={`max-w-full max-h-full object-contain transition-all duration-200 ${swipeDirection === 1 ? '-translate-x-3 opacity-90' : swipeDirection === -1 ? 'translate-x-3 opacity-90' : 'translate-x-0 opacity-100'}`}
-          style={{ transform: `scale(${zoom})` }}
+          className={`max-w-full max-h-full object-contain transition-all duration-200 origin-center ${swipeDirection === 1 ? '-translate-x-3 opacity-90' : swipeDirection === -1 ? 'translate-x-3 opacity-90' : 'translate-x-0 opacity-100'}`}
+          style={{ transform: `scale(${zoom})`, touchAction: 'none' }}
           onClick={(e) => {
             e.stopPropagation();
             setZoom((z) => (z > 1 ? 1 : 2));

@@ -81,6 +81,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const App: React.FC = () => {
   const [savePulse, setSavePulse] = useState(false);
   const [appToast, setAppToast] = useState<{ message: string; tone: 'error' | 'success' | 'info' } | null>(null);
+  const [isBooting, setIsBooting] = useState(true);
+
+  useEffect(() => {
+    const bootTimer = window.setTimeout(() => setIsBooting(false), 240);
+    return () => window.clearTimeout(bootTimer);
+  }, []);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -153,7 +159,7 @@ const App: React.FC = () => {
 
   return (
     <div onKeyDown={handleKeyDown}>
-      <div className="transition-opacity duration-500 opacity-100">
+      <div className={`transition-all duration-500 ${isBooting ? 'opacity-0 scale-[0.985]' : 'opacity-100 scale-100'}`}>
         <div className={`fixed top-3 right-3 z-[90] pointer-events-none transition-all duration-700 ${savePulse ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
           <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-lg">
             Сохранено

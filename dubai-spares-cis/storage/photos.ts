@@ -8,9 +8,10 @@ const BUCKET_CANDIDATES = [configuredBucket, 'images', 'order-images'].filter(
 
 const MAX_IMAGE_DIMENSION = 1024;
 const WEBP_QUALITY = 0.55;
-const TARGET_BYTES = 300 * 1024; // ~10x compression target for typical 3 MB photos
+const TARGET_BYTES = 200 * 1024; // aggressive compression target (~1 MB -> ~200 KB)
 const STORAGE_UPLOAD_RETRY_DELAYS_MS = [600, 1600];
 const STORAGE_LIST_PAGE_SIZE = 100;
+const MAINTENANCE_CONCURRENCY = 4;
 
 type ImageTransformOptions = {
   width?: number;
@@ -179,9 +180,9 @@ const compressBlobAggressive = async (blob: Blob): Promise<Blob> => {
     if (!context) return blob;
 
     context.drawImage(image, 0, 0, width, height);
-    let result = await encodeCanvas(canvas, 0.4);
-    for (const q of [0.32, 0.24, 0.18]) {
-      if (result.size <= 120 * 1024) break;
+    let result = await encodeCanvas(canvas, 0.34);
+    for (const q of [0.26, 0.2, 0.14]) {
+      if (result.size <= TARGET_BYTES) break;
       result = await encodeCanvas(canvas, q);
     }
     return result;
@@ -381,6 +382,19 @@ export const listStoragePathsRecursive = async (bucket: string, folder: string):
 };
 
 const deleteStorageFiles = async (bucket: string, paths: string[]): Promise<void> => {
+  if (!paths.length) return;
+
+  const batchResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}`, {
+    method: 'DELETE',
+    headers: {
+      ...buildStorageHeaders(),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ prefixes: paths })
+  });
+
+  if (batchResponse.ok) return;
+
   for (const path of paths) {
     const encodedPath = path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
     const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${encodedPath}`, {
@@ -478,22 +492,28 @@ export const runStorageImageMaintenance = async (options: {
       for (const [, group] of groups) {
         if (group.length < 2) continue;
         const hashGroups = new Map<string, StorageObjectEntry[]>();
-        for (const entry of group) {
-          dedupProcessed += 1;
-          emitProgress({ phase: 'deduplicate', bucket, processed: dedupProcessed, total: imageObjects.length, currentPath: entry.path });
-          try {
-            const hash = await fileHash(entry.path);
-            const list = hashGroups.get(hash) || [];
-            list.push(entry);
-            hashGroups.set(hash, list);
-          } catch (error) {
-            result.failures += 1;
-            await logger.warn('storage:maintenance', 'Failed to hash image for deduplication', {
-              bucket,
-              path: entry.path,
-              error: String(error)
-            });
-          }
+
+        for (let offset = 0; offset < group.length; offset += MAINTENANCE_CONCURRENCY) {
+          const chunk = group.slice(offset, offset + MAINTENANCE_CONCURRENCY);
+          await Promise.all(
+            chunk.map(async (entry) => {
+              dedupProcessed += 1;
+              emitProgress({ phase: 'deduplicate', bucket, processed: dedupProcessed, total: imageObjects.length, currentPath: entry.path });
+              try {
+                const hash = await fileHash(entry.path);
+                const list = hashGroups.get(hash) || [];
+                list.push(entry);
+                hashGroups.set(hash, list);
+              } catch (error) {
+                result.failures += 1;
+                await logger.warn('storage:maintenance', 'Failed to hash image for deduplication', {
+                  bucket,
+                  path: entry.path,
+                  error: String(error)
+                });
+              }
+            })
+          );
         }
 
         for (const [, hashGroup] of hashGroups) {
@@ -517,18 +537,21 @@ export const runStorageImageMaintenance = async (options: {
           .filter((mapping) => mapping.bucket === bucket)
           .map((mapping) => mapping.duplicatePath);
         let deleted = 0;
-        for (const path of duplicatesToDelete) {
-          emitProgress({ phase: 'delete', bucket, processed: deleted, total: duplicatesToDelete.length, currentPath: path });
+        for (let offset = 0; offset < duplicatesToDelete.length; offset += 20) {
+          const chunk = duplicatesToDelete.slice(offset, offset + 20);
+          emitProgress({ phase: 'delete', bucket, processed: deleted, total: duplicatesToDelete.length, currentPath: chunk[0] });
           try {
-            await deleteStorageFiles(bucket, [path]);
-            deleted += 1;
-            deletedPaths.add(path);
-            const size = result.dedupMappings.find((mapping) => mapping.bucket === bucket && mapping.duplicatePath === path)?.size || 0;
-            result.bytesSaved += size;
-            result.deduplicated += 1;
+            await deleteStorageFiles(bucket, chunk);
+            chunk.forEach((path) => {
+              deleted += 1;
+              deletedPaths.add(path);
+              const size = result.dedupMappings.find((mapping) => mapping.bucket === bucket && mapping.duplicatePath === path)?.size || 0;
+              result.bytesSaved += size;
+              result.deduplicated += 1;
+            });
           } catch (error) {
-            result.failures += 1;
-            await logger.warn('storage:maintenance', 'Failed to delete duplicate', { bucket, path, error: String(error) });
+            result.failures += chunk.length;
+            await logger.warn('storage:maintenance', 'Failed to delete duplicate batch', { bucket, chunkSize: chunk.length, error: String(error) });
           }
         }
       }
@@ -536,48 +559,52 @@ export const runStorageImageMaintenance = async (options: {
 
     if (!options.recompressAll) continue;
 
-    for (const image of imageObjects) {
-      if (deletedPaths.has(image.path)) continue;
-      emitProgress({ phase: 'compress', bucket, processed: result.compressed, total: imageObjects.length, currentPath: image.path });
+    for (let offset = 0; offset < imageObjects.length; offset += MAINTENANCE_CONCURRENCY) {
+      const chunk = imageObjects.slice(offset, offset + MAINTENANCE_CONCURRENCY).filter((image) => !deletedPaths.has(image.path));
+      await Promise.all(
+        chunk.map(async (image) => {
+          emitProgress({ phase: 'compress', bucket, processed: result.compressed, total: imageObjects.length, currentPath: image.path });
 
-      try {
-        const encodedPath = image.path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
-        const downloadResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${encodedPath}`, {
-          method: 'GET',
-          headers: buildStorageHeaders()
-        });
-        if (!downloadResponse.ok) {
-          throw new Error(`download ${downloadResponse.status}`);
-        }
+          try {
+            const encodedPath = image.path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+            const downloadResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${encodedPath}`, {
+              method: 'GET',
+              headers: buildStorageHeaders()
+            });
+            if (!downloadResponse.ok) {
+              throw new Error(`download ${downloadResponse.status}`);
+            }
 
-        const originalBlob = await downloadResponse.blob();
-        if (!originalBlob.type.startsWith('image/') && !isImagePath(image.path, originalBlob.type)) continue;
-        const compressedBlob = await compressBlobAggressive(originalBlob);
-        if (compressedBlob.size >= originalBlob.size) continue;
+            const originalBlob = await downloadResponse.blob();
+            if (!originalBlob.type.startsWith('image/') && !isImagePath(image.path, originalBlob.type)) return;
+            const compressedBlob = await compressBlobAggressive(originalBlob);
+            if (compressedBlob.size >= originalBlob.size) return;
 
-        const uploadResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${encodedPath}`, {
-          method: 'POST',
-          headers: {
-            ...buildStorageHeaders(),
-            'x-upsert': 'true',
-            'Content-Type': compressedBlob.type || 'image/webp'
-          },
-          body: compressedBlob
-        });
-        if (!uploadResponse.ok) {
-          throw new Error(`upload ${uploadResponse.status}`);
-        }
+            const uploadResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${encodedPath}`, {
+              method: 'POST',
+              headers: {
+                ...buildStorageHeaders(),
+                'x-upsert': 'true',
+                'Content-Type': compressedBlob.type || 'image/webp'
+              },
+              body: compressedBlob
+            });
+            if (!uploadResponse.ok) {
+              throw new Error(`upload ${uploadResponse.status}`);
+            }
 
-        result.compressed += 1;
-        result.bytesSaved += Math.max(0, originalBlob.size - compressedBlob.size);
-      } catch (error) {
-        result.failures += 1;
-        await logger.warn('storage:maintenance', 'Failed to recompress image', {
-          bucket,
-          path: image.path,
-          error: String(error)
-        });
-      }
+            result.compressed += 1;
+            result.bytesSaved += Math.max(0, originalBlob.size - compressedBlob.size);
+          } catch (error) {
+            result.failures += 1;
+            await logger.warn('storage:maintenance', 'Failed to recompress image', {
+              bucket,
+              path: image.path,
+              error: String(error)
+            });
+          }
+        })
+      );
     }
   }
 

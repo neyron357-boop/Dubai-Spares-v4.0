@@ -187,7 +187,7 @@ const OrderDetailsScreen: React.FC = () => {
   // Exchange Rate Input State (Controlled)
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
   const [showActionsMenu, setShowActionsMenu] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(false);
+  const [isEditMode] = useState(true);
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState(MESSAGE_TEMPLATES[0]);
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
@@ -1175,7 +1175,6 @@ const OrderDetailsScreen: React.FC = () => {
             <option value={Priority.LOW}>LOW</option>
           </select>
           <button type="button" onClick={() => void pasteVinFromClipboard()} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">Вставить VIN</button>
-          <button type="button" onClick={() => setIsEditMode((prev) => !prev)} className={`text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight shrink-0 ${isEditMode ? 'bg-blue-600 text-white border border-blue-600' : 'bg-white border border-gray-200 text-gray-700'}`}>{isEditMode ? 'Режим: редактирование' : 'Режим: просмотр'}</button>
         </div>
       </div>
 
