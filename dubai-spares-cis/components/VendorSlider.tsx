@@ -44,6 +44,7 @@ const VendorSlider: React.FC = () => {
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [brandFilter, setBrandFilter] = useState<string>('all');
+  const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | NonNullable<Part['status']>>('all');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
@@ -54,7 +55,10 @@ const VendorSlider: React.FC = () => {
 
   const slides = useMemo<VendorSlide[]>(() => {
     const active = orders.filter((o) => !o.isArchived && !o.isSold)
-      .filter((o) => brandFilter === 'all' || o.brand === brandFilter)
+      .filter((o) => {
+        const effectiveBrand = selectedBrand || brandFilter;
+        return effectiveBrand === 'all' || o.brand === effectiveBrand;
+      })
       .filter((o) => priorityFilter === 'all' || o.priority === priorityFilter);
     return active
       .sort((a, b) => (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt))
@@ -68,7 +72,7 @@ const VendorSlider: React.FC = () => {
           images: (part.photos && part.photos.length > 0) ? part.photos : (part.photoUrl ? [part.photoUrl] : []),
         }))
       );
-  }, [orders, brandFilter, priorityFilter, statusFilter]);
+  }, [orders, brandFilter, selectedBrand, priorityFilter, statusFilter]);
 
   useEffect(() => {
     if (index >= slides.length) setIndex(0);
@@ -137,6 +141,35 @@ const VendorSlider: React.FC = () => {
     pressTimer.current = null;
   };
 
+
+  if (!selectedBrand && brandOptions.length > 0) {
+    return (
+      <div className="absolute inset-0 z-50 bg-[#0B1220] text-white p-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-black uppercase tracking-[0.2em] text-white/70">Выберите марку</p>
+          <button type="button" onClick={() => navigate(-1)} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/45">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          {brandOptions.map((brand) => (
+            <button
+              key={brand}
+              type="button"
+              onClick={() => {
+                setSelectedBrand(brand);
+                setBrandFilter(brand);
+              }}
+              className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-4 text-left text-lg font-black hover:border-[#2563EB]"
+            >
+              {brand}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (!current) {
     return (
       <div className="absolute inset-0 z-50 bg-[#0B1220] text-gray-300 flex flex-col items-center justify-center gap-4">
@@ -155,10 +188,11 @@ const VendorSlider: React.FC = () => {
     <div className="absolute inset-0 z-50 h-full w-full overflow-hidden bg-[#0B1220] text-white">
       <div className="flex h-full flex-col overflow-hidden">
         <div className="relative h-[28vh] min-h-[170px] max-h-[240px] w-full overflow-hidden border-b border-slate-800">
-          {carImage ? <img src={carImage} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" /> : <div className="h-full w-full bg-slate-900" />}
+          {carImage ? <img src={carImage} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" onClick={(e) => { e.stopPropagation(); setGallery({ images: [carImage], index: 0 }); }} /> : <div className="h-full w-full bg-slate-900" />}
           <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/35 to-transparent" />
           <div className="absolute right-3 top-3 flex gap-2">
             <button type="button" onClick={() => setFiltersOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Filter size={18} /></button>
+            <button type="button" onClick={() => setSelectedBrand(null)} className="rounded-full bg-black/45 px-3 text-[11px] font-bold">Марки</button>
             <button type="button" onClick={() => navigate(-1)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45">
               <X size={20} />
             </button>
@@ -271,8 +305,9 @@ const VendorSlider: React.FC = () => {
             <div className="space-y-3 text-sm">
               <div>
                 <p className="mb-1 text-xs text-white/70">Марки</p>
-                <select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} className="w-full rounded-xl bg-slate-800 px-3 py-2">
+                <select value={brandFilter} onChange={(e) => { const value = e.target.value; if (value === "__choose") { setSelectedBrand(null); return; } setBrandFilter(value); setSelectedBrand(value === "all" ? null : value); }} className="w-full rounded-xl bg-slate-800 px-3 py-2">
                   <option value="all">Все марки</option>
+                  <option value="__choose">Выбрать экран марок</option>
                   {brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
                 </select>
               </div>
