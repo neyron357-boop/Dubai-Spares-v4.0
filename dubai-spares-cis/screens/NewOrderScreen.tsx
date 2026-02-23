@@ -61,6 +61,23 @@ const decodeVin = (rawVin: string): VinDecoded | null => {
   return { brand, year };
 };
 
+const inferWhatsappLanguage = (country: string, customerContact: string): 'ru' | 'en' | 'ar' => {
+  const normalizedCountry = country.trim().toLowerCase();
+  const normalizedPhone = customerContact.replace(/\s+/g, '');
+
+  if ([
+    'россия', 'таджикистан', 'узбекистан', 'казахстан', 'кыргызстан', 'беларусь', 'украина'
+  ].some((item) => normalizedCountry.includes(item))) return 'ru';
+  if ([
+    'uae', 'оаэ', 'dubai', 'abu dhabi', 'saudi', 'oman', 'qatar', 'bahrain', 'kuwait', 'egypt'
+  ].some((item) => normalizedCountry.includes(item))) return 'ar';
+
+  if (normalizedPhone.startsWith('+7') || normalizedPhone.startsWith('+992') || normalizedPhone.startsWith('+998') || normalizedPhone.startsWith('+996')) return 'ru';
+  if (normalizedPhone.startsWith('+971') || normalizedPhone.startsWith('+966') || normalizedPhone.startsWith('+968') || normalizedPhone.startsWith('+974') || normalizedPhone.startsWith('+973') || normalizedPhone.startsWith('+965') || normalizedPhone.startsWith('+20')) return 'ar';
+
+  return 'en';
+};
+
 const createId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
 const createDraftPart = (): DraftPart => ({
@@ -491,6 +508,11 @@ const NewOrderScreen: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const fromLead = params.get('from') === 'lead';
 
+    const shippingCountry = country.trim();
+    const shippingCity = city.trim();
+    const shippingNote = [shippingCountry, shippingCity].filter(Boolean).join(', ');
+    const whatsappTemplateLanguage = inferWhatsappLanguage(shippingCountry, customerContact.trim());
+
     const order: Order = {
       id: createId(),
       brand: brand.trim(),
@@ -521,6 +543,7 @@ const NewOrderScreen: React.FC = () => {
       leadUnread: fromLead,
       leadSource: fromLead ? 'public_form' : 'manual',
       notes: [
+        ...(shippingNote ? [{ id: createId(), text: `Доставка: ${shippingNote}`, createdAt: now }] : []),
         ...notes
           .filter((note) => note.text.trim() || note.photos.length > 0 || note.voices.length > 0)
           .map((note) => ({
@@ -535,7 +558,8 @@ const NewOrderScreen: React.FC = () => {
           })),
         ...(seriesCode.trim() ? [{ id: createId(), text: `Series/Code: ${seriesCode.trim()}`, createdAt: now }] : [])
       ],
-      socialNickname: [country.trim(), city.trim()].filter(Boolean).join(', ') || undefined
+      socialNickname: shippingNote || undefined,
+      whatsappTemplateLanguage
     };
 
     const ok = await addOrder(order);
