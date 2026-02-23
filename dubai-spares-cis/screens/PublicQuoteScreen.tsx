@@ -826,7 +826,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [loading, setLoading] = useState(true);
   const [errorType, setErrorType] = useState<EstimateErrorType | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
-  const [currency, setCurrency] = useState<QuoteCurrency>('AED');
+  const [currency, setCurrency] = useState<QuoteCurrency>('USD');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [rates, setRates] = useState<QuoteRates>(DEFAULT_QUOTE_RATES);
   const [rateSource, setRateSource] = useState('Default rates');

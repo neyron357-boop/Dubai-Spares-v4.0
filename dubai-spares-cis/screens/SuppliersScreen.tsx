@@ -202,6 +202,7 @@ const SuppliersScreen: React.FC = () => {
   const [supplierRadarHistoryExpandedId, setSupplierRadarHistoryExpandedId] = useState<string | null>(null);
   const [radarInteractions, setRadarInteractions] = useState<RadarInteraction[]>([]);
   const [activeOrderPartLink, setActiveOrderPartLink] = useState<{ supplierId: string; orderId: string; partId: string } | null>(null);
+  const [selectedOrderBySupplier, setSelectedOrderBySupplier] = useState<Record<string, string>>({});
 
   const [filterType, setFilterType] = useState<'all' | SupplierType>('all');
   const [filterActivity, setFilterActivity] = useState<'all' | 'high' | 'medium' | 'low' | 'dormant'>('all');
@@ -653,7 +654,7 @@ const SuppliersScreen: React.FC = () => {
     updateSupplier({ ...supplier, isFavorite: !supplier.isFavorite, updatedAt: Date.now() });
   };
 
-  const addSupplierToOrder = (shopId: string, orderId: string) => {
+  const addSupplierToOrder = (shopId: string, orderId: string, selectedPartIds: string[] = []) => {
     const order = orders.find((item) => item.id === orderId);
     if (!order) return;
 
@@ -661,6 +662,12 @@ const SuppliersScreen: React.FC = () => {
     current.add(shopId);
     const nextDismissed = (order.dismissedShopIds || []).filter((id) => id !== shopId);
     updateOrder({ ...order, recommendedShopIds: Array.from(current), dismissedShopIds: nextDismissed, updatedAt: Date.now() });
+
+    const partIds = selectedPartIds.length > 0
+      ? selectedPartIds
+      : (order.parts[0]?.id ? [order.parts[0].id] : []);
+    partIds.forEach((partId) => addRadarManualSelection({ supplierId: shopId, orderId, partId }));
+
     const linkedSupplier = suppliers.find((item) => item.id === shopId);
     if (linkedSupplier && order.brand) {
       const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
@@ -671,6 +678,12 @@ const SuppliersScreen: React.FC = () => {
       updateSupplier(updatedSupplier);
       void upsertSupplierToShops(updatedSupplier);
     }
+
+    const selections = getRadarManualSelections();
+    const next: Record<string, number> = {};
+    selections.forEach((item) => { next[item.supplierId] = (next[item.supplierId] || 0) + 1; });
+    setManualRadarCounts(next);
+
     setActiveOrderLinkShopId(null);
   };
 
@@ -681,6 +694,7 @@ const SuppliersScreen: React.FC = () => {
     const current = new Set(order.recommendedShopIds || []);
     current.add(activeOrderPartLink.supplierId);
     updateOrder({ ...order, recommendedShopIds: Array.from(current), updatedAt: Date.now() });
+    addRadarManualSelection({ supplierId: activeOrderPartLink.supplierId, orderId: activeOrderPartLink.orderId, partId: activeOrderPartLink.partId });
     const linkedSupplier = suppliers.find((item) => item.id === activeOrderPartLink.supplierId);
     if (linkedSupplier && order.brand) {
       const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
@@ -691,8 +705,12 @@ const SuppliersScreen: React.FC = () => {
       updateSupplier(updatedSupplier);
       void upsertSupplierToShops(updatedSupplier);
     }
+    const selections = getRadarManualSelections();
+    const next: Record<string, number> = {};
+    selections.forEach((item) => { next[item.supplierId] = (next[item.supplierId] || 0) + 1; });
+    setManualRadarCounts(next);
     setActiveOrderPartLink(null);
-    alert('Поставщик добавлен в активный заказ. Откройте заказ и добавьте вариант к выбранной детали.');
+    alert('Поставщик добавлен в активный заказ и Radar.');
   };
 
   useEffect(() => {
@@ -1052,19 +1070,45 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                   <button type="button" onClick={() => setActiveOrderLinkShopId(activeOrderLinkShopId === s.id ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-center gap-2"><Link2 size={13} /> Add to Active Order</button>
                   {activeOrderLinkShopId === s.id && (
                     <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-2">
-                      <select className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" defaultValue="" onChange={(e) => { if (!e.target.value) return; addSupplierToOrder(s.id, e.target.value); e.currentTarget.value = ''; }}>
+                      <select
+                        className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold"
+                        value={selectedOrderBySupplier[s.id] || ''}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setSelectedOrderBySupplier((prev) => ({ ...prev, [s.id]: value }));
+                          setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: value, partId: prev?.partId || '' }));
+                        }}
+                      >
                         <option value="">Выберите активный заказ...</option>
                         {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model} • {order.vin}</option>)}
                       </select>
 
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const selectedOrderId = selectedOrderBySupplier[s.id];
+                          if (!selectedOrderId) return;
+                          const selectedOrder = activeOrders.find((order) => order.id === selectedOrderId);
+                          if (!selectedOrder) return;
+                          const selectedPartIds = activeOrderPartLink?.supplierId === s.id && activeOrderPartLink.partId
+                            ? [activeOrderPartLink.partId]
+                            : selectedOrder.parts.map((part) => part.id);
+                          addSupplierToOrder(s.id, selectedOrderId, selectedPartIds);
+                          alert('Добавлено в карточку поставщика и Radar.');
+                        }}
+                        className="w-full rounded-lg bg-blue-100 px-2 py-2 text-[11px] font-black text-blue-800"
+                      >
+                        Сохранить в активный заказ
+                      </button>
+
                       <div className="grid grid-cols-2 gap-2">
-                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" defaultValue="" onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: e.target.value, partId: prev?.partId || '' }))}>
+                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : ''} onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: e.target.value, partId: prev?.partId || '' }))}>
                           <option value="">Заказ для детали</option>
                           {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model}</option>)}
                         </select>
-                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" defaultValue="" onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: prev?.orderId || '', partId: e.target.value }))}>
+                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.partId : ''} onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: prev?.orderId || selectedOrderBySupplier[s.id] || '', partId: e.target.value }))}>
                           <option value="">Деталь</option>
-                          {(activeOrders.find((order) => order.id === activeOrderPartLink?.orderId)?.parts || []).map((part) => <option key={part.id} value={part.id}>{part.name}</option>)}
+                          {(activeOrders.find((order) => order.id === (activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : selectedOrderBySupplier[s.id]))?.parts || []).map((part) => <option key={part.id} value={part.id}>{part.name}</option>)}
                         </select>
                       </div>
                       <button type="button" onClick={addSupplierToOrderPart} className="w-full rounded-lg bg-violet-100 px-2 py-2 text-[11px] font-black text-violet-800">Открыть Add Variant flow</button>

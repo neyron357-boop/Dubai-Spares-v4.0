@@ -10,7 +10,7 @@ import { createUuid } from '../id';
 import { offlineDb } from '../storage/offlineDb';
 import { NotificationType, createFollowupFromAction, pushNotification } from '../notificationCenter';
 import { loadAppSettings } from '../appSettings';
-import { getRadarManualSelections } from '../radarManualSelections';
+import { addRadarManualSelection, getRadarManualSelections } from '../radarManualSelections';
 
 const RADAR_DISMISSED_SHOPS_KEY = 'radar_dismissed_shop_keys';
 const RADAR_VISITED_SHOPS_KEY = 'radar_visited_shop_keys';
@@ -689,6 +689,32 @@ const RadarScreen: React.FC = () => {
     alert(`Рекомендации для ${group.shop.name}\n${lines.join('\n') || 'Нет активных заказов'}`);
   };
 
+
+  const runAutoRecommendations = () => {
+    const pendingOrders = orders.filter((order) => !order.isArchived && !order.isSold);
+    if (pendingOrders.length === 0 || supplierGroups.length === 0) {
+      alert('Нет данных для рекомендаций.');
+      return;
+    }
+
+    let added = 0;
+    pendingOrders.forEach((order) => {
+      const topMatches = supplierGroups
+        .filter((group) => group.orders.some((entry) => entry.order.id === order.id))
+        .slice(0, 3);
+      const partIds = order.parts.map((part) => part.id).slice(0, 5);
+      topMatches.forEach((group) => {
+        partIds.forEach((partId) => {
+          addRadarManualSelection({ supplierId: group.shop.id, orderId: order.id, partId });
+          added += 1;
+        });
+      });
+    });
+
+    setManualSelections(getRadarManualSelections());
+    alert(`Рекомендации добавлены: ${added} связок поставщик/деталь.`);
+  };
+
   const visitedEntries = Array.from(visitedShopKeys)
     .map((key) => {
       const match = key.match(/^order:(.+):shop:(.+)$/);
@@ -706,6 +732,7 @@ const RadarScreen: React.FC = () => {
         <div className="flex items-center justify-between gap-2">
           <h1 className="text-sm font-black uppercase tracking-wider text-emerald-300">Radar Live</h1>
           <div className="flex items-center gap-2">
+            <button type="button" onClick={runAutoRecommendations} className="rounded-lg border border-emerald-300/50 px-3 py-1 text-[10px] font-black uppercase text-emerald-200">Рекомендации</button>
             <button type="button" onClick={() => setMode('field')} className={`rounded-lg px-3 py-1 text-[10px] font-black uppercase ${mode === 'field' ? 'bg-emerald-400 text-slate-900' : 'border border-emerald-300/50 text-emerald-200'}`}>Field Mode</button>
             <button type="button" onClick={() => setMode('detail')} className={`rounded-lg px-3 py-1 text-[10px] font-black uppercase ${mode === 'detail' ? 'bg-emerald-400 text-slate-900' : 'border border-emerald-300/50 text-emerald-200'}`}>Detail Mode</button>
           </div>
