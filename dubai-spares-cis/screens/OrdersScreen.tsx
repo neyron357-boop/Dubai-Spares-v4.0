@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, Clock3, Filter, MessageCircle, Pin, Smartphone, Star } from 'lucide-react';
+import { Archive, BarChart3, Clock3, Filter, MessageCircle, PenSquare, Pin, Smartphone, Star, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
@@ -324,6 +324,7 @@ const OrdersScreen: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [viewOrder, setViewOrder] = useState<Order | null>(null);
   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -561,7 +562,7 @@ const OrdersScreen: React.FC = () => {
                   order.isArchived ? restoreOrder(order) : archiveOrder(order);
                 }}
                 onLongPressDelete={() => setDeleteId(order.id)}
-                onCardTap={() => navigate(`/order/${order.id}`)}
+                onCardTap={() => setViewOrder(order)}
                 disableCardTap={!!deleteId || isDeleting}
               >
                 <div className={`rounded-2xl p-2.5 -m-2.5 ${isVipOrder ? 'bg-gradient-to-br from-amber-50 via-yellow-100 to-amber-200 border border-amber-300/80 shadow-[0_10px_26px_rgba(217,119,6,0.25)]' : ''}`}>
@@ -717,6 +718,41 @@ const OrdersScreen: React.FC = () => {
                 setYearTo('');
               }} className="h-11 flex-1 rounded-xl border border-slate-200 text-xs font-black uppercase">Сброс</button>
               <button type="button" onClick={() => setIsFilterOpen(false)} className="h-11 flex-1 rounded-xl bg-blue-600 text-xs font-black uppercase text-white">Применить</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewOrder && (
+        <div className="fixed inset-0 z-40 bg-black/70" onClick={() => setViewOrder(null)}>
+          <div className="absolute inset-x-3 top-[max(12px,env(safe-area-inset-top))] bottom-[max(90px,calc(env(safe-area-inset-bottom)+82px))] rounded-3xl bg-[#0B1220] text-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <button type="button" onClick={() => setViewOrder(null)} className="absolute right-3 top-3 z-20 rounded-full bg-black/40 p-2">
+              <X size={18} />
+            </button>
+            {((viewOrder.carPhotos && viewOrder.carPhotos[0]) || viewOrder.carPhotoUrl) && (
+              <div className="relative h-52 w-full">
+                <img src={(viewOrder.carPhotos && viewOrder.carPhotos[0]) || viewOrder.carPhotoUrl} alt={`${viewOrder.brand} ${viewOrder.model}`} className="h-full w-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0B1220] to-transparent" />
+              </div>
+            )}
+            <div className="-mt-6 relative z-10 px-4 pb-4">
+              <h3 className="text-2xl font-black">{viewOrder.brand} {viewOrder.model} {viewOrder.year}</h3>
+              <p className="mt-1 text-sm text-white/80">VIN: {viewOrder.vin || '—'}</p>
+              <p className="mt-2 text-sm text-white/80">Клиент: {viewOrder.clientName || viewOrder.customerContact || 'Без контакта'}</p>
+              <p className="text-sm text-white/80">Детали: {viewOrder.parts.length} · Найдено: {foundPartsCount(viewOrder)}</p>
+              <div className="mt-4 max-h-[35vh] space-y-2 overflow-y-auto pr-1">
+                {viewOrder.parts.map((part) => (
+                  <div key={part.id} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm">
+                    <p className="font-bold">{part.name}</p>
+                    <p className="text-xs text-white/70">Вариантов: {part.variants.length}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="absolute bottom-0 left-0 right-0 border-t border-white/10 bg-[#0B1220]/95 p-3">
+              <button type="button" onClick={() => navigate(`/order/${viewOrder.id}`)} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 text-xs font-black uppercase">
+                <PenSquare size={14} /> Редактировать
+              </button>
             </div>
           </div>
         </div>

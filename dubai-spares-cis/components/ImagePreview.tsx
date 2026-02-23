@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface Props {
@@ -7,156 +7,162 @@ interface Props {
   onClose: () => void;
 }
 
+type Point = { x: number; y: number };
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const pinchDistance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
+
 const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
-  const [touchStart, setTouchStart] = useState<number | null>(null);
-  const [touchEnd, setTouchEnd] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
-  const [swipeDirection, setSwipeDirection] = useState<0 | 1 | -1>(0);
+  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
+
+  const touchStartX = useRef<number | null>(null);
+  const touchEndX = useRef<number | null>(null);
+  const dragStart = useRef<Point | null>(null);
+  const dragPanStart = useRef<Point>({ x: 0, y: 0 });
+  const pinchStartDistance = useRef<number | null>(null);
+  const pinchZoomStart = useRef(1);
+
+  const minSwipeDistance = 50;
+
+  const resetTransform = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  const nextImage = () => {
+    if (currentIndex >= images.length - 1) return;
+    setCurrentIndex((idx) => idx + 1);
+    resetTransform();
+  };
+
+  const prevImage = () => {
+    if (currentIndex <= 0) return;
+    setCurrentIndex((idx) => idx - 1);
+    resetTransform();
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
       if (e.key === 'ArrowRight') nextImage();
       if (e.key === 'ArrowLeft') prevImage();
-      if (e.key === '+') setZoom((z) => Math.min(3, Number((z + 0.2).toFixed(2))));
-      if (e.key === '-') setZoom((z) => Math.max(1, Number((z - 0.2).toFixed(2))));
+      if (e.key === '+') setZoom((z) => clamp(Number((z + 0.2).toFixed(2)), 1, 4));
+      if (e.key === '-') setZoom((z) => clamp(Number((z - 0.2).toFixed(2)), 1, 4));
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentIndex]);
+  });
 
   useEffect(() => {
     const handleWheel = (event: WheelEvent) => {
       if (!event.ctrlKey) return;
       event.preventDefault();
       const direction = event.deltaY > 0 ? -0.15 : 0.15;
-      setZoom((z) => Math.min(4, Math.max(1, Number((z + direction).toFixed(2)))));
+      setZoom((z) => clamp(Number((z + direction).toFixed(2)), 1, 4));
     };
 
     window.addEventListener('wheel', handleWheel, { passive: false });
     return () => window.removeEventListener('wheel', handleWheel);
   }, []);
 
-  const minSwipeDistance = 50;
-
-  const onTouchStart = (e: React.TouchEvent) => {
-    setTouchEnd(null);
-    setTouchStart(e.targetTouches[0].clientX);
-  };
-
-  const onTouchMove = (e: React.TouchEvent) => {
-    setTouchEnd(e.targetTouches[0].clientX);
-  };
-
-  const onTouchEnd = () => {
-    if (!touchStart || !touchEnd || zoom > 1) return;
-    const distance = touchStart - touchEnd;
-    const isLeftSwipe = distance > minSwipeDistance;
-    const isRightSwipe = distance < -minSwipeDistance;
-    if (isLeftSwipe) {
-      nextImage();
-    } else if (isRightSwipe) {
-      prevImage();
-    }
-  };
-
-  const nextImage = () => {
-    if (currentIndex < images.length - 1) {
-      setSwipeDirection(1);
-      setCurrentIndex((idx) => idx + 1);
-      setZoom(1);
-    }
-  };
-
-  const prevImage = () => {
-    if (currentIndex > 0) {
-      setSwipeDirection(-1);
-      setCurrentIndex((idx) => idx - 1);
-      setZoom(1);
-    }
-  };
-
   useEffect(() => {
-    if (!swipeDirection) return;
-    const timer = window.setTimeout(() => setSwipeDirection(0), 220);
-    return () => window.clearTimeout(timer);
-  }, [swipeDirection]);
+    if (zoom <= 1.02) setPan({ x: 0, y: 0 });
+  }, [zoom]);
 
   if (!images || images.length === 0) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-0 animate-in fade-in duration-200"
-      onClick={onClose}
-    >
-      <button
-        onClick={onClose}
-        className="absolute top-6 right-6 p-2 bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors z-50 backdrop-blur-md"
-      >
+    <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-0" onClick={onClose}>
+      <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-white/10 text-white rounded-full z-50 backdrop-blur-md">
         <X size={24} />
       </button>
 
       <div className="absolute top-6 left-6 z-50 flex items-center gap-2 rounded-full border border-white/20 bg-black/35 px-2 py-1">
-        <button type="button" onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.max(1, Number((z - 0.2).toFixed(2)))); }} className="p-1 text-white/90 disabled:opacity-40" disabled={zoom <= 1}><ZoomOut size={16} /></button>
+        <button type="button" onClick={(e) => { e.stopPropagation(); setZoom((z) => clamp(Number((z - 0.2).toFixed(2)), 1, 4)); }} className="p-1 text-white/90 disabled:opacity-40" disabled={zoom <= 1}><ZoomOut size={16} /></button>
         <span className="text-[11px] font-bold text-white min-w-[44px] text-center">{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.min(3, Number((z + 0.2).toFixed(2)))); }} className="p-1 text-white/90 disabled:opacity-40" disabled={zoom >= 3}><ZoomIn size={16} /></button>
+        <button type="button" onClick={(e) => { e.stopPropagation(); setZoom((z) => clamp(Number((z + 0.2).toFixed(2)), 1, 4)); }} className="p-1 text-white/90 disabled:opacity-40" disabled={zoom >= 4}><ZoomIn size={16} /></button>
       </div>
 
       {images.length > 1 && (
         <>
-          <button
-            onClick={(e) => { e.stopPropagation(); prevImage(); }}
-            className={`absolute left-4 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 backdrop-blur-md transition-all ${currentIndex === 0 ? 'opacity-30 cursor-not-allowed' : 'opacity-100'}`}
-            disabled={currentIndex === 0}
-          >
-            <ChevronLeft size={32} />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); nextImage(); }}
-            className={`absolute right-4 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 backdrop-blur-md transition-all ${currentIndex === images.length - 1 ? 'opacity-30 cursor-not-allowed' : 'opacity-100'}`}
-            disabled={currentIndex === images.length - 1}
-          >
-            <ChevronRight size={32} />
-          </button>
+          <button onClick={(e) => { e.stopPropagation(); prevImage(); }} className={`absolute left-4 p-3 rounded-full bg-white/10 text-white backdrop-blur-md ${currentIndex === 0 ? 'opacity-30 cursor-not-allowed' : 'opacity-100'}`} disabled={currentIndex === 0}><ChevronLeft size={32} /></button>
+          <button onClick={(e) => { e.stopPropagation(); nextImage(); }} className={`absolute right-4 p-3 rounded-full bg-white/10 text-white backdrop-blur-md ${currentIndex === images.length - 1 ? 'opacity-30 cursor-not-allowed' : 'opacity-100'}`} disabled={currentIndex === images.length - 1}><ChevronRight size={32} /></button>
         </>
       )}
 
-      {images.length > 1 && (
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/50 text-white rounded-full text-xs font-bold backdrop-blur-md border border-white/10">
-          {currentIndex + 1} / {images.length}
-        </div>
-      )}
-
       <div
-        className="w-full h-full flex items-center justify-center overflow-auto"
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
+        className="w-full h-full overflow-hidden flex items-center justify-center"
+        onTouchStart={(e) => {
+          if (e.touches.length === 2) {
+            const p1 = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            const p2 = { x: e.touches[1].clientX, y: e.touches[1].clientY };
+            pinchStartDistance.current = pinchDistance(p1, p2);
+            pinchZoomStart.current = zoom;
+            dragStart.current = null;
+            return;
+          }
+
+          touchEndX.current = null;
+          touchStartX.current = e.targetTouches[0].clientX;
+          dragStart.current = { x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY };
+          dragPanStart.current = pan;
+        }}
+        onTouchMove={(e) => {
+          if (e.touches.length === 2 && pinchStartDistance.current) {
+            const p1 = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            const p2 = { x: e.touches[1].clientX, y: e.touches[1].clientY };
+            const nextZoom = clamp(Number((pinchZoomStart.current * (pinchDistance(p1, p2) / pinchStartDistance.current)).toFixed(3)), 1, 4);
+            setZoom(nextZoom);
+            return;
+          }
+
+          touchEndX.current = e.targetTouches[0].clientX;
+          if (zoom <= 1 || !dragStart.current) return;
+          e.preventDefault();
+          const dx = e.targetTouches[0].clientX - dragStart.current.x;
+          const dy = e.targetTouches[0].clientY - dragStart.current.y;
+          const maxOffset = (zoom - 1) * 220;
+          setPan({ x: clamp(dragPanStart.current.x + dx, -maxOffset, maxOffset), y: clamp(dragPanStart.current.y + dy, -maxOffset, maxOffset) });
+        }}
+        onTouchEnd={() => {
+          if (zoom <= 1 && touchStartX.current !== null && touchEndX.current !== null) {
+            const distance = touchStartX.current - touchEndX.current;
+            if (distance > minSwipeDistance) nextImage();
+            if (distance < -minSwipeDistance) prevImage();
+          }
+          pinchStartDistance.current = null;
+          dragStart.current = null;
+        }}
+        onMouseDown={(e) => {
+          if (zoom <= 1) return;
+          dragStart.current = { x: e.clientX, y: e.clientY };
+          dragPanStart.current = pan;
+        }}
+        onMouseMove={(e) => {
+          if (zoom <= 1 || !dragStart.current) return;
+          const dx = e.clientX - dragStart.current.x;
+          const dy = e.clientY - dragStart.current.y;
+          const maxOffset = (zoom - 1) * 220;
+          setPan({ x: clamp(dragPanStart.current.x + dx, -maxOffset, maxOffset), y: clamp(dragPanStart.current.y + dy, -maxOffset, maxOffset) });
+        }}
+        onMouseUp={() => {
+          dragStart.current = null;
+        }}
         style={{ touchAction: zoom > 1 ? 'none' : 'pan-y' }}
       >
         <img
           src={images[currentIndex]}
           alt={`Preview ${currentIndex + 1}`}
-          className={`max-w-full max-h-full object-contain transition-all duration-200 origin-center ${swipeDirection === 1 ? '-translate-x-3 opacity-90' : swipeDirection === -1 ? 'translate-x-3 opacity-90' : 'translate-x-0 opacity-100'}`}
-          style={{ transform: `scale(${zoom})`, touchAction: 'none' }}
+          className="max-w-full max-h-full object-contain transition-transform duration-150"
+          style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}
           onClick={(e) => {
             e.stopPropagation();
             setZoom((z) => (z > 1 ? 1 : 2));
           }}
         />
       </div>
-
-      {images.length > 1 && (
-        <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-2">
-          {images.map((_, idx) => (
-            <div
-              key={idx}
-              className={`w-2 h-2 rounded-full transition-all ${idx === currentIndex ? 'bg-white scale-125' : 'bg-white/30'}`}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 };
