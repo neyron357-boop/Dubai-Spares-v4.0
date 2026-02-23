@@ -26,6 +26,18 @@ const getPrice = (part: Part) => {
   return Math.min(...prices);
 };
 
+const sanitizeImages = (values: Array<string | null | undefined>) => {
+  const seen = new Set<string>();
+  return values
+    .map((value) => String(value || '').trim())
+    .filter((value) => value && value !== 'null' && value !== 'undefined')
+    .filter((value) => {
+      if (seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+};
+
 const getStatusMeta = (part: Part) => {
   if (!part.status) return { label: 'Статус не указан', dot: 'bg-slate-500' };
   if (part.status === 'found') return { label: 'In stock', dot: 'bg-emerald-500' };
@@ -69,7 +81,7 @@ const VendorSlider: React.FC = () => {
           partId: part.id,
           order,
           part,
-          images: (part.photos && part.photos.length > 0) ? part.photos : (part.photoUrl ? [part.photoUrl] : []),
+          images: sanitizeImages((part.photos && part.photos.length > 0) ? part.photos : (part.photoUrl ? [part.photoUrl] : [])),
         }))
       );
   }, [orders, brandFilter, selectedBrand, priorityFilter, statusFilter]);
@@ -182,7 +194,7 @@ const VendorSlider: React.FC = () => {
   const { order, part, images } = current;
   const statusMeta = getStatusMeta(part);
   const price = getPrice(part);
-  const carImage = (order.carPhotos && order.carPhotos.length > 0 ? order.carPhotos[0] : order.carPhotoUrl) || images[0] || '';
+  const carImage = sanitizeImages([(order.carPhotos && order.carPhotos.length > 0 ? order.carPhotos[0] : order.carPhotoUrl), images[0]])[0] || '';
 
   return (
     <div className="absolute inset-0 z-50 h-full w-full overflow-hidden bg-[#0B1220] text-white">

@@ -11,7 +11,7 @@ const WEBP_QUALITY = 0.55;
 const TARGET_BYTES = 200 * 1024; // aggressive compression target (~1 MB -> ~200 KB)
 const STORAGE_UPLOAD_RETRY_DELAYS_MS = [600, 1600];
 const STORAGE_LIST_PAGE_SIZE = 100;
-const MAINTENANCE_CONCURRENCY = 8;
+const MAINTENANCE_CONCURRENCY = Math.min(16, Math.max(8, (typeof navigator !== 'undefined' && Number(navigator.hardwareConcurrency)) || 8));
 
 type ImageTransformOptions = {
   width?: number;

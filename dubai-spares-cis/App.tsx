@@ -159,7 +159,7 @@ const App: React.FC = () => {
 
   return (
     <div onKeyDown={handleKeyDown}>
-      <div className={`transition-all duration-500 ${isBooting ? 'opacity-0 scale-[0.985]' : 'opacity-100 scale-100'}`}>
+      <div className={`transition-all duration-500 ${isBooting ? 'opacity-0 scale-[0.985]' : 'opacity-100'}`}>
         <div className={`fixed top-3 right-3 z-[90] pointer-events-none transition-all duration-700 ${savePulse ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
           <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-lg">
             Сохранено
