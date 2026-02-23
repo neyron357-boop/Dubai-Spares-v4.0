@@ -59,6 +59,7 @@ type SwipeableOrderCardProps = {
   setOpenCardId: (id: string | null) => void;
   onCommitWhatsapp: () => void;
   onOpenWhatsapp: () => void;
+  contactActionLabel: string;
   onArchive: () => void;
   onLongPressDelete: () => void;
   onCardTap: () => void;
@@ -72,6 +73,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
   setOpenCardId,
   onCommitWhatsapp,
   onOpenWhatsapp,
+  contactActionLabel,
   onArchive,
   onLongPressDelete,
   onCardTap,
@@ -252,7 +254,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
           style={{ opacity: Math.max(rightProgress, 0.12) }}
         >
           <span className="inline-flex items-center gap-2" style={{ opacity: rightProgress, transform: `scale(${0.92 + rightProgress * 0.08})` }}>
-            <MessageCircle size={18} /> WhatsApp
+            <MessageCircle size={18} /> {contactActionLabel}
           </span>
         </button>
 
@@ -306,7 +308,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
         <div className="pointer-events-none absolute inset-0 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)]" />
         <div className="relative z-10">{children}</div>
         {!hasSwiped && (
-          <p className="mt-3 text-[10px] text-slate-400">Свайп → WhatsApp • Свайп ← Archive • Long press → Delete</p>
+          <p className="mt-3 text-[10px] text-slate-400">Свайп → чат • Свайп ← Archive • Long press → Delete</p>
         )}
       </article>
     </div>
@@ -382,14 +384,32 @@ const OrdersScreen: React.FC = () => {
     toast('Заказ восстановлен', 'success');
   };
 
-  const openWhatsapp = (order: Order) => {
+  const getOrderContactAction = (order: Order) => {
+    const source = String(order.source || '').toLowerCase();
+    const social = String(order.socialNickname || '').trim();
+    if (source.includes('instagram')) {
+      if (!social) return { label: 'Instagram', open: false, url: '' };
+      const url = social.startsWith('http') ? social : `https://instagram.com/${social.replace(/^@/, '')}`;
+      return { label: 'Instagram', open: true, url };
+    }
+    if (source.includes('tiktok')) {
+      if (!social) return { label: 'TikTok', open: false, url: '' };
+      const url = social.startsWith('http') ? social : `https://www.tiktok.com/@${social.replace(/^@/, '')}`;
+      return { label: 'TikTok', open: true, url };
+    }
     const phone = (order.customerContact || '').replace(/[^\d+]/g, '');
-    if (!phone) {
+    if (!phone) return { label: 'WhatsApp', open: false, url: '' };
+    const message = `Здравствуйте! Апдейт по заказу ${order.brand} ${order.model}`;
+    return { label: 'WhatsApp', open: true, url: `https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}` };
+  };
+
+  const openWhatsapp = (order: Order) => {
+    const action = getOrderContactAction(order);
+    if (!action.open) {
       toast('Нет контакта клиента', 'error');
       return;
     }
-    const message = `Здравствуйте! Апдейт по заказу ${order.brand} ${order.model}`;
-    window.open(`https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`, '_blank');
+    window.open(action.url, '_blank');
   };
 
   const allBrands = useMemo(() => Array.from(new Set(orders.map((order) => order.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
@@ -558,6 +578,7 @@ const OrdersScreen: React.FC = () => {
                 setOpenCardId={setOpenSwipeId}
                 onCommitWhatsapp={() => openWhatsapp(order)}
                 onOpenWhatsapp={() => openWhatsapp(order)}
+                contactActionLabel={getOrderContactAction(order).label}
                 onArchive={() => {
                   order.isArchived ? restoreOrder(order) : archiveOrder(order);
                 }}

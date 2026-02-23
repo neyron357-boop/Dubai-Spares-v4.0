@@ -508,12 +508,54 @@ const OrderDetailsScreen: React.FC = () => {
     .replace('{eta}', '1-2 дня')
     .replace('{order_link}', window.location.href);
 
+  const sourceLabel = (order.source || '').toLowerCase();
+  const socialValue = String(draftFields.socialNickname ?? order.socialNickname ?? '').trim();
+
+  const getClientChannelLink = () => {
+    if (sourceLabel.includes('instagram')) {
+      if (!socialValue) return '';
+      if (socialValue.startsWith('http')) return socialValue;
+      return `https://instagram.com/${socialValue.replace(/^@/, '')}`;
+    }
+    if (sourceLabel.includes('tiktok')) {
+      if (!socialValue) return '';
+      if (socialValue.startsWith('http')) return socialValue;
+      return `https://www.tiktok.com/@${socialValue.replace(/^@/, '')}`;
+    }
+    if (sourceLabel.includes('telegram')) {
+      if (!socialValue) return '';
+      if (socialValue.startsWith('http')) return socialValue;
+      const normalized = socialValue.replace(/^@/, '');
+      return /^\+?\d{6,}$/.test(normalized)
+        ? `https://t.me/${normalized.replace(/^\+/, '')}`
+        : `https://t.me/${normalized}`;
+    }
+    return '';
+  };
+
   const openWhatsappClient = () => {
     const phone = (order.customerContact || '').replace(/[^\d+]/g, '');
     if (!phone || phone.length < 8) return;
     const message = applyTemplate(normalizedSelectedTemplate);
     window.open(`https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`, '_blank');
   };
+
+  const openClientChannel = () => {
+    const socialLink = getClientChannelLink();
+    if (socialLink) {
+      window.open(socialLink, '_blank');
+      return;
+    }
+    openWhatsappClient();
+  };
+
+  const contactActionLabel = sourceLabel.includes('instagram')
+    ? 'Открыть Instagram'
+    : sourceLabel.includes('tiktok')
+      ? 'Открыть TikTok'
+      : sourceLabel.includes('telegram')
+        ? 'Открыть Telegram'
+        : 'WhatsApp';
 
   const updateCustomerStatus = (nextStatus: 'VIP' | 'LEAD' | 'INQUIRY') => {
     if (!isEditMode) return;
@@ -1304,13 +1346,27 @@ const OrderDetailsScreen: React.FC = () => {
               </select>
             </div>
           </div>
+          {(sourceLabel.includes('instagram') || sourceLabel.includes('tiktok') || sourceLabel.includes('telegram')) && (
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Ссылка / username</label>
+              <input
+                type="text"
+                value={String(draftFields.socialNickname ?? order.socialNickname ?? '')}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('socialNickname', e.target.value)}
+                onBlur={() => flushDeferredOrderField('socialNickname')}
+                placeholder={sourceLabel.includes('telegram') ? '@username или +971...' : 'https://... или @username'}
+                className="w-full text-sm font-bold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
+              />
+            </div>
+          )}
           <button
             type="button"
-            onClick={openWhatsappClient}
-            disabled={!(order.customerContact || '').replace(/[^\d]/g, '').length || (order.customerContact || '').replace(/[^\d]/g, '').length < 8}
+            onClick={openClientChannel}
+            disabled={!getClientChannelLink() && (!(order.customerContact || '').replace(/[^\d]/g, '').length || (order.customerContact || '').replace(/[^\d]/g, '').length < 8)}
             className="h-11 w-full rounded-2xl bg-emerald-600 text-white text-xs font-black uppercase disabled:opacity-50"
           >
-            WhatsApp: открыть чат
+            {contactActionLabel}: открыть чат
           </button>
         </div>
 
@@ -1464,7 +1520,7 @@ const OrderDetailsScreen: React.FC = () => {
               {order.parts.some((p) => p.variants.length > 0) ? 'Обновить и отправить смету' : 'Сформировать смету'}
             </button>
             <div className="grid grid-cols-3 gap-2">
-              <button type="button" onClick={openWhatsappClient} className="h-11 rounded-2xl bg-emerald-50 text-emerald-700 text-[11px] font-black uppercase">WhatsApp</button>
+              <button type="button" onClick={openClientChannel} className="h-11 rounded-2xl bg-emerald-50 text-emerald-700 text-[11px] font-black uppercase">{contactActionLabel}</button>
               <button type="button" onClick={() => partInputRef.current?.focus()} className="h-11 rounded-2xl bg-blue-50 text-blue-700 text-[11px] font-black uppercase">Деталь +</button>
               <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-2xl bg-slate-100 text-slate-700 text-[11px] font-black uppercase">Магазин +</button>
             </div>
@@ -1746,7 +1802,7 @@ const OrderDetailsScreen: React.FC = () => {
           <div><p className="text-gray-400">Профит</p><p>{netProfitAed === null ? '—' : formatMoney(netProfitAed)}</p></div>
         </div>
         <div className="grid grid-cols-4 gap-2">
-          <button type="button" onClick={openWhatsappClient} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">WhatsApp</button>
+          <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">{contactActionLabel}</button>
           <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-50 text-blue-700 text-[10px] font-black uppercase">Деталь +</button>
           <button type="button" onClick={() => setIsEstimateOpen(true)} className="h-10 rounded-xl bg-gray-900 text-white text-[10px] font-black uppercase">Смета</button>
           <button type="button" onClick={handleSellClick} className={`h-10 rounded-xl text-[10px] font-black uppercase ${order.isSold ? 'bg-white border border-green-600 text-green-700' : 'bg-green-600 text-white'}`}>{order.isSold ? 'Продано' : 'Продать'}</button>

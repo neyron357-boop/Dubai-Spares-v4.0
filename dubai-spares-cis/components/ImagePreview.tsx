@@ -16,6 +16,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) =>
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
+  const [isInteracting, setIsInteracting] = useState(false);
 
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
@@ -114,6 +115,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) =>
             const p1 = { x: e.touches[0].clientX, y: e.touches[0].clientY };
             const p2 = { x: e.touches[1].clientX, y: e.touches[1].clientY };
             const nextZoom = clamp(Number((pinchZoomStart.current * (pinchDistance(p1, p2) / pinchStartDistance.current)).toFixed(3)), 1, 4);
+            setIsInteracting(true);
             setZoom(nextZoom);
             return;
           }
@@ -121,6 +123,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) =>
           touchEndX.current = e.targetTouches[0].clientX;
           if (zoom <= 1 || !dragStart.current) return;
           e.preventDefault();
+          setIsInteracting(true);
           const dx = e.targetTouches[0].clientX - dragStart.current.x;
           const dy = e.targetTouches[0].clientY - dragStart.current.y;
           const maxOffset = (zoom - 1) * 220;
@@ -134,9 +137,11 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) =>
           }
           pinchStartDistance.current = null;
           dragStart.current = null;
+          setIsInteracting(false);
         }}
         onMouseDown={(e) => {
           if (zoom <= 1) return;
+          setIsInteracting(true);
           dragStart.current = { x: e.clientX, y: e.clientY };
           dragPanStart.current = pan;
         }}
@@ -149,14 +154,15 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) =>
         }}
         onMouseUp={() => {
           dragStart.current = null;
+          setIsInteracting(false);
         }}
         style={{ touchAction: zoom > 1 ? 'none' : 'pan-y' }}
       >
         <img
           src={images[currentIndex]}
           alt={`Preview ${currentIndex + 1}`}
-          className="max-w-full max-h-full object-contain transition-transform duration-150"
-          style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}
+          className={`max-w-full max-h-full object-contain ${isInteracting ? '' : 'transition-transform duration-150'}`}
+          style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`, willChange: 'transform' }}
           onClick={(e) => {
             e.stopPropagation();
             setZoom((z) => (z > 1 ? 1 : 2));

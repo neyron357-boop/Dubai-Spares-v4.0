@@ -10,7 +10,7 @@ import { createUuid } from '../id';
 import { offlineDb } from '../storage/offlineDb';
 import { NotificationType, createFollowupFromAction, pushNotification } from '../notificationCenter';
 import { loadAppSettings } from '../appSettings';
-import { addRadarManualSelection, getRadarManualSelections } from '../radarManualSelections';
+import { addRadarManualSelection, getRadarManualSelections, RADAR_MANUAL_SELECTIONS_EVENT, removeRadarManualSelectionsForPair } from '../radarManualSelections';
 
 const RADAR_DISMISSED_SHOPS_KEY = 'radar_dismissed_shop_keys';
 const RADAR_VISITED_SHOPS_KEY = 'radar_visited_shop_keys';
@@ -21,6 +21,7 @@ type TemplateLanguage = 'ru' | 'en' | 'tj';
 type TemplateLength = 'short' | 'full';
 type BrandMatchMode = 'strict' | 'soft';
 type RadarUxMode = 'quick' | 'advanced';
+type RadarListType = 'manual' | 'recommendation';
 
 type RadarEntry = ReturnType<typeof getRadarShopMatches>[number] & { order: Order; score: number; recommendation: 'high' | 'medium' | 'low'; reasons: string[]; openNow: boolean | null };
 type RadarSupplierGroup = {
@@ -213,13 +214,18 @@ const RadarScreen: React.FC = () => {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [proximityAlerts, setProximityAlerts] = useState<Set<string>>(new Set());
   const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
+  const [listType, setListType] = useState<RadarListType>('manual');
 
   useEffect(() => { void offlineDb.getRadarInteractions().then(setInteractions); }, []);
   useEffect(() => {
     const update = () => setManualSelections(getRadarManualSelections());
     update();
     window.addEventListener('focus', update);
-    return () => window.removeEventListener('focus', update);
+    window.addEventListener(RADAR_MANUAL_SELECTIONS_EVENT, update as EventListener);
+    return () => {
+      window.removeEventListener('focus', update);
+      window.removeEventListener(RADAR_MANUAL_SELECTIONS_EVENT, update as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -293,7 +299,9 @@ const RadarScreen: React.FC = () => {
         });
       })
       .filter((entry) => {
-        const manualForSupplier = manualSelections.filter((item) => item.supplierId === entry.shop.id);
+        const manualForSupplier = manualSelections
+          .filter((item) => item.supplierId === entry.shop.id)
+          .filter((item) => (item.source || 'manual') === listType);
         if (manualForSupplier.length === 0) return false;
         return manualForSupplier.some((item) => {
           if (item.orderId !== entry.order.id) return false;
@@ -316,7 +324,7 @@ const RadarScreen: React.FC = () => {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 50);
-  }, [orders, shops, position, activeFilter, openNowOnly, radiusKm, fallbackNearby, dismissedShopKeys, visitedShopKeys, interactions, brandMatchMode, activeOrder, searchQuery, manualSelections]);
+  }, [orders, shops, position, activeFilter, openNowOnly, radiusKm, fallbackNearby, dismissedShopKeys, visitedShopKeys, interactions, brandMatchMode, activeOrder, searchQuery, manualSelections, listType]);
 
   useEffect(() => {
     const nearby = entries.filter((entry) => Number.isFinite(entry.distance) && (entry.distance || 0) <= 200 && entry.recommendation !== 'low');
@@ -442,6 +450,8 @@ const RadarScreen: React.FC = () => {
       result: 'hidden',
       comment: 'Point hidden from radar list'
     });
+    removeRadarManualSelectionsForPair(entry.shop.id, entry.order.id);
+    setManualSelections(getRadarManualSelections());
   };
 
   const markVisitedShop = async (entry: RadarEntry) => {
@@ -530,6 +540,11 @@ const RadarScreen: React.FC = () => {
         saveDismissedRadarShops(next);
         return next;
       });
+    }
+
+    if (result === 'found') {
+      removeRadarManualSelectionsForPair(entry.shop.id, entry.order.id);
+      setManualSelections(getRadarManualSelections());
     }
 
     if (loadAppSettings().radarAutoNextPoint && chainMode) {
@@ -705,7 +720,7 @@ const RadarScreen: React.FC = () => {
       const partIds = order.parts.map((part) => part.id).slice(0, 5);
       topMatches.forEach((group) => {
         partIds.forEach((partId) => {
-          addRadarManualSelection({ supplierId: group.shop.id, orderId: order.id, partId });
+          addRadarManualSelection({ supplierId: group.shop.id, orderId: order.id, partId, source: 'recommendation' });
           added += 1;
         });
       });
@@ -736,6 +751,11 @@ const RadarScreen: React.FC = () => {
             <button type="button" onClick={() => setMode('field')} className={`rounded-lg px-3 py-1 text-[10px] font-black uppercase ${mode === 'field' ? 'bg-emerald-400 text-slate-900' : 'border border-emerald-300/50 text-emerald-200'}`}>Field Mode</button>
             <button type="button" onClick={() => setMode('detail')} className={`rounded-lg px-3 py-1 text-[10px] font-black uppercase ${mode === 'detail' ? 'bg-emerald-400 text-slate-900' : 'border border-emerald-300/50 text-emerald-200'}`}>Detail Mode</button>
           </div>
+        </div>
+
+        <div className="inline-flex rounded-lg border border-emerald-300/40 p-1">
+          <button type="button" onClick={() => setListType('manual')} className={`h-9 min-w-[130px] rounded-md px-3 text-[10px] font-black uppercase ${listType === 'manual' ? 'bg-emerald-400 text-slate-900' : 'text-emerald-100'}`}>Ручной список</button>
+          <button type="button" onClick={() => setListType('recommendation')} className={`h-9 min-w-[130px] rounded-md px-3 text-[10px] font-black uppercase ${listType === 'recommendation' ? 'bg-emerald-400 text-slate-900' : 'text-emerald-100'}`}>Рекомендации</button>
         </div>
 
         {activeOrder && (
