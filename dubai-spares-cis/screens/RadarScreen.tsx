@@ -1,72 +1,36 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronUp, EyeOff, HelpCircle, ListChecks, Loader2, MapPinned, MessageCircle, Navigation, PhoneCall, ShieldCheck, Telescope } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Clock3, Filter, Loader2, MapPinned, MessageCircle, Navigation, PhoneCall, Radar, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { useStore } from '../store';
-import { Order, RadarInteraction, RadarInteractionResult, Shop } from '../types';
-import { buildNearestShopsChain, buildRoutePlanMapLink, buildShopMapLink, getRadarShopMatches, getShopRecommendationDiagnostics } from '../shopMatching';
+import { Order, Shop } from '../types';
+import { getRadarShopMatches, buildRoutePlanMapLink } from '../shopMatching';
 import { fetchRadarShops } from '../radarShops';
 import { toast } from '../feedback';
-import { createUuid } from '../id';
-import { offlineDb } from '../storage/offlineDb';
-import { NotificationType, createFollowupFromAction, pushNotification } from '../notificationCenter';
-import { loadAppSettings } from '../appSettings';
 
-const RADAR_DISMISSED_SHOPS_KEY = 'radar_dismissed_shop_keys';
-const RADAR_VISITED_SHOPS_KEY = 'radar_visited_shop_keys';
+type SortMode = 'matches' | 'profit' | 'distance' | 'smart';
 
-type RadarFilter = 'all' | 'new_only' | 'used_only';
-type RadarMode = 'field' | 'detail';
-type TemplateLanguage = 'ru' | 'en' | 'tj';
-type TemplateLength = 'short' | 'full';
-type BrandMatchMode = 'strict' | 'soft';
-type RadarUxMode = 'quick' | 'advanced';
+type SupplierOrderMatch = {
+  orderId: string;
+  orderLabel: string;
+  partLabel: string;
+  potentialProfit: number;
+};
 
-type RadarEntry = ReturnType<typeof getRadarShopMatches>[number] & { order: Order; score: number; recommendation: 'high' | 'medium' | 'low'; reasons: string[]; openNow: boolean | null };
+type SupplierAggregate = {
+  supplier_id: string;
+  supplier_name: string;
+  supplier: Shop;
+  distance_km: number | null;
+  eta_minutes: number | null;
+  match_count: number;
+  total_potential_profit: number;
+  score: number;
+  is_open_now: boolean | null;
+  orders: SupplierOrderMatch[];
+};
 
-const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
-const RADIUS_STEPS = [2, 5, 10, 20] as const;
-const radarSettings = loadAppSettings();
-const GEO_OPTIONS: PositionOptions = { enableHighAccuracy: radarSettings.gpsHighAccuracy, maximumAge: 8000, timeout: 15000 };
+const RADIUS_STEPS = [5, 10, 20, 40];
 
 const hasValidCoordinates = (latitude: number, longitude: number) => Number.isFinite(latitude) && Number.isFinite(longitude) && latitude !== 0 && longitude !== 0;
-
-const readDismissedRadarShops = () => {
-  try {
-    const raw = localStorage.getItem(RADAR_DISMISSED_SHOPS_KEY);
-    if (!raw) return new Set<string>();
-    const parsed = JSON.parse(raw);
-    return new Set<string>(Array.isArray(parsed) ? parsed.map((item) => String(item)) : []);
-  } catch {
-    return new Set<string>();
-  }
-};
-
-const saveDismissedRadarShops = (keys: Set<string>) => {
-  try {
-    localStorage.setItem(RADAR_DISMISSED_SHOPS_KEY, JSON.stringify(Array.from(keys)));
-  } catch {
-    // ignore storage failures
-  }
-};
-
-const readVisitedRadarShops = () => {
-  try {
-    const raw = localStorage.getItem(RADAR_VISITED_SHOPS_KEY);
-    if (!raw) return new Set<string>();
-    const parsed = JSON.parse(raw);
-    return new Set<string>(Array.isArray(parsed) ? parsed.map((item) => String(item)) : []);
-  } catch {
-    return new Set<string>();
-  }
-};
-
-const saveVisitedRadarShops = (keys: Set<string>) => {
-  try {
-    localStorage.setItem(RADAR_VISITED_SHOPS_KEY, JSON.stringify(Array.from(keys)));
-  } catch {
-    // ignore storage failures
-  }
-};
 
 const parseHourMinute = (value: string) => {
   const match = value.match(/^(\d{1,2}):(\d{2})$/);
@@ -74,7 +38,6 @@ const parseHourMinute = (value: string) => {
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
-
   return (hours * 60) + minutes;
 };
 
@@ -106,732 +69,348 @@ const parseSlotPair = (raw: unknown): Array<{ start: number; end: number }> => {
   return [];
 };
 
-const getShopTimeContext = (shop: Shop) => {
-  if (!shop.businessHoursTimezone) return { dayKey: DAY_KEYS[new Date().getDay()], minutes: (new Date().getHours() * 60) + new Date().getMinutes() };
-  try {
-    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: shop.businessHoursTimezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
-    const parts = formatter.formatToParts(new Date());
-    const weekday = (parts.find((part) => part.type === 'weekday')?.value || 'sun').toLowerCase();
-    const hours = Number(parts.find((part) => part.type === 'hour')?.value || 0);
-    const minutes = Number(parts.find((part) => part.type === 'minute')?.value || 0);
-    const weekdayMap: Record<string, typeof DAY_KEYS[number]> = { sun: 'sun', mon: 'mon', tue: 'tue', wed: 'wed', thu: 'thu', fri: 'fri', sat: 'sat' };
-    return { dayKey: weekdayMap[weekday.slice(0, 3)] || 'sun', minutes: (Number.isFinite(hours) ? hours : 0) * 60 + (Number.isFinite(minutes) ? minutes : 0) };
-  } catch {
-    return { dayKey: DAY_KEYS[new Date().getDay()], minutes: (new Date().getHours() * 60) + new Date().getMinutes() };
-  }
-};
-
 const getOpenState = (shop: Shop): boolean | null => {
   if (!shop.businessHours) return null;
-  const context = getShopTimeContext(shop);
-  const daySchedule = (shop.businessHours[context.dayKey] ?? shop.businessHours.default ?? shop.businessHours.all) as unknown;
+  const now = new Date();
+  const dayKeys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const dayKey = dayKeys[now.getDay()];
+  const minutes = (now.getHours() * 60) + now.getMinutes();
+  const daySchedule = (shop.businessHours as Record<string, unknown>)[dayKey];
   const slots = parseSlotPair(daySchedule);
-  if (slots.length === 0) return false;
-  return slots.some((slot) => (slot.start <= slot.end ? context.minutes >= slot.start && context.minutes <= slot.end : context.minutes >= slot.start || context.minutes <= slot.end));
+  if (slots.length === 0) return null;
+  return slots.some((slot) => slot.end < slot.start ? minutes >= slot.start || minutes <= slot.end : minutes >= slot.start && minutes <= slot.end);
 };
 
-const getRecommendation = (score: number): 'high' | 'medium' | 'low' => {
-  if (score >= 80) return 'high';
-  if (score >= 50) return 'medium';
-  return 'low';
+const getPotentialProfit = (order: Order) => {
+  const variantPrices = order.parts.flatMap((part) => part.variants.map((variant) => Number(variant.priceAed) || 0));
+  const avg = variantPrices.length > 0 ? variantPrices.reduce((sum, value) => sum + value, 0) / variantPrices.length : 800;
+  const markup = Math.max(8, Number(order.markupPercent) || 20);
+  return Math.round((avg * markup) / 100);
 };
 
-const km = (distance: number | null) => Number.isFinite(distance) ? (distance || 0) / 1000 : Number.POSITIVE_INFINITY;
-
-const makeWhatsappLink = (shopPhone: string, message: string) => {
-  const normalizedPhone = shopPhone.replace(/[^\d+]/g, '');
-  if (!normalizedPhone) return null;
-  return `https://wa.me/${normalizedPhone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`;
-};
-
-const getDismissKey = (shopId: string, orderId: string) => `order:${orderId}:shop:${shopId}`;
-const getLegacyDismissKey = (shop: Shop) => shop.location?.trim().toLowerCase() ? `location:${shop.location.trim().toLowerCase()}` : `id:${shop.id}`;
-
-const templateText = (order: Order, lang: TemplateLanguage, length: TemplateLength) => {
-  const parts = order.parts.map((item) => item.name).filter(Boolean);
-  const part = parts[0] || 'part';
-  const partSuffix = parts.length > 1 ? `, ${parts.slice(1, 3).join(', ')}${parts.length > 3 ? ' и другие' : ''}` : '';
-  const baseContext = `${order.brand} ${order.model} ${order.year || ''}`.trim();
-  if (lang === 'ru') {
-    if (length === 'short') return `Привет! Нужна ${part}${partSuffix} на ${baseContext}. Есть в наличии? Цена?`;
-    return `Салам! Нужна ${part}${partSuffix} на ${baseContext}.\nСостояние: new/used. VIN: ${order.vin || 'нет'}.\nЦена? Есть фото? Локация? Ответьте пожалуйста 🙏`;
-  }
-  if (lang === 'tj') {
-    if (length === 'short') return `Салом! Ба ман ${part}${partSuffix} барои ${baseContext} лозим. Ҳаст? Нарх?`;
-    return `Салом! Ба ман ${part}${partSuffix} барои ${baseContext} лозим.\nҲолат: new/used. VIN: ${order.vin || 'нест'}.\nНарх? Сурат доред? Локатсия? Раҳмат.`;
-  }
-  if (length === 'short') return `Hi! Need ${part}${partSuffix} for ${baseContext}. Available? Price?`;
-  return `Hi! Need ${part}${partSuffix} for ${baseContext}. VIN: ${order.vin || 'N/A'}. Please share condition (new/used), price, photos, and location.`;
-};
-
-
-const getPrimaryPart = (order: Order, partId?: string) => {
-  if (partId) {
-    const exact = order.parts.find((item) => item.id === partId);
-    if (exact) return exact;
-  }
-  return order.parts[0] || null;
+const buildWhatsappLink = (phone: string | undefined, text: string) => {
+  if (!phone) return null;
+  const digits = phone.replace(/[^\d]/g, '');
+  if (!digits) return null;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 };
 
 const RadarScreen: React.FC = () => {
   const { orders, suppliers } = useStore();
-  const navigate = useNavigate();
-  const location = useLocation();
   const [shops, setShops] = useState<Shop[]>([]);
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
-  const [mode, setMode] = useState<RadarMode>(radarSettings.radarDefaultMode);
-  const [activeFilter, setActiveFilter] = useState<RadarFilter>(radarSettings.radarDefaultFilter === 'open_now' ? 'all' : radarSettings.radarDefaultFilter);
-  const [openNowOnly, setOpenNowOnly] = useState(radarSettings.radarDefaultFilter === 'open_now');
-  const [radiusKm, setRadiusKm] = useState<number>(radarSettings.radarDefaultRadiusKm);
-  const [customRadiusKm, setCustomRadiusKm] = useState('25');
-  const [isCustomRadius, setIsCustomRadius] = useState(false);
-  const [brandMatchMode, setBrandMatchMode] = useState<BrandMatchMode>(radarSettings.radarBrandStrict ? 'strict' : 'soft');
-  const [fallbackNearby, setFallbackNearby] = useState(radarSettings.radarFallbackNearby);
-  const [templateLanguage, setTemplateLanguage] = useState<TemplateLanguage>((['ru','en'].includes(radarSettings.waTemplateLanguage) ? radarSettings.waTemplateLanguage : 'ru') as TemplateLanguage);
-  const [templateLength, setTemplateLength] = useState<TemplateLength>('short');
-  const [dismissedShopKeys, setDismissedShopKeys] = useState<Set<string>>(() => readDismissedRadarShops());
-  const [visitedShopKeys, setVisitedShopKeys] = useState<Set<string>>(() => readVisitedRadarShops());
-  const [showHiddenBlock, setShowHiddenBlock] = useState(false);
-  const [showVisitedBlock, setShowVisitedBlock] = useState(false);
-  const [isFetchingShops, setIsFetchingShops] = useState(true);
-  const [chainMode, setChainMode] = useState(false);
-  const [uxMode, setUxMode] = useState<RadarUxMode>('quick');
-  const [chainIndex, setChainIndex] = useState(0);
-  const [interactions, setInteractions] = useState<RadarInteraction[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedShopIds, setSelectedShopIds] = useState<Set<string>>(new Set());
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [proximityAlerts, setProximityAlerts] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [radiusKm, setRadiusKm] = useState(5);
+  const [openNowOnly, setOpenNowOnly] = useState(false);
+  const [minMatches, setMinMatches] = useState(1);
+  const [minProfit, setMinProfit] = useState(0);
+  const [maxDistance, setMaxDistance] = useState(40);
+  const [brandStrictness, setBrandStrictness] = useState<'soft' | 'strict'>('soft');
+  const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [sortMode, setSortMode] = useState<SortMode>('matches');
+  const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set());
+  const [selectedSupplierIds, setSelectedSupplierIds] = useState<Set<string>>(new Set());
+  const [visibleCount, setVisibleCount] = useState(12);
+  const [showFilters, setShowFilters] = useState(false);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const cacheRef = useRef(new Map<string, SupplierAggregate[]>());
 
-  useEffect(() => { void offlineDb.getRadarInteractions().then(setInteractions); }, []);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedQuery(query), 300);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
 
   useEffect(() => {
     let active = true;
-    const load = async () => {
-      setIsFetchingShops(true);
-      try {
-        const loadedShops = await fetchRadarShops(suppliers);
+    setLoading(true);
+    fetchRadarShops(suppliers)
+      .then((items) => {
         if (!active) return;
-        setShops(loadedShops);
-        setSyncError(null);
-      } catch (error) {
-        if (!active) return;
-        const message = error instanceof Error ? error.message : 'Ошибка загрузки магазинов';
-        setSyncError(message);
-      } finally {
-        if (active) setIsFetchingShops(false);
-      }
+        setShops(items);
+      })
+      .catch((error) => toast(error instanceof Error ? error.message : 'Radar sync error', 'error'))
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
     };
-    void load();
-    return () => { active = false; };
-  }, [suppliers, location.key]);
-
-  const activeOrderId = useMemo(() => new URLSearchParams(location.search).get('orderId'), [location.search]);
-  const activeOrder = useMemo(() => orders.find((order) => order.id === activeOrderId) || null, [orders, activeOrderId]);
+  }, [suppliers]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition((pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => undefined, GEO_OPTIONS);
-    const id = navigator.geolocation.watchPosition((pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => undefined, GEO_OPTIONS);
-    return () => navigator.geolocation.clearWatch(id);
+    navigator.geolocation.getCurrentPosition((geo) => setPosition({ lat: geo.coords.latitude, lng: geo.coords.longitude }), () => undefined);
   }, []);
 
-  const entries = useMemo<RadarEntry[]>(() => {
-    const successfulByShop = new Map<string, number>();
-    const badByShop = new Map<string, number>();
-    interactions.forEach((item) => {
-      if (item.result === 'found') successfulByShop.set(item.shopId, (successfulByShop.get(item.shopId) || 0) + 1);
-      if (item.result === 'wrong_info') badByShop.set(item.shopId, (badByShop.get(item.shopId) || 0) + 1);
-    });
-
-    return orders
-      .filter((o) => !o.isArchived && !o.isSold)
-      .filter((order) => !activeOrder || order.id === activeOrder.id)
-      .flatMap((order) => {
-        const candidates = getRadarShopMatches(order, shops, position)
-          .filter((item) => brandMatchMode === 'soft' || item.matchScore >= 0);
-
-        const radiusFiltered = candidates.filter((item) => km(item.distance) <= radiusKm);
-        const pool = radiusFiltered.length >= 3 || !fallbackNearby ? radiusFiltered : candidates.filter((item) => km(item.distance) <= radiusKm * 2);
-
-        return pool.map((item) => {
-          const openNow = getOpenState(item.shop);
-          const diagnostics = getShopRecommendationDiagnostics(item.shop, order);
-          const brandCategory = diagnostics.brandMatched ? (diagnostics.modelMatched ? 30 : 22) : 8;
-          const distanceFactor = !Number.isFinite(item.distance) ? 5 : Math.max(0, 15 - Math.round((item.distance || 0) / 800));
-          const openFactor = openNow === true ? 10 : openNow === null ? 6 : 1;
-          const historyFactor = Math.min(20, (successfulByShop.get(item.shop.id) || 0) * 5);
-          const responseFactor = interactions.some((x) => x.shopId === item.shop.id && x.result === 'message_sent') ? 8 : 4;
-          const reliabilityFactor = Math.max(0, 15 - ((badByShop.get(item.shop.id) || 0) * 5));
-          const sensitivityBoost = Number.isFinite(item.distance) && (item.distance || 0) <= 2500 ? 8 : 3;
-          const score = Math.max(0, Math.min(100, brandCategory + distanceFactor + openFactor + historyFactor + responseFactor + reliabilityFactor + sensitivityBoost));
-
-          const reasons = [
-            diagnostics.brandMatched ? 'Бренд совпадает' : 'Слабое совпадение по бренду',
-            Number.isFinite(item.distance) ? `Дистанция ${(item.distance! / 1000).toFixed(1)} км` : 'Нет точных координат',
-            openNow === true ? 'Открыт сейчас' : openNow === false ? 'Сейчас закрыт' : 'Часы неизвестны'
-          ];
-
-          return { ...item, order, score, recommendation: getRecommendation(score), reasons, openNow };
-        });
-      })
-      .filter((entry) => {
-        if (activeFilter === 'new_only') return entry.shop.type !== 'scrapyard';
-        if (activeFilter === 'used_only') return entry.shop.type === 'scrapyard';
-        return true;
-      })
-      .filter((entry) => !openNowOnly || entry.openNow === true)
-      .filter((entry) => !dismissedShopKeys.has(getDismissKey(entry.shop.id, entry.order.id)) && !dismissedShopKeys.has(getLegacyDismissKey(entry.shop)))
-      .filter((entry) => !visitedShopKeys.has(getDismissKey(entry.shop.id, entry.order.id)))
-      .filter((entry) => {
-        const q = searchQuery.trim().toLowerCase();
-        if (!q) return true;
-        return [entry.shop.name, entry.shop.location || '', entry.order.brand, entry.order.model].join(' ').toLowerCase().includes(q);
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 50);
-  }, [orders, shops, position, activeFilter, openNowOnly, radiusKm, fallbackNearby, dismissedShopKeys, visitedShopKeys, interactions, brandMatchMode, activeOrder, searchQuery]);
-
   useEffect(() => {
-    const nearby = entries.filter((entry) => Number.isFinite(entry.distance) && (entry.distance || 0) <= 200 && entry.recommendation !== 'low');
-    if (nearby.length === 0) return;
-
-    nearby.forEach((entry) => {
-      if (proximityAlerts.has(entry.shop.id)) return;
-      const next = new Set(proximityAlerts);
-      next.add(entry.shop.id);
-      setProximityAlerts(next);
-
-    pushNotification({
-        type: NotificationType.RADAR_RESULT,
-        title: `Рядом поставщик: ${entry.shop.name}`,
-        message: `До точки около ${Math.max(1, Math.round((entry.distance || 0)))} м. Рекомендуем остановиться.`,
-        supplierId: entry.shop.id,
-        mapUrl: buildShopMapLink(entry.shop),
-        lat: entry.shop.latitude,
-        lng: entry.shop.longitude,
-        distanceM: entry.distance || undefined,
-        source: 'radar',
-        severity: 'critical'
-      });
-
-      try {
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = 'sine';
-        osc.frequency.value = 1040;
-        gain.gain.value = 0.08;
-        osc.start();
-        osc.stop(ctx.currentTime + 0.25);
-      } catch {
-        // audio may be blocked by browser autoplay policy
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisibleCount((count) => count + 8);
       }
+    }, { rootMargin: '280px' });
+    if (bottomRef.current) observer.observe(bottomRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const activeOrders = useMemo(() => orders.filter((order) => !order.isArchived && !order.isSold), [orders]);
+
+  const aggregated = useMemo(() => {
+    const cacheKey = JSON.stringify({
+      orderIds: activeOrders.map((item) => item.id),
+      shopIds: shops.map((item) => item.id),
+      position,
+      radiusKm,
+      openNowOnly,
+      minMatches,
+      minProfit,
+      maxDistance,
+      brandStrictness,
+      query: debouncedQuery,
+      sortMode
     });
-  }, [entries, proximityAlerts]);
+    const cached = cacheRef.current.get(cacheKey);
+    if (cached) return cached;
 
-  const chainRoute = useMemo(() => {
-    const selected = entries.filter((entry) => selectedShopIds.has(entry.shop.id)).map((entry) => entry.shop);
-    const preferred = (selected.length > 0 ? selected : entries.filter((entry) => entry.recommendation === 'high' && entry.openNow !== false).map((entry) => entry.shop));
-    const unique = Array.from(new Map(preferred.map((shop) => [shop.id, shop])).values()).slice(0, 12);
-    return buildNearestShopsChain(unique, position);
-  }, [entries, position, selectedShopIds]);
+    const grouped = new Map<string, SupplierAggregate>();
 
-  useEffect(() => {
-    if (!chainMode || chainRoute.length === 0) {
-      setChainIndex(0);
-      return;
-    }
-    setChainIndex((current) => Math.min(current, chainRoute.length - 1));
-  }, [chainMode, chainRoute]);
+    activeOrders.forEach((order) => {
+      const matches = getRadarShopMatches(order, shops, position)
+        .filter((item) => brandStrictness === 'soft' || item.matchScore >= 9)
+        .filter((item) => item.distance === null || (item.distance / 1000) <= Math.min(radiusKm, maxDistance));
 
-  const currentStop = chainRoute[chainIndex] || null;
+      matches.forEach((item) => {
+        const distanceKm = item.distance === null ? null : item.distance / 1000;
+        const existing = grouped.get(item.shop.id);
+        const profit = getPotentialProfit(order);
+        const partName = order.parts[0]?.name || 'Part';
+        const match: SupplierOrderMatch = {
+          orderId: order.id,
+          orderLabel: `${order.brand} ${order.model}`,
+          partLabel: partName,
+          potentialProfit: profit
+        };
 
-  const openShopNavigation = (shop: Shop) => {
-    if (hasValidCoordinates(shop.latitude, shop.longitude)) {
-      window.open(`https://www.google.com/maps/dir/?api=1&destination=${shop.latitude},${shop.longitude}`, '_blank');
-    } else {
-      window.open(buildShopMapLink(shop), '_blank');
-    }
-  };
+        if (!existing) {
+          grouped.set(item.shop.id, {
+            supplier_id: item.shop.id,
+            supplier_name: item.shop.name,
+            supplier: item.shop,
+            distance_km: distanceKm,
+            eta_minutes: distanceKm === null ? null : Math.max(4, Math.round(distanceKm * 4.2)),
+            match_count: 1,
+            total_potential_profit: profit,
+            score: Math.max(0, Math.round(item.radarScore * 6)),
+            is_open_now: getOpenState(item.shop),
+            orders: [match]
+          });
+          return;
+        }
 
-  const openShopRoute = async (entry: RadarEntry) => {
-    const shop = entry.shop;
-    openShopNavigation(shop);
-
-    await addInteraction({
-      shopId: entry.shop.id,
-      orderId: entry.order.id,
-      partId: getPrimaryPart(entry.order)?.id,
-      result: 'route_opened',
-      comment: 'Route opened from radar card'
-    });
-
-    pushNotification({
-      type: NotificationType.RADAR_ACTION,
-      title: `Маршрут открыт: ${shop.name}`,
-      message: 'Пользователь открыл маршрут до точки',
-      supplierId: shop.id,
-      mapUrl: buildShopMapLink(shop),
-      lat: shop.latitude,
-      lng: shop.longitude,
-      source: 'radar',
-      severity: 'info'
-    });
-  };
-
-  const openChainRoute = () => {
-    if (chainRoute.length === 0) {
-      toast('Нет точек для маршрута', 'error');
-      return;
-    }
-    window.open(buildRoutePlanMapLink(chainRoute, position), '_blank');
-  };
-
-  const restoreHiddenShop = (key: string) => {
-    const next = new Set(dismissedShopKeys);
-    next.delete(key);
-    setDismissedShopKeys(next);
-    saveDismissedRadarShops(next);
-  };
-
-  const restoreVisitedShop = (key: string) => {
-    const next = new Set(visitedShopKeys);
-    next.delete(key);
-    setVisitedShopKeys(next);
-    saveVisitedRadarShops(next);
-  };
-
-  const hideShop = async (entry: RadarEntry) => {
-    const next = new Set(dismissedShopKeys);
-    next.add(getDismissKey(entry.shop.id, entry.order.id));
-    setDismissedShopKeys(next);
-    saveDismissedRadarShops(next);
-    await addInteraction({
-      shopId: entry.shop.id,
-      orderId: entry.order.id,
-      partId: getPrimaryPart(entry.order)?.id,
-      result: 'hidden',
-      comment: 'Point hidden from radar list'
-    });
-  };
-
-  const markVisitedShop = async (entry: RadarEntry) => {
-    const key = getDismissKey(entry.shop.id, entry.order.id);
-    const next = new Set(visitedShopKeys);
-    next.add(key);
-    setVisitedShopKeys(next);
-    saveVisitedRadarShops(next);
-    await addInteraction({
-      shopId: entry.shop.id,
-      orderId: entry.order.id,
-      partId: getPrimaryPart(entry.order)?.id,
-      result: 'visited',
-      comment: 'Marked as at shop'
-    });
-  };
-
-  const addInteraction = async (payload: Omit<RadarInteraction, 'id' | 'createdAt'>) => {
-    const interaction: RadarInteraction = { id: createUuid(), createdAt: Date.now(), ...payload };
-    await offlineDb.saveRadarInteraction(interaction);
-    window.dispatchEvent(new CustomEvent('radar-interaction-saved'));
-    setInteractions((prev) => [interaction, ...prev]);
-    if (navigator.onLine) {
-      await offlineDb.markRadarInteractionSynced(interaction.id);
-    }
-  };
-
-  const onWhatsApp = async (entry: RadarEntry) => {
-    const message = templateText(entry.order, templateLanguage, templateLength);
-    const link = makeWhatsappLink(entry.shop.phone || '', message);
-    if (!link) {
-      toast('У точки нет WhatsApp номера', 'error');
-      return;
-    }
-    window.open(link, '_blank');
-    await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, result: 'message_sent', comment: 'WhatsApp opened' });
-    pushNotification({
-      type: NotificationType.RADAR_ACTION,
-      title: `WhatsApp: ${entry.shop.name}`,
-      message: 'Отправлен WhatsApp из Radar Live',
-      orderId: entry.order.id,
-      supplierId: entry.shop.id,
-      phone: entry.shop.phone || undefined,
-      brand: entry.order.brand,
-      carModel: entry.order.model,
-      source: 'radar',
-      severity: 'info'
-    });
-    createFollowupFromAction({
-      orderId: entry.order.id,
-      supplierId: entry.shop.id,
-      phone: entry.shop.phone || undefined,
-      brand: entry.order.brand,
-      carModel: entry.order.model,
-      carYear: Number(entry.order.year) || undefined,
-      route: `/order/${entry.order.id}`,
-      source: 'radar',
-      minutes: 30
-    });
-    toast('Шаблон WhatsApp открыт', 'success');
-  };
-
-  const quickResult = async (entry: RadarEntry, result: RadarInteractionResult) => {    const primaryPart = getPrimaryPart(entry.order);
-    await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, partId: primaryPart?.id, result, availability: result === 'found' ? 'in_stock' : undefined, comment: primaryPart ? `Target part: ${primaryPart.name}` : undefined });
-    pushNotification({
-      type: NotificationType.RADAR_RESULT,
-      title: `Radar: ${entry.shop.name}`,
-      message: `Результат: ${result.replace('_', ' ')}`,
-      orderId: entry.order.id,
-      supplierId: entry.shop.id,
-      phone: entry.shop.phone || undefined,
-      mapUrl: buildShopMapLink(entry.shop),
-      lat: entry.shop.latitude,
-      lng: entry.shop.longitude,
-      source: 'radar',
-      severity: result === 'found' ? 'success' : result === 'wrong_info' ? 'warning' : 'info'
-    });
-    if (chainMode) {
-      if (result === 'found') toast('Точка закрыла потребность. Можно завершить поиск.', 'success');
-      else setChainIndex((index) => Math.min(index + 1, Math.max(chainRoute.length - 1, 0)));
-    }
-    if (loadAppSettings().radarAutoHideAfterAction) {
-      setDismissedShopKeys((prev) => {
-        const next = new Set(prev);
-        next.add(getDismissKey(entry.shop.id, entry.order.id));
-        saveDismissedRadarShops(next);
-        return next;
+        existing.match_count += 1;
+        existing.total_potential_profit += profit;
+        existing.distance_km = existing.distance_km === null ? distanceKm : (distanceKm === null ? existing.distance_km : Math.min(existing.distance_km, distanceKm));
+        existing.eta_minutes = existing.distance_km === null ? null : Math.max(4, Math.round(existing.distance_km * 4.2));
+        existing.score = Math.round((existing.score + (item.radarScore * 6)) / 2);
+        existing.orders.push(match);
       });
-    }
+    });
 
-    if (loadAppSettings().radarAutoNextPoint && chainMode) {
-      setChainIndex((idx) => Math.min(idx + 1, Math.max(0, chainRoute.length - 1)));
-    }
-
-    toast('Результат сохранен (offline-first)', 'success');
-  };
-
-  const openCalls = async (phone?: string, entry?: RadarEntry) => {
-    if (!phone) return;
-    window.open(`tel:${phone}`, '_self');
-    if (entry) {
-      await addInteraction({
-        shopId: entry.shop.id,
-        orderId: entry.order.id,
-        partId: getPrimaryPart(entry.order)?.id,
-        result: 'called',
-        comment: 'Phone call opened from radar card'
+    const q = debouncedQuery.trim().toLowerCase();
+    const rows = Array.from(grouped.values())
+      .map((item) => ({ ...item, orders: item.orders.slice(0, 12) }))
+      .filter((item) => !openNowOnly || item.is_open_now === true)
+      .filter((item) => item.match_count >= minMatches)
+      .filter((item) => item.total_potential_profit >= minProfit)
+      .filter((item) => q.length === 0 || [item.supplier_name, item.supplier.location || '', ...item.orders.map((order) => order.orderLabel)].join(' ').toLowerCase().includes(q))
+      .sort((a, b) => {
+        if (sortMode === 'profit') return b.total_potential_profit - a.total_potential_profit;
+        if (sortMode === 'distance') return (a.distance_km ?? 9999) - (b.distance_km ?? 9999);
+        if (sortMode === 'smart') {
+          const smartA = (a.match_count * 3) + (a.total_potential_profit / 500) + (a.score / 20) - ((a.distance_km ?? 30) / 2);
+          const smartB = (b.match_count * 3) + (b.total_potential_profit / 500) + (b.score / 20) - ((b.distance_km ?? 30) / 2);
+          return smartB - smartA;
+        }
+        return (b.match_count - a.match_count) || ((a.distance_km ?? 9999) - (b.distance_km ?? 9999)) || (b.score - a.score);
       });
-      pushNotification({
-        type: NotificationType.RADAR_ACTION,
-        title: `Звонок: ${entry.shop.name}`,
-        message: 'Совершен звонок из Radar Live',
-        orderId: entry.order.id,
-        supplierId: entry.shop.id,
-        phone,
-        source: 'radar',
-        severity: 'info'
-      });
-      createFollowupFromAction({
-        orderId: entry.order.id,
-        supplierId: entry.shop.id,
-        phone,
-        brand: entry.order.brand,
-        carModel: entry.order.model,
-        carYear: Number(entry.order.year) || undefined,
-        route: `/order/${entry.order.id}`,
-        source: 'radar',
-        minutes: 30
-      });
-    }
-  };
 
-  const pendingSync = interactions.filter((item) => !item.syncedAt).length;
+    cacheRef.current.set(cacheKey, rows);
+    return rows;
+  }, [activeOrders, shops, position, radiusKm, openNowOnly, minMatches, minProfit, maxDistance, brandStrictness, debouncedQuery, sortMode]);
 
-  const applyRadarStatus = async (entry: RadarEntry, value: string) => {
-    if (value === 'hide') {
-      await hideShop(entry);
-      return;
-    }
-    if (value === 'at_shop') {
-      await markVisitedShop(entry);
-      await quickResult(entry, 'follow_up');
-      return;
-    }
-    if (value === 'found' || value === 'not_found' || value === 'follow_up' || value === 'wrong_info') {
-      await quickResult(entry, value);
-    }
-  };
+  const visibleSuppliers = aggregated.slice(0, visibleCount);
+  const offlineCount = shops.filter((shop) => getOpenState(shop) === false).length;
 
-  const toggleSelected = (shopId: string) => {
-    setSelectedShopIds((prev) => {
+  const toggleExpanded = (supplierId: string) => {
+    setExpandedSuppliers((prev) => {
       const next = new Set(prev);
-      if (next.has(shopId)) next.delete(shopId);
-      else next.add(shopId);
+      if (next.has(supplierId)) next.delete(supplierId);
+      else next.add(supplierId);
       return next;
     });
   };
 
-  const contactSelectedShops = async () => {
-    const selectedEntries = entries.filter((entry) => selectedShopIds.has(entry.shop.id));
-    if (selectedEntries.length === 0) {
-      toast('Выберите магазины для массового WhatsApp', 'error');
+  const toggleSelected = (supplierId: string) => {
+    setSelectedSupplierIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(supplierId)) next.delete(supplierId);
+      else next.add(supplierId);
+      return next;
+    });
+  };
+
+  const openRoute = (supplier: Shop) => {
+    if (hasValidCoordinates(supplier.latitude, supplier.longitude)) {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${supplier.latitude},${supplier.longitude}`, '_blank');
       return;
     }
-    for (const entry of selectedEntries.slice(0, 20)) {
-      const message = templateText(entry.order, templateLanguage, templateLength);
-      const link = makeWhatsappLink(entry.shop.phone || '', message);
-      if (!link) continue;
-      window.open(link, '_blank');
-      await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, partId: entry.order.parts[0]?.id, result: 'message_sent', comment: 'Bulk WhatsApp' });
-    }
-    toast(`Открыто WA чатов: ${Math.min(selectedEntries.length, 20)}`, 'success');
+    window.open('https://www.google.com/maps', '_blank');
   };
 
-  const syncNow = async () => {
-    try {
-      setSyncError(null);
-      const unsynced = interactions.filter((item) => !item.syncedAt);
-      for (const item of unsynced) await offlineDb.markRadarInteractionSynced(item.id);
-      setInteractions((prev) => prev.map((item) => item.syncedAt ? item : { ...item, syncedAt: Date.now() }));
-      toast('Очередь синхронизирована', 'success');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'sync failed';
-      setSyncError(message);
-      toast('Ошибка sync очереди', 'error');
-    }
+  const buildRoute = () => {
+    const selected = aggregated.filter((item) => selectedSupplierIds.has(item.supplier_id)).map((item) => item.supplier);
+    if (selected.length === 0) return;
+    window.open(buildRoutePlanMapLink(selected, position), '_blank');
   };
 
-
-  const hiddenEntries = Array.from(dismissedShopKeys)
-    .map((key) => {
-      const match = key.match(/^order:(.+):shop:(.+)$/);
-      if (!match) return null;
-      const orderById = orders.find((item) => item.id === match[1]);
-      const shopById = shops.find((item) => item.id === match[2]);
-      if (!orderById || !shopById) return null;
-      return { key, order: orderById, shop: shopById };
-    })
-    .filter((item): item is { key: string; order: Order; shop: Shop } => !!item);
-
-  const hasShopsInRadius = entries.some((entry) => Number.isFinite(entry.distance) && ((entry.distance || 0) / 1000) <= radiusKm);
-
-  const visitedEntries = Array.from(visitedShopKeys)
-    .map((key) => {
-      const match = key.match(/^order:(.+):shop:(.+)$/);
-      if (!match) return null;
-      const orderById = orders.find((item) => item.id === match[1]);
-      const shopById = shops.find((item) => item.id === match[2]);
-      if (!orderById || !shopById) return null;
-      return { key, order: orderById, shop: shopById };
-    })
-    .filter((item): item is { key: string; order: Order; shop: Shop } => !!item);
+  const activeFiltersCount = [openNowOnly, minMatches > 1, minProfit > 0, maxDistance < 40, brandStrictness === 'strict'].filter(Boolean).length;
 
   return (
-    <div className="p-4 pb-20 space-y-3 bg-slate-950 min-h-full text-white">
-      <section className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-3 space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h1 className="text-sm font-black uppercase tracking-wider text-emerald-300">Radar Live</h1>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setMode('field')} className={`rounded-lg px-3 py-1 text-[10px] font-black uppercase ${mode === 'field' ? 'bg-emerald-400 text-slate-900' : 'border border-emerald-300/50 text-emerald-200'}`}>Field Mode</button>
-            <button type="button" onClick={() => setMode('detail')} className={`rounded-lg px-3 py-1 text-[10px] font-black uppercase ${mode === 'detail' ? 'bg-emerald-400 text-slate-900' : 'border border-emerald-300/50 text-emerald-200'}`}>Detail Mode</button>
+    <div className="min-h-full bg-slate-100 px-3 pb-24 pt-3 text-slate-900">
+      <section className="sticky top-0 z-20 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search supplier / brand / area" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-2 text-sm outline-none" />
           </div>
+          <select value={radiusKm} onChange={(event) => setRadiusKm(Number(event.target.value))} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium">
+            {RADIUS_STEPS.map((item) => <option key={item} value={item}>{item} km</option>)}
+          </select>
+          <button type="button" onClick={() => setShowFilters(true)} className="relative inline-flex h-9 items-center rounded-lg border border-slate-200 px-2 text-xs font-medium">
+            <Filter className="mr-1 h-4 w-4" />
+            Filters
+            {activeFiltersCount > 0 && <span className="ml-1 rounded-full bg-slate-900 px-1.5 text-[10px] text-white">{activeFiltersCount}</span>}
+          </button>
+          <button type="button" onClick={() => window.location.reload()} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200"><RefreshCw className="h-4 w-4" /></button>
         </div>
-
-        {activeOrder && (
-          <div className="rounded-xl border border-emerald-200/20 bg-slate-900/40 p-2 text-[11px] text-emerald-100">
-            <p className="font-black uppercase">Активный заказ: {activeOrder.brand} {activeOrder.model} {activeOrder.year}</p>
-            <p className="text-emerald-100/80">Цель поиска: {activeOrder.parts.slice(0, 3).map((part) => part.name).join(', ') || 'детали не указаны'}</p>
-          </div>
-        )}
-
-        <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Поиск: магазин / район / бренд" className="w-full rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-white outline-none" />
-
-        <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-300/30 bg-slate-900/40 p-2">
-          <p className="text-[11px] font-black uppercase text-emerald-200">UX mode</p>
-          <div className="inline-flex rounded-lg border border-emerald-300/40 p-1">
-            <button type="button" onClick={() => setUxMode('quick')} className={`h-9 min-w-[88px] rounded-md px-3 text-[10px] font-black uppercase ${uxMode === 'quick' ? 'bg-emerald-400 text-slate-900' : 'text-emerald-100'}`}>Quick</button>
-            <button type="button" onClick={() => setUxMode('advanced')} className={`h-9 min-w-[88px] rounded-md px-3 text-[10px] font-black uppercase ${uxMode === 'advanced' ? 'bg-emerald-400 text-slate-900' : 'text-emerald-100'}`}>Advanced</button>
-          </div>
-        </div>
-
-        <div className="space-y-1 text-[10px]">
-          <p className="text-slate-400 uppercase font-black">A) Маршрут</p>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setChainMode((v) => !v)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-400 px-3 py-2 font-black uppercase text-slate-950"><Navigation size={12} /> Chain Route</button>
-            <button type="button" onClick={openChainRoute} className="rounded-xl border border-emerald-300/40 px-3 py-2 font-black uppercase text-emerald-100">Open route</button>
-            <button type="button" onClick={() => setShowHiddenBlock((v) => !v)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 font-black uppercase text-slate-200">{showHiddenBlock ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Скрытые ({dismissedShopKeys.size})</button>
-            <button type="button" onClick={() => setShowVisitedBlock((v) => !v)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 font-black uppercase text-slate-200">{showVisitedBlock ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Посещенные ({visitedShopKeys.size})</button>
-            <button type="button" onClick={contactSelectedShops} className="rounded-xl border border-emerald-300/40 px-3 py-2 font-black uppercase text-emerald-100">Contact selected</button>
-          </div>
-        </div>
-
-        <div className="space-y-1 text-[10px]">
-          <p className="text-slate-400 uppercase font-black">B) Фильтры</p>
-          <div className="flex flex-wrap gap-2">
-            {uxMode === 'advanced' && (['all', 'new_only', 'used_only'] as RadarFilter[]).map((item) => (
-              <button key={item} type="button" onClick={() => setActiveFilter(item)} className={`rounded-lg px-3 py-1 font-black uppercase ${activeFilter === item ? 'bg-slate-100 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>{item}</button>
-            ))}
-            <button type="button" onClick={() => setOpenNowOnly((v) => !v)} className={`rounded-lg px-3 py-1 font-black uppercase ${openNowOnly ? 'bg-slate-100 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>Open now</button>
-            <button type="button" onClick={() => setBrandMatchMode((v) => (v === 'strict' ? 'soft' : 'strict'))} className="inline-flex items-center gap-1 rounded-lg border border-slate-600 px-3 py-1 font-black uppercase text-slate-300">Brand strict: {brandMatchMode}<HelpCircle size={11} title="Brand strict = показывать только точки с профилем нужного бренда" /></button>
-            {uxMode === 'advanced' && <button type="button" onClick={() => setFallbackNearby((v) => !v)} className="inline-flex items-center gap-1 rounded-lg border border-amber-400/40 px-3 py-1 font-black uppercase text-amber-200"><Telescope size={11} /> fallback nearby<HelpCircle size={11} title="Fallback nearby = если мало совпадений, расширить подбор по типу" /></button>}
-          </div>
-        </div>
-
-        <div className="space-y-1 text-[10px]">
-          <p className="text-slate-400 uppercase font-black">C) Радиус</p>
-          <div className="flex items-center flex-wrap gap-2">
-            {RADIUS_STEPS.map((step) => (
-              <button key={step} type="button" onClick={() => { setIsCustomRadius(false); setRadiusKm(step); }} className={`rounded px-2 py-1 font-black ${radiusKm === step ? 'bg-emerald-400 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>{step} км</button>
-            ))}
-            <button type="button" onClick={() => { setIsCustomRadius(true); const parsed = Number(customRadiusKm); if (Number.isFinite(parsed) && parsed > 0) setRadiusKm(parsed); }} className={`rounded px-2 py-1 font-black ${isCustomRadius ? 'bg-emerald-400 text-slate-900' : 'border border-slate-600 text-slate-300'}`}>Custom</button>
-            {isCustomRadius && <input value={customRadiusKm} onChange={(event) => { setCustomRadiusKm(event.target.value); const parsed = Number(event.target.value); if (Number.isFinite(parsed) && parsed > 0) setRadiusKm(parsed); }} className="w-16 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-slate-100" placeholder="км" />}
-          </div>
-        </div>
-
-        {uxMode === 'advanced' && <div className="space-y-1 text-[10px]">
-          <p className="text-slate-400 uppercase font-black">D) WA + язык</p>
-          <div className="flex items-center flex-wrap gap-2">
-            {(['ru', 'en', 'tj'] as TemplateLanguage[]).map((lang) => <button key={lang} type="button" onClick={() => setTemplateLanguage(lang)} className={`rounded border px-2 py-1 uppercase ${templateLanguage === lang ? 'border-emerald-300 text-emerald-200' : 'border-slate-600 text-slate-300'}`}>{lang}</button>)}
-            <button type="button" onClick={() => setTemplateLength((v) => (v === 'short' ? 'full' : 'short'))} className="rounded border border-slate-600 px-2 py-1 text-slate-300 uppercase">{templateLength === 'short' ? 'Коротко' : 'Подробно'}</button>
-          </div>
-        </div>}
-
-        <div className="flex items-center justify-between text-[11px] text-emerald-100/80">
-          <p>Активных точек: {entries.length}. Очередь offline sync: {pendingSync > 0 ? `⏳ ${pendingSync}` : '0'}.</p>
-          <button type="button" onClick={syncNow} className="rounded-lg border border-emerald-300/50 px-2 py-1 text-[10px] font-black uppercase text-emerald-200">Sync now</button>
-        </div>
-
-        {syncError && <p className="text-[10px] text-rose-200">Sync error: {syncError}</p>}
       </section>
 
-      {showHiddenBlock && (
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3 space-y-2">
-          <p className="text-xs font-black uppercase text-slate-200">Скрытые позиции</p>
-          {hiddenEntries.length === 0 ? <p className="text-xs text-slate-400">Нет скрытых позиций</p> : hiddenEntries.map((entry) => (
-            <div key={entry.key} className="flex items-center justify-between gap-2 rounded-lg bg-slate-800/70 px-2 py-2">
-              <p className="text-xs text-slate-200 truncate">{entry.shop.name} · {entry.order.brand} {entry.order.model}</p>
-              <button type="button" onClick={() => restoreHiddenShop(entry.key)} className="rounded-lg border border-emerald-400/40 px-2 py-1 text-[10px] font-black uppercase text-emerald-200">Вернуть</button>
+      <p className="px-1 py-2 text-xs text-slate-500">{aggregated.length} suppliers • {aggregated.reduce((sum, item) => sum + item.match_count, 0)} matches • {offlineCount} offline</p>
+
+      {loading ? (
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="mb-3 h-4 w-1/3 rounded bg-slate-200" />
+              <div className="mb-2 h-3 w-2/3 rounded bg-slate-200" />
+              <div className="h-9 rounded bg-slate-200" />
             </div>
           ))}
-        </section>
-      )}
-
-      {showVisitedBlock && (
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3 space-y-2">
-          <p className="text-xs font-black uppercase text-slate-200">Посещенные</p>
-          {visitedEntries.length === 0 ? <p className="text-xs text-slate-400">Нет посещенных позиций</p> : visitedEntries.map((entry) => (
-            <div key={entry.key} className="flex items-center justify-between gap-2 rounded-lg bg-slate-800/70 px-2 py-2">
-              <p className="text-xs text-slate-200 truncate">{entry.shop.name} · {entry.order.brand} {entry.order.model}</p>
-              <button type="button" onClick={() => restoreVisitedShop(entry.key)} className="rounded-lg border border-emerald-400/40 px-2 py-1 text-[10px] font-black uppercase text-emerald-200">Вернуть</button>
-            </div>
-          ))}
-        </section>
-      )}
-
-      {chainMode && currentStop && (
-        <section className="rounded-2xl border border-blue-400/30 bg-blue-500/10 p-3 space-y-2">
-          <p className="text-xs font-black uppercase text-blue-200">Route sheet · прогресс {chainIndex + 1}/{chainRoute.length}</p>
-          <p className="text-sm font-black">Текущая точка: {currentStop.name}</p>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => openShopNavigation(currentStop)} className="rounded-xl bg-blue-400 px-3 py-2 text-[11px] font-black uppercase text-slate-900">Navigate</button>
-            <button type="button" onClick={() => setChainIndex((i) => Math.min(i + 1, chainRoute.length - 1))} className="rounded-xl border border-blue-300/40 px-3 py-2 text-[11px] font-black uppercase text-blue-100">Next</button>
-          </div>
-          <div className="max-h-28 overflow-y-auto space-y-1">
-            {chainRoute.map((shop, index) => (
-              <button key={shop.id} type="button" onClick={() => setChainIndex(index)} className={`w-full text-left rounded-lg px-2 py-1 text-[10px] ${index === chainIndex ? 'bg-blue-500/30 text-blue-50' : 'bg-slate-900/40 text-blue-100/80'}`}>
-                {index + 1}. {shop.name}
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {isFetchingShops ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 text-center text-slate-300"><Loader2 className="mx-auto mb-2 animate-spin" size={18} /> Загрузка точек...</div>
-      ) : entries.length === 0 ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">
-          {syncError
-            ? 'Ошибка загрузки магазинов. Проверьте подключение к интернету.'
-            : `В радиусе ${radiusKm} км магазинов не найдено. Попробуйте увеличить радиус.`}
         </div>
-      ) : !hasShopsInRadius ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">
-          {`В радиусе ${radiusKm} км магазинов не найдено. Попробуйте увеличить радиус.`}
+      ) : visibleSuppliers.length === 0 ? (
+        <section className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 text-center">
+          <Radar className="mx-auto mb-3 h-7 w-7 text-slate-400" />
+          <p className="text-sm text-slate-700">No suppliers found within selected radius</p>
+          <button type="button" onClick={() => setRadiusKm((value) => Math.min(40, value + 5))} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Increase radius</button>
+        </section>
+      ) : (
+        <section className="space-y-3">
+          {visibleSuppliers.map((item) => {
+            const expanded = expandedSuppliers.has(item.supplier_id);
+            const selected = selectedSupplierIds.has(item.supplier_id);
+            return (
+              <article key={item.supplier_id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h2 className="text-[19px] font-semibold leading-5 text-slate-900">{item.supplier_name}</h2>
+                    <p className="mt-1 text-sm font-medium text-slate-600">{item.match_count} matches</p>
+                  </div>
+                  <div className="text-right text-sm text-slate-600">
+                    <p>{item.distance_km === null ? 'n/a' : `${item.distance_km.toFixed(1)} km`}</p>
+                    <p className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />~{item.eta_minutes ?? '?'} min</p>
+                    <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs ${item.is_open_now === true ? 'bg-emerald-100 text-emerald-700' : item.is_open_now === false ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{item.is_open_now === true ? 'Open' : item.is_open_now === false ? 'Closed' : 'Hours n/a'}</span>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <p className="text-base font-bold text-slate-900">Potential value: {item.total_potential_profit.toLocaleString()} AED</p>
+                  <p className="text-xs text-slate-500">Score {item.score}</p>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  <button type="button" onClick={() => openRoute(item.supplier)} className="inline-flex h-10 w-full items-center justify-center gap-1 rounded-xl bg-slate-900 text-sm font-semibold text-white"><Navigation className="h-4 w-4" />Маршрут</button>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => {
+                      const link = buildWhatsappLink(item.supplier.phone, `Hi! Need parts for ${item.orders[0]?.orderLabel || 'vehicle'}.`);
+                      if (!link) return;
+                      window.open(link, '_blank');
+                    }} className="inline-flex h-9 flex-1 items-center justify-center gap-1 rounded-xl border border-slate-200 text-sm"><MessageCircle className="h-4 w-4" />WhatsApp</button>
+                    <button type="button" onClick={() => item.supplier.phone && window.open(`tel:${item.supplier.phone}`, '_self')} className="inline-flex h-9 flex-1 items-center justify-center gap-1 rounded-xl border border-slate-200 text-sm"><PhoneCall className="h-4 w-4" />Call</button>
+                    <button type="button" onClick={() => toggleSelected(item.supplier_id)} className={`inline-flex h-9 items-center justify-center rounded-xl border px-3 text-xs ${selected ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-600'}`}>{selected ? 'Selected' : 'Select'}</button>
+                  </div>
+                </div>
+
+                <button type="button" onClick={() => toggleExpanded(item.supplier_id)} className="mt-3 inline-flex items-center gap-1 text-sm text-slate-600">
+                  <SlidersHorizontal className="h-4 w-4" /> {expanded ? 'Hide matches' : 'Show matches'}
+                </button>
+
+                <div className={`overflow-hidden transition-all duration-200 ease-in ${expanded ? 'max-h-[420px] opacity-100 mt-2' : 'max-h-0 opacity-0'}`}>
+                  <div className="space-y-1 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                    {expanded ? item.orders.map((order) => (
+                      <p key={`${item.supplier_id}-${order.orderId}-${order.partLabel}`}>• {order.orderLabel} — {order.partLabel} — {order.potentialProfit} AED</p>
+                    )) : null}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+          <div ref={bottomRef} className="flex justify-center py-2 text-xs text-slate-400">{visibleSuppliers.length < aggregated.length ? <Loader2 className="h-4 w-4 animate-spin" /> : 'End of list'}</div>
+        </section>
+      )}
+
+      {selectedSupplierIds.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white p-3 shadow-[0_-8px_24px_rgba(0,0,0,0.08)]">
+          <div className="mx-auto flex max-w-xl items-center justify-between gap-3">
+            <p className="text-sm text-slate-700">{selectedSupplierIds.size} suppliers selected</p>
+            <button type="button" onClick={buildRoute} className="inline-flex h-10 items-center gap-1 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white"><MapPinned className="h-4 w-4" />Build route</button>
+          </div>
         </div>
-      ) : entries.map((entry) => {
-        const recTone = entry.recommendation === 'high' ? 'bg-emerald-500/20 text-emerald-200' : entry.recommendation === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-rose-500/20 text-rose-200';
-        return (
-          <article key={`${entry.order.id}-${entry.shop.id}`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <label className="inline-flex items-center gap-1 text-[10px] text-slate-300 mb-1">
-                  <input type="checkbox" checked={selectedShopIds.has(entry.shop.id)} onChange={() => toggleSelected(entry.shop.id)} /> Add to route
-                </label>
-                <p className="text-base font-black truncate">{entry.shop.name}</p>
-                <p className="text-sm text-slate-300 truncate">{entry.order.brand} {entry.order.model} {entry.order.year || ''}</p>
-              </div>
-              <div className="text-right">
-                <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${recTone}`}>Рекомендация: {entry.recommendation}</span>
-              </div>
+      )}
+
+      {showFilters && (
+        <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setShowFilters(false)}>
+          <div className="absolute bottom-0 left-0 right-0 rounded-t-3xl bg-white p-4" onClick={(event) => event.stopPropagation()}>
+            <h3 className="mb-3 text-base font-semibold">Filters</h3>
+            <div className="space-y-3 text-sm">
+              <label className="flex items-center justify-between"><span>Open now</span><input type="checkbox" checked={openNowOnly} onChange={(event) => setOpenNowOnly(event.target.checked)} /></label>
+              <label className="block">Min match count
+                <input type="number" min={1} value={minMatches} onChange={(event) => setMinMatches(Math.max(1, Number(event.target.value) || 1))} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2" />
+              </label>
+              <label className="block">Min potential profit (AED)
+                <input type="number" min={0} value={minProfit} onChange={(event) => setMinProfit(Math.max(0, Number(event.target.value) || 0))} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2" />
+              </label>
+              <label className="block">Max distance (km)
+                <input type="number" min={1} max={40} value={maxDistance} onChange={(event) => setMaxDistance(Math.max(1, Math.min(40, Number(event.target.value) || 40)))} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2" />
+              </label>
+              <label className="block">Brand strictness
+                <select value={brandStrictness} onChange={(event) => setBrandStrictness(event.target.value as 'soft' | 'strict')} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2">
+                  <option value="soft">Soft</option>
+                  <option value="strict">Strict</option>
+                </select>
+              </label>
+              <label className="block">Sort mode
+                <select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2">
+                  <option value="matches">By matches</option>
+                  <option value="profit">By profit</option>
+                  <option value="distance">By distance</option>
+                  <option value="smart">Smart</option>
+                </select>
+              </label>
+              <button type="button" onClick={() => setShowFilters(false)} className="h-10 w-full rounded-xl bg-slate-900 text-white">Apply</button>
             </div>
-
-            <div className="flex items-center flex-wrap gap-2 text-xs text-slate-200">
-              <span className="font-black text-emerald-200 text-sm">{Number.isFinite(entry.distance) ? `${((entry.distance || 0) / 1000).toFixed(1)} км` : 'Distance n/a'}</span>
-              <span>• ETA bike ~{Number.isFinite(entry.distance) ? Math.max(3, Math.round((entry.distance || 0) / 230)) : '?'} мин</span>
-              <span>•</span>
-              {entry.openNow === true ? <span className="text-emerald-300">Open now</span> : entry.openNow === false ? <span className="text-rose-300">Closed</span> : <span>hours unknown</span>}
-              <span>•</span>
-              <span>Score {Math.round(entry.score)}/100</span>
-            </div>
-
-            {mode === 'detail' && (
-              <div className="rounded-xl bg-slate-800/70 p-2 text-[11px] text-slate-200 space-y-1">
-                {entry.reasons.slice(0, 3).map((reason) => <p key={`${entry.shop.id}-${reason}`}>• {reason}</p>)}
-                <p>Тип: {entry.shop.type || 'unknown'} · Зона: {entry.shop.zone || 'n/a'}</p>
-                <p>Последние взаимодействия: {interactions.filter((item) => item.shopId === entry.shop.id).slice(0, 5).map((item) => item.result).join(', ') || 'нет'}</p>
-              </div>
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => void openShopRoute(entry)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
-              <button type="button" onClick={() => onWhatsApp(entry)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><MessageCircle size={12} /> WhatsApp</button>
-              <button type="button" onClick={() => void openCalls(entry.shop.phone, entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
-              <button type="button" onClick={() => void hideShop(entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
-              <button type="button" onClick={() => { void markVisitedShop(entry); void quickResult(entry, 'follow_up'); }} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
-              {mode === 'detail' && <button type="button" onClick={() => navigate(`/order/${entry.order.id}`)} className="rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">Карточка</button>}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                defaultValue=""
-                onChange={(e) => {
-                  const value = e.target.value;
-                  e.target.value = '';
-                  void applyRadarStatus(entry, value);
-                }}
-                className="h-10 min-w-[230px] rounded-xl border border-slate-600 bg-slate-900 px-3 text-[11px] font-black uppercase text-slate-100"
-              >
-                <option value="" disabled>Выбрать статус позиции…</option>
-                <option value="hide">Hide</option>
-                <option value="at_shop">Я у магазина</option>
-                <option value="found">Found</option>
-                <option value="not_found">Not found</option>
-                <option value="follow_up">Follow up</option>
-                <option value="wrong_info">Wrong info</option>
-              </select>
-              {chainMode && <button type="button" onClick={() => setChainIndex((i) => Math.min(i + 1, chainRoute.length - 1))} className="inline-flex items-center gap-1 rounded-lg border border-blue-400/40 px-2 py-1 text-[10px] font-black uppercase text-blue-200">Next</button>}
-            </div>
-          </article>
-        );
-      })}
-
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3 text-[11px] text-slate-300 space-y-1">
-        <p className="inline-flex items-center gap-1"><ShieldCheck size={12} /> Offline-first: все результаты пишутся в IndexedDB.</p>
-        <p className="inline-flex items-center gap-1"><ListChecks size={12} /> One-scale recommendation: High (80-100) / Medium (50-79) / Low (&lt;50).</p>
-      </section>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
