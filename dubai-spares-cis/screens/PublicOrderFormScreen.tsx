@@ -223,7 +223,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [manualModelMode, setManualModelMode] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { settings } = useAppSettings();
-  const publicFormUrl = `${window.location.origin}/public-order-form`;
+  const publicFormUrl = `${window.location.origin}${window.location.pathname}#/request`;
   const refCode = useMemo(() => {
     try {
       return new URLSearchParams(window.location.search).get('ref') || '';

@@ -55,6 +55,7 @@ const VendorSlider: React.FC = () => {
       .filter((order) => order.visibleParts.length > 0)
       .sort((a, b) => (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt));
   }, [orders, brandFilter, selectedBrand, priorityFilter, statusFilter]);
+  const current = orderSlides[index];
 
   useEffect(() => {
     if (index >= orderSlides.length) setIndex(0);
@@ -77,7 +78,6 @@ const VendorSlider: React.FC = () => {
   }, [selectedBrand, current?.id]);
 
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
-  const current = orderSlides[index];
 
   const goTo = (next: number) => {
     const bounded = Math.max(0, Math.min(orderSlides.length - 1, next));

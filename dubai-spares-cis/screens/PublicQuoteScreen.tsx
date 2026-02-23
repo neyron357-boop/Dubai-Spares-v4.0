@@ -799,23 +799,14 @@ const getMissingTableColumn = (error: unknown, table: string): string | null => 
   return null;
 };
 
-const buildPdfBlob = (objects: string[]): Blob => {
-  let pdf = '%PDF-1.4\n';
-  const offsets: number[] = [];
-  objects.forEach((obj) => {
-    offsets.push(pdf.length);
-    pdf += `${obj}\n`;
-  });
-  const xrefOffset = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.forEach((offset) => {
-    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
-  });
-  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-  return new Blob([pdf], { type: 'application/pdf' });
-};
+const escapeHtml = (value: string) => value
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
 
-const createInvoicePdf = ({
+const openInvoicePrintWindow = ({
   order,
   lineItems,
   totals,
@@ -827,84 +818,93 @@ const createInvoicePdf = ({
   totals: { delivery: number; packing: number; serviceFee: number; totalAed: number };
   logoUrl?: string;
   signatureUrl?: string;
-}): Blob => {
-  const escape = (text: string) => text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-  const commands: string[] = [];
-  let y = 790;
+}) => {
+  const printWindow = window.open('', '_blank', 'noopener,noreferrer');
+  if (!printWindow) return false;
 
-  const text = (x: number, value: string, size = 10) => {
-    commands.push(`BT /F1 ${size} Tf ${x} ${y} Td (${escape(value)}) Tj ET`);
-  };
-  const row = (label: string, value: string, size = 10) => {
-    text(44, label, size);
-    text(330, value, size);
-    y -= size + 8;
-  };
-  const hLine = (atY: number) => {
-    commands.push(`0.9 0.9 0.92 RG 1 w 40 ${atY} m 555 ${atY} l S`);
-  };
+  const rows = lineItems.map((item, idx) => `
+    <tr>
+      <td>${idx + 1}</td>
+      <td>${escapeHtml(item.name)}</td>
+      <td style="text-align:right">${item.price.toFixed(2)} AED</td>
+    </tr>
+  `).join('');
 
-  commands.push('0.96 0.97 1 rg 40 744 515 70 re f');
-  commands.push('0.16 0.32 0.95 rg 48 758 140 42 re f');
-  y = 783;
-  text(58, 'DUBAI SPARES UAE', 14);
-  y = 766;
-  text(58, 'PROFESSIONAL INVOICE', 8);
-  y = 786;
-  text(340, 'Invoice', 16);
-  y = 768;
-  text(340, `Date: ${new Date().toLocaleDateString()}`);
-  y = 754;
-  text(340, `Invoice ID: ${order.id.slice(0, 8).toUpperCase()}`);
+  printWindow.document.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Invoice ${order.id.slice(0, 8).toUpperCase()}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #111827; }
+    .card { max-width: 860px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 16px; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+    .logo { max-height: 52px; max-width: 180px; object-fit: contain; }
+    .muted { color: #6b7280; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0; }
+    th, td { border-bottom: 1px solid #e5e7eb; padding: 10px 8px; font-size: 13px; vertical-align: top; }
+    th { text-align: left; background: #f8fafc; }
+    .totals { margin-top: 12px; margin-left: auto; max-width: 320px; }
+    .totals p { display: flex; justify-content: space-between; margin: 6px 0; font-size: 13px; }
+    .total { font-size: 17px !important; font-weight: 700; border-top: 1px solid #d1d5db; padding-top: 8px; margin-top: 8px; }
+    .signature { margin-top: 24px; border-top: 1px solid #e5e7eb; padding-top: 12px; }
+    @media print { body { padding: 0; } .card { border: none; } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div>
+        ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" class="logo" alt="Company logo" />` : '<h2 style="margin:0">DUBAI SPARES UAE</h2>'}
+        <p class="muted" style="margin:8px 0 0">Professional Invoice</p>
+      </div>
+      <div style="text-align:right">
+        <h2 style="margin:0">INVOICE</h2>
+        <p class="muted" style="margin:8px 0 0">Invoice ID: ${order.id.slice(0, 8).toUpperCase()}</p>
+        <p class="muted" style="margin:4px 0 0">Date: ${new Date().toLocaleDateString()}</p>
+      </div>
+    </div>
 
-  y = 724;
-  hLine(y + 8);
-  row('Bill To:', `${order.clientName || 'Customer'} (${order.customerContact || 'N/A'})`, 11);
-  row('Vehicle:', `${order.brand} ${order.model} ${order.year || ''}`.trim());
-  row('VIN:', order.vin || '-');
+    <p><strong>Bill to:</strong> ${escapeHtml(order.clientName || 'Customer')} (${escapeHtml(order.customerContact || 'N/A')})</p>
+    <p><strong>Vehicle:</strong> ${escapeHtml(`${order.brand} ${order.model} ${order.year || ''}`.trim())}</p>
+    <p><strong>VIN:</strong> ${escapeHtml(order.vin || '-')}</p>
 
-  y -= 6;
-  commands.push(`0.16 0.32 0.95 rg 40 ${y + 4} 515 22 re f`);
-  y += 18;
-  text(48, 'PART NAME', 9);
-  text(420, 'AMOUNT (AED)', 9);
-  y -= 14;
+    <table>
+      <thead>
+        <tr>
+          <th style="width:52px">#</th>
+          <th>Part</th>
+          <th style="width:170px;text-align:right">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
 
-  lineItems.slice(0, 14).forEach((item, index) => {
-    if (index % 2 === 0) commands.push(`0.98 0.98 0.99 rg 40 ${y - 8} 515 20 re f`);
-    commands.push(`0.9 0.9 0.92 RG 0.5 w 40 ${y - 8} m 555 ${y - 8} l S`);
-    text(48, `${index + 1}. ${item.name}`);
-    text(430, item.price.toFixed(2));
-    y -= 20;
-  });
+    <div class="totals">
+      <p><span>Delivery</span><span>${totals.delivery.toFixed(2)} AED</span></p>
+      <p><span>Packing</span><span>${totals.packing.toFixed(2)} AED</span></p>
+      <p><span>Service fee</span><span>${totals.serviceFee.toFixed(2)} AED</span></p>
+      <p class="total"><span>Total</span><span>${totals.totalAed.toFixed(2)} AED</span></p>
+    </div>
 
-  y -= 8;
-  hLine(y + 14);
-  row('Delivery', `${totals.delivery.toFixed(2)} AED`, 11);
-  row('Packing', `${totals.packing.toFixed(2)} AED`, 11);
-  row('Service Fee', `${totals.serviceFee.toFixed(2)} AED`, 11);
+    <div class="signature">
+      <p class="muted" style="margin:0 0 8px">Owner signature</p>
+      ${signatureUrl ? `<img src="${escapeHtml(signatureUrl)}" style="max-height:72px;max-width:220px;object-fit:contain" alt="Signature" />` : '<p class="muted" style="margin:0">Configured in public settings</p>'}
+    </div>
+  </div>
+  <script>
+    window.addEventListener('load', () => {
+      window.focus();
+      window.print();
+    });
+  </script>
+</body>
+</html>`);
 
-  commands.push(`0.12 0.16 0.25 rg 40 ${y - 2} 515 30 re f`);
-  y += 16;
-  text(48, 'TOTAL', 13);
-  text(412, `${totals.totalAed.toFixed(2)} AED`, 13);
-
-  y -= 48;
-  row('Company logo', logoUrl || 'Configured in public settings', 8);
-  row('Note', 'Generated as structured invoice PDF', 8);
-  commands.push('0.78 0.8 0.85 RG 1 w 40 96 m 555 96 l S');
-  commands.push('0.2 0.22 0.26 rg');
-  commands.push(`BT /F1 9 Tf 44 80 Td (${escape('Owner signature:')}) Tj ET`);
-  commands.push(`BT /F1 8 Tf 140 80 Td (${escape(signatureUrl || 'Configured in public settings')}) Tj ET`);
-
-  const content = commands.join('\n');
-  return buildPdfBlob([
-    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
-    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
-    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj',
-    `4 0 obj << /Length ${content.length} >> stream\n${content}\nendstream endobj`,
-    '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj'
-  ]);
+  printWindow.document.close();
+  return true;
 };
 
 const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
@@ -1325,7 +1325,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const downloadPdf = async () => {
     if (!order) return;
-    const blob = createInvoicePdf({
+    const opened = openInvoicePrintWindow({
       order,
       lineItems: foundParts.map(({ part, clientAed }) => ({ name: part.name, price: clientAed })),
       totals: {
@@ -1337,12 +1337,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       logoUrl,
       signatureUrl
     });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `invoice-${order.id}.pdf`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-    logEvent('pdf_download');
+    if (opened) logEvent('pdf_download');
   };
 
   if (loading) return <div className="min-h-screen bg-[#f5f5f7] text-slate-900 grid place-items-center">{t.loading}</div>;

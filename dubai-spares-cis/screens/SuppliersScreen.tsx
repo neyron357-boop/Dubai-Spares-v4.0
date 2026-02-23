@@ -123,6 +123,12 @@ const formatRadarDate = (ts: number) =>
   new Date(ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 
+const pickSupplierBrands = (supplier: Supplier) => {
+  const main = Array.isArray(supplier.mainBrands) ? supplier.mainBrands.filter(Boolean) : [];
+  const fallback = Array.isArray(supplier.brands) ? supplier.brands.filter(Boolean) : [];
+  return main.length > 0 ? main : fallback;
+};
+
 const radarResultLabel = (result: RadarInteraction['result']) => {
   if (result === 'found') return '✅ Found';
   if (result === 'not_found') return '❌ Not found';
@@ -301,7 +307,7 @@ const SuppliersScreen: React.FC = () => {
 
   const uniqueBrandsForFilter = useMemo(() => {
     const set = new Set<string>();
-    suppliers.forEach((supplier) => (supplier.mainBrands || supplier.brands || []).forEach((brand) => set.add(brand)));
+    suppliers.forEach((supplier) => pickSupplierBrands(supplier).forEach((brand) => set.add(brand)));
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [suppliers]);
 
@@ -353,11 +359,11 @@ const SuppliersScreen: React.FC = () => {
         || s.phone.includes(searchTerm)
         || (s.zone || '').toLowerCase().includes(normalized)
         || (s.brands || []).some((b) => b.toLowerCase().includes(normalized))
-        || (s.mainBrands || []).some((b) => b.toLowerCase().includes(normalized));
+        || pickSupplierBrands(s).some((b) => b.toLowerCase().includes(normalized));
 
       const supplierTypes = Array.isArray(s.types) && s.types.length > 0 ? s.types : [s.type || 'new_parts'];
       const matchesType = filterType === 'all' || supplierTypes.includes(filterType);
-      const matchesBrand = filterBrand === 'all' || (s.mainBrands || s.brands || []).includes(filterBrand);
+      const matchesBrand = filterBrand === 'all' || pickSupplierBrands(s).includes(filterBrand);
       const hasGps = !!s.coordinates;
       const matchesGps = filterGps === 'all' || (filterGps === 'has' ? hasGps : !hasGps);
       const matchesActivity = filterActivity === 'all'
@@ -980,7 +986,7 @@ const SuppliersScreen: React.FC = () => {
         ) : (
           filtered.map((s) => {
             const Icon = s.type === 'scrapyard' ? Wrench : Gem;
-            const brands = s.mainBrands || s.brands || [];
+            const brands = pickSupplierBrands(s);
 
             return (
               <div key={s.id} className="bg-white p-3 rounded-2xl shadow-sm space-y-2 border border-gray-100">
@@ -1160,7 +1166,7 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                                   <p className="truncate text-[10px] text-slate-500">{item.orderLabel}</p>
                                 </div>
                                 <div className="flex gap-1">
-                                  <button type="button" onClick={() => window.open(`/order/${item.orderId}`, '_blank')} className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Открыть карточку</button>
+                                  <button type="button" onClick={() => window.open(`${window.location.origin}${window.location.pathname}#/order/${item.orderId}`, '_blank', 'noopener,noreferrer')} className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Открыть карточку</button>
                                   <button type="button" onClick={() => { removeRadarManualSelection({ supplierId: s.id, orderId: item.orderId, partId: item.partId }); refreshManualSelections(); }} className="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Удалить</button>
                                 </div>
                               </div>
