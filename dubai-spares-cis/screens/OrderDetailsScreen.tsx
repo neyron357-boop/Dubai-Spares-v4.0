@@ -161,6 +161,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
   const [newNoteAudios, setNewNoteAudios] = useState<string[]>([]);
   const noteFileRef = useRef<HTMLInputElement>(null);
+  const carFileRef = useRef<HTMLInputElement>(null);
   const noteAudioFileRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -924,6 +925,33 @@ const OrderDetailsScreen: React.FC = () => {
     return [];
   };
 
+
+  const handleCarPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const files = Array.from(e.target.files);
+    void Promise.all(files.map(async (file) => {
+      try {
+        return await optimizeImageForUpload(file, `order-details:car:${file.name}`);
+      } catch {
+        const reader = new FileReader();
+        const fallback = await new Promise<string>((resolve) => {
+          reader.onloadend = () => resolve(String(reader.result || ''));
+          reader.readAsDataURL(file as Blob);
+        });
+        return fallback;
+      }
+    })).then((photos) => {
+      const merged = Array.from(new Set([...(getCarPhotos() || []), ...photos.filter(Boolean)]));
+      void updateOrder({ ...order, carPhotos: merged, carPhotoUrl: merged[0] || '' });
+    });
+    e.target.value = '';
+  };
+
+  const removeCarPhoto = (photoIndex: number) => {
+    const next = getCarPhotos().filter((_, index) => index !== photoIndex);
+    void updateOrder({ ...order, carPhotos: next, carPhotoUrl: next[0] || '' });
+  };
+
   const handleNotePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files);
@@ -1259,18 +1287,29 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </div>
 
-        {getCarPhotos().length > 0 && (
-          <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
-            <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Фото авто</div>
+        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Фото авто</div>
+            <>
+              <input type="file" ref={carFileRef} onChange={handleCarPhotoChange} className="hidden" accept="image/*" multiple />
+              <button type="button" onClick={() => carFileRef.current?.click()} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Добавить фото</button>
+            </>
+          </div>
+          {getCarPhotos().length > 0 ? (
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
               {getCarPhotos().map((ph, i) => (
-                <button key={i} type="button" className="w-20 h-20 rounded-xl overflow-hidden border border-gray-100 shrink-0" onClick={(e) => { e.stopPropagation(); setGallery({ images: getCarPhotos(), index: i }); }}>
-                  <img src={ph} className="w-full h-full object-cover" />
-                </button>
+                <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-gray-100 shrink-0">
+                  <button type="button" className="w-full h-full" onClick={(e) => { e.stopPropagation(); setGallery({ images: getCarPhotos(), index: i }); }}>
+                    <img src={ph} className="w-full h-full object-cover" />
+                  </button>
+                  <button type="button" onClick={() => removeCarPhoto(i)} className="absolute right-1 top-1 rounded-full bg-black/60 px-1 text-[9px] text-white">✕</button>
+                </div>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <p className="text-xs text-gray-400">Фотографии автомобиля не добавлены.</p>
+          )}
+        </div>
 
         <div className="grid grid-cols-1 gap-3">
           <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">

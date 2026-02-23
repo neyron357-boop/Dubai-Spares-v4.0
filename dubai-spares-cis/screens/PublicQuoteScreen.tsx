@@ -641,11 +641,34 @@ const isDisplayablePhotoUrl = (value: string) => (
   || value.startsWith('data:image')
 );
 
-const sanitizePhotoList = (photos: string[]) => Array.from(new Set(
+const normalizePhotoKey = (url: string) => {
+  try {
+    const parsed = new URL(url);
+    if (parsed.pathname.includes('/storage/v1/object/public/')) {
+      parsed.searchParams.delete('width');
+      parsed.searchParams.delete('quality');
+      parsed.searchParams.delete('format');
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+};
+
+const sanitizePhotoList = (photos: string[]) => {
+  const seen = new Set<string>();
+  const next: string[] = [];
   photos
     .map((photo) => String(photo || '').trim())
     .filter((photo) => !!photo && !photo.startsWith('local://') && !photo.startsWith('blob:') && isDisplayablePhotoUrl(photo))
-));
+    .forEach((photo) => {
+      const key = normalizePhotoKey(photo);
+      if (seen.has(key)) return;
+      seen.add(key);
+      next.push(photo);
+    });
+  return next;
+};
 
 const isPlaceholderWhatsapp = (value: string | null | undefined) => {
   const digits = toPhoneDigits(value);

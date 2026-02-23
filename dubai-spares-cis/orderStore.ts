@@ -56,6 +56,37 @@ const normalizeSalesStatus = (value: unknown): SalesStatus => {
   return SALES_STATUS_ALIASES[normalizedKey] || 'Inquiry';
 };
 
+
+const normalizePhotoKey = (url: string) => {
+  const trimmed = String(url || '').trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.pathname.includes('/storage/v1/object/public/')) {
+      parsed.searchParams.delete('width');
+      parsed.searchParams.delete('quality');
+      parsed.searchParams.delete('format');
+    }
+    return parsed.toString();
+  } catch {
+    return trimmed;
+  }
+};
+
+const normalizePhotoList = (photos: string[] = []): string[] => {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  photos.forEach((photo) => {
+    const value = String(photo || '').trim();
+    if (!value) return;
+    const key = normalizePhotoKey(value);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    normalized.push(value);
+  });
+  return normalized;
+};
+
 const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | 'markupType' | 'markupFixedAed' | 'exchangeRate'>): number => {
   const totalCostAed = (order.parts || []).reduce((sum, part) => {
     if (!part.isFound || (part.variants || []).length === 0) return sum;
@@ -73,6 +104,23 @@ const normalizeOrder = (order: Order): Order => {
   const isCompleted = salesStatus === 'Completed';
   const isSold = order.isSold || isCompleted;
 
+  const carPhotos = normalizePhotoList(order.carPhotos || [order.carPhotoUrl || '']);
+  const notes = Array.isArray(order.notes)
+    ? order.notes.map((note) => ({ ...note, photos: normalizePhotoList(note.photos || []) }))
+    : [];
+  const parts = Array.isArray(order.parts)
+    ? order.parts.map((part) => {
+      const partPhotos = normalizePhotoList(part.photos || [part.photoUrl || '']);
+      const variants = Array.isArray(part.variants)
+        ? part.variants.map((variant) => {
+          const variantPhotos = normalizePhotoList(variant.photos || [variant.photoUrl || '']);
+          return { ...variant, photos: variantPhotos, photoUrl: variantPhotos[0] || '' };
+        })
+        : [];
+      return { ...part, photos: partPhotos, photoUrl: partPhotos[0] || '', variants };
+    })
+    : [];
+
   return {
     ...order,
     status: order.status ?? getStatus(order),
@@ -85,10 +133,12 @@ const normalizeOrder = (order: Order): Order => {
     isVip: !!order.isVip,
     isPinned: !!order.isPinned,
     isLead: !!order.isLead,
-    notes: Array.isArray(order.notes) ? order.notes : [],
+    notes,
+    carPhotos,
+    carPhotoUrl: carPhotos[0] || '',
     vinPhotoUrl: order.vinPhotoUrl || '',
     bodyType: order.bodyType || '',
-    parts: Array.isArray(order.parts) ? order.parts.map((part) => ({ ...part, variants: Array.isArray(part.variants) ? part.variants : [] })) : [],
+    parts,
     updatedAt: order.updatedAt ?? order.createdAt ?? Date.now(),
     recommendedShopIds: Array.isArray(order.recommendedShopIds) ? order.recommendedShopIds : [],
     dismissedShopIds: Array.isArray(order.dismissedShopIds) ? order.dismissedShopIds : [],
