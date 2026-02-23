@@ -4,11 +4,63 @@ import { ChevronRight, ShieldAlert, Wrench } from 'lucide-react';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
 import { backupUpload, clearPublicQuoteSnapshots, clearServerBackups } from '../serverApi';
-import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLastCloudCall, isCloudConfigured, SUPABASE_HOST } from '../cloudConfig';
+import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLastCloudCall, isCloudConfigured, SUPABASE_HOST, SUPABASE_URL } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
 import { logger } from '../logging';
-import { runStorageImageMaintenance } from '../storage/photos';
+import { deleteStorageDuplicateMappings, runStorageImageMaintenance } from '../storage/photos';
+import { Order } from '../types';
+
+const normalizePhotoKey = (url: string) => {
+  const trimmed = String(url || '').trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.pathname.includes('/storage/v1/object/public/')) {
+      parsed.searchParams.delete('width');
+      parsed.searchParams.delete('quality');
+      parsed.searchParams.delete('format');
+    }
+    return parsed.toString();
+  } catch {
+    return trimmed;
+  }
+};
+
+const dedupePhotos = (photos: string[]) => {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  photos.forEach((photo) => {
+    const normalized = normalizePhotoKey(photo);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    next.push(photo);
+  });
+  return next;
+};
+
+const remapOrderPhotoUrls = (order: Order, replacements: Map<string, string>): Order => {
+  const mapUrl = (url: string | undefined) => replacements.get(normalizePhotoKey(url || '')) || (url || '');
+  const carPhotos = dedupePhotos((order.carPhotos || []).map((url) => mapUrl(url)));
+  const notes = (order.notes || []).map((note) => ({ ...note, photos: dedupePhotos((note.photos || []).map((url) => mapUrl(url))) }));
+  const parts = (order.parts || []).map((part) => {
+    const partPhotos = dedupePhotos((part.photos || []).map((url) => mapUrl(url)));
+    const variants = (part.variants || []).map((variant) => {
+      const photos = dedupePhotos((variant.photos || []).map((url) => mapUrl(url)));
+      return { ...variant, photos, photoUrl: photos[0] || '' };
+    });
+    return { ...part, photos: partPhotos, photoUrl: partPhotos[0] || '', variants };
+  });
+
+  return {
+    ...order,
+    carPhotos,
+    carPhotoUrl: carPhotos[0] || '',
+    vinPhotoUrl: mapUrl(order.vinPhotoUrl || ''),
+    notes,
+    parts
+  };
+};
 
 const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger' }> = ({ title, children, tone = 'default' }) => (
   <section className={`rounded-2xl border p-4 space-y-3 ${tone === 'danger' ? 'border-rose-200 bg-rose-50' : 'border-gray-200 bg-white'}`}>
@@ -27,7 +79,7 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
 const SettingsScreen: React.FC = () => {
   const navigate = useNavigate();
   const { settings, updateSettings } = useAppSettings();
-  const { restoreData, exportData, fetchOrders } = useStore();
+  const { orders, updateOrder, restoreData, exportData, fetchOrders } = useStore();
   const [devUnlocked, setDevUnlocked] = useState(false);
   const [tapCount, setTapCount] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
@@ -39,6 +91,7 @@ const SettingsScreen: React.FC = () => {
   const [backupController, setBackupController] = useState<AbortController | null>(null);
   const [lastBackupId, setLastBackupId] = useState('');
   const [requestCount, setRequestCount] = useState<number>(() => ((window as any).__serverApiRequestCount || 0));
+  const [dangerActionProgress, setDangerActionProgress] = useState<{ label: string; processed: number; total: number; details?: string } | null>(null);
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -105,6 +158,7 @@ const SettingsScreen: React.FC = () => {
 
   const withBusy = async (label: string, fn: () => Promise<void>) => {
     setBusy(label);
+    setDangerActionProgress(null);
     try {
       await fn();
     } catch (error) {
@@ -137,7 +191,17 @@ const SettingsScreen: React.FC = () => {
     const first = window.confirm('Сжать ВСЕ фотографии на сервере до минимального размера? Это может занять много времени.');
     if (!first) return;
 
-    const result = await runStorageImageMaintenance({ recompressAll: true });
+    const result = await runStorageImageMaintenance({
+      recompressAll: true,
+      onProgress: (progress) => {
+        setDangerActionProgress({
+          label: 'Сжатие фото на сервере',
+          processed: progress.processed,
+          total: progress.total,
+          details: progress.currentPath
+        });
+      }
+    });
     const mbSaved = (result.bytesSaved / (1024 * 1024)).toFixed(2);
     const tone = result.failures > 0 ? 'warning' : 'success';
     window.dispatchEvent(new CustomEvent('app-toast', {
@@ -149,19 +213,60 @@ const SettingsScreen: React.FC = () => {
   });
 
   const handleRemovePhotoDuplicates = () => void withBusy('storage-delete-duplicates', async () => {
-    const first = window.confirm('Удалить дубликаты фото на сервере по одинаковому точному размеру файла?');
+    const first = window.confirm('Удалить дубликаты фото по идентичному содержимому и автоматически переназначить ссылки во всех заказах?');
     if (!first) return;
 
-    const result = await runStorageImageMaintenance({ deduplicateByExactSize: true });
+    const result = await runStorageImageMaintenance({
+      deduplicateByExactSize: true,
+      applyDedupDeletes: false,
+      onProgress: (progress) => {
+        setDangerActionProgress({
+          label: 'Поиск дубликатов фото',
+          processed: progress.processed,
+          total: progress.total,
+          details: progress.currentPath
+        });
+      }
+    });
+
+    const replacements = new Map<string, string>();
+    result.dedupMappings.forEach((mapping) => {
+      const duplicatePublic = `${SUPABASE_URL}/storage/v1/object/public/${mapping.bucket}/${mapping.duplicatePath}`;
+      const canonicalPublic = `${SUPABASE_URL}/storage/v1/object/public/${mapping.bucket}/${mapping.canonicalPath}`;
+      replacements.set(normalizePhotoKey(duplicatePublic), canonicalPublic);
+    });
+
+    let updatedOrders = 0;
+    for (let index = 0; index < orders.length; index++) {
+      const order = orders[index];
+      const remapped = remapOrderPhotoUrls(order, replacements);
+      if (JSON.stringify(remapped) === JSON.stringify(order)) continue;
+      setDangerActionProgress({ label: 'Обновление ссылок в заказах', processed: index + 1, total: orders.length, details: order.id });
+      await updateOrder(remapped);
+      updatedOrders += 1;
+    }
+
+    const deleteResult = await deleteStorageDuplicateMappings(
+      result.dedupMappings.map((mapping) => ({ bucket: mapping.bucket, duplicatePath: mapping.duplicatePath })),
+      (progress) => setDangerActionProgress({
+        label: 'Удаление дубликатов на сервере',
+        processed: progress.processed,
+        total: progress.total,
+        details: progress.path
+      })
+    );
+
     const mbSaved = (result.bytesSaved / (1024 * 1024)).toFixed(2);
-    const tone = result.failures > 0 ? 'warning' : 'success';
+    const tone = (result.failures + deleteResult.failures) > 0 ? 'warning' : 'success';
     window.dispatchEvent(new CustomEvent('app-toast', {
       detail: {
         tone,
-        message: `Удалено дубликатов: ${result.deduplicated}, проверено фото: ${result.imageFiles}, освобождено: ${mbSaved} MB${result.failures > 0 ? `, ошибок: ${result.failures}` : ''}`
+        message: `Удалено дубликатов: ${deleteResult.deleted}, проверено фото: ${result.imageFiles}, обновлено заказов: ${updatedOrders}, освобождено: ${mbSaved} MB${(result.failures + deleteResult.failures) > 0 ? `, ошибок: ${result.failures + deleteResult.failures}` : ''}`
       }
     }));
   });
+
+  const busyLabel = (label: string, idle: string, running: string) => (busy === label ? running : idle);
 
   return (
     <div className="min-h-full max-w-full overflow-x-hidden bg-gray-50 p-4 pb-24 space-y-4">
@@ -467,26 +572,26 @@ const SettingsScreen: React.FC = () => {
       <Section title="Опасные действия" tone="danger">
         <div className="text-xs text-rose-700">Изменения ниже могут удалить локальные данные и требуют подтверждения.</div>
         <div className="flex flex-col gap-2 text-sm">
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>Сжать все фото на сервере до минимума</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>Удалить дубликаты фото по точному размеру</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('cache', async () => {
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>{busyLabel('storage-compress-all', 'Сжать все фото на сервере до минимума', 'Сжимаем фото…')}</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>{busyLabel('storage-delete-duplicates', 'Удалить дубликаты фото', 'Обработка дубликатов…')}</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('cache', async () => {
             const keys = await caches.keys();
             await Promise.all(keys.map((key) => caches.delete(key)));
-          })}>Очистить кэш</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-rose-600 text-white px-3 py-2 font-black" type="button" onClick={() => void withBusy('offline-data', async () => {
+          })}>{busyLabel('cache', 'Очистить кэш', 'Очистка кэша…')}</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-rose-600 text-white px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('offline-data', async () => {
             const first = window.confirm('⚠️ Это удалит локальные офлайн данные. Продолжить?');
             if (!first) return;
             const second = window.prompt('Введите DELETE для подтверждения');
             if (second !== 'DELETE') return;
             await offlineDb.clearAllOfflineData();
-          })}>Очистить офлайн данные</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('public-snapshots', async () => {
+          })}>{busyLabel('offline-data', 'Очистить офлайн данные', 'Очистка офлайн данных…')}</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('public-snapshots', async () => {
             const result = await clearPublicQuoteSnapshots();
             const message = result.ok ? 'Серверные снапшоты смет очищены' : `Ошибка: ${result.error}`;
             const tone = result.ok ? 'success' : 'error';
             window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, tone } }));
-          })}>Очистить снапшоты публичных смет на сервере</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('server-backups', async () => {
+          })}>{busyLabel('public-snapshots', 'Очистить снапшоты публичных смет на сервере', 'Очистка снапшотов…')}</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('server-backups', async () => {
             const first = window.confirm('⚠️ Это удалит ВСЕ backup записи на сервере. Продолжить?');
             if (!first) return;
             const second = window.prompt('Введите DELETE BACKUPS для подтверждения');
@@ -495,11 +600,20 @@ const SettingsScreen: React.FC = () => {
             const message = result.ok ? 'Все серверные backup записи удалены' : `Ошибка: ${result.error}`;
             const tone = result.ok ? 'success' : 'error';
             window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, tone } }));
-          })}>Очистить все backup записи на сервере</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('index', async () => {
+          })}>{busyLabel('server-backups', 'Очистить все backup записи на сервере', 'Удаление backup…')}</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('index', async () => {
             await offlineDb.exportAllData();
-          })}>Перестроить индекс</button>
+          })}>{busyLabel('index', 'Перестроить индекс', 'Перестраиваем индекс…')}</button>
         </div>
+        {dangerActionProgress && (
+          <div className="rounded-xl border border-rose-200 bg-white p-2">
+            <p className="text-[11px] font-bold text-rose-700">{dangerActionProgress.label}</p>
+            <p className="text-[11px] text-rose-600">{dangerActionProgress.processed} / {dangerActionProgress.total}{dangerActionProgress.details ? ` · ${dangerActionProgress.details}` : ''}</p>
+            <div className="mt-1 h-1.5 w-full rounded bg-rose-100 overflow-hidden">
+              <div className="h-full bg-rose-500 transition-all" style={{ width: `${dangerActionProgress.total > 0 ? Math.min(100, Math.round((dangerActionProgress.processed / dangerActionProgress.total) * 100)) : 0}%` }} />
+            </div>
+          </div>
+        )}
       </Section>
 
       {devUnlocked && (

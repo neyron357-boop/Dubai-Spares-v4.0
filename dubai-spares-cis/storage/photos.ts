@@ -30,6 +30,20 @@ export type StorageMaintenanceResult = {
   compressed: number;
   bytesSaved: number;
   failures: number;
+  dedupMappings: Array<{ bucket: string; canonicalPath: string; duplicatePath: string; size: number }>;
+};
+
+export type StorageMaintenanceProgress = {
+  phase: 'scan' | 'deduplicate' | 'compress' | 'delete' | 'done';
+  bucket: string;
+  processed: number;
+  total: number;
+  imageFiles: number;
+  deduplicated: number;
+  compressed: number;
+  failures: number;
+  bytesSaved: number;
+  currentPath?: string;
 };
 
 const isBucketNotFoundError = (error: unknown): boolean => {
@@ -388,7 +402,9 @@ const isImagePath = (path: string, mimetype: string): boolean => {
 
 export const runStorageImageMaintenance = async (options: {
   deduplicateByExactSize?: boolean;
+  applyDedupDeletes?: boolean;
   recompressAll?: boolean;
+  onProgress?: (progress: StorageMaintenanceProgress) => void;
 } = {}): Promise<StorageMaintenanceResult> => {
   const result: StorageMaintenanceResult = {
     scanned: 0,
@@ -396,7 +412,19 @@ export const runStorageImageMaintenance = async (options: {
     deduplicated: 0,
     compressed: 0,
     bytesSaved: 0,
-    failures: 0
+    failures: 0,
+    dedupMappings: []
+  };
+
+  const emitProgress = (progress: Omit<StorageMaintenanceProgress, 'imageFiles' | 'deduplicated' | 'compressed' | 'failures' | 'bytesSaved'>) => {
+    options.onProgress?.({
+      ...progress,
+      imageFiles: result.imageFiles,
+      deduplicated: result.deduplicated,
+      compressed: result.compressed,
+      failures: result.failures,
+      bytesSaved: result.bytesSaved
+    });
   };
 
   if (!isCloudConfigured) {
@@ -407,6 +435,7 @@ export const runStorageImageMaintenance = async (options: {
     let objects: StorageObjectEntry[] = [];
     try {
       objects = await listStorageObjectsRecursive(bucket, '');
+      emitProgress({ phase: 'scan', bucket, processed: objects.length, total: objects.length });
     } catch (error) {
       await logger.warn('storage:maintenance', 'Failed to scan storage bucket', { bucket, error: String(error) });
       result.failures += 1;
@@ -426,26 +455,81 @@ export const runStorageImageMaintenance = async (options: {
         groups.set(entry.size, list);
       });
 
+      let dedupProcessed = 0;
+      const hashCache = new Map<string, string>();
+
+      const fileHash = async (path: string): Promise<string> => {
+        const cached = hashCache.get(path);
+        if (cached) return cached;
+        const encodedPath = path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+        const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${encodedPath}`, {
+          method: 'GET',
+          headers: buildStorageHeaders()
+        });
+        if (!response.ok) throw new Error(`download ${response.status}`);
+        const blob = await response.blob();
+        const buffer = await blob.arrayBuffer();
+        const digest = await crypto.subtle.digest('SHA-256', buffer);
+        const hex = Array.from(new Uint8Array(digest)).map((item) => item.toString(16).padStart(2, '0')).join('');
+        hashCache.set(path, hex);
+        return hex;
+      };
+
       for (const [, group] of groups) {
         if (group.length < 2) continue;
-        const sorted = [...group].sort((a, b) => a.path.localeCompare(b.path));
-        const duplicates = sorted.slice(1);
-        if (!duplicates.length) continue;
+        const hashGroups = new Map<string, StorageObjectEntry[]>();
+        for (const entry of group) {
+          dedupProcessed += 1;
+          emitProgress({ phase: 'deduplicate', bucket, processed: dedupProcessed, total: imageObjects.length, currentPath: entry.path });
+          try {
+            const hash = await fileHash(entry.path);
+            const list = hashGroups.get(hash) || [];
+            list.push(entry);
+            hashGroups.set(hash, list);
+          } catch (error) {
+            result.failures += 1;
+            await logger.warn('storage:maintenance', 'Failed to hash image for deduplication', {
+              bucket,
+              path: entry.path,
+              error: String(error)
+            });
+          }
+        }
 
-        try {
-          await deleteStorageFiles(bucket, duplicates.map((item) => item.path));
+        for (const [, hashGroup] of hashGroups) {
+          if (hashGroup.length < 2) continue;
+          const sorted = [...hashGroup].sort((a, b) => a.path.localeCompare(b.path));
+          const canonical = sorted[0];
+          const duplicates = sorted.slice(1);
           duplicates.forEach((entry) => {
-            deletedPaths.add(entry.path);
-            result.bytesSaved += entry.size;
+            result.dedupMappings.push({
+              bucket,
+              canonicalPath: canonical.path,
+              duplicatePath: entry.path,
+              size: entry.size
+            });
           });
-          result.deduplicated += duplicates.length;
-        } catch (error) {
-          result.failures += duplicates.length;
-          await logger.warn('storage:maintenance', 'Failed to delete duplicates', {
-            bucket,
-            count: duplicates.length,
-            error: String(error)
-          });
+        }
+      }
+
+      if (options.applyDedupDeletes !== false && result.dedupMappings.length > 0) {
+        const duplicatesToDelete = result.dedupMappings
+          .filter((mapping) => mapping.bucket === bucket)
+          .map((mapping) => mapping.duplicatePath);
+        let deleted = 0;
+        for (const path of duplicatesToDelete) {
+          emitProgress({ phase: 'delete', bucket, processed: deleted, total: duplicatesToDelete.length, currentPath: path });
+          try {
+            await deleteStorageFiles(bucket, [path]);
+            deleted += 1;
+            deletedPaths.add(path);
+            const size = result.dedupMappings.find((mapping) => mapping.bucket === bucket && mapping.duplicatePath === path)?.size || 0;
+            result.bytesSaved += size;
+            result.deduplicated += 1;
+          } catch (error) {
+            result.failures += 1;
+            await logger.warn('storage:maintenance', 'Failed to delete duplicate', { bucket, path, error: String(error) });
+          }
         }
       }
     }
@@ -454,6 +538,7 @@ export const runStorageImageMaintenance = async (options: {
 
     for (const image of imageObjects) {
       if (deletedPaths.has(image.path)) continue;
+      emitProgress({ phase: 'compress', bucket, processed: result.compressed, total: imageObjects.length, currentPath: image.path });
 
       try {
         const encodedPath = image.path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
@@ -496,7 +581,28 @@ export const runStorageImageMaintenance = async (options: {
     }
   }
 
+  emitProgress({ phase: 'done', bucket: 'all', processed: result.scanned, total: result.scanned });
+
   return result;
+};
+
+export const deleteStorageDuplicateMappings = async (
+  mappings: Array<{ bucket: string; duplicatePath: string }>,
+  onProgress?: (progress: { processed: number; total: number; bucket: string; path: string }) => void
+): Promise<{ deleted: number; failures: number }> => {
+  let deleted = 0;
+  let failures = 0;
+  for (let index = 0; index < mappings.length; index++) {
+    const mapping = mappings[index];
+    onProgress?.({ processed: index, total: mappings.length, bucket: mapping.bucket, path: mapping.duplicatePath });
+    try {
+      await deleteStorageFiles(mapping.bucket, [mapping.duplicatePath]);
+      deleted += 1;
+    } catch {
+      failures += 1;
+    }
+  }
+  return { deleted, failures };
 };
 
 const parseSupabasePublicStorageUrl = (imageUrl: string): { bucket: string; path: string } | null => {
