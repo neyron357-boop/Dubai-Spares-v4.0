@@ -1037,6 +1037,7 @@ Found: ${s.successRate}%
 Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 py-1.5 text-[10px] font-black text-blue-700 inline-flex items-center justify-center gap-1"><Sparkles size={12} />Analyze</button>
                 </div>
                 </>}
+                {expandedSupplierIds.has(s.id) && (
                 <div className="border-t border-gray-100 pt-3 space-y-2">
                   <button type="button" onClick={() => setSupplierRadarHistoryExpandedId((prev) => (prev === s.id ? null : s.id))} className="w-full rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 inline-flex items-center justify-center gap-2"><Clock3 size={13} /> История радара</button>
                   {supplierRadarHistoryExpandedId === s.id && (
@@ -1159,7 +1160,7 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                                   <p className="truncate text-[10px] text-slate-500">{item.orderLabel}</p>
                                 </div>
                                 <div className="flex gap-1">
-                                  <button type="button" onClick={() => window.open(`/order/${item.orderId}/part/${item.partId}`, '_blank')} className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Открыть</button>
+                                  <button type="button" onClick={() => window.open(`/order/${item.orderId}`, '_blank')} className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Открыть карточку</button>
                                   <button type="button" onClick={() => { removeRadarManualSelection({ supplierId: s.id, orderId: item.orderId, partId: item.partId }); refreshManualSelections(); }} className="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Удалить</button>
                                 </div>
                               </div>
@@ -1169,27 +1170,8 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                       )}
                     </div>
                   )}
-
-                  {(manualSelectionsBySupplier[s.id] || []).length > 0 && (
-                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 space-y-2">
-                      <p className="text-[11px] font-black text-emerald-800">Ручные детали в Radar</p>
-                      <div className="space-y-1">
-                        {(manualSelectionsBySupplier[s.id] || []).map((item) => (
-                          <div key={`${item.orderId}:${item.partId}:list`} className="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1">
-                            <div className="min-w-0">
-                              <p className="truncate text-[11px] font-semibold text-slate-700">{item.partName}</p>
-                              <p className="truncate text-[10px] text-slate-500">{item.orderLabel}</p>
-                            </div>
-                            <div className="flex gap-1">
-                              <button type="button" onClick={() => window.open(`/order/${item.orderId}/part/${item.partId}`, '_blank')} className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Открыть</button>
-                              <button type="button" onClick={() => { removeRadarManualSelection({ supplierId: s.id, orderId: item.orderId, partId: item.partId }); refreshManualSelections(); }} className="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Удалить</button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
+                )}
               </div>
             );
           })

@@ -11,6 +11,40 @@ import { logger } from '../logging';
 import { deleteStorageDuplicateMappings, runStorageImageMaintenance, uploadImageToStorage } from '../storage/photos';
 import { Order } from '../types';
 
+const loadImageFromFile = (file: File): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
+  const url = URL.createObjectURL(file);
+  const image = new Image();
+  image.onload = () => {
+    URL.revokeObjectURL(url);
+    resolve(image);
+  };
+  image.onerror = () => {
+    URL.revokeObjectURL(url);
+    reject(new Error('Не удалось загрузить изображение'));
+  };
+  image.src = url;
+});
+
+const cropSquareFromImage = async (file: File, zoom = 1): Promise<File> => {
+  const image = await loadImageFromFile(file);
+  const size = Math.max(1, Math.min(image.width, image.height));
+  const cropSize = Math.max(1, Math.round(size / Math.max(zoom, 1)));
+  const startX = Math.max(0, Math.round((image.width - cropSize) / 2));
+  const startY = Math.max(0, Math.round((image.height - cropSize) / 2));
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 640;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas недоступен');
+  ctx.drawImage(image, startX, startY, cropSize, cropSize, 0, 0, canvas.width, canvas.height);
+
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((value) => resolve(value), 'image/jpeg', 0.9);
+  });
+  if (!blob) throw new Error('Не удалось подготовить логотип');
+  return new File([blob], `logo-cropped-${Date.now()}.jpg`, { type: 'image/jpeg' });
+};
+
 const normalizePhotoKey = (url: string) => {
   const trimmed = String(url || '').trim();
   if (!trimmed) return '';
@@ -92,6 +126,8 @@ const SettingsScreen: React.FC = () => {
   const [lastBackupId, setLastBackupId] = useState('');
   const [requestCount, setRequestCount] = useState<number>(() => ((window as any).__serverApiRequestCount || 0));
   const [dangerActionProgress, setDangerActionProgress] = useState<{ label: string; processed: number; total: number; details?: string } | null>(null);
+  const [logoCrop, setLogoCrop] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [logoCropZoom, setLogoCropZoom] = useState(1);
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -284,6 +320,15 @@ const SettingsScreen: React.FC = () => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    if (type === 'logo') {
+      const previewUrl = URL.createObjectURL(file);
+      setLogoCrop((prev) => {
+        if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+        return { file, previewUrl };
+      });
+      setLogoCropZoom(1);
+      return;
+    }
     void withBusy(`branding-${type}`, async () => {
       await uploadBrandingImage(file, type);
       window.dispatchEvent(new CustomEvent('app-toast', {
@@ -296,6 +341,33 @@ const SettingsScreen: React.FC = () => {
   };
 
   const busyLabel = (label: string, idle: string, running: string) => (busy === label ? running : idle);
+
+  const closeLogoCrop = () => {
+    setLogoCrop((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+    setLogoCropZoom(1);
+  };
+
+  const saveLogoCrop = () => {
+    if (!logoCrop) return;
+    void withBusy('branding-logo', async () => {
+      const cropped = await cropSquareFromImage(logoCrop.file, logoCropZoom);
+      await uploadBrandingImage(cropped, 'logo');
+      closeLogoCrop();
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: {
+          tone: 'success',
+          message: 'Логотип обрезан и загружен'
+        }
+      }));
+    });
+  };
+
+  useEffect(() => () => {
+    if (logoCrop?.previewUrl) URL.revokeObjectURL(logoCrop.previewUrl);
+  }, [logoCrop?.previewUrl]);
 
   return (
     <div className="min-h-full max-w-full overflow-x-hidden bg-gray-50 p-4 pb-24 space-y-4">
@@ -392,6 +464,23 @@ const SettingsScreen: React.FC = () => {
           </label>
         </div>
       </Section>
+
+      {logoCrop && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-4 space-y-3 shadow-xl">
+            <p className="text-sm font-black text-gray-900">Обрезка логотипа (квадрат)</p>
+            <div className="mx-auto h-52 w-52 overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
+              <img src={logoCrop.previewUrl} alt="Logo crop preview" className="h-full w-full object-cover" style={{ transform: `scale(${logoCropZoom})` }} />
+            </div>
+            <label className="text-xs font-semibold text-gray-600">Масштаб: {logoCropZoom.toFixed(2)}x</label>
+            <input type="range" min={1} max={2.5} step={0.05} value={logoCropZoom} onChange={(event) => setLogoCropZoom(Number(event.target.value) || 1)} className="w-full" />
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={closeLogoCrop} className="rounded-xl border border-gray-300 px-3 py-2 text-xs font-bold text-gray-700">Отмена</button>
+              <button type="button" onClick={saveLogoCrop} className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white">Обрезать и загрузить</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Section title="Ссылка для клиента">
         <p className="text-xs text-gray-600">Отправьте эту ссылку клиенту — он заполняет форму, и вы получаете новый лид в разделе «Заказы»:</p>
