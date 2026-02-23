@@ -257,6 +257,74 @@ export const listStoragePathsRecursive = async (_bucket: string, _folder: string
 
 const deleteStorageFiles = async (_bucket: string, _paths: string[]): Promise<void> => undefined;
 
+const parseSupabasePublicStorageUrl = (imageUrl: string): { bucket: string; path: string } | null => {
+  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) return null;
+  try {
+    const parsed = new URL(imageUrl);
+    const marker = '/storage/v1/object/public/';
+    const markerIndex = parsed.pathname.indexOf(marker);
+    if (markerIndex < 0) return null;
+    const remainder = parsed.pathname.slice(markerIndex + marker.length);
+    const firstSlash = remainder.indexOf('/');
+    if (firstSlash <= 0) return null;
+    const bucket = remainder.slice(0, firstSlash).trim();
+    const path = decodeURIComponent(remainder.slice(firstSlash + 1)).trim();
+    if (!bucket || !path) return null;
+    return { bucket, path };
+  } catch {
+    return null;
+  }
+};
+
+export const recompressExistingStorageImage = async (imageUrl: string): Promise<boolean> => {
+  const parsed = parseSupabasePublicStorageUrl(imageUrl);
+  if (!parsed || !isCloudConfigured) return false;
+
+  const originalResponse = await fetch(imageUrl);
+  if (!originalResponse.ok) {
+    throw new Error(`Failed to fetch original image ${originalResponse.status}`);
+  }
+
+  const originalBlob = await originalResponse.blob();
+  if (!originalBlob.type.startsWith('image/')) return false;
+
+  const compressedBlob = await compressBlob(originalBlob);
+  const minimumReductionBytes = 120 * 1024;
+  const reductionPercent = originalBlob.size > 0
+    ? ((originalBlob.size - compressedBlob.size) / originalBlob.size) * 100
+    : 0;
+
+  if (compressedBlob.size >= originalBlob.size - minimumReductionBytes && reductionPercent < 20) {
+    return false;
+  }
+
+  const uploadResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${parsed.bucket}/${parsed.path}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'x-upsert': 'true',
+      'Content-Type': compressedBlob.type || 'image/webp'
+    },
+    body: compressedBlob
+  });
+
+  if (!uploadResponse.ok) {
+    const text = await uploadResponse.text().catch(() => '');
+    throw new Error(`Failed to upload compressed image ${uploadResponse.status}: ${text.slice(0, 120)}`);
+  }
+
+  await logger.info('storage:recompress-existing', 'Recompressed existing storage image', {
+    bucket: parsed.bucket,
+    path: parsed.path,
+    beforeBytes: originalBlob.size,
+    afterBytes: compressedBlob.size,
+    reductionPercent: Number(reductionPercent.toFixed(2))
+  });
+
+  return true;
+};
+
 export const deleteOrderFolderFromStorage = async (orderId: string): Promise<void> => {
   await logger.info('storage:cleanup', `[INFO] Storage cleanup skipped (local-first mode) for order ${orderId}.`);
 };

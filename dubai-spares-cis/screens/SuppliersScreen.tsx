@@ -33,6 +33,7 @@ import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
 import { CAR_DATABASE } from '../carDatabase';
 import { offlineDb } from '../storage/offlineDb';
+import { optimizeImageForUpload } from '../storage/photos';
 
 const FIELD_TYPES: Array<{ value: SupplierType; label: string; icon: React.ReactNode }> = [
   { value: 'new_parts', label: 'New Parts', icon: <Gem size={12} /> },
@@ -419,12 +420,18 @@ const SuppliersScreen: React.FC = () => {
 
   const onSupplierPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files ? Array.from(event.target.files) : [];
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setSupplierPhotos((prev) => [...prev, String(reader.result || '')].filter(Boolean));
-      };
-      reader.readAsDataURL(file);
+    void Promise.all(files.map(async (file) => {
+      try {
+        return await optimizeImageForUpload(file, `suppliers:photo:${file.name}`);
+      } catch {
+        const reader = new FileReader();
+        return await new Promise<string>((resolve) => {
+          reader.onloadend = () => resolve(String(reader.result || ''));
+          reader.readAsDataURL(file);
+        });
+      }
+    })).then((images) => {
+      setSupplierPhotos((prev) => [...prev, ...images.filter(Boolean)].filter(Boolean));
     });
     event.target.value = '';
   };

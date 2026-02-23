@@ -41,6 +41,7 @@ import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
 import { logger } from '../logging';
 import { syncPerf } from '../syncPerf';
+import { optimizeImageForUpload } from '../storage/photos';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -824,12 +825,19 @@ const OrderDetailsScreen: React.FC = () => {
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files);
-      files.forEach(file => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setNewPartPhotos(prev => [...prev, reader.result as string]);
-        };
-        reader.readAsDataURL(file as Blob);
+      void Promise.all(files.map(async (file) => {
+        try {
+          return await optimizeImageForUpload(file, `order-details:part:${file.name}`);
+        } catch {
+          const reader = new FileReader();
+          const fallback = await new Promise<string>((resolve) => {
+            reader.onloadend = () => resolve(String(reader.result || ''));
+            reader.readAsDataURL(file as Blob);
+          });
+          return fallback;
+        }
+      })).then((photos) => {
+        setNewPartPhotos((prev) => [...prev, ...photos.filter(Boolean)]);
       });
       e.target.value = '';
     }
@@ -919,10 +927,19 @@ const OrderDetailsScreen: React.FC = () => {
   const handleNotePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files);
-      files.forEach(file => {
-        const reader = new FileReader();
-        reader.onloadend = () => setNewNotePhotos(prev => [...prev, reader.result as string]);
-        reader.readAsDataURL(file as Blob);
+      void Promise.all(files.map(async (file) => {
+        try {
+          return await optimizeImageForUpload(file, `order-details:note:${file.name}`);
+        } catch {
+          const reader = new FileReader();
+          const fallback = await new Promise<string>((resolve) => {
+            reader.onloadend = () => resolve(String(reader.result || ''));
+            reader.readAsDataURL(file as Blob);
+          });
+          return fallback;
+        }
+      })).then((photos) => {
+        setNewNotePhotos((prev) => [...prev, ...photos.filter(Boolean)]);
       });
       e.target.value = '';
     }

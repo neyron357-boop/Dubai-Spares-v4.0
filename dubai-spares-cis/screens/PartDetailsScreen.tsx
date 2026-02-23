@@ -30,6 +30,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
+import { optimizeImageForUpload } from '../storage/photos';
 
 interface OfferFormState {
   priceAed: string;
@@ -210,12 +211,18 @@ const PartDetailsScreen: React.FC = () => {
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const files = Array.from(e.target.files);
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setForm((prev) => ({ ...prev, photos: [...prev.photos, reader.result as string] }));
-      };
-      reader.readAsDataURL(file as Blob);
+    void Promise.all(files.map(async (file) => {
+      try {
+        return await optimizeImageForUpload(file, `part-details:variant:${file.name}`);
+      } catch {
+        const reader = new FileReader();
+        return await new Promise<string>((resolve) => {
+          reader.onloadend = () => resolve(String(reader.result || ''));
+          reader.readAsDataURL(file as Blob);
+        });
+      }
+    })).then((photos) => {
+      setForm((prev) => ({ ...prev, photos: [...prev.photos, ...photos.filter(Boolean)] }));
     });
     e.target.value = '';
   };
