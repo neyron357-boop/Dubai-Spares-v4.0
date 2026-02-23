@@ -36,7 +36,7 @@ import { createUuid } from '../id';
 import { CAR_DATABASE } from '../carDatabase';
 import { offlineDb } from '../storage/offlineDb';
 import { optimizeImageForUpload } from '../storage/photos';
-import { addRadarManualSelection, getRadarManualSelections } from '../radarManualSelections';
+import { addRadarManualSelection, getRadarManualSelections, RADAR_MANUAL_SELECTIONS_EVENT, removeRadarManualSelection } from '../radarManualSelections';
 
 const FIELD_TYPES: Array<{ value: SupplierType; label: string; icon: React.ReactNode }> = [
   { value: 'new_parts', label: 'New Parts', icon: <Gem size={12} /> },
@@ -216,11 +216,32 @@ const SuppliersScreen: React.FC = () => {
   const [sortByExtended, setSortByExtended] = useState<'activity' | 'success' | 'last_contact' | 'distance' | 'popularity' | 'name'>('activity');
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
+  const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
 
   const activeOrders = useMemo(
     () => orders.filter((order) => !order.isArchived && !order.isSold),
     [orders]
   );
+
+  const manualSelectionsBySupplier = useMemo(() => {
+    const grouped: Record<string, Array<{ orderId: string; orderLabel: string; partId: string; partName: string }>> = {};
+    manualSelections
+      .filter((item) => (item.source || 'manual') === 'manual')
+      .forEach((item) => {
+        const order = activeOrders.find((row) => row.id === item.orderId);
+        if (!order) return;
+        const part = order.parts.find((row) => row.id === item.partId);
+        if (!part) return;
+        if (!grouped[item.supplierId]) grouped[item.supplierId] = [];
+        grouped[item.supplierId].push({
+          orderId: order.id,
+          orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
+          partId: part.id,
+          partName: part.name
+        });
+      });
+    return grouped;
+  }, [manualSelections, activeOrders]);
 
   const brandOptions = useMemo(() => Object.keys(CAR_DATABASE).sort((a, b) => a.localeCompare(b)), []);
 
@@ -654,6 +675,16 @@ const SuppliersScreen: React.FC = () => {
     updateSupplier({ ...supplier, isFavorite: !supplier.isFavorite, updatedAt: Date.now() });
   };
 
+  const refreshManualSelections = () => {
+    const selections = getRadarManualSelections();
+    setManualSelections(selections);
+    const next: Record<string, number> = {};
+    selections
+      .filter((item) => (item.source || 'manual') === 'manual')
+      .forEach((item) => { next[item.supplierId] = (next[item.supplierId] || 0) + 1; });
+    setManualRadarCounts(next);
+  };
+
   const addSupplierToOrder = (shopId: string, orderId: string, selectedPartIds: string[] = []) => {
     const order = orders.find((item) => item.id === orderId);
     if (!order) return;
@@ -666,7 +697,7 @@ const SuppliersScreen: React.FC = () => {
     const partIds = selectedPartIds.length > 0
       ? selectedPartIds
       : (order.parts[0]?.id ? [order.parts[0].id] : []);
-    partIds.forEach((partId) => addRadarManualSelection({ supplierId: shopId, orderId, partId }));
+    partIds.forEach((partId) => addRadarManualSelection({ supplierId: shopId, orderId, partId, source: 'manual' }));
 
     const linkedSupplier = suppliers.find((item) => item.id === shopId);
     if (linkedSupplier && order.brand) {
@@ -679,10 +710,7 @@ const SuppliersScreen: React.FC = () => {
       void upsertSupplierToShops(updatedSupplier);
     }
 
-    const selections = getRadarManualSelections();
-    const next: Record<string, number> = {};
-    selections.forEach((item) => { next[item.supplierId] = (next[item.supplierId] || 0) + 1; });
-    setManualRadarCounts(next);
+    refreshManualSelections();
 
     setActiveOrderLinkShopId(null);
   };
@@ -694,7 +722,7 @@ const SuppliersScreen: React.FC = () => {
     const current = new Set(order.recommendedShopIds || []);
     current.add(activeOrderPartLink.supplierId);
     updateOrder({ ...order, recommendedShopIds: Array.from(current), updatedAt: Date.now() });
-    addRadarManualSelection({ supplierId: activeOrderPartLink.supplierId, orderId: activeOrderPartLink.orderId, partId: activeOrderPartLink.partId });
+    addRadarManualSelection({ supplierId: activeOrderPartLink.supplierId, orderId: activeOrderPartLink.orderId, partId: activeOrderPartLink.partId, source: 'manual' });
     const linkedSupplier = suppliers.find((item) => item.id === activeOrderPartLink.supplierId);
     if (linkedSupplier && order.brand) {
       const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
@@ -705,10 +733,7 @@ const SuppliersScreen: React.FC = () => {
       updateSupplier(updatedSupplier);
       void upsertSupplierToShops(updatedSupplier);
     }
-    const selections = getRadarManualSelections();
-    const next: Record<string, number> = {};
-    selections.forEach((item) => { next[item.supplierId] = (next[item.supplierId] || 0) + 1; });
-    setManualRadarCounts(next);
+    refreshManualSelections();
     setActiveOrderPartLink(null);
     alert('Поставщик добавлен в активный заказ и Radar.');
   };
@@ -722,10 +747,14 @@ const SuppliersScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const selections = getRadarManualSelections();
-    const next: Record<string, number> = {};
-    selections.forEach((item) => { next[item.supplierId] = (next[item.supplierId] || 0) + 1; });
-    setManualRadarCounts(next);
+    refreshManualSelections();
+    const onManualUpdated = () => refreshManualSelections();
+    window.addEventListener('focus', onManualUpdated);
+    window.addEventListener(RADAR_MANUAL_SELECTIONS_EVENT, onManualUpdated as EventListener);
+    return () => {
+      window.removeEventListener('focus', onManualUpdated);
+      window.removeEventListener(RADAR_MANUAL_SELECTIONS_EVENT, onManualUpdated as EventListener);
+    };
   }, [suppliers]);
 
   useEffect(() => {
@@ -1114,13 +1143,50 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                       <button type="button" onClick={addSupplierToOrderPart} className="w-full rounded-lg bg-violet-100 px-2 py-2 text-[11px] font-black text-violet-800">Открыть Add Variant flow</button>
                       <button type="button" onClick={() => {
                         if (!activeOrderPartLink?.orderId || !activeOrderPartLink?.partId) return;
-                        addRadarManualSelection({ supplierId: s.id, orderId: activeOrderPartLink.orderId, partId: activeOrderPartLink.partId });
-                        const selections = getRadarManualSelections();
-                        const next: Record<string, number> = {};
-                        selections.forEach((item) => { next[item.supplierId] = (next[item.supplierId] || 0) + 1; });
-                        setManualRadarCounts(next);
+                        addRadarManualSelection({ supplierId: s.id, orderId: activeOrderPartLink.orderId, partId: activeOrderPartLink.partId, source: 'manual' });
+                        refreshManualSelections();
                         alert('Добавлено в Radar вручную.');
                       }} className="w-full rounded-lg bg-emerald-100 px-2 py-2 text-[11px] font-black text-emerald-800">Добавить выбранную деталь в Radar</button>
+
+                      {(manualSelectionsBySupplier[s.id] || []).length > 0 && (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 space-y-2">
+                          <p className="text-[11px] font-black text-emerald-800">Добавленные детали</p>
+                          <div className="space-y-1">
+                            {(manualSelectionsBySupplier[s.id] || []).map((item) => (
+                              <div key={`${item.orderId}:${item.partId}`} className="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1">
+                                <div className="min-w-0">
+                                  <p className="truncate text-[11px] font-semibold text-slate-700">{item.partName}</p>
+                                  <p className="truncate text-[10px] text-slate-500">{item.orderLabel}</p>
+                                </div>
+                                <div className="flex gap-1">
+                                  <button type="button" onClick={() => window.open(`/order/${item.orderId}/part/${item.partId}`, '_blank')} className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Открыть</button>
+                                  <button type="button" onClick={() => { removeRadarManualSelection({ supplierId: s.id, orderId: item.orderId, partId: item.partId }); refreshManualSelections(); }} className="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Удалить</button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {(manualSelectionsBySupplier[s.id] || []).length > 0 && (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 space-y-2">
+                      <p className="text-[11px] font-black text-emerald-800">Ручные детали в Radar</p>
+                      <div className="space-y-1">
+                        {(manualSelectionsBySupplier[s.id] || []).map((item) => (
+                          <div key={`${item.orderId}:${item.partId}:list`} className="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1">
+                            <div className="min-w-0">
+                              <p className="truncate text-[11px] font-semibold text-slate-700">{item.partName}</p>
+                              <p className="truncate text-[10px] text-slate-500">{item.orderLabel}</p>
+                            </div>
+                            <div className="flex gap-1">
+                              <button type="button" onClick={() => window.open(`/order/${item.orderId}/part/${item.partId}`, '_blank')} className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Открыть</button>
+                              <button type="button" onClick={() => { removeRadarManualSelection({ supplierId: s.id, orderId: item.orderId, partId: item.partId }); refreshManualSelections(); }} className="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Удалить</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
