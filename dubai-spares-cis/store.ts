@@ -13,6 +13,9 @@ const normalizeSupplier = (supplier: Supplier): Supplier => ({
   ...supplier,
   id: ensureUuid(supplier.id),
   type: supplier.type || 'new_parts',
+  types: Array.isArray(supplier.types) && supplier.types.length > 0
+    ? supplier.types.filter(Boolean)
+    : [supplier.type || 'new_parts'],
   zone: typeof supplier.zone === 'string' ? supplier.zone : '',
   heatLevel: Number.isFinite(Number(supplier.heatLevel)) ? Number(supplier.heatLevel) : 0,
   brands: Array.isArray(supplier.brands) ? supplier.brands : [],

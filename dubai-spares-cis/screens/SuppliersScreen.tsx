@@ -22,9 +22,11 @@ import {
   Heart,
   Clock3,
   ChevronDown,
+  ChevronUp,
   Route,
   MessageCircle,
-  Pencil
+  Pencil,
+  Shuffle
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import ImagePreview from '../components/ImagePreview';
@@ -34,6 +36,7 @@ import { createUuid } from '../id';
 import { CAR_DATABASE } from '../carDatabase';
 import { offlineDb } from '../storage/offlineDb';
 import { optimizeImageForUpload } from '../storage/photos';
+import { addRadarManualSelection, getRadarManualSelections } from '../radarManualSelections';
 
 const FIELD_TYPES: Array<{ value: SupplierType; label: string; icon: React.ReactNode }> = [
   { value: 'new_parts', label: 'New Parts', icon: <Gem size={12} /> },
@@ -169,6 +172,7 @@ const SuppliersScreen: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [location, setLocation] = useState('');
   const [shopType, setShopType] = useState<SupplierType>('new_parts');
+  const [shopTypes, setShopTypes] = useState<SupplierType[]>(['new_parts']);
   const [zone, setZone] = useState('');
   const [mainBrands, setMainBrands] = useState<string[]>([]);
   const [primaryBrand, setPrimaryBrand] = useState('');
@@ -204,6 +208,13 @@ const SuppliersScreen: React.FC = () => {
   const [filterBrand, setFilterBrand] = useState('all');
   const [filterGps, setFilterGps] = useState<'all' | 'has' | 'missing'>('all');
   const [sortBy, setSortBy] = useState<'activity' | 'success' | 'last_contact'>('activity');
+  const [filterPartCategory, setFilterPartCategory] = useState('all');
+  const [yearFrom, setYearFrom] = useState('');
+  const [yearTo, setYearTo] = useState('');
+  const [sortByDistanceRef, setSortByDistanceRef] = useState<{ lat: number; lng: number }>({ lat: 25.2048, lng: 55.2708 });
+  const [sortByExtended, setSortByExtended] = useState<'activity' | 'success' | 'last_contact' | 'distance' | 'popularity' | 'name'>('activity');
+  const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
+  const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
 
   const activeOrders = useMemo(
     () => orders.filter((order) => !order.isArchived && !order.isSold),
@@ -299,8 +310,22 @@ const SuppliersScreen: React.FC = () => {
 
   const filtered = useMemo(() => {
     const normalized = searchTerm.toLowerCase();
+    const yFrom = Number(yearFrom);
+    const yTo = Number(yearTo);
+    const calcDistanceKm = (supplier: Supplier & { coordinates?: { lat: number; lng: number } }) => {
+      if (!supplier.coordinates) return Number.POSITIVE_INFINITY;
+      const latDiff = (supplier.coordinates.lat - sortByDistanceRef.lat) * 111;
+      const lngDiff = (supplier.coordinates.lng - sortByDistanceRef.lng) * 111;
+      return Math.sqrt((latDiff * latDiff) + (lngDiff * lngDiff));
+    };
 
-    const data = suppliersWithStats.filter((s) => {
+    const deduped = new Map<string, (typeof suppliersWithStats)[number]>();
+    suppliersWithStats.forEach((item) => {
+      const key = `${item.id}:${item.name.trim().toLowerCase()}`;
+      if (!deduped.has(key)) deduped.set(key, item);
+    });
+
+    const data = Array.from(deduped.values()).filter((s) => {
       const matchesSearch = !normalized
         || s.name.toLowerCase().includes(normalized)
         || s.phone.includes(searchTerm)
@@ -308,7 +333,8 @@ const SuppliersScreen: React.FC = () => {
         || (s.brands || []).some((b) => b.toLowerCase().includes(normalized))
         || (s.mainBrands || []).some((b) => b.toLowerCase().includes(normalized));
 
-      const matchesType = filterType === 'all' || s.type === filterType;
+      const supplierTypes = Array.isArray(s.types) && s.types.length > 0 ? s.types : [s.type || 'new_parts'];
+      const matchesType = filterType === 'all' || supplierTypes.includes(filterType);
       const matchesBrand = filterBrand === 'all' || (s.mainBrands || s.brands || []).includes(filterBrand);
       const hasGps = !!s.coordinates;
       const matchesGps = filterGps === 'all' || (filterGps === 'has' ? hasGps : !hasGps);
@@ -317,16 +343,26 @@ const SuppliersScreen: React.FC = () => {
         || (filterActivity === 'medium' && s.activityState.includes('Medium'))
         || (filterActivity === 'low' && s.activityState.includes('Low'))
         || (filterActivity === 'dormant' && s.activityState.includes('Dormant'));
+      const matchesCategory = filterPartCategory === 'all' || (s.mainPartCategories || []).includes(filterPartCategory);
+      const years = s.years || [];
+      const matchesYearFrom = !Number.isFinite(yFrom) || years.length === 0 || years.some((year) => year >= yFrom);
+      const matchesYearTo = !Number.isFinite(yTo) || years.length === 0 || years.some((year) => year <= yTo);
 
-      return matchesSearch && matchesType && matchesBrand && matchesGps && matchesActivity;
+      return matchesSearch && matchesType && matchesBrand && matchesGps && matchesActivity && matchesCategory && matchesYearFrom && matchesYearTo;
     });
 
     return data.sort((a, b) => {
-      if (sortBy === 'success') return (b.successRate || 0) - (a.successRate || 0);
-      if (sortBy === 'last_contact') return (b.lastContactAt || 0) - (a.lastContactAt || 0);
-      return (b.activityScore || 0) - (a.activityScore || 0);
+      const distanceA = calcDistanceKm(a);
+      const distanceB = calcDistanceKm(b);
+
+      if (sortByExtended === 'success') return (b.successRate || 0) - (a.successRate || 0) || distanceA - distanceB;
+      if (sortByExtended === 'last_contact') return (b.lastContactAt || 0) - (a.lastContactAt || 0) || distanceA - distanceB;
+      if (sortByExtended === 'distance') return distanceA - distanceB;
+      if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
+      if (sortByExtended === 'popularity') return (Number(manualRadarCounts[b.id] || 0) + (b.activityScore || 0)) - (Number(manualRadarCounts[a.id] || 0) + (a.activityScore || 0)) || distanceA - distanceB;
+      return (b.activityScore || 0) - (a.activityScore || 0) || distanceA - distanceB;
     });
-  }, [suppliersWithStats, searchTerm, filterType, filterBrand, filterGps, filterActivity, sortBy]);
+  }, [suppliersWithStats, searchTerm, filterType, filterBrand, filterGps, filterActivity, filterPartCategory, yearFrom, yearTo, sortByExtended, sortByDistanceRef, manualRadarCounts]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -346,6 +382,31 @@ const SuppliersScreen: React.FC = () => {
 
   const toggleMainBrand = (brand: string) => {
     setMainBrands((prev) => prev.includes(brand) ? prev.filter((item) => item !== brand) : [...prev, brand]);
+  };
+
+  const toggleShopType = (type: SupplierType) => {
+    setShopTypes((prev) => {
+      if (prev.includes(type)) {
+        const next = prev.filter((item) => item !== type);
+        return next.length > 0 ? next : [type];
+      }
+      return [...prev, type];
+    });
+    setShopType(type);
+  };
+
+  const generateUniqueSupplierName = () => {
+    const left = ['Dubai', 'Emirates', 'Falcon', 'Desert', 'Turbo', 'Atlas', 'Nova', 'Prime'];
+    const right = ['Auto Hub', 'Motors', 'Parts', 'Garage', 'Supply', 'Auto Zone'];
+    const exists = new Set(suppliers.map((item) => item.name.trim().toLowerCase()));
+    for (let i = 0; i < 200; i += 1) {
+      const candidate = `${left[Math.floor(Math.random() * left.length)]} ${right[Math.floor(Math.random() * right.length)]} ${Math.floor(100 + (Math.random() * 9000))}`;
+      if (!exists.has(candidate.toLowerCase())) {
+        setName(candidate);
+        return;
+      }
+    }
+    setName(`Supplier ${Date.now()}`);
   };
 
   const toggleMainPartCategory = (category: string) => {
@@ -405,6 +466,7 @@ const SuppliersScreen: React.FC = () => {
     setSupplierPhotos([]);
     setMainPartCategories([]);
     setShopType('new_parts');
+    setShopTypes(['new_parts']);
     setZone('');
     setLocationParseNotice(null);
     setCoords(undefined);
@@ -466,6 +528,7 @@ const SuppliersScreen: React.FC = () => {
         phone: normalizedPhone,
         location,
         type: shopType,
+        types: shopTypes,
         zone: inferredZone,
         heatLevel: 0,
         brands: mainBrands,
@@ -640,6 +703,18 @@ const SuppliersScreen: React.FC = () => {
     return () => window.removeEventListener('radar-interaction-saved', onRadarUpdated);
   }, []);
 
+  useEffect(() => {
+    const selections = getRadarManualSelections();
+    const next: Record<string, number> = {};
+    selections.forEach((item) => { next[item.supplierId] = (next[item.supplierId] || 0) + 1; });
+    setManualRadarCounts(next);
+  }, [suppliers]);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition((pos) => setSortByDistanceRef({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => undefined);
+  }, []);
+
   const requiredReady = !!toTitle(name.trim()) && isValidE164(currentPhone) && !!location.trim();
 
   return (
@@ -687,11 +762,24 @@ const SuppliersScreen: React.FC = () => {
           <option value="has">Есть GPS</option>
           <option value="missing">Нет GPS</option>
         </select>
-        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
           <option value="activity">Сорт: Активность</option>
           <option value="success">Сорт: Успешность</option>
           <option value="last_contact">Сорт: Последний контакт</option>
+          <option value="distance">Сорт: Дистанция</option>
+          <option value="popularity">Сорт: Популярность</option>
+          <option value="name">Сорт: Название</option>
         </select>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={filterPartCategory} onChange={(e) => setFilterPartCategory(e.target.value)}>
+          <option value="all">Категории деталей: все</option>
+          {SUPPLIER_PART_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+        </select>
+        <input value={yearFrom} onChange={(e) => setYearFrom(e.target.value.replace(/[^\d]/g, ''))} placeholder="Год от" className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" />
+        <input value={yearTo} onChange={(e) => setYearTo(e.target.value.replace(/[^\d]/g, ''))} placeholder="Год до" className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" />
+        <div className="rounded-xl border border-gray-200 px-2 py-2 text-[11px] font-semibold text-gray-500">Дальние автоматически ниже</div>
       </div>
 
       {importError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-red-100"><AlertTriangle size={16} />{importError}</div>}
@@ -709,7 +797,10 @@ const SuppliersScreen: React.FC = () => {
             </div>
 
             <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Название *</label>
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Название *</label>
+                <button type="button" onClick={generateUniqueSupplierName} className="text-[10px] font-black uppercase text-blue-700 inline-flex items-center gap-1"><Shuffle size={11} /> Генерировать</button>
+              </div>
               <input placeholder="Dubai Parts LTD" value={name} onChange={(e) => setName(toTitle(e.target.value))} autoComplete="off" className="w-full bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
               {duplicateWarning && <p className="text-[11px] text-amber-700 font-semibold mt-1">⚠️ {duplicateWarning}</p>}
             </div>
@@ -736,7 +827,7 @@ const SuppliersScreen: React.FC = () => {
               <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Тип магазина</label>
               <div className="grid grid-cols-2 gap-2 mt-1">
                 {FIELD_TYPES.map((type) => (
-                  <button key={type.value} type="button" onClick={() => setShopType(type.value)} className={`rounded-xl border px-3 py-2 text-[10px] font-black inline-flex items-center justify-center gap-2 ${shopType === type.value ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-gray-200 text-gray-500'}`}>{type.icon} {type.label}</button>
+                  <button key={type.value} type="button" onClick={() => toggleShopType(type.value)} className={`rounded-xl border px-3 py-2 text-[10px] font-black inline-flex items-center justify-center gap-2 ${shopTypes.includes(type.value) ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-gray-200 text-gray-500'}`}>{type.icon} {type.label}</button>
                 ))}
               </div>
             </div>
@@ -845,58 +936,60 @@ const SuppliersScreen: React.FC = () => {
             const brands = s.mainBrands || s.brands || [];
 
             return (
-              <div key={s.id} className="bg-white p-4 rounded-2xl shadow-sm space-y-3 border border-gray-100">
-                <div className="flex justify-between items-start">
-                  <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${s.type === 'scrapyard' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}><Icon size={24} /></div>
-                    <div className="min-w-0">
-                      <h3 className="font-bold text-lg leading-tight truncate">{s.name}</h3>
-                      <p className="text-xs text-gray-500 truncate inline-flex items-center gap-1"><Clock3 size={11} /> Контакт: {daysAgoLabel(s.lastContactAt)}</p>
-                      <p className="text-xs text-gray-400 flex items-center gap-1 mt-1 truncate"><MapPin size={12} className="shrink-0" /> {s.location || 'Локация не указана'}</p>
+              <div key={s.id} className="bg-white p-3 rounded-2xl shadow-sm space-y-2 border border-gray-100">
+                <button type="button" onClick={() => setExpandedSupplierIds((prev) => { const next = new Set(prev); if (next.has(s.id)) next.delete(s.id); else next.add(s.id); return next; })} className="w-full text-left space-y-2">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {((s.photos && s.photos.length > 0) || s.photoUrl) ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const images = ((s.photos && s.photos.length > 0) ? s.photos : [s.photoUrl || '']).filter(Boolean) as string[];
+                            if (images.length > 0) setGallery({ images, index: 0 });
+                          }}
+                          className="w-12 h-12 rounded-xl overflow-hidden border border-gray-200 shrink-0"
+                        >
+                          <img src={((s.photos && s.photos[0]) || s.photoUrl) as string} alt={s.name} className="h-full w-full object-cover" />
+                        </button>
+                      ) : (
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${s.type === 'scrapyard' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}><Icon size={24} /></div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-black text-sm leading-tight truncate">{brands.slice(0, 2).join(' • ') || 'Без марки'}</p>
+                        <p className="text-[11px] font-semibold text-indigo-600 truncate">{(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}</p>
+                        <p className="text-[11px] text-gray-500 truncate">{s.name}</p>
+                      </div>
+                    </div>
+                    <div className="text-right text-[10px] text-slate-500">
+                      <p className="font-black">{s.coordinates ? `${Math.max(0.1, Number((Math.abs(s.coordinates.lat - sortByDistanceRef.lat) * 111).toFixed(1)))} km` : 'n/a'}</p>
+                      <p>{expandedSupplierIds.has(s.id) ? 'Свернуть' : 'Открыть'}</p>
                     </div>
                   </div>
-                  <div className="flex gap-1 shrink-0">
-                    <button type="button" onClick={() => toggleFavorite(s)} className={`p-2 rounded-xl ${s.isFavorite ? 'bg-pink-50 text-pink-600' : 'bg-gray-50 text-gray-400'}`}><Heart size={16} fill={s.isFavorite ? 'currentColor' : 'none'} /></button>
-                    <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="p-2 bg-gray-50 text-gray-300 hover:text-red-500 rounded-xl"><Trash2 size={16} /></button>
+
+                  <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
+                    <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
+                    <span className="rounded-full px-2 py-1 border border-violet-200 bg-violet-50 text-violet-700">Radar: {manualRadarCounts[s.id] || 0}</span>
+                    <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{daysAgoLabel(s.lastContactAt)}</span>
                   </div>
-                </div>
+                </button>
 
-                <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
-                  <span className="rounded-full px-2 py-1 border border-blue-200 bg-blue-50 text-blue-700">{FIELD_TYPES.find((t) => t.value === s.type)?.label || 'New Parts'}</span>
-                  <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
-                  {s.coordinates && <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{Math.max(0.1, Number((Math.abs(s.coordinates.lat - 25.2048) * 111).toFixed(1)))} km</span>}
-                </div>
-
-                {brands.length > 0 && (
-                  <p className="text-xs font-semibold text-slate-600 border-t border-slate-100 pt-2">{brands.slice(0, 3).join(' • ')}</p>
-                )}
-                {Array.isArray(s.models) && s.models.length > 0 && <p className="text-[11px] text-slate-500">Модели: {s.models.slice(0, 3).join(', ')}</p>}
-                {Array.isArray(s.years) && s.years.length > 0 && <p className="text-[11px] text-slate-500">Годы: {s.years.slice(0, 4).join(', ')}</p>}
+                {expandedSupplierIds.has(s.id) && <>
                 {Array.isArray(s.mainPartCategories) && s.mainPartCategories.length > 0 && <p className="text-[11px] text-slate-500">Основные детали: {s.mainPartCategories.slice(0, 3).join(', ')}</p>}
-                {(s.photoUrl || (s.photos || []).length > 0) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const images = ((s.photos && s.photos.length > 0) ? s.photos : [s.photoUrl || '']).filter(Boolean) as string[];
-                      if (images.length === 0) return;
-                      setGallery({ images, index: 0 });
-                    }}
-                    className="mt-1 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-black text-slate-700"
-                  >
-                    Фото поставщика
-                  </button>
-                )}
 
                 <div className="grid grid-cols-3 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">
                   <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Маршрут</button>
                   <a href={`https://wa.me/${(s.phone || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
                   <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-1.5 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
-                  <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput((s.years || []).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
+                  <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput((s.years || []).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
                   <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
                   <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
-                  <button type="button" onClick={() => alert(`Analyze ${s.name}\nContacts: ${s.activityScore || 0}\nFound: ${s.successRate}%\nLast: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 py-1.5 text-[10px] font-black text-blue-700 inline-flex items-center justify-center gap-1"><Sparkles size={12} />Analyze</button>
+                  <button type="button" onClick={() => alert(`Analyze ${s.name}
+Contacts: ${s.activityScore || 0}
+Found: ${s.successRate}%
+Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 py-1.5 text-[10px] font-black text-blue-700 inline-flex items-center justify-center gap-1"><Sparkles size={12} />Analyze</button>
                 </div>
-
+                </>}
                 <div className="border-t border-gray-100 pt-3 space-y-2">
                   <button type="button" onClick={() => setSupplierRadarHistoryExpandedId((prev) => (prev === s.id ? null : s.id))} className="w-full rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 inline-flex items-center justify-center gap-2"><Clock3 size={13} /> История радара</button>
                   {supplierRadarHistoryExpandedId === s.id && (
@@ -969,9 +1062,21 @@ const SuppliersScreen: React.FC = () => {
                           <option value="">Заказ для детали</option>
                           {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model}</option>)}
                         </select>
-                        <input placeholder="ID детали" className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: prev?.orderId || '', partId: e.target.value }))} />
+                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" defaultValue="" onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: prev?.orderId || '', partId: e.target.value }))}>
+                          <option value="">Деталь</option>
+                          {(activeOrders.find((order) => order.id === activeOrderPartLink?.orderId)?.parts || []).map((part) => <option key={part.id} value={part.id}>{part.name}</option>)}
+                        </select>
                       </div>
                       <button type="button" onClick={addSupplierToOrderPart} className="w-full rounded-lg bg-violet-100 px-2 py-2 text-[11px] font-black text-violet-800">Открыть Add Variant flow</button>
+                      <button type="button" onClick={() => {
+                        if (!activeOrderPartLink?.orderId || !activeOrderPartLink?.partId) return;
+                        addRadarManualSelection({ supplierId: s.id, orderId: activeOrderPartLink.orderId, partId: activeOrderPartLink.partId });
+                        const selections = getRadarManualSelections();
+                        const next: Record<string, number> = {};
+                        selections.forEach((item) => { next[item.supplierId] = (next[item.supplierId] || 0) + 1; });
+                        setManualRadarCounts(next);
+                        alert('Добавлено в Radar вручную.');
+                      }} className="w-full rounded-lg bg-emerald-100 px-2 py-2 text-[11px] font-black text-emerald-800">Добавить выбранную деталь в Radar</button>
                     </div>
                   )}
                 </div>
