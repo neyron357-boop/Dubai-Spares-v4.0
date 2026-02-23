@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store';
 import { OfferAvailability, OfferCondition, PriceVariant } from '../types';
 import {
@@ -109,6 +109,7 @@ const mergeUniqueYears = (current: number[] = [], incoming: number[] = []) => {
 const PartDetailsScreen: React.FC = () => {
   const { orderId, partId } = useParams<{ orderId: string; partId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { orders, updateOrder, suppliers, addSupplier, updateSupplier } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const variantsListRef = useRef<HTMLDivElement>(null);
@@ -116,6 +117,9 @@ const PartDetailsScreen: React.FC = () => {
 
   const order = orders.find((o) => o.id === orderId);
   const part = order?.parts.find((p) => p.id === partId);
+  const backTo = typeof (location.state as { backTo?: unknown } | null)?.backTo === 'string'
+    ? String((location.state as { backTo?: unknown }).backTo)
+    : `/order/${orderId}`;
 
   const [isAdding, setIsAdding] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -489,7 +493,7 @@ const PartDetailsScreen: React.FC = () => {
     <div className="flex flex-col min-h-full bg-gray-50 pb-28 overflow-x-hidden">
       <div className="bg-white p-4 border-b border-gray-100 sticky top-0 z-20 shadow-sm">
         <div className="flex items-start justify-between gap-2">
-          <button onClick={() => navigate(`/order/${orderId}`)} className="p-3 -ml-2 text-gray-600 active:bg-gray-100 rounded-full transition-colors"><ArrowLeft size={22} /></button>
+          <button onClick={() => navigate(backTo)} className="p-3 -ml-2 text-gray-600 active:bg-gray-100 rounded-full transition-colors"><ArrowLeft size={22} /></button>
           <div className="text-center flex-1">
             <h1 className="font-black text-lg truncate leading-tight uppercase tracking-tight">{part.name}</h1>
             <p className="text-[11px] text-gray-600 font-bold">{order.brand} {order.model} · {order.year || '—'} {order.vin ? `· VIN ${order.vin}` : ''}</p>

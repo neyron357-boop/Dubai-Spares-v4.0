@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ExternalLink, Filter, ImageOff, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Priority, type Order, type Part } from '../types';
@@ -26,12 +26,16 @@ const sanitizeImages = (values: Array<string | null | undefined>) => {
 
 const VendorSlider: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { orders } = useStore();
+
+  const initialBrand = searchParams.get('brand');
+  const initialSlideId = searchParams.get('slide');
 
   const [index, setIndex] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [brandFilter, setBrandFilter] = useState<string>('all');
-  const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
+  const [brandFilter, setBrandFilter] = useState<string>(initialBrand || 'all');
+  const [selectedBrand, setSelectedBrand] = useState<string | null>(initialBrand || null);
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | NonNullable<Part['status']>>('all');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
@@ -55,6 +59,22 @@ const VendorSlider: React.FC = () => {
   useEffect(() => {
     if (index >= orderSlides.length) setIndex(0);
   }, [index, orderSlides.length]);
+
+  useEffect(() => {
+    if (!initialSlideId || orderSlides.length === 0) return;
+    const nextIndex = orderSlides.findIndex((slide) => slide.id === initialSlideId);
+    if (nextIndex >= 0) setIndex(nextIndex);
+  }, [initialSlideId, orderSlides]);
+
+  useEffect(() => {
+    if (!selectedBrand && !current?.id) return;
+    const next = new URLSearchParams(searchParams);
+    if (selectedBrand) next.set('brand', selectedBrand);
+    else next.delete('brand');
+    if (current?.id) next.set('slide', current.id);
+    else next.delete('slide');
+    setSearchParams(next, { replace: true });
+  }, [selectedBrand, current?.id]);
 
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
   const current = orderSlides[index];
@@ -87,8 +107,12 @@ const VendorSlider: React.FC = () => {
   return (
     <div className="absolute inset-0 z-50 h-full w-full overflow-hidden bg-[#0B1220] text-white">
       <div className="relative h-[30vh] min-h-[190px] max-h-[260px] overflow-hidden border-b border-slate-800">
-        {carImages[0] ? <img src={carImages[0]} alt="car" className="h-full w-full object-cover" onClick={() => setGallery({ images: carImages, index: 0 })} /> : <div className="h-full w-full bg-slate-900" />}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+        {carImages[0] ? (
+          <button type="button" onClick={() => setGallery({ images: carImages, index: 0 })} className="h-full w-full">
+            <img src={carImages[0]} alt="car" className="h-full w-full object-cover" />
+          </button>
+        ) : <div className="h-full w-full bg-slate-900" />}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
         <div className="absolute right-3 top-3 flex gap-2">
           <button type="button" onClick={() => setFiltersOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Filter size={18} /></button>
           <button type="button" onClick={() => setSelectedBrand(null)} className="rounded-full bg-black/45 px-3 text-[11px] font-bold">Марки</button>
@@ -101,7 +125,7 @@ const VendorSlider: React.FC = () => {
         </div>
       </div>
 
-      <div className="h-[calc(100%-30vh)] overflow-y-auto p-3 space-y-2" onTouchStart={(e) => { const t = e.targetTouches[0]; touchStart.current = { x: t.clientX, y: t.clientY }; }} onTouchEnd={(e) => { if (!touchStart.current) return; const t = e.changedTouches[0]; const dx = t.clientX - touchStart.current.x; const dy = t.clientY - touchStart.current.y; if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) goTo(index + (dx > 0 ? -1 : 1)); touchStart.current = null; }}>
+      <div className="h-[calc(100%-30vh)] overflow-y-auto p-3 space-y-2" onTouchStart={(e) => { const t = e.targetTouches[0]; touchStart.current = { x: t.clientX, y: t.clientY }; }} onTouchEnd={(e) => { if (!touchStart.current) return; const t = e.changedTouches[0]; const dx = t.clientX - touchStart.current.x; const dy = t.clientY - touchStart.current.y; if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.15) goTo(index + (dx > 0 ? -1 : 1)); touchStart.current = null; }}>
         {current.visibleParts.map((part) => {
           const images = sanitizeImages([...(part.photos || []), part.photoUrl]);
           return (
@@ -113,7 +137,7 @@ const VendorSlider: React.FC = () => {
                 <p className="truncate text-base font-black">{part.name}</p>
                 <p className="text-xs text-white/60">Статус: {part.status || 'searching'} • Вариантов: {part.variants.length}</p>
               </div>
-              <button type="button" onClick={() => navigate(`/order/${current.id}/part/${part.id}`)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-2 py-1.5 text-xs font-semibold text-white/90">Карточка детали <ExternalLink size={12} /></button>
+              <button type="button" onClick={() => navigate(`/order/${current.id}/part/${part.id}`, { state: { backTo: `/vendor?brand=${encodeURIComponent(selectedBrand || '')}&slide=${current.id}` } })} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-2 py-1.5 text-xs font-semibold text-white/90">Карточка детали <ExternalLink size={12} /></button>
             </div>
           );
         })}

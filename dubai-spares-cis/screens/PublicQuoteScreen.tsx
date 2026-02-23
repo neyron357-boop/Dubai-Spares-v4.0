@@ -799,17 +799,7 @@ const getMissingTableColumn = (error: unknown, table: string): string | null => 
   return null;
 };
 
-const createSimplePdf = (lines: string[]): Blob => {
-  const escape = (text: string) => text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-  const contentLines = lines.map((line, idx) => `BT /F1 12 Tf 50 ${780 - idx * 18} Td (${escape(line)}) Tj ET`).join('\n');
-  const objects = [
-    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
-    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
-    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj',
-    `4 0 obj << /Length ${contentLines.length} >> stream\n${contentLines}\nendstream endobj`,
-    '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj'
-  ];
-
+const buildPdfBlob = (objects: string[]): Blob => {
   let pdf = '%PDF-1.4\n';
   const offsets: number[] = [];
   objects.forEach((obj) => {
@@ -823,6 +813,95 @@ const createSimplePdf = (lines: string[]): Blob => {
   });
   pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
   return new Blob([pdf], { type: 'application/pdf' });
+};
+
+const createInvoicePdf = ({
+  order,
+  lineItems,
+  totals,
+  logoUrl,
+  signatureUrl
+}: {
+  order: Order;
+  lineItems: Array<{ name: string; price: number }>;
+  totals: { delivery: number; packing: number; serviceFee: number; totalAed: number };
+  logoUrl?: string;
+  signatureUrl?: string;
+}): Blob => {
+  const escape = (text: string) => text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  const commands: string[] = [];
+  let y = 790;
+
+  const text = (x: number, value: string, size = 10) => {
+    commands.push(`BT /F1 ${size} Tf ${x} ${y} Td (${escape(value)}) Tj ET`);
+  };
+  const row = (label: string, value: string, size = 10) => {
+    text(44, label, size);
+    text(330, value, size);
+    y -= size + 8;
+  };
+  const hLine = (atY: number) => {
+    commands.push(`0.9 0.9 0.92 RG 1 w 40 ${atY} m 555 ${atY} l S`);
+  };
+
+  commands.push('0.96 0.97 1 rg 40 744 515 70 re f');
+  commands.push('0.16 0.32 0.95 rg 48 758 140 42 re f');
+  y = 783;
+  text(58, 'DUBAI SPARES UAE', 14);
+  y = 766;
+  text(58, 'PROFESSIONAL INVOICE', 8);
+  y = 786;
+  text(340, 'Invoice', 16);
+  y = 768;
+  text(340, `Date: ${new Date().toLocaleDateString()}`);
+  y = 754;
+  text(340, `Invoice ID: ${order.id.slice(0, 8).toUpperCase()}`);
+
+  y = 724;
+  hLine(y + 8);
+  row('Bill To:', `${order.clientName || 'Customer'} (${order.customerContact || 'N/A'})`, 11);
+  row('Vehicle:', `${order.brand} ${order.model} ${order.year || ''}`.trim());
+  row('VIN:', order.vin || '-');
+
+  y -= 6;
+  commands.push(`0.16 0.32 0.95 rg 40 ${y + 4} 515 22 re f`);
+  y += 18;
+  text(48, 'PART NAME', 9);
+  text(420, 'AMOUNT (AED)', 9);
+  y -= 14;
+
+  lineItems.slice(0, 14).forEach((item, index) => {
+    if (index % 2 === 0) commands.push(`0.98 0.98 0.99 rg 40 ${y - 8} 515 20 re f`);
+    commands.push(`0.9 0.9 0.92 RG 0.5 w 40 ${y - 8} m 555 ${y - 8} l S`);
+    text(48, `${index + 1}. ${item.name}`);
+    text(430, item.price.toFixed(2));
+    y -= 20;
+  });
+
+  y -= 8;
+  hLine(y + 14);
+  row('Delivery', `${totals.delivery.toFixed(2)} AED`, 11);
+  row('Packing', `${totals.packing.toFixed(2)} AED`, 11);
+  row('Service Fee', `${totals.serviceFee.toFixed(2)} AED`, 11);
+
+  commands.push(`0.12 0.16 0.25 rg 40 ${y - 2} 515 30 re f`);
+  y += 16;
+  text(48, 'TOTAL', 13);
+  text(412, `${totals.totalAed.toFixed(2)} AED`, 13);
+
+  y -= 48;
+  row('Company logo', logoUrl || 'Configured in public settings', 8);
+  row('Signature', signatureUrl || 'Configured in public settings', 8);
+  row('Note', 'Generated as structured invoice PDF', 8);
+
+  const content = commands.join('\n');
+  return buildPdfBlob([
+    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
+    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
+    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj',
+    `4 0 obj << /Length ${content.length} >> stream\n${content}\nendstream endobj`,
+    '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj'
+  ]);
 };
 
 const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
@@ -1241,36 +1320,20 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     window.location.href = whatsappConfirmUrl;
   }, [whatsappConfirmUrl]);
 
-  const downloadPdf = () => {
+  const downloadPdf = async () => {
     if (!order) return;
-    const lines = [
-      'INVOICE · Dubai Spares UAE',
-      `Invoice ID: ${order.id}`,
-      `Date: ${new Date().toLocaleDateString()}`,
-      `Company logo: ${logoUrl || 'Not set'}`,
-      '',
-      '--- Client ---',
-      `Name: ${order.clientName || 'Not specified'}`,
-      `Contact: ${order.customerContact || (whatsappPhoneDigits ? `+${whatsappPhoneDigits}` : 'Not configured')}`,
-      '',
-      '--- Vehicle ---',
-      `Brand/Model: ${order.brand} ${order.model}`,
-      `Year: ${order.year || '-'}`,
-      `VIN: ${maskVin(order.vin)}`,
-      '',
-      '--- Parts & Details ---',
-      ...foundParts.map(({ part, clientAed }, index) => `${index + 1}. ${part.name} — ${clientAed.toFixed(2)} AED`),
-      '',
-      `Delivery: ${totals.delivery.toFixed(2)} AED`,
-      `Packing: ${totals.packing.toFixed(2)} AED`,
-      `Service fee: ${totals.serviceFee.toFixed(2)} AED`,
-      `TOTAL: ${totals.totalAed.toFixed(2)} AED`,
-      '',
-      `Owner signature: ${signatureUrl || 'Not set'}`,
-      '',
-      'Notes: Car and part photos are intentionally excluded from this invoice.'
-    ];
-    const blob = createSimplePdf(lines);
+    const blob = createInvoicePdf({
+      order,
+      lineItems: foundParts.map(({ part, clientAed }) => ({ name: part.name, price: clientAed })),
+      totals: {
+        delivery: totals.delivery,
+        packing: totals.packing,
+        serviceFee: totals.serviceFee,
+        totalAed: totals.totalAed
+      },
+      logoUrl,
+      signatureUrl
+    });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `invoice-${order.id}.pdf`;
@@ -1369,7 +1432,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           <div className="space-y-4 p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Dubai Spares UAE</div>
-              {logoUrl && <img src={logoUrl} alt="Company logo" className="h-10 w-auto max-w-[160px] object-contain" />}
+              {logoUrl && <img src={logoUrl} alt="Company logo" className="h-24 w-auto max-w-[420px] object-contain" />}
             </div>
             <div>
               <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">{order.brand} {order.model} {order.year}</h1>
@@ -1521,7 +1584,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="font-bold text-slate-800">{t.companyProfile}: Dubai Spares UAE</p>
-                {logoUrl && <img src={logoUrl} alt="Company logo" className="h-8 w-auto max-w-[130px] object-contain" />}
+                {logoUrl && <img src={logoUrl} alt="Company logo" className="h-20 w-auto max-w-[360px] object-contain" />}
               </div>
               <div className="flex flex-wrap gap-2">
                 {whatsappPhoneDigits && (
