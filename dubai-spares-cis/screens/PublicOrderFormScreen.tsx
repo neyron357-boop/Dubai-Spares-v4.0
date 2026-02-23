@@ -232,6 +232,7 @@ const PublicOrderFormScreen: React.FC = () => {
     }
   }, []);
   const whatsappPhone = (settings.publicWhatsappNumber || '').replace(/\D/g, '');
+  const companyLogoUrl = settings.publicCompanyLogoUrl || '';
 
   const carInputRef = useRef<HTMLInputElement | null>(null);
   const carCameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -793,7 +794,10 @@ Country: ${deliveryCountry}`,
         </div>
       )}
       <div className="mx-auto w-full max-w-2xl rounded-[32px] border border-white/10 bg-white/5 p-5 shadow-[0_25px_80px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-8">
-        <p className="text-xs uppercase tracking-[0.26em] text-slate-300">Dubai Spares Concierge</p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-[0.26em] text-slate-300">Dubai Spares Concierge</p>
+          {companyLogoUrl && <img src={companyLogoUrl} alt="Company logo" className="h-10 w-auto max-w-[160px] object-contain" />}
+        </div>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Премиальная заявка на запчасти</h1>
 
         <div className="mb-6 mt-6">

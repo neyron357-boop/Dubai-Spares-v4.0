@@ -630,7 +630,9 @@ const normalizePublicSettings = (raw: unknown) => {
     publicTelegramUrl: read('publicTelegramUrl', 'public_telegram_url', 'telegram', 'telegramUrl'),
     publicInstagramUrl: read('publicInstagramUrl', 'public_instagram_url', 'instagram', 'instagramUrl'),
     publicDeliveryTerms: read('publicDeliveryTerms', 'public_delivery_terms', 'deliveryTerms', 'delivery_terms'),
-    publicWorkTerms: read('publicWorkTerms', 'public_work_terms', 'workTerms', 'work_terms')
+    publicWorkTerms: read('publicWorkTerms', 'public_work_terms', 'workTerms', 'work_terms'),
+    publicCompanyLogoUrl: read('publicCompanyLogoUrl', 'public_company_logo_url', 'companyLogoUrl', 'logo', 'logoUrl'),
+    publicInvoiceSignatureUrl: read('publicInvoiceSignatureUrl', 'public_invoice_signature_url', 'invoiceSignatureUrl', 'signature', 'signatureUrl')
   };
 };
 
@@ -689,7 +691,9 @@ const mergePublicSettings = (
   publicTelegramUrl: preferred.publicTelegramUrl || fallback?.publicTelegramUrl || '',
   publicInstagramUrl: preferred.publicInstagramUrl || fallback?.publicInstagramUrl || '',
   publicDeliveryTerms: preferred.publicDeliveryTerms || fallback?.publicDeliveryTerms || '',
-  publicWorkTerms: preferred.publicWorkTerms || fallback?.publicWorkTerms || ''
+  publicWorkTerms: preferred.publicWorkTerms || fallback?.publicWorkTerms || '',
+  publicCompanyLogoUrl: preferred.publicCompanyLogoUrl || fallback?.publicCompanyLogoUrl || '',
+  publicInvoiceSignatureUrl: preferred.publicInvoiceSignatureUrl || fallback?.publicInvoiceSignatureUrl || ''
 });
 
 const normalizePayloadOwner = (raw: unknown) => {
@@ -1208,6 +1212,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const payloadSettings = (order as any)?.public_settings || {};
   const settingsFromPayload = normalizePublicSettings(payloadSettings);
   const settings = mergePublicSettings(settingsFromPayload, resolvedSettings);
+  const logoUrl = settings.publicCompanyLogoUrl;
+  const signatureUrl = settings.publicInvoiceSignatureUrl;
   const normalizedOwner = normalizePayloadOwner(payloadOwner);
   const whatsappPhoneRaw = quoteContact?.whatsappPhone
     || settings.publicWhatsappNumber
@@ -1238,19 +1244,36 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const downloadPdf = () => {
     if (!order) return;
     const lines = [
-      'Dubai Spares UAE - Quote',
-      `${order.brand} ${order.model} ${order.year}`,
+      'INVOICE · Dubai Spares UAE',
+      `Invoice ID: ${order.id}`,
+      `Date: ${new Date().toLocaleDateString()}`,
+      `Company logo: ${logoUrl || 'Not set'}`,
+      '',
+      '--- Client ---',
+      `Name: ${order.clientName || 'Not specified'}`,
+      `Contact: ${order.customerContact || (whatsappPhoneDigits ? `+${whatsappPhoneDigits}` : 'Not configured')}`,
+      '',
+      '--- Vehicle ---',
+      `Brand/Model: ${order.brand} ${order.model}`,
+      `Year: ${order.year || '-'}`,
       `VIN: ${maskVin(order.vin)}`,
-      `Total: ${totals.totalAed.toFixed(2)} AED`,
-      `Valid until: ${expiresAtIso ? new Date(expiresAtIso).toLocaleString() : '-'}`,
-      '--- Parts ---',
-      ...foundParts.map(({ part, clientAed }) => `${part.name}: ${clientAed.toFixed(2)} AED`),
-      `Contact: ${whatsappPhoneDigits ? `+${whatsappPhoneDigits}` : 'Not configured'}`
+      '',
+      '--- Parts & Details ---',
+      ...foundParts.map(({ part, clientAed }, index) => `${index + 1}. ${part.name} — ${clientAed.toFixed(2)} AED`),
+      '',
+      `Delivery: ${totals.delivery.toFixed(2)} AED`,
+      `Packing: ${totals.packing.toFixed(2)} AED`,
+      `Service fee: ${totals.serviceFee.toFixed(2)} AED`,
+      `TOTAL: ${totals.totalAed.toFixed(2)} AED`,
+      '',
+      `Owner signature: ${signatureUrl || 'Not set'}`,
+      '',
+      'Notes: Car and part photos are intentionally excluded from this invoice.'
     ];
     const blob = createSimplePdf(lines);
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `quote-${order.id}.pdf`;
+    link.download = `invoice-${order.id}.pdf`;
     link.click();
     URL.revokeObjectURL(link.href);
     logEvent('pdf_download');
@@ -1344,7 +1367,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           {heroPhoto ? <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="h-44 w-full object-cover sm:h-52" /> : null}
           <div className="space-y-4 p-5 sm:p-6">
-            <div className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Dubai Spares UAE</div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Dubai Spares UAE</div>
+              {logoUrl && <img src={logoUrl} alt="Company logo" className="h-10 w-auto max-w-[160px] object-contain" />}
+            </div>
             <div>
               <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">{order.brand} {order.model} {order.year}</h1>
               <p className="mt-1 text-xs font-medium uppercase tracking-[0.14em] text-slate-400">VIN: {maskVin(order.vin)}</p>
@@ -1493,7 +1519,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <li className="flex items-start gap-2"><span className="mt-0.5 text-emerald-500">✓</span> {t.response}</li>
             </ul>
             <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 space-y-3">
-              <p className="font-bold text-slate-800">{t.companyProfile}: Dubai Spares UAE</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-bold text-slate-800">{t.companyProfile}: Dubai Spares UAE</p>
+                {logoUrl && <img src={logoUrl} alt="Company logo" className="h-8 w-auto max-w-[130px] object-contain" />}
+              </div>
               <div className="flex flex-wrap gap-2">
                 {whatsappPhoneDigits && (
                   <a href={`https://wa.me/${whatsappPhoneDigits}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white">
