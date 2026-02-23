@@ -891,8 +891,11 @@ const createInvoicePdf = ({
 
   y -= 48;
   row('Company logo', logoUrl || 'Configured in public settings', 8);
-  row('Signature', signatureUrl || 'Configured in public settings', 8);
   row('Note', 'Generated as structured invoice PDF', 8);
+  commands.push('0.78 0.8 0.85 RG 1 w 40 96 m 555 96 l S');
+  commands.push('0.2 0.22 0.26 rg');
+  commands.push(`BT /F1 9 Tf 44 80 Td (${escape('Owner signature:')}) Tj ET`);
+  commands.push(`BT /F1 8 Tf 140 80 Td (${escape(signatureUrl || 'Configured in public settings')}) Tj ET`);
 
   const content = commands.join('\n');
   return buildPdfBlob([
@@ -1610,6 +1613,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         <button type="button" onClick={downloadPdf} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-sm">
           <Download size={15} /> {t.downloadPdf}
         </button>
+
+        {signatureUrl && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Подпись</p>
+            <div className="mt-2 border-t border-slate-100 pt-3">
+              <img src={signatureUrl} alt="Owner signature" className="h-20 w-auto object-contain" />
+            </div>
+          </section>
+        )}
 
         {/* Footer branding */}
         <div className="py-4 text-center">

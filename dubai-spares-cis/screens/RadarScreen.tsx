@@ -299,9 +299,10 @@ const RadarScreen: React.FC = () => {
         });
       })
       .filter((entry) => {
+        if (listType === 'recommendation') return true;
         const manualForSupplier = manualSelections
           .filter((item) => item.supplierId === entry.shop.id)
-          .filter((item) => (item.source || 'manual') === listType);
+          .filter((item) => (item.source || 'manual') === 'manual');
         if (manualForSupplier.length === 0) return false;
         return manualForSupplier.some((item) => {
           if (item.orderId !== entry.order.id) return false;
