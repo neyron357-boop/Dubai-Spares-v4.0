@@ -1754,9 +1754,9 @@ const OrderDetailsScreen: React.FC = () => {
                               +{displayPhotos.length - 1}
                           </div>
                       )}
-                      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/45 px-1 py-0.5">
-                        <button type="button" onClick={(e) => { e.stopPropagation(); setPartSampleTargetId(part.id); partSampleFileRef.current?.click(); }} className="text-[8px] font-bold uppercase text-white">+</button>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); removePartSamplePhoto(part.id, 0); }} className="text-[8px] font-bold uppercase text-white">✕</button>
+                      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/55 px-1.5 py-1">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setPartSampleTargetId(part.id); partSampleFileRef.current?.click(); }} className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-md bg-white/20 px-1.5 text-[11px] font-black text-white">+</button>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); removePartSamplePhoto(part.id, 0); }} className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-md bg-white/20 px-1.5 text-[11px] font-black text-white">✕</button>
                       </div>
                     </>
                   ) : (
