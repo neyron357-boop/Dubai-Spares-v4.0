@@ -52,13 +52,29 @@ const PRIORITY_HINT: Record<Priority, string> = {
   [Priority.HIGH]: 'нужно ускорить'
 };
 const SLA_HOURS = 24;
-const MESSAGE_TEMPLATES = [
-  'Принял заказ ✅ уточняю цены',
-  'Нашёл варианты, отправляю смету',
-  'Нужны уточнения (VIN/фото/комплектация)',
-  'Подтвердите оплату / доставку',
-  'Деталь закончилась — есть замена'
-] as const;
+const MESSAGE_TEMPLATES_BY_LANGUAGE: Record<'ru' | 'en' | 'ar', readonly string[]> = {
+  ru: [
+    'Принял заказ ✅ уточняю цены',
+    'Нашёл варианты, отправляю смету',
+    'Нужны уточнения (VIN/фото/комплектация)',
+    'Подтвердите оплату / доставку',
+    'Деталь закончилась — есть замена'
+  ],
+  en: [
+    'Order received ✅ checking prices now',
+    'Found options, sending quotation',
+    'Need more details (VIN/photos/trim)',
+    'Please confirm payment / delivery',
+    'Part is unavailable — we have an alternative'
+  ],
+  ar: [
+    'تم استلام الطلب ✅ وجاري التحقق من الأسعار',
+    'تم العثور على الخيارات وسيتم إرسال العرض',
+    'نحتاج تفاصيل إضافية (VIN/صور/الفئة)',
+    'يرجى تأكيد الدفع / التوصيل',
+    'القطعة غير متوفرة — لدينا بديل'
+  ]
+} as const;
 
 
 const toRad = (v: number) => (v * Math.PI) / 180;
@@ -187,9 +203,9 @@ const OrderDetailsScreen: React.FC = () => {
   // Exchange Rate Input State (Controlled)
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
   const [showActionsMenu, setShowActionsMenu] = useState(false);
-  const [isEditMode] = useState(true);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
-  const [selectedTemplate, setSelectedTemplate] = useState(MESSAGE_TEMPLATES[0]);
+  const [selectedTemplate, setSelectedTemplate] = useState('');
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
   const [logisticsDraft, setLogisticsDraft] = useState<Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string>>({
     deliveryAed: String(Number(order?.logistics?.deliveryAed || 0)),
@@ -475,8 +491,13 @@ const OrderDetailsScreen: React.FC = () => {
   const isSlaBreached = orderAgeHours >= SLA_HOURS;
   const vinIsValid = /^[A-HJ-NPR-Z0-9]{17}$/.test((order.vin || '').toUpperCase());
   const vinIsIncomplete = !!order.vin && !vinIsValid;
+  const templateLanguage: 'ru' | 'en' | 'ar' = order.whatsappTemplateLanguage || 'ru';
+  const messageTemplates = MESSAGE_TEMPLATES_BY_LANGUAGE[templateLanguage] || MESSAGE_TEMPLATES_BY_LANGUAGE.ru;
 
-  const applyTemplate = (template: string) => template
+
+  const normalizedSelectedTemplate = messageTemplates.includes(selectedTemplate) ? selectedTemplate : (messageTemplates[0] || '');
+
+  const applyTemplate = (template: string) => (template || normalizedSelectedTemplate || '')
     .replace('{client_name}', order.clientName || 'клиент')
     .replace('{car}', `${order.brand} ${order.model}`.trim())
     .replace('{vin}', order.vin || 'VIN не указан')
@@ -488,7 +509,7 @@ const OrderDetailsScreen: React.FC = () => {
   const openWhatsappClient = () => {
     const phone = (order.customerContact || '').replace(/[^\d+]/g, '');
     if (!phone || phone.length < 8) return;
-    const message = applyTemplate(selectedTemplate);
+    const message = applyTemplate(normalizedSelectedTemplate);
     window.open(`https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
@@ -1166,15 +1187,22 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </div>
         <div className="flex gap-2 items-center overflow-x-auto no-scrollbar">
-          <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
+          <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
             {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
-          <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
+          <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} disabled={!isEditMode} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
             <option value={Priority.HIGH}>HIGH</option>
             <option value={Priority.MEDIUM}>MEDIUM</option>
             <option value={Priority.LOW}>LOW</option>
           </select>
           <button type="button" onClick={() => void pasteVinFromClipboard()} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">Вставить VIN</button>
+          <button
+            type="button"
+            onClick={() => setIsEditMode((prev) => !prev)}
+            className={`text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight border shrink-0 ${isEditMode ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-700'}`}
+          >
+            {isEditMode ? 'Завершить редакт.' : 'Редактировать'}
+          </button>
         </div>
       </div>
 
@@ -1199,6 +1227,7 @@ const OrderDetailsScreen: React.FC = () => {
               <input
                 type="text"
                 value={String(draftFields.clientName ?? order.clientName ?? '')}
+                readOnly={!isEditMode}
                 onChange={(e) => updateOrderField('clientName', e.target.value)}
                 onBlur={() => flushDeferredOrderField('clientName')}
                 placeholder="Имя клиента..."
@@ -1211,6 +1240,7 @@ const OrderDetailsScreen: React.FC = () => {
                 <input
                   type="tel"
                   value={String(draftFields.customerContact ?? order.customerContact ?? '')}
+                  readOnly={!isEditMode}
                   onChange={(e) => updateOrderField('customerContact', e.target.value)}
                   onBlur={() => flushDeferredOrderField('customerContact')}
                   placeholder="+971..."
@@ -1226,6 +1256,7 @@ const OrderDetailsScreen: React.FC = () => {
               <select
                 value={String(draftFields.source ?? order.source)}
                 onChange={(e) => updateOrderField('source', e.target.value)}
+                disabled={!isEditMode}
                 className="w-full h-10 text-sm font-bold bg-gray-50 rounded-xl px-2 outline-none border border-gray-100"
               >
                 {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -1234,11 +1265,12 @@ const OrderDetailsScreen: React.FC = () => {
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Шаблон</label>
               <select
-                value={selectedTemplate}
+                value={normalizedSelectedTemplate}
                 onChange={(e) => setSelectedTemplate(e.target.value)}
+                disabled={!isEditMode}
                 className="w-full h-10 text-sm font-bold bg-gray-50 rounded-xl px-2 outline-none border border-gray-100"
               >
-                {MESSAGE_TEMPLATES.map(template => <option key={template} value={template}>{template}</option>)}
+                {messageTemplates.map(template => <option key={template} value={template}>{template}</option>)}
               </select>
             </div>
           </div>
@@ -1258,6 +1290,7 @@ const OrderDetailsScreen: React.FC = () => {
             <input
               type="text"
               value={String(draftFields.model ?? order.model ?? '')}
+              readOnly={!isEditMode}
               onChange={(e) => updateOrderField('model', e.target.value)}
               onBlur={() => flushDeferredOrderField('model')}
               className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
@@ -1268,6 +1301,7 @@ const OrderDetailsScreen: React.FC = () => {
             <input
               type="text"
               value={String(draftFields.year ?? order.year ?? '')}
+              readOnly={!isEditMode}
               onChange={(e) => updateOrderField('year', e.target.value)}
               onBlur={() => flushDeferredOrderField('year')}
               className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
@@ -1278,6 +1312,7 @@ const OrderDetailsScreen: React.FC = () => {
             <input
               type="text"
               value={String(draftFields.bodyType ?? order.bodyType ?? '')}
+              readOnly={!isEditMode}
               onChange={(e) => updateOrderField('bodyType', e.target.value)}
               onBlur={() => flushDeferredOrderField('bodyType')}
               placeholder="E39 / F10 / S-Class"

@@ -334,6 +334,8 @@ const OrdersScreen: React.FC = () => {
   const [statusFilters, setStatusFilters] = useState<SearchState[]>([]);
   const [noResponseHours, setNoResponseHours] = useState<number>(0);
   const [issueFilter, setIssueFilter] = useState<'all' | 'missing_price' | 'missing_contact'>('all');
+  const [yearFrom, setYearFrom] = useState('');
+  const [yearTo, setYearTo] = useState('');
 
 
   useEffect(() => {
@@ -441,6 +443,15 @@ const OrdersScreen: React.FC = () => {
       list = list.filter((order) => !order.customerContact?.trim());
     }
 
+    const fromYearNum = Number(yearFrom);
+    const toYearNum = Number(yearTo);
+    if (Number.isFinite(fromYearNum) && yearFrom.trim()) {
+      list = list.filter((order) => Number(order.year) >= fromYearNum);
+    }
+    if (Number.isFinite(toYearNum) && yearTo.trim()) {
+      list = list.filter((order) => Number(order.year) <= toYearNum);
+    }
+
     return [...list].sort((a, b) => {
       if (!!a.isPinned !== !!b.isPinned) return a.isPinned ? -1 : 1;
       if (sortBy === 'date_asc') return a.createdAt - b.createdAt;
@@ -449,7 +460,7 @@ const OrdersScreen: React.FC = () => {
       if (sortBy === 'age') return (a.updatedAt || a.createdAt) - (b.updatedAt || b.createdAt);
       return b.createdAt - a.createdAt;
     });
-  }, [orders, activeTab, debouncedSearch, brandFilters, priorityFilter, statusFilters, noResponseHours, issueFilter, sortBy]);
+  }, [orders, activeTab, debouncedSearch, brandFilters, priorityFilter, statusFilters, noResponseHours, issueFilter, sortBy, yearFrom, yearTo]);
 
   const emptyStateMessage = useMemo(() => {
     if (activeTab === 'active') return { title: 'Нет активных заказов', cta: 'Создать заказ', action: () => navigate('/new') };
@@ -663,6 +674,26 @@ const OrdersScreen: React.FC = () => {
               </select>
             </div>
 
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                inputMode="numeric"
+                value={yearFrom}
+                onChange={(e) => setYearFrom(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
+                placeholder="Год от"
+                className="h-11 rounded-xl border border-slate-200 px-2 text-sm"
+              />
+              <input
+                type="number"
+                inputMode="numeric"
+                value={yearTo}
+                onChange={(e) => setYearTo(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
+                placeholder="Год до"
+                className="h-11 rounded-xl border border-slate-200 px-2 text-sm"
+              />
+            </div>
+
             <div className="mt-3">
               <label className="text-[11px] font-black uppercase text-slate-500">Статус поиска</label>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -682,6 +713,8 @@ const OrdersScreen: React.FC = () => {
                 setStatusFilters([]);
                 setNoResponseHours(0);
                 setIssueFilter('all');
+                setYearFrom('');
+                setYearTo('');
               }} className="h-11 flex-1 rounded-xl border border-slate-200 text-xs font-black uppercase">Сброс</button>
               <button type="button" onClick={() => setIsFilterOpen(false)} className="h-11 flex-1 rounded-xl bg-blue-600 text-xs font-black uppercase text-white">Применить</button>
             </div>

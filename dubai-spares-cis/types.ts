@@ -93,6 +93,7 @@ export interface Order {
   salesStatus?: SalesStatus;
   customerContact?: string;
   socialNickname?: string;
+  whatsappTemplateLanguage?: 'ru' | 'en' | 'ar';
   updatedAt?: number;
   recommendedShopIds?: string[];
   dismissedShopIds?: string[];
