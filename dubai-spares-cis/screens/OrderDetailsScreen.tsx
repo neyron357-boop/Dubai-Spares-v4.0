@@ -242,7 +242,7 @@ const OrderDetailsScreen: React.FC = () => {
     const currentOrder = orders.find((item) => item.id === id);
     if (currentOrder && (currentOrder.isLead || (currentOrder.parts && currentOrder.parts.length > 0))) return;
     void fetchOrderDetails(id);
-  }, [id, orders, fetchOrderDetails]);
+  }, [id, fetchOrderDetails]);
   useEffect(() => {
     if (!order) return;
     if (order.leadSource === 'public_form' && order.leadUnread) {
