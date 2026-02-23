@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Trash2 } from 'lucide-react';
 
 interface Props {
   images: string[];
   initialIndex?: number;
   onClose: () => void;
+  onDeleteCurrent?: (index: number) => void;
+  deleteLabel?: string;
 }
 
 type Point = { x: number; y: number };
@@ -12,7 +14,7 @@ type Point = { x: number; y: number };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const pinchDistance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 
-const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) => {
+const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDeleteCurrent, deleteLabel = 'Удалить' }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
@@ -91,6 +93,23 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose }) =>
           <button onClick={(e) => { e.stopPropagation(); prevImage(); }} className={`absolute left-4 p-3 rounded-full bg-white/10 text-white backdrop-blur-md ${currentIndex === 0 ? 'opacity-30 cursor-not-allowed' : 'opacity-100'}`} disabled={currentIndex === 0}><ChevronLeft size={32} /></button>
           <button onClick={(e) => { e.stopPropagation(); nextImage(); }} className={`absolute right-4 p-3 rounded-full bg-white/10 text-white backdrop-blur-md ${currentIndex === images.length - 1 ? 'opacity-30 cursor-not-allowed' : 'opacity-100'}`} disabled={currentIndex === images.length - 1}><ChevronRight size={32} /></button>
         </>
+      )}
+
+
+      {onDeleteCurrent && (
+        <div className="absolute inset-x-0 bottom-6 z-50 flex justify-center px-4">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteCurrent(currentIndex);
+            }}
+            className="inline-flex h-11 items-center gap-2 rounded-full border border-rose-300 bg-rose-500/90 px-5 text-sm font-bold text-white shadow-lg"
+          >
+            <Trash2 size={16} />
+            {deleteLabel}
+          </button>
+        </div>
       )}
 
       <div

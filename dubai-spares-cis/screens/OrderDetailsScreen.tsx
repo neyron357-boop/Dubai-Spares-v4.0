@@ -171,7 +171,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [isRetrying, setIsRetrying] = useState(false);
 
   const [isEstimateOpen, setIsEstimateOpen] = useState(false);
-  const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
+  const [gallery, setGallery] = useState<{ images: string[]; index: number; partId?: string } | null>(null);
   const [deletePartId, setDeletePartId] = useState<string | null>(null);
   const [newNoteText, setNewNoteText] = useState('');
   const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
@@ -1016,7 +1016,7 @@ const OrderDetailsScreen: React.FC = () => {
     e.stopPropagation();
     const images = getPartPhotos(part);
     if (images.length === 0) return;
-    setGallery({ images, index: 0 });
+    setGallery({ images, index: 0, partId: part.id });
   };
 
   const getCarPhotos = () => {
@@ -1754,10 +1754,7 @@ const OrderDetailsScreen: React.FC = () => {
                               +{displayPhotos.length - 1}
                           </div>
                       )}
-                      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/55 px-1.5 py-1">
-                        <button type="button" onClick={(e) => { e.stopPropagation(); setPartSampleTargetId(part.id); partSampleFileRef.current?.click(); }} className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-md bg-white/20 px-1.5 text-[11px] font-black text-white">+</button>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); removePartSamplePhoto(part.id, 0); }} className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-md bg-white/20 px-1.5 text-[11px] font-black text-white">✕</button>
-                      </div>
+                      
                     </>
                   ) : (
                     <button type="button" onClick={(e) => { e.stopPropagation(); setPartSampleTargetId(part.id); partSampleFileRef.current?.click(); }} className="flex h-full w-full items-center justify-center"><Package size={20} className="text-gray-200" /></button>
@@ -1827,10 +1824,25 @@ const OrderDetailsScreen: React.FC = () => {
 
       {isEstimateOpen && <EstimateModal order={order} onClose={() => setIsEstimateOpen(false)} onShare={shareQuote} />}
       {gallery && (
-        <ImagePreview 
-          images={gallery.images} 
-          initialIndex={gallery.index} 
-          onClose={() => setGallery(null)} 
+        <ImagePreview
+          images={gallery.images}
+          initialIndex={gallery.index}
+          onClose={() => setGallery(null)}
+          onDeleteCurrent={gallery.partId ? (photoIndex) => {
+            removePartSamplePhoto(gallery.partId as string, photoIndex);
+            const part = order.parts.find((item) => item.id === gallery.partId);
+            if (!part) {
+              setGallery(null);
+              return;
+            }
+            const nextImages = getPartPhotos(part).filter((_, idx) => idx !== photoIndex);
+            if (nextImages.length === 0) {
+              setGallery(null);
+              return;
+            }
+            setGallery((prev) => prev ? { ...prev, images: nextImages, index: Math.min(prev.index, nextImages.length - 1) } : null);
+          } : undefined}
+          deleteLabel="Удалить фото"
         />
       )}
       <input type="file" ref={partSampleFileRef} onChange={handlePartSamplePhotoChange} className="hidden" accept="image/*" multiple />
