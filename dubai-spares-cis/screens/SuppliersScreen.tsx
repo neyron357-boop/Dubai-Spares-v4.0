@@ -52,6 +52,17 @@ const ZONE_GEOFENCES = [
   { name: 'Sharjah Industrial', bounds: { minLat: 25.26, maxLat: 25.34, minLng: 55.39, maxLng: 55.47 } }
 ];
 
+const SUPPLIER_PART_CATEGORIES = [
+  'ДВС / Двигатели',
+  'АКПП / МКПП',
+  'Механические детали',
+  'Кузовные детали',
+  'Электрика / Электроника',
+  'Подвеска / Ходовая',
+  'Салон / Интерьер',
+  'Оптика / Освещение'
+];
+
 const normalizePhone = (raw: string) => {
   const trimmed = raw.replace(/[\s\-()]/g, '');
   if (!trimmed) return '';
@@ -166,6 +177,7 @@ const SuppliersScreen: React.FC = () => {
   const [supplierModelsInput, setSupplierModelsInput] = useState('');
   const [supplierYearsInput, setSupplierYearsInput] = useState('');
   const [supplierPhotos, setSupplierPhotos] = useState<string[]>([]);
+  const [mainPartCategories, setMainPartCategories] = useState<string[]>([]);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
 
   const [workingHours, setWorkingHours] = useState('');
@@ -335,6 +347,12 @@ const SuppliersScreen: React.FC = () => {
     setMainBrands((prev) => prev.includes(brand) ? prev.filter((item) => item !== brand) : [...prev, brand]);
   };
 
+  const toggleMainPartCategory = (category: string) => {
+    setMainPartCategories((prev) => prev.includes(category)
+      ? prev.filter((item) => item !== category)
+      : [...prev, category]);
+  };
+
   const importFromSimilar = () => {
     const query = name.trim().toLowerCase();
     if (!query) return;
@@ -384,6 +402,7 @@ const SuppliersScreen: React.FC = () => {
     setSupplierModelsInput('');
     setSupplierYearsInput('');
     setSupplierPhotos([]);
+    setMainPartCategories([]);
     setShopType('new_parts');
     setZone('');
     setLocationParseNotice(null);
@@ -448,6 +467,7 @@ const SuppliersScreen: React.FC = () => {
         models: parsedModels,
         years: parsedYears,
         bodyTypes: existingSupplier?.bodyTypes || [],
+        mainPartCategories,
         photoUrl: supplierPhotos[0],
         photos: supplierPhotos,
         coordinates: resolvedCoordinates,
@@ -741,8 +761,29 @@ const SuppliersScreen: React.FC = () => {
                 <option value="">Primary brand</option>
                 {mainBrands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
               </select>
+              <div className="rounded-xl border border-gray-100 bg-white p-2">
+                <p className="text-[10px] font-bold text-gray-500 uppercase mb-1">Категория: Марка → Модель → Год</p>
+                <p className="text-[11px] text-slate-600">
+                  {(mainBrands[0] || '—')} → {(supplierModelsInput.split(',').map((item) => item.trim()).filter(Boolean)[0] || '—')} → {(supplierYearsInput.split(',').map((item) => item.trim()).filter(Boolean)[0] || '—')}
+                </p>
+              </div>
               <input value={supplierModelsInput} onChange={(e) => setSupplierModelsInput(e.target.value)} placeholder="Модели через запятую (Camry, Corolla)" className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
               <input value={supplierYearsInput} onChange={(e) => setSupplierYearsInput(e.target.value.replace(/[^\d, ]/g, ''))} placeholder="Годы через запятую (2018, 2019)" className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
+                <label className="text-[10px] font-bold text-gray-500 uppercase">Основные категории деталей</label>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {SUPPLIER_PART_CATEGORIES.map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => toggleMainPartCategory(category)}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-black border ${mainPartCategories.includes(category) ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-600 border-gray-200'}`}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
                 <label className="text-[10px] font-bold text-gray-500 uppercase">Фото поставщика (опционально)</label>
                 <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
@@ -824,6 +865,7 @@ const SuppliersScreen: React.FC = () => {
                 )}
                 {Array.isArray(s.models) && s.models.length > 0 && <p className="text-[11px] text-slate-500">Модели: {s.models.slice(0, 3).join(', ')}</p>}
                 {Array.isArray(s.years) && s.years.length > 0 && <p className="text-[11px] text-slate-500">Годы: {s.years.slice(0, 4).join(', ')}</p>}
+                {Array.isArray(s.mainPartCategories) && s.mainPartCategories.length > 0 && <p className="text-[11px] text-slate-500">Основные детали: {s.mainPartCategories.slice(0, 3).join(', ')}</p>}
                 {(s.photoUrl || (s.photos || []).length > 0) && (
                   <button
                     type="button"
@@ -842,7 +884,7 @@ const SuppliersScreen: React.FC = () => {
                   <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Маршрут</button>
                   <a href={`https://wa.me/${(s.phone || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
                   <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-1.5 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
-                  <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput((s.years || []).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
+                  <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput((s.years || []).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
                   <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
                   <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
                   <button type="button" onClick={() => alert(`Analyze ${s.name}\nContacts: ${s.activityScore || 0}\nFound: ${s.successRate}%\nLast: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 py-1.5 text-[10px] font-black text-blue-700 inline-flex items-center justify-center gap-1"><Sparkles size={12} />Analyze</button>
