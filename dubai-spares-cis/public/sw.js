@@ -1,4 +1,5 @@
-const APP_SHELL_CACHE = 'dubai-spares-shell-v6';
+const APP_SHELL_CACHE = 'dubai-spares-shell-v7';
+const RUNTIME_IMAGE_CACHE = 'dubai-spares-runtime-images-v1';
 const APP_SHELL_FILES = ['/', '/index.html', '/manifest.json', '/icon-32.png', '/icon-180.png', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -9,7 +10,8 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((key) => key !== APP_SHELL_CACHE).map((key) => caches.delete(key)));
+    const keep = new Set([APP_SHELL_CACHE, RUNTIME_IMAGE_CACHE]);
+    await Promise.all(keys.filter((key) => !keep.has(key)).map((key) => caches.delete(key)));
     await self.clients.claim();
   })());
 });
@@ -29,7 +31,31 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
 
-  if (url.pathname.startsWith('/rest/v1/') || url.pathname.startsWith('/storage/v1/') || url.hostname !== self.location.hostname) {
+  const isSupabaseStorage = url.pathname.includes('/storage/v1/object/');
+  if (isSupabaseStorage && request.destination === 'image') {
+    event.respondWith((async () => {
+      const cache = await caches.open(RUNTIME_IMAGE_CACHE);
+      const cached = await cache.match(request);
+      const networkPromise = fetch(request).then((response) => {
+        if (response.ok) {
+          cache.put(request, response.clone());
+        }
+        return response;
+      }).catch(() => null);
+
+      if (cached) {
+        event.waitUntil(networkPromise);
+        return cached;
+      }
+
+      const network = await networkPromise;
+      if (network) return network;
+      return Response.error();
+    })());
+    return;
+  }
+
+  if (url.pathname.startsWith('/rest/v1/') || url.hostname !== self.location.hostname) {
     return;
   }
 

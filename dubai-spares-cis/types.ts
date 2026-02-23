@@ -162,6 +162,7 @@ export interface Supplier {
   models?: string[];
   years?: number[];
   bodyTypes?: string[];
+  mainPartCategories?: string[];
   photoUrl?: string;
   photos?: string[];
   coordinates?: Coordinates;

@@ -634,6 +634,19 @@ const normalizePublicSettings = (raw: unknown) => {
   };
 };
 
+
+const isDisplayablePhotoUrl = (value: string) => (
+  value.startsWith('http://')
+  || value.startsWith('https://')
+  || value.startsWith('data:image')
+);
+
+const sanitizePhotoList = (photos: string[]) => Array.from(new Set(
+  photos
+    .map((photo) => String(photo || '').trim())
+    .filter((photo) => !!photo && !photo.startsWith('local://') && !photo.startsWith('blob:') && isDisplayablePhotoUrl(photo))
+));
+
 const isPlaceholderWhatsapp = (value: string | null | undefined) => {
   const digits = toPhoneDigits(value);
   return digits === '971000000000';
@@ -1098,7 +1111,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const heroPhoto = useMemo(() => {
     if (!order) return '';
-    const photo = order.carPhotoUrl || order.carPhotos?.[0] || order.vinPhotoUrl || '';
+    const photo = sanitizePhotoList([order.carPhotoUrl || '', ...(order.carPhotos || []), order.vinPhotoUrl || ''])[0] || '';
     return getOptimizedImageUrl(photo, { width: 1600, quality: 74 });
   }, [order]);
 
@@ -1125,10 +1138,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           : supplierAed)
         : resolveClientUnitPriceAed(best as unknown as Record<string, unknown>, { markupPercent: order.markupPercent });
       const converted = clientAed * rates[currency];
-      const variantPhotos = [variantWithPhoto?.photoUrl || '', ...(variantWithPhoto?.photos || [])].filter(Boolean) as string[];
-      const basePartPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean) as string[];
+      const variantPhotos = sanitizePhotoList([variantWithPhoto?.photoUrl || '', ...(variantWithPhoto?.photos || [])]);
+      const basePartPhotos = sanitizePhotoList([part.photoUrl || '', ...(part.photos || [])]);
       const photoSource = variantPhotos.length > 0 ? variantPhotos : basePartPhotos;
-      const uniquePhotos = Array.from(new Set(photoSource));
+      const uniquePhotos = sanitizePhotoList(photoSource);
       const previewPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 480, quality: 64 }));
       const galleryPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 1600, quality: 74 }));
       return { part, best, previewPhotos, galleryPhotos, converted, clientAed, isReady, availability: isReady ? t.inStock : t.onOrder };
