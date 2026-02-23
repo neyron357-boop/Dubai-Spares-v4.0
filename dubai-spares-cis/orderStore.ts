@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant, SalesStatus } from './types';
 import { supabase, isCloudSyncConfigured } from './supabase';
-import { deleteOrderFolderFromStorage, ensurePublicImageUrls, optimizeImageForUpload } from './storage/photos';
+import { deleteOrderFolderFromStorage, ensurePublicImageUrls, optimizeImageForUpload, recompressExistingStorageImage } from './storage/photos';
 import { OfflineMutation, isIdbAutoSyncPaused, offlineDb } from './storage/offlineDb';
 import { logger } from './logging';
 import { logDatabaseIntegrity } from './dbIntegrity';
@@ -100,6 +100,93 @@ const normalizeOrder = (order: Order): Order => {
 };
 
 
+
+
+const EXISTING_IMAGE_RECOMPRESS_KEY = 'existing_image_recompress_v1';
+const existingImageCompressionQueue = new Set<string>();
+let existingImageCompressionRunning = false;
+
+const readRecompressedImageSet = (): Set<string> => {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(EXISTING_IMAGE_RECOMPRESS_KEY) || '[]');
+    return new Set(Array.isArray(parsed) ? parsed.filter((item: unknown): item is string => typeof item === 'string') : []);
+  } catch {
+    return new Set();
+  }
+};
+
+const writeRecompressedImageSet = (entries: Set<string>) => {
+  try {
+    const capped = Array.from(entries).slice(-4000);
+    window.localStorage.setItem(EXISTING_IMAGE_RECOMPRESS_KEY, JSON.stringify(capped));
+  } catch {
+    // noop
+  }
+};
+
+const collectOrderImageUrls = (order: Order): string[] => {
+  const bag = new Set<string>();
+  const append = (value: string) => {
+    const normalized = String(value || '').trim();
+    if (!normalized.startsWith('http')) return;
+    bag.add(normalized);
+  };
+
+  append(order.carPhotoUrl || '');
+  append(order.vinPhotoUrl || '');
+  (order.carPhotos || []).forEach(append);
+  (order.notes || []).forEach((note) => (note.photos || []).forEach(append));
+
+  (order.parts || []).forEach((part) => {
+    append(part.photoUrl || '');
+    (part.photos || []).forEach(append);
+    (part.variants || []).forEach((variant) => {
+      append(variant.photoUrl || '');
+      (variant.photos || []).forEach(append);
+    });
+  });
+
+  return Array.from(bag);
+};
+
+const enqueueExistingImagesForCompression = (orders: Order[]) => {
+  if (LOCAL_ONLY || !isCloudSyncConfigured || !navigator.onLine) return;
+
+  const known = readRecompressedImageSet();
+  orders.forEach((order) => {
+    collectOrderImageUrls(order).forEach((url) => {
+      if (!known.has(url)) existingImageCompressionQueue.add(url);
+    });
+  });
+
+  if (existingImageCompressionRunning || existingImageCompressionQueue.size === 0) return;
+  existingImageCompressionRunning = true;
+
+  void (async () => {
+    const updated = new Set(known);
+    try {
+      while (existingImageCompressionQueue.size > 0) {
+        const next = existingImageCompressionQueue.values().next().value as string | undefined;
+        if (!next) break;
+        existingImageCompressionQueue.delete(next);
+
+        try {
+          await recompressExistingStorageImage(next);
+          updated.add(next);
+          if (updated.size % 20 === 0) writeRecompressedImageSet(updated);
+        } catch (error) {
+          await logger.warn('storage:recompress-existing', 'Failed to recompress existing image', {
+            url: next,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+    } finally {
+      writeRecompressedImageSet(updated);
+      existingImageCompressionRunning = false;
+    }
+  })();
+};
 
 const LEAD_SYNC_STATE_KEY = 'lead_sync_state_v1';
 
@@ -1220,6 +1307,7 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
   await offlineDb.saveOrders(mergedOrders);
   setSyncStatus('online');
   setState({ orders: mergedOrders, isLoading: false, isHydrated: true, error: null });
+  enqueueExistingImagesForCompression(mergedOrders);
 
   if (wasCloudHydratedAtLeastOnce) {
     notifyAboutIncomingLeads(previousOrders, mergedOrders);
@@ -1249,6 +1337,7 @@ const refreshLeadsOnly = async () => {
       .join('|');
     if (signature(mergedOrders) === signature(previousOrders)) return;
     setState({ orders: mergedOrders });
+    enqueueExistingImagesForCompression(mergedOrders);
     await offlineDb.saveOrders(mergedOrders);
     if (wasCloudHydratedAtLeastOnce) {
       notifyAboutIncomingLeads(previousOrders, mergedOrders);
@@ -1276,6 +1365,7 @@ export const fetchOrderDetails = async (orderId: string) => {
   const details = mapDbOrder(response.data as DbOrderGraphRow);
   const next = state.orders.map((order) => (order.id === details.id ? normalizeOrder({ ...order, ...details }) : order));
   setState({ orders: next });
+  enqueueExistingImagesForCompression(next);
   await offlineDb.saveOrder(details);
 };
 
