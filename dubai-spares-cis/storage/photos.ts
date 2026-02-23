@@ -10,10 +10,26 @@ const MAX_IMAGE_DIMENSION = 1024;
 const WEBP_QUALITY = 0.55;
 const TARGET_BYTES = 300 * 1024; // ~10x compression target for typical 3 MB photos
 const STORAGE_UPLOAD_RETRY_DELAYS_MS = [600, 1600];
+const STORAGE_LIST_PAGE_SIZE = 100;
 
 type ImageTransformOptions = {
   width?: number;
   quality?: number;
+};
+
+type StorageObjectEntry = {
+  path: string;
+  size: number;
+  mimetype: string;
+};
+
+export type StorageMaintenanceResult = {
+  scanned: number;
+  imageFiles: number;
+  deduplicated: number;
+  compressed: number;
+  bytesSaved: number;
+  failures: number;
 };
 
 const isBucketNotFoundError = (error: unknown): boolean => {
@@ -39,6 +55,11 @@ const isTransientStorageUploadError = (error: unknown): boolean => {
 };
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const buildStorageHeaders = () => ({
+  apikey: SUPABASE_ANON_KEY,
+  Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+});
 
 const toBlob = async (source: File | Blob | string): Promise<Blob> => {
   if (typeof source === 'string') {
@@ -119,6 +140,34 @@ const compressBlob = async (blob: Blob): Promise<Blob> => {
     let result = await encodeCanvas(canvas, WEBP_QUALITY);
     for (const q of [0.45, 0.35]) {
       if (result.size <= TARGET_BYTES) break;
+      result = await encodeCanvas(canvas, q);
+    }
+    return result;
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+};
+
+const compressBlobAggressive = async (blob: Blob): Promise<Blob> => {
+  if (typeof document === 'undefined') return blob;
+
+  const imageUrl = URL.createObjectURL(blob);
+  try {
+    const image = await loadImage(imageUrl);
+    const scale = Math.min(1, 900 / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+    const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+    const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) return blob;
+
+    context.drawImage(image, 0, 0, width, height);
+    let result = await encodeCanvas(canvas, 0.4);
+    for (const q of [0.32, 0.24, 0.18]) {
+      if (result.size <= 120 * 1024) break;
       result = await encodeCanvas(canvas, q);
     }
     return result;
@@ -253,9 +302,202 @@ export const uploadImageToStorage = async (
   return `local://${path}`;
 };
 
-export const listStoragePathsRecursive = async (_bucket: string, _folder: string): Promise<string[]> => [];
+const listStorageObjectsRecursive = async (bucket: string, folder = ''): Promise<StorageObjectEntry[]> => {
+  if (!isCloudConfigured) return [];
 
-const deleteStorageFiles = async (_bucket: string, _paths: string[]): Promise<void> => undefined;
+  const normalizedPrefix = folder.replace(/^\/+/, '').trim();
+  const foldersQueue = [normalizedPrefix];
+  const entries: StorageObjectEntry[] = [];
+
+  while (foldersQueue.length > 0) {
+    const prefix = foldersQueue.shift() || '';
+    let offset = 0;
+
+    while (true) {
+      const response = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${bucket}`, {
+        method: 'POST',
+        headers: {
+          ...buildStorageHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          prefix,
+          limit: STORAGE_LIST_PAGE_SIZE,
+          offset,
+          sortBy: { column: 'name', order: 'asc' }
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Storage list failed ${response.status}: ${text.slice(0, 140)}`);
+      }
+
+      const page = (await response.json().catch(() => [])) as Array<{ name?: string; id?: string | null; metadata?: { size?: number; mimetype?: string } | null }>;
+      if (!Array.isArray(page) || page.length === 0) break;
+
+      for (const item of page) {
+        const name = String(item?.name || '').trim();
+        if (!name) continue;
+
+        const childPath = prefix ? `${prefix}/${name}` : name;
+        if (!item?.id) {
+          foldersQueue.push(childPath);
+          continue;
+        }
+
+        entries.push({
+          path: childPath,
+          size: Math.max(0, Number(item.metadata?.size || 0)),
+          mimetype: String(item.metadata?.mimetype || '')
+        });
+      }
+
+      if (page.length < STORAGE_LIST_PAGE_SIZE) break;
+      offset += page.length;
+    }
+  }
+
+  return entries;
+};
+
+export const listStoragePathsRecursive = async (bucket: string, folder: string): Promise<string[]> => {
+  const objects = await listStorageObjectsRecursive(bucket, folder);
+  return objects.map((entry) => entry.path);
+};
+
+const deleteStorageFiles = async (bucket: string, paths: string[]): Promise<void> => {
+  for (const path of paths) {
+    const encodedPath = path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+    const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${encodedPath}`, {
+      method: 'DELETE',
+      headers: buildStorageHeaders()
+    });
+
+    if (!response.ok && response.status !== 404) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`Storage delete failed ${response.status}: ${text.slice(0, 140)}`);
+    }
+  }
+};
+
+const isImagePath = (path: string, mimetype: string): boolean => {
+  if (mimetype.startsWith('image/')) return true;
+  return /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(path);
+};
+
+export const runStorageImageMaintenance = async (options: {
+  deduplicateByExactSize?: boolean;
+  recompressAll?: boolean;
+} = {}): Promise<StorageMaintenanceResult> => {
+  const result: StorageMaintenanceResult = {
+    scanned: 0,
+    imageFiles: 0,
+    deduplicated: 0,
+    compressed: 0,
+    bytesSaved: 0,
+    failures: 0
+  };
+
+  if (!isCloudConfigured) {
+    throw new Error('Cloud storage is not configured.');
+  }
+
+  for (const bucket of BUCKET_CANDIDATES) {
+    let objects: StorageObjectEntry[] = [];
+    try {
+      objects = await listStorageObjectsRecursive(bucket, '');
+    } catch (error) {
+      await logger.warn('storage:maintenance', 'Failed to scan storage bucket', { bucket, error: String(error) });
+      result.failures += 1;
+      continue;
+    }
+
+    result.scanned += objects.length;
+    const imageObjects = objects.filter((item) => isImagePath(item.path, item.mimetype));
+    result.imageFiles += imageObjects.length;
+
+    const deletedPaths = new Set<string>();
+    if (options.deduplicateByExactSize) {
+      const groups = new Map<number, StorageObjectEntry[]>();
+      imageObjects.forEach((entry) => {
+        const list = groups.get(entry.size) || [];
+        list.push(entry);
+        groups.set(entry.size, list);
+      });
+
+      for (const [, group] of groups) {
+        if (group.length < 2) continue;
+        const sorted = [...group].sort((a, b) => a.path.localeCompare(b.path));
+        const duplicates = sorted.slice(1);
+        if (!duplicates.length) continue;
+
+        try {
+          await deleteStorageFiles(bucket, duplicates.map((item) => item.path));
+          duplicates.forEach((entry) => {
+            deletedPaths.add(entry.path);
+            result.bytesSaved += entry.size;
+          });
+          result.deduplicated += duplicates.length;
+        } catch (error) {
+          result.failures += duplicates.length;
+          await logger.warn('storage:maintenance', 'Failed to delete duplicates', {
+            bucket,
+            count: duplicates.length,
+            error: String(error)
+          });
+        }
+      }
+    }
+
+    if (!options.recompressAll) continue;
+
+    for (const image of imageObjects) {
+      if (deletedPaths.has(image.path)) continue;
+
+      try {
+        const encodedPath = image.path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+        const downloadResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${encodedPath}`, {
+          method: 'GET',
+          headers: buildStorageHeaders()
+        });
+        if (!downloadResponse.ok) {
+          throw new Error(`download ${downloadResponse.status}`);
+        }
+
+        const originalBlob = await downloadResponse.blob();
+        if (!originalBlob.type.startsWith('image/') && !isImagePath(image.path, originalBlob.type)) continue;
+        const compressedBlob = await compressBlobAggressive(originalBlob);
+        if (compressedBlob.size >= originalBlob.size) continue;
+
+        const uploadResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${encodedPath}`, {
+          method: 'POST',
+          headers: {
+            ...buildStorageHeaders(),
+            'x-upsert': 'true',
+            'Content-Type': compressedBlob.type || 'image/webp'
+          },
+          body: compressedBlob
+        });
+        if (!uploadResponse.ok) {
+          throw new Error(`upload ${uploadResponse.status}`);
+        }
+
+        result.compressed += 1;
+        result.bytesSaved += Math.max(0, originalBlob.size - compressedBlob.size);
+      } catch (error) {
+        result.failures += 1;
+        await logger.warn('storage:maintenance', 'Failed to recompress image', {
+          bucket,
+          path: image.path,
+          error: String(error)
+        });
+      }
+    }
+  }
+
+  return result;
+};
 
 const parseSupabasePublicStorageUrl = (imageUrl: string): { bucket: string; path: string } | null => {
   if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) return null;

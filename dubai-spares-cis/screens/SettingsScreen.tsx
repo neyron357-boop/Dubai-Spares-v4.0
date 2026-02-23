@@ -8,6 +8,7 @@ import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLas
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
 import { logger } from '../logging';
+import { runStorageImageMaintenance } from '../storage/photos';
 
 const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger' }> = ({ title, children, tone = 'default' }) => (
   <section className={`rounded-2xl border p-4 space-y-3 ${tone === 'danger' ? 'border-rose-200 bg-rose-50' : 'border-gray-200 bg-white'}`}>
@@ -131,6 +132,36 @@ const SettingsScreen: React.FC = () => {
       alert(`Не удалось экспортировать логи: ${message}`);
     }
   };
+
+  const handleCompressAllServerPhotos = () => void withBusy('storage-compress-all', async () => {
+    const first = window.confirm('Сжать ВСЕ фотографии на сервере до минимального размера? Это может занять много времени.');
+    if (!first) return;
+
+    const result = await runStorageImageMaintenance({ recompressAll: true });
+    const mbSaved = (result.bytesSaved / (1024 * 1024)).toFixed(2);
+    const tone = result.failures > 0 ? 'warning' : 'success';
+    window.dispatchEvent(new CustomEvent('app-toast', {
+      detail: {
+        tone,
+        message: `Сжато: ${result.compressed}, проверено фото: ${result.imageFiles}, экономия: ${mbSaved} MB${result.failures > 0 ? `, ошибок: ${result.failures}` : ''}`
+      }
+    }));
+  });
+
+  const handleRemovePhotoDuplicates = () => void withBusy('storage-delete-duplicates', async () => {
+    const first = window.confirm('Удалить дубликаты фото на сервере по одинаковому точному размеру файла?');
+    if (!first) return;
+
+    const result = await runStorageImageMaintenance({ deduplicateByExactSize: true });
+    const mbSaved = (result.bytesSaved / (1024 * 1024)).toFixed(2);
+    const tone = result.failures > 0 ? 'warning' : 'success';
+    window.dispatchEvent(new CustomEvent('app-toast', {
+      detail: {
+        tone,
+        message: `Удалено дубликатов: ${result.deduplicated}, проверено фото: ${result.imageFiles}, освобождено: ${mbSaved} MB${result.failures > 0 ? `, ошибок: ${result.failures}` : ''}`
+      }
+    }));
+  });
 
   return (
     <div className="min-h-full max-w-full overflow-x-hidden bg-gray-50 p-4 pb-24 space-y-4">
@@ -436,6 +467,8 @@ const SettingsScreen: React.FC = () => {
       <Section title="Опасные действия" tone="danger">
         <div className="text-xs text-rose-700">Изменения ниже могут удалить локальные данные и требуют подтверждения.</div>
         <div className="flex flex-col gap-2 text-sm">
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>Сжать все фото на сервере до минимума</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>Удалить дубликаты фото по точному размеру</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black" type="button" onClick={() => void withBusy('cache', async () => {
             const keys = await caches.keys();
             await Promise.all(keys.map((key) => caches.delete(key)));
