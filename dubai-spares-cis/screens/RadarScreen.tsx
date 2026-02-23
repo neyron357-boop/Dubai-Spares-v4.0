@@ -22,6 +22,14 @@ type BrandMatchMode = 'strict' | 'soft';
 type RadarUxMode = 'quick' | 'advanced';
 
 type RadarEntry = ReturnType<typeof getRadarShopMatches>[number] & { order: Order; score: number; recommendation: 'high' | 'medium' | 'low'; reasons: string[]; openNow: boolean | null };
+type RadarSupplierGroup = {
+  shopId: string;
+  shop: Shop;
+  bestEntry: RadarEntry;
+  orders: RadarEntry[];
+  topScore: number;
+  closestDistance: number | null;
+};
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 const RADIUS_STEPS = [2, 5, 10, 20] as const;
@@ -200,6 +208,7 @@ const RadarScreen: React.FC = () => {
   const [interactions, setInteractions] = useState<RadarInteraction[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedShopIds, setSelectedShopIds] = useState<Set<string>>(new Set());
+  const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [syncError, setSyncError] = useState<string | null>(null);
   const [proximityAlerts, setProximityAlerts] = useState<Set<string>>(new Set());
 
@@ -618,6 +627,42 @@ const RadarScreen: React.FC = () => {
 
   const hasShopsInRadius = entries.some((entry) => Number.isFinite(entry.distance) && ((entry.distance || 0) / 1000) <= radiusKm);
 
+  const supplierGroups = useMemo<RadarSupplierGroup[]>(() => {
+    const grouped = new Map<string, RadarEntry[]>();
+    entries.forEach((entry) => {
+      const existing = grouped.get(entry.shop.id) || [];
+      existing.push(entry);
+      grouped.set(entry.shop.id, existing);
+    });
+
+    return Array.from(grouped.entries()).map(([shopId, orders]) => {
+      const sortedByScore = [...orders].sort((a, b) => b.score - a.score);
+      const bestEntry = sortedByScore[0];
+      const closestDistance = orders.reduce<number | null>((closest, item) => {
+        if (!Number.isFinite(item.distance)) return closest;
+        if (closest === null) return item.distance || 0;
+        return Math.min(closest, item.distance || 0);
+      }, null);
+      return {
+        shopId,
+        shop: bestEntry.shop,
+        bestEntry,
+        orders: sortedByScore,
+        topScore: bestEntry.score,
+        closestDistance
+      };
+    }).sort((a, b) => b.topScore - a.topScore).slice(0, 50);
+  }, [entries]);
+
+  const toggleSupplierExpanded = (shopId: string) => {
+    setExpandedSupplierIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(shopId)) next.delete(shopId);
+      else next.add(shopId);
+      return next;
+    });
+  };
+
   const visitedEntries = Array.from(visitedShopKeys)
     .map((key) => {
       const match = key.match(/^order:(.+):shop:(.+)$/);
@@ -700,7 +745,7 @@ const RadarScreen: React.FC = () => {
         </div>}
 
         <div className="flex items-center justify-between text-[11px] text-emerald-100/80">
-          <p>Активных точек: {entries.length}. Очередь offline sync: {pendingSync > 0 ? `⏳ ${pendingSync}` : '0'}.</p>
+          <p>Поставщиков: {supplierGroups.length}. Совпадений заказов: {entries.length}. Очередь offline sync: {pendingSync > 0 ? `⏳ ${pendingSync}` : '0'}.</p>
           <button type="button" onClick={syncNow} className="rounded-lg border border-emerald-300/50 px-2 py-1 text-[10px] font-black uppercase text-emerald-200">Sync now</button>
         </div>
 
@@ -761,69 +806,83 @@ const RadarScreen: React.FC = () => {
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-xs text-slate-400">
           {`В радиусе ${radiusKm} км магазинов не найдено. Попробуйте увеличить радиус.`}
         </div>
-      ) : entries.map((entry) => {
-        const recTone = entry.recommendation === 'high' ? 'bg-emerald-500/20 text-emerald-200' : entry.recommendation === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-rose-500/20 text-rose-200';
+      ) : supplierGroups.map((group) => {
+        const { bestEntry, shop, orders } = group;
+        const recTone = bestEntry.recommendation === 'high' ? 'bg-emerald-500/20 text-emerald-200' : bestEntry.recommendation === 'medium' ? 'bg-amber-500/20 text-amber-200' : 'bg-rose-500/20 text-rose-200';
+        const isExpanded = expandedSupplierIds.has(shop.id);
         return (
-          <article key={`${entry.order.id}-${entry.shop.id}`} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2">
+          <article key={shop.id} className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <label className="inline-flex items-center gap-1 text-[10px] text-slate-300 mb-1">
-                  <input type="checkbox" checked={selectedShopIds.has(entry.shop.id)} onChange={() => toggleSelected(entry.shop.id)} /> Add to route
+                  <input type="checkbox" checked={selectedShopIds.has(shop.id)} onChange={() => toggleSelected(shop.id)} /> Add to route
                 </label>
-                <p className="text-base font-black truncate">{entry.shop.name}</p>
-                <p className="text-sm text-slate-300 truncate">{entry.order.brand} {entry.order.model} {entry.order.year || ''}</p>
+                <p className="text-base font-black truncate">{shop.name}</p>
+                <p className="text-sm text-slate-300 truncate">{orders.length} matching orders</p>
               </div>
               <div className="text-right">
-                <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${recTone}`}>Рекомендация: {entry.recommendation}</span>
+                <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${recTone}`}>Score {Math.round(bestEntry.score)}/100</span>
               </div>
             </div>
 
             <div className="flex items-center flex-wrap gap-2 text-xs text-slate-200">
-              <span className="font-black text-emerald-200 text-sm">{Number.isFinite(entry.distance) ? `${((entry.distance || 0) / 1000).toFixed(1)} км` : 'Distance n/a'}</span>
-              <span>• ETA bike ~{Number.isFinite(entry.distance) ? Math.max(3, Math.round((entry.distance || 0) / 230)) : '?'} мин</span>
+              <span className="font-black text-emerald-200 text-sm">{Number.isFinite(group.closestDistance) ? `${((group.closestDistance || 0) / 1000).toFixed(1)} км` : 'Distance n/a'}</span>
+              <span>• ETA bike ~{Number.isFinite(group.closestDistance) ? Math.max(3, Math.round((group.closestDistance || 0) / 230)) : '?'} мин</span>
               <span>•</span>
-              {entry.openNow === true ? <span className="text-emerald-300">Open now</span> : entry.openNow === false ? <span className="text-rose-300">Closed</span> : <span>hours unknown</span>}
+              {bestEntry.openNow === true ? <span className="text-emerald-300">Open now</span> : bestEntry.openNow === false ? <span className="text-rose-300">Closed</span> : <span>hours unknown</span>}
               <span>•</span>
-              <span>Score {Math.round(entry.score)}/100</span>
+              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-200">{orders.length} matching orders</span>
             </div>
 
             {mode === 'detail' && (
               <div className="rounded-xl bg-slate-800/70 p-2 text-[11px] text-slate-200 space-y-1">
-                {entry.reasons.slice(0, 3).map((reason) => <p key={`${entry.shop.id}-${reason}`}>• {reason}</p>)}
-                <p>Тип: {entry.shop.type || 'unknown'} · Зона: {entry.shop.zone || 'n/a'}</p>
-                <p>Последние взаимодействия: {interactions.filter((item) => item.shopId === entry.shop.id).slice(0, 5).map((item) => item.result).join(', ') || 'нет'}</p>
+                {bestEntry.reasons.slice(0, 3).map((reason) => <p key={`${shop.id}-${reason}`}>• {reason}</p>)}
+                <p>Тип: {shop.type || 'unknown'} · Зона: {shop.zone || 'n/a'}</p>
+                <p>Последние взаимодействия: {interactions.filter((item) => item.shopId === shop.id).slice(0, 5).map((item) => item.result).join(', ') || 'нет'}</p>
               </div>
             )}
 
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => void openShopRoute(entry)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
-              <button type="button" onClick={() => onWhatsApp(entry)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><MessageCircle size={12} /> WhatsApp</button>
-              <button type="button" onClick={() => void openCalls(entry.shop.phone, entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
-              <button type="button" onClick={() => void hideShop(entry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
-              <button type="button" onClick={() => { void markVisitedShop(entry); void quickResult(entry, 'follow_up'); }} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
-              {mode === 'detail' && <button type="button" onClick={() => navigate(`/order/${entry.order.id}`)} className="rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">Карточка</button>}
+              <button type="button" onClick={() => void openShopRoute(bestEntry)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
+              <button type="button" onClick={() => onWhatsApp(bestEntry)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><MessageCircle size={12} /> WhatsApp</button>
+              <button type="button" onClick={() => void openCalls(shop.phone, bestEntry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
+              <button type="button" onClick={() => void hideShop(bestEntry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
+              <button type="button" onClick={() => { void markVisitedShop(bestEntry); void quickResult(bestEntry, 'follow_up'); }} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
+              <button type="button" onClick={() => toggleSupplierExpanded(shop.id)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">{isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />} {isExpanded ? 'Скрыть заказы' : 'Показать заказы'}</button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                defaultValue=""
-                onChange={(e) => {
-                  const value = e.target.value;
-                  e.target.value = '';
-                  void applyRadarStatus(entry, value);
-                }}
-                className="h-10 min-w-[230px] rounded-xl border border-slate-600 bg-slate-900 px-3 text-[11px] font-black uppercase text-slate-100"
-              >
-                <option value="" disabled>Выбрать статус позиции…</option>
-                <option value="hide">Hide</option>
-                <option value="at_shop">Я у магазина</option>
-                <option value="found">Found</option>
-                <option value="not_found">Not found</option>
-                <option value="follow_up">Follow up</option>
-                <option value="wrong_info">Wrong info</option>
-              </select>
-              {chainMode && <button type="button" onClick={() => setChainIndex((i) => Math.min(i + 1, chainRoute.length - 1))} className="inline-flex items-center gap-1 rounded-lg border border-blue-400/40 px-2 py-1 text-[10px] font-black uppercase text-blue-200">Next</button>}
-            </div>
+            {isExpanded && <div className="space-y-2 rounded-xl bg-slate-800/60 p-2">
+              {orders.map((entry) => {
+                const part = getPrimaryPart(entry.order);
+                return (
+                  <div key={`${entry.order.id}-${entry.shop.id}`} className="rounded-lg border border-slate-700/70 bg-slate-900/60 p-2 text-[11px] text-slate-200 space-y-2">
+                    <p>• {entry.order.brand} {entry.order.model} {entry.order.year || ''} — {part?.name || 'деталь не указана'}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {mode === 'detail' && <button type="button" onClick={() => navigate(`/order/${entry.order.id}`)} className="rounded-lg border border-slate-600 px-2 py-1 text-[10px] font-black uppercase text-slate-300">Карточка</button>}
+                      <select
+                        defaultValue=""
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          e.target.value = '';
+                          void applyRadarStatus(entry, value);
+                        }}
+                        className="h-9 min-w-[210px] rounded-lg border border-slate-600 bg-slate-900 px-2 text-[10px] font-black uppercase text-slate-100"
+                      >
+                        <option value="" disabled>Статус заказа…</option>
+                        <option value="hide">Hide</option>
+                        <option value="at_shop">Я у магазина</option>
+                        <option value="found">Found</option>
+                        <option value="not_found">Not found</option>
+                        <option value="follow_up">Follow up</option>
+                        <option value="wrong_info">Wrong info</option>
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>}
+
+            {chainMode && <button type="button" onClick={() => setChainIndex((i) => Math.min(i + 1, chainRoute.length - 1))} className="inline-flex items-center gap-1 rounded-lg border border-blue-400/40 px-2 py-1 text-[10px] font-black uppercase text-blue-200">Next</button>}
           </article>
         );
       })}
