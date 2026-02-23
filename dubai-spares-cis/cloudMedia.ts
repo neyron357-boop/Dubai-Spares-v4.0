@@ -3,7 +3,7 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from './cloudConfig';
 export type ImageManifestItem = {
   path: string;
   url: string | null;
-  kind: 'main' | 'thumb';
+  kind: 'main';
   width: number;
   height: number;
   size: number;
@@ -154,20 +154,16 @@ const mapPayloadWithUploads = async (
 
   const source = await dataUrlToBlob(input);
   const main = await compressForScope(source, scope);
-  const thumb = await resizeAndEncode(source, 480, 0.6);
 
   const imageId = randomId();
   const rootPath = getRootPath(scope, rootId);
   const basePath = `${rootPath}/${imageId}_main.${main.format === 'webp' ? 'webp' : 'jpg'}`;
-  const thumbPath = `${rootPath}/${imageId}_thumb.${thumb.format === 'webp' ? 'webp' : 'jpg'}`;
   const bucket = getBucketByScope(scope);
 
   const mainUrl = await uploadBlobToStorage(bucket, basePath, main.blob, options?.signal);
-  const thumbUrl = await uploadBlobToStorage(bucket, thumbPath, thumb.blob, options?.signal);
 
   manifest.push(
-    { path: `${bucket}/${basePath}`, url: mainUrl, kind: 'main', width: main.width, height: main.height, size: main.blob.size, originalSize: source.size, format: main.format, mime: main.blob.type || 'image/webp' },
-    { path: `${bucket}/${thumbPath}`, url: thumbUrl, kind: 'thumb', width: thumb.width, height: thumb.height, size: thumb.blob.size, originalSize: source.size, format: thumb.format, mime: thumb.blob.type || 'image/webp' }
+    { path: `${bucket}/${basePath}`, url: mainUrl, kind: 'main', width: main.width, height: main.height, size: main.blob.size, originalSize: source.size, format: main.format, mime: main.blob.type || 'image/webp' }
   );
 
   return mainUrl;
