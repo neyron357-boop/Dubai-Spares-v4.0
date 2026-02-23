@@ -154,6 +154,7 @@ export interface Supplier {
   phone: string;
   location: string;
   type?: SupplierType;
+  types?: SupplierType[];
   zone?: string;
   heatLevel?: number;
   brands: string[];

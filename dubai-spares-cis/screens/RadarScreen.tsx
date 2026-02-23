@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronUp, EyeOff, HelpCircle, ListChecks, Loader2, MapPinned, MessageCircle, Navigation, PhoneCall, ShieldCheck, Telescope } from 'lucide-react';
+import { ChevronDown, ChevronUp, EyeOff, HelpCircle, ListChecks, Loader2, MapPinned, MessageCircle, Navigation, PhoneCall, ShieldCheck, Sparkles, Telescope } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, RadarInteraction, RadarInteractionResult, Shop } from '../types';
 import { buildNearestShopsChain, buildRoutePlanMapLink, buildShopMapLink, getRadarShopMatches, getShopRecommendationDiagnostics } from '../shopMatching';
@@ -10,6 +10,7 @@ import { createUuid } from '../id';
 import { offlineDb } from '../storage/offlineDb';
 import { NotificationType, createFollowupFromAction, pushNotification } from '../notificationCenter';
 import { loadAppSettings } from '../appSettings';
+import { getRadarManualSelections } from '../radarManualSelections';
 
 const RADAR_DISMISSED_SHOPS_KEY = 'radar_dismissed_shop_keys';
 const RADAR_VISITED_SHOPS_KEY = 'radar_visited_shop_keys';
@@ -211,8 +212,15 @@ const RadarScreen: React.FC = () => {
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [syncError, setSyncError] = useState<string | null>(null);
   const [proximityAlerts, setProximityAlerts] = useState<Set<string>>(new Set());
+  const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
 
   useEffect(() => { void offlineDb.getRadarInteractions().then(setInteractions); }, []);
+  useEffect(() => {
+    const update = () => setManualSelections(getRadarManualSelections());
+    update();
+    window.addEventListener('focus', update);
+    return () => window.removeEventListener('focus', update);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -285,6 +293,15 @@ const RadarScreen: React.FC = () => {
         });
       })
       .filter((entry) => {
+        const manualForSupplier = manualSelections.filter((item) => item.supplierId === entry.shop.id);
+        if (manualForSupplier.length === 0) return false;
+        return manualForSupplier.some((item) => {
+          if (item.orderId !== entry.order.id) return false;
+          if (!item.partId) return true;
+          return entry.order.parts.some((part) => part.id === item.partId);
+        });
+      })
+      .filter((entry) => {
         if (activeFilter === 'new_only') return entry.shop.type !== 'scrapyard';
         if (activeFilter === 'used_only') return entry.shop.type === 'scrapyard';
         return true;
@@ -299,7 +316,7 @@ const RadarScreen: React.FC = () => {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 50);
-  }, [orders, shops, position, activeFilter, openNowOnly, radiusKm, fallbackNearby, dismissedShopKeys, visitedShopKeys, interactions, brandMatchMode, activeOrder, searchQuery]);
+  }, [orders, shops, position, activeFilter, openNowOnly, radiusKm, fallbackNearby, dismissedShopKeys, visitedShopKeys, interactions, brandMatchMode, activeOrder, searchQuery, manualSelections]);
 
   useEffect(() => {
     const nearby = entries.filter((entry) => Number.isFinite(entry.distance) && (entry.distance || 0) <= 200 && entry.recommendation !== 'low');
@@ -663,6 +680,15 @@ const RadarScreen: React.FC = () => {
     });
   };
 
+  const showSupplierRecommendations = (group: RadarSupplierGroup) => {
+    const relatedOrders = orders.filter((order) => !order.isArchived && !order.isSold);
+    const lines = relatedOrders.slice(0, 5).map((order) => {
+      const diagnostics = getShopRecommendationDiagnostics(group.shop, order);
+      return `${order.brand} ${order.model} ${order.year || ''}: ${diagnostics.brandMatched ? 'бренд ✓' : 'бренд ~'}, ${diagnostics.modelMatched ? 'модель ✓' : 'модель ~'}`;
+    });
+    alert(`Рекомендации для ${group.shop.name}\n${lines.join('\n') || 'Нет активных заказов'}`);
+  };
+
   const visitedEntries = Array.from(visitedShopKeys)
     .map((key) => {
       const match = key.match(/^order:(.+):shop:(.+)$/);
@@ -818,7 +844,7 @@ const RadarScreen: React.FC = () => {
                   <input type="checkbox" checked={selectedShopIds.has(shop.id)} onChange={() => toggleSelected(shop.id)} /> Add to route
                 </label>
                 <p className="text-base font-black truncate">{shop.name}</p>
-                <p className="text-sm text-slate-300 truncate">{orders.length} matching orders</p>
+                <p className="text-sm text-slate-300 truncate">{orders.length} добавленных деталей</p>
               </div>
               <div className="text-right">
                 <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${recTone}`}>Score {Math.round(bestEntry.score)}/100</span>
@@ -831,7 +857,7 @@ const RadarScreen: React.FC = () => {
               <span>•</span>
               {bestEntry.openNow === true ? <span className="text-emerald-300">Open now</span> : bestEntry.openNow === false ? <span className="text-rose-300">Closed</span> : <span>hours unknown</span>}
               <span>•</span>
-              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-200">{orders.length} matching orders</span>
+              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-200">{orders.length} добавленных деталей</span>
             </div>
 
             {mode === 'detail' && (
@@ -848,7 +874,8 @@ const RadarScreen: React.FC = () => {
               <button type="button" onClick={() => void openCalls(shop.phone, bestEntry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
               <button type="button" onClick={() => void hideShop(bestEntry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
               <button type="button" onClick={() => { void markVisitedShop(bestEntry); void quickResult(bestEntry, 'follow_up'); }} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
-              <button type="button" onClick={() => toggleSupplierExpanded(shop.id)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">{isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />} {isExpanded ? 'Скрыть заказы' : 'Показать заказы'}</button>
+              <button type="button" onClick={() => showSupplierRecommendations(group)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-500/50 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><Sparkles size={12} /> Рекомендации</button>
+              <button type="button" onClick={() => toggleSupplierExpanded(shop.id)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300">{isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />} {isExpanded ? 'Скрыть детали' : 'Показать детали'}</button>
             </div>
 
             {isExpanded && <div className="space-y-2 rounded-xl bg-slate-800/60 p-2">
