@@ -22,6 +22,28 @@ export interface RadarTargetRow {
   updated_at?: string;
 }
 
+export type RadarTargetItemStatus = 'pending' | 'found' | 'not_found' | 'partial';
+
+export interface OrderItemRow {
+  id: string;
+  order_id: string;
+  part_name: string;
+  brand: string | null;
+  model: string | null;
+  year: number | null;
+  quantity: number | null;
+}
+
+export interface RadarTargetItemRow {
+  id: string;
+  radar_target_id: string;
+  order_item_id: string;
+  item_status: RadarTargetItemStatus;
+  price_aed: number | null;
+  notes: string | null;
+  updated_at?: string;
+}
+
 const assertSupabase = () => {
   if (!supabase) throw new Error('Supabase client unavailable');
   return supabase;
@@ -157,4 +179,60 @@ export const closeRadarSession = async (sessionId: string) => {
 
   if (error) throw error;
   await logRadarEvent(sessionId, 'session_closed');
+};
+
+export const getOrderItemsByOrder = async (orderId: string): Promise<OrderItemRow[]> => {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from('order_items')
+    .select('id, order_id, part_name, brand, model, year, quantity')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: true })
+    .returns<OrderItemRow[]>();
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const ensureRadarTargetItems = async (targets: RadarTargetRow[], orderItems: OrderItemRow[]) => {
+  if (!targets.length || !orderItems.length) return;
+  const client = assertSupabase();
+  const rows = targets.flatMap((target) =>
+    orderItems.map((orderItem) => ({
+      radar_target_id: target.id,
+      order_item_id: orderItem.id
+    }))
+  );
+
+  const { error } = await client
+    .from('radar_target_items')
+    .upsert(rows, { onConflict: 'radar_target_id,order_item_id', ignoreDuplicates: true });
+
+  if (error) throw error;
+};
+
+export const getRadarTargetItems = async (targetIds: string[]): Promise<RadarTargetItemRow[]> => {
+  if (!targetIds.length) return [];
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from('radar_target_items')
+    .select('id, radar_target_id, order_item_id, item_status, price_aed, notes, updated_at')
+    .in('radar_target_id', targetIds)
+    .returns<RadarTargetItemRow[]>();
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const markRadarTargetItemStatus = async (
+  targetItemId: string,
+  status: Exclude<RadarTargetItemStatus, 'pending'>
+) => {
+  const client = assertSupabase();
+  const { error } = await client.rpc('record_radar_item_event', {
+    p_target_item_id: targetItemId,
+    p_item_status: status
+  });
+
+  if (error) throw error;
 };
