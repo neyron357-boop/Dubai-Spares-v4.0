@@ -18,6 +18,12 @@ export interface RadarTargetRow {
   shop_id: string;
   score: number | null;
   status: RadarTargetStatus;
+  distance_km?: number | null;
+  eta_min?: number | null;
+  route_order?: number | null;
+  score_breakdown?: Record<string, number>;
+  matched_brands?: string[];
+  matched_categories?: string[];
   created_at?: string;
   updated_at?: string;
 }
@@ -130,14 +136,39 @@ export const getRadarSession = async (sessionId: string): Promise<RadarSessionRo
 export const getRadarTargets = async (sessionId: string): Promise<RadarTargetRow[]> => {
   const client = assertSupabase();
   const { data, error } = await client
-    .from('radar_targets')
-    .select('id, radar_session_id, shop_id, score, status, created_at, updated_at')
+    .from('v_radar_active_targets')
+    .select('id, radar_session_id, shop_id, score, status, distance_km, eta_min, route_order, score_breakdown, matched_brands, matched_categories, created_at, updated_at')
     .eq('radar_session_id', sessionId)
-    .order('created_at', { ascending: true })
+    .order('route_order', { ascending: true, nullsFirst: false })
+    .order('score', { ascending: false })
     .limit(30)
     .returns<RadarTargetRow[]>();
   if (error) throw error;
   return data || [];
+};
+
+export const regenerateRadarTargets = async (sessionId: string, maxTargets = 30) => {
+  const client = assertSupabase();
+
+  const geo = navigator.geolocation
+    ? await new Promise<{ lat?: number; lng?: number }>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          () => resolve({}),
+          { timeout: 2000 }
+        );
+      })
+    : {};
+
+  const { data, error } = await client.rpc('radar_generate_targets', {
+    p_session_id: sessionId,
+    p_max_targets: maxTargets,
+    p_user_lat: geo.lat ?? null,
+    p_user_lng: geo.lng ?? null
+  });
+
+  if (error) throw error;
+  return Array.isArray(data) ? data[0] : data;
 };
 
 export const setRadarTargetStatus = async (target: RadarTargetRow, nextStatus: RadarTargetStatus, extraPayload?: Record<string, unknown>) => {

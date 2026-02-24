@@ -14,6 +14,7 @@ import {
   logRadarEvent,
   markRadarTargetItemStatus,
   OrderItemRow,
+  regenerateRadarTargets,
   RadarTargetRow,
   RadarTargetItemRow,
   setRadarTargetStatus
@@ -30,6 +31,7 @@ const RadarSessionScreen: React.FC = () => {
   const [orderItems, setOrderItems] = useState<OrderItemRow[]>([]);
   const [targetItems, setTargetItems] = useState<RadarTargetItemRow[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [isRecalculating, setIsRecalculating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -108,6 +110,17 @@ const RadarSessionScreen: React.FC = () => {
     await load();
   };
 
+  const handleRecalculateTargets = async () => {
+    if (!sessionId || isRecalculating) return;
+    setIsRecalculating(true);
+    try {
+      await regenerateRadarTargets(sessionId, 30);
+      await load();
+    } finally {
+      setIsRecalculating(false);
+    }
+  };
+
   const sortedTargets = useMemo(() => targets, [targets]);
 
   const targetItemsByTargetId = useMemo(() => targetItems.reduce<Record<string, RadarTargetItemRow[]>>((acc, row) => {
@@ -141,6 +154,7 @@ const RadarSessionScreen: React.FC = () => {
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={() => void handleCloseSession()} className="flex-1 rounded-xl bg-gray-900 text-white text-xs font-black py-2">Завершить Radar</button>
+          <button type="button" onClick={() => void handleRecalculateTargets()} className="rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-black text-blue-700 disabled:opacity-60" disabled={isRecalculating}>{isRecalculating ? 'Пересчёт…' : '⚡ Пересчитать цели'}</button>
           <button type="button" onClick={() => setShowHistory((v) => !v)} className="rounded-xl border border-gray-200 bg-white px-3 text-xs font-black">🕘 История</button>
         </div>
       </div>
@@ -167,10 +181,21 @@ const RadarSessionScreen: React.FC = () => {
               <div className="flex justify-between gap-3">
                 <div>
                   <p className="text-sm font-black">{shop?.name || target.shop_id}</p>
-                  <p className="text-xs text-gray-500">Distance: {(target as any).distance_km ?? '—'} km · Score: {target.score ?? 0}</p>
+                  <p className="text-xs text-gray-500">Distance: {target.distance_km ?? '—'} km · ETA: {target.eta_min ?? '—'} min · Score: {target.score ?? 0}</p>
                 </div>
                 <span className="text-[11px] px-2 py-1 rounded-full bg-slate-100 text-slate-700 font-bold">{target.status}</span>
               </div>
+              <details className="rounded-xl border border-gray-100 bg-gray-50 p-2 text-[11px]">
+                <summary className="cursor-pointer font-black text-gray-700">Почему такой score</summary>
+                <div className="mt-2 grid grid-cols-2 gap-1 text-gray-600">
+                  <p>Match: +{target.score_breakdown?.match ?? 0}</p>
+                  <p>Trust: +{target.score_breakdown?.trust ?? 0}</p>
+                  <p>Heat: +{target.score_breakdown?.heat ?? 0}</p>
+                  <p>Distance: +{target.score_breakdown?.distance ?? 0}</p>
+                  <p>Extras: +{target.score_breakdown?.extras ?? 0}</p>
+                  <p>Total: {target.score_breakdown?.total ?? target.score ?? 0}</p>
+                </div>
+              </details>
               <div className="grid grid-cols-3 gap-1 text-[11px] font-bold">
                 <button type="button" onClick={() => void changeStatus(target, 'in_route')} className="rounded-lg bg-blue-50 text-blue-700 py-1">📍 In route</button>
                 <button type="button" onClick={() => void changeStatus(target, 'at_shop')} className="rounded-lg bg-amber-50 text-amber-700 py-1">🏪 At shop</button>
