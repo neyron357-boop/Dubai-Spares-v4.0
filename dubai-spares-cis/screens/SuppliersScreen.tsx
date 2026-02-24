@@ -30,7 +30,7 @@ import {
 import ConfirmModal from '../components/ConfirmModal';
 import ImagePreview from '../components/ImagePreview';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
-import { upsertSupplierToShops } from '../radarShops';
+import { upsertSupplierToShops, updateSupplierContacts } from '../radarShops';
 import { createUuid } from '../id';
 import { CAR_DATABASE } from '../carDatabase';
 import { offlineDb } from '../storage/offlineDb';
@@ -215,10 +215,24 @@ const SuppliersScreen: React.FC = () => {
   const [filterGps, setFilterGps] = useState<'all' | 'has' | 'missing'>('all');
   const [sortBy, setSortBy] = useState<'activity' | 'success' | 'last_contact'>('activity');
   const [filterPartCategory, setFilterPartCategory] = useState('all');
+  const [quickRadiusKm, setQuickRadiusKm] = useState<'all' | 5 | 10 | 20 | 50>('all');
+  const [quickHasContacts, setQuickHasContacts] = useState(false);
+  const [quickOpenNow, setQuickOpenNow] = useState(false);
+  const [advancedTrustMin, setAdvancedTrustMin] = useState(0);
+  const [advancedSuccessMin, setAdvancedSuccessMin] = useState(0);
+  const [advancedHeatMin, setAdvancedHeatMin] = useState(0);
+  const [advancedHasDelivery, setAdvancedHasDelivery] = useState(false);
+  const [advancedFastWhatsapp, setAdvancedFastWhatsapp] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [contactEditorSupplierId, setContactEditorSupplierId] = useState<string | null>(null);
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactWhatsapp, setContactWhatsapp] = useState('');
+  const [isSavingContact, setIsSavingContact] = useState(false);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [yearFrom, setYearFrom] = useState('');
   const [yearTo, setYearTo] = useState('');
   const [sortByDistanceRef, setSortByDistanceRef] = useState<{ lat: number; lng: number }>({ lat: 25.2048, lng: 55.2708 });
-  const [sortByExtended, setSortByExtended] = useState<'activity' | 'success' | 'last_contact' | 'distance' | 'popularity' | 'name'>('activity');
+  const [sortByExtended, setSortByExtended] = useState<'smart' | 'trust' | 'heat' | 'near' | 'name'>('smart');
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
   const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
@@ -336,7 +350,7 @@ const SuppliersScreen: React.FC = () => {
   }), [suppliers, supplierStatsMap]);
 
   const filtered = useMemo(() => {
-    const normalized = searchTerm.toLowerCase();
+    const normalized = debouncedSearchTerm.toLowerCase();
     const yFrom = Number(yearFrom);
     const yTo = Number(yearTo);
     const calcDistanceKm = (supplier: Supplier & { coordinates?: { lat: number; lng: number } }) => {
@@ -355,13 +369,17 @@ const SuppliersScreen: React.FC = () => {
     const data = Array.from(deduped.values()).filter((s) => {
       const matchesSearch = !normalized
         || s.name.toLowerCase().includes(normalized)
-        || s.phone.includes(searchTerm)
+        || s.phone.includes(debouncedSearchTerm)
         || (s.zone || '').toLowerCase().includes(normalized)
         || (s.brands || []).some((b) => b.toLowerCase().includes(normalized))
         || pickSupplierBrands(s).some((b) => b.toLowerCase().includes(normalized));
 
       const supplierTypes = Array.isArray(s.types) && s.types.length > 0 ? s.types : [s.type || 'new_parts'];
-      const matchesType = filterType === 'all' || supplierTypes.includes(filterType);
+      const matchesQuickType = (filterType === 'all')
+        || (filterType === 'new_parts' && supplierTypes.includes('new_parts'))
+        || (filterType === 'scrapyard' && supplierTypes.some((type) => ['scrapyard', 'body_parts', 'mixed'].includes(type)))
+        || (filterType === 'engine_specialist' && supplierTypes.some((type) => ['engine_specialist', 'electrical', 'dealer', 'warehouse'].includes(type)));
+      const matchesType = matchesQuickType;
       const matchesBrand = filterBrand === 'all' || pickSupplierBrands(s).includes(filterBrand);
       const hasGps = !!s.coordinates;
       const matchesGps = filterGps === 'all' || (filterGps === 'has' ? hasGps : !hasGps);
@@ -374,22 +392,32 @@ const SuppliersScreen: React.FC = () => {
       const years = s.years || [];
       const matchesYearFrom = !Number.isFinite(yFrom) || years.length === 0 || years.some((year) => year >= yFrom);
       const matchesYearTo = !Number.isFinite(yTo) || years.length === 0 || years.some((year) => year <= yTo);
+      const distanceKm = calcDistanceKm(s);
+      const matchesRadius = quickRadiusKm === 'all' || distanceKm <= quickRadiusKm;
+      const matchesContacts = !quickHasContacts || Boolean((s.phone || '').trim());
+      const matchesOpenNow = !quickOpenNow || Boolean((s.workingHours || '').trim());
+      const trustScore = Number(s.autoTrustScore ?? s.trustLevel ?? 0);
+      const matchesTrust = trustScore >= advancedTrustMin;
+      const matchesSuccessMin = Number(s.successRate || 0) >= advancedSuccessMin;
+      const matchesHeat = Number(s.heatLevel || 0) >= advancedHeatMin;
+      const matchesDelivery = !advancedHasDelivery || s.hasDelivery === true;
+      const matchesFastWhatsapp = !advancedFastWhatsapp || s.whatsappFast === true;
 
-      return matchesSearch && matchesType && matchesBrand && matchesGps && matchesActivity && matchesCategory && matchesYearFrom && matchesYearTo;
+      return matchesSearch && matchesType && matchesBrand && matchesGps && matchesActivity && matchesCategory && matchesYearFrom && matchesYearTo
+        && matchesRadius && matchesContacts && matchesOpenNow && matchesTrust && matchesSuccessMin && matchesHeat && matchesDelivery && matchesFastWhatsapp;
     });
 
     return data.sort((a, b) => {
       const distanceA = calcDistanceKm(a);
       const distanceB = calcDistanceKm(b);
 
-      if (sortByExtended === 'success') return (b.successRate || 0) - (a.successRate || 0) || distanceA - distanceB;
-      if (sortByExtended === 'last_contact') return (b.lastContactAt || 0) - (a.lastContactAt || 0) || distanceA - distanceB;
-      if (sortByExtended === 'distance') return distanceA - distanceB;
+      if (sortByExtended === 'trust') return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
+      if (sortByExtended === 'heat') return (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
+      if (sortByExtended === 'near') return distanceA - distanceB || (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0));
       if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
-      if (sortByExtended === 'popularity') return (Number(manualRadarCounts[b.id] || 0) + (b.activityScore || 0)) - (Number(manualRadarCounts[a.id] || 0) + (a.activityScore || 0)) || distanceA - distanceB;
-      return (b.activityScore || 0) - (a.activityScore || 0) || distanceA - distanceB;
+      return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
     });
-  }, [suppliersWithStats, searchTerm, filterType, filterBrand, filterGps, filterActivity, filterPartCategory, yearFrom, yearTo, sortByExtended, sortByDistanceRef, manualRadarCounts]);
+  }, [suppliersWithStats, debouncedSearchTerm, filterType, filterBrand, filterGps, filterActivity, filterPartCategory, yearFrom, yearTo, sortByExtended, sortByDistanceRef, quickRadiusKm, quickHasContacts, quickOpenNow, advancedTrustMin, advancedSuccessMin, advancedHeatMin, advancedHasDelivery, advancedFastWhatsapp]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -750,6 +778,38 @@ const SuppliersScreen: React.FC = () => {
     navigator.geolocation.getCurrentPosition((pos) => setSortByDistanceRef({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => undefined);
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearchTerm(searchTerm), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
+  const openContactEditor = (supplier: Supplier) => {
+    setContactEditorSupplierId(supplier.id);
+    setContactPhone(supplier.phone || '');
+    setContactWhatsapp((supplier.whatsapp || supplier.phone || '').trim());
+  };
+
+  const saveSupplierContact = async () => {
+    if (!contactEditorSupplierId) return;
+    const normalizedPhone = normalizePhone(contactPhone);
+    if (!isValidE164(normalizedPhone)) return alert('Введите корректный номер в формате E.164 (+971...)');
+    const normalizedWhatsapp = normalizePhone(contactWhatsapp || normalizedPhone);
+    setIsSavingContact(true);
+    try {
+      const target = suppliers.find((item) => item.id === contactEditorSupplierId);
+      if (!target) return;
+      updateSupplier({ ...target, phone: normalizedPhone, whatsapp: normalizedWhatsapp, updatedAt: Date.now() });
+      await updateSupplierContacts(contactEditorSupplierId, normalizedPhone, normalizedWhatsapp);
+      setContactEditorSupplierId(null);
+      alert('Контакт сохранён ✅');
+    } catch (error) {
+      console.error(error);
+      alert('Не удалось сохранить контакт');
+    } finally {
+      setIsSavingContact(false);
+    }
+  };
+
   const requiredReady = !!toTitle(name.trim()) && isValidE164(currentPhone) && !!location.trim();
 
   return (
@@ -776,9 +836,38 @@ const SuppliersScreen: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5">
+        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterBrand} onChange={(e) => setFilterBrand(e.target.value)}>
+          <option value="all">Brand: all</option>
+          {uniqueBrandsForFilter.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+        </select>
+        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={quickRadiusKm} onChange={(e) => setQuickRadiusKm(e.target.value === 'all' ? 'all' : Number(e.target.value) as 5 | 10 | 20 | 50)}>
+          <option value="all">Radius: any</option>
+          <option value={5}>5 km</option>
+          <option value={10}>10 km</option>
+          <option value={20}>20 km</option>
+          <option value={50}>50 km</option>
+        </select>
         <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterType} onChange={(e) => setFilterType(e.target.value as any)}>
-          <option value="all">Тип: все</option>
-          {FIELD_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+          <option value="all">Type: all</option>
+          <option value="new_parts">new_parts</option>
+          <option value="scrapyard">used_parts</option>
+          <option value="engine_specialist">specialist</option>
+        </select>
+        <label className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold inline-flex items-center gap-2"><input type="checkbox" checked={quickOpenNow} onChange={(e) => setQuickOpenNow(e.target.checked)} /> Open now</label>
+        <label className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold inline-flex items-center gap-2"><input type="checkbox" checked={quickHasContacts} onChange={(e) => setQuickHasContacts(e.target.checked)} /> Has contacts</label>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
+        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
+          <option value="smart">Sort: smart</option>
+          <option value="trust">Sort: trust</option>
+          <option value="heat">Sort: heat</option>
+          <option value="near">Sort: near</option>
+          <option value="name">Sort: name</option>
+        </select>
+        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterGps} onChange={(e) => setFilterGps(e.target.value as any)}>
+          <option value="all">GPS: все</option>
+          <option value="has">Есть GPS</option>
+          <option value="missing">Нет GPS</option>
         </select>
         <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterActivity} onChange={(e) => setFilterActivity(e.target.value as any)}>
           <option value="all">Активность: все</option>
@@ -787,24 +876,17 @@ const SuppliersScreen: React.FC = () => {
           <option value="low">Low</option>
           <option value="dormant">Dormant</option>
         </select>
-        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterBrand} onChange={(e) => setFilterBrand(e.target.value)}>
-          <option value="all">Бренд: все</option>
-          {uniqueBrandsForFilter.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
-        </select>
-        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterGps} onChange={(e) => setFilterGps(e.target.value as any)}>
-          <option value="all">GPS: все</option>
-          <option value="has">Есть GPS</option>
-          <option value="missing">Нет GPS</option>
-        </select>
-        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
-          <option value="activity">Сорт: Активность</option>
-          <option value="success">Сорт: Успешность</option>
-          <option value="last_contact">Сорт: Последний контакт</option>
-          <option value="distance">Сорт: Дистанция</option>
-          <option value="popularity">Сорт: Популярность</option>
-          <option value="name">Сорт: Название</option>
-        </select>
+        <button type="button" onClick={() => setShowAdvancedFilters((prev) => !prev)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold">Advanced {showAdvancedFilters ? '▲' : '▼'}</button>
       </div>
+      {showAdvancedFilters && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5 rounded-xl border border-gray-100 bg-gray-50 p-2">
+          <input value={advancedTrustMin} onChange={(e) => setAdvancedTrustMin(Number(e.target.value || 0))} type="number" min={0} max={100} placeholder="Trust >=" className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" />
+          <input value={advancedSuccessMin} onChange={(e) => setAdvancedSuccessMin(Number(e.target.value || 0))} type="number" min={0} max={100} placeholder="Success >=" className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" />
+          <input value={advancedHeatMin} onChange={(e) => setAdvancedHeatMin(Number(e.target.value || 0))} type="number" min={0} max={100} placeholder="Heat >=" className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" />
+          <label className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold inline-flex items-center gap-2"><input type="checkbox" checked={advancedHasDelivery} onChange={(e) => setAdvancedHasDelivery(e.target.checked)} /> Has delivery</label>
+          <label className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold inline-flex items-center gap-2"><input type="checkbox" checked={advancedFastWhatsapp} onChange={(e) => setAdvancedFastWhatsapp(e.target.checked)} /> Fast WhatsApp</label>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
         <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterPartCategory} onChange={(e) => setFilterPartCategory(e.target.value)}>
@@ -1011,10 +1093,19 @@ const SuppliersScreen: React.FC = () => {
                 {expandedSupplierIds.has(s.id) && <>
                 {Array.isArray(s.mainPartCategories) && s.mainPartCategories.length > 0 && <p className="text-[11px] text-slate-500">Основные детали: {s.mainPartCategories.slice(0, 3).join(', ')}</p>}
 
-                <div className="grid grid-cols-3 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">
-                  <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Маршрут</button>
-                  <a href={`https://wa.me/${(s.phone || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
-                  <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-1.5 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
+                <div className="grid grid-cols-2 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">
+                  <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Map</button>
+                  {(s.phone || '').trim() ? (
+                    <>
+                      <a href={`https://wa.me/${((s.whatsapp || s.phone) || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
+                      <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-1.5 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
+                    </>
+                  ) : (
+                    <>
+                      <span className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-black text-amber-700">Нет контакта</span>
+                      <button type="button" onClick={() => openContactEditor(s)} className="rounded-lg bg-amber-100 px-2 py-1.5 text-[10px] font-black text-amber-800 inline-flex items-center justify-center gap-1">➕ Добавить контакт</button>
+                    </>
+                  )}
                   <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput((s.years || []).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
                   <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
                   <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
@@ -1165,6 +1256,20 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
         )}
       </div>
 
+
+      {contactEditorSupplierId && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3">
+          <div className="w-full max-w-md rounded-2xl bg-white p-4 space-y-3">
+            <p className="text-sm font-black">Добавить контакт</p>
+            <input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="Phone (+971...)" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold" />
+            <input value={contactWhatsapp} onChange={(e) => setContactWhatsapp(e.target.value)} placeholder="WhatsApp (optional)" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold" />
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setContactEditorSupplierId(null)} className="flex-1 rounded-xl bg-gray-100 py-2 text-xs font-black">Cancel</button>
+              <button type="button" disabled={isSavingContact} onClick={saveSupplierContact} className="flex-1 rounded-xl bg-blue-600 text-white py-2 text-xs font-black disabled:opacity-50">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
       <ConfirmModal isOpen={!!deleteSupplierId} message="Вы уверены, что хотите удалить этого поставщика?" onConfirm={confirmDeleteSupplier} onCancel={() => setDeleteSupplierId(null)} />
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
       <ConfirmModal

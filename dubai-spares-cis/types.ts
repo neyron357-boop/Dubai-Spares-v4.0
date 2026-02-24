@@ -171,9 +171,11 @@ export interface Supplier {
   gpsAccuracyMeters?: number;
   workingHours?: string;
   trustLevel?: number;
+  autoTrustScore?: number;
   hasDelivery?: boolean;
   hasWhatsapp?: boolean;
   whatsappFast?: boolean;
+  whatsapp?: string;
   comment?: string;
   website?: string;
   foundCount?: number;
@@ -188,6 +190,7 @@ export interface Supplier {
   syncStatus?: SupplierSyncStatus;
   priority?: 'high' | 'medium' | 'low';
   status?: 'active' | 'dormant' | 'visited' | 'unknown';
+  radarCount?: number;
 }
 
 export interface Shop {
