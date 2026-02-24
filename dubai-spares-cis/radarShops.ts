@@ -536,7 +536,7 @@ export const fetchSuppliersFromShops = async (): Promise<Supplier[]> => {
   while (true) {
     const { data, error } = await supabase
       .from('shops')
-      .select('id,name,phone,location,latitude,longitude,shop_type,main_brands,zone,heat_level,specialization,specialization_models,specialization_years,specialization_body_types,created_at,updated_at')
+      .select('*')
       .order('created_at', { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
 

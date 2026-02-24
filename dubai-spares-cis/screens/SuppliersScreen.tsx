@@ -7,7 +7,6 @@ import {
   MapPin,
   Store,
   UserPlus,
-  Download,
   Upload,
   Trash2,
   Tag,
@@ -162,7 +161,7 @@ const inferZoneFromCoords = (coords?: { lat: number; lng: number }) => {
 };
 
 const SuppliersScreen: React.FC = () => {
-  const { suppliers, addSupplier, deleteSupplier, getBackupData, restoreData, orders, updateOrder, updateSupplier } = useStore();
+  const { suppliers, addSupplier, deleteSupplier, restoreData, orders, updateOrder, updateSupplier } = useStore();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
@@ -607,23 +606,6 @@ const SuppliersScreen: React.FC = () => {
     }
   };
 
-  const handleExport = () => {
-    try {
-      const data = getBackupData();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `dubai_spares_backup_${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch {
-      alert('Ошибка при создании резервной копии');
-    }
-  };
-
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -775,10 +757,9 @@ const SuppliersScreen: React.FC = () => {
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-bold">База Поставщиков</h1>
         <div className="flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={handleExport} className="p-3 bg-emerald-50 text-emerald-600 rounded-xl" title="Экспорт"><Download size={18} /></button>
           <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleFileSelect} />
-          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 bg-violet-50 text-violet-600 rounded-xl" title="Импорт"><Upload size={18} /></button>
-          <button type="button" onClick={() => setIsAdding(true)} className="p-3 bg-blue-600 text-white rounded-xl" title="Добавить"><UserPlus size={20} /></button>
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2.5 bg-violet-50 text-violet-600 rounded-xl" title="Импорт"><Upload size={18} /></button>
+          <button type="button" onClick={() => setIsAdding(true)} className="p-2.5 bg-blue-600 text-white rounded-xl" title="Добавить"><UserPlus size={20} /></button>
         </div>
       </div>
 
@@ -790,32 +771,32 @@ const SuppliersScreen: React.FC = () => {
           onChange={(e) => setSearchTerm(e.target.value)}
           placeholder="Поиск: имя / телефон / зона / бренд"
           autoComplete="off"
-          className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-200 rounded-2xl shadow-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-base"
+          className="w-full pl-11 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm"
         />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={filterType} onChange={(e) => setFilterType(e.target.value as any)}>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5">
+        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterType} onChange={(e) => setFilterType(e.target.value as any)}>
           <option value="all">Тип: все</option>
           {FIELD_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
         </select>
-        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={filterActivity} onChange={(e) => setFilterActivity(e.target.value as any)}>
+        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterActivity} onChange={(e) => setFilterActivity(e.target.value as any)}>
           <option value="all">Активность: все</option>
           <option value="high">High</option>
           <option value="medium">Medium</option>
           <option value="low">Low</option>
           <option value="dormant">Dormant</option>
         </select>
-        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={filterBrand} onChange={(e) => setFilterBrand(e.target.value)}>
+        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterBrand} onChange={(e) => setFilterBrand(e.target.value)}>
           <option value="all">Бренд: все</option>
           {uniqueBrandsForFilter.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
         </select>
-        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={filterGps} onChange={(e) => setFilterGps(e.target.value as any)}>
+        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterGps} onChange={(e) => setFilterGps(e.target.value as any)}>
           <option value="all">GPS: все</option>
           <option value="has">Есть GPS</option>
           <option value="missing">Нет GPS</option>
         </select>
-        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
+        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
           <option value="activity">Сорт: Активность</option>
           <option value="success">Сорт: Успешность</option>
           <option value="last_contact">Сорт: Последний контакт</option>
@@ -825,13 +806,13 @@ const SuppliersScreen: React.FC = () => {
         </select>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <select className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" value={filterPartCategory} onChange={(e) => setFilterPartCategory(e.target.value)}>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
+        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterPartCategory} onChange={(e) => setFilterPartCategory(e.target.value)}>
           <option value="all">Категории деталей: все</option>
           {SUPPLIER_PART_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
         </select>
-        <input value={yearFrom} onChange={(e) => setYearFrom(e.target.value.replace(/[^\d]/g, ''))} placeholder="Год от" className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" />
-        <input value={yearTo} onChange={(e) => setYearTo(e.target.value.replace(/[^\d]/g, ''))} placeholder="Год до" className="rounded-xl border border-gray-200 px-2 py-2 text-xs font-semibold" />
+        <input value={yearFrom} onChange={(e) => setYearFrom(e.target.value.replace(/[^\d]/g, ''))} placeholder="Год от" className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" />
+        <input value={yearTo} onChange={(e) => setYearTo(e.target.value.replace(/[^\d]/g, ''))} placeholder="Год до" className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" />
         <div className="rounded-xl border border-gray-200 px-2 py-2 text-[11px] font-semibold text-gray-500">Дальние автоматически ниже</div>
       </div>
 

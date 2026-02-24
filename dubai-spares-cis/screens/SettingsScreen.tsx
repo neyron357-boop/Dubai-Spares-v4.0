@@ -224,6 +224,23 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
+
+  const handleExportLocalBackup = () => {
+    try {
+      const data = exportData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `dubai_spares_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Export failed';
+      alert(`Не удалось экспортировать бэкап: ${message}`);
+    }
+  };
+
   const handleCompressAllServerPhotos = () => void withBusy('storage-compress-all', async () => {
     const first = window.confirm('Сжать ВСЕ фотографии на сервере до минимального размера? Это может занять много времени.');
     if (!first) return;
@@ -686,6 +703,8 @@ const SettingsScreen: React.FC = () => {
               Restore by ID
             </button>
           </div>
+
+          <button type="button" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold" onClick={handleExportLocalBackup}>Экспорт локального бэкапа</button>
 
           <label className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-center text-sm font-bold cursor-pointer">Restore from backup
             <input type="file" accept="application/json" className="hidden" onChange={(e) => {
