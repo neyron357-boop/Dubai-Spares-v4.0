@@ -1226,6 +1226,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const partCards = useMemo(() => {
     if (!order) return [];
+    const fallbackCarPhotos = sanitizePhotoList([order.carPhotoUrl || '', ...(order.carPhotos || []), order.vinPhotoUrl || '']);
     const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
     const fixedMarkupTotal = Number(order.markupFixedAed || 0);
     const partsWithPriceCount = order.parts.filter((part) => {
@@ -1237,7 +1238,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     return order.parts.map((part) => {
       const sortedVariants = [...part.variants].sort((a, b) => a.priceAed - b.priceAed);
       const best = sortedVariants[0];
-      const variantWithPhoto = sortedVariants.find((variant) => [variant.photoUrl || '', ...(variant.photos || [])].some(Boolean));
       const supplierAed = best?.priceAed || 0;
       const hasPrice = !!best;
       const isReady = !!best && part.isFound;
@@ -1247,9 +1247,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           : supplierAed)
         : resolveClientUnitPriceAed(best as unknown as Record<string, unknown>, { markupPercent: order.markupPercent });
       const converted = clientAed * rates[currency];
-      const variantPhotos = sanitizePhotoList([variantWithPhoto?.photoUrl || '', ...(variantWithPhoto?.photos || [])]);
+      const variantPhotos = sanitizePhotoList([best?.photoUrl || '', ...(best?.photos || [])]);
       const basePartPhotos = sanitizePhotoList([part.photoUrl || '', ...(part.photos || [])]);
-      const photoSource = variantPhotos.length > 0 ? variantPhotos : basePartPhotos;
+      const photoSource = variantPhotos.length > 0
+        ? variantPhotos
+        : (basePartPhotos.length > 0 ? basePartPhotos : fallbackCarPhotos);
       const uniquePhotos = sanitizePhotoList(photoSource);
       const previewPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 480, quality: 64 }));
       const galleryPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 1600, quality: 74 }));

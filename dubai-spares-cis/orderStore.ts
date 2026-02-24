@@ -887,6 +887,49 @@ const persistOrderGraph = async (order: Order) => {
 
   await logger.info('sync:persist', `Step 1/3 success for order ${uploadedOrder.id}`);
 
+  const existingPartIdsResponse = await supabase
+    .from('parts')
+    .select('id')
+    .eq('order_id', uploadedOrder.id);
+
+  if (existingPartIdsResponse.error) {
+    await logger.error('sync:persist', `Step 1.5/3 failed to read existing parts for order ${uploadedOrder.id}`, {
+      error: serializeError(existingPartIdsResponse.error)
+    });
+    throw existingPartIdsResponse.error;
+  }
+
+  const existingPartIds = (existingPartIdsResponse.data || [])
+    .map((row) => String((row as { id?: unknown }).id || ''))
+    .filter(Boolean);
+
+  if (existingPartIds.length > 0) {
+    await logger.info('sync:persist', `Step 1.6/3 cleanup existing graph for order ${uploadedOrder.id}`, {
+      existingPartCount: existingPartIds.length
+    });
+    const { error: deleteVariantsError } = await supabase
+      .from('price_variants')
+      .delete()
+      .in('part_id', existingPartIds);
+    if (deleteVariantsError) {
+      await logger.error('sync:persist', `Step 1.6/3 failed to cleanup variants for order ${uploadedOrder.id}`, {
+        error: serializeError(deleteVariantsError)
+      });
+      throw deleteVariantsError;
+    }
+
+    const { error: deletePartsError } = await supabase
+      .from('parts')
+      .delete()
+      .eq('order_id', uploadedOrder.id);
+    if (deletePartsError) {
+      await logger.error('sync:persist', `Step 1.6/3 failed to cleanup parts for order ${uploadedOrder.id}`, {
+        error: serializeError(deletePartsError)
+      });
+      throw deletePartsError;
+    }
+  }
+
   const partRows = (cloudOrder.parts || []).map((part) => ({
     id: part.id,
     order_id: uploadedOrder.id,
