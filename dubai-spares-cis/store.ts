@@ -70,10 +70,12 @@ export const syncSuppliersFromServer = async () => {
   try {
     const serverSuppliers = await fetchSuppliersFromShops();
     if (serverSuppliers.length === 0) return;
-    const localIds = new Set(globalSuppliers.map((s) => s.id));
-    const newFromServer = serverSuppliers.filter((s) => !localIds.has(s.id));
-    if (newFromServer.length > 0) {
-      globalSuppliers = [...newFromServer.map(normalizeSupplier), ...globalSuppliers];
+    const merged = new Map<string, Supplier>();
+    globalSuppliers.forEach((supplier) => merged.set(supplier.id, normalizeSupplier(supplier)));
+    serverSuppliers.forEach((supplier) => merged.set(supplier.id, normalizeSupplier(supplier)));
+    const nextSuppliers = Array.from(merged.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+    if (JSON.stringify(nextSuppliers) !== JSON.stringify(globalSuppliers)) {
+      globalSuppliers = nextSuppliers;
       notifySupplierListeners();
     }
   } catch (e) {

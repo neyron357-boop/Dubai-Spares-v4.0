@@ -969,12 +969,27 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
-  const getPartPhotos = (part: Part) => {
-      if (part.photos && part.photos.length > 0) return part.photos;
-      if (part.photoUrl) return [part.photoUrl];
-      if (order.carPhotos && order.carPhotos.length > 0) return order.carPhotos;
-      if (order.carPhotoUrl) return [order.carPhotoUrl];
-      return [];
+  const getPartSamplePhotos = (part: Part) => {
+    if (part.photos && part.photos.length > 0) return part.photos;
+    if (part.photoUrl) return [part.photoUrl];
+    return [];
+  };
+
+  const getPartVariantPhotos = (part: Part) => {
+    const fromVariants = (part.variants || [])
+      .flatMap((variant) => {
+        if (variant.photos && variant.photos.length > 0) return variant.photos;
+        if (variant.photoUrl) return [variant.photoUrl];
+        return [];
+      })
+      .filter(Boolean);
+    return Array.from(new Set(fromVariants));
+  };
+
+  const getPartPreviewPhotos = (part: Part) => {
+    const variantPhotos = getPartVariantPhotos(part);
+    if (variantPhotos.length > 0) return variantPhotos;
+    return getPartSamplePhotos(part);
   };
 
   const replacePartSamplePhotos = (partId: string, photos: string[]) => {
@@ -987,7 +1002,7 @@ const OrderDetailsScreen: React.FC = () => {
   const removePartSamplePhoto = (partId: string, photoIndex: number) => {
     const part = order.parts.find((item) => item.id === partId);
     if (!part) return;
-    const next = getPartPhotos(part).filter((_, index) => index !== photoIndex);
+    const next = getPartSamplePhotos(part).filter((_, index) => index !== photoIndex);
     replacePartSamplePhotos(partId, next);
   };
 
@@ -1004,7 +1019,7 @@ const OrderDetailsScreen: React.FC = () => {
     })).then((photos) => {
       const part = order.parts.find((item) => item.id === targetPartId);
       if (!part) return;
-      const merged = Array.from(new Set([...(getPartPhotos(part) || []), ...photos.filter(Boolean)]));
+      const merged = Array.from(new Set([...(getPartSamplePhotos(part) || []), ...photos.filter(Boolean)]));
       replacePartSamplePhotos(targetPartId, merged);
     }).finally(() => {
       e.target.value = '';
@@ -1014,7 +1029,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   const openGallery = (e: React.MouseEvent, part: Part) => {
     e.stopPropagation();
-    const images = getPartPhotos(part);
+    const images = getPartPreviewPhotos(part);
     if (images.length === 0) return;
     setGallery({ images, index: 0, partId: part.id });
   };
@@ -1729,7 +1744,9 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           )}
           {order.parts.map(part => {
-             const displayPhotos = getPartPhotos(part);
+             const displayPhotos = getPartPreviewPhotos(part);
+             const samplePhotos = getPartSamplePhotos(part);
+             const usesSamplePhoto = displayPhotos.length > 0 && samplePhotos.includes(displayPhotos[0]);
              return (
               <div key={part.id} onClick={() => navigate(`/order/${order.id}/part/${part.id}`)} className="bg-white p-3.5 rounded-2xl shadow-sm flex items-center gap-3 active:bg-gray-50 transition-colors border border-gray-50">
                 <button 
@@ -1753,6 +1770,19 @@ const OrderDetailsScreen: React.FC = () => {
                           <div className="absolute bottom-0 right-0 bg-black/60 text-white text-[8px] font-bold px-1 rounded-tl-md">
                               +{displayPhotos.length - 1}
                           </div>
+                      )}
+                      {usesSamplePhoto && samplePhotos.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removePartSamplePhoto(part.id, 0);
+                          }}
+                          className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white"
+                          aria-label="Удалить пример фото"
+                        >
+                          <X size={10} />
+                        </button>
                       )}
                       
                     </>
@@ -1828,16 +1858,6 @@ const OrderDetailsScreen: React.FC = () => {
           images={gallery.images}
           initialIndex={gallery.index}
           onClose={() => setGallery(null)}
-          onDeleteCurrent={gallery.partId ? (photoIndex) => {
-            removePartSamplePhoto(gallery.partId as string, photoIndex);
-            const nextImages = gallery.images.filter((_, idx) => idx !== photoIndex);
-            if (nextImages.length === 0) {
-              setGallery(null);
-              return;
-            }
-            setGallery((prev) => prev ? { ...prev, images: nextImages, index: Math.min(prev.index, nextImages.length - 1) } : null);
-          } : undefined}
-          deleteLabel="Удалить фото"
         />
       )}
       <input type="file" ref={partSampleFileRef} onChange={handlePartSamplePhotoChange} className="hidden" accept="image/*" multiple />

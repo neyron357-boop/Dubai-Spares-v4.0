@@ -270,6 +270,7 @@ export interface DbOrderRow {
   is_lead: boolean;
   notes: OrderNote[];
   sales_status?: SalesStatus;
+  customer_status?: 'VIP' | 'LEAD' | 'INQUIRY' | null;
   customer_contact?: string;
   social_nickname?: string;
   updated_at?: number | string;

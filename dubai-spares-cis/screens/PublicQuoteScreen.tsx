@@ -594,8 +594,8 @@ const mapSnapshotOrder = (row: any): Order => {
       shopName: variant?.shopName || variant?.shop_name || '',
       phone: variant?.phone || '',
       location: variant?.location || '',
-      photoUrl: variant?.photoUrl || variant?.photo_url || variant?.photos?.[0] || '',
-      photos: variant?.photos || [],
+      photoUrl: variant?.photoUrl || variant?.photo_url || variant?.photo_urls?.[0] || variant?.photos?.[0] || '',
+      photos: variant?.photos || variant?.photo_urls || [],
       createdAt: parseTimestamp(variant?.createdAt ?? variant?.created_at),
       priceClientAed: variant?.priceClientAed ?? variant?.price_client_aed,
       priceWithMarkupAed: variant?.priceWithMarkupAed ?? variant?.price_with_markup_aed,
@@ -1247,7 +1247,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           : supplierAed)
         : resolveClientUnitPriceAed(best as unknown as Record<string, unknown>, { markupPercent: order.markupPercent });
       const converted = clientAed * rates[currency];
-      const variantPhotos = sanitizePhotoList([best?.photoUrl || '', ...(best?.photos || [])]);
+      const bestVariantPhotos = sanitizePhotoList([best?.photoUrl || '', ...(best?.photos || [])]);
+      const anyVariantPhotos = sanitizePhotoList(sortedVariants.flatMap((variant) => [variant.photoUrl || '', ...(variant.photos || [])]));
+      const variantPhotos = bestVariantPhotos.length > 0 ? bestVariantPhotos : anyVariantPhotos;
       const basePartPhotos = sanitizePhotoList([part.photoUrl || '', ...(part.photos || [])]);
       const photoSource = variantPhotos.length > 0
         ? variantPhotos

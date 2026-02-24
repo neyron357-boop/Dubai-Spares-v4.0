@@ -315,7 +315,7 @@ const ORDER_PAGE_SIZE = 50;
 const mutationTimers = new Map<string, number>();
 const localCommitTimers = new Map<string, number>();
 const networkFlushTimerMs = 3000;
-const hotFieldKeys: Array<keyof Order> = ['markupPercent', 'markupType', 'markupFixedAed', 'exchangeRate', 'clientCurrency', 'fxUpdatedAt', 'logistics', 'pricingEvents', 'updatedAt'];
+const hotFieldKeys: Array<keyof Order> = ['markupPercent', 'markupType', 'markupFixedAed', 'exchangeRate', 'clientCurrency', 'fxUpdatedAt', 'logistics', 'pricingEvents', 'isVip', 'isPinned', 'customerStatus', 'updatedAt'];
 let cachedQueueLength = 0;
 let syncPausedUntil = 0;
 let syncMutex: Promise<void> = Promise.resolve();
@@ -719,6 +719,7 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     notes: row.notes || [],
     status: row.status || 'active',
     salesStatus: row.sales_status || 'Inquiry',
+    customerStatus: (row as any).customer_status || undefined,
     customerContact: row.customer_contact || '',
     socialNickname: row.social_nickname || '',
     updatedAt: parseTimestamp(row.updated_at ?? row.created_at),
@@ -816,6 +817,7 @@ const persistOrderGraph = async (order: Order) => {
     is_vip: !!uploadedOrder.isVip,
     is_pinned: !!uploadedOrder.isPinned,
     is_lead: !!uploadedOrder.isLead,
+    customer_status: uploadedOrder.customerStatus || null,
     notes: uploadedOrder.notes || [],
     customer_contact: uploadedOrder.customerContact || '',
     social_nickname: uploadedOrder.socialNickname || '',
@@ -842,6 +844,7 @@ const persistOrderGraph = async (order: Order) => {
       'recommended_shop_ids',
       'dismissed_shop_ids',
       'body_type',
+      'customer_status',
       'lead_unread',
       'lead_source',
       'lead_read_at',
@@ -1060,6 +1063,9 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   fx_updated_at: patch.fxUpdatedAt ? toIsoTimestamp(patch.fxUpdatedAt) : undefined,
   logistics: patch.logistics,
   pricing_events: patch.pricingEvents,
+  is_vip: typeof patch.isVip === 'boolean' ? patch.isVip : undefined,
+  is_pinned: typeof patch.isPinned === 'boolean' ? patch.isPinned : undefined,
+  customer_status: patch.customerStatus,
   updated_at: toIsoTimestamp(patch.updatedAt || Date.now())
 });
 
