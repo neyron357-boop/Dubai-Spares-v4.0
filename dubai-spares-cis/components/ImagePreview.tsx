@@ -97,7 +97,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
 
 
       {onDeleteCurrent && (
-        <div className="absolute inset-x-0 bottom-6 z-50 flex justify-center px-4">
+        <div className="absolute inset-x-0 z-50 flex justify-center px-4" style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}>
           <button
             type="button"
             onClick={(e) => {

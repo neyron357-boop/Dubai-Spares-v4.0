@@ -717,13 +717,6 @@ const SettingsScreen: React.FC = () => {
           <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => { (window as any).__serverApiRequestCount = 0; setRequestCount(0); }}>Reset request counter</button>
           <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => navigator.clipboard.writeText(cloudDiagnosticsText())}>Copy diagnostics</button>
           <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => void handleExportLogs()}>Экспорт логов</button>
-          <button
-            type="button"
-            onClick={() => window.open(publicRequestFormUrl, '_blank', 'noopener,noreferrer')}
-            className="shrink-0 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 px-3 py-2 text-sm font-bold"
-          >
-            Открыть
-          </button>
         </div>
         {devUnlocked && (
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 space-y-1">
@@ -771,13 +764,6 @@ const SettingsScreen: React.FC = () => {
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('index', async () => {
             await offlineDb.exportAllData();
           })}>{busyLabel('index', 'Перестроить индекс', 'Перестраиваем индекс…')}</button>
-          <button
-            type="button"
-            onClick={() => window.open(publicRequestFormUrl, '_blank', 'noopener,noreferrer')}
-            className="shrink-0 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 px-3 py-2 text-sm font-bold"
-          >
-            Открыть
-          </button>
         </div>
         {dangerActionProgress && (
           <div className="rounded-xl border border-rose-200 bg-white p-2">

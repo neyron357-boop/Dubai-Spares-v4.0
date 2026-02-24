@@ -212,6 +212,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [deliveryCountry, setDeliveryCountry] = useState('');
   const [deliveryCity, setDeliveryCity] = useState('');
   const [deliveryAddressNote, setDeliveryAddressNote] = useState('');
+  const [orderPriority, setOrderPriority] = useState<Priority>(Priority.MEDIUM);
   const [showEngineCode, setShowEngineCode] = useState(false);
   const [engineCode, setEngineCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -429,6 +430,7 @@ const PublicOrderFormScreen: React.FC = () => {
     setDeliveryCountry('');
     setDeliveryCity('');
     setDeliveryAddressNote('');
+    setOrderPriority(Priority.MEDIUM);
     setShowEngineCode(false);
     setEngineCode('');
     setClientAlias('');
@@ -691,7 +693,7 @@ Country: ${deliveryCountry}`,
           vin: vin.trim(),
           vinPhotoUrl: uploadedVinPhotos[0],
           status: leadResult.ok ? 'lead' : 'lead_sync_pending',
-          priority: Priority.MEDIUM,
+          priority: orderPriority,
           clientName: clientAlias.trim() || 'Public Lead',
           source: messageSource,
           carPhotoUrl: uploadedCarPhotos[0],
@@ -998,15 +1000,6 @@ Country: ${deliveryCountry}`,
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ввести VIN вручную</span>
                 <input type="text" value={vin} onChange={(e) => setVin(formatVinInput(e.target.value))} placeholder="WDB123456789..." className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" />
               </label>
-
-              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-300">Загрузить фото авто</span>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <button type="button" onClick={() => carInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Upload className="h-4 w-4" />Галерея</button>
-                <button type="button" onClick={() => carCameraInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Camera className="h-4 w-4" />Камера</button>
-              </div>
-              <input ref={carInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); e.target.value = ''; }} />
-              <input ref={carCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); e.target.value = ''; }} />
-              {carPhotoData && <img src={carPhotoData} alt="car-preview" className="h-28 w-full rounded-xl object-cover" />}
             </>
           )}
 
@@ -1057,6 +1050,18 @@ Country: ${deliveryCountry}`,
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Комментарий (опционально)</span>
                 <textarea value={deliveryAddressNote} onChange={(e) => setDeliveryAddressNote(e.target.value)} rows={3} placeholder="Район, адрес и комментарий" className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none" />
               </label>
+
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Срочность заявки</span>
+                <div className="grid grid-cols-3 gap-2">
+                  {([Priority.LOW, Priority.MEDIUM, Priority.HIGH] as Priority[]).map((p) => (
+                    <button key={p} type="button" onClick={() => setOrderPriority(p)}
+                      className={`h-12 rounded-3xl border text-sm font-semibold transition-colors ${orderPriority === p ? 'border-amber-300 bg-amber-200/20 text-amber-200' : 'border-white/20 bg-white/10 text-white/70'}`}>
+                      {p === Priority.LOW ? '🟢 Обычная' : p === Priority.MEDIUM ? '🟡 Средняя' : '🔴 Срочная'}
+                    </button>
+                  ))}
+                </div>
+              </label>
             </>
           )}
 
@@ -1065,6 +1070,7 @@ Country: ${deliveryCountry}`,
               <p className="text-xl font-black tracking-tight">{brand} {model} {year}</p>
               <p className="mt-3 text-sm">🧩 {requestedParts.filter((item) => item.name.trim()).length} детали</p>
               <p className="text-sm">🌍 Доставка: {deliveryCountry || '—'}</p>
+              <p className="text-sm">⚡ Срочность: {orderPriority === Priority.LOW ? 'Обычная' : orderPriority === Priority.MEDIUM ? 'Средняя' : 'Срочная'}</p>
               <p className="mt-2 text-xs text-slate-300">📱 {contactCountryCode}{customerContact || '—'}</p>
               <p className="text-xs text-slate-300">👤 {clientAlias || '—'} • {messageSource}</p>
             </div>
