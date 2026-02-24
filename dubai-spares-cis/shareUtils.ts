@@ -202,6 +202,16 @@ const encodeSnapshot = (snapshot: Record<string, unknown>) => {
   }
 };
 
+const uniquePhotos = (photos: string[]) => {
+  const seen = new Set<string>();
+  return photos.filter((photo) => {
+    const normalized = String(photo || '').trim();
+    if (!normalized || seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+};
+
 const buildQuoteSnapshot = (order: Pick<Order,
   'id' | 'brand' | 'model' | 'year' | 'bodyType' | 'vin' | 'vinPhotoUrl' | 'carPhotoUrl' | 'carPhotos' |
   'markupType' | 'markupPercent' | 'markupFixedAed' | 'exchangeRate' | 'clientCurrency' | 'logistics' | 'pricingEvents' | 'parts'>) => {
@@ -257,7 +267,7 @@ const buildQuoteSnapshot = (order: Pick<Order,
     name: part.name,
     isFound: !!part.isFound,
     photoUrl: part.photoUrl,
-    photos: (part.photos || []).slice(0, 2),
+    photos: uniquePhotos(part.photos || []),
     variants: (part.variants || []).map((variant) => ({
       id: variant.id,
       priceAed: Number(variant.priceAed || 0),
@@ -267,7 +277,7 @@ const buildQuoteSnapshot = (order: Pick<Order,
       phone: variant.phone,
       location: variant.location,
       photoUrl: variant.photoUrl,
-      photos: (variant.photos || []).slice(0, 2),
+      photos: uniquePhotos(variant.photos || []),
       createdAt: variant.createdAt
     }))
   }))

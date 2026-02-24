@@ -99,6 +99,25 @@ const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | '
   return markupAed / (Number(order.exchangeRate || 0) || 3.67);
 };
 
+const normalizeLogistics = (raw: unknown): Order['logistics'] | undefined => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const src = raw as Record<string, unknown>;
+  const toAmount = (...values: unknown[]) => {
+    for (const value of values) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return 0;
+  };
+
+  return {
+    deliveryType: src.deliveryType === 'export' || src.delivery_type === 'export' ? 'export' : 'uae',
+    deliveryAed: toAmount(src.deliveryAed, src.delivery_aed),
+    packingAed: toAmount(src.packingAed, src.packing_aed),
+    serviceFeeAed: toAmount(src.serviceFeeAed, src.service_fee_aed, src.commissionAed, src.commission_aed)
+  };
+};
+
 const normalizeOrder = (order: Order): Order => {
   const salesStatus = normalizeSalesStatus(order.salesStatus);
   const isCompleted = salesStatus === 'Completed';
@@ -707,7 +726,7 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     useMarkupAsDefaultForNewParts: !!row.use_markup_as_default_for_new_parts,
     clientCurrency: row.client_currency || 'USD',
     fxUpdatedAt: Number.isFinite(Number(row.fx_updated_at)) ? Number(row.fx_updated_at) : undefined,
-    logistics: row.logistics || undefined,
+    logistics: normalizeLogistics(row.logistics),
     exchangeRate: Number(row.exchange_rate || 0),
     createdAt: parseTimestamp(row.created_at),
     isArchived: !!row.is_archived,
