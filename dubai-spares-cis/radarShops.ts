@@ -38,7 +38,7 @@ let shopsCache: { expiresAt: number; data: Shop[] } | null = null;
 let shopsTableMissing = false;
 let enrichedViewUnavailable = false;
 
-const SUPPLIER_LIST_LIMIT = 200;
+const SUPPLIER_PAGE_SIZE = 200;
 
 
 const extractCityHints = (location: string): string[] => {
@@ -537,33 +537,51 @@ const mapShopRowToSupplier = (row: any): Supplier => ({
 const fetchSuppliersEnriched = async (): Promise<Supplier[]> => {
   if (!supabase) return [];
 
-  const { data, error } = await supabase
-    .from('v_shops_enriched')
-    .select('id,name,phone,whatsapp,location,latitude,longitude,zone,shop_type,heat_level,metrics_heat_level,auto_trust_score,manual_trust_level,success_rate,last_interaction_at,total_interactions,total_found,total_not_found,total_wrong_info,has_delivery,fast_whatsapp,main_brands,specialization_models,specialization_years,specialization_body_types,specialization_brands,specialization_categories,created_at,updated_at')
-    .order('updated_at', { ascending: false })
-    .limit(SUPPLIER_LIST_LIMIT);
+  const rows: any[] = [];
+  let from = 0;
 
-  if (error || !Array.isArray(data)) {
-    throw error || new Error('v_shops_enriched returned invalid payload');
+  while (true) {
+    const { data, error } = await supabase
+      .from('v_shops_enriched')
+      .select('id,name,phone,whatsapp,location,latitude,longitude,zone,shop_type,heat_level,metrics_heat_level,auto_trust_score,manual_trust_level,success_rate,last_interaction_at,total_interactions,total_found,total_not_found,total_wrong_info,has_delivery,fast_whatsapp,main_brands,specialization_models,specialization_years,specialization_body_types,specialization_brands,specialization_categories,created_at,updated_at')
+      .order('updated_at', { ascending: false })
+      .range(from, from + SUPPLIER_PAGE_SIZE - 1);
+
+    if (error || !Array.isArray(data)) {
+      throw error || new Error('v_shops_enriched returned invalid payload');
+    }
+
+    rows.push(...data);
+    if (data.length < SUPPLIER_PAGE_SIZE) break;
+    from += SUPPLIER_PAGE_SIZE;
   }
 
-  return data.map(mapShopRowToSupplier);
+  return rows.map(mapShopRowToSupplier);
 };
 
 const fetchSuppliersFallback = async (): Promise<Supplier[]> => {
   if (!supabase) return [];
-  const { data, error } = await supabase
-    .from('shops')
-    .select('id,name,phone,location,latitude,longitude,shop_type,zone,heat_level,specialization,main_brands,specialization_models,specialization_years,specialization_body_types,created_at,updated_at')
-    .order('updated_at', { ascending: false })
-    .limit(SUPPLIER_LIST_LIMIT);
+  const rows: any[] = [];
+  let from = 0;
 
-  if (error || !Array.isArray(data)) {
-    void logger.warn('shops:fetch-suppliers', 'Failed to fetch suppliers from shops', { error: error?.message });
-    return [];
+  while (true) {
+    const { data, error } = await supabase
+      .from('shops')
+      .select('id,name,phone,location,latitude,longitude,shop_type,zone,heat_level,specialization,main_brands,specialization_models,specialization_years,specialization_body_types,created_at,updated_at')
+      .order('updated_at', { ascending: false })
+      .range(from, from + SUPPLIER_PAGE_SIZE - 1);
+
+    if (error || !Array.isArray(data)) {
+      void logger.warn('shops:fetch-suppliers', 'Failed to fetch suppliers from shops', { error: error?.message });
+      return [];
+    }
+
+    rows.push(...data);
+    if (data.length < SUPPLIER_PAGE_SIZE) break;
+    from += SUPPLIER_PAGE_SIZE;
   }
 
-  return data.map(mapShopRowToSupplier);
+  return rows.map(mapShopRowToSupplier);
 };
 
 export const getSuppliersEnriched = async (): Promise<Supplier[]> => {

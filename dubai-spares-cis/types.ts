@@ -148,6 +148,19 @@ export interface OrderNote {
 
 export type SupplierType = 'new_parts' | 'scrapyard' | 'engine_specialist' | 'body_parts' | 'electrical' | 'mixed' | 'dealer' | 'warehouse';
 export type SupplierSyncStatus = 'synced' | 'pending_sync' | 'error';
+export type SupplierLinkedPartStatus = 'searching' | 'found' | 'not_found' | 'follow_up';
+
+export interface SupplierLinkedPartEntry {
+  id: string;
+  orderId: string;
+  orderLabel: string;
+  partId: string;
+  partName: string;
+  status: SupplierLinkedPartStatus;
+  priceAed?: number;
+  source?: 'manual' | 'variant';
+  updatedAt: number;
+}
 
 export interface Supplier {
   id: string;
@@ -191,6 +204,8 @@ export interface Supplier {
   priority?: 'high' | 'medium' | 'low';
   status?: 'active' | 'dormant' | 'visited' | 'unknown';
   radarCount?: number;
+  activeOrderIds?: string[];
+  linkedParts?: SupplierLinkedPartEntry[];
 }
 
 export interface Shop {

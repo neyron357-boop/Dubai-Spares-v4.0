@@ -47,6 +47,26 @@ const normalizeSupplier = (supplier: Supplier): Supplier => ({
   updatedAt: Number.isFinite(Number(supplier.updatedAt)) ? Number(supplier.updatedAt) : Date.now(),
   syncStatus: supplier.syncStatus === 'pending_sync' || supplier.syncStatus === 'error' ? supplier.syncStatus : 'synced',
   radarCount: Number.isFinite(Number(supplier.radarCount)) ? Number(supplier.radarCount) : 0,
+  activeOrderIds: Array.isArray(supplier.activeOrderIds)
+    ? supplier.activeOrderIds.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [],
+  linkedParts: Array.isArray(supplier.linkedParts)
+    ? supplier.linkedParts
+      .filter((item): item is NonNullable<Supplier['linkedParts']>[number] => !!item && typeof item === 'object')
+      .map((item) => ({
+        ...item,
+        id: typeof item.id === 'string' ? item.id : ensureUuid(),
+        orderId: typeof item.orderId === 'string' ? item.orderId : '',
+        orderLabel: typeof item.orderLabel === 'string' ? item.orderLabel : '',
+        partId: typeof item.partId === 'string' ? item.partId : '',
+        partName: typeof item.partName === 'string' ? item.partName : '',
+        status: item.status === 'found' || item.status === 'not_found' || item.status === 'follow_up' ? item.status : 'searching',
+        priceAed: Number.isFinite(Number(item.priceAed)) ? Number(item.priceAed) : undefined,
+        source: item.source === 'variant' ? 'variant' : 'manual',
+        updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : Date.now()
+      }))
+      .filter((item) => item.orderId && item.partId)
+    : [],
 });
 
 try {

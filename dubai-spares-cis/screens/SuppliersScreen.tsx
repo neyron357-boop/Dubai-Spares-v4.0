@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore, syncSuppliersFromServer } from '../store';
-import { RadarInteraction, Supplier, SupplierType } from '../types';
+import { Supplier, SupplierLinkedPartEntry, SupplierLinkedPartStatus, SupplierType } from '../types';
 import {
   Search,
   Phone,
@@ -33,7 +33,6 @@ import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops, updateSupplierContacts } from '../radarShops';
 import { createUuid } from '../id';
 import { CAR_DATABASE } from '../carDatabase';
-import { offlineDb } from '../storage/offlineDb';
 import { optimizeImageForUpload } from '../storage/photos';
 import { addRadarManualSelection, getRadarManualSelections, RADAR_MANUAL_SELECTIONS_EVENT, removeRadarManualSelection } from '../radarManualSelections';
 
@@ -118,28 +117,28 @@ const daysAgoLabel = (ts?: number) => {
   return `${diff} дней назад`;
 };
 
-const formatRadarDate = (ts: number) =>
-  new Date(ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-
-
 const pickSupplierBrands = (supplier: Supplier) => {
   const main = Array.isArray(supplier.mainBrands) ? supplier.mainBrands.filter(Boolean) : [];
   const fallback = Array.isArray(supplier.brands) ? supplier.brands.filter(Boolean) : [];
   return main.length > 0 ? main : fallback;
 };
 
-const radarResultLabel = (result: RadarInteraction['result']) => {
-  if (result === 'found') return '✅ Found';
-  if (result === 'not_found') return '❌ Not found';
-  if (result === 'follow_up') return '⏱️ Follow-up';
-  if (result === 'wrong_info') return '⚠️ Wrong info';
-  if (result === 'message_sent') return '💬 WhatsApp';
-  if (result === 'visited') return '📍 Я у магазина';
-  if (result === 'route_opened') return '🧭 Маршрут открыт';
-  if (result === 'called') return '📞 Звонок';
-  if (result === 'hidden') return '🙈 Точка скрыта';
-  return result;
+
+const LINKED_PART_STATUS_LABELS: Record<SupplierLinkedPartStatus, string> = {
+  searching: 'В поиске',
+  found: 'Найдено',
+  not_found: 'Не найдено',
+  follow_up: 'Нужен follow-up'
 };
+
+const upsertLinkedPartEntry = (entries: SupplierLinkedPartEntry[] = [], entry: SupplierLinkedPartEntry): SupplierLinkedPartEntry[] => {
+  const index = entries.findIndex((item) => item.orderId === entry.orderId && item.partId === entry.partId);
+  if (index === -1) return [entry, ...entries];
+  const next = [...entries];
+  next[index] = { ...next[index], ...entry, id: next[index].id || entry.id };
+  return next;
+};
+
 
 const activityLabel = (score: number, lastContactAt?: number) => {
   const days = lastContactAt ? (Date.now() - lastContactAt) / (1000 * 60 * 60 * 24) : Infinity;
@@ -164,6 +163,7 @@ const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, restoreData, orders, updateOrder, updateSupplier } = useStore();
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [showFiltersPanel, setShowFiltersPanel] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -204,8 +204,6 @@ const SuppliersScreen: React.FC = () => {
   const [isSavingSupplier, setIsSavingSupplier] = useState(false);
   const [locationParseNotice, setLocationParseNotice] = useState<string | null>(null);
   const [activeOrderLinkShopId, setActiveOrderLinkShopId] = useState<string | null>(null);
-  const [supplierRadarHistoryExpandedId, setSupplierRadarHistoryExpandedId] = useState<string | null>(null);
-  const [radarInteractions, setRadarInteractions] = useState<RadarInteraction[]>([]);
   const [activeOrderPartLink, setActiveOrderPartLink] = useState<{ supplierId: string; orderId: string; partId: string } | null>(null);
   const [selectedOrderBySupplier, setSelectedOrderBySupplier] = useState<Record<string, string>>({});
 
@@ -721,13 +719,36 @@ const SuppliersScreen: React.FC = () => {
       const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
       const nextModels = mergeUniqueStrings(linkedSupplier.models || [], [order.model || '']);
       const nextYears = mergeUniqueYears(linkedSupplier.years || [], [Number(order.year)]);
-      const updatedSupplier = { ...linkedSupplier, mainBrands: nextBrands, brands: nextBrands, primaryBrand: linkedSupplier.primaryBrand || order.brand, models: nextModels, years: nextYears, updatedAt: Date.now() };
+      const nextEntries = partIds.reduce((acc, partId) => {
+        const part = order.parts.find((item) => item.id === partId);
+        if (!part) return acc;
+        return upsertLinkedPartEntry(acc, {
+          id: createUuid(),
+          orderId: order.id,
+          orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
+          partId: part.id,
+          partName: part.name,
+          status: 'searching',
+          source: 'manual',
+          updatedAt: Date.now()
+        });
+      }, [...(linkedSupplier.linkedParts || [])]);
+      const updatedSupplier = {
+        ...linkedSupplier,
+        mainBrands: nextBrands,
+        brands: nextBrands,
+        primaryBrand: linkedSupplier.primaryBrand || order.brand,
+        models: nextModels,
+        years: nextYears,
+        activeOrderIds: Array.from(new Set([...(linkedSupplier.activeOrderIds || []), order.id])),
+        linkedParts: nextEntries,
+        updatedAt: Date.now()
+      };
       updateSupplier(updatedSupplier);
       void upsertSupplierToShops(updatedSupplier);
     }
 
     refreshManualSelections();
-
     setActiveOrderLinkShopId(null);
   };
 
@@ -740,26 +761,51 @@ const SuppliersScreen: React.FC = () => {
     updateOrder({ ...order, recommendedShopIds: Array.from(current), updatedAt: Date.now() });
     addRadarManualSelection({ supplierId: activeOrderPartLink.supplierId, orderId: activeOrderPartLink.orderId, partId: activeOrderPartLink.partId, source: 'manual' });
     const linkedSupplier = suppliers.find((item) => item.id === activeOrderPartLink.supplierId);
-    if (linkedSupplier && order.brand) {
+    const part = order.parts.find((item) => item.id === activeOrderPartLink.partId);
+    if (linkedSupplier && order.brand && part) {
       const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
       const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
       const nextModels = mergeUniqueStrings(linkedSupplier.models || [], [order.model || '']);
       const nextYears = mergeUniqueYears(linkedSupplier.years || [], [Number(order.year)]);
-      const updatedSupplier = { ...linkedSupplier, mainBrands: nextBrands, brands: nextBrands, primaryBrand: linkedSupplier.primaryBrand || order.brand, models: nextModels, years: nextYears, updatedAt: Date.now() };
+      const updatedSupplier = {
+        ...linkedSupplier,
+        mainBrands: nextBrands,
+        brands: nextBrands,
+        primaryBrand: linkedSupplier.primaryBrand || order.brand,
+        models: nextModels,
+        years: nextYears,
+        activeOrderIds: Array.from(new Set([...(linkedSupplier.activeOrderIds || []), order.id])),
+        linkedParts: upsertLinkedPartEntry(linkedSupplier.linkedParts || [], {
+          id: createUuid(),
+          orderId: order.id,
+          orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
+          partId: part.id,
+          partName: part.name,
+          status: 'searching',
+          source: 'manual',
+          updatedAt: Date.now()
+        }),
+        updatedAt: Date.now()
+      };
       updateSupplier(updatedSupplier);
       void upsertSupplierToShops(updatedSupplier);
     }
     refreshManualSelections();
     setActiveOrderPartLink(null);
-    alert('Поставщик добавлен в активный заказ и Radar.');
+    alert('Деталь добавлена в блок активных заказов поставщика.');
+  };
+
+  const updateLinkedPartStatus = (supplier: Supplier, entry: SupplierLinkedPartEntry, status: SupplierLinkedPartStatus) => {
+    const nextEntries = (supplier.linkedParts || []).map((item) => (
+      item.id === entry.id ? { ...item, status, updatedAt: Date.now() } : item
+    ));
+    const nextSupplier = { ...supplier, linkedParts: nextEntries, updatedAt: Date.now() };
+    updateSupplier(nextSupplier);
+    void upsertSupplierToShops(nextSupplier);
   };
 
   useEffect(() => {
     void syncSuppliersFromServer();
-    void offlineDb.getRadarInteractions().then(setRadarInteractions);
-    const onRadarUpdated = () => { void offlineDb.getRadarInteractions().then(setRadarInteractions); };
-    window.addEventListener('radar-interaction-saved', onRadarUpdated);
-    return () => window.removeEventListener('radar-interaction-saved', onRadarUpdated);
   }, []);
 
   useEffect(() => {
@@ -835,6 +881,13 @@ const SuppliersScreen: React.FC = () => {
         />
       </div>
 
+      <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2">
+        <p className="text-xs font-bold text-slate-600">Фильтры поставщиков</p>
+        <button type="button" onClick={() => setShowFiltersPanel((prev) => !prev)} className="text-xs font-black text-blue-700">
+          {showFiltersPanel ? 'Свернуть ▲' : 'Открыть ▼'}
+        </button>
+      </div>
+      {showFiltersPanel && <div className="space-y-1.5 max-h-[20vh] overflow-y-auto pr-1">
       <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5">
         <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterBrand} onChange={(e) => setFilterBrand(e.target.value)}>
           <option value="all">Brand: all</option>
@@ -897,6 +950,8 @@ const SuppliersScreen: React.FC = () => {
         <input value={yearTo} onChange={(e) => setYearTo(e.target.value.replace(/[^\d]/g, ''))} placeholder="Год до" className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" />
         <div className="rounded-xl border border-gray-200 px-2 py-2 text-[11px] font-semibold text-gray-500">Дальние автоматически ниже</div>
       </div>
+
+      </div>}
 
       {importError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-red-100"><AlertTriangle size={16} />{importError}</div>}
       {showSuccess && <div className="bg-green-50 text-green-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-green-100"><CheckCircle2 size={16} />Данные успешно восстановлены!</div>}
@@ -1117,7 +1172,7 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                 </>}
                 {expandedSupplierIds.has(s.id) && (
                 <div className="border-t border-gray-100 pt-3 space-y-2">
-                  <button type="button" onClick={() => setActiveOrderLinkShopId(activeOrderLinkShopId === s.id ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-center gap-2"><Link2 size={13} /> Add to Active Order</button>
+                  <button type="button" onClick={() => setActiveOrderLinkShopId(activeOrderLinkShopId === s.id ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-center gap-2"><Link2 size={13} /> Управление деталями поставщика</button>
                   {activeOrderLinkShopId === s.id && (
                     <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-2">
                       <select
@@ -1161,9 +1216,33 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                           {(activeOrders.find((order) => order.id === (activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : selectedOrderBySupplier[s.id]))?.parts || []).map((part) => <option key={part.id} value={part.id}>{part.name}</option>)}
                         </select>
                       </div>
-                      <button type="button" onClick={addSupplierToOrderPart} className="w-full rounded-lg bg-violet-100 px-2 py-2 text-[11px] font-black text-violet-800">Открыть Add Variant flow</button>
+                      <button type="button" onClick={addSupplierToOrderPart} className="w-full rounded-lg bg-violet-100 px-2 py-2 text-[11px] font-black text-violet-800">Добавить деталь в карточку</button>
                     </div>
                   )}
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-black text-slate-700">Добавленные детали ({(s.linkedParts || []).length})</p>
+                    </div>
+                    {(s.linkedParts || []).length === 0 ? (
+                      <p className="text-[11px] text-slate-500">Нет деталей. Добавьте через блок выше или через «Добавить варианты».</p>
+                    ) : (s.linkedParts || []).map((entry) => (
+                      <div key={entry.id} className="rounded-lg bg-white border border-slate-200 p-2 text-[11px]">
+                        <p className="font-bold text-slate-700">{entry.orderLabel}</p>
+                        <p className="text-slate-600">{entry.partName}</p>
+                        <div className="mt-1 flex items-center gap-2">
+                          <select
+                            value={entry.status}
+                            onChange={(e) => updateLinkedPartStatus(s, entry, e.target.value as SupplierLinkedPartStatus)}
+                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold"
+                          >
+                            {Object.entries(LINKED_PART_STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}
+                          </select>
+                          {entry.priceAed ? <span className="font-black text-emerald-700">{entry.priceAed} AED</span> : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 )}
               </div>
