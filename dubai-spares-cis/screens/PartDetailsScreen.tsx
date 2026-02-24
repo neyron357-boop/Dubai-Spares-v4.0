@@ -106,6 +106,14 @@ const mergeUniqueYears = (current: number[] = [], incoming: number[] = []) => {
   return next.sort((a, b) => a - b);
 };
 
+const upsertLinkedPart = (entries: any[] = [], entry: any) => {
+  const idx = entries.findIndex((item) => item.orderId === entry.orderId && item.partId === entry.partId);
+  if (idx === -1) return [entry, ...entries];
+  const next = [...entries];
+  next[idx] = { ...next[idx], ...entry, id: next[idx].id || entry.id };
+  return next;
+};
+
 const PartDetailsScreen: React.FC = () => {
   const { orderId, partId } = useParams<{ orderId: string; partId: string }>();
   const navigate = useNavigate();
@@ -326,6 +334,18 @@ const PartDetailsScreen: React.FC = () => {
           models: nextModels,
           years: nextYears,
           bodyTypes: nextBodyTypes,
+          activeOrderIds: [order.id],
+          linkedParts: [{
+            id: createUuid(),
+            orderId: order.id,
+            orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
+            partId: part.id,
+            partName: part.name,
+            status: 'found',
+            source: 'variant',
+            priceAed: Number(form.priceAed.replace(/\s+/g, '')),
+            updatedAt: Date.now()
+          }],
           photoUrl: '',
           photos: [],
           coordinates: resolvedCoordinates
@@ -348,6 +368,18 @@ const PartDetailsScreen: React.FC = () => {
           models: nextModels,
           years: nextYears,
           bodyTypes: nextBodyTypes,
+          activeOrderIds: Array.from(new Set([...(existingSupplier.activeOrderIds || []), order.id])),
+          linkedParts: upsertLinkedPart(existingSupplier.linkedParts || [], {
+            id: createUuid(),
+            orderId: order.id,
+            orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
+            partId: part.id,
+            partName: part.name,
+            status: 'found',
+            source: 'variant',
+            priceAed: Number(form.priceAed.replace(/\s+/g, '')),
+            updatedAt: Date.now()
+          }),
           photoUrl: existingSupplier.photoUrl || '',
           photos: existingSupplier.photos || [],
           coordinates: existingSupplier.coordinates || resolvedCoordinates
