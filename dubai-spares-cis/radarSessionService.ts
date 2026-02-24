@@ -107,6 +107,20 @@ export const findActiveRadarSessionByOrder = async (orderId: string): Promise<Ra
   return data || null;
 };
 
+export const findActiveRadarSession = async (): Promise<RadarSessionRow | null> => {
+  const client = assertSupabase();
+  const { data, error } = await client
+    .from('radar_sessions')
+    .select('id, order_id, radius_km, mode, is_active, ended_at')
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle<RadarSessionRow>();
+
+  if (error) throw error;
+  return data || null;
+};
+
 export const createRadarSession = async (orderId: string, radiusKm = 10, mode = 'smart'): Promise<RadarSessionRow> => {
   const client = assertSupabase();
   const { data, error } = await client

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useStore } from '../store';
@@ -18,11 +18,14 @@ import {
 } from '../radarSessionService';
 import { createUuid } from '../id';
 import { enqueueRadarSyncEvent, startRadarSyncQueue } from '../radarSyncQueue';
+import RadarCard from '../components/RadarCard';
+import QuickActionsBar from '../components/QuickActionsBar';
+import { toast, vibrate } from '../feedback';
 
 const RadarSessionScreen: React.FC = () => {
   const { sessionId = '' } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { suppliers } = useStore();
+  const { suppliers, orders } = useStore();
   const [session, setSession] = useState<any>(null);
   const [targets, setTargets] = useState<RadarTargetRow[]>([]);
   const [shopsMap, setShopsMap] = useState<Record<string, any>>({});
@@ -32,6 +35,9 @@ const RadarSessionScreen: React.FC = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
+  const [undoAction, setUndoAction] = useState<{ label: string; run: () => Promise<void> } | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     if (!sessionId) return;
@@ -67,9 +73,14 @@ const RadarSessionScreen: React.FC = () => {
     void load();
   }, [load]);
 
-  const targetsCount = targets.length;
+  const queueUndo = (label: string, run: () => Promise<void>) => {
+    setUndoAction({ label, run });
+    if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = window.setTimeout(() => setUndoAction(null), 10_000);
+  };
 
   const changeStatus = async (target: RadarTargetRow, next: 'in_route' | 'at_shop' | 'done') => {
+    const previous = target.status;
     const geoPayload = next === 'at_shop' && navigator.geolocation
       ? await new Promise<Record<string, unknown>>((resolve) => {
           navigator.geolocation.getCurrentPosition(
@@ -80,22 +91,28 @@ const RadarSessionScreen: React.FC = () => {
         })
       : {};
 
-    const clientEventId = createUuid();
-    await enqueueRadarSyncEvent({
-      radar_session_id: sessionId,
-      event_type: 'status_change',
-      client_event_id: clientEventId,
-      target_id: target.id,
-      shop_id: target.shop_id,
-      status: next,
-      payload: {
-        from: target.status,
-        to: next,
-        at: new Date().toISOString(),
-        ...geoPayload
-      }
-    });
-    await load();
+    const apply = async (status: 'planned' | 'in_route' | 'at_shop' | 'done') => {
+      await enqueueRadarSyncEvent({
+        radar_session_id: sessionId,
+        event_type: 'status_change',
+        client_event_id: createUuid(),
+        target_id: target.id,
+        shop_id: target.shop_id,
+        status,
+        payload: {
+          from: target.status,
+          to: status,
+          at: new Date().toISOString(),
+          ...geoPayload
+        }
+      });
+      await load();
+    };
+
+    await apply(next);
+    toast(`${next === 'done' ? 'Done ✅' : 'Saved 💾'}`, 'success');
+    vibrate(40);
+    if (next === 'done') queueUndo('Done', () => apply(previous));
   };
 
   const openTel = async (target: RadarTargetRow) => {
@@ -111,11 +128,6 @@ const RadarSessionScreen: React.FC = () => {
     if (!phone) return;
     window.open(`https://wa.me/${phone}`, '_blank');
     await enqueueRadarSyncEvent({ radar_session_id: sessionId, event_type: 'whatsapp', client_event_id: createUuid(), target_id: target.id, shop_id: target.shop_id, payload: { targetId: target.id, shopId: target.shop_id } });
-    await load();
-  };
-
-  const markVisited = async (target: RadarTargetRow) => {
-    await enqueueRadarSyncEvent({ radar_session_id: sessionId, event_type: 'visited', client_event_id: createUuid(), target_id: target.id, shop_id: target.shop_id, payload: { targetId: target.id, shopId: target.shop_id } });
     await load();
   };
 
@@ -148,36 +160,100 @@ const RadarSessionScreen: React.FC = () => {
     return acc;
   }, {}), [orderItems]);
 
-  const setItemStatus = async (targetItem: RadarTargetItemRow, nextStatus: 'found' | 'not_found' | 'partial') => {
+  const setItemStatus = async (targetItem: RadarTargetItemRow, nextStatus: 'found' | 'not_found' | 'partial' | 'follow_up') => {
+    const previous = targetItem.item_status;
+    const payload = nextStatus === 'follow_up' ? { reminder: true } : undefined;
+    const normalizedStatus = nextStatus === 'follow_up' ? 'partial' : nextStatus;
+
+    const apply = async (status: 'found' | 'not_found' | 'partial') => {
+      await enqueueRadarSyncEvent({
+        radar_session_id: sessionId,
+        event_type: status === 'found' ? 'item_found' : status === 'not_found' ? 'item_not_found' : 'item_partial',
+        client_event_id: createUuid(),
+        target_item_id: targetItem.id,
+        item_status: status,
+        payload
+      });
+      await load();
+    };
+
+    await apply(normalizedStatus);
+    toast(nextStatus === 'found' ? 'Found ✅' : nextStatus === 'not_found' ? 'Not found ❌' : 'Saved 💾', 'success');
+    vibrate(35);
+    if (nextStatus === 'not_found') queueUndo('Not found', () => apply(previous === 'pending' ? 'partial' : previous));
+  };
+
+  const saveItemPrice = async (targetItem: RadarTargetItemRow, price: number | null) => {
     await enqueueRadarSyncEvent({
       radar_session_id: sessionId,
-      event_type: nextStatus === 'found' ? 'item_found' : nextStatus === 'not_found' ? 'item_not_found' : 'item_partial',
+      event_type: 'item_found',
       client_event_id: createUuid(),
       target_item_id: targetItem.id,
-      item_status: nextStatus
+      item_status: 'found',
+      payload: { price_aed: price }
     });
+    toast('Saved 💾', 'success');
+    vibrate(25);
     await load();
   };
 
+  const searchSupplier = () => {
+    const term = window.prompt('Search supplier');
+    if (!term) return;
+    const hit = sortedTargets.find((item) => (shopsMap[item.shop_id]?.name || '').toLowerCase().includes(term.toLowerCase()));
+    if (!hit) return toast('No supplier found', 'info');
+    setHighlightedTargetId(hit.id);
+    document.getElementById(`target-${hit.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const nextBest = () => {
+    if (!sortedTargets.length) return;
+    const currentIndex = Math.max(0, sortedTargets.findIndex((item) => item.id === highlightedTargetId));
+    const next = sortedTargets[(currentIndex + 1) % sortedTargets.length];
+    setHighlightedTargetId(next.id);
+    document.getElementById(`target-${next.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    toast('Next best 🎯', 'info');
+  };
+
+  const activeOrder = useMemo(() => orders.find((item) => item.id === session?.order_id) || null, [orders, session?.order_id]);
+
+  const smartPrompt = useMemo(() => {
+    const recentNotFound = events.filter((item) => item.event_type === 'item_not_found').slice(0, 3);
+    if (recentNotFound.length >= 3) return '3x Not found подряд: расширить радиус до 20 км или сменить тип на used_parts.';
+    const recentWrongInfo = events.filter((item) => item.event_type === 'wrong_info').slice(0, 2);
+    if (recentWrongInfo.length >= 2) return '2x Wrong info: пометить поставщика как проблемного?';
+    return null;
+  }, [events]);
+
   return (
-    <div className="min-h-full bg-gray-50 p-4 pb-20 space-y-3">
-      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border border-gray-100 rounded-2xl p-3 space-y-2">
+    <div className="p-3 space-y-3 pb-24">
+      <div className="rounded-2xl bg-white border border-gray-100 p-3 space-y-2">
         <div className="flex items-center justify-between">
-          <button type="button" onClick={() => navigate(-1)} className="p-2 rounded-full text-gray-600 hover:bg-gray-100"><ArrowLeft size={18} /></button>
-          <button type="button" onClick={() => void load()} className="inline-flex items-center gap-1 text-xs font-bold text-blue-700"><RefreshCw size={14} /> Refresh</button>
+          <button type="button" onClick={() => navigate('/radar')} className="inline-flex items-center gap-1 text-xs font-black text-gray-700"><ArrowLeft size={14} /> Назад</button>
+          <span className="text-[10px] uppercase tracking-widest text-gray-400">Radar Session</span>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div><span className="text-gray-400">Order ID:</span> <b>{session?.order_id || '—'}</b></div>
-          <div><span className="text-gray-400">Targets:</span> <b>{targetsCount}</b></div>
-          <div><span className="text-gray-400">Radius:</span> <b>{session?.radius_km ?? '—'} km</b></div>
-          <div><span className="text-gray-400">Mode:</span> <b>{session?.mode || '—'}</b></div>
-        </div>
+        <h1 className="text-base font-black">Сессия {sessionId.slice(0, 8)}</h1>
+        <p className="text-xs text-gray-500">Целей: {targets.length}. Статус: {session?.is_active ? 'active' : 'closed'}</p>
+        {activeOrder && <button type="button" onClick={() => navigate(`/order/${activeOrder.id}`)} className="rounded-xl bg-amber-50 px-2 py-1 text-[11px] font-black text-amber-700">🧾 Активный заказ: {activeOrder.brand} {activeOrder.model}</button>}
         <div className="flex gap-2">
           <button type="button" onClick={() => void handleCloseSession()} className="flex-1 rounded-xl bg-gray-900 text-white text-xs font-black py-2">Завершить Radar</button>
-          <button type="button" onClick={() => void handleRecalculateTargets()} className="rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-black text-blue-700 disabled:opacity-60" disabled={isRecalculating}>{isRecalculating ? 'Пересчёт…' : '⚡ Пересчитать цели'}</button>
+          <button type="button" onClick={() => void handleRecalculateTargets()} className="rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-black text-blue-700 disabled:opacity-60" disabled={isRecalculating}>{isRecalculating ? 'Пересчёт…' : <span className="inline-flex items-center gap-1"><RefreshCw size={12} /> Пересчитать</span>}</button>
           <button type="button" onClick={() => setShowHistory((v) => !v)} className="rounded-xl border border-gray-200 bg-white px-3 text-xs font-black">🕘 История</button>
         </div>
       </div>
+
+      {smartPrompt && (
+        <div className="sticky top-2 z-20 rounded-2xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-800">
+          💡 {smartPrompt}
+        </div>
+      )}
+
+      {undoAction && (
+        <div className="sticky top-14 z-20 rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 inline-flex items-center gap-2">
+          {undoAction.label} сохранено.
+          <button type="button" onClick={() => { void undoAction.run(); setUndoAction(null); }} className="rounded-lg bg-white border border-slate-300 px-2 py-1">Undo</button>
+        </div>
+      )}
 
       {showHistory && (
         <div className="rounded-2xl border border-gray-200 bg-white p-3 space-y-2">
@@ -194,65 +270,34 @@ const RadarSessionScreen: React.FC = () => {
       {isLoading && <p className="text-xs text-gray-500">Загрузка...</p>}
 
       <div className="space-y-2">
-        {sortedTargets.map((target) => {
-          const shop = shopsMap[target.shop_id];
-          return (
-            <div key={target.id} className="rounded-2xl bg-white border border-gray-100 p-3 space-y-2">
-              <div className="flex justify-between gap-3">
-                <div>
-                  <p className="text-sm font-black">{shop?.name || target.shop_id}</p>
-                  <p className="text-xs text-gray-500">Distance: {target.distance_km ?? '—'} km · ETA: {target.eta_min ?? '—'} min · Score: {target.score ?? 0}</p>
-                </div>
-                <span className="text-[11px] px-2 py-1 rounded-full bg-slate-100 text-slate-700 font-bold">{target.status}</span>
-              </div>
-              <details className="rounded-xl border border-gray-100 bg-gray-50 p-2 text-[11px]">
-                <summary className="cursor-pointer font-black text-gray-700">Почему такой score</summary>
-                <div className="mt-2 grid grid-cols-2 gap-1 text-gray-600">
-                  <p>Match: +{target.score_breakdown?.match ?? 0}</p>
-                  <p>Trust: +{target.score_breakdown?.trust ?? 0}</p>
-                  <p>Heat: +{target.score_breakdown?.heat ?? 0}</p>
-                  <p>Distance: +{target.score_breakdown?.distance ?? 0}</p>
-                  <p>Extras: +{target.score_breakdown?.extras ?? 0}</p>
-                  <p>Total: {target.score_breakdown?.total ?? target.score ?? 0}</p>
-                </div>
-              </details>
-              <div className="grid grid-cols-3 gap-1 text-[11px] font-bold">
-                <button type="button" onClick={() => void changeStatus(target, 'in_route')} className="rounded-lg bg-blue-50 text-blue-700 py-1">📍 In route</button>
-                <button type="button" onClick={() => void changeStatus(target, 'at_shop')} className="rounded-lg bg-amber-50 text-amber-700 py-1">🏪 At shop</button>
-                <button type="button" onClick={() => void changeStatus(target, 'done')} className="rounded-lg bg-emerald-50 text-emerald-700 py-1">✅ Done</button>
-              </div>
-              <div className="grid grid-cols-3 gap-1 text-[11px] font-bold">
-                <button type="button" onClick={() => void openTel(target)} className="rounded-lg border border-gray-200 py-1">📞 Call</button>
-                <button type="button" onClick={() => void openWa(target)} className="rounded-lg border border-gray-200 py-1">💬 WhatsApp</button>
-                <button type="button" onClick={() => void markVisited(target)} className="rounded-lg border border-gray-200 py-1">📍 Visited</button>
-              </div>
-              <div className="space-y-2 rounded-xl border border-gray-100 bg-gray-50 p-2">
-                <p className="text-[11px] font-black text-gray-600">Детали заказа</p>
-                {(targetItemsByTargetId[target.id] || []).map((targetItem) => {
-                  const item = orderItemsById[targetItem.order_item_id];
-                  if (!item) return null;
-
-                  return (
-                    <div key={targetItem.id} className="rounded-lg border border-gray-200 bg-white p-2 space-y-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[11px] font-bold text-gray-800">{item.part_name}</p>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">{targetItem.item_status}</span>
-                      </div>
-                      <p className="text-[10px] text-gray-500">{item.brand || '—'} · {item.model || '—'} · {item.year || '—'} · x{item.quantity || 1}</p>
-                      <div className="grid grid-cols-3 gap-1 text-[10px] font-bold">
-                        <button type="button" onClick={() => void setItemStatus(targetItem, 'found')} className="rounded-md bg-emerald-50 py-1 text-emerald-700">✅ Found</button>
-                        <button type="button" onClick={() => void setItemStatus(targetItem, 'not_found')} className="rounded-md bg-rose-50 py-1 text-rose-700">❌ Not Found</button>
-                        <button type="button" onClick={() => void setItemStatus(targetItem, 'partial')} className="rounded-md bg-amber-50 py-1 text-amber-700">⚠️ Partial</button>
-                      </div>
-                    </div>
-                  );
-                })}
-                {!orderItems.length && <p className="text-[10px] text-gray-500">Нет деталей для этого заказа.</p>}
-              </div>
-            </div>
-          );
-        })}
+        {sortedTargets.map((target) => (
+          <RadarCard
+            key={target.id}
+            target={target}
+            shop={shopsMap[target.shop_id]}
+            targetItems={targetItemsByTargetId[target.id] || []}
+            orderItemsById={orderItemsById}
+            highlighted={highlightedTargetId === target.id}
+            onChangeStatus={(next) => void changeStatus(target, next)}
+            onTel={() => void openTel(target)}
+            onWa={() => void openWa(target)}
+            onMap={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(shopsMap[target.shop_id]?.name || '')}`, '_blank')}
+            onHistory={() => setShowHistory((v) => !v)}
+            onItemStatus={(item, status) => void setItemStatus(item, status)}
+            onSavePrice={(item, price) => void saveItemPrice(item, price)}
+            expandedHistory={showHistory}
+          />
+        ))}
       </div>
+
+      <QuickActionsBar
+        onSearch={searchSupplier}
+        onNextBest={nextBest}
+        onRecalculate={() => void handleRecalculateTargets()}
+        onActiveOrder={() => activeOrder ? navigate(`/order/${activeOrder.id}`) : toast('Нет активного заказа', 'info')}
+        onEndSession={() => void handleCloseSession()}
+        disabled={isLoading}
+      />
     </div>
   );
 };
