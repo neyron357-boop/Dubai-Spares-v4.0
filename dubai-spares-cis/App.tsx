@@ -7,6 +7,7 @@ import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import RadarScreen from './screens/RadarScreen';
+import RadarSessionScreen from './screens/RadarSessionScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import RadarLiveSettingsScreen from './screens/RadarLiveSettingsScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
@@ -18,6 +19,7 @@ import { getUnreadNotificationsCount } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
 import { playSound } from './utils/sounds';
+import { FEATURE_RADAR_V2 } from './featureFlags';
 
 const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
 
@@ -192,6 +194,7 @@ const App: React.FC = () => {
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
               <Route path="/database" element={<SuppliersScreen />} />
               <Route path="/radar" element={<RadarScreen />} />
+              {FEATURE_RADAR_V2 && <Route path="/radar/:sessionId" element={<RadarSessionScreen />} />}
               <Route path="/notifications" element={<NotificationsScreen />} />
               <Route
                 path="/debug"
