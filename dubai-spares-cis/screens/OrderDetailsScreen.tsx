@@ -1830,12 +1830,7 @@ const OrderDetailsScreen: React.FC = () => {
           onClose={() => setGallery(null)}
           onDeleteCurrent={gallery.partId ? (photoIndex) => {
             removePartSamplePhoto(gallery.partId as string, photoIndex);
-            const part = order.parts.find((item) => item.id === gallery.partId);
-            if (!part) {
-              setGallery(null);
-              return;
-            }
-            const nextImages = getPartPhotos(part).filter((_, idx) => idx !== photoIndex);
+            const nextImages = gallery.images.filter((_, idx) => idx !== photoIndex);
             if (nextImages.length === 0) {
               setGallery(null);
               return;

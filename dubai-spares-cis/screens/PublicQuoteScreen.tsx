@@ -819,7 +819,7 @@ const openInvoicePrintWindow = ({
   logoUrl?: string;
   signatureUrl?: string;
 }) => {
-  const printWindow = window.open('', '_blank', 'noopener,noreferrer');
+  const printWindow = window.open('', '_blank');
   if (!printWindow) return false;
 
   const rows = lineItems.map((item, idx) => `

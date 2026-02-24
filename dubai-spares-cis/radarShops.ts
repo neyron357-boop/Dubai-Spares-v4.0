@@ -295,36 +295,77 @@ const fetchRadarShopsFresh = async (suppliers: Supplier[]): Promise<Shop[]> => {
     'heat_level'
   ];
 
-  let data: any[] | null = null;
+  const PAGE_SIZE = 1000;
+  let allData: any[] = [];
   let lastError: { code?: string; message?: string } | null = null;
+  let columnsValidated = false;
 
   while (selectFields.length > 0) {
-    const response = await supabase.from('shops').select(selectFields.join(','));
-    if (!response.error) {
-      data = Array.isArray(response.data) ? response.data : null;
+    let pageOffset = 0;
+    let pageData: any[] = [];
+    let fetchError: { code?: string; message?: string } | null = null;
+
+    // Fetch all pages for the current set of selectFields
+    while (true) {
+      const response = await supabase
+        .from('shops')
+        .select(selectFields.join(','))
+        .range(pageOffset, pageOffset + PAGE_SIZE - 1);
+
+      if (response.error) {
+        fetchError = response.error;
+        break;
+      }
+
+      const rows = Array.isArray(response.data) ? response.data : [];
+      pageData = [...pageData, ...rows];
+
+      if (rows.length < PAGE_SIZE) break;
+      pageOffset += PAGE_SIZE;
+    }
+
+    if (!fetchError) {
+      allData = pageData;
       lastError = null;
+      columnsValidated = true;
       break;
     }
 
-    lastError = response.error;
-    const missingColumn = getMissingShopsColumnName(response.error);
-    if (!missingColumn || !selectFields.includes(missingColumn)) {
+    lastError = fetchError;
+    if (!columnsValidated) {
+      const missingColumn = getMissingShopsColumnName(fetchError);
+      if (!missingColumn || !selectFields.includes(missingColumn)) {
+        break;
+      }
+      await logDatabaseIntegrity('shops:fetch', fetchError, { table: 'shops', column: missingColumn, phase: 'column-fallback' });
+      await logger.warn('shops:fetch', `shops.${missingColumn} is missing in remote schema; retrying fetch without that column`);
+      selectFields = selectFields.filter((column) => column !== missingColumn);
+    } else {
       break;
     }
-
-    await logDatabaseIntegrity('shops:fetch', response.error, { table: 'shops', column: missingColumn, phase: 'column-fallback' });
-    await logger.warn('shops:fetch', `shops.${missingColumn} is missing in remote schema; retrying fetch without that column`);
-    selectFields = selectFields.filter((column) => column !== missingColumn);
   }
 
   if (lastError) {
     if (isMissingShopsTable(lastError)) {
       await logDatabaseIntegrity('shops:fetch', lastError, { table: 'shops', phase: 'missing-table-fallback' });
       await refreshSupabaseSchemaCache('shops-fetch-missing-table');
-      const retryResponse = await supabase.from('shops').select(selectFields.join(','));
-      if (!retryResponse.error) {
+      let retryPageOffset = 0;
+      let retryPageData: any[] = [];
+      let retryFetchError: { code?: string; message?: string } | null = null;
+      while (true) {
+        const retryResponse = await supabase
+          .from('shops')
+          .select(selectFields.join(','))
+          .range(retryPageOffset, retryPageOffset + PAGE_SIZE - 1);
+        if (retryResponse.error) { retryFetchError = retryResponse.error; break; }
+        const rows = Array.isArray(retryResponse.data) ? retryResponse.data : [];
+        retryPageData = [...retryPageData, ...rows];
+        if (rows.length < PAGE_SIZE) break;
+        retryPageOffset += PAGE_SIZE;
+      }
+      if (!retryFetchError) {
         shopsTableMissing = false;
-        data = Array.isArray(retryResponse.data) ? retryResponse.data : null;
+        allData = retryPageData;
         lastError = null;
       } else {
         shopsTableMissing = true;
@@ -335,16 +376,18 @@ const fetchRadarShopsFresh = async (suppliers: Supplier[]): Promise<Shop[]> => {
       }
     }
 
-    await logDatabaseIntegrity('shops:fetch', lastError, { table: 'shops', phase: 'select' });
-    if (lastError.code === '42501') {
-      await logger.error('shops:fetch', 'RLS denied access to shops table', { hint: 'Check shops select policy for anon/authenticated roles' });
+    if (lastError) {
+      await logDatabaseIntegrity('shops:fetch', lastError, { table: 'shops', phase: 'select' });
+      if (lastError.code === '42501') {
+        await logger.error('shops:fetch', 'RLS denied access to shops table', { hint: 'Check shops select policy for anon/authenticated roles' });
+      }
+      toast('Ошибка загрузки магазинов. Проверьте подключение к интернету.', 'error');
     }
-    toast('Ошибка загрузки магазинов. Проверьте подключение к интернету.', 'error');
   }
 
-  if (Array.isArray(data) && data.length > 0) {
-    await rerunCriticalCoordinatesParser(data);
-    return mergeShops(data.map(mapShopRow), supplierShops);
+  if (allData.length > 0) {
+    await rerunCriticalCoordinatesParser(allData);
+    return mergeShops(allData.map(mapShopRow), supplierShops);
   }
 
   return supplierShops;

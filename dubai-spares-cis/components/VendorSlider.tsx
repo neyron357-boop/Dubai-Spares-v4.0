@@ -38,6 +38,7 @@ const VendorSlider: React.FC = () => {
   const [selectedBrand, setSelectedBrand] = useState<string | null>(initialBrand || null);
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | NonNullable<Part['status']>>('all');
+  const [sortBy, setSortBy] = useState<'priority' | 'year_asc' | 'year_desc'>('priority');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -53,8 +54,26 @@ const VendorSlider: React.FC = () => {
         visibleParts: order.parts.filter((part) => statusFilter === 'all' || part.status === statusFilter)
       }))
       .filter((order) => order.visibleParts.length > 0)
-      .sort((a, b) => (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt));
-  }, [orders, brandFilter, selectedBrand, priorityFilter, statusFilter]);
+      .sort((a, b) => {
+        if (sortBy === 'year_asc') {
+          const ya = Number(a.year) || 0;
+          const yb = Number(b.year) || 0;
+          if (!ya && !yb) return 0;
+          if (!ya) return 1;
+          if (!yb) return -1;
+          return ya - yb;
+        }
+        if (sortBy === 'year_desc') {
+          const ya = Number(a.year) || 0;
+          const yb = Number(b.year) || 0;
+          if (!ya && !yb) return 0;
+          if (!ya) return 1;
+          if (!yb) return -1;
+          return yb - ya;
+        }
+        return (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt);
+      });
+  }, [orders, brandFilter, selectedBrand, priorityFilter, statusFilter, sortBy]);
   const current = orderSlides[index];
 
   useEffect(() => {
@@ -149,7 +168,7 @@ const VendorSlider: React.FC = () => {
         <button type="button" onClick={() => goTo(index + 1)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Далее</button>
       </div>
 
-      {filtersOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setFiltersOpen(false)}><div className="mt-20 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}><p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Фильтры</p><div className="space-y-3 text-sm"><div><p className="mb-1 text-xs text-white/70">Марки</p><select value={brandFilter} onChange={(e) => { const value = e.target.value; if (value === '__choose') { setSelectedBrand(null); return; } setBrandFilter(value); setSelectedBrand(value === 'all' ? null : value); }} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Все марки</option><option value="__choose">Выбрать экран марок</option>{brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}</select></div><div><p className="mb-1 text-xs text-white/70">Приоритет</p><select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Любой</option><option value={Priority.HIGH}>High</option><option value={Priority.MEDIUM}>Medium</option><option value={Priority.LOW}>Low</option></select></div><div><p className="mb-1 text-xs text-white/70">Статус</p><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Любой</option><option value="searching">Searching</option><option value="found">Found</option><option value="ordered">Ordered</option><option value="not_found">Not found</option></select></div></div></div></div>}
+      {filtersOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setFiltersOpen(false)}><div className="mt-20 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}><p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Фильтры</p><div className="space-y-3 text-sm"><div><p className="mb-1 text-xs text-white/70">Марки</p><select value={brandFilter} onChange={(e) => { const value = e.target.value; if (value === '__choose') { setSelectedBrand(null); return; } setBrandFilter(value); setSelectedBrand(value === 'all' ? null : value); }} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Все марки</option><option value="__choose">Выбрать экран марок</option>{brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}</select></div><div><p className="mb-1 text-xs text-white/70">Приоритет</p><select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Любой</option><option value={Priority.HIGH}>High</option><option value={Priority.MEDIUM}>Medium</option><option value={Priority.LOW}>Low</option></select></div><div><p className="mb-1 text-xs text-white/70">Статус</p><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Любой</option><option value="searching">Searching</option><option value="found">Found</option><option value="ordered">Ordered</option><option value="not_found">Not found</option></select></div><div><p className="mb-1 text-xs text-white/70">Сортировка</p><select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="priority">По приоритету</option><option value="year_asc">По году (старые сначала)</option><option value="year_desc">По году (новые сначала)</option></select></div></div></div></div>}
 
       {partsSheetOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setPartsSheetOpen(false)}><div className="mt-16 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}><p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Автомобили</p><div className="max-h-[60vh] space-y-2 overflow-y-auto">{orderSlides.map((slide, idx) => <button key={slide.id} type="button" onClick={() => { setIndex(idx); setPartsSheetOpen(false); }} className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left ${idx === index ? 'bg-[#2563EB]/25 text-white' : 'bg-slate-800 text-slate-200'}`}><span className="font-semibold">{slide.brand} {slide.model}</span><span className="text-xs opacity-70">{slide.visibleParts.length} деталей</span></button>)}</div></div></div>}
 
