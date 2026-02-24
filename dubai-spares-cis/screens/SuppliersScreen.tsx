@@ -1085,7 +1085,6 @@ const SuppliersScreen: React.FC = () => {
 
                   <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
                     <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
-                    <span className="rounded-full px-2 py-1 border border-violet-200 bg-violet-50 text-violet-700">Radar: {manualRadarCounts[s.id] || 0}</span>
                     <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{daysAgoLabel(s.lastContactAt)}</span>
                   </div>
                 </button>
@@ -1095,14 +1094,6 @@ const SuppliersScreen: React.FC = () => {
 
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">
                   <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Map</button>
-                  <button type="button" onClick={() => {
-                    const active = activeOrders[0];
-                    const firstPart = active?.parts?.[0];
-                    if (!active?.id || !firstPart?.id) return alert('Нет активного заказа для Radar.');
-                    addRadarManualSelection({ supplierId: s.id, orderId: active.id, partId: firstPart.id, source: 'manual' });
-                    refreshManualSelections();
-                    alert('Added to Radar 🎯');
-                  }} className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1">➕ В активный Radar</button>
                   {(s.phone || '').trim() ? (
                     <>
                       <a href={`https://wa.me/${((s.whatsapp || s.phone) || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
@@ -1126,64 +1117,6 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                 </>}
                 {expandedSupplierIds.has(s.id) && (
                 <div className="border-t border-gray-100 pt-3 space-y-2">
-                  <button type="button" onClick={() => setSupplierRadarHistoryExpandedId((prev) => (prev === s.id ? null : s.id))} className="w-full rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 inline-flex items-center justify-center gap-2"><Clock3 size={13} /> История радара</button>
-                  {supplierRadarHistoryExpandedId === s.id && (
-                    <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-2 space-y-2">
-                      {(() => {
-                        const history = radarInteractions
-                          .filter((item) => item.shopId === s.id)
-                          .sort((a, b) => b.createdAt - a.createdAt)
-                          .slice(0, 30);
-                        const totalFound = history.filter((item) => item.result === 'found').length;
-                        const totalContacts = history.filter((item) => ['message_sent', 'called'].includes(item.result)).length;
-                        const totalVisits = history.filter((item) => item.result === 'visited').length;
-                        return (
-                          <>
-                            {history.length > 0 && (
-                              <div className="grid grid-cols-3 gap-1 mb-2">
-                                <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-2 py-1 text-center">
-                                  <p className="text-[9px] text-emerald-600 font-black uppercase">Найдено</p>
-                                  <p className="text-sm font-black text-emerald-700">{totalFound}</p>
-                                </div>
-                                <div className="rounded-lg bg-blue-50 border border-blue-100 px-2 py-1 text-center">
-                                  <p className="text-[9px] text-blue-600 font-black uppercase">Контактов</p>
-                                  <p className="text-sm font-black text-blue-700">{totalContacts}</p>
-                                </div>
-                                <div className="rounded-lg bg-amber-50 border border-amber-100 px-2 py-1 text-center">
-                                  <p className="text-[9px] text-amber-600 font-black uppercase">Визитов</p>
-                                  <p className="text-sm font-black text-amber-700">{totalVisits}</p>
-                                </div>
-                              </div>
-                            )}
-                            {history.length === 0 ? (
-                              <p className="text-[11px] text-slate-500">Пока нет событий по этому поставщику.</p>
-                            ) : (
-                              history.map((item) => {
-                                const order = orders.find((o) => o.id === item.orderId);
-                                const part = order?.parts?.find((p) => p.id === item.partId) || order?.parts?.[0];
-                                const bgClass = item.result === 'found' ? 'border-emerald-200 bg-emerald-50' : item.result === 'not_found' ? 'border-rose-200 bg-rose-50' : item.result === 'wrong_info' ? 'border-amber-200 bg-amber-50' : 'border-violet-100 bg-white';
-                                return (
-                                  <div key={item.id} className={`rounded-lg border px-2 py-1.5 text-[10px] text-slate-700 ${bgClass}`}>
-                                    <div className="flex items-start justify-between gap-1">
-                                      <p className="font-black">{radarResultLabel(item.result)}</p>
-                                      <p className="text-slate-400 shrink-0">{formatRadarDate(item.createdAt)}</p>
-                                    </div>
-                                    <p className="text-slate-600">{order ? `${order.brand} ${order.model} ${order.year || ''}`.trim() : `ID: ${item.orderId.slice(0, 8)}…`}</p>
-                                    {part && <p className="text-slate-500">🔩 {part.name}</p>}
-                                    {item.result === 'not_found' && <p className="text-rose-600 font-semibold">Деталь не найдена</p>}
-                                    {item.result === 'wrong_info' && <p className="text-amber-600 font-semibold">Неверная информация</p>}
-                                    {item.comment && item.comment !== 'Point hidden from radar list' && item.comment !== 'Marked as at shop' && item.comment !== 'Route opened from radar card' && (
-                                      <p className="text-slate-400 italic">{item.comment}</p>
-                                    )}
-                                  </div>
-                                );
-                              })
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
                   <button type="button" onClick={() => setActiveOrderLinkShopId(activeOrderLinkShopId === s.id ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-center gap-2"><Link2 size={13} /> Add to Active Order</button>
                   {activeOrderLinkShopId === s.id && (
                     <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-2">
@@ -1211,7 +1144,7 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                             ? [activeOrderPartLink.partId]
                             : selectedOrder.parts.map((part) => part.id);
                           addSupplierToOrder(s.id, selectedOrderId, selectedPartIds);
-                          alert('Добавлено в карточку поставщика и Radar.');
+                          alert('Поставщик добавлен в активный заказ.');
                         }}
                         className="w-full rounded-lg bg-blue-100 px-2 py-2 text-[11px] font-black text-blue-800"
                       >
@@ -1229,32 +1162,6 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                         </select>
                       </div>
                       <button type="button" onClick={addSupplierToOrderPart} className="w-full rounded-lg bg-violet-100 px-2 py-2 text-[11px] font-black text-violet-800">Открыть Add Variant flow</button>
-                      <button type="button" onClick={() => {
-                        if (!activeOrderPartLink?.orderId || !activeOrderPartLink?.partId) return;
-                        addRadarManualSelection({ supplierId: s.id, orderId: activeOrderPartLink.orderId, partId: activeOrderPartLink.partId, source: 'manual' });
-                        refreshManualSelections();
-                        alert('Добавлено в Radar вручную.');
-                      }} className="w-full rounded-lg bg-emerald-100 px-2 py-2 text-[11px] font-black text-emerald-800">Добавить выбранную деталь в Radar</button>
-
-                      {(manualSelectionsBySupplier[s.id] || []).length > 0 && (
-                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 space-y-2">
-                          <p className="text-[11px] font-black text-emerald-800">Добавленные детали</p>
-                          <div className="space-y-1">
-                            {(manualSelectionsBySupplier[s.id] || []).map((item) => (
-                              <div key={`${item.orderId}:${item.partId}`} className="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1">
-                                <div className="min-w-0">
-                                  <p className="truncate text-[11px] font-semibold text-slate-700">{item.partName}</p>
-                                  <p className="truncate text-[10px] text-slate-500">{item.orderLabel}</p>
-                                </div>
-                                <div className="flex gap-1">
-                                  <button type="button" onClick={() => window.open(`${window.location.origin}${window.location.pathname}#/order/${item.orderId}`, '_blank', 'noopener,noreferrer')} className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Открыть карточку</button>
-                                  <button type="button" onClick={() => { removeRadarManualSelection({ supplierId: s.id, orderId: item.orderId, partId: item.partId }); refreshManualSelections(); }} className="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Удалить</button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>

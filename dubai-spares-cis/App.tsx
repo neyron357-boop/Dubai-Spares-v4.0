@@ -6,20 +6,16 @@ import OrderDetailsScreen from './screens/OrderDetailsScreen';
 import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
-import RadarScreen from './screens/RadarScreen';
-import RadarSessionScreen from './screens/RadarSessionScreen';
 import SettingsScreen from './screens/SettingsScreen';
-import RadarLiveSettingsScreen from './screens/RadarLiveSettingsScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
-import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-react';
+import { CarFront, PlusCircle, Database, Bell, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
 import { playSound } from './utils/sounds';
-import { FEATURE_RADAR_V2 } from './featureFlags';
 
 const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
 
@@ -67,7 +63,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <NavLink to="/" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
           <NavLink to="/new" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">Новый</span></NavLink>
           <NavLink to="/database" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">База</span></NavLink>
-          <NavLink to="/radar" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Radar size={22} /><span className="text-[10px] font-medium">Радар</span></NavLink>
           <NavLink to="/notifications" onClick={() => playSound('navigate')} className={({ isActive }) => `relative flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />
             {unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{badgeLabel}</span>}
             <span className="text-[10px] font-medium">Оповещ.</span>
@@ -193,8 +188,6 @@ const App: React.FC = () => {
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
               <Route path="/database" element={<SuppliersScreen />} />
-              <Route path="/radar" element={<RadarScreen />} />
-              {FEATURE_RADAR_V2 && <Route path="/radar/:sessionId" element={<RadarSessionScreen />} />}
               <Route path="/notifications" element={<NotificationsScreen />} />
               <Route
                 path="/debug"
@@ -207,7 +200,6 @@ const App: React.FC = () => {
                 )}
               />
               <Route path="/settings" element={<SettingsScreen />} />
-              <Route path="/settings/radar-live" element={<RadarLiveSettingsScreen />} />
               <Route path="/request" element={<PublicOrderFormScreen />} />
               <Route path="/order-form" element={<PublicOrderFormScreen />} />
               <Route path="/public-order-form" element={<PublicOrderFormScreen />} />
