@@ -31,7 +31,8 @@ import {
   Square,
   Play,
   Pause,
-  FileAudio
+  FileAudio,
+  Rocket
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
@@ -42,6 +43,8 @@ import { fetchRadarShops } from '../radarShops';
 import { logger } from '../logging';
 import { syncPerf } from '../syncPerf';
 import { optimizeImageForUpload } from '../storage/photos';
+import { FEATURE_RADAR_V2 } from '../featureFlags';
+import { ensureRadarSessionForOrder } from '../radarSessionService';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -205,6 +208,7 @@ const OrderDetailsScreen: React.FC = () => {
   // Exchange Rate Input State (Controlled)
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
   const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [isLaunchingRadar, setIsLaunchingRadar] = useState(false);
   const [isEditMode] = useState(true);
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState('');
@@ -1233,6 +1237,21 @@ const OrderDetailsScreen: React.FC = () => {
 
   const MARKUP_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 
+  const launchRadarSession = async () => {
+    if (!FEATURE_RADAR_V2 || isLaunchingRadar) return;
+    setIsLaunchingRadar(true);
+    try {
+      const availableShops = await fetchRadarShops(suppliers);
+      const session = await ensureRadarSessionForOrder(order.id, availableShops);
+      navigate(`/radar/${session.id}`);
+    } catch (error) {
+      logger.error('Failed to launch radar session', error);
+      alert('Не удалось запустить Radar сессию.');
+    } finally {
+      setIsLaunchingRadar(false);
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-full overflow-x-hidden bg-gray-50 pb-20">
       <div className="p-4 sticky top-0 z-20 shadow-sm backdrop-blur bg-white/95 border-b border-gray-100 space-y-3">
@@ -1828,10 +1847,15 @@ const OrderDetailsScreen: React.FC = () => {
           <div><p className="text-gray-400">Итого</p><p>{formatMoney(sellTotalAed, clientCurrency)}</p></div>
           <div><p className="text-gray-400">Профит</p><p>{netProfitAed === null ? '—' : formatMoney(netProfitAed)}</p></div>
         </div>
-        <div className="grid grid-cols-4 gap-2">
+        <div className={`grid gap-2 ${FEATURE_RADAR_V2 ? 'grid-cols-5' : 'grid-cols-4'}`}>
           <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">{contactActionLabel}</button>
           <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-50 text-blue-700 text-[10px] font-black uppercase">Деталь +</button>
           <button type="button" onClick={() => setIsEstimateOpen(true)} className="h-10 rounded-xl bg-gray-900 text-white text-[10px] font-black uppercase">Смета</button>
+          {FEATURE_RADAR_V2 && (
+            <button type="button" onClick={() => void launchRadarSession()} disabled={isLaunchingRadar} className="h-10 rounded-xl bg-violet-50 text-violet-700 text-[10px] font-black uppercase inline-flex items-center justify-center gap-1 disabled:opacity-50">
+              <Rocket size={12} /> {isLaunchingRadar ? 'Старт...' : '🚀 Запустить Radar'}
+            </button>
+          )}
           <button type="button" onClick={handleSellClick} className={`h-10 rounded-xl text-[10px] font-black uppercase ${order.isSold ? 'bg-white border border-green-600 text-green-700' : 'bg-green-600 text-white'}`}>{order.isSold ? 'Продано' : 'Продать'}</button>
         </div>
       </div>
