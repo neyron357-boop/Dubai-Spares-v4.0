@@ -77,6 +77,7 @@ const saveLeadsSyncVariant = (variantIndex: number) => {
 const toErrorMessage = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
 
 const asObject = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {});
+const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const isSchemaMismatchErrorText = (message: string) => {
   const probe = message.toLowerCase();
@@ -623,5 +624,63 @@ export const leadsSync = async (
       code: 'unexpected_error',
       error: error instanceof Error ? error.message : 'Lead sync failed'
     });
+  }
+};
+
+export const purgePublicLeadArtifacts = async (
+  orderId: string,
+  options?: RequestOptions
+): Promise<Result<{ removedLeadRows: number; removedSnapshots: number }>> => {
+  const guard = assertCloudFeatureEnabled(cloudFeatureFlags.clientForm);
+  if (!guard.ok) return recordCall('purgePublicLeadArtifacts', guard);
+
+  const normalizedOrderId = String(orderId || '').trim();
+  if (!normalizedOrderId) {
+    return recordCall('purgePublicLeadArtifacts', { ok: false, code: 'validation_error', error: 'orderId is required' });
+  }
+
+  const lockKey = `lead:purge:${normalizedOrderId}`;
+  if (inFlight.has(lockKey)) return recordCall('purgePublicLeadArtifacts', denyDuplicate('Lead purge'));
+  inFlight.add(lockKey);
+
+  try {
+    let removedLeadRows = 0;
+    let removedSnapshots = 0;
+
+    const removeLeadByOrderId = await callRest<unknown[]>('client_leads?select=id&order_id=eq.' + encodeURIComponent(normalizedOrderId), 'DELETE', undefined, {
+      ...(options || {}),
+      timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
+      preferRepresentation: true
+    });
+    if (!removeLeadByOrderId.ok) return recordCall('purgePublicLeadArtifacts', removeLeadByOrderId);
+    removedLeadRows += Array.isArray(removeLeadByOrderId.data) ? removeLeadByOrderId.data.length : 0;
+
+    if (isUuid(normalizedOrderId)) {
+      const removeLeadById = await callRest<unknown[]>('client_leads?select=id&id=eq.' + encodeURIComponent(normalizedOrderId), 'DELETE', undefined, {
+        ...(options || {}),
+        timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
+        preferRepresentation: true
+      });
+      if (!removeLeadById.ok) return recordCall('purgePublicLeadArtifacts', removeLeadById);
+      removedLeadRows += Array.isArray(removeLeadById.data) ? removeLeadById.data.length : 0;
+    }
+
+    const removeSnapshotsByOrderId = await callRest<unknown[]>('public_quote_snapshots?select=token&order_id=eq.' + encodeURIComponent(normalizedOrderId), 'DELETE', undefined, {
+      ...(options || {}),
+      timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
+      preferRepresentation: true
+    });
+    if (!removeSnapshotsByOrderId.ok) return recordCall('purgePublicLeadArtifacts', removeSnapshotsByOrderId);
+    removedSnapshots += Array.isArray(removeSnapshotsByOrderId.data) ? removeSnapshotsByOrderId.data.length : 0;
+
+    return recordCall('purgePublicLeadArtifacts', { ok: true, data: { removedLeadRows, removedSnapshots } });
+  } catch (error) {
+    return recordCall('purgePublicLeadArtifacts', {
+      ok: false,
+      code: 'unexpected_error',
+      error: toErrorMessage(error, 'Failed to purge public lead artifacts')
+    });
+  } finally {
+    inFlight.delete(lockKey);
   }
 };

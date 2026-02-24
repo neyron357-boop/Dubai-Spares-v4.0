@@ -11,7 +11,7 @@ import { getSelectableColumns, markMissingColumn } from './syncSchema';
 import { logSyncCategory, syncPerf } from './syncPerf';
 import { LOCAL_ONLY } from './localMode';
 import { mergeCloudLeadsWithOrders } from './leadSync';
-import { CloudLeadRow, leadsSync } from './serverApi';
+import { CloudLeadRow, leadsSync, purgePublicLeadArtifacts } from './serverApi';
 import { refreshSupabaseSchemaCache } from './schemaCache';
 
 type OrderState = {
@@ -1572,11 +1572,23 @@ export const updateOrderItem = async (order: Order) => {
 };
 
 export const deleteOrderItem = async (orderId: string) => {
+  const orderToDelete = state.orders.find((o) => o.id === orderId);
   rememberLeadDeleted(orderId);
   const next = state.orders.filter((o) => o.id !== orderId);
   setState({ orders: next, error: null });
   await offlineDb.deleteOrder(orderId);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
+
+  if (orderToDelete?.leadSource === 'public_form' || orderToDelete?.isLead) {
+    const purgeResult = await purgePublicLeadArtifacts(orderId);
+    if (!purgeResult.ok) {
+      await logger.warn('order:delete', 'Failed to purge public lead artifacts after lead deletion', {
+        orderId,
+        code: purgeResult.code,
+        error: purgeResult.error
+      });
+    }
+  }
 
   await queueMutation('delete', undefined, orderId);
   return true;
