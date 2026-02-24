@@ -3,7 +3,7 @@ create extension if not exists pgcrypto;
 -- RADAR core session anchor
 create table if not exists public.radar_sessions (
   id uuid primary key default gen_random_uuid(),
-  order_id uuid not null references public.orders(id),
+  order_id text not null references public.orders(id) on delete cascade,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   ended_at timestamptz,
@@ -110,7 +110,7 @@ join public.shops s
 
 -- Minimal RPC helper: create session + event
 create or replace function public.radar_create_session(
-  p_order_id uuid,
+  p_order_id text,
   p_radius_km integer default 10,
   p_mode text default 'smart',
   p_filters_json jsonb default '{}'::jsonb,
@@ -268,5 +268,5 @@ end;
 $$;
 
 grant select on public.v_radar_active_targets to anon, authenticated;
-grant execute on function public.radar_create_session(uuid, integer, text, jsonb, text, uuid) to anon, authenticated;
+grant execute on function public.radar_create_session(text, integer, text, jsonb, text, uuid) to anon, authenticated;
 grant execute on function public.radar_add_target(uuid, uuid, integer, numeric, integer, integer, uuid) to anon, authenticated;
