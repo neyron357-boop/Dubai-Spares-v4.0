@@ -10,12 +10,11 @@ import RadarScreen from './screens/RadarScreen';
 import RadarSessionScreen from './screens/RadarSessionScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import RadarLiveSettingsScreen from './screens/RadarLiveSettingsScreen';
-import TodayScreen from './screens/TodayScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
-import { CarFront, PlusCircle, Database, Bell, Radar, Settings, SunMedium } from 'lucide-react';
+import { CarFront, PlusCircle, Database, Bell, Radar, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
@@ -66,7 +65,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       {!hideNav && (
         <nav className="h-16 bg-white border-t border-gray-200 flex items-center justify-around px-2 pb-safe shrink-0 z-50">
           <NavLink to="/" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
-          <NavLink to="/today" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><SunMedium size={21} /><span className="text-[10px] font-medium">Сегодня</span></NavLink>
           <NavLink to="/new" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">Новый</span></NavLink>
           <NavLink to="/database" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">База</span></NavLink>
           <NavLink to="/radar" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Radar size={22} /><span className="text-[10px] font-medium">Радар</span></NavLink>
@@ -191,7 +189,6 @@ const App: React.FC = () => {
             <Routes>
               <Route path="/" element={<OrdersScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />
-              <Route path="/today" element={<TodayScreen />} />
               <Route path="/vendor" element={<VendorSlider />} />
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
