@@ -425,6 +425,18 @@ const OrdersScreen: React.FC = () => {
     archive: orders.filter((o) => o.isArchived && !o.isSold).length
   }), [orders]);
 
+  const hasUnreadLeads = tabCounts.leads > 0;
+
+  const openOrderPreview = (order: Order) => {
+    if (isUnreadPublicLead(order)) {
+      const viewedLead = { ...order, leadUnread: false };
+      setViewOrder(viewedLead);
+      void updateOrder(viewedLead);
+      return;
+    }
+    setViewOrder(order);
+  };
+
   const filteredOrders = useMemo(() => {
     let list = orders.filter((order) => {
       if (activeTab === 'sold') return order.isSold;
@@ -537,7 +549,18 @@ const OrdersScreen: React.FC = () => {
             ['sold', 'Продано'],
             ['archive', 'Архив']
           ] as [TabType, string][]).map(([tab, label]) => (
-            <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`whitespace-nowrap rounded-xl border px-3 py-2 text-[11px] font-black ${activeTab === tab ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={`whitespace-nowrap rounded-xl border px-3 py-2 text-[11px] font-black transition ${
+                activeTab === tab
+                  ? 'border-blue-600 bg-blue-600 text-white'
+                  : tab === 'leads' && hasUnreadLeads
+                  ? 'border-blue-500 bg-blue-500 text-white animate-pulse shadow-[0_0_0_2px_rgba(59,130,246,0.25)]'
+                  : 'border-slate-200 bg-white text-slate-600'
+              }`}
+            >
               {label} ({tabCounts[tab]})
             </button>
           ))}
@@ -583,7 +606,7 @@ const OrdersScreen: React.FC = () => {
                   order.isArchived ? restoreOrder(order) : archiveOrder(order);
                 }}
                 onLongPressDelete={() => setDeleteId(order.id)}
-                onCardTap={() => setViewOrder(order)}
+                onCardTap={() => openOrderPreview(order)}
                 disableCardTap={!!deleteId || isDeleting}
               >
                 <div className={`rounded-2xl p-2.5 -m-2.5 ${isVipOrder ? 'bg-gradient-to-br from-amber-50 via-yellow-100 to-amber-200 border border-amber-300/80 shadow-[0_10px_26px_rgba(217,119,6,0.25)]' : ''}`}>
