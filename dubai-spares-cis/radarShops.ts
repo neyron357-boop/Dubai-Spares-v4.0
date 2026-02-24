@@ -529,15 +529,29 @@ const mapShopRowToSupplier = (row: any): Supplier => ({
 
 export const fetchSuppliersFromShops = async (): Promise<Supplier[]> => {
   if (!supabase) return [];
-  const { data, error } = await supabase
-    .from('shops')
-    .select('id,name,phone,location,latitude,longitude,shop_type,main_brands,zone,heat_level,specialization,specialization_models,specialization_years,specialization_body_types,created_at,updated_at')
-    .order('created_at', { ascending: false });
-  if (error || !Array.isArray(data)) {
-    void logger.warn('shops:fetch-suppliers', 'Failed to fetch suppliers from shops', { error: error?.message });
-    return [];
+  const PAGE_SIZE = 1000;
+  const allRows: any[] = [];
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('shops')
+      .select('id,name,phone,location,latitude,longitude,shop_type,main_brands,zone,heat_level,specialization,specialization_models,specialization_years,specialization_body_types,created_at,updated_at')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error || !Array.isArray(data)) {
+      void logger.warn('shops:fetch-suppliers', 'Failed to fetch suppliers from shops', { error: error?.message, offset });
+      return [];
+    }
+
+    allRows.push(...data);
+
+    if (data.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
   }
-  return data.map(mapShopRowToSupplier);
+
+  return allRows.map(mapShopRowToSupplier);
 };
 
 
