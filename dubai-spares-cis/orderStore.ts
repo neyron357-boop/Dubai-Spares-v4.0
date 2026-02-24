@@ -1072,13 +1072,25 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
 const persistOrderPatch = async (orderId: string, patch: Partial<Order>) => {
   if (!supabase || !Object.keys(patch).length) return;
   const payload = toOrderPatchPayload(patch);
-  const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
+  let cleanPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
   const payloadBytes = JSON.stringify(cleanPayload).length;
   const startedAt = Date.now();
   syncPerf.recordNetworkRequest();
   syncPerf.setLastNetworkRequest({ operation: 'orders.patch', orderId, bytes: payloadBytes });
   await logger.info('sync:persist', `PATCH orders ${orderId}`, { payloadBytes });
-  const { error } = await supabase.from('orders').update(cleanPayload).eq('id', orderId);
+  let { error } = await supabase.from('orders').update(cleanPayload).eq('id', orderId);
+
+  while (error) {
+    const missingColumn = getMissingColumnName(error);
+    if (!missingColumn || !(missingColumn in cleanPayload)) break;
+    markMissingColumn('orders', missingColumn);
+    addMissingColumns([missingColumn]);
+    syncPerf.addSchemaWarning(`orders.${missingColumn}`);
+    await logger.warn('sync:persist', `orders.${missingColumn} missing during patch; retrying without it`, { orderId });
+    cleanPayload = Object.fromEntries(Object.entries(cleanPayload).filter(([key]) => key !== missingColumn));
+    ({ error } = await supabase.from('orders').update(cleanPayload).eq('id', orderId));
+  }
+
   if (error) throw error;
   await logger.info('sync:persist', `PATCH orders success ${orderId}`, { durationMs: Date.now() - startedAt, payloadBytes });
 };
