@@ -36,6 +36,9 @@ const SHOPS_CACHE_TTL_MS = 10 * 60 * 1000;
 let shopsFetchInFlight: Promise<Shop[]> | null = null;
 let shopsCache: { expiresAt: number; data: Shop[] } | null = null;
 let shopsTableMissing = false;
+let enrichedViewUnavailable = false;
+
+const SUPPLIER_LIST_LIMIT = 200;
 
 
 const extractCityHints = (location: string): string[] => {
@@ -494,14 +497,16 @@ export const deleteSupplierFromShops = async (supplierId: string) => {
 
 const mapShopRowToSupplier = (row: any): Supplier => ({
   id: String(row.id),
-  name: row.name || '',
+  name: row.name || 'Shop',
   phone: row.phone || '',
+  whatsapp: row.whatsapp || '',
   location: row.location || '',
   type: row.shop_type || 'new_parts',
   zone: row.zone || '',
-  heatLevel: Number.isFinite(Number(row.heat_level)) ? Number(row.heat_level) : 0,
-  brands: Array.isArray(row.specialization) ? row.specialization : [],
+  heatLevel: Number.isFinite(Number(row.metrics_heat_level)) ? Number(row.metrics_heat_level) : (Number.isFinite(Number(row.heat_level)) ? Number(row.heat_level) : 0),
+  brands: Array.isArray(row.specialization_brands) ? row.specialization_brands : (Array.isArray(row.specialization) ? row.specialization : []),
   mainBrands: Array.isArray(row.main_brands) ? row.main_brands : [],
+  mainPartCategories: Array.isArray(row.specialization_categories) ? row.specialization_categories : [],
   models: Array.isArray(row.specialization_models) ? row.specialization_models : [],
   years: toNumberArray(row.specialization_years),
   bodyTypes: Array.isArray(row.specialization_body_types) ? row.specialization_body_types : [],
@@ -511,49 +516,98 @@ const mapShopRowToSupplier = (row: any): Supplier => ({
   createdAt: row.created_at ? Date.parse(String(row.created_at)) : Date.now(),
   updatedAt: row.updated_at ? Date.parse(String(row.updated_at)) : Date.now(),
   syncStatus: 'synced',
-  trustLevel: 3,
+  trustLevel: Number.isFinite(Number(row.manual_trust_level)) ? Number(row.manual_trust_level) : 3,
+  autoTrustScore: Number.isFinite(Number(row.auto_trust_score)) ? Number(row.auto_trust_score) : undefined,
   hasWhatsapp: true,
-  hasDelivery: false,
-  whatsappFast: false,
-  foundCount: 0,
-  notFoundCount: 0,
-  wrongInfoCount: 0,
-  successRate: 0,
-  activityScore: 0,
-  lastContactAt: 0,
+  hasDelivery: row.has_delivery === true,
+  whatsappFast: row.fast_whatsapp === true,
+  foundCount: Number.isFinite(Number(row.total_found)) ? Number(row.total_found) : 0,
+  notFoundCount: Number.isFinite(Number(row.total_not_found)) ? Number(row.total_not_found) : 0,
+  wrongInfoCount: Number.isFinite(Number(row.total_wrong_info)) ? Number(row.total_wrong_info) : 0,
+  successRate: Number.isFinite(Number(row.success_rate)) ? Number(row.success_rate) : 0,
+  activityScore: Number.isFinite(Number(row.total_interactions)) ? Number(row.total_interactions) : 0,
+  lastContactAt: row.last_interaction_at ? Date.parse(String(row.last_interaction_at)) : 0,
   isFavorite: false,
   workingHours: '',
   comment: '',
-  website: ''
+  website: '',
+  radarCount: 0
 });
 
-export const fetchSuppliersFromShops = async (): Promise<Supplier[]> => {
+const fetchSuppliersEnriched = async (): Promise<Supplier[]> => {
   if (!supabase) return [];
-  const PAGE_SIZE = 1000;
-  const allRows: any[] = [];
-  let offset = 0;
 
-  while (true) {
-    const { data, error } = await supabase
-      .from('shops')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .range(offset, offset + PAGE_SIZE - 1);
+  const { data, error } = await supabase
+    .from('v_shops_enriched')
+    .select('id,name,phone,whatsapp,location,latitude,longitude,zone,shop_type,heat_level,metrics_heat_level,auto_trust_score,manual_trust_level,success_rate,last_interaction_at,total_interactions,total_found,total_not_found,total_wrong_info,has_delivery,fast_whatsapp,main_brands,specialization_models,specialization_years,specialization_body_types,specialization_brands,specialization_categories,created_at,updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(SUPPLIER_LIST_LIMIT);
 
-    if (error || !Array.isArray(data)) {
-      void logger.warn('shops:fetch-suppliers', 'Failed to fetch suppliers from shops', { error: error?.message, offset });
-      return [];
-    }
-
-    allRows.push(...data);
-
-    if (data.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
+  if (error || !Array.isArray(data)) {
+    throw error || new Error('v_shops_enriched returned invalid payload');
   }
 
-  return allRows.map(mapShopRowToSupplier);
+  return data.map(mapShopRowToSupplier);
 };
 
+const fetchSuppliersFallback = async (): Promise<Supplier[]> => {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('shops')
+    .select('id,name,phone,location,latitude,longitude,shop_type,zone,heat_level,specialization,main_brands,specialization_models,specialization_years,specialization_body_types,created_at,updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(SUPPLIER_LIST_LIMIT);
+
+  if (error || !Array.isArray(data)) {
+    void logger.warn('shops:fetch-suppliers', 'Failed to fetch suppliers from shops', { error: error?.message });
+    return [];
+  }
+
+  return data.map(mapShopRowToSupplier);
+};
+
+export const getSuppliersEnriched = async (): Promise<Supplier[]> => {
+  if (!supabase) return [];
+  if (enrichedViewUnavailable) return fetchSuppliersFallback();
+
+  try {
+    return await fetchSuppliersEnriched();
+  } catch (error: any) {
+    enrichedViewUnavailable = true;
+    void logger.warn('shops:fetch-enriched', 'Falling back to shops table for suppliers list', {
+      code: error?.code,
+      message: error?.message
+    });
+    return fetchSuppliersFallback();
+  }
+};
+
+
+export const fetchSuppliersFromShops = async (): Promise<Supplier[]> => getSuppliersEnriched();
+
+
+export const updateSupplierContacts = async (supplierId: string, phone: string, whatsapp: string): Promise<void> => {
+  if (!supabase) return;
+
+  const payload: Record<string, string> = { phone };
+  if (whatsapp) payload.whatsapp = whatsapp;
+
+  const { error } = await supabase
+    .from('shops')
+    .update(payload)
+    .eq('id', supplierId);
+
+  if (error && String(error.message || '').includes("'whatsapp' column")) {
+    const fallback = await supabase
+      .from('shops')
+      .update({ phone })
+      .eq('id', supplierId);
+    if (fallback.error) throw fallback.error;
+    return;
+  }
+
+  if (error) throw error;
+};
 
 export const fetchShopsInRadius = async (
   latitude: number,

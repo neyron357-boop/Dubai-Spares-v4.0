@@ -29,8 +29,10 @@ const normalizeSupplier = (supplier: Supplier): Supplier => ({
   gpsAccuracyMeters: Number.isFinite(Number(supplier.gpsAccuracyMeters)) ? Number(supplier.gpsAccuracyMeters) : undefined,
   workingHours: typeof supplier.workingHours === 'string' ? supplier.workingHours : '',
   trustLevel: Number.isFinite(Number(supplier.trustLevel)) ? Number(supplier.trustLevel) : 3,
+  autoTrustScore: Number.isFinite(Number(supplier.autoTrustScore)) ? Number(supplier.autoTrustScore) : undefined,
   hasDelivery: supplier.hasDelivery === true,
   hasWhatsapp: supplier.hasWhatsapp !== false,
+  whatsapp: typeof supplier.whatsapp === 'string' ? supplier.whatsapp : '',
   whatsappFast: supplier.whatsappFast === true,
   comment: typeof supplier.comment === 'string' ? supplier.comment : '',
   website: typeof supplier.website === 'string' ? supplier.website : '',
@@ -44,6 +46,7 @@ const normalizeSupplier = (supplier: Supplier): Supplier => ({
   createdAt: Number.isFinite(Number(supplier.createdAt)) ? Number(supplier.createdAt) : Date.now(),
   updatedAt: Number.isFinite(Number(supplier.updatedAt)) ? Number(supplier.updatedAt) : Date.now(),
   syncStatus: supplier.syncStatus === 'pending_sync' || supplier.syncStatus === 'error' ? supplier.syncStatus : 'synced',
+  radarCount: Number.isFinite(Number(supplier.radarCount)) ? Number(supplier.radarCount) : 0,
 });
 
 try {
@@ -63,12 +66,16 @@ const notifySupplierListeners = () => {
 };
 
 let supplierSyncInFlight = false;
+let supplierLastSyncedAt = 0;
+const SUPPLIER_SYNC_TTL_MS = 3 * 60 * 1000;
 
-export const syncSuppliersFromServer = async () => {
+export const syncSuppliersFromServer = async (force = false) => {
   if (supplierSyncInFlight) return;
+  if (!force && Date.now() - supplierLastSyncedAt < SUPPLIER_SYNC_TTL_MS) return;
   supplierSyncInFlight = true;
   try {
     const serverSuppliers = await fetchSuppliersFromShops();
+    supplierLastSyncedAt = Date.now();
     if (serverSuppliers.length === 0) return;
     const merged = new Map<string, Supplier>();
     globalSuppliers.forEach((supplier) => merged.set(supplier.id, normalizeSupplier(supplier)));
