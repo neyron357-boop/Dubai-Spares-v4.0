@@ -5,11 +5,17 @@ import { useStore } from '../store';
 import { fetchRadarShops } from '../radarShops';
 import {
   closeRadarSession,
+  ensureRadarTargetItems,
   getRadarEvents,
+  getOrderItemsByOrder,
   getRadarSession,
+  getRadarTargetItems,
   getRadarTargets,
   logRadarEvent,
+  markRadarTargetItemStatus,
+  OrderItemRow,
   RadarTargetRow,
+  RadarTargetItemRow,
   setRadarTargetStatus
 } from '../radarSessionService';
 
@@ -21,6 +27,8 @@ const RadarSessionScreen: React.FC = () => {
   const [targets, setTargets] = useState<RadarTargetRow[]>([]);
   const [shopsMap, setShopsMap] = useState<Record<string, any>>({});
   const [events, setEvents] = useState<any[]>([]);
+  const [orderItems, setOrderItems] = useState<OrderItemRow[]>([]);
+  const [targetItems, setTargetItems] = useState<RadarTargetItemRow[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -34,8 +42,15 @@ const RadarSessionScreen: React.FC = () => {
         fetchRadarShops(suppliers),
         getRadarEvents(sessionId)
       ]);
+
+      const orderRows = sessionRow?.order_id ? await getOrderItemsByOrder(sessionRow.order_id) : [];
+      await ensureRadarTargetItems(targetRows, orderRows);
+      const targetItemRows = await getRadarTargetItems(targetRows.map((target) => target.id));
+
       setSession(sessionRow);
       setTargets(targetRows);
+      setOrderItems(orderRows);
+      setTargetItems(targetItemRows);
       setShopsMap(shops.reduce<Record<string, any>>((acc, shop) => {
         acc[shop.id] = shop;
         return acc;
@@ -95,6 +110,22 @@ const RadarSessionScreen: React.FC = () => {
 
   const sortedTargets = useMemo(() => targets, [targets]);
 
+  const targetItemsByTargetId = useMemo(() => targetItems.reduce<Record<string, RadarTargetItemRow[]>>((acc, row) => {
+    if (!acc[row.radar_target_id]) acc[row.radar_target_id] = [];
+    acc[row.radar_target_id].push(row);
+    return acc;
+  }, {}), [targetItems]);
+
+  const orderItemsById = useMemo(() => orderItems.reduce<Record<string, OrderItemRow>>((acc, item) => {
+    acc[item.id] = item;
+    return acc;
+  }, {}), [orderItems]);
+
+  const setItemStatus = async (targetItem: RadarTargetItemRow, nextStatus: 'found' | 'not_found' | 'partial') => {
+    await markRadarTargetItemStatus(targetItem.id, nextStatus);
+    await load();
+  };
+
   return (
     <div className="min-h-full bg-gray-50 p-4 pb-20 space-y-3">
       <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border border-gray-100 rounded-2xl p-3 space-y-2">
@@ -149,6 +180,29 @@ const RadarSessionScreen: React.FC = () => {
                 <button type="button" onClick={() => void openTel(target)} className="rounded-lg border border-gray-200 py-1">📞 Call</button>
                 <button type="button" onClick={() => void openWa(target)} className="rounded-lg border border-gray-200 py-1">💬 WhatsApp</button>
                 <button type="button" onClick={() => void markVisited(target)} className="rounded-lg border border-gray-200 py-1">📍 Visited</button>
+              </div>
+              <div className="space-y-2 rounded-xl border border-gray-100 bg-gray-50 p-2">
+                <p className="text-[11px] font-black text-gray-600">Детали заказа</p>
+                {(targetItemsByTargetId[target.id] || []).map((targetItem) => {
+                  const item = orderItemsById[targetItem.order_item_id];
+                  if (!item) return null;
+
+                  return (
+                    <div key={targetItem.id} className="rounded-lg border border-gray-200 bg-white p-2 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[11px] font-bold text-gray-800">{item.part_name}</p>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">{targetItem.item_status}</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500">{item.brand || '—'} · {item.model || '—'} · {item.year || '—'} · x{item.quantity || 1}</p>
+                      <div className="grid grid-cols-3 gap-1 text-[10px] font-bold">
+                        <button type="button" onClick={() => void setItemStatus(targetItem, 'found')} className="rounded-md bg-emerald-50 py-1 text-emerald-700">✅ Found</button>
+                        <button type="button" onClick={() => void setItemStatus(targetItem, 'not_found')} className="rounded-md bg-rose-50 py-1 text-rose-700">❌ Not Found</button>
+                        <button type="button" onClick={() => void setItemStatus(targetItem, 'partial')} className="rounded-md bg-amber-50 py-1 text-amber-700">⚠️ Partial</button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {!orderItems.length && <p className="text-[10px] text-gray-500">Нет деталей для этого заказа.</p>}
               </div>
             </div>
           );
