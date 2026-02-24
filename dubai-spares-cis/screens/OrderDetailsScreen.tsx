@@ -1847,15 +1847,10 @@ const OrderDetailsScreen: React.FC = () => {
           <div><p className="text-gray-400">Итого</p><p>{formatMoney(sellTotalAed, clientCurrency)}</p></div>
           <div><p className="text-gray-400">Профит</p><p>{netProfitAed === null ? '—' : formatMoney(netProfitAed)}</p></div>
         </div>
-        <div className={`grid gap-2 ${FEATURE_RADAR_V2 ? 'grid-cols-5' : 'grid-cols-4'}`}>
+        <div className="grid gap-2 grid-cols-4">
           <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">{contactActionLabel}</button>
           <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-50 text-blue-700 text-[10px] font-black uppercase">Деталь +</button>
           <button type="button" onClick={() => setIsEstimateOpen(true)} className="h-10 rounded-xl bg-gray-900 text-white text-[10px] font-black uppercase">Смета</button>
-          {FEATURE_RADAR_V2 && (
-            <button type="button" onClick={() => void launchRadarSession()} disabled={isLaunchingRadar} className="h-10 rounded-xl bg-violet-50 text-violet-700 text-[10px] font-black uppercase inline-flex items-center justify-center gap-1 disabled:opacity-50">
-              <Rocket size={12} /> {isLaunchingRadar ? 'Старт...' : '🚀 Запустить Radar'}
-            </button>
-          )}
           <button type="button" onClick={handleSellClick} className={`h-10 rounded-xl text-[10px] font-black uppercase ${order.isSold ? 'bg-white border border-green-600 text-green-700' : 'bg-green-600 text-white'}`}>{order.isSold ? 'Продано' : 'Продать'}</button>
         </div>
       </div>

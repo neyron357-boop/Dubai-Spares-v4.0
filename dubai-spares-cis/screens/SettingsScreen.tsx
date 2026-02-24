@@ -613,20 +613,6 @@ const SettingsScreen: React.FC = () => {
         </div>
       </Section>
 
-      <Section title="Radar Live">
-        <button
-          type="button"
-          onClick={() => navigate('/settings/radar-live')}
-          className="w-full rounded-xl border border-gray-200 bg-white p-3 flex items-center justify-between"
-        >
-          <div className="text-left min-w-0">
-            <p className="text-sm font-black text-gray-900">Открыть настройки Radar Live</p>
-            <p className="text-xs text-gray-500">Отдельный экран для режима, радиуса, GPS и переключателей</p>
-          </div>
-          <ChevronRight size={18} className="text-gray-300 shrink-0" />
-        </button>
-      </Section>
-
       <Section title="Локальный режим">
         <div className="text-sm text-gray-700 space-y-1">
           <p>Режим: <b>LOCAL</b></p>
