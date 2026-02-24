@@ -6,12 +6,17 @@ import { deleteSupplierFromShops, fetchSuppliersFromShops } from './radarShops';
 
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
+const normalizeSupplierId = (value: unknown) => {
+  if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  return ensureUuid();
+};
+
 let globalSuppliers: Supplier[] = [];
 let listeners = new Set<() => void>();
 
 const normalizeSupplier = (supplier: Supplier): Supplier => ({
   ...supplier,
-  id: ensureUuid(supplier.id),
+  id: normalizeSupplierId(supplier.id),
   type: supplier.type || 'new_parts',
   types: Array.isArray(supplier.types) && supplier.types.length > 0
     ? supplier.types.filter(Boolean)
@@ -99,7 +104,20 @@ export const syncSuppliersFromServer = async (force = false) => {
     if (serverSuppliers.length === 0) return;
     const merged = new Map<string, Supplier>();
     globalSuppliers.forEach((supplier) => merged.set(supplier.id, normalizeSupplier(supplier)));
-    serverSuppliers.forEach((supplier) => merged.set(supplier.id, normalizeSupplier(supplier)));
+    serverSuppliers.forEach((supplier) => {
+      const normalizedServer = normalizeSupplier(supplier);
+      const local = merged.get(normalizedServer.id);
+      if (!local) {
+        merged.set(normalizedServer.id, normalizedServer);
+        return;
+      }
+      merged.set(normalizedServer.id, {
+        ...local,
+        ...normalizedServer,
+        activeOrderIds: normalizedServer.activeOrderIds.length > 0 ? normalizedServer.activeOrderIds : local.activeOrderIds,
+        linkedParts: normalizedServer.linkedParts && normalizedServer.linkedParts.length > 0 ? normalizedServer.linkedParts : local.linkedParts,
+      });
+    });
     const nextSuppliers = Array.from(merged.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
     if (JSON.stringify(nextSuppliers) !== JSON.stringify(globalSuppliers)) {
       globalSuppliers = nextSuppliers;
@@ -150,6 +168,10 @@ export const useStore = () => {
     return () => listeners.delete(listener);
   }, []);
 
+  useEffect(() => {
+    void syncSuppliersFromServer();
+  }, []);
+
   const addSupplier = useCallback((supplier: Supplier) => {
     globalSuppliers = [normalizeSupplier(supplier), ...globalSuppliers];
     notifySupplierListeners();
@@ -162,7 +184,7 @@ export const useStore = () => {
   }, []);
 
   const deleteSupplier = useCallback(async (id: string) => {
-    const normalizedId = ensureUuid(id);
+    const normalizedId = normalizeSupplierId(id);
     globalSuppliers = globalSuppliers.filter((s) => s.id !== normalizedId);
     notifySupplierListeners();
 

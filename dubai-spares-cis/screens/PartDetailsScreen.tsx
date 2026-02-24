@@ -136,6 +136,7 @@ const PartDetailsScreen: React.FC = () => {
   const [deleteVariantId, setDeleteVariantId] = useState<string | null>(null);
   const [editingVariantId, setEditingVariantId] = useState<string | null>(null);
   const [showAfterSaveSheet, setShowAfterSaveSheet] = useState(false);
+  const [brokenPhotoUrls, setBrokenPhotoUrls] = useState<Record<string, true>>({});
 
   const [form, setForm] = useState<OfferFormState>(DEFAULT_FORM);
   const [isLocating, setIsLocating] = useState(false);
@@ -215,6 +216,16 @@ const PartDetailsScreen: React.FC = () => {
   }, [isAdding, isEditing, part, editingVariantId, latestOrderVariant]);
 
   if (!order || !part) return <div className="p-10 text-center text-gray-400 font-bold">ДЕТАЛЬ НЕ НАЙДЕНА</div>;
+
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(backTo);
+      return;
+    }
+    navigate('/vendor');
+  };
+
+  const isPhotoVisible = (url: string) => !!String(url || '').trim() && !brokenPhotoUrls[url];
 
   const handleFormPatch = <T extends keyof OfferFormState>(key: T, value: OfferFormState[T]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -525,7 +536,7 @@ const PartDetailsScreen: React.FC = () => {
     <div className="flex flex-col min-h-full bg-gray-50 pb-28 overflow-x-hidden">
       <div className="bg-white p-4 border-b border-gray-100 sticky top-0 z-20 shadow-sm">
         <div className="flex items-start justify-between gap-2">
-          <button onClick={() => navigate(backTo)} className="p-3 -ml-2 text-gray-600 active:bg-gray-100 rounded-full transition-colors"><ArrowLeft size={22} /></button>
+          <button onClick={goBack} className="p-3 -ml-2 text-gray-600 active:bg-gray-100 rounded-full transition-colors"><ArrowLeft size={22} /></button>
           <div className="text-center flex-1">
             <h1 className="font-black text-lg truncate leading-tight uppercase tracking-tight">{part.name}</h1>
             <p className="text-[11px] text-gray-600 font-bold">{order.brand} {order.model} · {order.year || '—'} {order.vin ? `· VIN ${order.vin}` : ''}</p>
@@ -565,7 +576,9 @@ const PartDetailsScreen: React.FC = () => {
                   <button type="button" onClick={() => fileInputRef.current?.click()} className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-300 flex flex-col justify-center items-center shrink-0"><Camera size={20} className="text-gray-400" /><span className="text-[10px] font-black text-gray-500">+ Фото</span></button>
                   {form.photos.map((photo, index) => (
                     <div key={`${photo}-${index}`} className="relative w-24 h-24 shrink-0 rounded-xl overflow-hidden border border-gray-200">
-                      <img src={photo} className="w-full h-full object-cover" />
+                      {isPhotoVisible(photo)
+                        ? <img src={photo} className="w-full h-full object-cover" onError={() => setBrokenPhotoUrls((prev) => ({ ...prev, [photo]: true }))} />
+                        : <div className="w-full h-full bg-gray-100 grid place-items-center text-gray-400"><Images size={14} /></div>}
                       <button type="button" onClick={() => removeVariantPhoto(index)} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"><X size={12} /></button>
                     </div>
                   ))}
@@ -691,7 +704,9 @@ const PartDetailsScreen: React.FC = () => {
               <div key={variant.id} className={`bg-white rounded-2xl border overflow-hidden ${isBest ? 'border-emerald-300' : 'border-gray-100'}`}>
                 <div className="p-4 flex gap-3">
                   <button type="button" onClick={(e) => openGallery(e, variant)} className="w-20 h-20 rounded-xl border border-gray-100 overflow-hidden shrink-0 bg-gray-50 flex items-center justify-center">
-                    {displayPhotos[0] ? <img src={displayPhotos[0]} className="w-full h-full object-cover" /> : <Images size={18} className="text-gray-300" />}
+                    {(displayPhotos[0] && isPhotoVisible(displayPhotos[0]))
+                      ? <img src={displayPhotos[0]} className="w-full h-full object-cover" onError={() => setBrokenPhotoUrls((prev) => ({ ...prev, [displayPhotos[0]]: true }))} />
+                      : <Images size={18} className="text-gray-300" />}
                   </button>
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex justify-between items-start gap-2">
