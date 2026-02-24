@@ -14,6 +14,7 @@ import { addRadarManualSelection, getRadarManualSelections, RADAR_MANUAL_SELECTI
 
 const RADAR_DISMISSED_SHOPS_KEY = 'radar_dismissed_shop_keys';
 const RADAR_VISITED_SHOPS_KEY = 'radar_visited_shop_keys';
+const RADAR_UI_STATE_KEY = 'radar_ui_state_v1';
 
 type RadarFilter = 'all' | 'new_only' | 'used_only';
 type RadarMode = 'field' | 'detail';
@@ -73,6 +74,31 @@ const readVisitedRadarShops = () => {
 const saveVisitedRadarShops = (keys: Set<string>) => {
   try {
     localStorage.setItem(RADAR_VISITED_SHOPS_KEY, JSON.stringify(Array.from(keys)));
+  } catch {
+    // ignore storage failures
+  }
+};
+
+
+const readRadarUiState = (orderId?: string | null) => {
+  if (!orderId) return null;
+  try {
+    const raw = localStorage.getItem(RADAR_UI_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, { filter: RadarFilter; mode: RadarMode; radiusKm: number }>;
+    return parsed[orderId] || null;
+  } catch {
+    return null;
+  }
+};
+
+const saveRadarUiState = (orderId: string | null | undefined, state: { filter: RadarFilter; mode: RadarMode; radiusKm: number }) => {
+  if (!orderId) return;
+  try {
+    const raw = localStorage.getItem(RADAR_UI_STATE_KEY);
+    const parsed = raw ? JSON.parse(raw) as Record<string, { filter: RadarFilter; mode: RadarMode; radiusKm: number }> : {};
+    parsed[orderId] = state;
+    localStorage.setItem(RADAR_UI_STATE_KEY, JSON.stringify(parsed));
   } catch {
     // ignore storage failures
   }
@@ -251,6 +277,18 @@ const RadarScreen: React.FC = () => {
 
   const activeOrderId = useMemo(() => new URLSearchParams(location.search).get('orderId'), [location.search]);
   const activeOrder = useMemo(() => orders.find((order) => order.id === activeOrderId) || null, [orders, activeOrderId]);
+
+  useEffect(() => {
+    const saved = readRadarUiState(activeOrderId);
+    if (!saved) return;
+    setActiveFilter(saved.filter);
+    setMode(saved.mode);
+    setRadiusKm(saved.radiusKm);
+  }, [activeOrderId]);
+
+  useEffect(() => {
+    saveRadarUiState(activeOrderId, { filter: activeFilter, mode, radiusKm });
+  }, [activeOrderId, activeFilter, mode, radiusKm]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;

@@ -50,22 +50,46 @@ export interface RadarTargetItemRow {
   updated_at?: string;
 }
 
+export interface RadarApplyEventPayload {
+  radar_session_id: string;
+  event_type: string;
+  client_event_id: string;
+  target_id?: string;
+  target_item_id?: string;
+  shop_id?: string;
+  status?: RadarTargetStatus;
+  item_status?: Exclude<RadarTargetItemStatus, 'pending'>;
+  payload?: Record<string, unknown>;
+}
+
 const assertSupabase = () => {
   if (!supabase) throw new Error('Supabase client unavailable');
   return supabase;
 };
 
-export const logRadarEvent = async (radarSessionId: string, eventType: string, payload?: Record<string, unknown>) => {
+export const logRadarEvent = async (radarSessionId: string, eventType: string, payload?: Record<string, unknown>, clientEventId?: string) => {
   const client = assertSupabase();
   const { error } = await client
     .from('radar_events')
     .insert({
       radar_session_id: radarSessionId,
       event_type: eventType,
+      ...(clientEventId ? { client_event_id: clientEventId } : {}),
       ...(payload ? { payload } : {})
     });
 
+  if (error && error.code !== '23505') throw error;
+};
+
+export const applyRadarEventAtomic = async (eventPayload: RadarApplyEventPayload) => {
+  const client = assertSupabase();
+  const { data, error } = await client.rpc('radar_apply_event', {
+    p_event_payload: eventPayload,
+    p_client_event_id: eventPayload.client_event_id
+  });
+
   if (error) throw error;
+  return data;
 };
 
 export const findActiveRadarSessionByOrder = async (orderId: string): Promise<RadarSessionRow | null> => {
@@ -172,20 +196,7 @@ export const regenerateRadarTargets = async (sessionId: string, maxTargets = 30)
 };
 
 export const setRadarTargetStatus = async (target: RadarTargetRow, nextStatus: RadarTargetStatus, extraPayload?: Record<string, unknown>) => {
-  const client = assertSupabase();
-  const { error } = await client
-    .from('radar_targets')
-    .update({ status: nextStatus })
-    .eq('id', target.id);
-
-  if (error) throw error;
-
-  await logRadarEvent(target.radar_session_id, 'status_change', {
-    from: target.status,
-    to: nextStatus,
-    at: new Date().toISOString(),
-    ...(extraPayload || {})
-  });
+  throw new Error(`Deprecated: use applyRadarEventAtomic with client_event_id (${target.id}:${nextStatus}:${JSON.stringify(extraPayload || {})})`);
 };
 
 export const getRadarEvents = async (sessionId: string) => {
@@ -257,13 +268,8 @@ export const getRadarTargetItems = async (targetIds: string[]): Promise<RadarTar
 
 export const markRadarTargetItemStatus = async (
   targetItemId: string,
-  status: Exclude<RadarTargetItemStatus, 'pending'>
+  status: Exclude<RadarTargetItemStatus, 'pending'>,
+  _clientEventId?: string
 ) => {
-  const client = assertSupabase();
-  const { error } = await client.rpc('record_radar_item_event', {
-    p_target_item_id: targetItemId,
-    p_item_status: status
-  });
-
-  if (error) throw error;
+  throw new Error(`Deprecated: use applyRadarEventAtomic with client_event_id (${targetItemId}:${status})`);
 };

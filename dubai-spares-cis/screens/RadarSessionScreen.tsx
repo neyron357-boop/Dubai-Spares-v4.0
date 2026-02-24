@@ -11,14 +11,13 @@ import {
   getRadarSession,
   getRadarTargetItems,
   getRadarTargets,
-  logRadarEvent,
-  markRadarTargetItemStatus,
   OrderItemRow,
   regenerateRadarTargets,
   RadarTargetRow,
-  RadarTargetItemRow,
-  setRadarTargetStatus
+  RadarTargetItemRow
 } from '../radarSessionService';
+import { createUuid } from '../id';
+import { enqueueRadarSyncEvent, startRadarSyncQueue } from '../radarSyncQueue';
 
 const RadarSessionScreen: React.FC = () => {
   const { sessionId = '' } = useParams<{ sessionId: string }>();
@@ -64,6 +63,7 @@ const RadarSessionScreen: React.FC = () => {
   }, [sessionId, suppliers]);
 
   useEffect(() => {
+    startRadarSyncQueue();
     void load();
   }, [load]);
 
@@ -80,7 +80,21 @@ const RadarSessionScreen: React.FC = () => {
         })
       : {};
 
-    await setRadarTargetStatus(target, next, geoPayload);
+    const clientEventId = createUuid();
+    await enqueueRadarSyncEvent({
+      radar_session_id: sessionId,
+      event_type: 'status_change',
+      client_event_id: clientEventId,
+      target_id: target.id,
+      shop_id: target.shop_id,
+      status: next,
+      payload: {
+        from: target.status,
+        to: next,
+        at: new Date().toISOString(),
+        ...geoPayload
+      }
+    });
     await load();
   };
 
@@ -88,7 +102,7 @@ const RadarSessionScreen: React.FC = () => {
     const phone = shopsMap[target.shop_id]?.phone;
     if (!phone) return;
     window.open(`tel:${phone}`, '_blank');
-    await logRadarEvent(sessionId, 'call', { targetId: target.id, shopId: target.shop_id });
+    await enqueueRadarSyncEvent({ radar_session_id: sessionId, event_type: 'call', client_event_id: createUuid(), target_id: target.id, shop_id: target.shop_id, payload: { targetId: target.id, shopId: target.shop_id } });
     await load();
   };
 
@@ -96,12 +110,12 @@ const RadarSessionScreen: React.FC = () => {
     const phone = (shopsMap[target.shop_id]?.phone || '').replace(/[^\d]/g, '');
     if (!phone) return;
     window.open(`https://wa.me/${phone}`, '_blank');
-    await logRadarEvent(sessionId, 'whatsapp', { targetId: target.id, shopId: target.shop_id });
+    await enqueueRadarSyncEvent({ radar_session_id: sessionId, event_type: 'whatsapp', client_event_id: createUuid(), target_id: target.id, shop_id: target.shop_id, payload: { targetId: target.id, shopId: target.shop_id } });
     await load();
   };
 
   const markVisited = async (target: RadarTargetRow) => {
-    await logRadarEvent(sessionId, 'visited', { targetId: target.id, shopId: target.shop_id });
+    await enqueueRadarSyncEvent({ radar_session_id: sessionId, event_type: 'visited', client_event_id: createUuid(), target_id: target.id, shop_id: target.shop_id, payload: { targetId: target.id, shopId: target.shop_id } });
     await load();
   };
 
@@ -135,7 +149,13 @@ const RadarSessionScreen: React.FC = () => {
   }, {}), [orderItems]);
 
   const setItemStatus = async (targetItem: RadarTargetItemRow, nextStatus: 'found' | 'not_found' | 'partial') => {
-    await markRadarTargetItemStatus(targetItem.id, nextStatus);
+    await enqueueRadarSyncEvent({
+      radar_session_id: sessionId,
+      event_type: nextStatus === 'found' ? 'item_found' : nextStatus === 'not_found' ? 'item_not_found' : 'item_partial',
+      client_event_id: createUuid(),
+      target_item_id: targetItem.id,
+      item_status: nextStatus
+    });
     await load();
   };
 
