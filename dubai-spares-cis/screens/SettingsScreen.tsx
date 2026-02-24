@@ -206,6 +206,34 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
+  const clearApplicationCache = async () => {
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
+
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    }
+
+    if ('indexedDB' in window && typeof indexedDB.databases === 'function') {
+      const databases = await indexedDB.databases();
+      await Promise.all((databases || [])
+        .map((database) => database?.name)
+        .filter((name): name is string => typeof name === 'string' && name.length > 0)
+        .map((name) => new Promise<void>((resolve) => {
+          const request = indexedDB.deleteDatabase(name);
+          request.onsuccess = () => resolve();
+          request.onerror = () => resolve();
+          request.onblocked = () => resolve();
+        })));
+    }
+
+    window.sessionStorage.clear();
+    window.localStorage.clear();
+  };
+
 
 
   const handleExportLogs = async () => {
@@ -740,8 +768,8 @@ const SettingsScreen: React.FC = () => {
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>{busyLabel('storage-compress-all', 'Сжать все фото на сервере до минимума', 'Сжимаем фото…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>{busyLabel('storage-delete-duplicates', 'Удалить дубликаты фото', 'Обработка дубликатов…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('cache', async () => {
-            const keys = await caches.keys();
-            await Promise.all(keys.map((key) => caches.delete(key)));
+            await clearApplicationCache();
+            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Кэш приложения очищен. Перезагрузите страницу.', tone: 'success' } }));
           })}>{busyLabel('cache', 'Очистить кэш', 'Очистка кэша…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-rose-600 text-white px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('offline-data', async () => {
             const first = window.confirm('⚠️ Это удалит локальные офлайн данные. Продолжить?');

@@ -41,6 +41,7 @@ const VendorSlider: React.FC = () => {
   const [sortBy, setSortBy] = useState<'priority' | 'year_asc' | 'year_desc'>('priority');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
+  const [brokenImages, setBrokenImages] = useState<Record<string, true>>({});
   const touchStart = useRef<{ x: number; y: number } | null>(null);
 
   const orderSlides = useMemo(() => {
@@ -122,13 +123,14 @@ const VendorSlider: React.FC = () => {
   }
 
   const carImages = sanitizeImages([...(current.carPhotos || []), current.carPhotoUrl]);
+  const availableCarImages = carImages.filter((image) => !brokenImages[image]);
 
   return (
     <div className="absolute inset-0 z-50 h-full w-full overflow-hidden bg-[#0B1220] text-white">
       <div className="relative h-[30vh] min-h-[190px] max-h-[260px] overflow-hidden border-b border-slate-800">
-        {carImages[0] ? (
-          <button type="button" onClick={() => setGallery({ images: carImages, index: 0 })} className="h-full w-full">
-            <img src={carImages[0]} alt="car" className="h-full w-full object-cover" />
+        {availableCarImages[0] ? (
+          <button type="button" onClick={() => setGallery({ images: availableCarImages, index: 0 })} className="h-full w-full">
+            <img src={availableCarImages[0]} alt="car" className="h-full w-full object-cover" onError={() => setBrokenImages((prev) => ({ ...prev, [availableCarImages[0]]: true }))} />
           </button>
         ) : <div className="h-full w-full bg-slate-900" />}
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
@@ -147,10 +149,12 @@ const VendorSlider: React.FC = () => {
       <div className="h-[calc(100%-30vh)] overflow-y-auto p-3 space-y-2" onTouchStart={(e) => { const t = e.targetTouches[0]; touchStart.current = { x: t.clientX, y: t.clientY }; }} onTouchEnd={(e) => { if (!touchStart.current) return; const t = e.changedTouches[0]; const dx = t.clientX - touchStart.current.x; const dy = t.clientY - touchStart.current.y; if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.15) goTo(index + (dx > 0 ? -1 : 1)); touchStart.current = null; }}>
         {current.visibleParts.map((part) => {
           const images = sanitizeImages([...(part.photos || []), part.photoUrl]);
+          const availableImages = images.filter((image) => !brokenImages[image]);
+          const isFound = part.isFound || part.status === 'found' || part.variants.some((variant) => Number(variant.priceAed) > 0);
           return (
-            <div key={part.id} className="rounded-2xl border border-slate-700 bg-[#111a2d] p-2 flex gap-3 items-center">
-              <button type="button" className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-900" onClick={() => images[0] && setGallery({ images, index: 0 })}>
-                {images[0] ? <img src={images[0]} alt={part.name} className="h-full w-full object-cover" /> : <div className="h-full w-full grid place-items-center text-slate-500"><ImageOff size={18} /></div>}
+            <div key={part.id} className={`rounded-2xl border p-2 flex gap-3 items-center transition ${isFound ? 'border-emerald-700/80 bg-emerald-900/15 opacity-65' : 'border-slate-700 bg-[#111a2d]'}`}>
+              <button type="button" className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-900" onClick={() => availableImages[0] && setGallery({ images: availableImages, index: 0 })}>
+                {availableImages[0] ? <img src={availableImages[0]} alt={part.name} className="h-full w-full object-cover" onError={() => setBrokenImages((prev) => ({ ...prev, [availableImages[0]]: true }))} /> : <div className="h-full w-full grid place-items-center text-slate-500"><ImageOff size={18} /></div>}
               </button>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-base font-black">{part.name}</p>
