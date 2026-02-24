@@ -254,6 +254,17 @@ const computeTotalsFromItems = (items: Array<Record<string, unknown>>, fees: { l
   };
 };
 
+const dedupePhotoUrls = (photos: Array<string | null | undefined>) => {
+  const seen = new Set<string>();
+  return photos
+    .map((photo) => String(photo || '').trim())
+    .filter((photo) => {
+      if (!photo || seen.has(photo)) return false;
+      seen.add(photo);
+      return true;
+    });
+};
+
 
 const resolveContactsSource = (payload: Record<string, unknown>): SnapshotContactsSource => {
   const contactsObj = payload.contacts && typeof payload.contacts === 'object' ? payload.contacts as Record<string, unknown> : {};
@@ -610,7 +621,7 @@ const buildSnapshotPayload = (
         qty: 1,
         supplier_price_aed: supplierAed,
         client_price_aed: round2(clientAed),
-        photo_urls: [part.photoUrl || '', ...(part.photos || []), variant?.photoUrl || '', ...(variant?.photos || [])].filter(Boolean).slice(0, 3)
+        photo_urls: dedupePhotoUrls([part.photoUrl || '', ...(part.photos || []), variant?.photoUrl || '', ...(variant?.photos || [])])
       };
     });
 
