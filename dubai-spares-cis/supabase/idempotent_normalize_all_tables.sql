@@ -241,6 +241,10 @@ drop policy if exists "client_leads_select_anon" on public.client_leads;
 create policy "client_leads_select_anon" on public.client_leads for select to anon using (true);
 drop policy if exists "client_leads_select_authenticated" on public.client_leads;
 create policy "client_leads_select_authenticated" on public.client_leads for select to authenticated using (true);
+drop policy if exists "client_leads_delete_anon" on public.client_leads;
+create policy "client_leads_delete_anon" on public.client_leads for delete to anon using (true);
+drop policy if exists "client_leads_delete_authenticated" on public.client_leads;
+create policy "client_leads_delete_authenticated" on public.client_leads for delete to authenticated using (true);
 
 drop policy if exists "backups_insert_anon" on public.backups;
 create policy "backups_insert_anon" on public.backups for insert to anon with check (true);
