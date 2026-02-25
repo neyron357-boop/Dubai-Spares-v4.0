@@ -564,12 +564,29 @@ const fetchSuppliersFallback = async (): Promise<Supplier[]> => {
   const rows: any[] = [];
   let from = 0;
 
+  const selectCandidates = [
+    'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,metrics_heat_level,specialization,main_brands,specialization_models,specialization_years,specialization_body_types,specialization_brands,specialization_categories,created_at,updated_at',
+    'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,main_brands,specialization_models,specialization_years,specialization_body_types,created_at,updated_at',
+    'id,name,phone,location,latitude,longitude,shop_type,zone,created_at,updated_at'
+  ] as const;
+
   while (true) {
-    const { data, error } = await supabase
-      .from('shops')
-      .select('id,name,phone,location,latitude,longitude,shop_type,zone,heat_level,specialization,main_brands,specialization_models,specialization_years,specialization_body_types,created_at,updated_at')
-      .order('updated_at', { ascending: false })
-      .range(from, from + SUPPLIER_PAGE_SIZE - 1);
+    let data: any[] | null = null;
+    let error: any = null;
+
+    for (const select of selectCandidates) {
+      const response = await supabase
+        .from('shops')
+        .select(select)
+        .order('updated_at', { ascending: false })
+        .range(from, from + SUPPLIER_PAGE_SIZE - 1);
+      if (!response.error && Array.isArray(response.data)) {
+        data = response.data;
+        error = null;
+        break;
+      }
+      error = response.error;
+    }
 
     if (error || !Array.isArray(data)) {
       void logger.warn('shops:fetch-suppliers', 'Failed to fetch suppliers from shops', { error: error?.message });

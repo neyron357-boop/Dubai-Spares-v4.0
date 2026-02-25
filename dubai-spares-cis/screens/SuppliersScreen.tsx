@@ -805,7 +805,7 @@ const SuppliersScreen: React.FC = () => {
   };
 
   useEffect(() => {
-    void syncSuppliersFromServer();
+    void syncSuppliersFromServer(true);
   }, []);
 
   useEffect(() => {
