@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ChevronRight, ShieldAlert, Wrench } from 'lucide-react';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
-import { backupUpload, clearPublicQuoteSnapshots, clearServerBackups } from '../serverApi';
+import { backupUpload, clearPublicQuoteSnapshots, clearServerBackups, deletePublicQuoteSnapshot, listPublicQuoteSnapshots } from '../serverApi';
 import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLastCloudCall, isCloudConfigured, SUPABASE_HOST, SUPABASE_URL } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
@@ -126,6 +126,9 @@ const SettingsScreen: React.FC = () => {
   const [backupController, setBackupController] = useState<AbortController | null>(null);
   const [lastBackupId, setLastBackupId] = useState('');
   const [requestCount, setRequestCount] = useState<number>(() => ((window as any).__serverApiRequestCount || 0));
+  const [snapshotRows, setSnapshotRows] = useState<Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null }>>([]);
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false);
+  const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
   const [dangerActionProgress, setDangerActionProgress] = useState<{ label: string; processed: number; total: number; details?: string } | null>(null);
   const [logoCrop, setLogoCrop] = useState<{ file: File; previewUrl: string } | null>(null);
   const [logoCropZoom, setLogoCropZoom] = useState(1);
@@ -410,6 +413,49 @@ const SettingsScreen: React.FC = () => {
       }));
     });
   };
+
+  const loadSnapshots = async () => {
+    setSnapshotsLoading(true);
+    setSnapshotNotice(null);
+    try {
+      const result = await listPublicQuoteSnapshots();
+      if (!result.ok) {
+        setSnapshotRows([]);
+        setSnapshotNotice(`Ошибка загрузки снапшотов: ${result.error}`);
+        return;
+      }
+      setSnapshotRows(result.data || []);
+      if ((result.data || []).length === 0) {
+        setSnapshotNotice('Снапшоты на сервере не найдены.');
+      }
+    } finally {
+      setSnapshotsLoading(false);
+    }
+  };
+
+  const copySnapshotUrl = async (row: { id: string; token: string; snapshot_id?: string | null }) => {
+    const snapshotId = String(row.snapshot_id || row.id || '').trim();
+    const token = String(row.token || '').trim();
+    const url = `${window.location.origin}${window.location.pathname}#/public-quote/${encodeURIComponent(token)}${snapshotId ? `?snapshot=${encodeURIComponent(snapshotId)}` : ''}`;
+    await navigator.clipboard.writeText(url);
+    setSnapshotNotice(`Ссылка скопирована: ${token}`);
+  };
+
+  const handleSnapshotDelete = async (row: { id: string; token: string; snapshot_id?: string | null }) => {
+    const key = String(row.snapshot_id || row.id || row.token || '').trim();
+    if (!key) return;
+    const result = await deletePublicQuoteSnapshot(key);
+    if (!result.ok) {
+      setSnapshotNotice(`Не удалось удалить снапшот: ${result.error}`);
+      return;
+    }
+    setSnapshotNotice(result.data?.removed ? 'Снапшот удалён.' : 'Снапшот не найден на сервере.');
+    await loadSnapshots();
+  };
+
+  useEffect(() => {
+    void loadSnapshots();
+  }, []);
 
   useEffect(() => () => {
     if (logoCrop?.previewUrl) URL.revokeObjectURL(logoCrop.previewUrl);
@@ -760,6 +806,45 @@ const SettingsScreen: React.FC = () => {
           </div>
         )}
         <Link to="/debug" className="inline-block text-xs font-bold text-blue-600 underline underline-offset-2">→ Расширенная диагностика</Link>
+      </Section>
+
+      <Section title="Snapshots (публичные сметы)">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold disabled:opacity-50"
+            onClick={() => void loadSnapshots()}
+            disabled={snapshotsLoading}
+          >
+            {snapshotsLoading ? 'Обновляем…' : 'Обновить список'}
+          </button>
+          <span className="text-xs text-gray-500 self-center">Всего: {snapshotRows.length}</span>
+        </div>
+        {snapshotNotice && <p className="text-xs text-gray-600">{snapshotNotice}</p>}
+        <div className="max-h-72 overflow-auto rounded-xl border border-gray-200 bg-gray-50">
+          {snapshotRows.length === 0 ? (
+            <p className="p-3 text-xs text-gray-500">Список пуст.</p>
+          ) : (
+            <ul className="divide-y divide-gray-200">
+              {snapshotRows.map((row) => {
+                const identity = row.snapshot_id || row.id;
+                return (
+                  <li key={`${row.id}:${row.token}`} className="p-3 space-y-2">
+                    <div className="text-[11px] text-gray-700 break-all">
+                      <p><span className="font-bold text-gray-900">ID:</span> {identity}</p>
+                      <p><span className="font-bold text-gray-900">Token:</span> {row.token}</p>
+                      <p><span className="font-bold text-gray-900">Expires:</span> {row.expires_at}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold" onClick={() => void copySnapshotUrl(row)}>Копировать ссылку</button>
+                      <button type="button" className="rounded-lg border border-rose-300 bg-white px-2 py-1 text-xs font-bold text-rose-700" onClick={() => void handleSnapshotDelete(row)}>Удалить</button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       </Section>
 
       <Section title="Опасные действия" tone="danger">

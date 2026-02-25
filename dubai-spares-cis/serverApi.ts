@@ -462,6 +462,67 @@ export const getPublicQuoteSnapshot = async (
 
 
 
+
+export const listPublicQuoteSnapshots = async (options?: RequestOptions): Promise<Result<Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null }>>> => {
+  const guard = assertCloudFeatureEnabled(cloudFeatureFlags.publicQuote);
+  if (!guard.ok) return recordCall('listPublicQuoteSnapshots', guard);
+
+  try {
+    const endpoint = 'public_quote_snapshots?select=id,token,snapshot_id,expires_at,created_at&order=created_at.desc.nullslast,expires_at.desc&limit=500';
+    const response = await callRest<Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null }>>(endpoint, 'GET', undefined, {
+      ...(options || {}),
+      timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
+    });
+
+    if (!response.ok) return recordCall('listPublicQuoteSnapshots', response);
+    return recordCall('listPublicQuoteSnapshots', { ok: true, data: Array.isArray(response.data) ? response.data : [] });
+  } catch (error) {
+    return recordCall('listPublicQuoteSnapshots', { ok: false, code: 'unexpected_error', error: toErrorMessage(error, 'Failed to list quote snapshots') });
+  }
+};
+
+export const deletePublicQuoteSnapshot = async (snapshotIdOrToken: string, options?: RequestOptions): Promise<Result<{ removed: boolean }>> => {
+  const guard = assertCloudFeatureEnabled(cloudFeatureFlags.publicQuote);
+  if (!guard.ok) return recordCall('deletePublicQuoteSnapshot', guard);
+
+  const normalized = String(snapshotIdOrToken || '').trim();
+  if (!normalized) {
+    return recordCall('deletePublicQuoteSnapshot', { ok: false, code: 'validation_error', error: 'Snapshot id/token is required' });
+  }
+
+  const lockKey = `deletePublicQuoteSnapshot:${normalized}`;
+  if (inFlight.has(lockKey)) return recordCall('deletePublicQuoteSnapshot', denyDuplicate('Snapshot delete'));
+  inFlight.add(lockKey);
+
+  try {
+    const encoded = encodeURIComponent(normalized);
+    const endpoints = [
+      `public_quote_snapshots?id=eq.${encoded}`,
+      `public_quote_snapshots?snapshot_id=eq.${encoded}`,
+      `public_quote_snapshots?token=eq.${encoded}`
+    ];
+
+    for (const endpoint of endpoints) {
+      const response = await callRest<unknown[]>(endpoint + '&select=id', 'DELETE', undefined, {
+        ...(options || {}),
+        timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
+        preferRepresentation: true
+      });
+
+      if (!response.ok) return recordCall('deletePublicQuoteSnapshot', response);
+      if (Array.isArray(response.data) && response.data.length > 0) {
+        return recordCall('deletePublicQuoteSnapshot', { ok: true, data: { removed: true } });
+      }
+    }
+
+    return recordCall('deletePublicQuoteSnapshot', { ok: true, data: { removed: false } });
+  } catch (error) {
+    return recordCall('deletePublicQuoteSnapshot', { ok: false, code: 'unexpected_error', error: toErrorMessage(error, 'Failed to delete quote snapshot') });
+  } finally {
+    inFlight.delete(lockKey);
+  }
+};
+
 export const clearServerBackups = async (options?: RequestOptions): Promise<Result<{ cleared: boolean }>> => {
   const guard = assertCloudFeatureEnabled(cloudFeatureFlags.backup);
   if (!guard.ok) return recordCall('clearServerBackups', guard);

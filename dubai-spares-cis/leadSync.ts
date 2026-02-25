@@ -225,10 +225,7 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
       const existing = existingById.get(mapped.id);
 
       if (!existing) {
-        if (converted.has(mapped.id) || serverMarkedConverted) {
-          merged.push({ ...mapped, leadUnread: false, isLead: false, status: "active" });
-          continue;
-        }
+        if (converted.has(mapped.id) || serverMarkedConverted) continue;
         merged.push(mapped);
         continue;
       }
