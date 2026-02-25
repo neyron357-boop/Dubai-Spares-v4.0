@@ -93,6 +93,7 @@ const notifySupplierListeners = () => {
 const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>['orders']) => {
   if (!Array.isArray(orders) || orders.length === 0) return;
 
+  let hasUpdates = false;
   const byName = new Map<string, Supplier>();
   globalSuppliers.forEach((supplier) => {
     const key = supplier.name.trim().toLowerCase();
@@ -107,9 +108,54 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
         const rawName = typeof variant.shopName === 'string' ? variant.shopName.trim() : '';
         if (!rawName) return;
         const key = rawName.toLowerCase();
-        if (byName.has(key)) return;
-
         const now = Date.now();
+        const linkedPart = {
+          id: ensureUuid(),
+          orderId: order.id,
+          orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
+          partId: part.id,
+          partName: part.name,
+          status: part.isFound ? 'found' : 'searching',
+          priceAed: Number.isFinite(Number(variant.priceAed)) ? Number(variant.priceAed) : undefined,
+          source: 'variant' as const,
+          updatedAt: now
+        };
+
+        const existingSupplier = byName.get(key);
+        if (existingSupplier) {
+          const existingLinkedParts = Array.isArray(existingSupplier.linkedParts) ? existingSupplier.linkedParts : [];
+          const hasLinkedPart = existingLinkedParts.some((item) => item.orderId === order.id && item.partId === part.id);
+          const nextLinkedParts = hasLinkedPart
+            ? existingLinkedParts
+            : [linkedPart, ...existingLinkedParts];
+
+          const nextOrderIds = Array.from(new Set([...(existingSupplier.activeOrderIds || []), order.id]));
+          const nextPhone = existingSupplier.phone || (typeof variant.phone === 'string' ? variant.phone : '');
+          const nextLocation = existingSupplier.location || (typeof variant.location === 'string' ? variant.location : '');
+
+          const shouldUpdate = !hasLinkedPart
+            || nextOrderIds.length !== (existingSupplier.activeOrderIds || []).length
+            || nextPhone !== existingSupplier.phone
+            || nextLocation !== existingSupplier.location;
+
+          if (!shouldUpdate) return;
+
+          const updatedSupplier = normalizeSupplier({
+            ...existingSupplier,
+            phone: nextPhone,
+            location: nextLocation,
+            linkedParts: nextLinkedParts,
+            activeOrderIds: nextOrderIds,
+            updatedAt: now,
+            syncStatus: existingSupplier.syncStatus === 'synced' ? 'pending_sync' : existingSupplier.syncStatus
+          });
+
+          globalSuppliers = globalSuppliers.map((supplier) => supplier.id === updatedSupplier.id ? updatedSupplier : supplier);
+          byName.set(key, updatedSupplier);
+          hasUpdates = true;
+          return;
+        }
+
         const supplierFromVariant: Supplier = normalizeSupplier({
           id: ensureUuid(),
           name: rawName,
@@ -124,17 +170,7 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
           types: ['new_parts'],
           photoUrl: variant.photoUrl || '',
           photos: Array.isArray(variant.photos) ? variant.photos.filter((url): url is string => typeof url === 'string' && url.trim().length > 0) : [],
-          linkedParts: [{
-            id: ensureUuid(),
-            orderId: order.id,
-            orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
-            partId: part.id,
-            partName: part.name,
-            status: part.isFound ? 'found' : 'searching',
-            priceAed: Number.isFinite(Number(variant.priceAed)) ? Number(variant.priceAed) : undefined,
-            source: 'variant',
-            updatedAt: now
-          }],
+          linkedParts: [linkedPart],
           activeOrderIds: [order.id],
           createdAt: now,
           updatedAt: now,
@@ -147,8 +183,10 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
     });
   });
 
-  if (collected.length === 0) return;
-  globalSuppliers = [...collected, ...globalSuppliers];
+  if (!hasUpdates && collected.length === 0) return;
+  if (collected.length > 0) {
+    globalSuppliers = [...collected, ...globalSuppliers];
+  }
   notifySupplierListeners();
 };
 

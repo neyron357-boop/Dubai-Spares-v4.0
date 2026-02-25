@@ -1559,9 +1559,11 @@ export const addOrderItem = async (order: Order) => {
 export const updateOrderItem = async (order: Order) => {
   const previousOrder = state.orders.find((o) => o.id === order.id);
   const normalized = normalizeOrder({ ...order, updatedAt: Date.now() });
+  let shouldPurgeLeadArtifacts = false;
   if (normalized.leadSource === "public_form") {
     if (!normalized.isLead || normalized.leadUnread === false || normalized.status !== "lead") {
       rememberLeadConverted(normalized.id);
+      shouldPurgeLeadArtifacts = true;
     } else {
       forgetLeadSyncOverrides(normalized.id);
     }
@@ -1585,6 +1587,17 @@ export const updateOrderItem = async (order: Order) => {
   const patch = structuralDiff ? {} : pickHotFieldPatch(previousOrder, normalized);
   scheduleLocalCommit(normalized, structuralDiff ? undefined : patch);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
+
+  if (shouldPurgeLeadArtifacts) {
+    const purgeResult = await purgePublicLeadArtifacts(normalized.id);
+    if (!purgeResult.ok) {
+      await logger.warn('order:update', 'Failed to purge public lead artifacts after lead conversion', {
+        orderId: normalized.id,
+        code: purgeResult.code,
+        error: purgeResult.error
+      });
+    }
+  }
 
   await queueMutation('upsert', structuralDiff ? normalized : undefined, normalized.id, patch);
   return true;
