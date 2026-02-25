@@ -589,7 +589,25 @@ export const getSuppliersEnriched = async (): Promise<Supplier[]> => {
   if (enrichedViewUnavailable) return fetchSuppliersFallback();
 
   try {
-    return await fetchSuppliersEnriched();
+    const [enriched, fallback] = await Promise.all([
+      fetchSuppliersEnriched(),
+      fetchSuppliersFallback()
+    ]);
+
+    if (!fallback.length) return enriched;
+    if (!enriched.length) return fallback;
+
+    const merged = new Map<string, Supplier>();
+    fallback.forEach((supplier) => {
+      merged.set(String(supplier.id), supplier);
+    });
+    enriched.forEach((supplier) => {
+      const key = String(supplier.id);
+      const base = merged.get(key);
+      merged.set(key, base ? { ...base, ...supplier } : supplier);
+    });
+
+    return Array.from(merged.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
   } catch (error: any) {
     enrichedViewUnavailable = true;
     void logger.warn('shops:fetch-enriched', 'Falling back to shops table for suppliers list', {
