@@ -90,6 +90,68 @@ const notifySupplierListeners = () => {
   listeners.forEach((listener) => listener());
 };
 
+const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>['orders']) => {
+  if (!Array.isArray(orders) || orders.length === 0) return;
+
+  const byName = new Map<string, Supplier>();
+  globalSuppliers.forEach((supplier) => {
+    const key = supplier.name.trim().toLowerCase();
+    if (!key) return;
+    byName.set(key, supplier);
+  });
+
+  const collected: Supplier[] = [];
+  orders.forEach((order) => {
+    order.parts.forEach((part) => {
+      part.variants.forEach((variant) => {
+        const rawName = typeof variant.shopName === 'string' ? variant.shopName.trim() : '';
+        if (!rawName) return;
+        const key = rawName.toLowerCase();
+        if (byName.has(key)) return;
+
+        const now = Date.now();
+        const supplierFromVariant: Supplier = normalizeSupplier({
+          id: ensureUuid(),
+          name: rawName,
+          phone: typeof variant.phone === 'string' ? variant.phone : '',
+          location: typeof variant.location === 'string' ? variant.location : '',
+          brands: order.brand ? [order.brand] : [],
+          mainBrands: order.brand ? [order.brand] : [],
+          primaryBrand: order.brand || '',
+          models: order.model ? [order.model] : [],
+          years: Number.isFinite(Number(order.year)) ? [Number(order.year)] : [],
+          type: 'new_parts',
+          types: ['new_parts'],
+          photoUrl: variant.photoUrl || '',
+          photos: Array.isArray(variant.photos) ? variant.photos.filter((url): url is string => typeof url === 'string' && url.trim().length > 0) : [],
+          linkedParts: [{
+            id: ensureUuid(),
+            orderId: order.id,
+            orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
+            partId: part.id,
+            partName: part.name,
+            status: part.isFound ? 'found' : 'searching',
+            priceAed: Number.isFinite(Number(variant.priceAed)) ? Number(variant.priceAed) : undefined,
+            source: 'variant',
+            updatedAt: now
+          }],
+          activeOrderIds: [order.id],
+          createdAt: now,
+          updatedAt: now,
+          syncStatus: 'pending_sync'
+        });
+
+        byName.set(key, supplierFromVariant);
+        collected.push(supplierFromVariant);
+      });
+    });
+  });
+
+  if (collected.length === 0) return;
+  globalSuppliers = [...collected, ...globalSuppliers];
+  notifySupplierListeners();
+};
+
 let supplierSyncInFlight = false;
 let supplierLastSyncedAt = 0;
 const SUPPLIER_SYNC_TTL_MS = 3 * 60 * 1000;
@@ -171,6 +233,10 @@ export const useStore = () => {
   useEffect(() => {
     void syncSuppliersFromServer();
   }, []);
+
+  useEffect(() => {
+    syncSuppliersFromOrderVariants(orders);
+  }, [orders]);
 
   const addSupplier = useCallback((supplier: Supplier) => {
     globalSuppliers = [normalizeSupplier(supplier), ...globalSuppliers];
