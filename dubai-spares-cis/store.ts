@@ -235,9 +235,20 @@ export const syncSuppliersFromServer = async (force = false) => {
         merged.set(normalizedServer.id, normalizedServer);
         return;
       }
+      const mergedBrands = normalizedServer.brands.length > 0 ? normalizedServer.brands : local.brands;
+      const mergedMainBrands = normalizedServer.mainBrands.length > 0 ? normalizedServer.mainBrands : local.mainBrands;
+      const mergedModels = normalizedServer.models.length > 0 ? normalizedServer.models : local.models;
+      const mergedYears = normalizedServer.years.length > 0 ? normalizedServer.years : local.years;
+      const mergedBodyTypes = normalizedServer.bodyTypes.length > 0 ? normalizedServer.bodyTypes : local.bodyTypes;
       merged.set(normalizedServer.id, {
         ...local,
         ...normalizedServer,
+        brands: mergedBrands,
+        mainBrands: mergedMainBrands,
+        models: mergedModels,
+        years: mergedYears,
+        bodyTypes: mergedBodyTypes,
+        primaryBrand: normalizedServer.primaryBrand || local.primaryBrand || mergedMainBrands[0] || '',
         activeOrderIds: normalizedServer.activeOrderIds.length > 0 ? normalizedServer.activeOrderIds : local.activeOrderIds,
         linkedParts: normalizedServer.linkedParts && normalizedServer.linkedParts.length > 0 ? normalizedServer.linkedParts : local.linkedParts,
       });
