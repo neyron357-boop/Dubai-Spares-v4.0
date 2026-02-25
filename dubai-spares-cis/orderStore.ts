@@ -1215,6 +1215,11 @@ export const flushOfflineMutations = async (options?: { force?: boolean }) => ru
           if (isUuid(mutation.orderId)) {
             await deleteRemoteOrderWithStorageCleanup(mutation.orderId);
           }
+          // If the deleted order was a public_form lead, ensure client_leads is also purged
+          const deletedOrder = mutation.payload as Order | undefined;
+          if (deletedOrder && (deletedOrder.leadSource === 'public_form' || deletedOrder.isLead)) {
+            await purgePublicLeadArtifacts(mutation.orderId);
+          }
         } else if (mutation.patch && !mutation.payload) {
           await persistOrderPatch(mutation.orderId, mutation.patch as Partial<Order>);
         } else if (mutation.payload) {
@@ -1423,7 +1428,22 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
   const mergedOrders = orders
     .filter((cloudOrder) => !pendingDeleteIds.has(cloudOrder.id))
     .map((cloudOrder) => {
-      if (!pendingUpsertIds.has(cloudOrder.id)) return cloudOrder;
+      if (!pendingUpsertIds.has(cloudOrder.id)) {
+        // Preserve locally-saved financial fields if the server version is missing them
+        // (e.g. when the remote schema lacks the logistics / pricing columns)
+        const local = localById.get(cloudOrder.id);
+        if (!local) return cloudOrder;
+        return {
+          ...cloudOrder,
+          logistics: cloudOrder.logistics ?? local.logistics,
+          markupPercent: cloudOrder.markupPercent ?? local.markupPercent,
+          markupType: cloudOrder.markupType ?? local.markupType,
+          markupFixedAed: cloudOrder.markupFixedAed ?? local.markupFixedAed,
+          exchangeRate: cloudOrder.exchangeRate ?? local.exchangeRate,
+          clientCurrency: cloudOrder.clientCurrency ?? local.clientCurrency,
+          pricingEvents: (cloudOrder.pricingEvents && cloudOrder.pricingEvents.length > 0) ? cloudOrder.pricingEvents : local.pricingEvents,
+        };
+      }
       return localById.get(cloudOrder.id) || cloudOrder;
     });
 
@@ -1609,7 +1629,11 @@ export const deleteOrderItem = async (orderId: string) => {
     }
   }
 
-  await queueMutation('delete', undefined, orderId);
+  // Pass a minimal marker so flushOfflineMutations can purge client_leads on retry
+  const deletePayload = (orderToDelete?.leadSource === 'public_form' || orderToDelete?.isLead)
+    ? { leadSource: orderToDelete!.leadSource, isLead: orderToDelete!.isLead } as unknown as Order
+    : undefined;
+  await queueMutation('delete', deletePayload, orderId);
   return true;
 };
 

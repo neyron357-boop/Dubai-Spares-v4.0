@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useCallback } from 'react';
 import { Supplier } from './types';
 import { useOrderStore, subscribeOrderStore, getOrderState, restoreOrdersExternal, fetchOrderDetails } from './orderStore';
 import { ensureUuid } from './id';
-import { deleteSupplierFromShops, fetchSuppliersFromShops } from './radarShops';
+import { deleteSupplierFromShops, fetchSuppliersFromShops, upsertSupplierToShops } from './radarShops';
 
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
@@ -150,6 +150,8 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
   if (collected.length === 0) return;
   globalSuppliers = [...collected, ...globalSuppliers];
   notifySupplierListeners();
+  // Push newly auto-discovered suppliers to the server so they persist across cache clears
+  collected.forEach((supplier) => void upsertSupplierToShops(supplier));
 };
 
 let supplierSyncInFlight = false;
@@ -162,8 +164,8 @@ export const syncSuppliersFromServer = async (force = false) => {
   supplierSyncInFlight = true;
   try {
     const serverSuppliers = await fetchSuppliersFromShops();
-    supplierLastSyncedAt = Date.now();
     if (serverSuppliers.length === 0) return;
+    supplierLastSyncedAt = Date.now();
     const merged = new Map<string, Supplier>();
     globalSuppliers.forEach((supplier) => merged.set(supplier.id, normalizeSupplier(supplier)));
     serverSuppliers.forEach((supplier) => {
