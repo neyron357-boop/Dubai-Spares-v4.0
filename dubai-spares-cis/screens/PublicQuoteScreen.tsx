@@ -826,9 +826,14 @@ const openInvoicePrintWindow = ({
     <tr>
       <td>${idx + 1}</td>
       <td>${escapeHtml(item.name)}</td>
+      <td style="text-align:center">1</td>
+      <td style="text-align:right">${item.price.toFixed(2)} AED</td>
       <td style="text-align:right">${item.price.toFixed(2)} AED</td>
     </tr>
   `).join('');
+
+  const issueDate = new Date();
+  const invoiceId = order.id.slice(0, 8).toUpperCase();
 
   printWindow.document.write(`<!doctype html>
 <html>
@@ -836,19 +841,26 @@ const openInvoicePrintWindow = ({
   <meta charset="utf-8" />
   <title>Invoice ${order.id.slice(0, 8).toUpperCase()}</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #111827; }
-    .card { max-width: 860px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 16px; padding: 20px; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
-    .logo { max-height: 52px; max-width: 180px; object-fit: contain; }
-    .muted { color: #6b7280; font-size: 12px; }
-    table { width: 100%; border-collapse: collapse; margin: 14px 0; }
-    th, td { border-bottom: 1px solid #e5e7eb; padding: 10px 8px; font-size: 13px; vertical-align: top; }
-    th { text-align: left; background: #f8fafc; }
-    .totals { margin-top: 12px; margin-left: auto; max-width: 320px; }
-    .totals p { display: flex; justify-content: space-between; margin: 6px 0; font-size: 13px; }
-    .total { font-size: 17px !important; font-weight: 700; border-top: 1px solid #d1d5db; padding-top: 8px; margin-top: 8px; }
-    .signature { margin-top: 24px; border-top: 1px solid #e5e7eb; padding-top: 12px; }
-    @media print { body { padding: 0; } .card { border: none; } }
+    * { box-sizing: border-box; }
+    body { font-family: Inter, Arial, sans-serif; margin: 0; padding: 24px; color: #0f172a; background: #f8fafc; }
+    .card { position: relative; max-width: 920px; margin: 0 auto; border: 1px solid #dbe2ea; border-radius: 18px; padding: 24px; background: #fff; }
+    .header { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 20px; margin-bottom: 16px; }
+    .logo { max-height: 78px; max-width: 280px; object-fit: contain; }
+    .muted { color: #64748b; font-size: 12px; }
+    .line { height: 1px; background: #e2e8f0; margin: 14px 0; }
+    .meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; font-size: 13px; }
+    .meta-grid p { margin: 0; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; border: 1px solid #dbe2ea; }
+    th, td { border-bottom: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb; padding: 10px 8px; font-size: 13px; vertical-align: top; }
+    th:last-child, td:last-child { border-right: none; }
+    tr:last-child td { border-bottom: none; }
+    th { text-align: left; background: #f1f5f9; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #475569; }
+    .totals { margin-top: 14px; margin-left: auto; width: 100%; max-width: 360px; border: 1px solid #dbe2ea; border-radius: 12px; overflow: hidden; }
+    .totals p { display: flex; justify-content: space-between; margin: 0; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0; }
+    .totals p:last-child { border-bottom: none; }
+    .total { font-size: 18px !important; font-weight: 800; background: #f8fafc; }
+    .signature { margin-top: 22px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+    @media print { body { padding: 0; background: #fff; } .card { border: none; border-radius: 0; } }
   </style>
 </head>
 <body>
@@ -856,29 +868,35 @@ const openInvoicePrintWindow = ({
     <div class="header">
       <div>
         ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" class="logo" alt="Company logo" />` : '<h2 style="margin:0">DUBAI SPARES UAE</h2>'}
-        <p class="muted" style="margin:8px 0 0">Professional Invoice</p>
+        <p class="muted" style="margin:8px 0 0">Professional Automotive Parts Invoice</p>
       </div>
       <div style="text-align:right">
-        <h2 style="margin:0">INVOICE</h2>
-        <p class="muted" style="margin:8px 0 0">Invoice ID: ${order.id.slice(0, 8).toUpperCase()}</p>
-        <p class="muted" style="margin:4px 0 0">Date: ${new Date().toLocaleDateString()}</p>
+        <h1 style="margin:0;font-size:34px;letter-spacing:.08em">INVOICE</h1>
+        <p class="muted" style="margin:8px 0 0">Invoice ID: ${invoiceId}</p>
+        <p class="muted" style="margin:4px 0 0">Issue date: ${issueDate.toLocaleDateString()}</p>
       </div>
     </div>
+    <div class="line"></div>
 
-    <p><strong>Bill to:</strong> ${escapeHtml(order.clientName || 'Customer')} (${escapeHtml(order.customerContact || 'N/A')})</p>
-    <p><strong>Vehicle:</strong> ${escapeHtml(`${order.brand} ${order.model} ${order.year || ''}`.trim())}</p>
-    <p><strong>VIN:</strong> ${escapeHtml(order.vin || '-')}</p>
+    <div class="meta-grid">
+      <p><strong>Bill to:</strong> ${escapeHtml(order.clientName || 'Customer')}</p>
+      <p><strong>Contact:</strong> ${escapeHtml(order.customerContact || 'N/A')}</p>
+      <p><strong>Vehicle:</strong> ${escapeHtml(`${order.brand} ${order.model} ${order.year || ''}`.trim())}</p>
+      <p><strong>VIN:</strong> ${escapeHtml(order.vin || '-')}</p>
+    </div>
 
     <table>
       <thead>
         <tr>
           <th style="width:52px">#</th>
-          <th>Part</th>
-          <th style="width:170px;text-align:right">Amount</th>
+          <th>Part name</th>
+          <th style="width:84px;text-align:center">Qty</th>
+          <th style="width:170px;text-align:right">Unit price</th>
+          <th style="width:170px;text-align:right">Line total</th>
         </tr>
       </thead>
       <tbody>
-        ${rows}
+        ${rows || '<tr><td colspan="5" style="text-align:center;color:#94a3b8">No line items available</td></tr>'}
       </tbody>
     </table>
 
@@ -1263,8 +1281,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const foundParts = partCards.filter((item) => item.isReady);
 
+  const payloadTotals = useMemo(
+    () => (snapshotPayload ? resolveTotalsFromPayload(snapshotPayload, rates) : null),
+    [snapshotPayload, rates]
+  );
+
   const totals = useMemo(() => {
-    const payloadTotals = snapshotPayload ? resolveTotalsFromPayload(snapshotPayload, rates) : null;
     const fallbackSubtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
     const subtotalFromPayload = payloadTotals?.itemsTotalAed ?? 0;
     const shouldUseFallbackSubtotal = fallbackSubtotal > 0 && subtotalFromPayload <= 0;
@@ -1292,7 +1314,26 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       computedFrom: payloadTotals?.computedFrom || 'recompute(items)',
       hasPositions: (payloadTotals?.items.length ?? partCards.length) > 0
     };
-  }, [foundParts, partCards.length, currency, rates, snapshotPayload]);
+  }, [currency, foundParts, partCards.length, payloadTotals, rates]);
+
+  const invoiceLineItems = useMemo(() => {
+    const fromPayload = (payloadTotals?.items || [])
+      .map((item) => {
+        const convertedUnitAed = convertFromSourceToAed(item.unitPrice, item.currency, rates);
+        const qty = Number.isFinite(Number(item.qty)) && Number(item.qty) > 0 ? Number(item.qty) : 1;
+        return {
+          name: item.title,
+          price: convertedUnitAed * qty
+        };
+      })
+      .filter((item) => item.price > 0);
+
+    if (fromPayload.length > 0) return fromPayload;
+
+    return partCards
+      .map(({ part, clientAed }) => ({ name: part.name, price: clientAed }))
+      .filter((item) => item.price > 0);
+  }, [partCards, payloadTotals, rates]);
   const confirmMessage = `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}. ID: ${order?.id || ''}`;
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};
@@ -1331,7 +1372,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     if (!order) return;
     const opened = openInvoicePrintWindow({
       order,
-      lineItems: foundParts.map(({ part, clientAed }) => ({ name: part.name, price: clientAed })),
+      lineItems: invoiceLineItems,
       totals: {
         delivery: totals.delivery,
         packing: totals.packing,
