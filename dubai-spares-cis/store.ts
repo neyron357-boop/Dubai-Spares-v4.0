@@ -318,7 +318,12 @@ export const useStore = () => {
 
   const updateSupplier = useCallback((updated: Supplier) => {
     const normalized = normalizeSupplier(updated);
-    globalSuppliers = globalSuppliers.map((s) => (s.id === normalized.id ? normalized : s));
+    const existingIndex = globalSuppliers.findIndex((s) => s.id === normalized.id);
+    if (existingIndex === -1) {
+      globalSuppliers = [normalized, ...globalSuppliers];
+    } else {
+      globalSuppliers = globalSuppliers.map((s) => (s.id === normalized.id ? normalized : s));
+    }
     notifySupplierListeners();
   }, []);
 

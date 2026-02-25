@@ -753,43 +753,61 @@ const SuppliersScreen: React.FC = () => {
   };
 
   const addSupplierToOrderPart = () => {
-    if (!activeOrderPartLink) return;
+    if (!activeOrderPartLink?.supplierId || !activeOrderPartLink.orderId || !activeOrderPartLink.partId) {
+      alert('Выберите заказ и деталь перед добавлением.');
+      return;
+    }
+
     const order = orders.find((item) => item.id === activeOrderPartLink.orderId);
-    if (!order) return;
+    if (!order) {
+      alert('Заказ не найден. Обновите список и попробуйте снова.');
+      return;
+    }
+
+    const part = order.parts.find((item) => item.id === activeOrderPartLink.partId);
+    if (!part) {
+      alert('Деталь не найдена. Выберите деталь заново.');
+      return;
+    }
+
+    const linkedSupplier = suppliers.find((item) => item.id === activeOrderPartLink.supplierId);
+    if (!linkedSupplier) {
+      alert('Карточка поставщика не найдена. Обновите страницу.');
+      return;
+    }
+
     const current = new Set(order.recommendedShopIds || []);
     current.add(activeOrderPartLink.supplierId);
     updateOrder({ ...order, recommendedShopIds: Array.from(current), updatedAt: Date.now() });
     addRadarManualSelection({ supplierId: activeOrderPartLink.supplierId, orderId: activeOrderPartLink.orderId, partId: activeOrderPartLink.partId, source: 'manual' });
-    const linkedSupplier = suppliers.find((item) => item.id === activeOrderPartLink.supplierId);
-    const part = order.parts.find((item) => item.id === activeOrderPartLink.partId);
-    if (linkedSupplier && order.brand && part) {
-      const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
-      const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
-      const nextModels = mergeUniqueStrings(linkedSupplier.models || [], [order.model || '']);
-      const nextYears = mergeUniqueYears(linkedSupplier.years || [], [Number(order.year)]);
-      const updatedSupplier = {
-        ...linkedSupplier,
-        mainBrands: nextBrands,
-        brands: nextBrands,
-        primaryBrand: linkedSupplier.primaryBrand || order.brand,
-        models: nextModels,
-        years: nextYears,
-        activeOrderIds: Array.from(new Set([...(linkedSupplier.activeOrderIds || []), order.id])),
-        linkedParts: upsertLinkedPartEntry(linkedSupplier.linkedParts || [], {
-          id: createUuid(),
-          orderId: order.id,
-          orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
-          partId: part.id,
-          partName: part.name,
-          status: 'searching',
-          source: 'manual',
-          updatedAt: Date.now()
-        }),
+
+    const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
+    const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
+    const nextModels = mergeUniqueStrings(linkedSupplier.models || [], [order.model || '']);
+    const nextYears = mergeUniqueYears(linkedSupplier.years || [], [Number(order.year)]);
+    const updatedSupplier = {
+      ...linkedSupplier,
+      mainBrands: nextBrands,
+      brands: nextBrands,
+      primaryBrand: linkedSupplier.primaryBrand || order.brand,
+      models: nextModels,
+      years: nextYears,
+      activeOrderIds: Array.from(new Set([...(linkedSupplier.activeOrderIds || []), order.id])),
+      linkedParts: upsertLinkedPartEntry(linkedSupplier.linkedParts || [], {
+        id: createUuid(),
+        orderId: order.id,
+        orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
+        partId: part.id,
+        partName: part.name,
+        status: 'searching',
+        source: 'manual',
         updatedAt: Date.now()
-      };
-      updateSupplier(updatedSupplier);
-      void upsertSupplierToShops(updatedSupplier);
-    }
+      }),
+      updatedAt: Date.now()
+    };
+    updateSupplier(updatedSupplier);
+    void upsertSupplierToShops(updatedSupplier);
+
     refreshManualSelections();
     setActiveOrderPartLink(null);
     alert('Деталь добавлена в блок активных заказов поставщика.');
@@ -1207,11 +1225,11 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                       </button>
 
                       <div className="grid grid-cols-2 gap-2">
-                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : ''} onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: e.target.value, partId: prev?.partId || '' }))}>
+                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : ''} onChange={(e) => setActiveOrderPartLink({ supplierId: s.id, orderId: e.target.value, partId: '' })}>
                           <option value="">Заказ для детали</option>
                           {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model}</option>)}
                         </select>
-                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.partId : ''} onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: prev?.orderId || selectedOrderBySupplier[s.id] || '', partId: e.target.value }))}>
+                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.partId : ''} onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: (prev?.supplierId === s.id ? prev.orderId : '') || selectedOrderBySupplier[s.id] || '', partId: e.target.value }))}>
                           <option value="">Деталь</option>
                           {(activeOrders.find((order) => order.id === (activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : selectedOrderBySupplier[s.id]))?.parts || []).map((part) => <option key={part.id} value={part.id}>{part.name}</option>)}
                         </select>
