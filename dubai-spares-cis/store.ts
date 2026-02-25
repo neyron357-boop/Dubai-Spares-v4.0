@@ -90,6 +90,18 @@ const notifySupplierListeners = () => {
   listeners.forEach((listener) => listener());
 };
 
+const appendUniqueTextValue = (values: string[] | undefined, nextValue: string | undefined): string[] => {
+  const cleanedValues = Array.isArray(values)
+    ? values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    : [];
+  const normalizedNextValue = typeof nextValue === 'string' ? nextValue.trim() : '';
+  if (!normalizedNextValue) return cleanedValues;
+  if (cleanedValues.some((value) => value.toLowerCase() === normalizedNextValue.toLowerCase())) {
+    return cleanedValues;
+  }
+  return [...cleanedValues, normalizedNextValue];
+};
+
 const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>['orders']) => {
   if (!Array.isArray(orders) || orders.length === 0) return;
 
@@ -132,11 +144,19 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
           const nextOrderIds = Array.from(new Set([...(existingSupplier.activeOrderIds || []), order.id]));
           const nextPhone = existingSupplier.phone || (typeof variant.phone === 'string' ? variant.phone : '');
           const nextLocation = existingSupplier.location || (typeof variant.location === 'string' ? variant.location : '');
+          const nextBrands = appendUniqueTextValue(existingSupplier.brands, order.brand);
+          const nextMainBrands = appendUniqueTextValue(existingSupplier.mainBrands, order.brand);
+          const nextModels = appendUniqueTextValue(existingSupplier.models, order.model);
+          const nextPrimaryBrand = existingSupplier.primaryBrand || nextMainBrands[0] || '';
 
           const shouldUpdate = !hasLinkedPart
             || nextOrderIds.length !== (existingSupplier.activeOrderIds || []).length
             || nextPhone !== existingSupplier.phone
-            || nextLocation !== existingSupplier.location;
+            || nextLocation !== existingSupplier.location
+            || nextBrands.length !== (existingSupplier.brands || []).length
+            || nextMainBrands.length !== (existingSupplier.mainBrands || []).length
+            || nextModels.length !== (existingSupplier.models || []).length
+            || nextPrimaryBrand !== (existingSupplier.primaryBrand || '');
 
           if (!shouldUpdate) return;
 
@@ -144,6 +164,10 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
             ...existingSupplier,
             phone: nextPhone,
             location: nextLocation,
+            brands: nextBrands,
+            mainBrands: nextMainBrands,
+            primaryBrand: nextPrimaryBrand,
+            models: nextModels,
             linkedParts: nextLinkedParts,
             activeOrderIds: nextOrderIds,
             updatedAt: now,
