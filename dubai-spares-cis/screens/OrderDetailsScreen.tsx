@@ -247,10 +247,50 @@ const OrderDetailsScreen: React.FC = () => {
 
   useEffect(() => () => {
     if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
-    if (markupCommitTimerRef.current) window.clearTimeout(markupCommitTimerRef.current);
-    if (exchangeRateCommitTimerRef.current) window.clearTimeout(exchangeRateCommitTimerRef.current);
-    Object.values(deferredFieldTimersRef.current).forEach((timerId) => { if (timerId) window.clearTimeout(timerId); });
-  }, []);
+
+    if (markupCommitTimerRef.current) {
+      window.clearTimeout(markupCommitTimerRef.current);
+      markupCommitTimerRef.current = null;
+      const nextValue = Number(markupFixedInput || 0);
+      const previousValue = Number(order?.markupFixedAed || 0);
+      const previousType = order?.markupType || 'percent';
+      if (order && (nextValue !== previousValue || previousType !== 'fixed')) {
+        void updateOrder({ ...order, markupFixedAed: nextValue, markupType: 'fixed' });
+      }
+    }
+
+    if (exchangeRateCommitTimerRef.current) {
+      window.clearTimeout(exchangeRateCommitTimerRef.current);
+      exchangeRateCommitTimerRef.current = null;
+      const normalizedRate = parseFloat(String(rateInput).replace(',', '.'));
+      if (order && Number.isFinite(normalizedRate) && normalizedRate > 0 && normalizedRate !== Number(order.exchangeRate || 0)) {
+        void updateOrder({ ...order, exchangeRate: normalizedRate });
+      }
+    }
+
+    Object.keys(deferredFieldTimersRef.current).forEach((field) => {
+      const typedField = field as keyof Order;
+      const timerId = deferredFieldTimersRef.current[typedField];
+      if (timerId) window.clearTimeout(timerId);
+      const pendingValue = deferredFieldValuesRef.current[typedField];
+      if (pendingValue !== undefined && order) {
+        void updateOrder({ ...order, [typedField]: pendingValue });
+      }
+    });
+
+    if (order) {
+      const nextLogistics = {
+        ...order.logistics,
+        deliveryAed: Number(logisticsDraft.deliveryAed || 0),
+        packingAed: Number(logisticsDraft.packingAed || 0),
+        serviceFeeAed: Number(logisticsDraft.serviceFeeAed || 0)
+      };
+      const hasLogisticsChanges = (['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).some((field) => Number(order.logistics?.[field] || 0) !== Number(nextLogistics[field] || 0));
+      if (hasLogisticsChanges) {
+        void updateOrder({ ...order, logistics: nextLogistics });
+      }
+    }
+  }, [logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, markupFixedInput, order, rateInput, updateOrder]);
 
   useEffect(() => {
     if (!toast) return;
@@ -815,6 +855,14 @@ const OrderDetailsScreen: React.FC = () => {
     scheduleDebouncedSaveLog();
     setToast({ message: 'Логистика сохранена' });
   }, [hasPendingLogisticsChanges, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, order, scheduleDebouncedSaveLog, updateOrder]);
+
+  useEffect(() => {
+    if (!isEditMode || !hasPendingLogisticsChanges) return;
+    const timer = window.setTimeout(() => {
+      saveLogisticsDraft();
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [hasPendingLogisticsChanges, isEditMode, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, saveLogisticsDraft]);
 
   const updateLogisticsField = (field: 'deliveryType', value: string) => {
     if (!isEditMode) return value;
