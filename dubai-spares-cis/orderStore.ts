@@ -334,7 +334,25 @@ const ORDER_PAGE_SIZE = 50;
 const mutationTimers = new Map<string, number>();
 const localCommitTimers = new Map<string, number>();
 const networkFlushTimerMs = 3000;
-const hotFieldKeys: Array<keyof Order> = ['markupPercent', 'markupType', 'markupFixedAed', 'exchangeRate', 'clientCurrency', 'fxUpdatedAt', 'logistics', 'pricingEvents', 'isVip', 'isPinned', 'customerStatus', 'updatedAt'];
+const hotFieldKeys: Array<keyof Order> = [
+  'markupPercent',
+  'markupType',
+  'markupFixedAed',
+  'exchangeRate',
+  'clientCurrency',
+  'fxUpdatedAt',
+  'logistics',
+  'pricingEvents',
+  'isVip',
+  'isPinned',
+  'customerStatus',
+  'status',
+  'salesStatus',
+  'isSold',
+  'isArchived',
+  'soldProfitUsd',
+  'updatedAt'
+];
 let cachedQueueLength = 0;
 let syncPausedUntil = 0;
 let syncMutex: Promise<void> = Promise.resolve();
@@ -1084,6 +1102,11 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   pricing_events: patch.pricingEvents,
   is_vip: typeof patch.isVip === 'boolean' ? patch.isVip : undefined,
   is_pinned: typeof patch.isPinned === 'boolean' ? patch.isPinned : undefined,
+  status: patch.status,
+  sales_status: patch.salesStatus,
+  is_sold: typeof patch.isSold === 'boolean' ? patch.isSold : undefined,
+  is_archived: typeof patch.isArchived === 'boolean' ? patch.isArchived : undefined,
+  sold_profit_usd: typeof patch.soldProfitUsd === 'number' ? patch.soldProfitUsd : undefined,
   customer_status: patch.customerStatus,
   updated_at: toIsoTimestamp(patch.updatedAt || Date.now())
 });
