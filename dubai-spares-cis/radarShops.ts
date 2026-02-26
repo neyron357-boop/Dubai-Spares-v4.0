@@ -601,7 +601,10 @@ const fetchSuppliersEnriched = async (): Promise<Supplier[]> => {
     const { data, error } = await supabase
       .from('v_shops_enriched')
       .select('id,name,phone,whatsapp,location,latitude,longitude,zone,shop_type,heat_level,metrics_heat_level,auto_trust_score,manual_trust_level,success_rate,last_interaction_at,total_interactions,total_found,total_not_found,total_wrong_info,has_delivery,fast_whatsapp,main_brands,specialization_models,specialization_years,specialization_body_types,specialization_brands,specialization_categories,status,is_active,created_at,updated_at')
-      .order('updated_at', { ascending: false })
+      // Stable ordering is required for offset pagination.
+      // If we sort only by updated_at, rows with equal timestamps can be skipped between pages.
+      .order('updated_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: true })
       .range(from, from + SUPPLIER_PAGE_SIZE - 1);
 
     if (error || !Array.isArray(data)) {
@@ -625,6 +628,7 @@ const fetchSuppliersFallback = async (): Promise<Supplier[]> => {
     const { data, error } = await supabase
       .from('shops')
       .select('*')
+      .order('updated_at', { ascending: false, nullsFirst: false })
       .order('id', { ascending: true })
       .range(from, from + SUPPLIER_PAGE_SIZE - 1);
 
