@@ -35,6 +35,7 @@ import { optimizeImageForUpload } from '../storage/photos';
 interface OfferFormState {
   priceAed: string;
   shopName: string;
+  supplierId?: string;
   phone: string;
   locationText: string;
   mapsUrl: string;
@@ -48,6 +49,7 @@ interface OfferFormState {
 const DEFAULT_FORM: OfferFormState = {
   priceAed: '',
   shopName: '',
+  supplierId: undefined,
   phone: '+971',
   locationText: '',
   mapsUrl: '',
@@ -258,6 +260,7 @@ const PartDetailsScreen: React.FC = () => {
     setForm((prev) => ({
       ...prev,
       shopName: supplier.name,
+      supplierId: supplier.id,
       phone: supplier.phone || prev.phone,
       locationText: supplier.location || prev.locationText
     }));
@@ -321,7 +324,11 @@ const PartDetailsScreen: React.FC = () => {
 
     setIsResolvingLocation(true);
     try {
-      const existingSupplier = suppliers.find((s) => s.name.toLowerCase() === form.shopName.toLowerCase());
+      const normalizedShopName = form.shopName.trim().toLowerCase();
+      const existingSupplier = suppliers.find((s) => {
+        if (form.supplierId && s.id === form.supplierId) return true;
+        return s.name.trim().toLowerCase() === normalizedShopName;
+      });
       const locationSource = form.mapsUrl || form.locationText;
       const resolvedCoordinates = await resolveCoordinatesFromLocation(locationSource, {
         fallbackQueries: buildShopFallbackQueries(),
@@ -337,7 +344,7 @@ const PartDetailsScreen: React.FC = () => {
         const nextBodyTypes = mergeUniqueStrings([], [order.bodyType || '']);
         const newSupplier = {
           id: createUuid(),
-          name: form.shopName,
+          name: form.shopName.trim(),
           phone: form.phone,
           location: form.locationText,
           type: form.condition === 'new' ? 'new_parts' : 'scrapyard',
@@ -638,7 +645,7 @@ const PartDetailsScreen: React.FC = () => {
                 <label className="text-xs font-black text-gray-700">Магазин</label>
                 <div className="flex items-center gap-2 h-12 px-3 mt-1 border border-gray-200 rounded-xl">
                   <Store size={16} className="text-gray-500" />
-                  <input value={form.shopName} onChange={(e) => { handleFormPatch('shopName', e.target.value); setShowSuggestions(true); }} className="flex-1 bg-transparent outline-none text-sm font-bold" placeholder="Поиск или новый магазин" />
+                  <input value={form.shopName} onChange={(e) => { handleFormPatch('shopName', e.target.value); handleFormPatch('supplierId', undefined); setShowSuggestions(true); }} className="flex-1 bg-transparent outline-none text-sm font-bold" placeholder="Поиск или новый магазин" />
                 </div>
                 {showSuggestions && form.shopName && filteredSuppliers.length > 0 && (
                   <div className="absolute top-16 left-0 right-0 z-20 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
