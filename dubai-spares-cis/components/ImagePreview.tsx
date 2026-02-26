@@ -14,8 +14,24 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDeleteCurrent, deleteLabel = 'Удалить' }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const panStartRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
   const pinchStateRef = useRef<{ distance: number; zoom: number } | null>(null);
+
+  const resetTransform = () => {
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+  };
+
+  const clampOffset = (nextZoom: number, x: number, y: number) => {
+    if (nextZoom <= 1.01) return { x: 0, y: 0 };
+    const limit = ((nextZoom - 1) * 100) / 2;
+    return {
+      x: clamp(x, -limit, limit),
+      y: clamp(y, -limit, limit)
+    };
+  };
 
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < images.length - 1;
@@ -23,13 +39,19 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
   const goPrev = () => {
     if (!hasPrev) return;
     setCurrentIndex((prev) => prev - 1);
-    setZoom(1);
+    resetTransform();
   };
 
   const goNext = () => {
     if (!hasNext) return;
     setCurrentIndex((prev) => prev + 1);
-    setZoom(1);
+    resetTransform();
+  };
+
+  const updateZoom = (nextZoomValue: number) => {
+    const nextZoom = clamp(Number(nextZoomValue.toFixed(3)), 1, 4);
+    setZoom(nextZoom);
+    setOffset((prev) => clampOffset(nextZoom, prev.x, prev.y));
   };
 
   useEffect(() => {
@@ -37,8 +59,8 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
       if (e.key === 'Escape') onClose();
       if (e.key === 'ArrowRight') goNext();
       if (e.key === 'ArrowLeft') goPrev();
-      if (e.key === '+') setZoom((value) => clamp(Number((value + 0.2).toFixed(2)), 1, 4));
-      if (e.key === '-') setZoom((value) => clamp(Number((value - 0.2).toFixed(2)), 1, 4));
+      if (e.key === '+') updateZoom(zoom + 0.2);
+      if (e.key === '-') updateZoom(zoom - 0.2);
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -54,9 +76,9 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
       </button>
 
       <div className="absolute top-6 left-6 z-50 flex items-center gap-2 rounded-full border border-white/20 bg-black/35 px-2 py-1">
-        <button type="button" onClick={(e) => { e.stopPropagation(); setZoom((value) => clamp(Number((value - 0.2).toFixed(2)), 1, 4)); }} className="p-1 text-white/90 disabled:opacity-40" disabled={zoom <= 1}><ZoomOut size={16} /></button>
+        <button type="button" onClick={(e) => { e.stopPropagation(); updateZoom(zoom - 0.2); }} className="p-1 text-white/90 disabled:opacity-40" disabled={zoom <= 1}><ZoomOut size={16} /></button>
         <span className="text-[11px] font-bold text-white min-w-[44px] text-center">{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={(e) => { e.stopPropagation(); setZoom((value) => clamp(Number((value + 0.2).toFixed(2)), 1, 4)); }} className="p-1 text-white/90 disabled:opacity-40" disabled={zoom >= 4}><ZoomIn size={16} /></button>
+        <button type="button" onClick={(e) => { e.stopPropagation(); updateZoom(zoom + 0.2); }} className="p-1 text-white/90 disabled:opacity-40" disabled={zoom >= 4}><ZoomIn size={16} /></button>
       </div>
 
       {typeof onDeleteCurrent === 'function' && (
@@ -90,7 +112,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
           if (!e.ctrlKey) return;
           e.preventDefault();
           const direction = e.deltaY > 0 ? -0.15 : 0.15;
-          setZoom((value) => clamp(Number((value + direction).toFixed(2)), 1, 4));
+          updateZoom(zoom + direction);
         }}
         onTouchStart={(e) => {
           if (e.touches.length === 2) {
@@ -98,26 +120,46 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
             const distance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
             pinchStateRef.current = { distance, zoom };
             touchStartRef.current = null;
+            panStartRef.current = null;
             return;
           }
 
-          if (e.touches.length === 1 && zoom <= 1.01) {
+          if (e.touches.length === 1) {
             const touch = e.touches[0];
-            touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+            if (zoom > 1.01) {
+              panStartRef.current = { x: touch.clientX, y: touch.clientY, offsetX: offset.x, offsetY: offset.y };
+              touchStartRef.current = null;
+            } else {
+              touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+              panStartRef.current = null;
+            }
           }
         }}
         onTouchMove={(e) => {
-          if (e.touches.length !== 2 || !pinchStateRef.current) return;
-          e.preventDefault();
-          const [first, second] = [e.touches[0], e.touches[1]];
-          const distance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
-          const ratio = distance / Math.max(1, pinchStateRef.current.distance);
-          const nextZoom = clamp(Number((pinchStateRef.current.zoom * ratio).toFixed(2)), 1, 4);
-          setZoom(nextZoom);
+          if (e.touches.length === 2 && pinchStateRef.current) {
+            e.preventDefault();
+            const [first, second] = [e.touches[0], e.touches[1]];
+            const distance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+            const ratio = distance / Math.max(1, pinchStateRef.current.distance);
+            updateZoom(pinchStateRef.current.zoom * ratio);
+            return;
+          }
+
+          if (e.touches.length === 1 && panStartRef.current && zoom > 1.01) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const dx = touch.clientX - panStartRef.current.x;
+            const dy = touch.clientY - panStartRef.current.y;
+            setOffset(clampOffset(zoom, panStartRef.current.offsetX + dx / zoom, panStartRef.current.offsetY + dy / zoom));
+          }
         }}
         onTouchEnd={(e) => {
           if (e.touches.length < 2) {
             pinchStateRef.current = null;
+          }
+
+          if (e.touches.length === 0) {
+            panStartRef.current = null;
           }
 
           if (!touchStartRef.current || zoom > 1.01) return;
@@ -135,8 +177,8 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
         <img
           src={images[currentIndex]}
           alt={`Preview ${currentIndex + 1}`}
-          className="max-w-full max-h-full object-contain transition-transform duration-150 ease-out"
-          style={{ transform: `scale(${zoom})` }}
+          className="max-w-full max-h-full object-contain"
+          style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})` }}
           draggable={false}
         />
       </div>
