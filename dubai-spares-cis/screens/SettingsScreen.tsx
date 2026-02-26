@@ -433,14 +433,35 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
-  const buildSnapshotUrl = (row: { id: string; token: string; snapshot_id?: string | null }) => {
-    const snapshotId = String(row.snapshot_id || row.id || '').trim();
+  const buildSnapshotPublicKey = (row: { id: string; token: string; snapshot_id?: string | null }) => {
     const token = String(row.token || '').trim();
-    return `${window.location.origin}${window.location.pathname}#/public-quote/${encodeURIComponent(token)}${snapshotId ? `?snapshot=${encodeURIComponent(snapshotId)}` : ''}`;
+    const snapshotId = String(row.snapshot_id || row.id || '').trim();
+    if (!token) return '';
+    return snapshotId ? `${token}.${snapshotId}` : token;
   };
 
-  const copySnapshotUrl = async (row: { id: string; token: string; snapshot_id?: string | null }) => {
-    const token = String(row.token || '').trim();
+  const buildSnapshotSlug = (row: { payload_json?: unknown; order_id?: string | null }) => {
+    const payload = row.payload_json && typeof row.payload_json === 'object' && !Array.isArray(row.payload_json)
+      ? row.payload_json as Record<string, unknown>
+      : {};
+    const order = payload.order && typeof payload.order === 'object' && !Array.isArray(payload.order)
+      ? payload.order as Record<string, unknown>
+      : {};
+    const brand = typeof order.brand === 'string' ? order.brand.trim() : '';
+    const model = typeof order.model === 'string' ? order.model.trim() : '';
+    const year = typeof order.year === 'string' || typeof order.year === 'number' ? String(order.year).trim() : '';
+    const slug = [brand, model, year].filter(Boolean).join('-').replace(/\s+/g, '-').toLowerCase();
+    return slug || String(row.order_id || 'quote').trim() || 'quote';
+  };
+
+  const buildSnapshotUrl = (row: { id: string; token: string; snapshot_id?: string | null; payload_json?: unknown; order_id?: string | null }) => {
+    const key = buildSnapshotPublicKey(row);
+    const slug = buildSnapshotSlug(row);
+    return `${window.location.origin}/#/q/${encodeURIComponent(slug)}${key ? `?k=${encodeURIComponent(key)}` : ''}`;
+  };
+
+  const copySnapshotUrl = async (row: { id: string; token: string; snapshot_id?: string | null; payload_json?: unknown; order_id?: string | null }) => {
+    const token = buildSnapshotPublicKey(row);
     const url = buildSnapshotUrl(row);
     await navigator.clipboard.writeText(url);
     setSnapshotNotice(`Ссылка скопирована: ${token}`);
@@ -451,9 +472,12 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
   const payload = row.payload_json && typeof row.payload_json === 'object' && !Array.isArray(row.payload_json)
     ? row.payload_json as Record<string, unknown>
     : {};
-  const brand = typeof payload.brand === 'string' ? payload.brand.trim() : '';
-  const model = typeof payload.model === 'string' ? payload.model.trim() : '';
-  const year = typeof payload.year === 'string' || typeof payload.year === 'number' ? String(payload.year).trim() : '';
+  const order = payload.order && typeof payload.order === 'object' && !Array.isArray(payload.order)
+    ? payload.order as Record<string, unknown>
+    : {};
+  const brand = typeof order.brand === 'string' ? order.brand.trim() : '';
+  const model = typeof order.model === 'string' ? order.model.trim() : '';
+  const year = typeof order.year === 'string' || typeof order.year === 'number' ? String(order.year).trim() : '';
   const label = [brand, model, year].filter(Boolean).join(' ');
   if (label) return label;
   if (typeof row.order_id === 'string' && row.order_id.trim()) return `Order ${row.order_id.trim()}`;
