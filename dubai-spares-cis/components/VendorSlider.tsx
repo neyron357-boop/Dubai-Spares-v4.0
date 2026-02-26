@@ -6,6 +6,7 @@ import { Priority, type Order, type Part } from '../types';
 import { vibrate } from '../feedback';
 import ImagePreview from './ImagePreview';
 import SafeImage from './SafeImage';
+import { SupplierSlidesErrorBoundary } from './SupplierSlidesErrorBoundary';
 
 const priorityWeight = {
   [Priority.HIGH]: 3,
@@ -25,7 +26,7 @@ const sanitizeImages = (values: Array<unknown>) => {
     });
 };
 
-const VendorSlider: React.FC = () => {
+const VendorSliderContent: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { orders } = useStore();
@@ -187,5 +188,11 @@ const VendorSlider: React.FC = () => {
     </div>
   );
 };
+
+const VendorSlider: React.FC = () => (
+  <SupplierSlidesErrorBoundary>
+    <VendorSliderContent />
+  </SupplierSlidesErrorBoundary>
+);
 
 export default VendorSlider;
