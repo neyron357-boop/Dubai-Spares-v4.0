@@ -621,51 +621,12 @@ const fetchSuppliersFallback = async (): Promise<Supplier[]> => {
   const rows: any[] = [];
   let from = 0;
 
-  const selectCandidates = [
-    {
-      select: 'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,metrics_heat_level,specialization,main_brands,specialization_models,specialization_years,specialization_body_types,specialization_brands,specialization_categories,created_at,updated_at',
-      orderByUpdatedAt: true
-    },
-    {
-      select: 'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,main_brands,specialization_models,specialization_years,specialization_body_types,specialization,status,is_active,created_at,updated_at',
-      orderByUpdatedAt: true
-    },
-    {
-      select: 'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,main_brands,specialization_models,specialization_years,specialization_body_types,specialization,created_at',
-      orderByUpdatedAt: false
-    },
-    {
-      select: 'id,name,phone,location,latitude,longitude,shop_type,zone,specialization,specialization_models,specialization_years',
-      orderByUpdatedAt: false
-    },
-    {
-      // Keep the last fallback schema-light: after radar-related migrations were removed,
-      // some specialization/metrics columns may not exist anymore.
-      select: 'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,created_at,updated_at',
-      orderByUpdatedAt: false
-    }
-  ] as const;
-
   while (true) {
-    let data: any[] | null = null;
-    let error: any = null;
-
-    for (const candidate of selectCandidates) {
-      let query = supabase
-        .from('shops')
-        .select(candidate.select)
-        .range(from, from + SUPPLIER_PAGE_SIZE - 1);
-      if (candidate.orderByUpdatedAt) {
-        query = query.order('updated_at', { ascending: false });
-      }
-      const response = await query;
-      if (!response.error && Array.isArray(response.data)) {
-        data = response.data;
-        error = null;
-        break;
-      }
-      error = response.error;
-    }
+    const { data, error } = await supabase
+      .from('shops')
+      .select('*')
+      .order('id', { ascending: true })
+      .range(from, from + SUPPLIER_PAGE_SIZE - 1);
 
     if (error || !Array.isArray(data)) {
       void logger.warn('shops:fetch-suppliers', 'Failed to fetch suppliers from shops', { error: error?.message });
