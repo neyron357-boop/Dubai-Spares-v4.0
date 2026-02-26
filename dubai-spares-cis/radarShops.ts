@@ -570,6 +570,27 @@ const mapShopRowToSupplier = (row: any): Supplier => {
   };
 };
 
+const mergeSuppliersPreferFilled = (base: Supplier, incoming: Supplier): Supplier => {
+  const incomingUpdatedAt = Number(incoming.updatedAt || 0);
+  const baseUpdatedAt = Number(base.updatedAt || 0);
+  const preferIncomingScalars = incomingUpdatedAt >= baseUpdatedAt;
+
+  return {
+    ...base,
+    ...(preferIncomingScalars ? incoming : {}),
+    ...(preferIncomingScalars ? {} : incoming),
+    brands: incoming.brands.length > 0 ? incoming.brands : base.brands,
+    mainBrands: (incoming.mainBrands || []).length > 0 ? incoming.mainBrands : base.mainBrands,
+    models: (incoming.models || []).length > 0 ? incoming.models : base.models,
+    years: (incoming.years || []).length > 0 ? incoming.years : base.years,
+    bodyTypes: (incoming.bodyTypes || []).length > 0 ? incoming.bodyTypes : base.bodyTypes,
+    mainPartCategories: (incoming.mainPartCategories || []).length > 0 ? incoming.mainPartCategories : base.mainPartCategories,
+    coordinates: incoming.coordinates || base.coordinates,
+    phone: incoming.phone || base.phone,
+    location: incoming.location || base.location
+  };
+};
+
 const fetchSuppliersEnriched = async (): Promise<Supplier[]> => {
   if (!supabase) return [];
 
@@ -579,7 +600,7 @@ const fetchSuppliersEnriched = async (): Promise<Supplier[]> => {
   while (true) {
     const { data, error } = await supabase
       .from('v_shops_enriched')
-      .select('id,name,phone,whatsapp,location,latitude,longitude,zone,shop_type,heat_level,metrics_heat_level,auto_trust_score,manual_trust_level,success_rate,last_interaction_at,total_interactions,total_found,total_not_found,total_wrong_info,has_delivery,fast_whatsapp,main_brands,specialization_models,specialization_years,specialization_body_types,specialization_brands,specialization_categories,created_at,updated_at')
+      .select('id,name,phone,whatsapp,location,latitude,longitude,zone,shop_type,heat_level,metrics_heat_level,auto_trust_score,manual_trust_level,success_rate,last_interaction_at,total_interactions,total_found,total_not_found,total_wrong_info,has_delivery,fast_whatsapp,main_brands,specialization_models,specialization_years,specialization_body_types,specialization_brands,specialization_categories,status,is_active,created_at,updated_at')
       .order('updated_at', { ascending: false })
       .range(from, from + SUPPLIER_PAGE_SIZE - 1);
 
@@ -606,7 +627,7 @@ const fetchSuppliersFallback = async (): Promise<Supplier[]> => {
       orderByUpdatedAt: true
     },
     {
-      select: 'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,main_brands,specialization_models,specialization_years,specialization_body_types,specialization,created_at,updated_at',
+      select: 'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,main_brands,specialization_models,specialization_years,specialization_body_types,specialization,status,is_active,created_at,updated_at',
       orderByUpdatedAt: true
     },
     {
@@ -673,7 +694,7 @@ export const getSuppliersEnriched = async (): Promise<Supplier[]> => {
     enriched.forEach((supplier) => {
       const key = String(supplier.id);
       const base = merged.get(key);
-      merged.set(key, base ? { ...base, ...supplier } : supplier);
+      merged.set(key, base ? mergeSuppliersPreferFilled(base, supplier) : supplier);
     });
 
     return Array.from(merged.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
