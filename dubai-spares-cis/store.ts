@@ -107,10 +107,11 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
 
   let hasUpdates = false;
   const byName = new Map<string, Supplier>();
+  const byId = new Map<string, Supplier>();
   globalSuppliers.forEach((supplier) => {
     const key = supplier.name.trim().toLowerCase();
-    if (!key) return;
-    byName.set(key, supplier);
+    if (key) byName.set(key, supplier);
+    if (supplier.id) byId.set(supplier.id, supplier);
   });
 
   const collected: Supplier[] = [];
@@ -133,7 +134,7 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
           updatedAt: now
         };
 
-        const existingSupplier = byName.get(key);
+        const existingSupplier = (variant.shopId && byId.get(String(variant.shopId))) || byName.get(key);
         if (existingSupplier) {
           const existingLinkedParts = Array.isArray(existingSupplier.linkedParts) ? existingSupplier.linkedParts : [];
           const hasLinkedPart = existingLinkedParts.some((item) => item.orderId === order.id && item.partId === part.id);
@@ -181,6 +182,7 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
 
           globalSuppliers = globalSuppliers.map((supplier) => supplier.id === updatedSupplier.id ? updatedSupplier : supplier);
           byName.set(key, updatedSupplier);
+          byId.set(updatedSupplier.id, updatedSupplier);
           hasUpdates = true;
           return;
         }
@@ -207,6 +209,7 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
         });
 
         byName.set(key, supplierFromVariant);
+        byId.set(supplierFromVariant.id, supplierFromVariant);
         collected.push(supplierFromVariant);
       });
     });
