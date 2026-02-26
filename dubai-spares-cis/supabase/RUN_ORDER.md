@@ -17,6 +17,10 @@ Fallback: run `supabase/idempotent_normalize_all_tables.sql` — it is always sa
 > It adds missing `public.shops` columns and restores the correct `anon` UPDATE
 > policy on `public.public_quote_snapshots`.
 
+> **If Suppliers DB misses shops that exist in `public.shops` (inactive/status rows hidden)**, also run
+> `supabase/migrations/20260626100000_normalize_shops_visibility_and_suppliers_view.sql`.
+> It removes legacy status-based RLS filters and rebuilds `v_shops_enriched` to expose all shops rows.
+
 ## Verify after migration
 
 - Tables: `orders`, `parts`, `price_variants`, `shops`, `push_subscriptions`, `public_quote_snapshots`, `client_leads`, `backups`, `backups_meta`, `app_state`, `app_config`.
@@ -37,6 +41,7 @@ Fallback: run `supabase/idempotent_normalize_all_tables.sql` — it is always sa
 | Public quote 404 / blank | Wrong anon key format in `.env` | Replace with new project's `eyJ…` JWT key (from Supabase dashboard → Project Settings → API) |
 | Public quote shows "Not found" even for valid links | `quote_select_anon` / `quote_update_anon` policy missing or wrong role | Run `20260410120000_fix_shops_columns_and_quote_rls.sql` |
 | Suppliers don't save to server | `public.shops` table missing new columns (`location`, `shop_type`, etc.) | Run `20260410120000_fix_shops_columns_and_quote_rls.sql` |
+| Supplier cards show only part of shops list | Legacy shops RLS/view filters by `is_active`/status | Run `20260626100000_normalize_shops_visibility_and_suppliers_view.sql` |
 | Photos stay `local://` | `isCloudConfigured = false` | Check URL + key in `.env` |
 | Policy already exists error | Migration not idempotent | Use `20260409130000_master_idempotent_setup.sql` |
 | storage.objects permission denied | Insufficient role | The DO block skips this — grant manually as project owner |
