@@ -321,7 +321,7 @@ export const restoreDataExternal = (data: any) => {
 export const useStore = () => {
   const [version, setVersion] = useState(0);
 
-  const { orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, fetchOrders } = useOrderStore();
+  const { orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, fetchOrders } = useOrderStore();
 
   useEffect(() => {
     const listener = () => setVersion((v) => v + 1);
@@ -334,8 +334,9 @@ export const useStore = () => {
   }, []);
 
   useEffect(() => {
+    if (!isHydrated || isLoading) return;
     syncSuppliersFromOrderVariants(orders);
-  }, [orders]);
+  }, [orders, isHydrated, isLoading]);
 
   const addSupplier = useCallback((supplier: Supplier) => {
     globalSuppliers = [normalizeSupplier(supplier), ...globalSuppliers];
@@ -376,6 +377,7 @@ export const useStore = () => {
   return useMemo(() => ({
     orders,
     isLoading,
+    isHydrated,
     error,
     suppliers: globalSuppliers,
     addOrder,
@@ -393,5 +395,5 @@ export const useStore = () => {
     syncOrders: fetchOrders,
     fetchOrderDetails,
     lastSuppliersSyncError
-  }), [version, orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders, fetchOrderDetails]);
+  }), [version, orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders, fetchOrderDetails]);
 };
