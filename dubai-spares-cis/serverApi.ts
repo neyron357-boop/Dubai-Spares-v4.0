@@ -77,8 +77,6 @@ const saveLeadsSyncVariant = (variantIndex: number) => {
 const toErrorMessage = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
 
 const asObject = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {});
-const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-
 const isSchemaMismatchErrorText = (message: string) => {
   const probe = message.toLowerCase();
   return probe.includes('schema cache') || probe.includes('schema_mismatch') || probe.includes('pgrst205') || probe.includes('public.orders') || probe.includes('public.shops');
@@ -716,15 +714,13 @@ export const purgePublicLeadArtifacts = async (
     if (!removeLeadByOrderId.ok) return recordCall('purgePublicLeadArtifacts', removeLeadByOrderId);
     removedLeadRows += Array.isArray(removeLeadByOrderId.data) ? removeLeadByOrderId.data.length : 0;
 
-    if (isUuid(normalizedOrderId)) {
-      const removeLeadById = await callRest<unknown[]>('client_leads?select=id&id=eq.' + encodeURIComponent(normalizedOrderId), 'DELETE', undefined, {
-        ...(options || {}),
-        timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
-        preferRepresentation: true
-      });
-      if (!removeLeadById.ok) return recordCall('purgePublicLeadArtifacts', removeLeadById);
-      removedLeadRows += Array.isArray(removeLeadById.data) ? removeLeadById.data.length : 0;
-    }
+    const removeLeadById = await callRest<unknown[]>('client_leads?select=id&id=eq.' + encodeURIComponent(normalizedOrderId), 'DELETE', undefined, {
+      ...(options || {}),
+      timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
+      preferRepresentation: true
+    });
+    if (!removeLeadById.ok) return recordCall('purgePublicLeadArtifacts', removeLeadById);
+    removedLeadRows += Array.isArray(removeLeadById.data) ? removeLeadById.data.length : 0;
 
     const removeSnapshotsByOrderId = await callRest<unknown[]>('public_quote_snapshots?select=token&order_id=eq.' + encodeURIComponent(normalizedOrderId), 'DELETE', undefined, {
       ...(options || {}),
