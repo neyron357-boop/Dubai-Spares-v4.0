@@ -48,9 +48,34 @@ create policy "authenticated_write_shops"
   with check (true);
 
 -- 4) Rebuild enriched suppliers view to guarantee no status/is_active filter.
-create or replace view public.v_shops_enriched as
+-- Use DROP + CREATE (instead of CREATE OR REPLACE) to avoid PostgreSQL
+-- column-position conflicts on projects where an older view shape exists.
+drop view if exists public.v_shops_enriched;
+
+create view public.v_shops_enriched as
 select
-  s.*,
+  s.id,
+  s.name,
+  s.phone,
+  s.whatsapp,
+  s.location,
+  s.latitude,
+  s.longitude,
+  s.zone,
+  s.shop_type,
+  s.heat_level,
+  s.main_brands,
+  s.specialization,
+  s.specialization_models,
+  s.specialization_years,
+  s.specialization_body_types,
+  s.specialization_tag,
+  s.needs_manual_fix,
+  s.status,
+  s.is_active,
+  s.is_archived,
+  s.created_at,
+  s.updated_at,
   m.total_interactions,
   m.total_found,
   m.total_not_found,
