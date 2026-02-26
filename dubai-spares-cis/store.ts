@@ -230,35 +230,15 @@ export const syncSuppliersFromServer = async (force = false) => {
   try {
     const serverSuppliers = await fetchSuppliersFromShops();
     supplierLastSyncedAt = Date.now();
-    if (serverSuppliers.length === 0) return;
-    const merged = new Map<string, Supplier>();
-    globalSuppliers.forEach((supplier) => merged.set(supplier.id, normalizeSupplier(supplier)));
+    // Требование: список поставщиков в приложении должен полностью совпадать
+    // с таблицей shops (по id, без исключений по статусам и локальным остаткам).
+    // Поэтому синхронизация строит снимок ТОЛЬКО из серверных данных.
+    const dedupedById = new Map<string, Supplier>();
     serverSuppliers.forEach((supplier) => {
       const normalizedServer = normalizeSupplier(supplier);
-      const local = merged.get(normalizedServer.id);
-      if (!local) {
-        merged.set(normalizedServer.id, normalizedServer);
-        return;
-      }
-      const mergedBrands = normalizedServer.brands.length > 0 ? normalizedServer.brands : local.brands;
-      const mergedMainBrands = normalizedServer.mainBrands.length > 0 ? normalizedServer.mainBrands : local.mainBrands;
-      const mergedModels = normalizedServer.models.length > 0 ? normalizedServer.models : local.models;
-      const mergedYears = normalizedServer.years.length > 0 ? normalizedServer.years : local.years;
-      const mergedBodyTypes = normalizedServer.bodyTypes.length > 0 ? normalizedServer.bodyTypes : local.bodyTypes;
-      merged.set(normalizedServer.id, {
-        ...local,
-        ...normalizedServer,
-        brands: mergedBrands,
-        mainBrands: mergedMainBrands,
-        models: mergedModels,
-        years: mergedYears,
-        bodyTypes: mergedBodyTypes,
-        primaryBrand: normalizedServer.primaryBrand || local.primaryBrand || mergedMainBrands[0] || '',
-        activeOrderIds: normalizedServer.activeOrderIds.length > 0 ? normalizedServer.activeOrderIds : local.activeOrderIds,
-        linkedParts: normalizedServer.linkedParts && normalizedServer.linkedParts.length > 0 ? normalizedServer.linkedParts : local.linkedParts,
-      });
+      dedupedById.set(normalizedServer.id, normalizedServer);
     });
-    const nextSuppliers = Array.from(merged.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+    const nextSuppliers = Array.from(dedupedById.values()).sort((a, b) => String(a.id).localeCompare(String(b.id)));
     if (JSON.stringify(nextSuppliers) !== JSON.stringify(globalSuppliers)) {
       globalSuppliers = nextSuppliers;
       notifySupplierListeners();
