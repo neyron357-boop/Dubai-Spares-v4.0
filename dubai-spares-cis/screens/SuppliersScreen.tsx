@@ -35,6 +35,7 @@ import { createUuid } from '../id';
 import { CAR_DATABASE } from '../carDatabase';
 import { optimizeImageForUpload } from '../storage/photos';
 import { addRadarManualSelection, getRadarManualSelections, RADAR_MANUAL_SELECTIONS_EVENT, removeRadarManualSelection } from '../radarManualSelections';
+import { toast } from '../feedback';
 
 const FIELD_TYPES: Array<{ value: SupplierType; label: string; icon: React.ReactNode }> = [
   { value: 'new_parts', label: 'New Parts', icon: <Gem size={12} /> },
@@ -234,6 +235,7 @@ const SuppliersScreen: React.FC = () => {
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
   const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
+  const [isForceSyncingSuppliers, setIsForceSyncingSuppliers] = useState(false);
 
   const activeOrders = useMemo(
     () => orders.filter((order) => !order.isArchived && !order.isSold),
@@ -874,6 +876,23 @@ const SuppliersScreen: React.FC = () => {
     }
   };
 
+  const forceRefreshSuppliers = async () => {
+    setIsForceSyncingSuppliers(true);
+    try {
+      const result = await syncSuppliersFromServer(true);
+      const fetchedCount = Number(result?.fetchedCount || 0);
+      if (fetchedCount === 0) {
+        toast('Сервер вернул 0 поставщиков. Проверьте фильтры или источник данных.', 'info');
+        return;
+      }
+      toast(`Загружено поставщиков: ${fetchedCount}`, 'success');
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsForceSyncingSuppliers(false);
+    }
+  };
+
   const requiredReady = !!toTitle(name.trim()) && isValidE164(currentPhone) && !!location.trim();
 
   return (
@@ -898,6 +917,16 @@ const SuppliersScreen: React.FC = () => {
           className="w-full pl-11 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm"
         />
       </div>
+
+      <button
+        type="button"
+        onClick={() => void forceRefreshSuppliers()}
+        disabled={isForceSyncingSuppliers}
+        className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm font-bold text-blue-700 inline-flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isForceSyncingSuppliers ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+        {isForceSyncingSuppliers ? 'Загружаю…' : 'Загрузить из сервера поставщиков'}
+      </button>
 
       <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2">
         <p className="text-xs font-bold text-slate-600">Фильтры поставщиков</p>

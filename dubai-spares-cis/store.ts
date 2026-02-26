@@ -243,9 +243,19 @@ const formatSuppliersSyncError = (error: any): string => {
 
 export const getLastSuppliersSyncError = () => lastSuppliersSyncError;
 
+type SuppliersSyncResult = {
+  fetchedCount: number;
+  appliedCount: number;
+  changed: boolean;
+};
+
 export const syncSuppliersFromServer = async (force = false) => {
-  if (supplierSyncInFlight) return;
-  if (!force && Date.now() - supplierLastSyncedAt < SUPPLIER_SYNC_TTL_MS) return;
+  if (supplierSyncInFlight) {
+    return { fetchedCount: 0, appliedCount: globalSuppliers.length, changed: false } satisfies SuppliersSyncResult;
+  }
+  if (!force && Date.now() - supplierLastSyncedAt < SUPPLIER_SYNC_TTL_MS) {
+    return { fetchedCount: 0, appliedCount: globalSuppliers.length, changed: false } satisfies SuppliersSyncResult;
+  }
   supplierSyncInFlight = true;
   try {
     const serverSuppliers = await fetchSuppliersFromShops();
@@ -257,7 +267,7 @@ export const syncSuppliersFromServer = async (force = false) => {
         lastSuppliersSyncError = null;
         notifySupplierListeners();
       }
-      return;
+      return { fetchedCount: 0, appliedCount: globalSuppliers.length, changed: false } satisfies SuppliersSyncResult;
     }
 
     const dedupedById = new Map<string, Supplier>();
@@ -283,7 +293,8 @@ export const syncSuppliersFromServer = async (force = false) => {
       return a.name.localeCompare(b.name);
     });
 
-    if (JSON.stringify(nextSuppliers) !== JSON.stringify(globalSuppliers)) {
+    const changed = JSON.stringify(nextSuppliers) !== JSON.stringify(globalSuppliers);
+    if (changed) {
       globalSuppliers = nextSuppliers;
       notifySupplierListeners();
     }
@@ -291,11 +302,17 @@ export const syncSuppliersFromServer = async (force = false) => {
       lastSuppliersSyncError = null;
       notifySupplierListeners();
     }
+    return {
+      fetchedCount: serverSuppliers.length,
+      appliedCount: nextSuppliers.length,
+      changed
+    } satisfies SuppliersSyncResult;
   } catch (e) {
     lastSuppliersSyncError = formatSuppliersSyncError(e);
     console.error('Failed to sync suppliers from server:', e);
     toast(`Ошибка загрузки поставщиков: ${lastSuppliersSyncError}`, 'error');
     notifySupplierListeners();
+    throw e;
   } finally {
     supplierSyncInFlight = false;
   }
