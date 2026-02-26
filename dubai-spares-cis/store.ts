@@ -220,17 +220,22 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
 };
 
 let supplierSyncInFlight = false;
+let supplierForcePending = false;
 let supplierLastSyncedAt = 0;
 const SUPPLIER_SYNC_TTL_MS = 3 * 60 * 1000;
 
 export const syncSuppliersFromServer = async (force = false) => {
-  if (supplierSyncInFlight) return;
+  if (supplierSyncInFlight) {
+    if (force) supplierForcePending = true;
+    return;
+  }
   if (!force && Date.now() - supplierLastSyncedAt < SUPPLIER_SYNC_TTL_MS) return;
   supplierSyncInFlight = true;
+  supplierForcePending = false;
   try {
     const serverSuppliers = await fetchSuppliersFromShops();
-    supplierLastSyncedAt = Date.now();
     if (serverSuppliers.length === 0) return;
+    supplierLastSyncedAt = Date.now();
     const merged = new Map<string, Supplier>();
     globalSuppliers.forEach((supplier) => merged.set(supplier.id, normalizeSupplier(supplier)));
     serverSuppliers.forEach((supplier) => {
@@ -267,6 +272,10 @@ export const syncSuppliersFromServer = async (force = false) => {
     console.error('Failed to sync suppliers from server:', e);
   } finally {
     supplierSyncInFlight = false;
+    if (supplierForcePending) {
+      supplierForcePending = false;
+      void syncSuppliersFromServer(true);
+    }
   }
 };
 
