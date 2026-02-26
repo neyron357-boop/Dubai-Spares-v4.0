@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore, syncSuppliersFromServer } from '../store';
 import { Supplier, SupplierLinkedPartEntry, SupplierLinkedPartStatus, SupplierType } from '../types';
 import {
-  Search,
   Phone,
   MapPin,
   Store,
@@ -163,8 +162,6 @@ const inferZoneFromCoords = (coords?: { lat: number; lng: number }) => {
 const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, restoreData, orders, updateOrder, updateSupplier, lastSuppliersSyncError } = useStore();
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showFiltersPanel, setShowFiltersPanel] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -208,28 +205,10 @@ const SuppliersScreen: React.FC = () => {
   const [activeOrderPartLink, setActiveOrderPartLink] = useState<{ supplierId: string; orderId: string; partId: string } | null>(null);
   const [selectedOrderBySupplier, setSelectedOrderBySupplier] = useState<Record<string, string>>({});
 
-  const [filterType, setFilterType] = useState<'all' | SupplierType>('all');
-  const [filterActivity, setFilterActivity] = useState<'all' | 'high' | 'medium' | 'low' | 'dormant'>('all');
-  const [filterBrand, setFilterBrand] = useState('all');
-  const [filterGps, setFilterGps] = useState<'all' | 'has' | 'missing'>('all');
-  const [sortBy, setSortBy] = useState<'activity' | 'success' | 'last_contact'>('activity');
-  const [filterPartCategory, setFilterPartCategory] = useState('all');
-  const [quickRadiusKm, setQuickRadiusKm] = useState<'all' | 5 | 10 | 20 | 50>('all');
-  const [quickHasContacts, setQuickHasContacts] = useState(false);
-  const [quickOpenNow, setQuickOpenNow] = useState(false);
-  const [advancedTrustMin, setAdvancedTrustMin] = useState(0);
-  const [advancedSuccessMin, setAdvancedSuccessMin] = useState(0);
-  const [advancedHeatMin, setAdvancedHeatMin] = useState(0);
-  const [advancedHasDelivery, setAdvancedHasDelivery] = useState(false);
-  const [advancedFastWhatsapp, setAdvancedFastWhatsapp] = useState(false);
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [contactEditorSupplierId, setContactEditorSupplierId] = useState<string | null>(null);
   const [contactPhone, setContactPhone] = useState('');
   const [contactWhatsapp, setContactWhatsapp] = useState('');
   const [isSavingContact, setIsSavingContact] = useState(false);
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-  const [yearFrom, setYearFrom] = useState('');
-  const [yearTo, setYearTo] = useState('');
   const [sortByDistanceRef, setSortByDistanceRef] = useState<{ lat: number; lng: number }>({ lat: 25.2048, lng: 55.2708 });
   const [sortByExtended, setSortByExtended] = useState<'smart' | 'trust' | 'heat' | 'near' | 'name'>('smart');
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
@@ -237,26 +216,6 @@ const SuppliersScreen: React.FC = () => {
   const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
   const [isForceSyncingSuppliers, setIsForceSyncingSuppliers] = useState(false);
 
-  const resetSupplierFiltersAndSearch = () => {
-    setSearchTerm('');
-    setDebouncedSearchTerm('');
-    setFilterType('all');
-    setFilterActivity('all');
-    setFilterBrand('all');
-    setFilterGps('all');
-    setFilterPartCategory('all');
-    setYearFrom('');
-    setYearTo('');
-    setQuickRadiusKm('all');
-    setQuickHasContacts(false);
-    setQuickOpenNow(false);
-    setAdvancedTrustMin(0);
-    setAdvancedSuccessMin(0);
-    setAdvancedHeatMin(0);
-    setAdvancedHasDelivery(false);
-    setAdvancedFastWhatsapp(false);
-    setShowAdvancedFilters(false);
-  };
 
   const activeOrders = useMemo(
     () => orders.filter((order) => !order.isArchived && !order.isSold),
@@ -339,11 +298,6 @@ const SuppliersScreen: React.FC = () => {
     [brandOptions, brandSearch]
   );
 
-  const uniqueBrandsForFilter = useMemo(() => {
-    const set = new Set<string>();
-    suppliers.forEach((supplier) => pickSupplierBrands(supplier).forEach((brand) => set.add(brand)));
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [suppliers]);
 
   const suppliersWithStats = useMemo(() => suppliers.map((supplier) => {
     const key = supplier.name.trim().toLowerCase();
@@ -380,9 +334,6 @@ const SuppliersScreen: React.FC = () => {
   }, [suppliersWithStats]);
 
   const filteredSuppliers = useMemo(() => {
-    const normalized = debouncedSearchTerm.toLowerCase();
-    const yFrom = Number(yearFrom);
-    const yTo = Number(yearTo);
     const calcDistanceKm = (supplier: Supplier & { coordinates?: { lat: number; lng: number } }) => {
       if (!supplier.coordinates) return Number.POSITIVE_INFINITY;
       const latDiff = (supplier.coordinates.lat - sortByDistanceRef.lat) * 111;
@@ -390,54 +341,7 @@ const SuppliersScreen: React.FC = () => {
       return Math.sqrt((latDiff * latDiff) + (lngDiff * lngDiff));
     };
 
-    const data = rawSuppliers.filter((s) => {
-      const matchesSearch = !normalized
-        || s.name.toLowerCase().includes(normalized)
-        || s.phone.includes(debouncedSearchTerm)
-        || (s.zone || '').toLowerCase().includes(normalized)
-        || (s.brands || []).some((b) => b.toLowerCase().includes(normalized))
-        || pickSupplierBrands(s).some((b) => b.toLowerCase().includes(normalized));
-
-      const supplierTypes = [
-        ...(Array.isArray(s.types) ? s.types : []),
-        s.type || ''
-      ].map((type) => String(type || '').trim()).filter(Boolean) as SupplierType[];
-      const hasSupplierTypes = supplierTypes.length > 0;
-      const matchesQuickType = (filterType === 'all')
-        || !hasSupplierTypes
-        || (filterType === 'new_parts' && supplierTypes.includes('new_parts'))
-        || (filterType === 'scrapyard' && supplierTypes.some((type) => ['scrapyard', 'body_parts', 'mixed'].includes(type)))
-        || (filterType === 'engine_specialist' && supplierTypes.some((type) => ['engine_specialist', 'electrical', 'dealer', 'warehouse'].includes(type)));
-      const matchesType = matchesQuickType;
-      const supplierBrands = pickSupplierBrands(s).map((brand) => brand.trim()).filter(Boolean);
-      const matchesBrand = filterBrand === 'all' || supplierBrands.length === 0 || supplierBrands.includes(filterBrand);
-      const hasGps = !!s.coordinates;
-      const matchesGps = filterGps === 'all' || (filterGps === 'has' ? hasGps : !hasGps);
-      const matchesActivity = filterActivity === 'all'
-        || (filterActivity === 'high' && s.activityState.includes('High'))
-        || (filterActivity === 'medium' && s.activityState.includes('Medium'))
-        || (filterActivity === 'low' && s.activityState.includes('Low'))
-        || (filterActivity === 'dormant' && s.activityState.includes('Dormant'));
-      const matchesCategory = filterPartCategory === 'all' || (s.mainPartCategories || []).includes(filterPartCategory);
-      const years = s.years || [];
-      const matchesYearFrom = !Number.isFinite(yFrom) || years.length === 0 || years.some((year) => year >= yFrom);
-      const matchesYearTo = !Number.isFinite(yTo) || years.length === 0 || years.some((year) => year <= yTo);
-      const distanceKm = calcDistanceKm(s);
-      const matchesRadius = quickRadiusKm === 'all' || distanceKm <= quickRadiusKm;
-      const matchesContacts = !quickHasContacts || Boolean((s.phone || '').trim());
-      const matchesOpenNow = !quickOpenNow || Boolean((s.workingHours || '').trim());
-      const trustScore = Number(s.autoTrustScore ?? s.trustLevel ?? 0);
-      const matchesTrust = trustScore >= advancedTrustMin;
-      const matchesSuccessMin = Number(s.successRate || 0) >= advancedSuccessMin;
-      const matchesHeat = Number(s.heatLevel || 0) >= advancedHeatMin;
-      const matchesDelivery = !advancedHasDelivery || s.hasDelivery === true;
-      const matchesFastWhatsapp = !advancedFastWhatsapp || s.whatsappFast === true;
-
-      return matchesSearch && matchesType && matchesBrand && matchesGps && matchesActivity && matchesCategory && matchesYearFrom && matchesYearTo
-        && matchesRadius && matchesContacts && matchesOpenNow && matchesTrust && matchesSuccessMin && matchesHeat && matchesDelivery && matchesFastWhatsapp;
-    });
-
-    return data.sort((a, b) => {
+    return [...rawSuppliers].sort((a, b) => {
       const distanceA = calcDistanceKm(a);
       const distanceB = calcDistanceKm(b);
 
@@ -447,7 +351,7 @@ const SuppliersScreen: React.FC = () => {
       if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
       return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
     });
-  }, [rawSuppliers, debouncedSearchTerm, filterType, filterBrand, filterGps, filterActivity, filterPartCategory, yearFrom, yearTo, sortByExtended, sortByDistanceRef, quickRadiusKm, quickHasContacts, quickOpenNow, advancedTrustMin, advancedSuccessMin, advancedHeatMin, advancedHasDelivery, advancedFastWhatsapp]);
+  }, [rawSuppliers, sortByExtended, sortByDistanceRef]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -856,7 +760,6 @@ const SuppliersScreen: React.FC = () => {
 
   useEffect(() => {
     void syncSuppliersFromServer(true);
-    resetSupplierFiltersAndSearch();
   }, []);
 
   useEffect(() => {
@@ -875,10 +778,6 @@ const SuppliersScreen: React.FC = () => {
     navigator.geolocation.getCurrentPosition((pos) => setSortByDistanceRef({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => undefined);
   }, []);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearchTerm(searchTerm), 300);
-    return () => window.clearTimeout(timer);
-  }, [searchTerm]);
 
   const openContactEditor = (supplier: Supplier) => {
     setContactEditorSupplierId(supplier.id);
@@ -909,12 +808,11 @@ const SuppliersScreen: React.FC = () => {
 
   const forceRefreshSuppliers = async () => {
     setIsForceSyncingSuppliers(true);
-    resetSupplierFiltersAndSearch();
     try {
       const result = await syncSuppliersFromServer(true);
       const fetchedCount = Number(result?.fetchedCount || 0);
       if (fetchedCount === 0) {
-        toast('Сервер вернул 0 поставщиков. Проверьте фильтры или источник данных.', 'info');
+        toast('Сервер вернул 0 поставщиков. Проверьте источник данных.', 'info');
         return;
       }
       toast(`Загружено поставщиков: ${fetchedCount}`, 'success');
@@ -938,18 +836,6 @@ const SuppliersScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-        <input
-          type="text"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Поиск: имя / телефон / зона / бренд"
-          autoComplete="off"
-          className="w-full pl-11 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm"
-        />
-      </div>
-
       <button
         type="button"
         onClick={() => void forceRefreshSuppliers()}
@@ -963,78 +849,16 @@ const SuppliersScreen: React.FC = () => {
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
         Debug: rawSuppliers.length = {rawSuppliers.length} · filteredSuppliers.length = {filteredSuppliers.length}
       </div>
-
-      <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2">
-        <p className="text-xs font-bold text-slate-600">Фильтры поставщиков</p>
-        <button type="button" onClick={() => setShowFiltersPanel((prev) => !prev)} className="text-xs font-black text-blue-700">
-          {showFiltersPanel ? 'Свернуть ▲' : 'Открыть ▼'}
-        </button>
-      </div>
-      {showFiltersPanel && <div className="space-y-1.5 max-h-[20vh] overflow-y-auto pr-1">
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5">
-        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterBrand} onChange={(e) => setFilterBrand(e.target.value)}>
-          <option value="all">Brand: all</option>
-          {uniqueBrandsForFilter.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
-        </select>
-        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={quickRadiusKm} onChange={(e) => setQuickRadiusKm(e.target.value === 'all' ? 'all' : Number(e.target.value) as 5 | 10 | 20 | 50)}>
-          <option value="all">Radius: any</option>
-          <option value={5}>5 km</option>
-          <option value={10}>10 km</option>
-          <option value={20}>20 km</option>
-          <option value={50}>50 km</option>
-        </select>
-        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterType} onChange={(e) => setFilterType(e.target.value as any)}>
-          <option value="all">Type: all</option>
-          <option value="new_parts">new_parts</option>
-          <option value="scrapyard">used_parts</option>
-          <option value="engine_specialist">specialist</option>
-        </select>
-        <label className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold inline-flex items-center gap-2"><input type="checkbox" checked={quickOpenNow} onChange={(e) => setQuickOpenNow(e.target.checked)} /> Open now</label>
-        <label className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold inline-flex items-center gap-2"><input type="checkbox" checked={quickHasContacts} onChange={(e) => setQuickHasContacts(e.target.checked)} /> Has contacts</label>
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
         <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
           <option value="smart">Sort: smart</option>
-          <option value="trust">Sort: trust</option>
-          <option value="heat">Sort: heat</option>
-          <option value="near">Sort: near</option>
-          <option value="name">Sort: name</option>
+          <option value="trust">Trust ↓</option>
+          <option value="heat">Heat ↓</option>
+          <option value="near">Distance ↑</option>
+          <option value="name">Name A→Z</option>
         </select>
-        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterGps} onChange={(e) => setFilterGps(e.target.value as any)}>
-          <option value="all">GPS: все</option>
-          <option value="has">Есть GPS</option>
-          <option value="missing">Нет GPS</option>
-        </select>
-        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterActivity} onChange={(e) => setFilterActivity(e.target.value as any)}>
-          <option value="all">Активность: все</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-          <option value="dormant">Dormant</option>
-        </select>
-        <button type="button" onClick={() => setShowAdvancedFilters((prev) => !prev)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold">Advanced {showAdvancedFilters ? '▲' : '▼'}</button>
+        <div className="rounded-xl border border-gray-200 px-2 py-2 text-[11px] font-semibold text-gray-500">Поставщики отображаются без фильтров</div>
       </div>
-      {showAdvancedFilters && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5 rounded-xl border border-gray-100 bg-gray-50 p-2">
-          <input value={advancedTrustMin} onChange={(e) => setAdvancedTrustMin(Number(e.target.value || 0))} type="number" min={0} max={100} placeholder="Trust >=" className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" />
-          <input value={advancedSuccessMin} onChange={(e) => setAdvancedSuccessMin(Number(e.target.value || 0))} type="number" min={0} max={100} placeholder="Success >=" className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" />
-          <input value={advancedHeatMin} onChange={(e) => setAdvancedHeatMin(Number(e.target.value || 0))} type="number" min={0} max={100} placeholder="Heat >=" className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" />
-          <label className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold inline-flex items-center gap-2"><input type="checkbox" checked={advancedHasDelivery} onChange={(e) => setAdvancedHasDelivery(e.target.checked)} /> Has delivery</label>
-          <label className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold inline-flex items-center gap-2"><input type="checkbox" checked={advancedFastWhatsapp} onChange={(e) => setAdvancedFastWhatsapp(e.target.checked)} /> Fast WhatsApp</label>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
-        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={filterPartCategory} onChange={(e) => setFilterPartCategory(e.target.value)}>
-          <option value="all">Категории деталей: все</option>
-          {SUPPLIER_PART_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
-        </select>
-        <input value={yearFrom} onChange={(e) => setYearFrom(e.target.value.replace(/[^\d]/g, ''))} placeholder="Год от" className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" />
-        <input value={yearTo} onChange={(e) => setYearTo(e.target.value.replace(/[^\d]/g, ''))} placeholder="Год до" className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" />
-        <div className="rounded-xl border border-gray-200 px-2 py-2 text-[11px] font-semibold text-gray-500">Дальние автоматически ниже</div>
-      </div>
-
-      </div>}
 
       {importError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-red-100"><AlertTriangle size={16} />{importError}</div>}
       {showSuccess && <div className="bg-green-50 text-green-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-green-100"><CheckCircle2 size={16} />Данные успешно восстановлены!</div>}
