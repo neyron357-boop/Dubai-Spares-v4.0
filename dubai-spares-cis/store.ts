@@ -230,15 +230,29 @@ export const syncSuppliersFromServer = async (force = false) => {
   try {
     const serverSuppliers = await fetchSuppliersFromShops();
     supplierLastSyncedAt = Date.now();
-    // Требование: список поставщиков в приложении должен полностью совпадать
-    // с таблицей shops (по id, без исключений по статусам и локальным остаткам).
-    // Поэтому синхронизация строит снимок ТОЛЬКО из серверных данных.
     const dedupedById = new Map<string, Supplier>();
     serverSuppliers.forEach((supplier) => {
       const normalizedServer = normalizeSupplier(supplier);
       dedupedById.set(normalizedServer.id, normalizedServer);
     });
-    const nextSuppliers = Array.from(dedupedById.values()).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+    // Защитный merge: если сервер временно возвращает усечённый список,
+    // не теряем уже известные карточки (например, подтянутые из заказов).
+    // Серверные записи остаются приоритетными по id и имени.
+    const mergedByName = new Map<string, Supplier>();
+    globalSuppliers.forEach((supplier) => {
+      mergedByName.set(supplier.name.trim().toLowerCase(), normalizeSupplier(supplier));
+    });
+    dedupedById.forEach((supplier) => {
+      mergedByName.set(supplier.name.trim().toLowerCase(), supplier);
+    });
+
+    const nextSuppliers = Array.from(mergedByName.values()).sort((a, b) => {
+      const updatedAtDiff = Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
+      if (updatedAtDiff !== 0) return updatedAtDiff;
+      return a.name.localeCompare(b.name);
+    });
+
     if (JSON.stringify(nextSuppliers) !== JSON.stringify(globalSuppliers)) {
       globalSuppliers = nextSuppliers;
       notifySupplierListeners();
