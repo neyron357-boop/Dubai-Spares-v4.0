@@ -1,5 +1,6 @@
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isCloudConfigured } from '../cloudConfig';
 import { logger } from '../logging';
+import { markBrokenImageUrl, shouldBlacklistByStatus } from './brokenImageBlacklist';
 
 const configuredBucket = (import.meta as any).env?.VITE_SUPABASE_STORAGE_BUCKET as string | undefined;
 const BUCKET_CANDIDATES = [configuredBucket, 'images', 'order-images'].filter(
@@ -579,6 +580,10 @@ export const runStorageImageMaintenance = async (options: {
           headers: buildStorageHeaders()
         });
         if (!downloadResponse.ok) {
+          if (shouldBlacklistByStatus(downloadResponse.status)) {
+            markBrokenImageUrl(`${SUPABASE_URL}/storage/v1/object/public/${bucket}/${image.path}`);
+            return;
+          }
           throw new Error(`download ${downloadResponse.status}`);
         }
 
@@ -679,12 +684,22 @@ export const recompressExistingStorageImage = async (imageUrl: string): Promise<
 
   let originalResponse = await fetch(imageUrl);
   if (!originalResponse.ok) {
+    if (shouldBlacklistByStatus(originalResponse.status)) {
+      markBrokenImageUrl(imageUrl);
+      return false;
+    }
     const encodedPath = parsed.path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
     originalResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/public/${parsed.bucket}/${encodedPath}`, {
       headers: buildStorageHeaders()
     });
   }
-  if (!originalResponse.ok) throw new Error(`Failed to fetch original image ${originalResponse.status}`);
+  if (!originalResponse.ok) {
+    if (shouldBlacklistByStatus(originalResponse.status)) {
+      markBrokenImageUrl(imageUrl);
+      return false;
+    }
+    throw new Error(`Failed to fetch original image ${originalResponse.status}`);
+  }
 
   const originalBlob = await originalResponse.blob();
   if (!originalBlob.type.startsWith('image/')) return false;

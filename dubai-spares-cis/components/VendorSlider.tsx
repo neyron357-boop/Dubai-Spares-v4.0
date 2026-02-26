@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { Priority, type Order, type Part } from '../types';
 import { vibrate } from '../feedback';
 import ImagePreview from './ImagePreview';
+import SafeImage from './SafeImage';
 
 const priorityWeight = {
   [Priority.HIGH]: 3,
@@ -130,7 +131,7 @@ const VendorSlider: React.FC = () => {
       <div className="relative h-[30vh] min-h-[190px] max-h-[260px] overflow-hidden border-b border-slate-800">
         {availableCarImages[0] ? (
           <button type="button" onClick={() => setGallery({ images: availableCarImages, index: 0 })} className="h-full w-full">
-            <img src={availableCarImages[0]} alt="car" className="h-full w-full object-cover" onError={() => setBrokenImages((prev) => ({ ...prev, [availableCarImages[0]]: true }))} />
+            <SafeImage src={availableCarImages[0]} alt="car" className="h-full w-full object-cover" onError={() => setBrokenImages((prev) => ({ ...prev, [availableCarImages[0]]: true }))} />
           </button>
         ) : <div className="h-full w-full bg-slate-900" />}
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
@@ -154,7 +155,7 @@ const VendorSlider: React.FC = () => {
           return (
             <div key={part.id} className={`rounded-2xl border p-2 flex gap-3 items-center transition ${isFound ? 'border-emerald-700/80 bg-emerald-900/15 opacity-65' : 'border-slate-700 bg-[#111a2d]'}`}>
               <button type="button" className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-900" onClick={() => availableImages[0] && setGallery({ images: availableImages, index: 0 })}>
-                {availableImages[0] ? <img src={availableImages[0]} alt={part.name} className="h-full w-full object-cover" onError={() => setBrokenImages((prev) => ({ ...prev, [availableImages[0]]: true }))} /> : <div className="h-full w-full grid place-items-center text-slate-500"><ImageOff size={18} /></div>}
+                {availableImages[0] ? <SafeImage src={availableImages[0]} alt={part.name} className="h-full w-full object-cover" onError={() => setBrokenImages((prev) => ({ ...prev, [availableImages[0]]: true }))} /> : <div className="h-full w-full grid place-items-center text-slate-500"><ImageOff size={18} /></div>}
               </button>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-base font-black">{part.name}</p>
