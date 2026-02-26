@@ -234,6 +234,7 @@ export interface DbPriceVariantRow {
   part_id: string;
   price_aed: number;
   shop_name: string;
+  shop_id?: string | null;
   phone: string;
   location: string;
   photo_url: string | null;

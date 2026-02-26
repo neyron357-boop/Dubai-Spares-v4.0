@@ -328,6 +328,8 @@ const PartDetailsScreen: React.FC = () => {
         onManualLocationRequired: setLocationParseNotice
       });
 
+      let targetSupplierId = existingSupplier?.id;
+
       if (!existingSupplier) {
         const nextBrandPool = mergeUniqueStrings([], [order.brand]);
         const nextModels = mergeUniqueStrings([], [order.model || '']);
@@ -363,6 +365,7 @@ const PartDetailsScreen: React.FC = () => {
         };
         addSupplier(newSupplier);
         await upsertSupplierToShops(newSupplier);
+        targetSupplierId = newSupplier.id;
       } else {
         const currentBrands = existingSupplier.mainBrands || existingSupplier.brands || [];
         const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
@@ -397,6 +400,7 @@ const PartDetailsScreen: React.FC = () => {
         };
         updateSupplier(updatedSupplier);
         await upsertSupplierToShops(updatedSupplier);
+        targetSupplierId = updatedSupplier.id;
       }
 
       const variantId = editingVariantId || createUuid();
@@ -406,6 +410,7 @@ const PartDetailsScreen: React.FC = () => {
         priceAed: Number(form.priceAed.replace(/\s+/g, '')),
         currency: 'AED',
         shopName: form.shopName.trim(),
+        shopId: targetSupplierId,
         shopNameManual: form.shopName.trim(),
         phone: form.phone,
         location: form.locationText,
