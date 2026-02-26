@@ -293,13 +293,6 @@ const OrderDetailsScreen: React.FC = () => {
     if (currentOrder && (currentOrder.isLead || (currentOrder.parts && currentOrder.parts.length > 0))) return;
     void fetchOrderDetails(id);
   }, [id, orders, fetchOrderDetails]);
-  useEffect(() => {
-    if (!order) return;
-    if (order.leadSource === 'public_form' && order.leadUnread) {
-      updateOrder({ ...order, leadUnread: false, leadReadAt: Date.now(), isLead: false, status: 'active' });
-    }
-  }, [order?.id]);
-
 
   useEffect(() => {
     let active = true;

@@ -11,7 +11,7 @@ import { getSelectableColumns, markMissingColumn } from './syncSchema';
 import { logSyncCategory, syncPerf } from './syncPerf';
 import { LOCAL_ONLY } from './localMode';
 import { mergeCloudLeadsWithOrders } from './leadSync';
-import { CloudLeadRow, leadsSync, purgePublicLeadArtifacts } from './serverApi';
+import { CloudLeadRow, leadsSync, markClientLeadConverted, purgePublicLeadArtifacts } from './serverApi';
 import { refreshSupabaseSchemaCache } from './schemaCache';
 import { isBrokenImageUrl, markBrokenImageUrl, shouldBlacklistByStatus } from './storage/brokenImageBlacklist';
 
@@ -467,7 +467,7 @@ const notifyAboutIncomingLeads = (previousOrders: Order[], nextOrders: Order[]) 
       carModel: lead.model,
       carYear: Number(lead.year) || undefined,
       source: 'web_form',
-      route: `/order/${lead.id}`,
+      route: `/?tab=leads&leadId=${lead.id}`,
       severity: 'success',
       signature: `incoming-lead:${lead.id}:${lead.updatedAt || lead.createdAt || ''}`
     });
@@ -480,7 +480,7 @@ const notifyAboutIncomingLeads = (previousOrders: Order[], nextOrders: Order[]) 
       requireInteraction: true,
       silent: false,
       vibrate: [250, 120, 250, 120, 250],
-      route: `/order/${lead.id}`
+      route: `/?tab=leads&leadId=${lead.id}`
     });
   });
 };
@@ -1588,6 +1588,36 @@ export const addOrderItem = async (order: Order) => {
   return true;
 };
 
+
+export const convertPublicLeadToOrder = async (leadOrderId: string): Promise<Order | null> => {
+  const leadOrder = state.orders.find((item) => item.id === leadOrderId);
+  if (!leadOrder) return null;
+  if (!(leadOrder.leadSource === 'public_form' && leadOrder.isLead)) return leadOrder;
+
+  const convertedOrderId = ensureUuid();
+  const convertedOrder = normalizeOrder({
+    ...leadOrder,
+    id: convertedOrderId,
+    isLead: false,
+    leadUnread: false,
+    leadReadAt: Date.now(),
+    status: 'active',
+    updatedAt: Date.now()
+  });
+
+  rememberLeadConverted(leadOrder.id);
+  const nextOrders = [convertedOrder, ...state.orders.filter((item) => item.id !== leadOrder.id)];
+  setState({ orders: nextOrders, error: null });
+
+  await offlineDb.deleteOrder(leadOrder.id);
+  await offlineDb.saveOrder(convertedOrder);
+  window.dispatchEvent(new CustomEvent('cloud-save-success'));
+
+  void markClientLeadConverted(leadOrder.id, convertedOrderId);
+  await queueMutation('upsert', convertedOrder, convertedOrder.id);
+  return convertedOrder;
+};
+
 export const updateOrderItem = async (order: Order) => {
   const previousOrder = state.orders.find((o) => o.id === order.id);
   const normalized = normalizeOrder({ ...order, updatedAt: Date.now() });
@@ -1775,6 +1805,7 @@ export const useOrderStore = () => {
     fetchOrders: fetchOrdersCb,
     addOrder: useCallback(addOrderItem, []),
     updateOrder: useCallback(updateOrderItem, []),
+    convertPublicLead: useCallback(convertPublicLeadToOrder, []),
     deleteOrder: useCallback(deleteOrderItem, []),
     updatePart: useCallback(updatePartItem, []),
     updatePriceVariant: useCallback(updatePriceVariantItem, []),

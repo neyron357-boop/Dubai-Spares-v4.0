@@ -15,6 +15,8 @@ export type CloudLeadRow = {
   updated_at?: string;
   payload_json?: unknown;
   order_id?: string | null;
+  converted_to_order_id?: string | null;
+  is_viewed?: boolean;
   payload_b64?: string;
   payload_codec?: string;
   payload?: unknown;
@@ -30,26 +32,9 @@ const RETRYABLE_CODES = new Set(['aborted_or_timeout', 'network_error']);
 const SCHEMA_MISMATCH_CODES = new Set(['PGRST205', 'PGRST204', 'SCHEMA_MISMATCH']);
 
 
-const LEADS_SYNC_VARIANT_STORAGE_KEY = 'server_api_leads_sync_variant_v3';
+const LEADS_SYNC_VARIANT_STORAGE_KEY = 'server_api_leads_sync_variant_v4';
 const LEADS_SYNC_VARIANTS = [
-  // With updated_at (preferred, for DBs that have the column)
-  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload_b64,payload_codec,payload',
-  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload',
-  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at,order_id,payload',
-  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,updated_at',
-  'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload_b64,payload_codec,payload',
-  'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at,payload_json,order_id,payload',
-  'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at,order_id,payload',
-  'client_leads?limit=50&select=id,name,phone,message,created_at,updated_at',
-  // Without updated_at (fallback, for DBs that don't have the column)
-  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,payload_json,order_id,payload_b64,payload_codec,payload',
-  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,payload_json,order_id,payload',
-  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at,order_id,payload',
-  'client_leads?order=created_at.desc&limit=50&select=id,name,phone,message,created_at',
-  'client_leads?limit=50&select=id,name,phone,message,created_at,payload_json,order_id,payload_b64,payload_codec,payload',
-  'client_leads?limit=50&select=id,name,phone,message,created_at,payload_json,order_id,payload',
-  'client_leads?limit=50&select=id,name,phone,message,created_at,order_id,payload',
-  'client_leads?limit=50&select=id,name,phone,message,created_at'
+  'client_leads?order=created_at.desc&limit=50'
 ] as const;
 
 const loadLeadsSyncVariant = (): number => {
@@ -740,4 +725,39 @@ export const purgePublicLeadArtifacts = async (
   } finally {
     inFlight.delete(lockKey);
   }
+};
+
+export const markClientLeadConverted = async (
+  leadId: string,
+  convertedOrderId: string,
+  options?: RequestOptions
+): Promise<Result<true>> => {
+  const guard = assertCloudFeatureEnabled(cloudFeatureFlags.clientForm);
+  if (!guard.ok) return recordCall('markClientLeadConverted', guard);
+
+  const normalizedLeadId = String(leadId || '').trim();
+  const normalizedOrderId = String(convertedOrderId || '').trim();
+  if (!normalizedLeadId || !normalizedOrderId) {
+    return recordCall('markClientLeadConverted', { ok: false, code: 'validation_error', error: 'leadId and convertedOrderId are required' });
+  }
+
+  const payload = [{ converted_to_order_id: normalizedOrderId, order_id: normalizedOrderId, is_viewed: true }];
+  const endpoint = `client_leads?id=eq.${encodeURIComponent(normalizedLeadId)}`;
+  const response = await callRest(endpoint, 'PATCH', payload, {
+    ...(options || {}),
+    timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
+    preferRepresentation: false
+  });
+
+  if (response.ok) return recordCall('markClientLeadConverted', { ok: true, data: true });
+  if (response.code === 'supabase_400') {
+    const fallback = await callRest(endpoint, 'PATCH', [{ order_id: normalizedOrderId }], {
+      ...(options || {}),
+      timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
+      preferRepresentation: false
+    });
+    if (fallback.ok) return recordCall('markClientLeadConverted', { ok: true, data: true });
+    return recordCall('markClientLeadConverted', fallback);
+  }
+  return recordCall('markClientLeadConverted', response);
 };

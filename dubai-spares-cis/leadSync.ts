@@ -10,6 +10,8 @@ export type CloudLead = {
   updated_at: string;
   payload_json?: unknown;
   order_id?: string | null;
+  converted_to_order_id?: string | null;
+  is_viewed?: boolean;
   payload_b64?: string;
   payload_codec?: string;
   payload?: unknown;
@@ -154,7 +156,7 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
     : Source.OTHER;
 
   return {
-    id: lead.order_id || lead.id,
+    id: lead.id,
     brand: typeof mergedPayload.brand === 'string' && mergedPayload.brand ? mergedPayload.brand : '-',
     model: typeof mergedPayload.model === 'string' && mergedPayload.model ? mergedPayload.model : '-',
     year: typeof year === 'number' || typeof year === 'string' ? `${year}` : '',
@@ -184,7 +186,7 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
     status: 'lead',
     source: normalizedSource,
     leadSource: 'public_form',
-    leadUnread: true,
+    leadUnread: lead.is_viewed === true ? false : true,
     createdAt: toTimestamp(lead.created_at),
     updatedAt: toTimestamp(lead.updated_at),
     isArchived: false,
@@ -221,7 +223,10 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
     try {
       const mapped = await mapCloudLeadToOrder(lead);
       const rawLeadId = typeof lead.id === 'string' ? lead.id.trim() : '';
-      const serverMarkedConverted = typeof lead.order_id === 'string' && lead.order_id.trim().length > 0;
+      const convertedOrderId = typeof lead.converted_to_order_id === 'string' && lead.converted_to_order_id.trim().length > 0
+        ? lead.converted_to_order_id.trim()
+        : (typeof lead.order_id === 'string' && lead.order_id.trim().length > 0 ? lead.order_id.trim() : '');
+      const serverMarkedConverted = convertedOrderId.length > 0;
       if (ignored.has(mapped.id) || (rawLeadId && ignored.has(rawLeadId))) continue;
       const existing = existingById.get(mapped.id);
 

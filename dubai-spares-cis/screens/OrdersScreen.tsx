@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Archive, BarChart3, Clock3, Filter, MessageCircle, PenSquare, Pin, Smartphone, Star, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
@@ -316,8 +316,9 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
 };
 
 const OrdersScreen: React.FC = () => {
-  const { orders, isLoading, syncOrders, updateOrder, deleteOrder } = useStore();
+  const { orders, isLoading, syncOrders, convertPublicLead, deleteOrder } = useStore();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useLeadsPolling(true);
 
@@ -346,6 +347,11 @@ const OrdersScreen: React.FC = () => {
     return () => window.clearTimeout(t);
   }, [searchText]);
 
+
+  useEffect(() => {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab === 'leads') setActiveTab('leads');
+  }, [location.search]);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -415,11 +421,12 @@ const OrdersScreen: React.FC = () => {
   const allBrands = useMemo(() => Array.from(new Set(orders.map((order) => order.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
 
 
-  const isUnreadPublicLead = (order: Order) => order.leadSource === 'public_form' && order.leadUnread === true && !order.isArchived;
+  const isPublicLead = (order: Order) => order.leadSource === 'public_form' && order.isLead && !order.isArchived;
+  const isUnreadPublicLead = (order: Order) => isPublicLead(order) && order.leadUnread === true;
 
   const tabCounts = useMemo(() => ({
-    active: orders.filter((o) => !o.isArchived && !o.isSold && !isUnreadPublicLead(o)).length,
-    leads: orders.filter((o) => isUnreadPublicLead(o) && !o.isSold).length,
+    active: orders.filter((o) => !o.isArchived && !o.isSold && !isPublicLead(o)).length,
+    leads: orders.filter((o) => isPublicLead(o) && !o.isSold).length,
     vip: orders.filter((o) => o.isVip && !o.isSold).length,
     sold: orders.filter((o) => o.isSold).length,
     archive: orders.filter((o) => o.isArchived && !o.isSold).length
@@ -428,10 +435,12 @@ const OrdersScreen: React.FC = () => {
   const hasUnreadLeads = tabCounts.leads > 0;
 
   const openOrderPreview = (order: Order) => {
-    if (isUnreadPublicLead(order)) {
-      const viewedLead = { ...order, leadUnread: false };
-      setViewOrder(viewedLead);
-      void updateOrder(viewedLead);
+    if (isPublicLead(order)) {
+      void (async () => {
+        const converted = await convertPublicLead(order.id);
+        if (!converted) return;
+        setViewOrder(converted);
+      })();
       return;
     }
     setViewOrder(order);
@@ -442,8 +451,8 @@ const OrdersScreen: React.FC = () => {
       if (activeTab === 'sold') return order.isSold;
       if (activeTab === 'archive') return order.isArchived && !order.isSold;
       if (activeTab === 'vip') return order.isVip && !order.isSold;
-      if (activeTab === 'leads') return isUnreadPublicLead(order) && !order.isSold;
-      return !order.isArchived && !order.isSold && !isUnreadPublicLead(order);
+      if (activeTab === 'leads') return isPublicLead(order) && !order.isSold;
+      return !order.isArchived && !order.isSold && !isPublicLead(order);
     });
 
     if (debouncedSearch) {
