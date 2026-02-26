@@ -215,6 +215,7 @@ const SuppliersScreen: React.FC = () => {
   const [modelFilter, setModelFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
+  const [expandedAddedPartsIds, setExpandedAddedPartsIds] = useState<Set<string>>(new Set());
   const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
   const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
   const [isForceSyncingSuppliers, setIsForceSyncingSuppliers] = useState(false);
@@ -1079,9 +1080,13 @@ const SuppliersScreen: React.FC = () => {
           filteredSuppliers.map((s) => {
             const Icon = s.type === 'scrapyard' ? Wrench : Gem;
             const brands = pickSupplierBrands(s);
+            const isExpanded = expandedSupplierIds.has(s.id);
+            const linkedParts = [...(s.linkedParts || [])].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+            const isManagePartsExpanded = activeOrderLinkShopId === s.id;
+            const isAddedPartsExpanded = expandedAddedPartsIds.has(s.id);
 
             return (
-              <div key={s.id} className="bg-white p-3 rounded-2xl shadow-sm space-y-2 border border-gray-100">
+              <div key={s.id} className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}>
                 <button type="button" onClick={() => setExpandedSupplierIds((prev) => { const next = new Set(prev); if (next.has(s.id)) next.delete(s.id); else next.add(s.id); return next; })} className="w-full text-left space-y-2">
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -1108,7 +1113,7 @@ const SuppliersScreen: React.FC = () => {
                     </div>
                     <div className="text-right text-[10px] text-slate-500">
                       <p className="font-black">{s.coordinates ? `${Math.max(0.1, Number((Math.abs(s.coordinates.lat - sortByDistanceRef.lat) * 111).toFixed(1)))} km` : 'n/a'}</p>
-                      <p>{expandedSupplierIds.has(s.id) ? 'Свернуть' : 'Открыть'}</p>
+                      <p>{isExpanded ? 'Свернуть' : 'Открыть'}</p>
                     </div>
                   </div>
 
@@ -1118,7 +1123,8 @@ const SuppliersScreen: React.FC = () => {
                   </div>
                 </button>
 
-                {expandedSupplierIds.has(s.id) && <>
+                <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isExpanded ? 2200 : 0, opacity: isExpanded ? 1 : 0 }}>
+                {isExpanded && <>
                 <div className="rounded-xl border border-gray-100 bg-slate-50 p-2 space-y-1">
                   <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Марки:</span> {(brands.length > 0 ? brands : ['—']).join(', ')}</p>
                   <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Модели:</span> {((s.models || []).length > 0 ? (s.models || []) : ['—']).join(', ')}</p>
@@ -1143,17 +1149,15 @@ const SuppliersScreen: React.FC = () => {
                   <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput((s.years || []).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
                   <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
                   <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
-                  <button type="button" onClick={() => alert(`Analyze ${s.name}
-Contacts: ${s.activityScore || 0}
-Found: ${s.successRate}%
-Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 py-1.5 text-[10px] font-black text-blue-700 inline-flex items-center justify-center gap-1"><Sparkles size={12} />Analyze</button>
+                  
                 </div>
                 </>}
-                {expandedSupplierIds.has(s.id) && (
+                {isExpanded && (
                 <div className="border-t border-gray-100 pt-3 space-y-2">
-                  <button type="button" onClick={() => setActiveOrderLinkShopId(activeOrderLinkShopId === s.id ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-center gap-2"><Link2 size={13} /> Управление деталями поставщика</button>
-                  {activeOrderLinkShopId === s.id && (
-                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-2">
+                  <button type="button" onClick={() => setActiveOrderLinkShopId(isManagePartsExpanded ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-between gap-2"><span className="inline-flex items-center gap-2"><Link2 size={13} /> Управление деталями поставщика</span>{isManagePartsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>
+                  <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isManagePartsExpanded ? 800 : 0, opacity: isManagePartsExpanded ? 1 : 0 }}>
+                  {isManagePartsExpanded && (
+                    <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-2">
                       <select
                         className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold"
                         value={selectedOrderBySupplier[s.id] || ''}
@@ -1198,32 +1202,48 @@ Last: ${daysAgoLabel(s.lastContactAt)}`)} className="rounded-lg bg-blue-50 px-2 
                       <button type="button" onClick={addSupplierToOrderPart} className="w-full rounded-lg bg-violet-100 px-2 py-2 text-[11px] font-black text-violet-800">Добавить деталь в карточку</button>
                     </div>
                   )}
+                  </div>
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[11px] font-black text-slate-700">Добавленные детали ({(s.linkedParts || []).length})</p>
-                    </div>
-                    {(s.linkedParts || []).length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setExpandedAddedPartsIds((prev) => { const next = new Set(prev); if (next.has(s.id)) next.delete(s.id); else next.add(s.id); return next; })}
+                      className="w-full inline-flex items-center justify-between text-[11px] font-black text-slate-700"
+                    >
+                      <span>Добавленные детали ({linkedParts.length})</span>
+                      {isAddedPartsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+                    <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isAddedPartsExpanded ? 900 : 0, opacity: isAddedPartsExpanded ? 1 : 0 }}>
+                    {isAddedPartsExpanded && (linkedParts.length === 0 ? (
                       <p className="text-[11px] text-slate-500">Нет деталей. Добавьте через блок выше или через «Добавить варианты».</p>
-                    ) : (s.linkedParts || []).map((entry) => (
-                      <div key={entry.id} className="rounded-lg bg-white border border-slate-200 p-2 text-[11px]">
-                        <p className="font-bold text-slate-700">{entry.orderLabel}</p>
-                        <p className="text-slate-600">{entry.partName}</p>
-                        <div className="mt-1 flex items-center gap-2">
+                    ) : linkedParts.map((entry) => (
+                      <div key={entry.id} className="mb-1.5 rounded-md bg-white border border-slate-200 p-1.5 text-[10px]">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-slate-700">{entry.orderLabel}</p>
+                            <p className="text-slate-600">{entry.partName}</p>
+                          </div>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${entry.source === 'variant' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {entry.source === 'variant' ? 'Вариант' : 'Вручную'}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-1.5">
                           <select
                             value={entry.status}
                             onChange={(e) => updateLinkedPartStatus(s, entry, e.target.value as SupplierLinkedPartStatus)}
-                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold"
+                            className="rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold"
                           >
                             {Object.entries(LINKED_PART_STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}
                           </select>
-                          {entry.priceAed ? <span className="font-black text-emerald-700">{entry.priceAed} AED</span> : null}
+                          {entry.priceAed ? <span className="font-black text-[10px] text-emerald-700">{entry.priceAed} AED</span> : null}
                         </div>
                       </div>
-                    ))}
+                    ))) }
+                    </div>
                   </div>
                 </div>
                 )}
+                </div>
               </div>
             );
           })

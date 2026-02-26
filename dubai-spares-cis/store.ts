@@ -102,6 +102,60 @@ const appendUniqueTextValue = (values: string[] | undefined, nextValue: string |
   return [...cleanedValues, normalizedNextValue];
 };
 
+const mergeLinkedParts = (
+  localEntries: NonNullable<Supplier['linkedParts']> = [],
+  remoteEntries: NonNullable<Supplier['linkedParts']> = []
+): NonNullable<Supplier['linkedParts']> => {
+  const mergedByKey = new Map<string, NonNullable<Supplier['linkedParts']>[number]>();
+
+  [...localEntries, ...remoteEntries].forEach((entry) => {
+    const key = `${entry.orderId}::${entry.partId}`;
+    const current = mergedByKey.get(key);
+    if (!current) {
+      mergedByKey.set(key, entry);
+      return;
+    }
+
+    const nextTimestamp = Number(entry.updatedAt || 0);
+    const currentTimestamp = Number(current.updatedAt || 0);
+    mergedByKey.set(key, nextTimestamp >= currentTimestamp ? { ...current, ...entry } : { ...entry, ...current });
+  });
+
+  return Array.from(mergedByKey.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+};
+
+const mergeServerSupplierWithLocal = (server: Supplier, local?: Supplier): Supplier => {
+  if (!local) return server;
+
+  const normalizedServer = normalizeSupplier(server);
+  const normalizedLocal = normalizeSupplier(local);
+  const mergedLinkedParts = mergeLinkedParts(normalizedLocal.linkedParts || [], normalizedServer.linkedParts || []);
+  const nextOrderIds = Array.from(new Set([...(normalizedLocal.activeOrderIds || []), ...(normalizedServer.activeOrderIds || [])]));
+
+  return normalizeSupplier({
+    ...normalizedLocal,
+    ...normalizedServer,
+    brands: mergeUniqueTextValue(normalizedLocal.brands, normalizedServer.brands),
+    mainBrands: mergeUniqueTextValue(normalizedLocal.mainBrands, normalizedServer.mainBrands),
+    models: mergeUniqueTextValue(normalizedLocal.models, normalizedServer.models),
+    years: Array.from(new Set([...(normalizedLocal.years || []), ...(normalizedServer.years || [])])).sort((a, b) => a - b),
+    linkedParts: mergedLinkedParts,
+    activeOrderIds: nextOrderIds,
+    updatedAt: Math.max(Number(normalizedServer.updatedAt || 0), Number(normalizedLocal.updatedAt || 0), Date.now())
+  });
+};
+
+const mergeUniqueTextValue = (left: string[] = [], right: string[] = []) => {
+  const merged: string[] = [];
+  [...left, ...right].forEach((value) => {
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    if (!normalized) return;
+    if (merged.some((item) => item.toLowerCase() === normalized.toLowerCase())) return;
+    merged.push(normalized);
+  });
+  return merged;
+};
+
 const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>['orders']) => {
   if (!Array.isArray(orders) || orders.length === 0) return;
 
@@ -270,10 +324,14 @@ export const syncSuppliersFromServer = async (force = false) => {
       return { fetchedCount: 0, appliedCount: globalSuppliers.length, changed: false } satisfies SuppliersSyncResult;
     }
 
+    const localById = new Map(globalSuppliers.map((supplier) => [supplier.id, normalizeSupplier(supplier)]));
+    const localByName = new Map(globalSuppliers.map((supplier) => [supplier.name.trim().toLowerCase(), normalizeSupplier(supplier)]));
+
     const dedupedById = new Map<string, Supplier>();
     serverSuppliers.forEach((supplier) => {
       const normalizedServer = normalizeSupplier(supplier);
-      dedupedById.set(normalizedServer.id, normalizedServer);
+      const localMatch = localById.get(normalizedServer.id) || localByName.get(normalizedServer.name.trim().toLowerCase());
+      dedupedById.set(normalizedServer.id, mergeServerSupplierWithLocal(normalizedServer, localMatch));
     });
 
     // Защитный merge: если сервер временно возвращает усечённый список,
@@ -284,7 +342,9 @@ export const syncSuppliersFromServer = async (force = false) => {
       mergedByName.set(supplier.name.trim().toLowerCase(), normalizeSupplier(supplier));
     });
     dedupedById.forEach((supplier) => {
-      mergedByName.set(supplier.name.trim().toLowerCase(), supplier);
+      const key = supplier.name.trim().toLowerCase();
+      const localMatch = mergedByName.get(key);
+      mergedByName.set(key, mergeServerSupplierWithLocal(supplier, localMatch));
     });
 
     const nextSuppliers = Array.from(mergedByName.values()).sort((a, b) => {
