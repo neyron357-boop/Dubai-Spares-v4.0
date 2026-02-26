@@ -1,6 +1,22 @@
 -- Ensure supplier base always reflects ALL rows from public.shops,
 -- regardless of status/is_active and independent of role (anon/authenticated).
 
+-- 0) Bring shops schema to a canonical shape first.
+--    Every column here is added idempotently to avoid migration failures
+--    on older environments with partial schema.
+alter table public.shops
+  add column if not exists whatsapp                  text,
+  add column if not exists location                  text,
+  add column if not exists shop_type                 text,
+  add column if not exists zone                      text,
+  add column if not exists main_brands               text[],
+  add column if not exists specialization            text[],
+  add column if not exists specialization_models     text[],
+  add column if not exists specialization_years      integer[],
+  add column if not exists specialization_body_types text[],
+  add column if not exists heat_level                integer,
+  add column if not exists updated_at                timestamptz;
+
 -- 1) Normalize nullable/text-array fields in shops to canonical defaults.
 update public.shops
 set
