@@ -457,7 +457,7 @@ const SettingsScreen: React.FC = () => {
   const buildSnapshotUrl = (row: { id: string; token: string; snapshot_id?: string | null; payload_json?: unknown; order_id?: string | null }) => {
     const key = buildSnapshotPublicKey(row);
     const slug = buildSnapshotSlug(row);
-    return `${window.location.origin}/#/q/${encodeURIComponent(slug)}${key ? `?k=${encodeURIComponent(key)}` : ''}`;
+    return `${window.location.origin}${window.location.pathname}#/q/${encodeURIComponent(slug)}${key ? `?k=${encodeURIComponent(key)}` : ''}`;
   };
 
   const copySnapshotUrl = async (row: { id: string; token: string; snapshot_id?: string | null; payload_json?: unknown; order_id?: string | null }) => {

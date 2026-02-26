@@ -15,6 +15,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const pinchStateRef = useRef<{ distance: number; zoom: number } | null>(null);
 
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < images.length - 1;
@@ -92,12 +93,34 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
           setZoom((value) => clamp(Number((value + direction).toFixed(2)), 1, 4));
         }}
         onTouchStart={(e) => {
-          const touch = e.changedTouches[0];
-          if (!touch) return;
-          touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+          if (e.touches.length === 2) {
+            const [first, second] = [e.touches[0], e.touches[1]];
+            const distance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+            pinchStateRef.current = { distance, zoom };
+            touchStartRef.current = null;
+            return;
+          }
+
+          if (e.touches.length === 1 && zoom <= 1.01) {
+            const touch = e.touches[0];
+            touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+          }
+        }}
+        onTouchMove={(e) => {
+          if (e.touches.length !== 2 || !pinchStateRef.current) return;
+          e.preventDefault();
+          const [first, second] = [e.touches[0], e.touches[1]];
+          const distance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+          const ratio = distance / Math.max(1, pinchStateRef.current.distance);
+          const nextZoom = clamp(Number((pinchStateRef.current.zoom * ratio).toFixed(2)), 1, 4);
+          setZoom(nextZoom);
         }}
         onTouchEnd={(e) => {
-          if (!touchStartRef.current) return;
+          if (e.touches.length < 2) {
+            pinchStateRef.current = null;
+          }
+
+          if (!touchStartRef.current || zoom > 1.01) return;
           const touch = e.changedTouches[0];
           if (!touch) return;
           const dx = touch.clientX - touchStartRef.current.x;
@@ -107,12 +130,13 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
           if (dx < 0) goNext();
           if (dx > 0) goPrev();
         }}
+        style={{ touchAction: 'none' }}
       >
         <img
           src={images[currentIndex]}
           alt={`Preview ${currentIndex + 1}`}
-          className="max-w-full max-h-full object-contain transition-transform duration-200 ease-out"
-          style={{ transform: `scale(${zoom})`, touchAction: 'none' }}
+          className="max-w-full max-h-full object-contain transition-transform duration-150 ease-out"
+          style={{ transform: `scale(${zoom})` }}
           draggable={false}
         />
       </div>
