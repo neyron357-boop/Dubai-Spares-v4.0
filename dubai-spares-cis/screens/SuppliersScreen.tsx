@@ -881,6 +881,23 @@ const SuppliersScreen: React.FC = () => {
     try {
       const result = await syncSuppliersFromServer(true);
       const fetchedCount = Number(result?.fetchedCount || 0);
+      setSearchTerm('');
+      setDebouncedSearchTerm('');
+      setFilterType('all');
+      setFilterActivity('all');
+      setFilterBrand('all');
+      setFilterGps('all');
+      setFilterPartCategory('all');
+      setYearFrom('');
+      setYearTo('');
+      setQuickRadiusKm('all');
+      setQuickHasContacts(false);
+      setQuickOpenNow(false);
+      setAdvancedTrustMin(0);
+      setAdvancedSuccessMin(0);
+      setAdvancedHeatMin(0);
+      setAdvancedHasDelivery(false);
+      setAdvancedFastWhatsapp(false);
       if (fetchedCount === 0) {
         toast('Сервер вернул 0 поставщиков. Проверьте фильтры или источник данных.', 'info');
         return;
@@ -927,6 +944,10 @@ const SuppliersScreen: React.FC = () => {
         {isForceSyncingSuppliers ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
         {isForceSyncingSuppliers ? 'Загружаю…' : 'Загрузить из сервера поставщиков'}
       </button>
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+        Debug: suppliers.length = {suppliers.length} · displayed.length = {filtered.length}
+      </div>
 
       <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2">
         <p className="text-xs font-bold text-slate-600">Фильтры поставщиков</p>
