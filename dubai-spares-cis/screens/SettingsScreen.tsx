@@ -8,6 +8,7 @@ import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
 import { deleteStorageDuplicateMappings, runStorageImageMaintenance, uploadImageToStorage } from '../storage/photos';
 import { Order } from '../types';
+import { clearBrokenImageBlacklist, isBrokenImageUrl, markBrokenImageUrl, normalizeBrokenImageKey, shouldBlacklistByStatus } from '../storage/brokenImageBlacklist';
 
 const loadImageFromFile = (file: File): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const url = URL.createObjectURL(file);
@@ -91,6 +92,62 @@ const remapOrderPhotoUrls = (order: Order, replacements: Map<string, string>): O
     vinPhotoUrl: mapUrl(order.vinPhotoUrl || ''),
     notes,
     parts
+  };
+};
+
+
+
+const collectOrderPhotoUrls = (order: Order): string[] => {
+  const urls = new Set<string>();
+  const add = (url?: string | null) => {
+    const value = String(url || '').trim();
+    if (!/^https?:\/\//i.test(value)) return;
+    urls.add(value);
+  };
+
+  add(order.carPhotoUrl);
+  add(order.vinPhotoUrl);
+  (order.carPhotos || []).forEach(add);
+  (order.notes || []).forEach((note) => (note.photos || []).forEach(add));
+  (order.parts || []).forEach((part) => {
+    add(part.photoUrl);
+    (part.photos || []).forEach(add);
+    (part.variants || []).forEach((variant) => {
+      add(variant.photoUrl);
+      (variant.photos || []).forEach(add);
+    });
+  });
+
+  return Array.from(urls);
+};
+
+const removeBrokenPhotosFromOrder = (order: Order): { next: Order; removed: number } => {
+  let removed = 0;
+  const filterPhotos = (photos: string[] = []) => photos.filter((url) => {
+    const broken = isBrokenImageUrl(url);
+    if (broken) removed += 1;
+    return !broken;
+  });
+
+  const carPhotos = dedupePhotos(filterPhotos(order.carPhotos || []));
+  const notes = (order.notes || []).map((note) => ({ ...note, photos: dedupePhotos(filterPhotos(note.photos || [])) }));
+  const parts = (order.parts || []).map((part) => {
+    const partPhotos = dedupePhotos(filterPhotos(part.photos || []));
+    const variants = (part.variants || []).map((variant) => {
+      const photos = dedupePhotos(filterPhotos(variant.photos || []));
+      return { ...variant, photos, photoUrl: photos[0] || '' };
+    });
+    return { ...part, photos: partPhotos, photoUrl: partPhotos[0] || '', variants };
+  });
+
+  const carPhotoUrl = isBrokenImageUrl(order.carPhotoUrl || '') ? '' : (order.carPhotoUrl || (carPhotos[0] || ''));
+  const vinPhotoUrl = isBrokenImageUrl(order.vinPhotoUrl || '') ? '' : (order.vinPhotoUrl || '');
+  if (!carPhotoUrl && order.carPhotoUrl) removed += 1;
+  if (!vinPhotoUrl && order.vinPhotoUrl) removed += 1;
+
+  return {
+    next: { ...order, carPhotos, carPhotoUrl: carPhotoUrl || carPhotos[0] || '', vinPhotoUrl, notes, parts },
+    removed
   };
 };
 
@@ -313,6 +370,82 @@ const SettingsScreen: React.FC = () => {
       }
     }));
   });
+
+  const handleClearBrokenLinks = () => void withBusy('clear-broken-links', async () => {
+    let updatedOrders = 0;
+    let removedLinks = 0;
+
+    for (let index = 0; index < orders.length; index += 1) {
+      const order = orders[index];
+      const { next, removed } = removeBrokenPhotosFromOrder(order);
+      if (!removed) continue;
+      setDangerActionProgress({ label: 'Очистка битых ссылок', processed: index + 1, total: orders.length, details: order.id });
+      await updateOrder(next);
+      updatedOrders += 1;
+      removedLinks += removed;
+    }
+
+    window.dispatchEvent(new CustomEvent('app-toast', {
+      detail: {
+        tone: 'success',
+        message: `Очистка завершена: обновлено заказов ${updatedOrders}, удалено ссылок ${removedLinks}`
+      }
+    }));
+  });
+
+  const handleCheckAndCleanBrokenPhotos = () => void withBusy('check-clean-broken-photos', async () => {
+    const input = window.prompt('Сколько последних заказов проверить?', '50');
+    const limit = Math.max(1, Math.min(300, Number(input) || 50));
+    const sorted = [...orders].sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+    const targetOrders = sorted.slice(0, limit);
+
+    const queue = new Set<string>();
+    targetOrders.forEach((order) => collectOrderPhotoUrls(order).forEach((url) => queue.add(url)));
+    const urls = Array.from(queue).filter((url) => !isBrokenImageUrl(url));
+
+    let checked = 0;
+    const concurrency = 4;
+    let cursor = 0;
+    await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, async () => {
+      while (cursor < urls.length) {
+        const current = cursor;
+        cursor += 1;
+        const url = urls[current];
+        setDangerActionProgress({ label: 'Проверка битых фото', processed: checked, total: urls.length, details: normalizeBrokenImageKey(url).slice(0, 90) });
+        try {
+          const response = await fetch(url, { method: 'GET' });
+          if (!response.ok && shouldBlacklistByStatus(response.status)) {
+            markBrokenImageUrl(url);
+          }
+        } catch {
+          markBrokenImageUrl(url);
+        } finally {
+          checked += 1;
+        }
+      }
+    }));
+
+    let updatedOrders = 0;
+    let removedLinks = 0;
+    for (let index = 0; index < targetOrders.length; index += 1) {
+      const order = targetOrders[index];
+      const { next, removed } = removeBrokenPhotosFromOrder(order);
+      if (!removed) continue;
+      setDangerActionProgress({ label: 'Сохранение очищенных заказов', processed: index + 1, total: targetOrders.length, details: order.id });
+      await updateOrder(next);
+      updatedOrders += 1;
+      removedLinks += removed;
+    }
+
+    window.dispatchEvent(new CustomEvent('app-toast', {
+      detail: {
+        tone: 'success',
+        message: `Проверено фото: ${urls.length}, обновлено заказов: ${updatedOrders}, удалено ссылок: ${removedLinks}`
+      }
+    }));
+  });
+
+
 
 
 
@@ -843,6 +976,9 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         <div className="flex flex-col gap-2 text-sm">
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>{busyLabel('storage-compress-all', 'Сжать все фото на сервере до минимума', 'Сжимаем фото…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>{busyLabel('storage-delete-duplicates', 'Удалить дубликаты фото', 'Обработка дубликатов…')}</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCheckAndCleanBrokenPhotos}>{busyLabel('check-clean-broken-photos', 'Проверить и очистить битые фото', 'Проверяем битые фото…')}</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleClearBrokenLinks}>{busyLabel('clear-broken-links', 'Очистить битые ссылки', 'Очищаем битые ссылки…')}</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => { clearBrokenImageBlacklist(); window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Локальный blacklist битых фото очищен', tone: 'success' } })); }}>Очистить blacklist битых фото</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('cache', async () => {
             await clearApplicationCache();
             window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Кэш приложения очищен. Перезагрузите страницу.', tone: 'success' } }));

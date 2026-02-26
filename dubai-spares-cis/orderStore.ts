@@ -13,6 +13,7 @@ import { LOCAL_ONLY } from './localMode';
 import { mergeCloudLeadsWithOrders } from './leadSync';
 import { CloudLeadRow, leadsSync, purgePublicLeadArtifacts } from './serverApi';
 import { refreshSupabaseSchemaCache } from './schemaCache';
+import { isBrokenImageUrl, markBrokenImageUrl, shouldBlacklistByStatus } from './storage/brokenImageBlacklist';
 
 type OrderState = {
   orders: Order[];
@@ -224,7 +225,7 @@ const enqueueExistingImagesForCompression = (orders: Order[]) => {
   const known = readRecompressedImageSet();
   orders.forEach((order) => {
     collectOrderImageUrls(order).forEach((url) => {
-      if (!known.has(url)) existingImageCompressionQueue.add(url);
+      if (!known.has(url) && !isBrokenImageUrl(url)) existingImageCompressionQueue.add(url);
     });
   });
 
@@ -244,9 +245,15 @@ const enqueueExistingImagesForCompression = (orders: Order[]) => {
           updated.add(next);
           if (updated.size % 20 === 0) writeRecompressedImageSet(updated);
         } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const statusMatch = message.match(/\b(400|403|404)\b/);
+          if (statusMatch && shouldBlacklistByStatus(Number(statusMatch[1]))) {
+            markBrokenImageUrl(next);
+            updated.add(next);
+          }
           await logger.warn('storage:recompress-existing', 'Failed to recompress existing image', {
             url: next,
-            error: error instanceof Error ? error.message : String(error)
+            error: message
           });
         }
       }

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Trash2 } from 'lucide-react';
+import SafeImage from './SafeImage';
 
 interface Props {
   images: string[];
@@ -174,7 +175,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
         }}
         style={{ touchAction: 'none' }}
       >
-        <img
+        <SafeImage
           src={images[currentIndex]}
           alt={`Preview ${currentIndex + 1}`}
           className="max-w-full max-h-full object-contain"
