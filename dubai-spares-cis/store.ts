@@ -250,6 +250,16 @@ export const syncSuppliersFromServer = async (force = false) => {
   try {
     const serverSuppliers = await fetchSuppliersFromShops();
     supplierLastSyncedAt = Date.now();
+    if (serverSuppliers.length === 0) {
+      // Пустой ответ сервера не должен затирать локальную базу поставщиков,
+      // пока заказ(ы) ещё догружаются и fallback из variants не успел отработать.
+      if (lastSuppliersSyncError) {
+        lastSuppliersSyncError = null;
+        notifySupplierListeners();
+      }
+      return;
+    }
+
     const dedupedById = new Map<string, Supplier>();
     serverSuppliers.forEach((supplier) => {
       const normalizedServer = normalizeSupplier(supplier);
@@ -337,6 +347,13 @@ export const useStore = () => {
     if (!isHydrated || isLoading) return;
     syncSuppliersFromOrderVariants(orders);
   }, [orders, isHydrated, isLoading]);
+
+  useEffect(() => {
+    if (!isHydrated || isLoading) return;
+    // Дополнительный пересчёт после завершения полной загрузки заказов,
+    // чтобы suppliers восстанавливались даже если серверный sync вернул пусто на старте.
+    syncSuppliersFromOrderVariants(getOrderState().orders);
+  }, [isHydrated, isLoading]);
 
   const addSupplier = useCallback((supplier: Supplier) => {
     globalSuppliers = [normalizeSupplier(supplier), ...globalSuppliers];
