@@ -677,10 +677,14 @@ export const recompressExistingStorageImage = async (imageUrl: string): Promise<
   const parsed = parseSupabasePublicStorageUrl(imageUrl);
   if (!parsed || !isCloudConfigured) return false;
 
-  const originalResponse = await fetch(imageUrl);
+  let originalResponse = await fetch(imageUrl);
   if (!originalResponse.ok) {
-    throw new Error(`Failed to fetch original image ${originalResponse.status}`);
+    const encodedPath = parsed.path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+    originalResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/public/${parsed.bucket}/${encodedPath}`, {
+      headers: buildStorageHeaders()
+    });
   }
+  if (!originalResponse.ok) throw new Error(`Failed to fetch original image ${originalResponse.status}`);
 
   const originalBlob = await originalResponse.blob();
   if (!originalBlob.type.startsWith('image/')) return false;
@@ -723,7 +727,30 @@ export const recompressExistingStorageImage = async (imageUrl: string): Promise<
 };
 
 export const deleteOrderFolderFromStorage = async (orderId: string): Promise<void> => {
-  await logger.info('storage:cleanup', `[INFO] Storage cleanup skipped (local-first mode) for order ${orderId}.`);
+  if (!isCloudConfigured) {
+    await logger.info('storage:cleanup', `[INFO] Storage cleanup skipped (cloud storage disabled) for order ${orderId}.`);
+    return;
+  }
+
+  const folder = `orders/${orderId}`;
+  let deleted = 0;
+
+  for (const bucket of BUCKET_CANDIDATES) {
+    try {
+      const paths = await listStoragePathsRecursive(bucket, folder);
+      if (!paths.length) continue;
+      await deleteStorageFiles(bucket, paths);
+      deleted += paths.length;
+    } catch (error) {
+      await logger.warn('storage:cleanup', 'Failed to cleanup order folder in storage bucket', {
+        orderId,
+        bucket,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  await logger.info('storage:cleanup', 'Storage cleanup completed for order', { orderId, deleted });
 };
 
 export const ensurePublicImageUrls = async (
