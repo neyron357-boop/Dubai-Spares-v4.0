@@ -225,6 +225,23 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
 let supplierSyncInFlight = false;
 let supplierLastSyncedAt = 0;
 const SUPPLIER_SYNC_TTL_MS = 3 * 60 * 1000;
+let lastSuppliersSyncError: string | null = null;
+
+const formatSuppliersSyncError = (error: any): string => {
+  const code = typeof error?.code === 'string' ? error.code : '';
+  const message = typeof error?.message === 'string' ? error.message : 'Не удалось загрузить поставщиков';
+
+  if (code === '42501') {
+    return 'Нет доступа к таблице shops (RLS). Проверьте policy/grants.';
+  }
+  if (code === 'PGRST205' || code === 'PGRST204') {
+    return 'Источник поставщиков не найден. Проверьте миграции (shops / v_shops_enriched).';
+  }
+
+  return message;
+};
+
+export const getLastSuppliersSyncError = () => lastSuppliersSyncError;
 
 export const syncSuppliersFromServer = async (force = false) => {
   if (supplierSyncInFlight) return;
@@ -260,8 +277,15 @@ export const syncSuppliersFromServer = async (force = false) => {
       globalSuppliers = nextSuppliers;
       notifySupplierListeners();
     }
+    if (lastSuppliersSyncError) {
+      lastSuppliersSyncError = null;
+      notifySupplierListeners();
+    }
   } catch (e) {
+    lastSuppliersSyncError = formatSuppliersSyncError(e);
     console.error('Failed to sync suppliers from server:', e);
+    toast(`Ошибка загрузки поставщиков: ${lastSuppliersSyncError}`, 'error');
+    notifySupplierListeners();
   } finally {
     supplierSyncInFlight = false;
   }
@@ -367,6 +391,7 @@ export const useStore = () => {
     updatePriceVariant,
     fetchOrders,
     syncOrders: fetchOrders,
-    fetchOrderDetails
+    fetchOrderDetails,
+    lastSuppliersSyncError
   }), [version, orders, isLoading, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders, fetchOrderDetails]);
 };
