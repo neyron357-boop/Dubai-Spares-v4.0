@@ -629,8 +629,11 @@ const fetchSuppliersFallback = async (): Promise<Supplier[]> => {
       .range(from, from + SUPPLIER_PAGE_SIZE - 1);
 
     if (error || !Array.isArray(data)) {
-      void logger.warn('shops:fetch-suppliers', 'Failed to fetch suppliers from shops', { error: error?.message });
-      return [];
+      void logger.warn('shops:fetch-suppliers', 'Failed to fetch suppliers from shops', {
+        code: error?.code,
+        error: error?.message
+      });
+      throw error || new Error('shops returned invalid payload');
     }
 
     rows.push(...data);
@@ -645,12 +648,15 @@ export const getSuppliersEnriched = async (): Promise<Supplier[]> => {
   if (!supabase) return [];
   if (enrichedViewUnavailable) return fetchSuppliersFallback();
 
-  try {
-    const [enriched, fallback] = await Promise.all([
-      fetchSuppliersEnriched(),
-      fetchSuppliersFallback()
-    ]);
+  const [enrichedResult, fallbackResult] = await Promise.allSettled([
+    fetchSuppliersEnriched(),
+    fetchSuppliersFallback()
+  ]);
 
+  const enriched = enrichedResult.status === 'fulfilled' ? enrichedResult.value : null;
+  const fallback = fallbackResult.status === 'fulfilled' ? fallbackResult.value : null;
+
+  if (fallback && enriched) {
     if (!fallback.length) return enriched;
     if (!enriched.length) return fallback;
 
@@ -665,14 +671,30 @@ export const getSuppliersEnriched = async (): Promise<Supplier[]> => {
     });
 
     return Array.from(merged.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-  } catch (error: any) {
+  }
+
+  if (!enriched && fallback) {
+    const error: any = enrichedResult.status === 'rejected' ? enrichedResult.reason : null;
     enrichedViewUnavailable = true;
     void logger.warn('shops:fetch-enriched', 'Falling back to shops table for suppliers list', {
       code: error?.code,
       message: error?.message
     });
-    return fetchSuppliersFallback();
+    return fallback;
   }
+
+  if (enriched && !fallback) {
+    const error: any = fallbackResult.status === 'rejected' ? fallbackResult.reason : null;
+    void logger.warn('shops:fetch-fallback', 'Failed to fetch suppliers from shops fallback source', {
+      code: error?.code,
+      message: error?.message
+    });
+    return enriched;
+  }
+
+  const fallbackError: any = fallbackResult.status === 'rejected' ? fallbackResult.reason : null;
+  const enrichedError: any = enrichedResult.status === 'rejected' ? enrichedResult.reason : null;
+  throw fallbackError || enrichedError || new Error('Failed to fetch suppliers from remote sources');
 };
 
 

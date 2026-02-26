@@ -160,7 +160,7 @@ const inferZoneFromCoords = (coords?: { lat: number; lng: number }) => {
 };
 
 const SuppliersScreen: React.FC = () => {
-  const { suppliers, addSupplier, deleteSupplier, restoreData, orders, updateOrder, updateSupplier } = useStore();
+  const { suppliers, addSupplier, deleteSupplier, restoreData, orders, updateOrder, updateSupplier, lastSuppliersSyncError } = useStore();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [showFiltersPanel, setShowFiltersPanel] = useState(false);
@@ -1117,6 +1117,26 @@ const SuppliersScreen: React.FC = () => {
       )}
 
       <div className="space-y-3">
+        {lastSuppliersSyncError && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-red-700 space-y-2">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-black uppercase">Ошибка загрузки поставщиков</p>
+                <p className="text-xs font-semibold">{lastSuppliersSyncError}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void syncSuppliersFromServer(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-red-300 bg-white px-3 py-1.5 text-xs font-bold text-red-700"
+            >
+              <Shuffle size={13} />
+              Повторить
+            </button>
+          </div>
+        )}
+
         {filtered.length === 0 ? (
           <div className="py-20 text-center opacity-30 italic flex flex-col items-center gap-3"><Store size={48} />Поставщики не найдены</div>
         ) : (
