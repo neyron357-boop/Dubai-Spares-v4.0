@@ -211,6 +211,9 @@ const SuppliersScreen: React.FC = () => {
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [sortByDistanceRef, setSortByDistanceRef] = useState<{ lat: number; lng: number }>({ lat: 25.2048, lng: 55.2708 });
   const [sortByExtended, setSortByExtended] = useState<'smart' | 'trust' | 'heat' | 'near' | 'name'>('smart');
+  const [brandFilter, setBrandFilter] = useState('all');
+  const [modelFilter, setModelFilter] = useState('all');
+  const [yearFilter, setYearFilter] = useState('all');
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
   const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
@@ -333,6 +336,30 @@ const SuppliersScreen: React.FC = () => {
     return Array.from(deduped.values());
   }, [suppliersWithStats]);
 
+  const supplierFilterOptions = useMemo(() => {
+    const brands = new Set<string>();
+    const models = new Set<string>();
+    const years = new Set<string>();
+
+    rawSuppliers.forEach((supplier) => {
+      pickSupplierBrands(supplier).forEach((brand) => {
+        if (brand) brands.add(brand);
+      });
+      (supplier.models || []).forEach((model) => {
+        if (model) models.add(model);
+      });
+      (supplier.years || []).forEach((year) => {
+        if (Number.isFinite(Number(year))) years.add(String(year));
+      });
+    });
+
+    return {
+      brands: Array.from(brands).sort((a, b) => a.localeCompare(b)),
+      models: Array.from(models).sort((a, b) => a.localeCompare(b)),
+      years: Array.from(years).sort((a, b) => Number(b) - Number(a))
+    };
+  }, [rawSuppliers]);
+
   const filteredSuppliers = useMemo(() => {
     const calcDistanceKm = (supplier: Supplier & { coordinates?: { lat: number; lng: number } }) => {
       if (!supplier.coordinates) return Number.POSITIVE_INFINITY;
@@ -341,7 +368,14 @@ const SuppliersScreen: React.FC = () => {
       return Math.sqrt((latDiff * latDiff) + (lngDiff * lngDiff));
     };
 
-    return [...rawSuppliers].sort((a, b) => {
+    return [...rawSuppliers]
+      .filter((supplier) => {
+        const brandMatch = brandFilter === 'all' || pickSupplierBrands(supplier).includes(brandFilter);
+        const modelMatch = modelFilter === 'all' || (supplier.models || []).includes(modelFilter);
+        const yearMatch = yearFilter === 'all' || (supplier.years || []).map(String).includes(yearFilter);
+        return brandMatch && modelMatch && yearMatch;
+      })
+      .sort((a, b) => {
       const distanceA = calcDistanceKm(a);
       const distanceB = calcDistanceKm(b);
 
@@ -351,7 +385,7 @@ const SuppliersScreen: React.FC = () => {
       if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
       return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
     });
-  }, [rawSuppliers, sortByExtended, sortByDistanceRef]);
+  }, [brandFilter, modelFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -857,7 +891,20 @@ const SuppliersScreen: React.FC = () => {
           <option value="near">Distance ↑</option>
           <option value="name">Name A→Z</option>
         </select>
-        <div className="rounded-xl border border-gray-200 px-2 py-2 text-[11px] font-semibold text-gray-500">Поставщики отображаются без фильтров</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+          <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
+            <option value="all">Brand: all</option>
+            {supplierFilterOptions.brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+          </select>
+          <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
+            <option value="all">Model: all</option>
+            {supplierFilterOptions.models.map((model) => <option key={model} value={model}>{model}</option>)}
+          </select>
+          <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
+            <option value="all">Year: all</option>
+            {supplierFilterOptions.years.map((year) => <option key={year} value={year}>{year}</option>)}
+          </select>
+        </div>
       </div>
 
       {importError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-red-100"><AlertTriangle size={16} />{importError}</div>}
