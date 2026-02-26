@@ -13,10 +13,10 @@ const priorityWeight = {
   [Priority.LOW]: 1,
 };
 
-const sanitizeImages = (values: Array<string | null | undefined>) => {
+const sanitizeImages = (values: Array<unknown>) => {
   const seen = new Set<string>();
   return values
-    .map((value) => String(value || '').trim())
+    .map((value) => (typeof value === 'string' ? value : '').trim())
     .filter((value) => value && value !== 'null' && value !== 'undefined')
     .filter((value) => {
       if (seen.has(value)) return false;
@@ -123,7 +123,10 @@ const VendorSlider: React.FC = () => {
     return <div className="absolute inset-0 z-50 bg-[#0B1220] text-gray-300 flex flex-col items-center justify-center gap-4"><p>Нет данных</p><button type="button" onClick={() => navigate(-1)} className="rounded-xl border border-gray-700 px-4 py-2">Назад</button></div>;
   }
 
-  const carImages = sanitizeImages([...(current.carPhotos || []), current.carPhotoUrl]);
+  const carImages = sanitizeImages([
+    ...(Array.isArray(current.carPhotos) ? current.carPhotos : []),
+    current.carPhotoUrl
+  ]);
   const availableCarImages = carImages.filter((image) => !brokenImages[image]);
 
   return (
@@ -149,7 +152,10 @@ const VendorSlider: React.FC = () => {
 
       <div className="h-[calc(100%-30vh)] overflow-y-auto p-3 space-y-2" onTouchStart={(e) => { const t = e.targetTouches[0]; touchStart.current = { x: t.clientX, y: t.clientY }; }} onTouchEnd={(e) => { if (!touchStart.current) return; const t = e.changedTouches[0]; const dx = t.clientX - touchStart.current.x; const dy = t.clientY - touchStart.current.y; if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.15) goTo(index + (dx > 0 ? -1 : 1)); touchStart.current = null; }}>
         {current.visibleParts.map((part) => {
-          const images = sanitizeImages([...(part.photos || []), part.photoUrl]);
+          const images = sanitizeImages([
+            ...(Array.isArray(part.photos) ? part.photos : []),
+            part.photoUrl
+          ]);
           const availableImages = images.filter((image) => !brokenImages[image]);
           const isFound = part.isFound || part.status === 'found' || part.variants.some((variant) => Number(variant.priceAed) > 0);
           return (

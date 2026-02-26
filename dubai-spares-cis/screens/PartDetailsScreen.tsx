@@ -479,9 +479,15 @@ const PartDetailsScreen: React.FC = () => {
   };
 
   const getVariantPhotos = (variant: PriceVariant) => {
-    if (variant.photos?.length) return variant.photos;
-    if (variant.photoUrl) return [variant.photoUrl];
-    return [];
+    const photos = [
+      ...(Array.isArray(variant.photos) ? variant.photos : []),
+      variant.photoUrl
+    ]
+      .filter((photo): photo is string => typeof photo === 'string')
+      .map((photo) => photo.trim())
+      .filter(Boolean);
+
+    return Array.from(new Set(photos));
   };
 
   const openGallery = (e: React.MouseEvent, variant: PriceVariant) => {
