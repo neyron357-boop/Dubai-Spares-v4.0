@@ -59,7 +59,9 @@ create policy "authenticated_write_shops"
   using (true) with check (true);
 
 -- 4) Enriched view must remain a 1:1 superset over shops (no status/is_active filtering).
-create or replace view public.v_shops_enriched as
+--    Drop first to avoid CREATE OR REPLACE column-position conflicts on legacy view shapes.
+drop view if exists public.v_shops_enriched;
+create view public.v_shops_enriched as
 select
   s.*,
   m.total_interactions,
