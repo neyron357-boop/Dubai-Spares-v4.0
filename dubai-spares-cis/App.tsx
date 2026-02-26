@@ -11,7 +11,6 @@ import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
-import { SupplierSlidesErrorBoundary } from './components/SupplierSlidesErrorBoundary';
 import { CarFront, PlusCircle, Database, Bell, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
@@ -185,7 +184,7 @@ const App: React.FC = () => {
             <Routes>
               <Route path="/" element={<OrdersScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />
-              <Route path="/vendor" element={<SupplierSlidesErrorBoundary><VendorSlider /></SupplierSlidesErrorBoundary>} />
+              <Route path="/vendor" element={<VendorSlider />} />
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
               <Route path="/database" element={<SuppliersScreen />} />

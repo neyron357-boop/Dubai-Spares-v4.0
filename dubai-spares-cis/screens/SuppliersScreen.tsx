@@ -123,6 +123,20 @@ const pickSupplierBrands = (supplier: Supplier) => {
   return main.length > 0 ? main : fallback;
 };
 
+const normalizeSupplierYears = (years: unknown): number[] => {
+  const parsed = Array.isArray(years)
+    ? years
+    : typeof years === 'string'
+      ? years.split(',')
+      : [];
+
+  const normalized = parsed
+    .map((year) => Number(typeof year === 'string' ? year.trim() : year))
+    .filter((year) => Number.isFinite(year));
+
+  return Array.from(new Set(normalized)).sort((a, b) => a - b);
+};
+
 
 const LINKED_PART_STATUS_LABELS: Record<SupplierLinkedPartStatus, string> = {
   searching: 'В поиске',
@@ -349,8 +363,8 @@ const SuppliersScreen: React.FC = () => {
       (supplier.models || []).forEach((model) => {
         if (model) models.add(model);
       });
-      (supplier.years || []).forEach((year) => {
-        if (Number.isFinite(Number(year))) years.add(String(year));
+      normalizeSupplierYears(supplier.years).forEach((year) => {
+        years.add(String(year));
       });
     });
 
@@ -369,11 +383,15 @@ const SuppliersScreen: React.FC = () => {
       return Math.sqrt((latDiff * latDiff) + (lngDiff * lngDiff));
     };
 
+    const selectedYear = Number(yearFilter);
+    const hasSelectedYear = yearFilter !== 'all' && Number.isFinite(selectedYear);
+
     return [...rawSuppliers]
       .filter((supplier) => {
         const brandMatch = brandFilter === 'all' || pickSupplierBrands(supplier).includes(brandFilter);
         const modelMatch = modelFilter === 'all' || (supplier.models || []).includes(modelFilter);
-        const yearMatch = yearFilter === 'all' || (supplier.years || []).map(String).includes(yearFilter);
+        const supplierYears = normalizeSupplierYears(supplier.years);
+        const yearMatch = !hasSelectedYear || supplierYears.includes(selectedYear);
         return brandMatch && modelMatch && yearMatch;
       })
       .sort((a, b) => {
@@ -689,7 +707,7 @@ const SuppliersScreen: React.FC = () => {
       const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
       const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
       const nextModels = mergeUniqueStrings(linkedSupplier.models || [], [order.model || '']);
-      const nextYears = mergeUniqueYears(linkedSupplier.years || [], [Number(order.year)]);
+      const nextYears = mergeUniqueYears(normalizeSupplierYears(linkedSupplier.years), [Number(order.year)]);
       const nextEntries = partIds.reduce((acc, partId) => {
         const part = order.parts.find((item) => item.id === partId);
         if (!part) return acc;
@@ -755,7 +773,7 @@ const SuppliersScreen: React.FC = () => {
     const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
     const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
     const nextModels = mergeUniqueStrings(linkedSupplier.models || [], [order.model || '']);
-    const nextYears = mergeUniqueYears(linkedSupplier.years || [], [Number(order.year)]);
+    const nextYears = mergeUniqueYears(normalizeSupplierYears(linkedSupplier.years), [Number(order.year)]);
     const updatedSupplier = {
       ...linkedSupplier,
       mainBrands: nextBrands,
@@ -1128,7 +1146,7 @@ const SuppliersScreen: React.FC = () => {
                 <div className="rounded-xl border border-gray-100 bg-slate-50 p-2 space-y-1">
                   <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Марки:</span> {(brands.length > 0 ? brands : ['—']).join(', ')}</p>
                   <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Модели:</span> {((s.models || []).length > 0 ? (s.models || []) : ['—']).join(', ')}</p>
-                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Годы:</span> {((s.years || []).length > 0 ? (s.years || []).join(', ') : '—')}</p>
+                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Годы:</span> {(normalizeSupplierYears(s.years).length > 0 ? normalizeSupplierYears(s.years).join(', ') : '—')}</p>
                 </div>
                 {Array.isArray(s.mainPartCategories) && s.mainPartCategories.length > 0 && <p className="text-[11px] text-slate-500">Основные детали: {s.mainPartCategories.slice(0, 3).join(', ')}</p>}
 
@@ -1146,7 +1164,7 @@ const SuppliersScreen: React.FC = () => {
                       <button type="button" onClick={() => { navigator.clipboard.writeText(s.name); alert('Название скопировано'); }} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700">Скопировать название</button>
                     </>
                   )}
-                  <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput((s.years || []).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
+                  <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput(normalizeSupplierYears(s.years).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
                   <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
                   <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
                   
