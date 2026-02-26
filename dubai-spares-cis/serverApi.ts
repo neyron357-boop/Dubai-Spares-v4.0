@@ -463,13 +463,13 @@ export const getPublicQuoteSnapshot = async (
 
 
 
-export const listPublicQuoteSnapshots = async (options?: RequestOptions): Promise<Result<Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null }>>> => {
+export const listPublicQuoteSnapshots = async (options?: RequestOptions): Promise<Result<Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null; order_id?: string | null; payload_json?: unknown }>>> => {
   const guard = assertCloudFeatureEnabled(cloudFeatureFlags.publicQuote);
   if (!guard.ok) return recordCall('listPublicQuoteSnapshots', guard);
 
   try {
-    const endpoint = 'public_quote_snapshots?select=id,token,snapshot_id,expires_at,created_at&order=created_at.desc.nullslast,expires_at.desc&limit=500';
-    const response = await callRest<Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null }>>(endpoint, 'GET', undefined, {
+    const endpoint = 'public_quote_snapshots?select=id,token,snapshot_id,expires_at,created_at,order_id,payload_json&order=created_at.desc.nullslast,expires_at.desc&limit=500';
+    const response = await callRest<Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null; order_id?: string | null; payload_json?: unknown }>>(endpoint, 'GET', undefined, {
       ...(options || {}),
       timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS
     });

@@ -220,12 +220,13 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
 
     try {
       const mapped = await mapCloudLeadToOrder(lead);
+      const rawLeadId = typeof lead.id === 'string' ? lead.id.trim() : '';
       const serverMarkedConverted = typeof lead.order_id === 'string' && lead.order_id.trim().length > 0;
-      if (ignored.has(mapped.id)) continue;
+      if (ignored.has(mapped.id) || (rawLeadId && ignored.has(rawLeadId))) continue;
       const existing = existingById.get(mapped.id);
 
       if (!existing) {
-        if (converted.has(mapped.id) || serverMarkedConverted) continue;
+        if (converted.has(mapped.id) || (rawLeadId && converted.has(rawLeadId)) || serverMarkedConverted) continue;
         merged.push(mapped);
         continue;
       }
@@ -233,7 +234,7 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
       if (existing.leadSource === 'public_form' || existing.isLead) {
         const index = merged.findIndex((order) => order.id === existing.id);
         if (index >= 0) {
-          const isConverted = converted.has(existing.id) || serverMarkedConverted;
+          const isConverted = converted.has(existing.id) || (rawLeadId && converted.has(rawLeadId)) || serverMarkedConverted;
           merged[index] = {
             ...existing,
             leadUnread: isConverted ? false : (existing.leadUnread === false ? false : true),

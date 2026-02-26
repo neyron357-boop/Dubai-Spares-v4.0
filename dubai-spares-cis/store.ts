@@ -147,6 +147,9 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
           const nextBrands = appendUniqueTextValue(existingSupplier.brands, order.brand);
           const nextMainBrands = appendUniqueTextValue(existingSupplier.mainBrands, order.brand);
           const nextModels = appendUniqueTextValue(existingSupplier.models, order.model);
+          const nextYears = Number.isFinite(Number(order.year))
+            ? Array.from(new Set([...(existingSupplier.years || []), Number(order.year)])).sort((a, b) => a - b)
+            : (existingSupplier.years || []);
           const nextPrimaryBrand = existingSupplier.primaryBrand || nextMainBrands[0] || '';
 
           const shouldUpdate = !hasLinkedPart
@@ -156,6 +159,7 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
             || nextBrands.length !== (existingSupplier.brands || []).length
             || nextMainBrands.length !== (existingSupplier.mainBrands || []).length
             || nextModels.length !== (existingSupplier.models || []).length
+            || nextYears.length !== (existingSupplier.years || []).length
             || nextPrimaryBrand !== (existingSupplier.primaryBrand || '');
 
           if (!shouldUpdate) return;
@@ -168,6 +172,7 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
             mainBrands: nextMainBrands,
             primaryBrand: nextPrimaryBrand,
             models: nextModels,
+            years: nextYears,
             linkedParts: nextLinkedParts,
             activeOrderIds: nextOrderIds,
             updatedAt: now,

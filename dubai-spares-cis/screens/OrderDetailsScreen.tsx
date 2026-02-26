@@ -278,19 +278,7 @@ const OrderDetailsScreen: React.FC = () => {
       }
     });
 
-    if (order) {
-      const nextLogistics = {
-        ...order.logistics,
-        deliveryAed: Number(logisticsDraft.deliveryAed || 0),
-        packingAed: Number(logisticsDraft.packingAed || 0),
-        serviceFeeAed: Number(logisticsDraft.serviceFeeAed || 0)
-      };
-      const hasLogisticsChanges = (['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).some((field) => Number(order.logistics?.[field] || 0) !== Number(nextLogistics[field] || 0));
-      if (hasLogisticsChanges) {
-        void updateOrder({ ...order, logistics: nextLogistics });
-      }
-    }
-  }, [logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, markupFixedInput, order, rateInput, updateOrder]);
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -807,18 +795,20 @@ const OrderDetailsScreen: React.FC = () => {
     setLogisticsDraft((prev) => ({ ...prev, [field]: nextValue }));
   }, []);
 
-  const hasPendingLogisticsChanges = useMemo(() => {
+  const hasPendingPricingChanges = useMemo(() => {
     if (!order) return false;
-    return (['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).some((field) => {
+    const hasLogisticsDiff = (['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).some((field) => {
       const draftValue = Number(logisticsDraft[field] || 0);
       const savedValue = Number(order.logistics?.[field] || 0);
       return draftValue !== savedValue;
     });
-  }, [logisticsDraft, order]);
+    const hasMarkupDiff = Number(markupFixedInput || 0) !== Number(order.markupFixedAed || 0) || (order.markupType || 'percent') !== 'fixed';
+    return hasLogisticsDiff || hasMarkupDiff;
+  }, [logisticsDraft, markupFixedInput, order]);
 
   const saveLogisticsDraft = useCallback(() => {
     if (!isEditMode) return;
-    if (!hasPendingLogisticsChanges) return;
+    if (!hasPendingPricingChanges) return
 
     const eventLabels: Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string> = {
       deliveryAed: 'Логистика AED',
@@ -838,6 +828,10 @@ const OrderDetailsScreen: React.FC = () => {
       serviceFeeAed: Number(logisticsDraft.serviceFeeAed || 0)
     };
 
+    const nextMarkupFixed = Number(markupFixedInput || 0);
+    const previousMarkupFixed = Number(order.markupFixedAed || 0);
+    const previousMarkupType = order.markupType || 'percent';
+
     const nextEvents = (['deliveryAed', 'packingAed', 'serviceFeeAed'] as const)
       .map((field) => createPricingEvent(
         eventFieldMap[field],
@@ -847,22 +841,20 @@ const OrderDetailsScreen: React.FC = () => {
       ))
       .filter(Boolean) as OrderPricingEvent[];
 
+    const markupAmountEvent = createPricingEvent('markupFixedAed', 'Наценка (фикс AED)', previousMarkupFixed, nextMarkupFixed);
+    const markupTypeEvent = previousMarkupType !== 'fixed' ? createPricingEvent('markupType', 'Тип наценки', previousMarkupType, 'fixed') : null;
+    const mergedEvents = [markupAmountEvent, markupTypeEvent, ...nextEvents].filter(Boolean) as OrderPricingEvent[];
+
     updateOrder({
       ...order,
+      markupFixedAed: nextMarkupFixed,
+      markupType: 'fixed',
       logistics: nextLogistics,
-      pricingEvents: nextEvents.length ? [...nextEvents, ...(order.pricingEvents || [])] : order.pricingEvents
+      pricingEvents: mergedEvents.length ? [...mergedEvents, ...(order.pricingEvents || [])] : order.pricingEvents
     });
     scheduleDebouncedSaveLog();
     setToast({ message: 'Логистика сохранена' });
-  }, [hasPendingLogisticsChanges, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, order, scheduleDebouncedSaveLog, updateOrder]);
-
-  useEffect(() => {
-    if (!isEditMode || !hasPendingLogisticsChanges) return;
-    const timer = window.setTimeout(() => {
-      saveLogisticsDraft();
-    }, 900);
-    return () => window.clearTimeout(timer);
-  }, [hasPendingLogisticsChanges, isEditMode, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, saveLogisticsDraft]);
+  }, [hasPendingPricingChanges, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, order, scheduleDebouncedSaveLog, updateOrder, markupFixedInput]);
 
   const updateLogisticsField = (field: 'deliveryType', value: string) => {
     if (!isEditMode) return value;
@@ -915,11 +907,10 @@ const OrderDetailsScreen: React.FC = () => {
     const rawVal = e.target.value;
     const sanitized = sanitizeNumericInput(rawVal);
     setMarkupFixedInput(sanitized);
-    if (markupCommitTimerRef.current) window.clearTimeout(markupCommitTimerRef.current);
-    markupCommitTimerRef.current = window.setTimeout(() => {
-      commitMarkupFixed(Number(sanitized || 0));
+    if (markupCommitTimerRef.current) {
+      window.clearTimeout(markupCommitTimerRef.current);
       markupCommitTimerRef.current = null;
-    }, 1000);
+    }
     syncPerf.recordTypingSample(Math.round((performance.now() - startedAt) * 100) / 100);
   };
 
@@ -1532,7 +1523,7 @@ const OrderDetailsScreen: React.FC = () => {
                 {MARKUP_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}%</option>)}
               </select>
             ) : (
-              <input type="text" inputMode="numeric" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onBlur={() => { if (!markupFixedInput) setMarkupFixedInput('0'); flushMarkupCommit(); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }} onChange={handleMarkupFixedChange} className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100" placeholder="AED" />
+              <input type="text" inputMode="numeric" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onBlur={() => { if (!markupFixedInput) setMarkupFixedInput('0'); }}  onChange={handleMarkupFixedChange} className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100" placeholder="AED" />
             )}
             <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-gray-500">
               <input type="checkbox" checked={!!order.useMarkupAsDefaultForNewParts} onChange={(e) => updateOrderField('useMarkupAsDefaultForNewParts', e.target.checked)} />
@@ -1565,17 +1556,16 @@ const OrderDetailsScreen: React.FC = () => {
                 label={label}
                 value={logisticsDraft[field]}
                 onChange={onLogisticsDraftChange}
-                onBlur={saveLogisticsDraft}
               />
             ))}
             <div className="col-span-2 pt-1">
               <button
                 type="button"
                 onClick={saveLogisticsDraft}
-                disabled={!hasPendingLogisticsChanges}
-                className={`h-10 w-full rounded-xl text-xs font-black uppercase tracking-wide transition ${hasPendingLogisticsChanges ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                disabled={!hasPendingPricingChanges}
+                className={`h-10 w-full rounded-xl text-xs font-black uppercase tracking-wide transition ${hasPendingPricingChanges ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
               >
-                Сохранить логистику
+                Сохранить финансы
               </button>
             </div>
           </div>
