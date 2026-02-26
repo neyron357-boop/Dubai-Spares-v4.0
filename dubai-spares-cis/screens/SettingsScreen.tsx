@@ -126,7 +126,7 @@ const SettingsScreen: React.FC = () => {
   const [backupController, setBackupController] = useState<AbortController | null>(null);
   const [lastBackupId, setLastBackupId] = useState('');
   const [requestCount, setRequestCount] = useState<number>(() => ((window as any).__serverApiRequestCount || 0));
-  const [snapshotRows, setSnapshotRows] = useState<Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null }>>([]);
+  const [snapshotRows, setSnapshotRows] = useState<Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null; order_id?: string | null; payload_json?: unknown }>>([]);
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
   const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
   const [dangerActionProgress, setDangerActionProgress] = useState<{ label: string; processed: number; total: number; details?: string } | null>(null);
@@ -433,13 +433,32 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
-  const copySnapshotUrl = async (row: { id: string; token: string; snapshot_id?: string | null }) => {
+  const buildSnapshotUrl = (row: { id: string; token: string; snapshot_id?: string | null }) => {
     const snapshotId = String(row.snapshot_id || row.id || '').trim();
     const token = String(row.token || '').trim();
-    const url = `${window.location.origin}${window.location.pathname}#/public-quote/${encodeURIComponent(token)}${snapshotId ? `?snapshot=${encodeURIComponent(snapshotId)}` : ''}`;
+    return `${window.location.origin}${window.location.pathname}#/public-quote/${encodeURIComponent(token)}${snapshotId ? `?snapshot=${encodeURIComponent(snapshotId)}` : ''}`;
+  };
+
+  const copySnapshotUrl = async (row: { id: string; token: string; snapshot_id?: string | null }) => {
+    const token = String(row.token || '').trim();
+    const url = buildSnapshotUrl(row);
     await navigator.clipboard.writeText(url);
     setSnapshotNotice(`Ссылка скопирована: ${token}`);
   };
+
+
+const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?: unknown }) => {
+  const payload = row.payload_json && typeof row.payload_json === 'object' && !Array.isArray(row.payload_json)
+    ? row.payload_json as Record<string, unknown>
+    : {};
+  const brand = typeof payload.brand === 'string' ? payload.brand.trim() : '';
+  const model = typeof payload.model === 'string' ? payload.model.trim() : '';
+  const year = typeof payload.year === 'string' || typeof payload.year === 'number' ? String(payload.year).trim() : '';
+  const label = [brand, model, year].filter(Boolean).join(' ');
+  if (label) return label;
+  if (typeof row.order_id === 'string' && row.order_id.trim()) return `Order ${row.order_id.trim()}`;
+  return 'Без названия авто';
+};
 
   const handleSnapshotDelete = async (row: { id: string; token: string; snapshot_id?: string | null }) => {
     const key = String(row.snapshot_id || row.id || row.token || '').trim();
@@ -832,10 +851,12 @@ const SettingsScreen: React.FC = () => {
                   <li key={`${row.id}:${row.token}`} className="p-3 space-y-2">
                     <div className="text-[11px] text-gray-700 break-all">
                       <p><span className="font-bold text-gray-900">ID:</span> {identity}</p>
+                      <p><span className="font-bold text-gray-900">Авто:</span> {resolveSnapshotCarTitle(row)}</p>
                       <p><span className="font-bold text-gray-900">Token:</span> {row.token}</p>
                       <p><span className="font-bold text-gray-900">Expires:</span> {row.expires_at}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
+                      <a href={buildSnapshotUrl(row)} target="_blank" rel="noreferrer" className="rounded-lg border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">Открыть</a>
                       <button type="button" className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold" onClick={() => void copySnapshotUrl(row)}>Копировать ссылку</button>
                       <button type="button" className="rounded-lg border border-rose-300 bg-white px-2 py-1 text-xs font-bold text-rose-700" onClick={() => void handleSnapshotDelete(row)}>Удалить</button>
                     </div>

@@ -83,8 +83,14 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
       )}
 
       <div
-        className="h-full w-full flex items-center justify-center px-4"
+        className="max-h-full max-w-full flex items-center justify-center px-4"
         onClick={(e) => e.stopPropagation()}
+        onWheel={(e) => {
+          if (!e.ctrlKey) return;
+          e.preventDefault();
+          const direction = e.deltaY > 0 ? -0.15 : 0.15;
+          setZoom((value) => clamp(Number((value + direction).toFixed(2)), 1, 4));
+        }}
         onTouchStart={(e) => {
           const touch = e.changedTouches[0];
           if (!touch) return;
@@ -105,8 +111,8 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
         <img
           src={images[currentIndex]}
           alt={`Preview ${currentIndex + 1}`}
-          className="max-w-full max-h-full object-contain transition-transform duration-150"
-          style={{ transform: `scale(${zoom})` }}
+          className="max-w-full max-h-full object-contain transition-transform duration-200 ease-out"
+          style={{ transform: `scale(${zoom})`, touchAction: 'none' }}
           draggable={false}
         />
       </div>
