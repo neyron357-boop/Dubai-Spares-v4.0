@@ -637,6 +637,12 @@ const fetchSuppliersFallback = async (): Promise<Supplier[]> => {
     {
       select: 'id,name,phone,location,latitude,longitude,shop_type,zone,specialization,specialization_models,specialization_years',
       orderByUpdatedAt: false
+    },
+    {
+      // Keep the last fallback schema-light: after radar-related migrations were removed,
+      // some specialization/metrics columns may not exist anymore.
+      select: 'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,created_at,updated_at',
+      orderByUpdatedAt: false
     }
   ] as const;
 
