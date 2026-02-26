@@ -237,6 +237,27 @@ const SuppliersScreen: React.FC = () => {
   const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
   const [isForceSyncingSuppliers, setIsForceSyncingSuppliers] = useState(false);
 
+  const resetSupplierFiltersAndSearch = () => {
+    setSearchTerm('');
+    setDebouncedSearchTerm('');
+    setFilterType('all');
+    setFilterActivity('all');
+    setFilterBrand('all');
+    setFilterGps('all');
+    setFilterPartCategory('all');
+    setYearFrom('');
+    setYearTo('');
+    setQuickRadiusKm('all');
+    setQuickHasContacts(false);
+    setQuickOpenNow(false);
+    setAdvancedTrustMin(0);
+    setAdvancedSuccessMin(0);
+    setAdvancedHeatMin(0);
+    setAdvancedHasDelivery(false);
+    setAdvancedFastWhatsapp(false);
+    setShowAdvancedFilters(false);
+  };
+
   const activeOrders = useMemo(
     () => orders.filter((order) => !order.isArchived && !order.isSold),
     [orders]
@@ -349,7 +370,16 @@ const SuppliersScreen: React.FC = () => {
     };
   }), [suppliers, supplierStatsMap]);
 
-  const filtered = useMemo(() => {
+  const rawSuppliers = useMemo(() => {
+    const deduped = new Map<string, (typeof suppliersWithStats)[number]>();
+    suppliersWithStats.forEach((item) => {
+      const key = `${item.id}:${item.name.trim().toLowerCase()}`;
+      if (!deduped.has(key)) deduped.set(key, item);
+    });
+    return Array.from(deduped.values());
+  }, [suppliersWithStats]);
+
+  const filteredSuppliers = useMemo(() => {
     const normalized = debouncedSearchTerm.toLowerCase();
     const yFrom = Number(yearFrom);
     const yTo = Number(yearTo);
@@ -360,13 +390,7 @@ const SuppliersScreen: React.FC = () => {
       return Math.sqrt((latDiff * latDiff) + (lngDiff * lngDiff));
     };
 
-    const deduped = new Map<string, (typeof suppliersWithStats)[number]>();
-    suppliersWithStats.forEach((item) => {
-      const key = `${item.id}:${item.name.trim().toLowerCase()}`;
-      if (!deduped.has(key)) deduped.set(key, item);
-    });
-
-    const data = Array.from(deduped.values()).filter((s) => {
+    const data = rawSuppliers.filter((s) => {
       const matchesSearch = !normalized
         || s.name.toLowerCase().includes(normalized)
         || s.phone.includes(debouncedSearchTerm)
@@ -374,13 +398,19 @@ const SuppliersScreen: React.FC = () => {
         || (s.brands || []).some((b) => b.toLowerCase().includes(normalized))
         || pickSupplierBrands(s).some((b) => b.toLowerCase().includes(normalized));
 
-      const supplierTypes = Array.isArray(s.types) && s.types.length > 0 ? s.types : [s.type || 'new_parts'];
+      const supplierTypes = [
+        ...(Array.isArray(s.types) ? s.types : []),
+        s.type || ''
+      ].map((type) => String(type || '').trim()).filter(Boolean) as SupplierType[];
+      const hasSupplierTypes = supplierTypes.length > 0;
       const matchesQuickType = (filterType === 'all')
+        || !hasSupplierTypes
         || (filterType === 'new_parts' && supplierTypes.includes('new_parts'))
         || (filterType === 'scrapyard' && supplierTypes.some((type) => ['scrapyard', 'body_parts', 'mixed'].includes(type)))
         || (filterType === 'engine_specialist' && supplierTypes.some((type) => ['engine_specialist', 'electrical', 'dealer', 'warehouse'].includes(type)));
       const matchesType = matchesQuickType;
-      const matchesBrand = filterBrand === 'all' || pickSupplierBrands(s).includes(filterBrand);
+      const supplierBrands = pickSupplierBrands(s).map((brand) => brand.trim()).filter(Boolean);
+      const matchesBrand = filterBrand === 'all' || supplierBrands.length === 0 || supplierBrands.includes(filterBrand);
       const hasGps = !!s.coordinates;
       const matchesGps = filterGps === 'all' || (filterGps === 'has' ? hasGps : !hasGps);
       const matchesActivity = filterActivity === 'all'
@@ -417,7 +447,7 @@ const SuppliersScreen: React.FC = () => {
       if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
       return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
     });
-  }, [suppliersWithStats, debouncedSearchTerm, filterType, filterBrand, filterGps, filterActivity, filterPartCategory, yearFrom, yearTo, sortByExtended, sortByDistanceRef, quickRadiusKm, quickHasContacts, quickOpenNow, advancedTrustMin, advancedSuccessMin, advancedHeatMin, advancedHasDelivery, advancedFastWhatsapp]);
+  }, [rawSuppliers, debouncedSearchTerm, filterType, filterBrand, filterGps, filterActivity, filterPartCategory, yearFrom, yearTo, sortByExtended, sortByDistanceRef, quickRadiusKm, quickHasContacts, quickOpenNow, advancedTrustMin, advancedSuccessMin, advancedHeatMin, advancedHasDelivery, advancedFastWhatsapp]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -826,6 +856,7 @@ const SuppliersScreen: React.FC = () => {
 
   useEffect(() => {
     void syncSuppliersFromServer(true);
+    resetSupplierFiltersAndSearch();
   }, []);
 
   useEffect(() => {
@@ -878,26 +909,10 @@ const SuppliersScreen: React.FC = () => {
 
   const forceRefreshSuppliers = async () => {
     setIsForceSyncingSuppliers(true);
+    resetSupplierFiltersAndSearch();
     try {
       const result = await syncSuppliersFromServer(true);
       const fetchedCount = Number(result?.fetchedCount || 0);
-      setSearchTerm('');
-      setDebouncedSearchTerm('');
-      setFilterType('all');
-      setFilterActivity('all');
-      setFilterBrand('all');
-      setFilterGps('all');
-      setFilterPartCategory('all');
-      setYearFrom('');
-      setYearTo('');
-      setQuickRadiusKm('all');
-      setQuickHasContacts(false);
-      setQuickOpenNow(false);
-      setAdvancedTrustMin(0);
-      setAdvancedSuccessMin(0);
-      setAdvancedHeatMin(0);
-      setAdvancedHasDelivery(false);
-      setAdvancedFastWhatsapp(false);
       if (fetchedCount === 0) {
         toast('Сервер вернул 0 поставщиков. Проверьте фильтры или источник данных.', 'info');
         return;
@@ -946,7 +961,7 @@ const SuppliersScreen: React.FC = () => {
       </button>
 
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
-        Debug: suppliers.length = {suppliers.length} · displayed.length = {filtered.length}
+        Debug: rawSuppliers.length = {rawSuppliers.length} · filteredSuppliers.length = {filteredSuppliers.length}
       </div>
 
       <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2">
@@ -1187,10 +1202,10 @@ const SuppliersScreen: React.FC = () => {
           </div>
         )}
 
-        {filtered.length === 0 ? (
+        {filteredSuppliers.length === 0 ? (
           <div className="py-20 text-center opacity-30 italic flex flex-col items-center gap-3"><Store size={48} />Поставщики не найдены</div>
         ) : (
-          filtered.map((s) => {
+          filteredSuppliers.map((s) => {
             const Icon = s.type === 'scrapyard' ? Wrench : Gem;
             const brands = pickSupplierBrands(s);
 
