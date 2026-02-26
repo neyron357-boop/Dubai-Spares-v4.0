@@ -316,6 +316,8 @@ export interface SystemLogEntry {
   sessionId?: string;
   requestId?: string;
   orderId?: string;
+  mode?: 'regular' | 'absolute';
+  source?: 'app' | 'browser-console' | 'browser-runtime' | 'server-event';
 }
 
 export type RadarInteractionResult =
