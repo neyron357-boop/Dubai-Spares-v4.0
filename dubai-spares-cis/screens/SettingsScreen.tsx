@@ -1,13 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ChevronRight, ShieldAlert, Wrench } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
 import { backupUpload, clearPublicQuoteSnapshots, clearServerBackups, deletePublicQuoteSnapshot, listPublicQuoteSnapshots } from '../serverApi';
-import { cloudBuildGuardMessage, cloudDiagnosticsText, cloudFeatureFlags, getLastCloudCall, isCloudConfigured, SUPABASE_HOST, SUPABASE_URL } from '../cloudConfig';
+import { cloudBuildGuardMessage, isCloudConfigured, SUPABASE_URL } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
-import { logger } from '../logging';
 import { deleteStorageDuplicateMappings, runStorageImageMaintenance, uploadImageToStorage } from '../storage/photos';
 import { Order } from '../types';
 
@@ -115,17 +113,13 @@ const SettingsScreen: React.FC = () => {
   const navigate = useNavigate();
   const { settings, updateSettings } = useAppSettings();
   const { orders, updateOrder, restoreData, exportData, fetchOrders } = useStore();
-  const [devUnlocked, setDevUnlocked] = useState(false);
-  const [tapCount, setTapCount] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [serverStatus, setServerStatus] = useState<'available' | 'unavailable'>(() => (isCloudConfigured ? 'available' : 'unavailable'));
-  const [lastCloudResult, setLastCloudResult] = useState(() => getLastCloudCall());
   const [backupProgress, setBackupProgress] = useState(0);
   const [backupController, setBackupController] = useState<AbortController | null>(null);
   const [lastBackupId, setLastBackupId] = useState('');
-  const [requestCount, setRequestCount] = useState<number>(() => ((window as any).__serverApiRequestCount || 0));
   const [snapshotRows, setSnapshotRows] = useState<Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null; order_id?: string | null; payload_json?: unknown }>>([]);
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
   const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
@@ -144,20 +138,6 @@ const SettingsScreen: React.FC = () => {
     setDraftSettings(settings);
   }, [settings]);
 
-
-  useEffect(() => {
-    const onCloudCall = (event: Event) => setLastCloudResult((event as CustomEvent).detail);
-    window.addEventListener('cloud:last-call', onCloudCall as EventListener);
-    const onRequest = (event: Event) => {
-      const count = Number((event as CustomEvent<{ count?: number }>).detail?.count || 0);
-      setRequestCount(count);
-    };
-    window.addEventListener('server-api:request', onRequest as EventListener);
-    return () => {
-      window.removeEventListener('server-api:request', onRequest as EventListener);
-      window.removeEventListener('cloud:last-call', onCloudCall as EventListener);
-    };
-  }, []);
 
 
   const updateDraft = (patch: Partial<AppSettings>) => {
@@ -237,23 +217,6 @@ const SettingsScreen: React.FC = () => {
     window.localStorage.clear();
   };
 
-
-
-  const handleExportLogs = async () => {
-    try {
-      const logs = await logger.getRecent(100);
-      const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `dubai-spares-logs-${Date.now()}.json`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Export logs failed';
-      alert(`Не удалось экспортировать логи: ${message}`);
-    }
-  };
 
 
   const handleExportLocalBackup = () => {
@@ -506,16 +469,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
 
   return (
     <div className="min-h-full max-w-full overflow-x-hidden bg-gray-50 p-4 pb-24 space-y-4">
-      <div
-        onClick={() => {
-          const next = tapCount + 1;
-          setTapCount(next);
-          if (next >= 5) {
-            setDevUnlocked(true);
-            setTapCount(0);
-          }
-        }}
-      >
+      <div>
         <h1 className="text-xl font-black text-gray-900">Настройки</h1>
         <p className="text-xs text-gray-500 mt-1">Рабочая панель владельца: только основные и безопасные действия</p>
       </div>
@@ -734,7 +688,6 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         <div className="text-sm text-gray-700 space-y-1">
           <p>Режим: <b>LOCAL</b></p>
           <p>Server: {serverStatus === 'available' ? 'available' : 'unavailable'}</p>
-          <p>Supabase requests (dev check): {requestCount}</p>
           {!isCloudConfigured && <p className="text-rose-600">{cloudBuildGuardMessage}</p>}
         </div>
 
@@ -835,20 +788,13 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           Test Connection
         </button>
 
-        <div className="flex gap-3">
-          <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => { (window as any).__serverApiRequestCount = 0; setRequestCount(0); }}>Reset request counter</button>
-          <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => navigator.clipboard.writeText(cloudDiagnosticsText())}>Copy diagnostics</button>
-          <button type="button" className="text-xs font-bold text-blue-600 underline underline-offset-2 text-left" onClick={() => void handleExportLogs()}>Экспорт логов</button>
-        </div>
-        {devUnlocked && (
-          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 space-y-1">
-            <p className="font-black text-gray-900">Cloud diagnostics (dev)</p>
-            <p>Supabase host: {SUPABASE_HOST || 'invalid'}</p>
-            <p>Features: backup={String(cloudFeatureFlags.backup)}, quote={String(cloudFeatureFlags.publicQuote)}, form={String(cloudFeatureFlags.clientForm)}</p>
-            <p>Last call: {lastCloudResult ? `${lastCloudResult.action} • ${lastCloudResult.ok ? 'ok' : lastCloudResult.code}` : 'none'}</p>
-          </div>
-        )}
-        <Link to="/debug" className="inline-block text-xs font-bold text-blue-600 underline underline-offset-2">→ Расширенная диагностика</Link>
+        <button
+          type="button"
+          onClick={() => navigate('/debug')}
+          className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold"
+        >
+          Логи
+        </button>
       </Section>
 
       <Section title="Snapshots (публичные сметы)">
@@ -938,34 +884,6 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           </div>
         )}
       </Section>
-
-      {devUnlocked && (
-        <Section title="Для разработчика">
-          <button
-            type="button"
-            onClick={() => navigate('/debug')}
-            className="w-full rounded-2xl border border-gray-200 bg-white p-4 flex items-center justify-between"
-          >
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Wrench size={18} />
-              </div>
-              <div className="text-left">
-                <p className="text-sm font-black text-gray-900">Для разработчика</p>
-                <p className="text-xs text-gray-500">Debug / Logs</p>
-              </div>
-            </div>
-            <ChevronRight size={18} className="text-gray-300" />
-          </button>
-        </Section>
-      )}
-
-      {!devUnlocked && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700 flex items-start gap-2">
-          <ShieldAlert size={16} />
-          <div>Dev-раздел скрыт. Для открытия: 5 тапов по заголовку “Настройки”.</div>
-        </div>
-      )}
 
       <div className="sticky bottom-2 z-30 rounded-2xl border border-gray-200 bg-white/95 p-3 shadow-sm backdrop-blur">
         <button
