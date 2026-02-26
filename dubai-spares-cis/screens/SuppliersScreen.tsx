@@ -1163,6 +1163,11 @@ const SuppliersScreen: React.FC = () => {
                 </button>
 
                 {expandedSupplierIds.has(s.id) && <>
+                <div className="rounded-xl border border-gray-100 bg-slate-50 p-2 space-y-1">
+                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Марки:</span> {(brands.length > 0 ? brands : ['—']).join(', ')}</p>
+                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Модели:</span> {((s.models || []).length > 0 ? (s.models || []) : ['—']).join(', ')}</p>
+                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Годы:</span> {((s.years || []).length > 0 ? (s.years || []).join(', ') : '—')}</p>
+                </div>
                 {Array.isArray(s.mainPartCategories) && s.mainPartCategories.length > 0 && <p className="text-[11px] text-slate-500">Основные детали: {s.mainPartCategories.slice(0, 3).join(', ')}</p>}
 
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">

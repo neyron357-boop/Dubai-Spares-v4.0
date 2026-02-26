@@ -14,6 +14,34 @@ const toNumberArray = (values: unknown): number[] => {
     .filter((value) => Number.isFinite(value));
 };
 
+const toStringArray = (values: unknown): string[] => {
+  if (Array.isArray(values)) {
+    return values
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+  }
+
+  if (typeof values === 'string') {
+    const trimmed = values.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map((item) => String(item || '').trim())
+            .filter(Boolean);
+        }
+      } catch {
+        // fallback to CSV parsing below
+      }
+    }
+    return parseCsv(trimmed);
+  }
+
+  return [];
+};
+
 const parseCsv = (value: string) =>
   value
     .split(',')
@@ -495,44 +523,52 @@ export const deleteSupplierFromShops = async (supplierId: string) => {
   }
 };
 
-const mapShopRowToSupplier = (row: any): Supplier => ({
-  id: String(row.id),
-  name: row.name || 'Shop',
-  phone: row.phone || '',
-  whatsapp: row.whatsapp || '',
-  location: row.location || '',
-  type: row.shop_type || 'new_parts',
-  zone: row.zone || '',
-  heatLevel: Number.isFinite(Number(row.metrics_heat_level)) ? Number(row.metrics_heat_level) : (Number.isFinite(Number(row.heat_level)) ? Number(row.heat_level) : 0),
-  brands: Array.isArray(row.specialization_brands) ? row.specialization_brands : (Array.isArray(row.specialization) ? row.specialization : []),
-  mainBrands: Array.isArray(row.main_brands) ? row.main_brands : [],
-  mainPartCategories: Array.isArray(row.specialization_categories) ? row.specialization_categories : [],
-  models: Array.isArray(row.specialization_models) ? row.specialization_models : [],
-  years: toNumberArray(row.specialization_years),
-  bodyTypes: Array.isArray(row.specialization_body_types) ? row.specialization_body_types : [],
-  coordinates: hasValidCoordinates(Number(row.latitude), Number(row.longitude))
-    ? { lat: Number(row.latitude), lng: Number(row.longitude) }
-    : undefined,
-  createdAt: row.created_at ? Date.parse(String(row.created_at)) : Date.now(),
-  updatedAt: row.updated_at ? Date.parse(String(row.updated_at)) : Date.now(),
-  syncStatus: 'synced',
-  trustLevel: Number.isFinite(Number(row.manual_trust_level)) ? Number(row.manual_trust_level) : 3,
-  autoTrustScore: Number.isFinite(Number(row.auto_trust_score)) ? Number(row.auto_trust_score) : undefined,
-  hasWhatsapp: true,
-  hasDelivery: row.has_delivery === true,
-  whatsappFast: row.fast_whatsapp === true,
-  foundCount: Number.isFinite(Number(row.total_found)) ? Number(row.total_found) : 0,
-  notFoundCount: Number.isFinite(Number(row.total_not_found)) ? Number(row.total_not_found) : 0,
-  wrongInfoCount: Number.isFinite(Number(row.total_wrong_info)) ? Number(row.total_wrong_info) : 0,
-  successRate: Number.isFinite(Number(row.success_rate)) ? Number(row.success_rate) : 0,
-  activityScore: Number.isFinite(Number(row.total_interactions)) ? Number(row.total_interactions) : 0,
-  lastContactAt: row.last_interaction_at ? Date.parse(String(row.last_interaction_at)) : 0,
-  isFavorite: false,
-  workingHours: '',
-  comment: '',
-  website: '',
-  radarCount: 0
-});
+const mapShopRowToSupplier = (row: any): Supplier => {
+  const specializationBrands = toStringArray(row.specialization_brands);
+  const specialization = toStringArray(row.specialization);
+  const specializationYearsRaw = Array.isArray(row.specialization_years)
+    ? row.specialization_years
+    : toStringArray(row.specialization_years);
+
+  return {
+    id: String(row.id),
+    name: row.name || 'Shop',
+    phone: row.phone || '',
+    whatsapp: row.whatsapp || '',
+    location: row.location || '',
+    type: row.shop_type || 'new_parts',
+    zone: row.zone || '',
+    heatLevel: Number.isFinite(Number(row.metrics_heat_level)) ? Number(row.metrics_heat_level) : (Number.isFinite(Number(row.heat_level)) ? Number(row.heat_level) : 0),
+    brands: specializationBrands.length > 0 ? specializationBrands : specialization,
+    mainBrands: toStringArray(row.main_brands),
+    mainPartCategories: toStringArray(row.specialization_categories),
+    models: toStringArray(row.specialization_models),
+    years: toNumberArray(specializationYearsRaw),
+    bodyTypes: toStringArray(row.specialization_body_types),
+    coordinates: hasValidCoordinates(Number(row.latitude), Number(row.longitude))
+      ? { lat: Number(row.latitude), lng: Number(row.longitude) }
+      : undefined,
+    createdAt: row.created_at ? Date.parse(String(row.created_at)) : Date.now(),
+    updatedAt: row.updated_at ? Date.parse(String(row.updated_at)) : Date.now(),
+    syncStatus: 'synced',
+    trustLevel: Number.isFinite(Number(row.manual_trust_level)) ? Number(row.manual_trust_level) : 3,
+    autoTrustScore: Number.isFinite(Number(row.auto_trust_score)) ? Number(row.auto_trust_score) : undefined,
+    hasWhatsapp: true,
+    hasDelivery: row.has_delivery === true,
+    whatsappFast: row.fast_whatsapp === true,
+    foundCount: Number.isFinite(Number(row.total_found)) ? Number(row.total_found) : 0,
+    notFoundCount: Number.isFinite(Number(row.total_not_found)) ? Number(row.total_not_found) : 0,
+    wrongInfoCount: Number.isFinite(Number(row.total_wrong_info)) ? Number(row.total_wrong_info) : 0,
+    successRate: Number.isFinite(Number(row.success_rate)) ? Number(row.success_rate) : 0,
+    activityScore: Number.isFinite(Number(row.total_interactions)) ? Number(row.total_interactions) : 0,
+    lastContactAt: row.last_interaction_at ? Date.parse(String(row.last_interaction_at)) : 0,
+    isFavorite: false,
+    workingHours: '',
+    comment: '',
+    website: '',
+    radarCount: 0
+  };
+};
 
 const fetchSuppliersEnriched = async (): Promise<Supplier[]> => {
   if (!supabase) return [];
@@ -565,21 +601,37 @@ const fetchSuppliersFallback = async (): Promise<Supplier[]> => {
   let from = 0;
 
   const selectCandidates = [
-    'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,metrics_heat_level,specialization,main_brands,specialization_models,specialization_years,specialization_body_types,specialization_brands,specialization_categories,created_at,updated_at',
-    'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,main_brands,specialization_models,specialization_years,specialization_body_types,created_at,updated_at',
-    'id,name,phone,location,latitude,longitude,shop_type,zone,created_at,updated_at'
+    {
+      select: 'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,metrics_heat_level,specialization,main_brands,specialization_models,specialization_years,specialization_body_types,specialization_brands,specialization_categories,created_at,updated_at',
+      orderByUpdatedAt: true
+    },
+    {
+      select: 'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,main_brands,specialization_models,specialization_years,specialization_body_types,specialization,created_at,updated_at',
+      orderByUpdatedAt: true
+    },
+    {
+      select: 'id,name,phone,whatsapp,location,latitude,longitude,shop_type,zone,heat_level,main_brands,specialization_models,specialization_years,specialization_body_types,specialization,created_at',
+      orderByUpdatedAt: false
+    },
+    {
+      select: 'id,name,phone,location,latitude,longitude,shop_type,zone,specialization,specialization_models,specialization_years',
+      orderByUpdatedAt: false
+    }
   ] as const;
 
   while (true) {
     let data: any[] | null = null;
     let error: any = null;
 
-    for (const select of selectCandidates) {
-      const response = await supabase
+    for (const candidate of selectCandidates) {
+      let query = supabase
         .from('shops')
-        .select(select)
-        .order('updated_at', { ascending: false })
+        .select(candidate.select)
         .range(from, from + SUPPLIER_PAGE_SIZE - 1);
+      if (candidate.orderByUpdatedAt) {
+        query = query.order('updated_at', { ascending: false });
+      }
+      const response = await query;
       if (!response.error && Array.isArray(response.data)) {
         data = response.data;
         error = null;
