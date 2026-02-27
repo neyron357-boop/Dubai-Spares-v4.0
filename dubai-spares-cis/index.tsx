@@ -81,6 +81,8 @@ if ('serviceWorker' in navigator) {
           playLeadAlertSound();
         }
       });
+    }).catch((error) => {
+      console.warn('[sw] registration skipped:', error);
     });
   });
 }
