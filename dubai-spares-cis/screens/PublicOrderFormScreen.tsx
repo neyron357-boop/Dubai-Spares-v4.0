@@ -828,6 +828,11 @@ Engine code: ${engineCode || '—'}
 Country: ${deliveryCountry}
 Priority: ${PRIORITY_LABELS[orderPriority]}
 Primary contact: ${CONTACT_CHANNEL_LABELS[preferredContactChannel]} ${primaryContactValue || '—'}
+WhatsApp: ${whatsappContactValue || '—'}
+Telegram: ${telegramContact.trim() || '—'}
+Instagram: ${instagramContact.trim() || '—'}
+Email: ${emailContact.trim() || '—'}
+Phone: ${phoneContact.trim() || '—'}
 Best time: ${bestContactTime || '—'}`,
         photos: uploadedVinPhotos,
         audios: uploadedAudios,
@@ -888,6 +893,13 @@ Best time: ${bestContactTime || '—'}`,
           priority: orderPriority,
           refCode: refCode || null,
           preferredContactChannel,
+          customerContact: primaryContactValue || null,
+          whatsappContact: whatsappContactValue || null,
+          telegramContact: telegramContact.trim() || null,
+          instagramContact: instagramContact.trim() || null,
+          emailContact: emailContact.trim() || null,
+          phoneContact: phoneContact.trim() || null,
+          contactCountryCode: contactCountryCode.trim() || null,
           bestContactTime: bestContactTime || null
         }),
         parts: partsToInsert,
@@ -967,7 +979,11 @@ Best time: ${bestContactTime || '—'}`,
           isLead: true,
           notes,
           customerContact: primaryContactValue || `${contactCountryCode}${customerContact.trim()}`.trim(),
-          socialNickname: clientAlias.trim() || undefined,
+          socialNickname: preferredContactChannel === 'telegram'
+            ? (telegramContact.trim() || undefined)
+            : preferredContactChannel === 'instagram'
+              ? (instagramContact.trim() || undefined)
+              : undefined,
           leadUnread: true,
           leadSource: 'public_form',
           leadSyncPending: !leadResult.ok,
