@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Order } from '../types';
-import { X, CheckCircle2, Share2, RefreshCcw, Images } from 'lucide-react';
+import { X, Share2, RefreshCcw, Images } from 'lucide-react';
 import { DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
 import ImagePreview from './ImagePreview';
 import { useAppSettings } from '../appSettings';
@@ -98,10 +98,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     if (!Number.isFinite(parsed) || parsed <= 0) return;
     setRates((current) => ({ ...current, [code]: parsed }));
   };
-
-  const whatsappPhone = (settings.publicWhatsappNumber || '').replace(/[^\d]/g, '');
-  const confirmMessage = `Здравствуйте! Подтверждаю смету по ${order.brand} ${order.model} ${order.year}. VIN: ${order.vin}`;
-  const confirmUrl = whatsappPhone ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(confirmMessage)}` : '';
 
   const runShare = async () => {
     setIsSharing(true);
@@ -274,14 +270,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
             <Share2 size={16} /> {isSharing ? 'Создаём ссылку...' : 'Отправить смету'}
           </button>
-          {confirmUrl ? (
-            <a href={confirmUrl} target="_blank" rel="noreferrer"
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white">
-              <CheckCircle2 size={16} /> Подтвердить по WhatsApp
-            </a>
-          ) : (
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-2.5 text-center text-xs font-semibold text-emerald-600">WhatsApp не настроен</div>
-          )}
         </div>
       </div>
 

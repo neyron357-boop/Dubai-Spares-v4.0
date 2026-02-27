@@ -518,6 +518,8 @@ const mapDbOrder = (row: any): Order => ({
   status: row.status || 'in_progress',
   salesStatus: row.sales_status,
   clientName: row.client_name || '',
+  customerContact: row.customer_contact || '',
+  socialNickname: row.social_nickname || '',
   source: row.source || 'WhatsApp',
   carPhotoUrl: row.car_photo_url || row.car_photos?.[0] || row.vin_photo_url || '',
   carPhotos: row.car_photos || [],
@@ -568,7 +570,9 @@ const mapSnapshotOrder = (row: any): Order => {
   priority: row?.priority || 'MEDIUM',
   status: row?.status || 'in_progress',
   salesStatus: row?.salesStatus || row?.sales_status,
-  clientName: row?.clientName || row?.client_name || '',
+  clientName: row?.clientName || row?.client_name || header?.clientName || header?.client_name || '',
+  customerContact: row?.customerContact || row?.customer_contact || header?.customerContact || header?.customer_contact || '',
+  socialNickname: row?.socialNickname || row?.social_nickname || header?.socialNickname || header?.social_nickname || '',
   source: header?.source || row?.source || 'WhatsApp',
   carPhotoUrl: row?.carPhotoUrl || row?.car_photo_url || header?.carPhotoUrl || header?.car_photo_url || row?.carPhotos?.[0] || row?.car_photos?.[0] || header?.carPhotos?.[0] || header?.car_photos?.[0] || row?.vinPhotoUrl || row?.vin_photo_url || header?.vinPhotoUrl || header?.vin_photo_url || '',
   carPhotos: row?.carPhotos || row?.car_photos || header?.carPhotos || header?.car_photos || [],
@@ -835,6 +839,9 @@ const openInvoicePrintWindow = ({
   const issueDate = new Date();
   const invoiceId = order.id.slice(0, 8).toUpperCase();
   const billToName = String((order as any).clientName || (order as any).client_name || (order as any).customerName || '').trim() || 'Customer';
+  const socialNickname = String((order as any).socialNickname || (order as any).social_nickname || '').trim();
+  const customerContact = String((order as any).customerContact || (order as any).customer_contact || '').trim();
+  const contactDetails = [customerContact, socialNickname].filter(Boolean).join(' · ');
 
   printWindow.document.write(`<!doctype html>
 <html>
@@ -881,7 +888,7 @@ const openInvoicePrintWindow = ({
 
     <div class="meta-grid">
       <p><strong>Bill to:</strong> ${escapeHtml(billToName)}</p>
-      <p><strong>Contact:</strong> ${escapeHtml(order.customerContact || 'N/A')}</p>
+      <p><strong>Contact:</strong> ${escapeHtml(contactDetails || 'N/A')}</p>
       <p><strong>Vehicle:</strong> ${escapeHtml(`${order.brand} ${order.model} ${order.year || ''}`.trim())}</p>
       <p><strong>VIN:</strong> ${escapeHtml(order.vin || '-')}</p>
     </div>
@@ -1317,6 +1324,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     };
   }, [currency, foundParts, partCards.length, payloadTotals, rates]);
 
+
+  const clientDisplayName = String(order?.clientName || '').trim();
+  const clientNickname = String(order?.socialNickname || '').trim();
+
   const invoiceLineItems = useMemo(() => {
     const fromPayload = (payloadTotals?.items || [])
       .map((item) => {
@@ -1481,6 +1492,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             <div>
               <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">{order.brand} {order.model} {order.year}</h1>
               <p className="mt-1 text-xs font-medium uppercase tracking-[0.14em] text-slate-400">VIN: {maskVin(order.vin)}</p>
+              {clientDisplayName && (
+                <p className="mt-2 text-sm font-semibold text-slate-700">
+                  Клиент: {clientDisplayName}{clientNickname ? ` (${clientNickname})` : ''}
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap items-end justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
               <div>
