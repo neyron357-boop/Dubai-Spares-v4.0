@@ -178,6 +178,12 @@ export const normalizeSupplierMetadata = (supplier: Supplier): Supplier => {
       ? parseCsv((supplier as Supplier & { bodyTypes?: string }).bodyTypes || '')
       : [];
 
+  const mainPartCategories = Array.isArray(supplier.mainPartCategories)
+    ? supplier.mainPartCategories
+    : typeof (supplier as Supplier & { mainPartCategories?: unknown }).mainPartCategories === 'string'
+      ? parseCsv((supplier as Supplier & { mainPartCategories?: string }).mainPartCategories || '')
+      : [];
+
   return {
     ...supplier,
     type: supplier.type || 'new_parts',
@@ -187,7 +193,8 @@ export const normalizeSupplierMetadata = (supplier: Supplier): Supplier => {
     brands: Array.isArray(supplier.brands) ? supplier.brands : [],
     models,
     years,
-    bodyTypes
+    bodyTypes,
+    mainPartCategories
   };
 };
 
@@ -482,6 +489,7 @@ export const upsertSupplierToShops = async (supplier: Supplier) => {
     heat_level: normalized.heatLevel || 0,
     needs_manual_fix: false,
     specialization: normalized.brands || [],
+    specialization_categories: normalized.mainPartCategories || [],
     specialization_models: normalized.models || [],
     specialization_years: normalized.years || [],
     specialization_body_types: normalized.bodyTypes || []
