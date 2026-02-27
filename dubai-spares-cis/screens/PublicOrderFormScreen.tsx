@@ -686,7 +686,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const submitOrder = async () => {
     if (submitLockedRef.current || isSubmitting) return;
     if (submittedDraftIdsRef.current.has(draftLinkId)) return;
-    if (!validateStep(1) || !validateStep(3)) {
+    if (!validateStep(1) || !validateStep(2) || !validateStep(3)) {
       pushNotification({
         type: NotificationType.SYNC_ERROR,
         title: 'Ошибка валидации',
@@ -1018,7 +1018,7 @@ Best time: ${bestContactTime || '—'}`,
             </ul>
           </div>
         )}
-        <div className="max-h-[calc(100vh-260px)] space-y-4 overflow-y-auto pr-1 transition-all duration-300 [scrollbar-width:thin]" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div className="space-y-4 pr-1 transition-all duration-300">
           {step === 1 && (
             <>
               <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm">🚗 {brand || 'Марка'} {model || ''} {year || ''}</div>
@@ -1221,18 +1221,12 @@ Best time: ${bestContactTime || '—'}`,
             <>
               <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Предпочтительный канал связи *</span>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {([
-                    { id: 'whatsapp', label: 'WhatsApp' },
-                    { id: 'telegram', label: 'Telegram' },
-                    { id: 'email', label: 'E-mail' },
-                    { id: 'phone', label: 'Телефон' }
-                  ] as const).map((channel) => (
-                    <button key={channel.id} type="button" onClick={() => switchContactChannel(channel.id)} className={`h-11 rounded-2xl border text-sm ${preferredContactChannel === channel.id ? 'border-amber-300 bg-amber-200/20 text-amber-100' : 'border-white/20 bg-white/10'}`}>
-                      {channel.label}
-                    </button>
-                  ))}
-                </div>
+                <select value={preferredContactChannel} onChange={(e) => switchContactChannel(e.target.value as 'whatsapp' | 'telegram' | 'email' | 'phone')} className="h-12 w-full rounded-2xl border border-white/20 bg-white/10 px-4 text-sm outline-none">
+                  <option value="whatsapp" className="text-slate-900">WhatsApp</option>
+                  <option value="telegram" className="text-slate-900">Telegram</option>
+                  <option value="email" className="text-slate-900">E-mail</option>
+                  <option value="phone" className="text-slate-900">Телефон</option>
+                </select>
               </label>
 
               {preferredContactChannel === 'whatsapp' && (
@@ -1253,7 +1247,7 @@ Best time: ${bestContactTime || '—'}`,
 
               <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Страна доставки *</span><ButtonDropdown value={deliveryCountry} placeholder="Выберите страну" options={[...DELIVERY_COUNTRIES]} required onChange={(value) => { setDeliveryCountry(value); setDeliveryCity(''); setCityQuery(''); }} />{errors.deliveryCountry && <p className="mt-1 text-xs text-amber-200">{errors.deliveryCountry}</p>}</label>
 
-              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Город (опционально)</span><div className="rounded-3xl border border-white/15 bg-white/10 p-3"><input value={cityQuery} onChange={(e) => { const query = e.target.value; setCityQuery(query); if (query.trim().length >= 3) setDeliveryCity(''); }} placeholder="Начните вводить минимум 3 буквы" className="h-10 w-full rounded-2xl bg-black/20 px-3 text-sm outline-none" /><div className="mt-2 max-h-36 overflow-y-auto">{filteredCityOptions.map((item) => <button key={item} type="button" onClick={() => { setDeliveryCity(item); setCityQuery(item); }} className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${deliveryCity === item ? 'bg-amber-200/20 text-amber-100' : 'hover:bg-white/10'}`}>{item}</button>)}</div></div></label>
+              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Город (опционально)</span><div className="rounded-3xl border border-white/15 bg-white/10 p-3"><input value={cityQuery} onChange={(e) => { const query = e.target.value; setCityQuery(query); if (query.trim().length >= 3) setDeliveryCity(''); }} placeholder="Начните вводить минимум 3 буквы" className="h-10 w-full rounded-2xl bg-black/20 px-3 text-sm outline-none" /><div className="mt-2">{filteredCityOptions.map((item) => <button key={item} type="button" onClick={() => { setDeliveryCity(item); setCityQuery(item); }} className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${deliveryCity === item ? 'bg-amber-200/20 text-amber-100' : 'hover:bg-white/10'}`}>{item}</button>)}</div></div></label>
 
               <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Лучшее время для связи (опционально)</span><input value={bestContactTime} onChange={(e) => setBestContactTime(formatContactTimeInput(e.target.value))} placeholder="Например: 10:00 - 14:00 GST" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.bestContactTime ? 'border-amber-300' : 'border-white/15'}`} />{errors.bestContactTime && <p className="mt-1 text-xs text-amber-200">{errors.bestContactTime}</p>}</label>
               <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ваше имя или ник (опционально)</span><input value={clientAlias} onChange={(e) => setClientAlias(e.target.value.slice(0, 60))} placeholder="Напр. @alex" className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" /></label>

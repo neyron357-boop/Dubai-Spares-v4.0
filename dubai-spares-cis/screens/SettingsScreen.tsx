@@ -181,6 +181,7 @@ const SettingsScreen: React.FC = () => {
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
   const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
   const [dangerActionProgress, setDangerActionProgress] = useState<{ label: string; processed: number; total: number; details?: string } | null>(null);
+  const [isHardResetting, setIsHardResetting] = useState(false);
   const [logoCrop, setLogoCrop] = useState<{ file: File; previewUrl: string } | null>(null);
   const [logoCropZoom, setLogoCropZoom] = useState(1);
 
@@ -271,7 +272,24 @@ const SettingsScreen: React.FC = () => {
     }
 
     window.sessionStorage.clear();
-    window.localStorage.clear();
+    const localKeys = Object.keys(window.localStorage);
+    localKeys.forEach((key) => window.localStorage.removeItem(key));
+  };
+
+  const clearAllLocalDataAndRestart = async () => {
+    const first = window.confirm('⚠️ Это полностью очистит кэш, историю и все локальные данные. Продолжить?');
+    if (!first) return;
+    const second = window.prompt('Введите RESET APP для подтверждения');
+    if (second !== 'RESET APP') return;
+
+    setIsHardResetting(true);
+    setDangerActionProgress({ label: 'Очистка приложения', processed: 0, total: 3, details: 'Удаление кэша' });
+    await clearApplicationCache();
+    setDangerActionProgress({ label: 'Очистка приложения', processed: 1, total: 3, details: 'Удаление оффлайн-данных' });
+    await offlineDb.clearAllOfflineData();
+    setDangerActionProgress({ label: 'Очистка приложения', processed: 2, total: 3, details: 'Перезапуск приложения' });
+    await new Promise((resolve) => window.setTimeout(resolve, 950));
+    window.location.reload();
   };
 
 
@@ -979,17 +997,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCheckAndCleanBrokenPhotos}>{busyLabel('check-clean-broken-photos', 'Проверить и очистить битые фото', 'Проверяем битые фото…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleClearBrokenLinks}>{busyLabel('clear-broken-links', 'Очистить битые ссылки', 'Очищаем битые ссылки…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => { clearBrokenImageBlacklist(); window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Локальный blacklist битых фото очищен', tone: 'success' } })); }}>Очистить blacklist битых фото</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('cache', async () => {
-            await clearApplicationCache();
-            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Кэш приложения очищен. Перезагрузите страницу.', tone: 'success' } }));
-          })}>{busyLabel('cache', 'Очистить кэш', 'Очистка кэша…')}</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-rose-600 text-white px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('offline-data', async () => {
-            const first = window.confirm('⚠️ Это удалит локальные офлайн данные. Продолжить?');
-            if (!first) return;
-            const second = window.prompt('Введите DELETE для подтверждения');
-            if (second !== 'DELETE') return;
-            await offlineDb.clearAllOfflineData();
-          })}>{busyLabel('offline-data', 'Очистить офлайн данные', 'Очистка офлайн данных…')}</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-rose-600 text-white px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy || isHardResetting} onClick={() => void withBusy('hard-reset', clearAllLocalDataAndRestart)}>{busyLabel('hard-reset', 'Очистить кэш и все локальные данные', 'Очищаем и перезапускаем…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('public-snapshots', async () => {
             const result = await clearPublicQuoteSnapshots();
             const message = result.ok ? 'Серверные снапшоты смет очищены' : `Ошибка: ${result.error}`;
@@ -1034,6 +1042,14 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
       </div>
 
       {busy && <div className="text-xs text-gray-500">Выполняется: {busy}…</div>}
+      {isHardResetting && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70">
+          <div className="rounded-2xl border border-white/20 bg-slate-900/95 px-5 py-4 text-center text-white shadow-2xl">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            <p className="mt-3 text-sm font-semibold">Очистка и перезапуск приложения…</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

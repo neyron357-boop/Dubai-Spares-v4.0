@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, ChevronDown, Mic, Square, Play, Pause, UserRound, Wrench, CarFront, ImagePlus, NotebookPen, Save } from 'lucide-react';
+import { Camera, ChevronDown, Mic, Square, Play, Pause, UserRound, Wrench, CarFront, ImagePlus, NotebookPen, Save, Trash2 } from 'lucide-react';
 import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE, YEARS } from '../constants';
 import { CHASSIS_BODY_TYPES_BY_BRAND } from '../carDatabase';
 import { useStore } from '../store';
@@ -283,6 +283,7 @@ const NewOrderScreen: React.FC = () => {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [savedDrafts, setSavedDrafts] = useState<Array<{ id: string; createdAt: number; title: string; data: ReturnType<typeof toPersistableDraft> }>>([]);
+  const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [cityManualMode, setCityManualMode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [brandLoading, setBrandLoading] = useState(true);
@@ -613,6 +614,28 @@ const NewOrderScreen: React.FC = () => {
     toast('Черновик сохранен', 'success');
   };
 
+  const toggleDraftSelection = (draftId: string) => {
+    setSelectedDraftIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(draftId)) next.delete(draftId);
+      else next.add(draftId);
+      return next;
+    });
+  };
+
+  const deleteDrafts = (draftIds: string[]) => {
+    if (!draftIds.length) return;
+    const next = savedDrafts.filter((item) => !draftIds.includes(item.id));
+    setSavedDrafts(next);
+    setSelectedDraftIds((prev) => {
+      const updated = new Set(prev);
+      draftIds.forEach((id) => updated.delete(id));
+      return updated;
+    });
+    localStorage.setItem('new-order-drafts-list-v1', JSON.stringify(next));
+    toast(`Удалено черновиков: ${draftIds.length}`, 'success');
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     void logger.info('create-order', 'create_order_start', { source: 'manual', mode });
@@ -710,12 +733,35 @@ const NewOrderScreen: React.FC = () => {
       {!!savedDrafts.length && (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
           <p className="text-xs font-bold text-amber-800">Сохраненные черновики</p>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedDraftIds((prev) => prev.size === savedDrafts.length ? new Set() : new Set(savedDrafts.map((item) => item.id)))}
+              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-bold text-amber-800"
+            >
+              {selectedDraftIds.size === savedDrafts.length ? 'Снять выбор' : 'Выбрать все'}
+            </button>
+            <button
+              type="button"
+              disabled={selectedDraftIds.size === 0}
+              onClick={() => deleteDrafts(Array.from(selectedDraftIds))}
+              className="inline-flex items-center gap-1 rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] font-black text-rose-700 disabled:opacity-40"
+            >
+              <Trash2 size={12} />Удалить выбранные ({selectedDraftIds.size})
+            </button>
+          </div>
           <div className="mt-2 space-y-2">
-            {savedDrafts.slice(0, 3).map((item) => (
-              <button key={item.id} type="button" onClick={() => applyDraft(item.data)} className="flex w-full items-center justify-between rounded-lg border border-amber-200 bg-white px-3 py-2 text-left text-xs text-slate-700">
-                <span>{item.title}</span>
-                <span className="text-[11px] text-slate-500">{new Date(item.createdAt).toLocaleString('ru-RU')}</span>
-              </button>
+            {savedDrafts.map((item) => (
+              <div key={item.id} className="flex items-center gap-2 rounded-lg border border-amber-200 bg-white px-2 py-2 text-xs text-slate-700">
+                <input type="checkbox" checked={selectedDraftIds.has(item.id)} onChange={() => toggleDraftSelection(item.id)} className="h-4 w-4" />
+                <button type="button" onClick={() => applyDraft(item.data)} className="flex flex-1 items-center justify-between text-left">
+                  <span>{item.title}</span>
+                  <span className="text-[11px] text-slate-500">{new Date(item.createdAt).toLocaleString('ru-RU')}</span>
+                </button>
+                <button type="button" onClick={() => deleteDrafts([item.id])} className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 p-1 text-rose-700" aria-label="Удалить черновик">
+                  <Trash2 size={12} />
+                </button>
+              </div>
             ))}
           </div>
         </section>
