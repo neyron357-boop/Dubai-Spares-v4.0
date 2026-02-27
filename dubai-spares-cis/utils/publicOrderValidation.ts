@@ -1,6 +1,6 @@
 import { Source } from '../types';
 
-type ContactChannel = 'whatsapp' | 'telegram' | 'email' | 'phone';
+type ContactChannel = 'whatsapp' | 'telegram' | 'instagram' | 'email' | 'phone';
 
 export type PublicOrderValidationError = {
   field: string;
@@ -30,6 +30,7 @@ interface Step3Input {
   customerContact: string;
   contactCountryCode: string;
   telegramContact: string;
+  instagramContact: string;
   emailContact: string;
   phoneContact: string;
   bestContactTime: string;
@@ -38,20 +39,12 @@ interface Step3Input {
 export const CONTACT_CHANNEL_TO_SOURCE: Record<ContactChannel, Source> = {
   whatsapp: Source.WHATSAPP,
   telegram: Source.TELEGRAM,
+  instagram: Source.INSTAGRAM,
   email: Source.OTHER,
   phone: Source.OTHER
 };
 
 const isValidVin = (value: string) => !value || /^[A-HJ-NPR-Z0-9]{17}$/.test(value);
-const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-const isValidTelegram = (value: string) => /^@?[A-Za-z0-9_]{5,}$/.test(value.trim());
-
-const isValidWhatsapp = (customerContact: string, contactCountryCode: string) => {
-  const digits = customerContact.replace(/\D/g, '');
-  if (contactCountryCode === '+971') return digits.length === 9;
-  return digits.length >= 8 && digits.length <= 15;
-};
-
 export const validateStep1 = (data: Step1Input): PublicOrderValidationError[] => {
   const errors: PublicOrderValidationError[] = [];
   if (!data.brand) errors.push({ field: 'brand', message: 'Выберите марку' });
@@ -94,38 +87,6 @@ export const validateStep2 = (data: Step2Input): PublicOrderValidationError[] =>
 export const validateStep3 = (data: Step3Input): PublicOrderValidationError[] => {
   const errors: PublicOrderValidationError[] = [];
   if (!data.deliveryCountry) errors.push({ field: 'deliveryCountry', message: 'Выберите страну доставки' });
-
-  if (data.preferredContactChannel === 'whatsapp') {
-    if (!data.customerContact.trim()) {
-      errors.push({ field: 'phone', message: 'Укажите WhatsApp номер' });
-    } else if (!isValidWhatsapp(data.customerContact, data.contactCountryCode)) {
-      errors.push({ field: 'phone', message: 'Введите номер полностью' });
-    }
-  }
-
-  if (data.preferredContactChannel === 'telegram') {
-    if (!data.telegramContact.trim()) {
-      errors.push({ field: 'telegram', message: 'Укажите Telegram' });
-    } else if (!isValidTelegram(data.telegramContact)) {
-      errors.push({ field: 'telegram', message: 'Введите корректный Telegram (@username)' });
-    }
-  }
-
-  if (data.preferredContactChannel === 'email') {
-    if (!data.emailContact.trim()) {
-      errors.push({ field: 'email', message: 'Укажите e-mail' });
-    } else if (!isValidEmail(data.emailContact)) {
-      errors.push({ field: 'email', message: 'Введите корректный e-mail' });
-    }
-  }
-
-  if (data.preferredContactChannel === 'phone') {
-    if (!data.phoneContact.trim()) {
-      errors.push({ field: 'phoneAlt', message: 'Укажите номер телефона' });
-    } else if (data.phoneContact.replace(/\D/g, '').length < 9) {
-      errors.push({ field: 'phoneAlt', message: 'Введите корректный номер телефона (минимум 9 цифр)' });
-    }
-  }
 
   if (data.bestContactTime.trim() && !/^([01]\d|2[0-3]):[0-5]\d\s-\s([01]\d|2[0-3]):[0-5]\d$/.test(data.bestContactTime.trim())) {
     errors.push({ field: 'bestContactTime', message: 'Выберите интервал из списка' });
