@@ -25,9 +25,7 @@ type DropdownOption = {
 type DraftPart = {
   id: string;
   name: string;
-  qty: string;
-  side: '' | 'left' | 'right';
-  article: string;
+  comment: string;
   photos: string[];
 };
 
@@ -87,9 +85,7 @@ const createId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? cry
 const createDraftPart = (): DraftPart => ({
   id: createId(),
   name: '',
-  qty: '1',
-  side: '',
-  article: '',
+  comment: '',
   photos: []
 });
 
@@ -674,7 +670,7 @@ const NewOrderScreen: React.FC = () => {
       carPhotoUrl: carPhotos[0],
       parts: parts.filter((part) => part.name.trim()).map((part) => ({
         id: createId(),
-        name: [part.name.trim(), part.qty ? `Кол-во: ${part.qty}` : '', part.side ? `Сторона: ${part.side === 'left' ? 'левая' : 'правая'}` : '', part.article ? `Артикул: ${part.article.trim()}` : ''].filter(Boolean).join(' | '),
+        name: part.name.trim(),
         photos: part.photos,
         photoUrl: part.photos[0],
         variants: [],
@@ -690,6 +686,13 @@ const NewOrderScreen: React.FC = () => {
       leadSource: fromLead ? 'public_form' : 'manual',
       notes: [
         ...(shippingNote ? [{ id: createId(), text: `Доставка: ${shippingNote}`, createdAt: now }] : []),
+        ...parts
+          .filter((part) => part.name.trim() && part.comment.trim())
+          .map((part) => ({
+            id: createId(),
+            text: `${part.name.trim()} — ${part.comment.trim()}`,
+            createdAt: now
+          })),
         ...notes
           .filter((note) => note.text.trim() || note.photos.length > 0 || note.voices.length > 0)
           .map((note) => ({
@@ -910,15 +913,7 @@ const NewOrderScreen: React.FC = () => {
                   className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
                 />
               </label>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <input value={part.qty} onChange={(e) => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, qty: e.target.value.replace(/[^0-9]/g, '').slice(0, 3) } : item))} placeholder="Кол-во" className={inputClass} />
-                <select value={part.side} onChange={(e) => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, side: e.target.value as DraftPart['side'] } : item))} className={inputClass}>
-                  <option value="">Сторона (необязательно)</option>
-                  <option value="left">Левая</option>
-                  <option value="right">Правая</option>
-                </select>
-                <input value={part.article} onChange={(e) => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, article: e.target.value } : item))} placeholder="Артикул (необязательно)" className={inputClass} />
-              </div>
+              <input value={part.comment} onChange={(e) => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, comment: e.target.value } : item))} placeholder="Комментарий (необязательно)" className={inputClass} />
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => partPhotoRefs.current[part.id]?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото детали</button>
                 {parts.length > 1 && <button type="button" onClick={() => setParts((prev) => prev.filter((item) => item.id !== part.id))} className="inline-flex h-10 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-bold text-rose-600">Удалить</button>}

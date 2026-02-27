@@ -279,8 +279,6 @@ const SettingsScreen: React.FC = () => {
   const clearAllLocalDataAndRestart = async () => {
     const first = window.confirm('⚠️ Это полностью очистит кэш, историю и все локальные данные. Продолжить?');
     if (!first) return;
-    const second = window.prompt('Введите RESET APP для подтверждения');
-    if (second !== 'RESET APP') return;
 
     setIsHardResetting(true);
     setDangerActionProgress({ label: 'Очистка приложения', processed: 0, total: 3, details: 'Удаление кэша' });
@@ -288,7 +286,6 @@ const SettingsScreen: React.FC = () => {
     setDangerActionProgress({ label: 'Очистка приложения', processed: 1, total: 3, details: 'Удаление оффлайн-данных' });
     await offlineDb.clearAllOfflineData();
     setDangerActionProgress({ label: 'Очистка приложения', processed: 2, total: 3, details: 'Перезапуск приложения' });
-    await new Promise((resolve) => window.setTimeout(resolve, 950));
     window.location.reload();
   };
 
