@@ -175,6 +175,22 @@ const validateAndPrepareLeadPayload = (payload: Parameters<typeof leadCreate>[0]
   };
 };
 
+const resolveTransportPhone = (primaryContactValue: string, whatsappContactValue: string) => {
+  const normalizedPrimary = primaryContactValue.replace(/\s+/g, '').trim();
+  if (normalizedPrimary.replace(/\D/g, '').length >= 8) {
+    return { phone: normalizedPrimary, usedFallback: false };
+  }
+
+  const normalizedWhatsapp = whatsappContactValue.replace(/\s+/g, '').trim();
+  if (normalizedWhatsapp.replace(/\D/g, '').length >= 8) {
+    return { phone: normalizedWhatsapp, usedFallback: false };
+  }
+
+  // Технический fallback: backend требует phone, а пользователь мог выбрать Telegram/E-mail.
+  // Основной канал связи и реальный контакт остаются в payload.message и notes.
+  return { phone: '+00000000', usedFallback: true };
+};
+
 const ButtonDropdown: React.FC<{
   value: string;
   placeholder: string;
@@ -785,6 +801,8 @@ const PublicOrderFormScreen: React.FC = () => {
               ? emailContact.trim()
               : phoneContact.trim()
       );
+      const whatsappContactValue = `${contactCountryCode}${customerContact.trim()}`;
+      const transportPhone = resolveTransportPhone(primaryContactValue, whatsappContactValue);
 
       const notes = [{
         id: createId(),
@@ -844,7 +862,7 @@ Best time: ${bestContactTime || '—'}`,
         orderId,
         idempotency_key: orderId,
         name: clientAlias.trim() || 'Public Lead',
-        phone: primaryContactValue || `${contactCountryCode}${customerContact.trim()}`.trim(),
+        phone: transportPhone.phone,
         message: JSON.stringify({
           source: messageSource,
           brand: brand.trim(),
@@ -870,7 +888,8 @@ Best time: ${bestContactTime || '—'}`,
         orderId,
         parts: partsToInsert.length,
         hasNotes: notes.length,
-        payloadBytes: JSON.stringify(validatedLeadPayload).length
+        payloadBytes: JSON.stringify(validatedLeadPayload).length,
+        transportPhoneFallback: transportPhone.usedFallback
       });
 
       let leadResult;
