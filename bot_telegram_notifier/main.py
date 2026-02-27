@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import json
+import ast
+import re
 import threading
 import time
 import urllib.parse
@@ -18,13 +20,7 @@ SUBSCRIBERS_FILE = Path(__file__).with_name("telegram_subscribers.json")
 POLL_INTERVAL_SECONDS = 2
 LIMIT = 30
 
-# Пытаемся читать лиды/заказы из разных таблиц, чтобы бот работал даже при изменениях схемы.
 TRACKED_SOURCES = [
-    {
-        "table": "client_leads",
-        "select": "id,created_at,name,phone,message,brand,model,year,vin",
-        "order_fields": ["created_at", "id"],
-    },
     {
         "table": "orders",
         "select": "id,created_at,name,phone,message,brand,model,year,vin,customer_name,customer_phone,notes",
@@ -122,23 +118,123 @@ def pick_first(row: dict, keys: list[str], default: str = "—") -> str:
     return default
 
 
-def format_notification(row: dict, source_table: str) -> str:
-    brand = pick_first(row, ["brand"])
-    model = pick_first(row, ["model"])
+def parse_structured(value):
+    if isinstance(value, (dict, list)):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    try:
+        return ast.literal_eval(text)
+    except Exception:
+        return None
+
+
+
+def extract_from_note_lines(lines: list[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in lines:
+        cleaned = line.strip()
+        lower = cleaned.lower()
+        if cleaned and "name" not in result and not any(x in lower for x in ["источник", "vin", "contact", "time", "engine", "country"]):
+            result["name"] = cleaned
+        if "primary contact:" in lower:
+            contact = cleaned.split(":", 1)[-1].strip()
+            match = re.search(r"(\+?\d[\d\s\-]{6,}\d)", contact)
+            if match:
+                result["phone"] = match.group(1).replace(" ", "")
+            if "whatsapp" in lower:
+                result["channel"] = "WhatsApp"
+            elif "telegram" in lower:
+                result["channel"] = "Telegram"
+    return result
+
+
+def build_requested_parts(message_data) -> str:
+    if not isinstance(message_data, dict):
+        return "—"
+    parts = message_data.get("requestedParts")
+    if not isinstance(parts, list) or not parts:
+        return "—"
+    rendered = []
+    for part in parts[:3]:
+        if not isinstance(part, dict):
+            continue
+        name = str(part.get("name") or "деталь").strip()
+        comment = str(part.get("comment") or "").strip()
+        rendered.append(f"{name} ({comment})" if comment else name)
+    if len(parts) > 3:
+        rendered.append(f"+{len(parts) - 3} ещё")
+    return ", ".join(rendered) if rendered else "—"
+
+
+def format_notification(row: dict) -> str:
+    message_data = parse_structured(row.get("message"))
+    notes_data = parse_structured(row.get("notes"))
+
+    note_lines: list[str] = []
+    if isinstance(message_data, list):
+        for item in message_data:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if text:
+                    note_lines.extend(str(text).splitlines())
+    if isinstance(notes_data, list):
+        for item in notes_data:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if text:
+                    note_lines.extend(str(text).splitlines())
+
+    note_details = extract_from_note_lines(note_lines)
+
+    brand = pick_first(row, ["brand"], default="")
+    model = pick_first(row, ["model"], default="")
     year = pick_first(row, ["year"], default="")
+    if isinstance(message_data, dict):
+        brand = brand or str(message_data.get("brand") or "")
+        model = model or str(message_data.get("model") or "")
+        year = year or str(message_data.get("year") or "")
+
     car = " ".join([x for x in [brand, model, year] if x and x != "—"]).strip() or "—"
+
+    name = pick_first(row, ["name", "customer_name"], default="")
+    if name in {"", "—"}:
+        name = note_details.get("name", "—")
+
+    phone = pick_first(row, ["phone", "customer_phone"], default="")
+    if phone in {"", "—"}:
+        phone = note_details.get("phone", "—")
+
+    channel = note_details.get("channel", "")
+    if isinstance(message_data, dict):
+        channel = channel or str(message_data.get("preferredContactChannel") or message_data.get("source") or "")
+
+    vin = pick_first(row, ["vin"], default="")
+    if vin in {"", "—"} and isinstance(message_data, dict):
+        vin = str(message_data.get("vin") or "—")
+
+    requested_parts = build_requested_parts(message_data)
+    contact_line = phone
+    if channel and channel != "—":
+        contact_line = f"{phone} ({channel})" if phone not in {"", "—"} else channel
 
     return "\n".join(
         [
             "🆕 Новый заказ",
-            f"📦 Таблица: {source_table}",
             f"🆔 ID: {pick_first(row, ['id'])}",
-            f"🕒 Created: {to_local_time(pick_first(row, ['created_at', 'updated_at'], default=''))}",
-            f"👤 Name: {pick_first(row, ['name', 'customer_name'])}",
-            f"📞 Phone: {pick_first(row, ['phone', 'customer_phone'])}",
-            f"💬 Message: {pick_first(row, ['message', 'notes'])}",
-            f"🚘 Car: {car}",
-            f"🔢 VIN: {pick_first(row, ['vin'])}",
+            f"🕒 Дата: {to_local_time(pick_first(row, ['created_at', 'updated_at'], default=''))}",
+            f"👤 Клиент: {name}",
+            f"📞 Контакт: {contact_line or '—'}",
+            f"🚘 Авто: {car}",
+            f"🔢 VIN: {vin or '—'}",
+            f"🔧 Запрос: {requested_parts}",
         ]
     )
 
@@ -230,7 +326,7 @@ def supabase_poll_loop():
                 any_success = True
                 new_rows = find_new_rows(source_name, rows, order_field)
                 for row in new_rows:
-                    broadcast_message(format_notification(row, source_name))
+                    broadcast_message(format_notification(row))
                     print(f"[SENT] {source_name} id={row.get('id')}")
 
             if not any_success:
