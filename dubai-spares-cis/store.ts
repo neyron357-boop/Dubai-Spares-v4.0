@@ -134,29 +134,21 @@ const mergeServerSupplierWithLocal = (server: Supplier, local?: Supplier): Suppl
   const normalizedLocal = normalizeSupplier(local);
   const mergedLinkedParts = mergeLinkedParts(normalizedLocal.linkedParts || [], normalizedServer.linkedParts || []);
   const nextOrderIds = Array.from(new Set([...(normalizedLocal.activeOrderIds || []), ...(normalizedServer.activeOrderIds || [])]));
+  const preferServer = Number(normalizedServer.updatedAt || 0) >= Number(normalizedLocal.updatedAt || 0);
+  const profileSource = preferServer ? normalizedServer : normalizedLocal;
+  const fallbackSource = preferServer ? normalizedLocal : normalizedServer;
 
   return normalizeSupplier({
-    ...normalizedLocal,
-    ...normalizedServer,
-    brands: mergeUniqueTextValue(normalizedLocal.brands, normalizedServer.brands),
-    mainBrands: mergeUniqueTextValue(normalizedLocal.mainBrands, normalizedServer.mainBrands),
-    models: mergeUniqueTextValue(normalizedLocal.models, normalizedServer.models),
-    years: Array.from(new Set([...(normalizedLocal.years || []), ...(normalizedServer.years || [])])).sort((a, b) => a - b),
+    ...fallbackSource,
+    ...profileSource,
+    brands: profileSource.brands,
+    mainBrands: profileSource.mainBrands,
+    models: profileSource.models,
+    years: profileSource.years,
     linkedParts: mergedLinkedParts,
     activeOrderIds: nextOrderIds,
-    updatedAt: Math.max(Number(normalizedServer.updatedAt || 0), Number(normalizedLocal.updatedAt || 0), Date.now())
+    updatedAt: Math.max(Number(normalizedServer.updatedAt || 0), Number(normalizedLocal.updatedAt || 0))
   });
-};
-
-const mergeUniqueTextValue = (left: string[] = [], right: string[] = []) => {
-  const merged: string[] = [];
-  [...left, ...right].forEach((value) => {
-    const normalized = typeof value === 'string' ? value.trim() : '';
-    if (!normalized) return;
-    if (merged.some((item) => item.toLowerCase() === normalized.toLowerCase())) return;
-    merged.push(normalized);
-  });
-  return merged;
 };
 
 const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>['orders']) => {
