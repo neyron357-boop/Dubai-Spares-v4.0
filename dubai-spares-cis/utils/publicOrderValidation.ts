@@ -9,9 +9,7 @@ export type PublicOrderValidationError = {
 
 interface RequestedPartValidationInput {
   name: string;
-  quantity: string;
-  side: string;
-  partCode: string;
+  comment: string;
 }
 
 interface Step1Input {
@@ -73,7 +71,7 @@ export const validateStep1 = (data: Step1Input): PublicOrderValidationError[] =>
 
 export const validateStep2 = (data: Step2Input): PublicOrderValidationError[] => {
   const errors: PublicOrderValidationError[] = [];
-  const meaningfulParts = data.requestedParts.filter((part) => part.name.trim() || part.partCode.trim() || part.comment.trim());
+  const meaningfulParts = data.requestedParts.filter((part) => part.name.trim() || part.comment.trim());
 
   if (!meaningfulParts.length) {
     errors.push({ field: 'partName-0', message: 'Укажите деталь (например: амортизатор, фара…)' });
@@ -88,18 +86,6 @@ export const validateStep2 = (data: Step2Input): PublicOrderValidationError[] =>
       errors.push({ field: `partName-${index}`, message: 'Минимум 2 символа' });
     }
 
-    if (!part.side) {
-      errors.push({ field: `side-${index}`, message: 'Выберите сторону' });
-    }
-
-    if (part.partCode && !/^\d{1,12}$/.test(part.partCode)) {
-      errors.push({ field: `partCode-${index}`, message: 'Код детали: только цифры (до 12)' });
-    }
-
-    const qty = Number(part.quantity || '0');
-    if (part.quantity && (!Number.isInteger(qty) || qty < 1 || qty > 10)) {
-      errors.push({ field: `quantity-${index}`, message: 'Количество: от 1 до 10' });
-    }
   });
 
   return errors;
@@ -141,8 +127,8 @@ export const validateStep3 = (data: Step3Input): PublicOrderValidationError[] =>
     }
   }
 
-  if (data.bestContactTime.trim() && !/^([01]\d|2[0-3]):[0-5]\d\s-\s([01]\d|2[0-3]):[0-5]\d\s[A-Za-z]{2,5}$/.test(data.bestContactTime.trim())) {
-    errors.push({ field: 'bestContactTime', message: 'Формат: HH:MM - HH:MM TZ (например 10:00 - 14:00 GST)' });
+  if (data.bestContactTime.trim() && !/^([01]\d|2[0-3]):[0-5]\d\s-\s([01]\d|2[0-3]):[0-5]\d$/.test(data.bestContactTime.trim())) {
+    errors.push({ field: 'bestContactTime', message: 'Выберите интервал из списка' });
   }
 
   return errors;
