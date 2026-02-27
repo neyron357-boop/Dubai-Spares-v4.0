@@ -762,7 +762,14 @@ Best time: ${bestContactTime || '—'}`,
         photos: uploadedVinPhotos,
         audios: uploadedAudios,
         createdAt: Date.now()
-      }];
+      },
+      ...filledRequestedParts
+        .filter((part) => part.comment.trim())
+        .map((part) => ({
+          id: createId(),
+          text: `${part.name.trim()} — ${part.comment.trim()}`,
+          createdAt: Date.now()
+        }))];
 
       let partsToInsert: typeof requestedParts = [];
       try {
