@@ -10,6 +10,7 @@ import { useAppSettings } from '../appSettings';
 import { addOrderItem } from '../orderStore';
 import { cloudFeatureFlags, isCloudConfigured } from '../cloudConfig';
 import { runCloudDiagnostics } from '../utils/cloudDiagnostics';
+import { CONTACT_CHANNEL_TO_SOURCE, validateStep1, validateStep2, validateStep3 } from '../utils/publicOrderValidation';
 
 type FormStep = 1 | 2 | 3 | 4;
 
@@ -20,7 +21,6 @@ const DRAFT_LINK_ID_KEY = 'public_order_form_draft_link_id_v1';
 const MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
 
 const STEP_NAMES = ['Автомобиль', 'Детали', 'Контакты', 'Подтверждение'];
-const BODY_TYPE_OPTIONS = ['sedan', 'SUV', 'coupe'];
 const PART_SIDE_OPTIONS = ['левая', 'правая', 'перед', 'зад'];
 const PART_QTY_OPTIONS = Array.from({ length: 10 }, (_, index) => String(index + 1));
 
@@ -281,6 +281,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [messageSourceTouched, setMessageSourceTouched] = useState(false);
   const { settings } = useAppSettings();
   const [draftLinkId, setDraftLinkId] = useState(() => localStorage.getItem(DRAFT_LINK_ID_KEY) || createId());
   const publicFormUrl = `${window.location.origin}${window.location.pathname}?draft=${draftLinkId}#/request`;
@@ -301,6 +302,8 @@ const PublicOrderFormScreen: React.FC = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const submitLockedRef = useRef(false);
+  const submittedDraftIdsRef = useRef<Set<string>>(new Set());
 
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
   const deliveryCityOptions = useMemo(() => DELIVERY_CITIES[deliveryCountry as keyof typeof DELIVERY_CITIES] || [], [deliveryCountry]);
@@ -328,7 +331,7 @@ const PublicOrderFormScreen: React.FC = () => {
       for (const item of queued) {
         const retryResult = await leadCreate(item.leadPayload);
         if (!retryResult.ok) {
-          console.warn('[leadCreate] Retry still failing', { orderId: item.orderId, code: retryResult.code, error: retryResult.error });
+          void logger.warn('public-form', 'Retry lead sync still failing', { orderId: item.orderId, code: retryResult.code, error: retryResult.error });
           continue;
         }
 
@@ -359,6 +362,7 @@ const PublicOrderFormScreen: React.FC = () => {
 
       if (source.includes('insta') || source.includes('ig')) {
         setMessageSource(Source.INSTAGRAM);
+        setMessageSourceTouched(true);
       }
       const saved = localStorage.getItem(`${DRAFT_KEY}_${incomingDraftId}`) || localStorage.getItem(DRAFT_KEY);
       if (saved) {
@@ -382,6 +386,7 @@ const PublicOrderFormScreen: React.FC = () => {
         setEngineCode(draft.engineCode || '');
         setClientAlias(draft.clientAlias || '');
         setMessageSource(Object.values(Source).includes(draft.messageSource) ? draft.messageSource : Source.WHATSAPP);
+        setMessageSourceTouched(Boolean(draft.messageSource));
       }
     } catch {
       // noop
@@ -485,6 +490,9 @@ const PublicOrderFormScreen: React.FC = () => {
 
   const switchContactChannel = (channel: 'whatsapp' | 'telegram' | 'email' | 'phone') => {
     setPreferredContactChannel(channel);
+    if (!messageSourceTouched) {
+      setMessageSource(CONTACT_CHANNEL_TO_SOURCE[channel]);
+    }
     if (channel !== 'whatsapp') setCustomerContact('');
     if (channel !== 'telegram') setTelegramContact('');
     if (channel !== 'email') setEmailContact('');
@@ -496,49 +504,52 @@ const PublicOrderFormScreen: React.FC = () => {
     if (contactCountryCode === '+971') return digits.length === 9;
     return digits.length >= 8 && digits.length <= 15;
   };
-  const validateVin = (value: string) => !value || /^[A-HJ-NPR-Z0-9]{17}$/.test(value);
-  const validateEmail = () => !emailContact.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailContact.trim());
-  const validateTelegram = () => !telegramContact.trim() || /^@?[A-Za-z0-9_]{5,}$/.test(telegramContact.trim());
-
   const isWhatsappValid = validatePhone();
-
-  const canContinue =
-    (step === 1 && Boolean(brand && model && year && validateVin(vin))) ||
-    (step === 2 && Boolean(requestedParts.some((part) => part.name.trim()))) ||
-    (step === 3 && Boolean(deliveryCountry && (preferredContactChannel !== 'whatsapp' || validatePhone()))) ||
-    step === 4;
-
   const validateStep = (nextStep = step) => {
-    const nextErrors: Record<string, string> = {};
-    if (nextStep === 1) {
-      if (!brand) nextErrors.brand = 'Выберите марку';
-      if (!model) nextErrors.model = 'Выберите модель';
-      if (!year) nextErrors.year = 'Выберите год';
-      if (Number(year) > new Date().getFullYear()) nextErrors.year = 'Год не может быть больше текущего';
-      if (bodyType.length > 40) nextErrors.bodyType = 'Максимум 40 символов';
-      if (!validateVin(vin)) nextErrors.vin = 'VIN должен содержать 17 символов (латиница/цифры)';
-    }
-    if (nextStep === 3) {
-      if (!deliveryCountry) nextErrors.deliveryCountry = 'Выберите страну доставки';
-      if (preferredContactChannel === 'whatsapp' && !validatePhone()) nextErrors.phone = contactCountryCode === '+971' ? 'Для ОАЭ номер должен содержать 9 цифр' : 'Введите корректный WhatsApp';
-      if (preferredContactChannel === 'telegram' && !validateTelegram()) nextErrors.telegram = 'Введите корректный Telegram (@username)';
-      if (preferredContactChannel === 'email' && !validateEmail()) nextErrors.email = 'Введите корректный e-mail';
-      if (preferredContactChannel === 'phone' && phoneContact.replace(/\D/g, '').length < 9) nextErrors.phoneAlt = 'Введите корректный номер телефона (минимум 9 цифр)';
-      if (!validateContactTime(bestContactTime)) nextErrors.bestContactTime = 'Формат: HH:MM - HH:MM TZ (например 10:00 - 14:00 GST)';
-    }
-    if (nextStep === 2) {
-      requestedParts.forEach((part, index) => {
-        if (part.partCode && !/^\d{1,12}$/.test(part.partCode)) nextErrors[`partCode-${index}`] = 'Код детали: только цифры (до 12)';
-        const qty = Number(part.quantity || '0');
-        if (part.quantity && (!Number.isInteger(qty) || qty < 1 || qty > 10)) nextErrors[`quantity-${index}`] = 'Количество: от 1 до 10';
-      });
-    }
+    const list = nextStep === 1
+      ? validateStep1({ brand, model, year, bodyType, vin })
+      : nextStep === 2
+        ? validateStep2({ requestedParts })
+        : validateStep3({
+          deliveryCountry,
+          preferredContactChannel,
+          customerContact,
+          contactCountryCode,
+          telegramContact,
+          emailContact,
+          phoneContact,
+          bestContactTime
+        });
+    const nextErrors = list.reduce<Record<string, string>>((acc, item) => {
+      acc[item.field] = item.message;
+      return acc;
+    }, {});
     setErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
+    return list.length === 0;
   };
 
+  const stepBlockingErrors = useMemo(() => {
+    if (step === 1) return validateStep1({ brand, model, year, bodyType, vin });
+    if (step === 2) return validateStep2({ requestedParts });
+    if (step === 3) {
+      return validateStep3({
+        deliveryCountry,
+        preferredContactChannel,
+        customerContact,
+        contactCountryCode,
+        telegramContact,
+        emailContact,
+        phoneContact,
+        bestContactTime
+      });
+    }
+    return [];
+  }, [step, brand, model, year, bodyType, vin, requestedParts, deliveryCountry, preferredContactChannel, customerContact, contactCountryCode, telegramContact, emailContact, phoneContact, bestContactTime]);
+
+  const canContinue = stepBlockingErrors.length === 0 || step === 4;
+
   const goNext = () => {
-    if (!canContinue || !validateStep(step)) return;
+    if (!validateStep(step)) return;
     setStep((current) => Math.min(TOTAL_STEPS, current + 1) as FormStep);
   };
 
@@ -572,6 +583,7 @@ const PublicOrderFormScreen: React.FC = () => {
     setPhoneContact('');
     setBestContactTime('');
     setMessageSource(Source.WHATSAPP);
+    setMessageSourceTouched(false);
     setDeliveryCountry('');
     setDeliveryCity('');
     setDeliveryAddressNote('');
@@ -581,6 +593,7 @@ const PublicOrderFormScreen: React.FC = () => {
     setClientAlias('');
     setConsentAccepted(false);
     setShowSubmitConfirm(false);
+    submitLockedRef.current = false;
     localStorage.removeItem(`${DRAFT_KEY}_${draftLinkId}`);
     localStorage.removeItem(DRAFT_KEY);
     localStorage.removeItem(DRAFT_LINK_ID_KEY);
@@ -671,6 +684,8 @@ const PublicOrderFormScreen: React.FC = () => {
   };
 
   const submitOrder = async () => {
+    if (submitLockedRef.current || isSubmitting) return;
+    if (submittedDraftIdsRef.current.has(draftLinkId)) return;
     if (!validateStep(1) || !validateStep(3)) {
       pushNotification({
         type: NotificationType.SYNC_ERROR,
@@ -692,6 +707,7 @@ const PublicOrderFormScreen: React.FC = () => {
       return;
     }
 
+    submitLockedRef.current = true;
     setIsSubmitting(true);
     void logger.info('public-form', 'Lead submit started', {
       source: messageSource,
@@ -722,7 +738,7 @@ const PublicOrderFormScreen: React.FC = () => {
         ]);
       } catch (photoError) {
         const photoErrorMsg = photoError instanceof Error ? photoError.message : 'Ошибка загрузки фотографий';
-        console.error('Photo upload error:', photoError);
+        await logger.warn('public-form', 'Photo upload failed', { reason: photoErrorMsg });
         throw new Error(`Не удалось загрузить фотографии: ${photoErrorMsg}`);
       }
 
@@ -776,7 +792,7 @@ Best time: ${bestContactTime || '—'}`,
         }));
       } catch (partsError) {
         const partsErrorMsg = partsError instanceof Error ? partsError.message : 'Ошибка загрузки деталей';
-        console.error('Parts upload error:', partsError);
+        await logger.warn('public-form', 'Part photos upload failed', { reason: partsErrorMsg });
         throw new Error(`Не удалось загрузить детали: ${partsErrorMsg}`);
       }
 
@@ -808,7 +824,7 @@ Best time: ${bestContactTime || '—'}`,
       };
 
       const validatedLeadPayload = validateAndPrepareLeadPayload(leadPayload);
-      console.log('[public-form] lead payload diagnostics', {
+      await logger.info('public-form', 'Lead payload diagnostics', {
         orderId,
         parts: partsToInsert.length,
         hasNotes: notes.length,
@@ -820,7 +836,7 @@ Best time: ${bestContactTime || '—'}`,
         leadResult = await leadCreate(validatedLeadPayload, { signal: controller.signal });
       } catch (leadCreateError) {
         const leadErrorMsg = leadCreateError instanceof Error ? leadCreateError.message : 'Ошибка подключения к серверу';
-        console.error('Lead create error:', leadCreateError);
+        await logger.warn('public-form', 'Lead create request failed', { reason: leadErrorMsg });
         throw new Error(`Не удалось создать лид: ${leadErrorMsg}`);
       } finally {
         setSubmitController(null);
@@ -891,10 +907,11 @@ Best time: ${bestContactTime || '—'}`,
         });
       } catch (localError) {
         const localErrorMsg = localError instanceof Error ? localError.message : 'Ошибка локального хранилища';
-        console.error('Local order save error:', localError);
+        await logger.error('public-form', 'Local order save failed', { reason: localErrorMsg });
         throw new Error(`Не удалось сохранить заявку локально: ${localErrorMsg}`);
       }
 
+      submittedDraftIdsRef.current.add(draftLinkId);
       setCreatedOrderId(orderId);
       setShowThanks(true);
       resetForm();
@@ -913,8 +930,6 @@ Best time: ${bestContactTime || '—'}`,
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка при отправке заявки';
 
-      console.error('submitOrder error:', error);
-
       await logger.error('public-form', 'Lead submit failed', {
         error: errorMessage,
         source: messageSource,
@@ -932,6 +947,7 @@ Best time: ${bestContactTime || '—'}`,
     } finally {
       setSubmitController(null);
       setIsSubmitting(false);
+      submitLockedRef.current = false;
     }
   };
 
@@ -994,7 +1010,15 @@ Best time: ${bestContactTime || '—'}`,
           <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-amber-300 via-orange-300 to-yellow-100 transition-all duration-500" style={{ width: `${progress}%` }} /></div>
         </div>
 
-        <div className="space-y-4 transition-all duration-300">
+        {step < 4 && stepBlockingErrors.length > 0 && (
+          <div className="mb-4 rounded-2xl border border-amber-300/40 bg-amber-200/10 px-4 py-3 text-xs text-amber-100">
+            <p className="font-semibold">Заполните обязательные поля:</p>
+            <ul className="mt-1 list-disc space-y-1 pl-4">
+              {Array.from(new Set(stepBlockingErrors.map((item) => item.message))).map((message) => <li key={message}>{message}</li>)}
+            </ul>
+          </div>
+        )}
+        <div className="max-h-[calc(100vh-260px)] space-y-4 overflow-y-auto pr-1 transition-all duration-300 [scrollbar-width:thin]" style={{ WebkitOverflowScrolling: 'touch' }}>
           {step === 1 && (
             <>
               <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm">🚗 {brand || 'Марка'} {model || ''} {year || ''}</div>
@@ -1051,10 +1075,7 @@ Best time: ${bestContactTime || '—'}`,
                 </label>
                 <label>
                   <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Тип кузова (опционально)</span>
-                  <select value={bodyType} onChange={(e) => setBodyType(e.target.value)} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.bodyType ? 'border-amber-300' : 'border-white/15'}`}>
-                    <option value="" className="text-slate-900">Выберите тип кузова</option>
-                    {BODY_TYPE_OPTIONS.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
-                  </select>
+                  <input value={bodyType} onChange={(e) => setBodyType(e.target.value.slice(0, 40))} placeholder="Например: E39, F10, W212" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.bodyType ? 'border-amber-300' : 'border-white/15'}`} />
                   {errors.bodyType && <p className="mt-1 text-xs text-amber-200">{errors.bodyType}</p>}
                 </label>
               </div>
@@ -1065,7 +1086,7 @@ Best time: ${bestContactTime || '—'}`,
                 {errors.vin && <p className="mt-1 text-xs text-amber-200">{errors.vin}</p>}
               </label>
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">VIN: введите вручную или загрузите фото</span>
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">VIN фото (опционально, для быстрого подбора)</span>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <button type="button" onClick={() => vinInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Upload className="h-4 w-4" />Галерея</button>
                   <button type="button" onClick={() => vinCameraInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Camera className="h-4 w-4" />Камера</button>
@@ -1076,7 +1097,7 @@ Best time: ${bestContactTime || '—'}`,
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Фото автомобиля (в начале заявки)</span>
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Фото автомобиля (опционально, для быстрого подбора)</span>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <button type="button" onClick={() => carInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Upload className="h-4 w-4" />Галерея</button>
                   <button type="button" onClick={() => carCameraInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Camera className="h-4 w-4" />Камера</button>
@@ -1127,19 +1148,21 @@ Best time: ${bestContactTime || '—'}`,
                       updateRequestedPart(index, { name: value });
                     }}
                     placeholder="Наименование детали *"
-                    className="h-12 w-full rounded-2xl border border-white/15 bg-white/10 px-4 outline-none"
+                    className={`h-12 w-full rounded-2xl border bg-white/10 px-4 outline-none ${errors[`partName-${index}`] ? 'border-amber-300' : 'border-white/15'}`}
                   />
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <select value={part.quantity} onChange={(e) => updateRequestedPart(index, { quantity: e.target.value })} className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none">
                       {PART_QTY_OPTIONS.map((item) => <option key={`${part.id}-qty-${item}`} value={item} className="text-slate-900">{item}</option>)}
                     </select>
-                    <select value={part.side} onChange={(e) => updateRequestedPart(index, { side: e.target.value })} className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none">
-                      <option value="" className="text-slate-900">Сторона</option>
+                    <select value={part.side} onChange={(e) => updateRequestedPart(index, { side: e.target.value })} className={`h-11 rounded-2xl border bg-white/10 px-3 text-sm outline-none ${errors[`side-${index}`] ? 'border-amber-300' : 'border-white/15'}`}>
+                      <option value="" className="text-slate-400">Сторона *</option>
                       {PART_SIDE_OPTIONS.map((item) => <option key={`${part.id}-side-${item}`} value={item} className="text-slate-900">{item}</option>)}
                     </select>
                     <input value={part.partCode} onChange={(e) => updateRequestedPart(index, { partCode: e.target.value.replace(/[^0-9]/g, '').slice(0, 12) })} inputMode="numeric" placeholder="Код детали (цифры)" className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none" />
                     <input value={part.comment} onChange={(e) => updateRequestedPart(index, { comment: e.target.value })} placeholder="Комментарий" className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none" />
                   </div>
+                  {errors[`partName-${index}`] && <p className="mt-1 text-xs text-amber-200">{errors[`partName-${index}`]}</p>}
+                  {errors[`side-${index}`] && <p className="mt-1 text-xs text-amber-200">{errors[`side-${index}`]}</p>}
                   {errors[`quantity-${index}`] && <p className="mt-1 text-xs text-amber-200">{errors[`quantity-${index}`]}</p>}
                   {errors[`partCode-${index}`] && <p className="mt-1 text-xs text-amber-200">{errors[`partCode-${index}`]}</p>}
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
@@ -1220,7 +1243,7 @@ Best time: ${bestContactTime || '—'}`,
                     <input type="tel" value={customerContact} onChange={(e) => setCustomerContact(formatPhone(e.target.value))} placeholder="901234567" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-lg outline-none ${errors.phone ? 'border-amber-300' : 'border-white/15'}`} />
                   </div>
                   {errors.phone && <p className="mt-1 text-xs text-amber-200">{errors.phone}</p>}
-                  {!errors.phone && customerContact && <p className={`mt-1 text-xs ${isWhatsappValid ? 'text-emerald-200' : 'text-amber-200'}`}>{isWhatsappValid ? 'WhatsApp номер выглядит корректно' : `Проверьте номер${contactCountryCode === '+971' ? ' (для ОАЭ нужно 9 цифр)' : ''}`}</p>}
+                  {customerContact && <p className={`mt-1 text-xs ${isWhatsappValid ? 'text-emerald-200' : 'text-red-300'}`}>{isWhatsappValid ? 'WhatsApp номер выглядит корректно' : 'Введите номер полностью'}</p>}
                 </label>
               )}
 
@@ -1234,7 +1257,7 @@ Best time: ${bestContactTime || '—'}`,
 
               <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Лучшее время для связи (опционально)</span><input value={bestContactTime} onChange={(e) => setBestContactTime(formatContactTimeInput(e.target.value))} placeholder="Например: 10:00 - 14:00 GST" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.bestContactTime ? 'border-amber-300' : 'border-white/15'}`} />{errors.bestContactTime && <p className="mt-1 text-xs text-amber-200">{errors.bestContactTime}</p>}</label>
               <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ваше имя или ник (опционально)</span><input value={clientAlias} onChange={(e) => setClientAlias(e.target.value.slice(0, 60))} placeholder="Напр. @alex" className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" /></label>
-              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Откуда вы пишете</span><select value={messageSource} onChange={(e) => setMessageSource(e.target.value as Source)} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none">{[Source.INSTAGRAM, Source.WHATSAPP, Source.TELEGRAM, Source.TIKTOK, Source.FACEBOOK, Source.OTHER].map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}</select></label>
+              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Откуда вы пишете</span><select value={messageSource} onChange={(e) => { setMessageSourceTouched(true); setMessageSource(e.target.value as Source); }} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none">{[Source.INSTAGRAM, Source.WHATSAPP, Source.TELEGRAM, Source.TIKTOK, Source.FACEBOOK, Source.OTHER].map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}</select></label>
               <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Комментарий (опционально)</span><textarea name="delivery-address-note" autoComplete="off" value={deliveryAddressNote} onChange={(e) => setDeliveryAddressNote(e.target.value)} rows={3} placeholder="Район, адрес и комментарий" className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none" /></label>
             </>
           )}
@@ -1246,6 +1269,39 @@ Best time: ${bestContactTime || '—'}`,
               <p className="text-sm">🌍 Доставка: {deliveryCountry || '—'} {deliveryCity ? `(${deliveryCity})` : ''}</p>
               <p className="text-sm">Контакт: {CONTACT_CHANNEL_LABELS[preferredContactChannel]}</p>
               <p className="text-sm">VIN: {vin || 'VIN не указан'}</p>
+
+              <div className="mt-4 space-y-2 text-xs text-slate-100">
+                <p className="font-semibold">Детали:</p>
+                {requestedParts.filter((item) => item.name.trim()).map((part) => (
+                  <div key={part.id} className="rounded-xl border border-white/15 bg-black/20 p-2">
+                    <p>{part.name.trim()} · Кол-во: {part.quantity || '1'} · Сторона: {part.side || 'не выбрана'}</p>
+                    <p className="text-slate-300">Комментарий: {part.comment?.trim() || '—'}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 space-y-2 text-xs text-slate-100">
+                <p className="font-semibold">Фото:</p>
+                <div>
+                  <p className="mb-1">VIN фото</p>
+                  {vinPhotoData ? <img src={vinPhotoData} alt="vin-preview" className="h-20 w-28 rounded-lg object-cover" /> : <p className="text-slate-300">Фото не добавлено</p>}
+                </div>
+                <div>
+                  <p className="mb-1">Фото авто</p>
+                  {carPhotoData ? <img src={carPhotoData} alt="car-preview" className="h-20 w-28 rounded-lg object-cover" /> : <p className="text-slate-300">Фото не добавлено</p>}
+                </div>
+                <div>
+                  <p className="mb-1">Фото деталей</p>
+                  {requestedParts.some((item) => (item.photoDataList || []).length > 0) ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      {requestedParts.flatMap((item) => (item.photoDataList || []).map((photo, idx) => (
+                        <img key={`${item.id}-confirm-${idx}`} src={photo} alt="part-preview" className="h-16 w-full rounded-lg object-cover" />
+                      )))}
+                    </div>
+                  ) : <p className="text-slate-300">Фото не добавлено</p>}
+                </div>
+              </div>
+
               <div className="mt-3 grid gap-2 text-xs text-slate-200">
                 <button type="button" onClick={() => goToStep(1)} className="rounded-xl border border-white/20 px-3 py-2 text-left">Редактировать автомобиль</button>
                 <button type="button" onClick={() => goToStep(2)} className="rounded-xl border border-white/20 px-3 py-2 text-left">Редактировать детали</button>
@@ -1260,10 +1316,10 @@ Best time: ${bestContactTime || '—'}`,
         <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3">
           <button type="button" onClick={goBack} disabled={step === 1 || isSubmitting} className="flex h-12 min-w-[120px] items-center justify-center gap-2 rounded-full border border-white/20 px-4 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-35"><ChevronLeft className="h-4 w-4" />Назад</button>
           {step < TOTAL_STEPS ? (
-          <button type="button" onClick={goNext} disabled={!canContinue || isSubmitting} className="flex h-12 min-w-[160px] items-center justify-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40">Далее<ArrowRight className="h-4 w-4" /></button>
+          <button type="button" onClick={goNext} disabled={isSubmitting} aria-disabled={!canContinue} className={`flex h-12 min-w-[160px] items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold transition ${canContinue ? 'bg-white text-slate-950' : 'bg-white/70 text-slate-700'} disabled:cursor-not-allowed disabled:opacity-40`}>Далее<ArrowRight className="h-4 w-4" /></button>
           ) : (
             <>
-              <button type="button" onClick={() => setShowSubmitConfirm(true)} disabled={!canContinue || isSubmitting} className="flex h-12 min-w-[180px] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-200 to-white px-6 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40">{isSubmitting ? 'Отправка...' : 'Подтвердить заявку'}<Copy className="h-4 w-4" /></button>
+              <button type="button" onClick={() => setShowSubmitConfirm(true)} disabled={isSubmitting || submitLockedRef.current} className="flex h-12 min-w-[180px] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-200 to-white px-6 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40">{isSubmitting ? 'Отправка...' : 'Подтвердить заявку'}<Copy className="h-4 w-4" /></button>
               {submitController && <button type="button" onClick={() => submitController.abort('user_cancelled')} className="flex h-12 min-w-[160px] items-center justify-center gap-2 rounded-full border border-white/40 px-6 text-sm font-semibold text-white">Отменить отправку</button>}
             </>
           )}
