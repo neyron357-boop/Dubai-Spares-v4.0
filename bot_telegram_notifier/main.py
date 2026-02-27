@@ -5,37 +5,78 @@ import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
+from urllib.error import HTTPError, URLError
 
 # ============ CONFIG (ALL IN ONE FILE) ============
 BOT_TOKEN = "8649391903:AAEm9TT1i1yXLwSw_FRX6j1JASFbJTqbfyY"
 SUPABASE_URL = "https://nbnfaxsvdlcdycnuzieu.supabase.co"
 SUPABASE_KEY = "sb_publishable_LBtkQ3o98MWr0GCSi-ImTw_N5pMpk7V"
-TABLE_NAME = "client_leads"
 
-# Если известен chat_id, можно сразу вставить сюда числом.
-# Если None — отправьте боту /start, и он запомнит первого пользователя как владельца.
-TELEGRAM_CHAT_ID = None
+# Все подписчики получают уведомления (без владельца)
+SUBSCRIBERS_FILE = Path(__file__).with_name("telegram_subscribers.json")
+POLL_INTERVAL_SECONDS = 2
+LIMIT = 30
 
-# Почти мгновенная проверка новых заказов
-POLL_INTERVAL_SECONDS = 1
-LIMIT = 20
-
-# Поля, которые тянем из Supabase
-SELECT_FIELDS = "id,created_at,name,phone,message,brand,model,year,vin"
-ORDER_BY = "created_at.desc"
+# Пытаемся читать лиды/заказы из разных таблиц, чтобы бот работал даже при изменениях схемы.
+TRACKED_SOURCES = [
+    {
+        "table": "client_leads",
+        "select": "id,created_at,name,phone,message,brand,model,year,vin",
+        "order_fields": ["created_at", "id"],
+    },
+    {
+        "table": "orders",
+        "select": "id,created_at,name,phone,message,brand,model,year,vin,customer_name,customer_phone,notes",
+        "order_fields": ["created_at", "updated_at", "id"],
+    },
+]
 
 # ============ RUNTIME STATE ============
-owner_chat_id = TELEGRAM_CHAT_ID
-last_seen_created_at = None
-last_seen_id = None
+subscribers: set[int] = set()
+last_seen_per_source: dict[str, tuple[str, str]] = {}
 offset = 0
+last_supabase_error = ""
+
+
+def load_subscribers() -> set[int]:
+    if not SUBSCRIBERS_FILE.exists():
+        return set()
+    try:
+        raw = json.loads(SUBSCRIBERS_FILE.read_text(encoding="utf-8"))
+        if not isinstance(raw, list):
+            return set()
+        return {int(x) for x in raw}
+    except Exception as e:
+        print(f"[WARN] cannot load subscribers: {e}")
+        return set()
+
+
+def save_subscribers():
+    try:
+        SUBSCRIBERS_FILE.write_text(
+            json.dumps(sorted(subscribers), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"[WARN] cannot save subscribers: {e}")
 
 
 def http_json(url: str, method: str = "GET", headers=None, data=None, timeout: int = 30):
     req = urllib.request.Request(url=url, method=method, headers=headers or {}, data=data)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read().decode("utf-8")
-        return json.loads(body)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8")
+            return json.loads(body) if body else {}
+    except HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            detail = str(e)
+        raise RuntimeError(f"HTTP {e.code} {e.reason}: {detail}") from e
+    except URLError as e:
+        raise RuntimeError(f"Network error: {e}") from e
 
 
 def tg_api(method: str, payload: dict | None = None):
@@ -51,147 +92,215 @@ def send_message(chat_id: int, text: str):
     try:
         tg_api("sendMessage", {"chat_id": chat_id, "text": text})
     except Exception as e:
-        print(f"[TELEGRAM ERROR] sendMessage failed: {e}")
+        print(f"[TELEGRAM ERROR] sendMessage failed for {chat_id}: {e}")
+
+
+def broadcast_message(text: str):
+    if not subscribers:
+        return
+    for chat_id in list(subscribers):
+        send_message(chat_id, text)
 
 
 def to_local_time(created_at: str | None) -> str:
     if not created_at:
         return "—"
     try:
-        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
-        return created_at
+        return str(created_at)
 
 
-def format_notification(row: dict) -> str:
-    brand = (row.get("brand") or "").strip()
-    model = (row.get("model") or "").strip()
-    year = str(row.get("year") or "").strip()
-    car = " ".join([x for x in [brand, model, year] if x]) or "—"
+def pick_first(row: dict, keys: list[str], default: str = "—") -> str:
+    for key in keys:
+        value = row.get(key)
+        if value is not None and str(value).strip() != "":
+            return str(value)
+    return default
+
+
+def format_notification(row: dict, source_table: str) -> str:
+    brand = pick_first(row, ["brand"])
+    model = pick_first(row, ["model"])
+    year = pick_first(row, ["year"], default="")
+    car = " ".join([x for x in [brand, model, year] if x and x != "—"]).strip() or "—"
 
     return "\n".join(
         [
             "🆕 Новый заказ",
-            f"🆔 ID: {row.get('id', '—')}",
-            f"🕒 Created: {to_local_time(row.get('created_at'))}",
-            f"👤 Name: {row.get('name') or '—'}",
-            f"📞 Phone: {row.get('phone') or '—'}",
-            f"💬 Message: {row.get('message') or '—'}",
+            f"📦 Таблица: {source_table}",
+            f"🆔 ID: {pick_first(row, ['id'])}",
+            f"🕒 Created: {to_local_time(pick_first(row, ['created_at', 'updated_at'], default=''))}",
+            f"👤 Name: {pick_first(row, ['name', 'customer_name'])}",
+            f"📞 Phone: {pick_first(row, ['phone', 'customer_phone'])}",
+            f"💬 Message: {pick_first(row, ['message', 'notes'])}",
             f"🚘 Car: {car}",
-            f"🔢 VIN: {row.get('vin') or '—'}",
+            f"🔢 VIN: {pick_first(row, ['vin'])}",
         ]
     )
 
 
-def fetch_latest_rows() -> list[dict]:
+def fetch_rows(table: str, select_fields: str, order_field: str) -> list[dict]:
     params = urllib.parse.urlencode(
         {
-            "select": SELECT_FIELDS,
-            "order": ORDER_BY,
+            "select": select_fields,
+            "order": f"{order_field}.desc",
             "limit": str(LIMIT),
         }
     )
-    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/{TABLE_NAME}?{params}"
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/{table}?{params}"
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Accept": "application/json",
     }
     data = http_json(url=url, method="GET", headers=headers, timeout=30)
-    if not isinstance(data, list):
+    return data if isinstance(data, list) else []
+
+
+def fetch_with_fallbacks(source: dict) -> tuple[list[dict], str | None]:
+    table = source["table"]
+    select_variants = [source["select"], "*"]
+    for select_fields in select_variants:
+        for order_field in source["order_fields"]:
+            try:
+                rows = fetch_rows(table=table, select_fields=select_fields, order_field=order_field)
+                return rows, order_field
+            except Exception as e:
+                text = str(e)
+                if "HTTP 400" in text or "PGRST" in text:
+                    continue
+                raise
+    return [], None
+
+
+def row_sort_key(row: dict, order_field: str) -> tuple[str, str]:
+    primary = str(row.get(order_field) or "")
+    rid = str(row.get("id") or "")
+    return primary, rid
+
+
+def find_new_rows(source_name: str, rows: list[dict], order_field: str) -> list[dict]:
+    marker = last_seen_per_source.get(source_name)
+    if marker is None:
+        if rows:
+            last_seen_per_source[source_name] = row_sort_key(rows[0], order_field)
         return []
-    return data
 
+    new_rows = []
+    for row in rows:
+        key = row_sort_key(row, order_field)
+        if key[0] and key > marker:
+            new_rows.append(row)
 
-def is_newer(created_at: str, record_id: str) -> bool:
-    global last_seen_created_at, last_seen_id
-    if last_seen_created_at is None:
-        return False
-    if created_at > last_seen_created_at:
-        return True
-    if created_at == last_seen_created_at and last_seen_id is not None and str(record_id) > str(last_seen_id):
-        return True
-    return False
+    if rows:
+        last_seen_per_source[source_name] = row_sort_key(rows[0], order_field)
 
-
-def set_last_seen_from_rows(rows: list[dict]):
-    global last_seen_created_at, last_seen_id
-    if not rows:
-        return
-    newest = rows[0]
-    created = str(newest.get("created_at") or "")
-    rid = str(newest.get("id") or "")
-    if created:
-        last_seen_created_at = created
-        last_seen_id = rid
+    return list(reversed(new_rows))
 
 
 def bootstrap_last_seen():
-    global last_seen_created_at, last_seen_id
-    try:
-        rows = fetch_latest_rows()
-        if rows:
-            last_seen_created_at = str(rows[0].get("created_at") or "")
-            last_seen_id = str(rows[0].get("id") or "")
-        print(f"[BOOT] baseline set: created_at={last_seen_created_at}, id={last_seen_id}")
-    except Exception as e:
-        print(f"[BOOT ERROR] {e}")
+    for source in TRACKED_SOURCES:
+        name = source["table"]
+        try:
+            rows, order_field = fetch_with_fallbacks(source)
+            if rows and order_field:
+                last_seen_per_source[name] = row_sort_key(rows[0], order_field)
+                print(f"[BOOT] {name}: marker={last_seen_per_source[name]}")
+            else:
+                print(f"[BOOT] {name}: no rows or unavailable")
+        except Exception as e:
+            print(f"[BOOT ERROR] {name}: {e}")
 
 
 def supabase_poll_loop():
-    global owner_chat_id
+    global last_supabase_error
     while True:
         try:
-            rows = fetch_latest_rows()
+            any_success = False
+            for source in TRACKED_SOURCES:
+                source_name = source["table"]
+                rows, order_field = fetch_with_fallbacks(source)
+                if not order_field:
+                    continue
 
-            if last_seen_created_at is None:
-                set_last_seen_from_rows(rows)
+                any_success = True
+                new_rows = find_new_rows(source_name, rows, order_field)
+                for row in new_rows:
+                    broadcast_message(format_notification(row, source_name))
+                    print(f"[SENT] {source_name} id={row.get('id')}")
+
+            if not any_success:
+                msg = "No tracked table could be fetched. Check SUPABASE_URL/SUPABASE_KEY/table names."
+                if msg != last_supabase_error:
+                    print(f"[SUPABASE WARNING] {msg}")
+                    last_supabase_error = msg
             else:
-                # rows in desc order -> соберем новые и отправим по возрастанию времени
-                new_rows = []
-                for row in rows:
-                    created_at = str(row.get("created_at") or "")
-                    record_id = str(row.get("id") or "")
-                    if not created_at or not record_id:
-                        continue
-                    if is_newer(created_at, record_id):
-                        new_rows.append(row)
-
-                if new_rows and owner_chat_id is not None:
-                    for row in reversed(new_rows):
-                        send_message(owner_chat_id, format_notification(row))
-                        print(f"[SENT] order id={row.get('id')}")
-
-                if rows:
-                    set_last_seen_from_rows(rows)
-
+                last_supabase_error = ""
         except Exception as e:
-            print(f"[SUPABASE ERROR] {e}")
+            msg = str(e)
+            if msg != last_supabase_error:
+                print(f"[SUPABASE ERROR] {msg}")
+                last_supabase_error = msg
 
         time.sleep(POLL_INTERVAL_SECONDS)
 
 
+def cmd_start(chat_id: int):
+    is_new = chat_id not in subscribers
+    subscribers.add(chat_id)
+    save_subscribers()
+    if is_new:
+        send_message(chat_id, "✅ Подписка включена. Теперь вы будете получать новые заказы.")
+    else:
+        send_message(chat_id, "✅ Вы уже подписаны на уведомления о новых заказах.")
+
+
+def cmd_stop(chat_id: int):
+    if chat_id in subscribers:
+        subscribers.remove(chat_id)
+        save_subscribers()
+        send_message(chat_id, "🛑 Подписка отключена.")
+    else:
+        send_message(chat_id, "ℹ️ У вас и так нет активной подписки.")
+
+
+def cmd_status(chat_id: int):
+    status = "подписаны" if chat_id in subscribers else "не подписаны"
+    send_message(
+        chat_id,
+        f"ℹ️ Вы {status}.\n"
+        f"👥 Всего подписчиков: {len(subscribers)}\n"
+        f"🗂 Отслеживаемые таблицы: {', '.join(s['table'] for s in TRACKED_SOURCES)}",
+    )
+
+
 def handle_update(upd: dict):
-    global owner_chat_id
     message = upd.get("message") or {}
     text = (message.get("text") or "").strip()
     chat = message.get("chat") or {}
     chat_id = chat.get("id")
     if chat_id is None:
         return
+    chat_id = int(chat_id)
 
     if text.startswith("/start"):
-        if owner_chat_id is None:
-            owner_chat_id = int(chat_id)
-            send_message(owner_chat_id, "✅ Бот подключен. Новые заказы будут приходить сразу.")
-            print(f"[OWNER] set owner_chat_id={owner_chat_id}")
-        elif int(chat_id) == int(owner_chat_id):
-            send_message(owner_chat_id, "✅ Бот уже активен. Уведомления включены.")
-        else:
-            send_message(int(chat_id), "⛔ Доступ запрещен")
+        cmd_start(chat_id)
+    elif text.startswith("/stop"):
+        cmd_stop(chat_id)
+    elif text.startswith("/status"):
+        cmd_status(chat_id)
+    elif text.startswith("/"):
+        send_message(
+            chat_id,
+            "Доступные команды:\n"
+            "/start — включить уведомления\n"
+            "/stop — отключить уведомления\n"
+            "/status — текущий статус",
+        )
 
 
 def telegram_updates_loop():
@@ -218,9 +327,13 @@ def telegram_updates_loop():
 
 
 def main():
+    global subscribers
+    subscribers = load_subscribers()
+
     print("[START] Telegram notifier started")
     me = tg_api("getMe")
     print(f"[BOT] @{me.get('result', {}).get('username', 'unknown')}")
+    print(f"[SUBSCRIBERS] loaded: {len(subscribers)}")
 
     bootstrap_last_seen()
 
