@@ -50,6 +50,7 @@ const safeMessagePayload = (value: unknown): Record<string, unknown> => {
 };
 
 const toStringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+const toTrimmedString = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 
 const createId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -152,6 +153,24 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
   const normalizedSource = Object.values(Source).includes(incomingSource as Source)
     ? (incomingSource as Source)
     : Source.OTHER;
+  const preferredChannel = toTrimmedString(mergedPayload.preferredContactChannel);
+  const payloadCustomerContact = toTrimmedString(mergedPayload.customerContact);
+  const payloadWhatsapp = toTrimmedString(mergedPayload.whatsappContact);
+  const payloadTelegram = toTrimmedString(mergedPayload.telegramContact);
+  const payloadInstagram = toTrimmedString(mergedPayload.instagramContact);
+  const payloadPhone = toTrimmedString(mergedPayload.phoneContact);
+  const fallbackContact = lead.phone || fallbackPhone;
+  const resolvedWhatsapp = payloadWhatsapp
+    || (preferredChannel === 'whatsapp' ? payloadCustomerContact : '')
+    || (normalizedSource === Source.WHATSAPP ? fallbackContact : '');
+  const resolvedTelegram = payloadTelegram || (preferredChannel === 'telegram' ? payloadCustomerContact : '');
+  const resolvedInstagram = payloadInstagram || (preferredChannel === 'instagram' ? payloadCustomerContact : '');
+  const resolvedPrimaryContact = resolvedWhatsapp || payloadPhone || payloadCustomerContact || fallbackContact;
+  const resolvedSocial =
+    (normalizedSource === Source.TELEGRAM ? resolvedTelegram : '')
+    || (normalizedSource === Source.INSTAGRAM ? resolvedInstagram : '')
+    || toTrimmedString(mergedPayload.socialNickname)
+    || undefined;
 
   return {
     id: lead.order_id || lead.id,
@@ -178,8 +197,8 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
       };
     }),
     clientName: lead.name || fallbackName,
-    customerContact: lead.phone || fallbackPhone,
-    socialNickname: typeof mergedPayload.socialNickname === 'string' ? mergedPayload.socialNickname : undefined,
+    customerContact: resolvedPrimaryContact,
+    socialNickname: resolvedSocial,
     priority: Priority.HIGH,
     status: 'lead',
     source: normalizedSource,
