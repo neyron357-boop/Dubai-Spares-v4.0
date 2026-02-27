@@ -1667,6 +1667,15 @@ export const updatePartItem = async (orderId: string, part: Part) => {
   await updateOrderItem({ ...order, parts });
 };
 
+
+export const removePartItem = async (orderId: string, partId: string) => {
+  const order = state.orders.find((item) => item.id === orderId);
+  if (!order) return;
+
+  const parts = order.parts.filter((part) => part.id !== partId);
+  await updateOrderItem({ ...order, parts });
+};
+
 export const updatePriceVariantItem = async (partId: string, variant: PriceVariant) => {
   const order = state.orders.find((o) => o.parts.some((p) => p.id === partId));
   if (!order) return;
@@ -1777,6 +1786,7 @@ export const useOrderStore = () => {
     updateOrder: useCallback(updateOrderItem, []),
     deleteOrder: useCallback(deleteOrderItem, []),
     updatePart: useCallback(updatePartItem, []),
+    removePart: useCallback(removePartItem, []),
     updatePriceVariant: useCallback(updatePriceVariantItem, []),
     flushOfflineMutations: useCallback(() => flushOfflineMutations({ force: true }), [])
   };

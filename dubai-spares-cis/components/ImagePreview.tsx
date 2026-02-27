@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Trash2 } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Trash2, Share2, Download } from 'lucide-react';
 import SafeImage from './SafeImage';
 
 interface Props {
@@ -55,6 +55,29 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
     setOffset((prev) => clampOffset(nextZoom, prev.x, prev.y));
   };
 
+  const currentImageUrl = images[currentIndex];
+
+  const handleShare = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (!currentImageUrl) return;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Фото', url: currentImageUrl });
+      } catch {
+        // user cancelled share sheet
+      }
+    }
+  };
+
+  const handleSave = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (!currentImageUrl) return;
+    const link = document.createElement('a');
+    link.href = currentImageUrl;
+    link.download = 'image.jpg';
+    link.click();
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -98,6 +121,25 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
           {deleteLabel}
         </button>
       )}
+
+      <div className="absolute top-20 right-6 z-50 flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={handleShare}
+          className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-black/50 px-3 py-1.5 text-xs font-bold text-white"
+        >
+          <Share2 size={14} />
+          Поделиться
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-black/50 px-3 py-1.5 text-xs font-bold text-white"
+        >
+          <Download size={14} />
+          Сохранить
+        </button>
+      </div>
 
       {images.length > 1 && (
         <>
