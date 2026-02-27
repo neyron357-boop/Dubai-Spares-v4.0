@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   Circle,
   Plus,
-  Trash2,
   Image as ImageIcon,
   DollarSign,
   AlertTriangle,
@@ -166,7 +165,7 @@ const MAX_RETRY_ATTEMPTS = 3;
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { orders, isLoading, updateOrder, suppliers, fetchOrderDetails } = useStore();
+  const { orders, isLoading, updateOrder, removePart, suppliers, fetchOrderDetails } = useStore();
   const order = orders.find(o => o.id === id);
   
   // State for handling missing order
@@ -193,6 +192,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({});
   const [shops, setShops] = useState<Shop[]>([]);
+  const [recommendOpen, setRecommendOpen] = useState(false);
   const [shopsLoaded, setShopsLoaded] = useState(false);
   const [currentPosition, setCurrentPosition] = useState<{ lat: number; lng: number } | null>(null);
   const [shopTagMap, setShopTagMap] = useState<Record<string, { models: string[]; years: string[] }>>({});
@@ -925,8 +925,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   const confirmDeletePart = () => {
     if (deletePartId) {
-      const updatedParts = order.parts.filter(p => p.id !== deletePartId);
-      updateOrder({ ...order, parts: updatedParts });
+      void removePart(order.id, deletePartId);
       setDeletePartId(null);
     }
   };
@@ -1713,7 +1712,15 @@ const OrderDetailsScreen: React.FC = () => {
 
 
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-2">
-          <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Recommend shop · nearest first</h2>
+          <button
+            type="button"
+            onClick={() => setRecommendOpen((prev) => !prev)}
+            className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-black uppercase tracking-[0.2em] text-gray-600"
+          >
+            Recommended Shops
+          </button>
+          {recommendOpen && (
+            <>
           <div className="flex items-center gap-2">
             <select
               onChange={(e) => { addManualRecommendation(e.target.value); e.currentTarget.value = ''; }}
@@ -1790,6 +1797,8 @@ const OrderDetailsScreen: React.FC = () => {
               })}
             </div>
           )}
+            </>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -1865,9 +1874,9 @@ const OrderDetailsScreen: React.FC = () => {
                   <button 
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setDeletePartId(part.id); }}
-                    className="p-4 -m-2 text-gray-100 hover:text-red-500 transition-all relative z-20"
+                    className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700"
                   >
-                    <Trash2 size={20} />
+                    Удалить
                   </button>
                   <ChevronRight size={18} className="text-gray-200" />
                 </div>

@@ -6,6 +6,16 @@ const MAX_ABSOLUTE_LOGS = 3000;
 const MAX_BUFFERED_LOGS = 300;
 const MAX_BUFFERED_ABSOLUTE_LOGS = 900;
 
+const LOG_LEVEL: SystemLogLevel = 'warn';
+const LOG_LEVEL_WEIGHT: Record<SystemLogLevel, number> = {
+  debug: 10,
+  info: 20,
+  warn: 30,
+  error: 40
+};
+
+const shouldLogLevel = (level: SystemLogLevel) => LOG_LEVEL_WEIGHT[level] >= LOG_LEVEL_WEIGHT[LOG_LEVEL];
+
 const sessionId = window.localStorage.getItem('app_session_id') || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 window.localStorage.setItem('app_session_id', sessionId);
 
@@ -97,6 +107,8 @@ const emit = async (
   meta?: unknown,
   options?: { mode?: 'regular' | 'absolute'; source?: SystemLogEntry['source']; silentConsole?: boolean }
 ) => {
+  if (!shouldLogLevel(level)) return;
+
   const mode = options?.mode || 'regular';
   const entry = createLogEntry(level, scope, message, meta, { mode, source: options?.source });
   pushMemoryLog(entry);
@@ -163,6 +175,7 @@ const installBrowserHooks = () => {
   const bindConsoleProxy = (method: keyof NativeConsole, level: SystemLogLevel) => {
     const original = nativeConsole[method];
     console[method] = (...args: unknown[]) => {
+      if (!shouldLogLevel(level)) return;
       original(...args as Parameters<typeof original>);
       if (isInternalConsoleWrite) return;
       void emit(level, 'browser:console', formatConsoleArgs(args) || '[empty console call]', { args }, {
@@ -203,7 +216,7 @@ const installBrowserHooks = () => {
     });
   });
 
-  void emit('info', 'logging:setup', 'Browser console/runtime hooks installed', {
+  void emit('warn', 'logging:setup', 'Browser console/runtime hooks installed', {
     localOnly: true,
     indexedDb: 'dubai-spares-offline/system_logs'
   }, {
@@ -221,7 +234,7 @@ export const logger = {
   warn: (scope: string, message: string, meta?: unknown) => emit('warn', scope, message, meta),
   error: (scope: string, message: string, meta?: unknown) => emit('error', scope, message, meta),
   absolute: (level: SystemLogLevel, scope: string, message: string, meta?: unknown, source: SystemLogEntry['source'] = 'app') => emit(level, scope, message, meta, { mode: 'absolute', source }),
-  captureServerEvent: (message: string, meta?: unknown) => emit('info', 'server:event', message, meta, { mode: 'absolute', source: 'server-event' }),
+  captureServerEvent: (message: string, meta?: unknown) => emit('warn', 'server:event', message, meta, { mode: 'absolute', source: 'server-event' }),
   getRecent: (limit = 100) => offlineDb.getSystemLogs(limit),
   getRecentStored: (limit = 100) => offlineDb.getSystemLogs(limit),
   getRecentBuffered: (limit = MAX_BUFFERED_LOGS) => memoryLogBuffer.slice(-limit).reverse(),

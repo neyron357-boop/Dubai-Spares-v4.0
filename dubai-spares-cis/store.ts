@@ -408,7 +408,7 @@ export const restoreDataExternal = (data: any) => {
 export const useStore = () => {
   const [version, setVersion] = useState(0);
 
-  const { orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, fetchOrders } = useOrderStore();
+  const { orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, updatePart, removePart, updatePriceVariant, fetchOrders } = useOrderStore();
 
   useEffect(() => {
     const listener = () => setVersion((v) => v + 1);
@@ -484,10 +484,11 @@ export const useStore = () => {
     exportData: getBackupData,
     restoreData,
     updatePart,
+    removePart,
     updatePriceVariant,
     fetchOrders,
     syncOrders: fetchOrders,
     fetchOrderDetails,
     lastSuppliersSyncError
-  }), [version, orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, updatePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders, fetchOrderDetails]);
+  }), [version, orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, updatePart, removePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders, fetchOrderDetails]);
 };
