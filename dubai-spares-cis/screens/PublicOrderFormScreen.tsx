@@ -21,8 +21,14 @@ const DRAFT_LINK_ID_KEY = 'public_order_form_draft_link_id_v1';
 const MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
 
 const STEP_NAMES = ['Автомобиль', 'Детали', 'Контакты', 'Подтверждение'];
-const PART_SIDE_OPTIONS = ['левая', 'правая', 'перед', 'зад'];
-const PART_QTY_OPTIONS = Array.from({ length: 10 }, (_, index) => String(index + 1));
+const CONTACT_TIME_OPTIONS = [
+  '09:00 - 11:00',
+  '11:00 - 13:00',
+  '13:00 - 15:00',
+  '15:00 - 17:00',
+  '17:00 - 19:00',
+  '19:00 - 21:00'
+];
 
 const CONTACT_CHANNEL_LABELS: Record<'whatsapp' | 'telegram' | 'email' | 'phone', string> = {
   whatsapp: 'WhatsApp',
@@ -70,9 +76,6 @@ const DELIVERY_CITIES: Record<(typeof DELIVERY_COUNTRIES)[number], string[]> = {
 interface RequestedPartInput {
   id: string;
   name: string;
-  quantity: string;
-  side: string;
-  partCode: string;
   comment: string;
   photoDataList: string[];
   audioNote?: string | null;
@@ -86,9 +89,6 @@ const createId = () =>
 const createRequestedPartInput = (): RequestedPartInput => ({
   id: createId(),
   name: '',
-  quantity: '1',
-  side: '',
-  partCode: '',
   comment: '',
   photoDataList: [],
   audioNote: null
@@ -129,9 +129,6 @@ const normalizeDraftRequestedParts = (input: unknown): RequestedPartInput[] => {
     return {
       id: typeof part.id === 'string' && part.id ? part.id : createId(),
       name: typeof part.name === 'string' ? part.name : '',
-      quantity: typeof part.quantity === 'string' && part.quantity ? part.quantity : '1',
-      side: typeof part.side === 'string' ? part.side : '',
-      partCode: typeof part.partCode === 'string' ? part.partCode : '',
       comment: typeof part.comment === 'string' ? part.comment : '',
       photoDataList,
       audioNote: typeof part.audioNote === 'string' ? part.audioNote : null
@@ -142,13 +139,6 @@ const normalizeDraftRequestedParts = (input: unknown): RequestedPartInput[] => {
 };
 
 const formatVinInput = (value: string) => value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 17);
-
-const formatContactTimeInput = (value: string) => value
-  .replace(/[—–]/g, '-')
-  .replace(/\s+/g, ' ')
-  .slice(0, 32);
-
-const validateContactTime = (value: string) => !value.trim() || /^([01]\d|2[0-3]):[0-5]\d\s-\s([01]\d|2[0-3]):[0-5]\d\s[A-Za-z]{2,5}$/.test(value.trim());
 
 const splitParts = (value: string) => value
   .split(/,|\n| и | and |&|;/gi)
@@ -192,14 +182,20 @@ const ButtonDropdown: React.FC<{
   }, [options, query]);
 
   useEffect(() => {
-    const onOutsideClick = (event: MouseEvent) => {
+    const onOutsideClick = (event: MouseEvent | PointerEvent) => {
       if (!wrapperRef.current?.contains(event.target as Node)) {
         setOpen(false);
       }
     };
-    document.addEventListener('mousedown', onOutsideClick);
-    return () => document.removeEventListener('mousedown', onOutsideClick);
+    document.addEventListener('pointerdown', onOutsideClick);
+    return () => document.removeEventListener('pointerdown', onOutsideClick);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    setOpen(false);
+    setQuery('');
+  }, [value]);
 
   return (
     <div ref={wrapperRef} className="relative">
@@ -811,7 +807,7 @@ Best time: ${bestContactTime || '—'}`,
           year: year.trim(),
           vin: vin.trim(),
           bodyType: bodyType.trim() || null,
-          requestedParts: filledRequestedParts.map((part) => ({ name: part.name.trim(), qty: part.quantity || '1', side: part.side || null, partCode: part.partCode || null, comment: part.comment || null })),
+          requestedParts: filledRequestedParts.map((part) => ({ name: part.name.trim(), comment: part.comment || null })),
           refCode: refCode || null,
           preferredContactChannel,
           bestContactTime: bestContactTime || null
@@ -1150,21 +1146,10 @@ Best time: ${bestContactTime || '—'}`,
                     placeholder="Наименование детали *"
                     className={`h-12 w-full rounded-2xl border bg-white/10 px-4 outline-none ${errors[`partName-${index}`] ? 'border-amber-300' : 'border-white/15'}`}
                   />
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    <select value={part.quantity} onChange={(e) => updateRequestedPart(index, { quantity: e.target.value })} className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none">
-                      {PART_QTY_OPTIONS.map((item) => <option key={`${part.id}-qty-${item}`} value={item} className="text-slate-900">{item}</option>)}
-                    </select>
-                    <select value={part.side} onChange={(e) => updateRequestedPart(index, { side: e.target.value })} className={`h-11 rounded-2xl border bg-white/10 px-3 text-sm outline-none ${errors[`side-${index}`] ? 'border-amber-300' : 'border-white/15'}`}>
-                      <option value="" className="text-slate-400">Сторона *</option>
-                      {PART_SIDE_OPTIONS.map((item) => <option key={`${part.id}-side-${item}`} value={item} className="text-slate-900">{item}</option>)}
-                    </select>
-                    <input value={part.partCode} onChange={(e) => updateRequestedPart(index, { partCode: e.target.value.replace(/[^0-9]/g, '').slice(0, 12) })} inputMode="numeric" placeholder="Код детали (цифры)" className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none" />
+                  <div className="mt-2 grid gap-2">
                     <input value={part.comment} onChange={(e) => updateRequestedPart(index, { comment: e.target.value })} placeholder="Комментарий" className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none" />
                   </div>
                   {errors[`partName-${index}`] && <p className="mt-1 text-xs text-amber-200">{errors[`partName-${index}`]}</p>}
-                  {errors[`side-${index}`] && <p className="mt-1 text-xs text-amber-200">{errors[`side-${index}`]}</p>}
-                  {errors[`quantity-${index}`] && <p className="mt-1 text-xs text-amber-200">{errors[`quantity-${index}`]}</p>}
-                  {errors[`partCode-${index}`] && <p className="mt-1 text-xs text-amber-200">{errors[`partCode-${index}`]}</p>}
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
                     <input id={`${part.id}-gallery`} type="file" accept="image/*" multiple onChange={(e) => { if (e.target.files?.length) { void handleFilesToDataUrls(e.target.files, (values) => { updateRequestedPart(index, { photoDataList: [...part.photoDataList, ...values].slice(0, MAX_PART_PHOTOS) }); void logger.info('public-form:media', 'Part photo attached from gallery', { partId: part.id, index, count: values.length }); }); } e.target.value = ''; }} className="hidden" />
                     <input id={`${part.id}-camera`} type="file" accept="image/*" capture="environment" onChange={(e) => { if (e.target.files?.length) { void handleFilesToDataUrls(e.target.files, (values) => { updateRequestedPart(index, { photoDataList: [...part.photoDataList, ...values].slice(0, MAX_PART_PHOTOS) }); void logger.info('public-form:media', 'Part photo attached from camera', { partId: part.id, index, count: values.length }); }); } e.target.value = ''; }} className="hidden" />
@@ -1249,10 +1234,10 @@ Best time: ${bestContactTime || '—'}`,
 
               <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Город (опционально)</span><div className="rounded-3xl border border-white/15 bg-white/10 p-3"><input value={cityQuery} onChange={(e) => { const query = e.target.value; setCityQuery(query); if (query.trim().length >= 3) setDeliveryCity(''); }} placeholder="Начните вводить минимум 3 буквы" className="h-10 w-full rounded-2xl bg-black/20 px-3 text-sm outline-none" /><div className="mt-2">{filteredCityOptions.map((item) => <button key={item} type="button" onClick={() => { setDeliveryCity(item); setCityQuery(item); }} className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${deliveryCity === item ? 'bg-amber-200/20 text-amber-100' : 'hover:bg-white/10'}`}>{item}</button>)}</div></div></label>
 
-              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Лучшее время для связи (опционально)</span><input value={bestContactTime} onChange={(e) => setBestContactTime(formatContactTimeInput(e.target.value))} placeholder="Например: 10:00 - 14:00 GST" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.bestContactTime ? 'border-amber-300' : 'border-white/15'}`} />{errors.bestContactTime && <p className="mt-1 text-xs text-amber-200">{errors.bestContactTime}</p>}</label>
+              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Лучшее время для связи (опционально)</span><ButtonDropdown value={bestContactTime} placeholder="Выберите интервал" options={CONTACT_TIME_OPTIONS} onChange={setBestContactTime} />{errors.bestContactTime && <p className="mt-1 text-xs text-amber-200">{errors.bestContactTime}</p>}</label>
               <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ваше имя или ник (опционально)</span><input value={clientAlias} onChange={(e) => setClientAlias(e.target.value.slice(0, 60))} placeholder="Напр. @alex" className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" /></label>
               <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Откуда вы пишете</span><select value={messageSource} onChange={(e) => { setMessageSourceTouched(true); setMessageSource(e.target.value as Source); }} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none">{[Source.INSTAGRAM, Source.WHATSAPP, Source.TELEGRAM, Source.TIKTOK, Source.FACEBOOK, Source.OTHER].map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}</select></label>
-              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Комментарий (опционально)</span><textarea name="delivery-address-note" autoComplete="off" value={deliveryAddressNote} onChange={(e) => setDeliveryAddressNote(e.target.value)} rows={3} placeholder="Район, адрес и комментарий" className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none" /></label>
+              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Комментарий (опционально)</span><textarea name="delivery-address-note" autoComplete="off" value={deliveryAddressNote} onChange={(e) => setDeliveryAddressNote(e.target.value)} rows={3} placeholder="Комментарий к заказу" className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none" /></label>
             </>
           )}
 
@@ -1268,7 +1253,7 @@ Best time: ${bestContactTime || '—'}`,
                 <p className="font-semibold">Детали:</p>
                 {requestedParts.filter((item) => item.name.trim()).map((part) => (
                   <div key={part.id} className="rounded-xl border border-white/15 bg-black/20 p-2">
-                    <p>{part.name.trim()} · Кол-во: {part.quantity || '1'} · Сторона: {part.side || 'не выбрана'}</p>
+                    <p>{part.name.trim()}</p>
                     <p className="text-slate-300">Комментарий: {part.comment?.trim() || '—'}</p>
                   </div>
                 ))}

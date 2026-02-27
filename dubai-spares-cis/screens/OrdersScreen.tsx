@@ -8,7 +8,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
 
-type TabType = 'active' | 'leads' | 'vip' | 'sold' | 'archive';
+type TabType = 'active' | 'vip' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
 type SearchState = 'searching' | 'waiting_response' | 'found' | 'offer_sent' | 'sold' | 'archived';
 
@@ -418,14 +418,11 @@ const OrdersScreen: React.FC = () => {
   const isUnreadPublicLead = (order: Order) => order.leadSource === 'public_form' && order.leadUnread === true && !order.isArchived;
 
   const tabCounts = useMemo(() => ({
-    active: orders.filter((o) => !o.isArchived && !o.isSold && !isUnreadPublicLead(o)).length,
-    leads: orders.filter((o) => isUnreadPublicLead(o) && !o.isSold).length,
+    active: orders.filter((o) => !o.isArchived && !o.isSold).length,
     vip: orders.filter((o) => o.isVip && !o.isSold).length,
     sold: orders.filter((o) => o.isSold).length,
     archive: orders.filter((o) => o.isArchived && !o.isSold).length
   }), [orders]);
-
-  const hasUnreadLeads = tabCounts.leads > 0;
 
   const openOrderPreview = (order: Order) => {
     if (isUnreadPublicLead(order)) {
@@ -442,8 +439,7 @@ const OrdersScreen: React.FC = () => {
       if (activeTab === 'sold') return order.isSold;
       if (activeTab === 'archive') return order.isArchived && !order.isSold;
       if (activeTab === 'vip') return order.isVip && !order.isSold;
-      if (activeTab === 'leads') return isUnreadPublicLead(order) && !order.isSold;
-      return !order.isArchived && !order.isSold && !isUnreadPublicLead(order);
+      return !order.isArchived && !order.isSold;
     });
 
     if (debouncedSearch) {
@@ -497,7 +493,6 @@ const OrdersScreen: React.FC = () => {
 
   const emptyStateMessage = useMemo(() => {
     if (activeTab === 'active') return { title: 'Нет активных заказов', cta: 'Создать заказ', action: () => navigate('/new') };
-    if (activeTab === 'leads') return { title: 'Нет лидов', cta: 'Импортировать / Создать', action: () => navigate('/new') };
     if (activeTab === 'archive') return { title: 'Архив пуст', cta: 'Показать активные', action: () => setActiveTab('active') };
     return { title: 'Пока пусто', cta: 'Открыть активные', action: () => setActiveTab('active') };
   }, [activeTab, navigate]);
@@ -544,7 +539,6 @@ const OrdersScreen: React.FC = () => {
         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
           {([
             ['active', 'Актив'],
-            ['leads', 'Лиды'],
             ['vip', 'VIP'],
             ['sold', 'Продано'],
             ['archive', 'Архив']
@@ -556,8 +550,6 @@ const OrdersScreen: React.FC = () => {
               className={`whitespace-nowrap rounded-xl border px-3 py-2 text-[11px] font-black transition ${
                 activeTab === tab
                   ? 'border-blue-600 bg-blue-600 text-white'
-                  : tab === 'leads' && hasUnreadLeads
-                  ? 'border-blue-500 bg-blue-500 text-white animate-pulse shadow-[0_0_0_2px_rgba(59,130,246,0.25)]'
                   : 'border-slate-200 bg-white text-slate-600'
               }`}
             >
@@ -592,6 +584,7 @@ const OrdersScreen: React.FC = () => {
             const ageLabel = formatAge(order.updatedAt || order.createdAt);
             const profitAed = order.soldProfitUsd === undefined ? null : Math.round(order.soldProfitUsd * (order.exchangeRate || 3.67));
             const isVipOrder = order.isVip;
+            const isUnreadLeadOrder = isUnreadPublicLead(order);
 
             return (
               <SwipeableOrderCard
@@ -609,7 +602,7 @@ const OrdersScreen: React.FC = () => {
                 onCardTap={() => openOrderPreview(order)}
                 disableCardTap={!!deleteId || isDeleting}
               >
-                <div className={`rounded-2xl p-2.5 -m-2.5 ${isVipOrder ? 'bg-gradient-to-br from-amber-50 via-yellow-100 to-amber-200 border border-amber-300/80 shadow-[0_10px_26px_rgba(217,119,6,0.25)]' : ''}`}>
+                <div className={`rounded-2xl p-2.5 -m-2.5 ${isVipOrder ? 'bg-gradient-to-br from-amber-50 via-yellow-100 to-amber-200 border border-amber-300/80 shadow-[0_10px_26px_rgba(217,119,6,0.25)]' : isUnreadLeadOrder ? 'bg-amber-50/70 border border-amber-300/70 shadow-[0_8px_24px_rgba(251,191,36,0.25)]' : ''}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-start gap-2">
                     {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) && (
@@ -617,8 +610,8 @@ const OrdersScreen: React.FC = () => {
                     )}
                   <div className="min-w-0">
                     <h3 className="truncate text-base font-black text-slate-900">{order.brand} {order.model} <span className="text-sm font-semibold text-slate-500">{order.year}</span></h3>
-                    {isUnreadPublicLead(order) && (
-                      <span className="mt-1 inline-flex items-center gap-2 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">
+                    {isUnreadLeadOrder && (
+                      <span className="mt-1 inline-flex items-center gap-2 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700 shadow-[0_0_0_1px_rgba(245,158,11,0.35)]">
                         <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-rose-500" /> NEW LEAD
                       </span>
                     )}
