@@ -811,6 +811,15 @@ const SuppliersScreen: React.FC = () => {
     void upsertSupplierToShops(nextSupplier);
   };
 
+  const removeLinkedPartEntry = (supplier: Supplier, entry: SupplierLinkedPartEntry) => {
+    const nextEntries = (supplier.linkedParts || []).filter((item) => item.id !== entry.id);
+    const nextSupplier = { ...supplier, linkedParts: nextEntries, updatedAt: Date.now() };
+    updateSupplier(nextSupplier);
+    void upsertSupplierToShops(nextSupplier);
+    removeRadarManualSelection({ supplierId: supplier.id, orderId: entry.orderId, partId: entry.partId });
+    refreshManualSelections();
+  };
+
   useEffect(() => {
     void syncSuppliersFromServer(true);
   }, []);
@@ -1253,6 +1262,14 @@ const SuppliersScreen: React.FC = () => {
                           >
                             {Object.entries(LINKED_PART_STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}
                           </select>
+                          <button
+                            type="button"
+                            onClick={() => removeLinkedPartEntry(s, entry)}
+                            className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 font-black text-rose-700"
+                          >
+                            <Trash2 size={11} />
+                            Убрать
+                          </button>
                           {entry.priceAed ? <span className="font-black text-[10px] text-emerald-700">{entry.priceAed} AED</span> : null}
                         </div>
                       </div>
