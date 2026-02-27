@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ExternalLink, Filter, ImageOff, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Priority, type Order, type Part } from '../types';
@@ -28,6 +28,7 @@ const sanitizeImages = (values: Array<unknown>) => {
 
 const VendorSliderContent: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { orders } = useStore();
 
@@ -91,14 +92,15 @@ const VendorSliderContent: React.FC = () => {
 
   useEffect(() => {
     if (!selectedBrand && !current?.id) return;
-    const next = new URLSearchParams(searchParams);
+    const currentParams = new URLSearchParams(location.search);
+    const next = new URLSearchParams(currentParams);
     if (selectedBrand) next.set('brand', selectedBrand);
     else next.delete('brand');
     if (current?.id) next.set('slide', current.id);
     else next.delete('slide');
-    if (next.toString() === searchParams.toString()) return;
+    if (next.toString() === currentParams.toString()) return;
     setSearchParams(next, { replace: true });
-  }, [selectedBrand, current?.id, searchParams, setSearchParams]);
+  }, [selectedBrand, current?.id, location.search, setSearchParams]);
 
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
 
