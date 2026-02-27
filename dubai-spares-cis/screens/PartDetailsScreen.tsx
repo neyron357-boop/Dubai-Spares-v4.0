@@ -509,7 +509,7 @@ const PartDetailsScreen: React.FC = () => {
   const openWhatsapp = (variant: PriceVariant) => {
     const phoneRaw = (variant.phone || '').replace(/[^\d+]/g, '');
     if (!phoneRaw) return;
-    const message = `Привет! Нужна ${part.name} на ${order.brand} ${order.model} ${order.year}.\nЕсть в наличии? Цена? Состояние?\nМожно фото/номер детали? 🙏${order.vin ? `\nVIN: ${order.vin}` : ''}`;
+    const message = `Hello! I need ${part.name} for ${order.brand} ${order.model} ${order.year}.\nIs it available? Price? Condition?\nCould you share photos and the part number, please?${order.vin ? `\nVIN: ${order.vin}` : ''}`;
     window.open(`https://wa.me/${phoneRaw.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`, '_blank');
   };
 

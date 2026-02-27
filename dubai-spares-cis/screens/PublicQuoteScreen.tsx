@@ -834,6 +834,7 @@ const openInvoicePrintWindow = ({
 
   const issueDate = new Date();
   const invoiceId = order.id.slice(0, 8).toUpperCase();
+  const billToName = String((order as any).clientName || (order as any).client_name || (order as any).customerName || '').trim() || 'Customer';
 
   printWindow.document.write(`<!doctype html>
 <html>
@@ -879,7 +880,7 @@ const openInvoicePrintWindow = ({
     <div class="line"></div>
 
     <div class="meta-grid">
-      <p><strong>Bill to:</strong> ${escapeHtml(order.clientName || 'Customer')}</p>
+      <p><strong>Bill to:</strong> ${escapeHtml(billToName)}</p>
       <p><strong>Contact:</strong> ${escapeHtml(order.customerContact || 'N/A')}</p>
       <p><strong>Vehicle:</strong> ${escapeHtml(`${order.brand} ${order.model} ${order.year || ''}`.trim())}</p>
       <p><strong>VIN:</strong> ${escapeHtml(order.vin || '-')}</p>
