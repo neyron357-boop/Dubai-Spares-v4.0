@@ -55,6 +55,37 @@ const parseMetaForContext = (meta?: unknown) => {
   };
 };
 
+const serializeUnknown = (value: unknown, depth = 0): unknown => {
+  if (value == null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message,
+      stack: value.stack
+    };
+  }
+
+  if (Array.isArray(value)) {
+    if (depth >= 2) return '[array]';
+    return value.map((item) => serializeUnknown(item, depth + 1));
+  }
+
+  if (typeof value === 'object') {
+    if (depth >= 2) return '[object]';
+    const source = value as Record<string, unknown>;
+    const serialized: Record<string, unknown> = {};
+    Object.entries(source).forEach(([key, nested]) => {
+      serialized[key] = serializeUnknown(nested, depth + 1);
+    });
+    return serialized;
+  }
+
+  return String(value);
+};
+
 const createLogEntry = (
   level: SystemLogLevel,
   scope: string,
@@ -70,7 +101,7 @@ const createLogEntry = (
     level,
     scope,
     message,
-    meta,
+    meta: serializeUnknown(meta),
     createdAt: Date.now(),
     category: getCategory(scope, level),
     sessionId,
@@ -160,8 +191,11 @@ const formatConsoleArgs = (args: unknown[]) => {
   if (!args.length) return '';
   return args.map((part) => {
     if (typeof part === 'string') return part;
+    if (part instanceof Error) {
+      return `${part.name}: ${part.message}${part.stack ? `\n${part.stack}` : ''}`;
+    }
     try {
-      return JSON.stringify(part);
+      return JSON.stringify(serializeUnknown(part));
     } catch {
       return String(part);
     }
