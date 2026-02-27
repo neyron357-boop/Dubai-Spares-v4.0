@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, ChevronDown, Mic, Square, Play, Pause, UserRound, Wrench, CarFront, ImagePlus, NotebookPen } from 'lucide-react';
+import { Camera, ChevronDown, Mic, Square, Play, Pause, UserRound, Wrench, CarFront, ImagePlus, NotebookPen, Save } from 'lucide-react';
 import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE, YEARS } from '../constants';
 import { CHASSIS_BODY_TYPES_BY_BRAND } from '../carDatabase';
 import { useStore } from '../store';
 import { Order, Priority, Source } from '../types';
 import { logger } from '../logging';
 import { optimizeImageForUpload } from '../storage/photos';
+import { toast } from '../feedback';
 
 type VinDecoded = {
   brand?: string;
@@ -24,6 +25,9 @@ type DropdownOption = {
 type DraftPart = {
   id: string;
   name: string;
+  qty: string;
+  side: '' | 'left' | 'right';
+  article: string;
   photos: string[];
 };
 
@@ -83,8 +87,21 @@ const createId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? cry
 const createDraftPart = (): DraftPart => ({
   id: createId(),
   name: '',
+  qty: '1',
+  side: '',
+  article: '',
   photos: []
 });
+
+const COUNTRY_CITY_MAP: Record<string, string[]> = {
+  'ОАЭ': ['Дубай', 'Абу-Даби', 'Шарджа', 'Аджман'],
+  'Россия': ['Москва', 'Санкт-Петербург', 'Казань', 'Екатеринбург'],
+  'Казахстан': ['Алматы', 'Астана', 'Шымкент'],
+  'Узбекистан': ['Ташкент', 'Самарканд', 'Бухара'],
+  'Кыргызстан': ['Бишкек', 'Ош'],
+  'Саудовская Аравия': ['Эр-Рияд', 'Джидда', 'Мекка']
+};
+const COUNTRY_OPTIONS = Object.keys(COUNTRY_CITY_MAP).sort((a, b) => a.localeCompare(b, 'ru'));
 
 const createDraftNote = (): DraftNote => ({
   id: createId(),
@@ -137,10 +154,31 @@ const SearchableDropdown: React.FC<{
   disabled?: boolean;
   options: DropdownOption[];
   loading?: boolean;
+  required?: boolean;
+  noOptionsText?: string;
   onChange: (value: string) => void;
-}> = ({ value, placeholder, disabled, options, loading, onChange }) => {
+}> = ({ value, placeholder, disabled, options, loading, required, noOptionsText = 'Нет доступных вариантов', onChange }) => {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [highlighted, setHighlighted] = useState(0);
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const filteredOptions = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return options;
+    return options.filter((option) => option.label.toLowerCase().includes(normalized));
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery('');
+      setHighlighted(0);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    setHighlighted(0);
+  }, [query]);
 
   useEffect(() => {
     const onOutside = (event: MouseEvent) => {
@@ -157,6 +195,8 @@ const SearchableDropdown: React.FC<{
       <button
         type="button"
         disabled={disabled}
+        aria-expanded={open}
+        aria-required={required}
         onClick={() => setOpen((prev) => !prev)}
         className={`${inputClass} relative flex items-center justify-between text-left disabled:cursor-not-allowed disabled:bg-slate-100`}
       >
@@ -165,6 +205,30 @@ const SearchableDropdown: React.FC<{
       </button>
       {open && (
         <div className="absolute z-[60] mt-2 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                setHighlighted((prev) => Math.min(prev + 1, Math.max(filteredOptions.length - 1, 0)));
+              }
+              if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                setHighlighted((prev) => Math.max(prev - 1, 0));
+              }
+              if (event.key === 'Enter' && filteredOptions[highlighted]) {
+                event.preventDefault();
+                onChange(filteredOptions[highlighted].value);
+                setOpen(false);
+              }
+              if (event.key === 'Escape') {
+                setOpen(false);
+              }
+            }}
+            placeholder="Поиск..."
+            className="mb-2 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm outline-none focus:border-slate-300"
+          />
           {loading ? (
             <div className="space-y-2 p-1">
               <div className="h-8 animate-pulse rounded-lg bg-slate-100" />
@@ -172,7 +236,7 @@ const SearchableDropdown: React.FC<{
             </div>
           ) : (
             <div className="max-h-52 overflow-y-auto">
-              {options.map((option) => (
+              {filteredOptions.map((option, index) => (
                 <button
                   key={option.value}
                   type="button"
@@ -180,12 +244,12 @@ const SearchableDropdown: React.FC<{
                     onChange(option.value);
                     setOpen(false);
                   }}
-                  className="flex w-full items-center rounded-lg px-2 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+                  className={`flex w-full items-center rounded-lg px-2 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 ${highlighted === index ? 'bg-slate-100' : ''}`}
                 >
                   {option.label}
                 </button>
               ))}
-              {options.length === 0 && <p className="px-2 py-2 text-xs text-slate-500">Нет доступных вариантов</p>}
+              {filteredOptions.length === 0 && <p className="px-2 py-2 text-xs text-slate-500">{noOptionsText}</p>}
             </div>
           )}
         </div>
@@ -218,6 +282,9 @@ const NewOrderScreen: React.FC = () => {
   const [carPhotos, setCarPhotos] = useState<string[]>([]);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [savedDrafts, setSavedDrafts] = useState<Array<{ id: string; createdAt: number; title: string; data: ReturnType<typeof toPersistableDraft> }>>([]);
+  const [cityManualMode, setCityManualMode] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [brandLoading, setBrandLoading] = useState(true);
   const [modelLoading, setModelLoading] = useState(false);
   const [manualModelMode, setManualModelMode] = useState(false);
@@ -290,33 +357,43 @@ const NewOrderScreen: React.FC = () => {
     }
   }, [manualModelMode, model, modelOptions]);
 
+  const applyDraft = (d: ReturnType<typeof toPersistableDraft>) => {
+    setMode(d.mode || 'quick');
+    setVin(d.vin || '');
+    setBrand(d.brand || '');
+    setModel(d.model || '');
+    setYear(d.year || '');
+    setBodyType(d.bodyType || '');
+    setSeriesCode(d.seriesCode || '');
+    setParts(Array.isArray(d.parts) && d.parts.length ? d.parts : [createDraftPart()]);
+    setNotes(Array.isArray(d.notes) && d.notes.length ? d.notes : [createDraftNote()]);
+    setClientName(d.clientName || '');
+    setCustomerContact(d.customerContact || '');
+    setCountry(d.country || '');
+    setCity(d.city || '');
+  };
+
   useEffect(() => {
     const saved = localStorage.getItem('new-order-draft-v2');
+    const savedList = localStorage.getItem('new-order-drafts-list-v1');
+    if (savedList) {
+      try {
+        setSavedDrafts(JSON.parse(savedList));
+      } catch {
+        setSavedDrafts([]);
+      }
+    }
     if (!saved) return;
     try {
-      const d = JSON.parse(saved);
-      setMode(d.mode || 'quick');
-      setVin(d.vin || '');
-      setBrand(d.brand || '');
-      setModel(d.model || '');
-      setYear(d.year || '');
-      setBodyType(d.bodyType || '');
-      setSeriesCode(d.seriesCode || '');
-      setParts(Array.isArray(d.parts) && d.parts.length ? d.parts : [createDraftPart()]);
-      setNotes(Array.isArray(d.notes) && d.notes.length ? d.notes : [createDraftNote()]);
-      setClientName(d.clientName || '');
-      setCustomerContact(d.customerContact || '');
-      setCountry(d.country || '');
-      setCity(d.city || '');
+      applyDraft(JSON.parse(saved));
     } catch {
       // noop
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('new-order-draft-v2', JSON.stringify(toPersistableDraft({
-      mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, customerContact, country, city
-    })));
+    const draftData = toPersistableDraft({ mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, customerContact, country, city });
+    localStorage.setItem('new-order-draft-v2', JSON.stringify(draftData));
   }, [mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, customerContact, country, city]);
 
   useEffect(() => {
@@ -334,11 +411,14 @@ const NewOrderScreen: React.FC = () => {
 
   const validate = () => {
     const next: Record<string, string> = {};
+    const currentYear = new Date().getFullYear();
+    const parsedYear = Number(year.trim());
     if (!brand.trim()) next.brand = 'Марка обязательна';
     if (!model.trim()) next.model = 'Модель обязательна';
-    if (!year.trim() || !/^\d{4}$/.test(year.trim())) next.year = 'Год: 4 цифры';
+    if (!year.trim() || !/^\d{4}$/.test(year.trim()) || parsedYear < 1980 || parsedYear > currentYear) next.year = `Год должен быть в диапазоне 1980-${currentYear}`;
     if (!parts.some((item) => item.name.trim())) next.partName = 'Добавьте хотя бы одну деталь';
     if (vin.trim() && vin.trim().length !== 17) next.vin = 'VIN должен быть 17 символов';
+    if (customerContact.trim() && !/^\+[0-9]{9,15}$/.test(customerContact.trim())) next.customerContact = 'Телефон: +код и 9–15 цифр без пробелов';
     setErrors(next);
     if (Object.keys(next).length > 0) {
       void logger.warn('create-order', 'create_order_validation_error', { errors: next });
@@ -346,9 +426,16 @@ const NewOrderScreen: React.FC = () => {
     return Object.keys(next).length === 0;
   };
 
-  const canCreate = useMemo(() => (
-    !!brand.trim() && !!model.trim() && /^\d{4}$/.test(year.trim()) && parts.some((item) => item.name.trim()) && (!vin.trim() || vin.trim().length === 17)
-  ), [brand, model, year, parts, vin]);
+  const canCreate = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const parsedYear = Number(year.trim());
+    return !!brand.trim() && !!model.trim() && /^\d{4}$/.test(year.trim()) && parsedYear >= 1980 && parsedYear <= currentYear && parts.some((item) => item.name.trim()) && (!vin.trim() || vin.trim().length === 17) && (!customerContact.trim() || /^\+[0-9]{9,15}$/.test(customerContact.trim()));
+  }, [brand, model, year, parts, vin, customerContact]);
+
+  const cityOptions = useMemo(() => {
+    if (!country) return [];
+    return (COUNTRY_CITY_MAP[country] || []).map((item) => ({ label: item, value: item }));
+  }, [country]);
 
   useEffect(() => {
     if (!recordingNoteId) return;
@@ -495,10 +582,46 @@ const NewOrderScreen: React.FC = () => {
     }
   };
 
+
+  const resetForm = () => {
+    setVin('');
+    setBrand('');
+    setModel('');
+    setYear('');
+    setBodyType('');
+    setSeriesCode('');
+    setParts([createDraftPart()]);
+    setNotes([createDraftNote()]);
+    setClientName('');
+    setCustomerContact('');
+    setCountry('');
+    setCity('');
+    setCarPhotos([]);
+    setErrors({});
+  };
+
+  const saveDraft = () => {
+    const data = toPersistableDraft({ mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, customerContact, country, city });
+    const next = [{
+      id: createId(),
+      createdAt: Date.now(),
+      title: `${brand || 'Без марки'} ${model || ''}`.trim() || 'Черновик без названия',
+      data
+    }, ...savedDrafts].slice(0, 8);
+    setSavedDrafts(next);
+    localStorage.setItem('new-order-drafts-list-v1', JSON.stringify(next));
+    toast('Черновик сохранен', 'success');
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     void logger.info('create-order', 'create_order_start', { source: 'manual', mode });
-    if (!validate()) return;
+    if (isSubmitting) return;
+    if (!validate()) {
+      const missing = Object.values(errors).slice(0, 3).join('; ');
+      toast(missing || 'Заполните обязательные поля', 'error');
+      return;
+    }
 
     if ('vibrate' in navigator) {
       navigator.vibrate(20);
@@ -528,7 +651,7 @@ const NewOrderScreen: React.FC = () => {
       carPhotoUrl: carPhotos[0],
       parts: parts.filter((part) => part.name.trim()).map((part) => ({
         id: createId(),
-        name: part.name.trim(),
+        name: [part.name.trim(), part.qty ? `Кол-во: ${part.qty}` : '', part.side ? `Сторона: ${part.side === 'left' ? 'левая' : 'правая'}` : '', part.article ? `Артикул: ${part.article.trim()}` : ''].filter(Boolean).join(' | '),
         photos: part.photos,
         photoUrl: part.photos[0],
         variants: [],
@@ -550,7 +673,7 @@ const NewOrderScreen: React.FC = () => {
             id: createId(),
             text: [
               note.text.trim(),
-              ...note.voices.map((_, index) => `Voice note ${index + 1}`)
+              ...note.voices.map((_, index) => `Аудио ${index + 1}`)
             ].filter(Boolean).join('\n'),
             photos: note.photos,
             audios: note.voices,
@@ -562,22 +685,46 @@ const NewOrderScreen: React.FC = () => {
       whatsappTemplateLanguage
     };
 
+    setIsSubmitting(true);
     const ok = await addOrder(order);
-    if (!ok) return;
+    if (!ok) {
+      setIsSubmitting(false);
+      return;
+    }
 
     localStorage.removeItem('new-order-draft-v2');
     void logger.info('create-order', 'create_order_success', { orderId: order.id });
+    toast(`Заказ создан: #${order.id.slice(0, 8)}`, 'success');
+    resetForm();
+    setIsSubmitting(false);
     navigate(`/order/${order.id}`);
   };
 
   return (
     <form onSubmit={submit} className="mx-auto max-w-2xl space-y-4 p-4 pb-[210px]">
-      <h1 className="text-xl font-black text-slate-900">Создать заказ</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-black text-slate-900">Создать заказ</h1>
+        <button type="button" onClick={saveDraft} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700" aria-label="Сохранить черновик"><Save size={14} />Сохранить черновик</button>
+      </div>
+
+      {!!savedDrafts.length && (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
+          <p className="text-xs font-bold text-amber-800">Сохраненные черновики</p>
+          <div className="mt-2 space-y-2">
+            {savedDrafts.slice(0, 3).map((item) => (
+              <button key={item.id} type="button" onClick={() => applyDraft(item.data)} className="flex w-full items-center justify-between rounded-lg border border-amber-200 bg-white px-3 py-2 text-left text-xs text-slate-700">
+                <span>{item.title}</span>
+                <span className="text-[11px] text-slate-500">{new Date(item.createdAt).toLocaleString('ru-RU')}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="rounded-2xl bg-slate-100 p-1">
         <div className="grid grid-cols-2 gap-1">
-          <button type="button" onClick={() => setMode('quick')} className={`h-10 rounded-xl text-sm font-bold transition ${mode === 'quick' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Quick</button>
-          <button type="button" onClick={() => setMode('full')} className={`h-10 rounded-xl text-sm font-bold transition ${mode === 'full' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Full</button>
+          <button type="button" onClick={() => setMode('quick')} className={`h-10 rounded-xl text-sm font-bold transition ${mode === 'quick' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Быстро</button>
+          <button type="button" onClick={() => setMode('full')} className={`h-10 rounded-xl text-sm font-bold transition ${mode === 'full' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Полно</button>
         </div>
       </div>
 
@@ -587,7 +734,7 @@ const NewOrderScreen: React.FC = () => {
 
         {mode === 'full' && (
           <div className="space-y-1 transition-all duration-200">
-            <input autoFocus value={vin} onChange={(e) => setVin(e.target.value.toUpperCase().slice(0, 17))} placeholder="VIN (опционально)" className={inputClass} />
+            <input autoFocus value={vin} onChange={(e) => setVin(e.target.value.toUpperCase().slice(0, 17))} placeholder="VIN (необязательно)" className={inputClass} />
             {errors.vin && <p className="text-xs text-rose-600">{errors.vin}</p>}
           </div>
         )}
@@ -599,6 +746,7 @@ const NewOrderScreen: React.FC = () => {
             placeholder="Выберите марку"
             options={brandOptions}
             loading={brandLoading}
+            required
             onChange={(value) => {
               touched.current.brand = true;
               setBrand(value);
@@ -618,6 +766,7 @@ const NewOrderScreen: React.FC = () => {
             options={modelOptions}
             loading={modelLoading}
             disabled={!brand}
+            required
             onChange={(value) => {
               touched.current.model = true;
               setModel(value);
@@ -643,7 +792,7 @@ const NewOrderScreen: React.FC = () => {
               className={inputClass}
             />
           )}
-          {!!chassisCodes.length && <p className="text-xs text-slate-500">Подсказка по серии: {chassisCodes.slice(0, 4).map((x) => x.value).join(', ')}</p>}
+          {!!chassisCodes.length && <p className="text-xs text-slate-500">Популярные серии: {chassisCodes.slice(0, 4).map((x) => x.value).join(', ')}</p>}
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -652,33 +801,34 @@ const NewOrderScreen: React.FC = () => {
             <SearchableDropdown
               value={year}
               placeholder="Выберите год"
-              options={YEARS.map((item) => ({ label: String(item), value: String(item) }))}
+              options={YEARS.filter((item) => item >= 1980 && item <= new Date().getFullYear()).map((item) => ({ label: String(item), value: String(item) }))}
               onChange={(value) => {
                 touched.current.year = true;
                 setYear(value);
               }}
+              required
             />
             {errors.year && <p className="text-xs text-rose-600">{errors.year}</p>}
           </label>
 
           <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Тип кузова</span>
-            <input value={bodyType} onChange={(e) => setBodyType(e.target.value)} placeholder="SUV / Sedan / Coupe / Hatchback..." className={inputClass} />
+            <span className="text-xs font-semibold text-slate-500">Тип кузова (необязательно)</span>
+            <input value={bodyType} onChange={(e) => setBodyType(e.target.value)} placeholder="Тип кузова (необязательно)" className={inputClass} />
           </label>
         </div>
 
         {mode === 'full' && !!chassisCodes.length && (
           <label className="space-y-1 transition-all duration-200">
-            <span className="text-xs font-semibold text-slate-500">Series / Code</span>
+            <span className="text-xs font-semibold text-slate-500">Series / Code (необязательно)</span>
             <SearchableDropdown value={seriesCode} placeholder="Выберите серию" options={chassisCodes} onChange={setSeriesCode} />
           </label>
         )}
 
         <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-3">
-          <p className="text-xs font-semibold text-slate-600">Фото авто (до 10)</p>
+          <p className="text-xs font-semibold text-slate-600">Фото авто (до 10, форматы: jpg/png/heic)</p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => carCameraRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Camera</button>
-            <button type="button" onClick={() => carGalleryRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><ImagePlus size={14} /> Gallery</button>
+            <button type="button" onClick={() => carCameraRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Камера</button>
+            <button type="button" onClick={() => carGalleryRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><ImagePlus size={14} /> Галерея</button>
           </div>
           {!!carPhotos.length && (
             <div className="grid grid-cols-3 gap-2">
@@ -694,8 +844,8 @@ const NewOrderScreen: React.FC = () => {
               ))}
             </div>
           )}
-          <input ref={carGalleryRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-gallery'); e.target.value = ''; }} />
-          <input ref={carCameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-camera'); e.target.value = ''; }} />
+          <input ref={carGalleryRef} type="file" accept=".jpg,.jpeg,.png,.heic,image/heic" multiple className="hidden" onChange={(e) => { void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-gallery'); e.target.value = ''; }} />
+          <input ref={carCameraRef} type="file" accept=".jpg,.jpeg,.png,.heic,image/heic" capture="environment" className="hidden" onChange={(e) => { void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-camera'); e.target.value = ''; }} />
         </div>
       </section>
 
@@ -706,13 +856,23 @@ const NewOrderScreen: React.FC = () => {
             <div key={part.id} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <label className="space-y-1">
                 <span className="text-xs font-semibold text-slate-500">Деталь {index + 1} *</span>
-                <input
+                <textarea
                   value={part.name}
                   onChange={(e) => setParts((prev) => prev.map((item) => (item.id === part.id ? { ...item, name: e.target.value } : item)))}
-                  placeholder="Например: задний фонарь правый"
-                  className={inputClass}
+                  placeholder="Название детали (можно с новой строки)"
+                  rows={2}
+                  className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
                 />
               </label>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <input value={part.qty} onChange={(e) => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, qty: e.target.value.replace(/[^0-9]/g, '').slice(0, 3) } : item))} placeholder="Кол-во" className={inputClass} />
+                <select value={part.side} onChange={(e) => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, side: e.target.value as DraftPart['side'] } : item))} className={inputClass}>
+                  <option value="">Сторона (необязательно)</option>
+                  <option value="left">Левая</option>
+                  <option value="right">Правая</option>
+                </select>
+                <input value={part.article} onChange={(e) => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, article: e.target.value } : item))} placeholder="Артикул (необязательно)" className={inputClass} />
+              </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => partPhotoRefs.current[part.id]?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото детали</button>
                 {parts.length > 1 && <button type="button" onClick={() => setParts((prev) => prev.filter((item) => item.id !== part.id))} className="inline-flex h-10 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-bold text-rose-600">Удалить</button>}
@@ -734,7 +894,7 @@ const NewOrderScreen: React.FC = () => {
               <input
                 ref={(el) => { partPhotoRefs.current[part.id] = el; }}
                 type="file"
-                accept="image/*"
+                accept=".jpg,.jpeg,.png,.heic,image/heic"
                 multiple
                 className="hidden"
                 onChange={(e) => { void attachCompressedImages(e.target.files, (updater) => {
@@ -748,13 +908,13 @@ const NewOrderScreen: React.FC = () => {
             </div>
           ))}
           {errors.partName && <p className="text-xs text-rose-600">{errors.partName}</p>}
-          <button type="button" onClick={() => setParts((prev) => [...prev, createDraftPart()])} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700">+ Добавить еще деталь</button>
+          <button type="button" onClick={() => setParts((prev) => [...prev, createDraftPart()])} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700">+ Добавить ещё деталь</button>
         </div>
 
         <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-slate-600">Комментарии / заметки</p>
-            <button type="button" onClick={() => setMode('full')} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700"><NotebookPen size={12} /> Full</button>
+            <p className="text-xs font-semibold text-slate-600">Комментарии / заметки (текст, фото, аудио)</p>
+            <button type="button" onClick={() => setMode('full')} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700"><NotebookPen size={12} /> Расширенно</button>
           </div>
           {notes.map((note, index) => (
             <div key={note.id} className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
@@ -781,7 +941,7 @@ const NewOrderScreen: React.FC = () => {
                       <div key={voiceId} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
                         <button type="button" onClick={() => toggleVoicePlayback(voiceId)} className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-white">{isPlaying ? <Pause size={12} /> : <Play size={12} className="ml-0.5" />}</button>
                         <audio id={voiceId} src={voice} preload="metadata" />
-                        <span className="text-[11px] font-semibold text-slate-600">Голос {voiceIndex + 1}</span>
+                        <span className="text-[11px] font-semibold text-slate-600">Аудио {voiceIndex + 1}</span>
                       </div>
                     );
                   })}
@@ -799,7 +959,7 @@ const NewOrderScreen: React.FC = () => {
               <input
                 ref={(el) => { notePhotoRefs.current[note.id] = el; }}
                 type="file"
-                accept="image/*"
+                accept=".jpg,.jpeg,.png,.heic,image/heic"
                 multiple
                 className="hidden"
                 onChange={(e) => { void attachCompressedImages(e.target.files, (updater) => {
@@ -823,39 +983,66 @@ const NewOrderScreen: React.FC = () => {
           name="customerContact"
           autoComplete="tel"
           value={customerContact}
-          onChange={(e) => setCustomerContact(e.target.value)}
-          placeholder="WhatsApp / телефон (опционально)"
+          onChange={(e) => setCustomerContact(e.target.value.replace(/\s+/g, ''))}
+          placeholder="WhatsApp / телефон (+971501234567)"
           className={inputClass}
         />
+        {errors.customerContact && <p className="text-xs text-rose-600">{errors.customerContact}</p>}
         <input
           type="text"
           name="clientName"
           autoComplete="name"
           value={clientName}
           onChange={(e) => setClientName(e.target.value)}
-          placeholder="Имя (опционально)"
+          placeholder="Имя (необязательно)"
           className={inputClass}
         />
 
         <div className="grid grid-cols-1 gap-3 transition-all duration-200 sm:grid-cols-2">
-          <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Страна доставки" className={inputClass} />
-          <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Город доставки" className={inputClass} />
+          <label className="space-y-1">
+            <span className="text-xs font-semibold text-slate-500">Страна (необязательно)</span>
+            <SearchableDropdown value={country} placeholder="Выберите страну" options={COUNTRY_OPTIONS.map((item) => ({ label: item, value: item }))} onChange={(value) => { setCountry(value); setCity(''); setCityManualMode(false); }} noOptionsText="Страна не найдена" />
+          </label>
+          <label className="space-y-1">
+            <span className="text-xs font-semibold text-slate-500">Город (необязательно)</span>
+            {cityManualMode ? (
+              <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Введите город вручную" className={inputClass} />
+            ) : (
+              <SearchableDropdown value={city} placeholder={country ? 'Выберите город' : 'Сначала выберите страну'} options={cityOptions} disabled={!country} onChange={setCity} noOptionsText="Город не найден" />
+            )}
+            {!!country && <button type="button" onClick={() => setCityManualMode((prev) => !prev)} className="text-xs font-semibold text-slate-600 underline underline-offset-2">{cityManualMode ? 'Выбрать из списка' : 'Нет города в списке? Ввести вручную'}</button>}
+          </label>
           <label className="space-y-1 sm:col-span-2">
             <span className="text-xs font-semibold text-slate-500">Источник</span>
             <select value={leadSource} onChange={(e) => setLeadSource(e.target.value as Source)} className={inputClass}>
-              <option value={Source.INSTAGRAM}>IG</option>
+              <option value={Source.INSTAGRAM}>Instagram</option>
               <option value={Source.TIKTOK}>TikTok</option>
-              <option value={Source.WHATSAPP}>WA</option>
-              <option value={Source.OTHER}>Other</option>
+              <option value={Source.WHATSAPP}>WhatsApp</option>
+              <option value={Source.OTHER}>Другое</option>
             </select>
           </label>
         </div>
       </section>
 
       <div style={{ bottom: `${keyboardOffset}px` }} className="fixed inset-x-0 z-40 mx-auto w-full max-w-md border-t border-slate-200 bg-white/95 px-3 pt-3 backdrop-blur" >
-        <div className="pb-[calc(env(safe-area-inset-bottom)+64px)]">
-          <button type="submit" disabled={!canCreate || isSyncing} className="h-14 w-full rounded-2xl bg-slate-900 text-sm font-black uppercase tracking-wide text-white transition-all duration-200 disabled:opacity-40">
-            Создать заказ
+        <div className="space-y-2 pb-[calc(env(safe-area-inset-bottom)+64px)]">
+          <button type="button" onClick={saveDraft} className="h-11 w-full rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-700">Сохранить черновик</button>
+          <button
+            type="submit"
+            onClick={(event) => {
+              if (canCreate) return;
+              event.preventDefault();
+              const missing = [];
+              if (!brand.trim()) missing.push('марка');
+              if (!model.trim()) missing.push('модель');
+              if (!year.trim()) missing.push('год');
+              if (!parts.some((item) => item.name.trim())) missing.push('деталь');
+              toast(`Заполните обязательные поля: ${missing.join(', ')}`, 'error');
+            }}
+            disabled={isSyncing || isSubmitting}
+            className={`h-14 w-full rounded-2xl text-sm font-black uppercase tracking-wide text-white transition-all duration-200 disabled:opacity-40 ${canCreate ? 'bg-emerald-600 shadow-[0_8px_20px_rgba(5,150,105,0.35)]' : 'bg-slate-900'}`}
+          >
+            {isSubmitting ? 'Создание...' : 'Создать заказ'}
           </button>
         </div>
       </div>
