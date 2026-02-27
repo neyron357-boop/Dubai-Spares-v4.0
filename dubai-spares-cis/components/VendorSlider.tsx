@@ -96,8 +96,9 @@ const VendorSliderContent: React.FC = () => {
     else next.delete('brand');
     if (current?.id) next.set('slide', current.id);
     else next.delete('slide');
+    if (next.toString() === searchParams.toString()) return;
     setSearchParams(next, { replace: true });
-  }, [selectedBrand, current?.id]);
+  }, [selectedBrand, current?.id, searchParams, setSearchParams]);
 
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
 

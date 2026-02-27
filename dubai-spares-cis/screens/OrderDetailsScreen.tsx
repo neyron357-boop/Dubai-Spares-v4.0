@@ -223,8 +223,13 @@ const OrderDetailsScreen: React.FC = () => {
   const exchangeRateCommitTimerRef = useRef<number | null>(null);
   const deferredFieldTimersRef = useRef<Partial<Record<keyof Order, number>>>({});
   const deferredFieldValuesRef = useRef<Partial<Record<keyof Order, any>>>({});
+  const orderRef = useRef<Order | undefined>(order);
   const [draftFields, setDraftFields] = useState<Partial<Record<keyof Order, any>>>({});
   const lastKeystrokeAtRef = useRef<number>(0);
+
+  useEffect(() => {
+    orderRef.current = order;
+  }, [order]);
 
   // Sync local rate input if order changes
   useEffect(() => {
@@ -251,11 +256,12 @@ const OrderDetailsScreen: React.FC = () => {
     if (markupCommitTimerRef.current) {
       window.clearTimeout(markupCommitTimerRef.current);
       markupCommitTimerRef.current = null;
+      const latestOrder = orderRef.current;
       const nextValue = Number(markupFixedInput || 0);
-      const previousValue = Number(order?.markupFixedAed || 0);
-      const previousType = order?.markupType || 'percent';
-      if (order && (nextValue !== previousValue || previousType !== 'fixed')) {
-        void updateOrder({ ...order, markupFixedAed: nextValue, markupType: 'fixed' });
+      const previousValue = Number(latestOrder?.markupFixedAed || 0);
+      const previousType = latestOrder?.markupType || 'percent';
+      if (latestOrder && (nextValue !== previousValue || previousType !== 'fixed')) {
+        void updateOrder({ ...latestOrder, markupFixedAed: nextValue, markupType: 'fixed' });
       }
     }
 
@@ -263,8 +269,9 @@ const OrderDetailsScreen: React.FC = () => {
       window.clearTimeout(exchangeRateCommitTimerRef.current);
       exchangeRateCommitTimerRef.current = null;
       const normalizedRate = parseFloat(String(rateInput).replace(',', '.'));
-      if (order && Number.isFinite(normalizedRate) && normalizedRate > 0 && normalizedRate !== Number(order.exchangeRate || 0)) {
-        void updateOrder({ ...order, exchangeRate: normalizedRate });
+      const latestOrder = orderRef.current;
+      if (latestOrder && Number.isFinite(normalizedRate) && normalizedRate > 0 && normalizedRate !== Number(latestOrder.exchangeRate || 0)) {
+        void updateOrder({ ...latestOrder, exchangeRate: normalizedRate });
       }
     }
 
@@ -273,8 +280,9 @@ const OrderDetailsScreen: React.FC = () => {
       const timerId = deferredFieldTimersRef.current[typedField];
       if (timerId) window.clearTimeout(timerId);
       const pendingValue = deferredFieldValuesRef.current[typedField];
-      if (pendingValue !== undefined && order) {
-        void updateOrder({ ...order, [typedField]: pendingValue });
+      const latestOrder = orderRef.current;
+      if (pendingValue !== undefined && latestOrder) {
+        void updateOrder({ ...latestOrder, [typedField]: pendingValue });
       }
     });
 
@@ -700,6 +708,8 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const commitDeferredOrderField = (field: keyof Order, rawValue?: any) => {
+    const currentOrder = orderRef.current;
+    if (!currentOrder) return;
     const value = rawValue ?? deferredFieldValuesRef.current[field];
     const trackedFieldLabels: Partial<Record<keyof Order, string>> = {
       markupPercent: 'Наценка %',
@@ -711,13 +721,13 @@ const OrderDetailsScreen: React.FC = () => {
 
     const trackedLabel = trackedFieldLabels[field];
     const event = trackedLabel
-      ? createPricingEvent(field as OrderPricingEvent['field'], trackedLabel, order[field], value)
+      ? createPricingEvent(field as OrderPricingEvent['field'], trackedLabel, currentOrder[field], value)
       : null;
 
     updateOrder({
-      ...order,
+      ...currentOrder,
       [field]: value,
-      pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents
+      pricingEvents: event ? [event, ...(currentOrder.pricingEvents || [])] : currentOrder.pricingEvents
     });
 
     setDraftFields((prev) => {
