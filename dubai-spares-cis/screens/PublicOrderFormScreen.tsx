@@ -36,12 +36,16 @@ const CONTACT_TIME_OPTIONS = [
   '19:00 - 21:00'
 ];
 
-const CONTACT_CHANNEL_LABELS: Record<'whatsapp' | 'telegram' | 'email' | 'phone', string> = {
+const CONTACT_CHANNEL_LABELS: Record<'whatsapp' | 'telegram' | 'instagram' | 'email' | 'phone', string> = {
   whatsapp: 'WhatsApp',
   telegram: 'Telegram',
+  instagram: 'Instagram',
   email: 'E-mail',
   phone: 'Телефон'
 };
+
+type ContactChannel = keyof typeof CONTACT_CHANNEL_LABELS;
+const isContactChannel = (value: unknown): value is ContactChannel => typeof value === 'string' && value in CONTACT_CHANNEL_LABELS;
 
 const PRIORITY_LABELS: Record<Priority, string> = {
   [Priority.LOW]: 'Низкий',
@@ -288,8 +292,9 @@ const PublicOrderFormScreen: React.FC = () => {
   const [vinPhotoData, setVinPhotoData] = useState<string | null>(null);
   const [contactCountryCode, setContactCountryCode] = useState(PHONE_CODES[0].code);
   const [customerContact, setCustomerContact] = useState('');
-  const [preferredContactChannel, setPreferredContactChannel] = useState<'whatsapp' | 'telegram' | 'email' | 'phone'>('whatsapp');
+  const [preferredContactChannel, setPreferredContactChannel] = useState<ContactChannel>('whatsapp');
   const [telegramContact, setTelegramContact] = useState('');
+  const [instagramContact, setInstagramContact] = useState('');
   const [emailContact, setEmailContact] = useState('');
   const [phoneContact, setPhoneContact] = useState('');
   const [bestContactTime, setBestContactTime] = useState('');
@@ -424,8 +429,9 @@ const PublicOrderFormScreen: React.FC = () => {
         setRequestedParts(normalizeDraftRequestedParts(draft.requestedParts));
         setCustomerContact(draft.customerContact || '');
         setContactCountryCode(draft.contactCountryCode || PHONE_CODES[0].code);
-        setPreferredContactChannel(draft.preferredContactChannel || 'whatsapp');
+        setPreferredContactChannel(isContactChannel(draft.preferredContactChannel) ? draft.preferredContactChannel : 'whatsapp');
         setTelegramContact(draft.telegramContact || '');
+        setInstagramContact(draft.instagramContact || '');
         setEmailContact(draft.emailContact || '');
         setPhoneContact(draft.phoneContact || '');
         setBestContactTime(draft.bestContactTime || '');
@@ -456,6 +462,7 @@ const PublicOrderFormScreen: React.FC = () => {
         contactCountryCode,
         preferredContactChannel,
         telegramContact,
+        instagramContact,
         emailContact,
         phoneContact,
         bestContactTime,
@@ -470,7 +477,7 @@ const PublicOrderFormScreen: React.FC = () => {
       const message = error instanceof Error ? error.message : 'unknown';
       void logger.warn('public-form:draft', 'Draft save skipped', { reason: message });
     }
-  }, [brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode, preferredContactChannel, telegramContact, emailContact, phoneContact, bestContactTime, deliveryCountry, deliveryCity, deliveryAddressNote, engineCode, clientAlias, messageSource, draftLinkId]);
+  }, [brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode, preferredContactChannel, telegramContact, instagramContact, emailContact, phoneContact, bestContactTime, deliveryCountry, deliveryCity, deliveryAddressNote, engineCode, clientAlias, messageSource, draftLinkId]);
 
   useEffect(() => {
     if (brand === 'BMW') setShowEngineCode(true);
@@ -537,13 +544,14 @@ const PublicOrderFormScreen: React.FC = () => {
     setRequestedParts((current) => current.map((part, i) => (i === index ? { ...part, ...updates } : part)));
   };
 
-  const switchContactChannel = (channel: 'whatsapp' | 'telegram' | 'email' | 'phone') => {
+  const switchContactChannel = (channel: ContactChannel) => {
     setPreferredContactChannel(channel);
     if (!messageSourceTouched) {
       setMessageSource(CONTACT_CHANNEL_TO_SOURCE[channel]);
     }
     if (channel !== 'whatsapp') setCustomerContact('');
     if (channel !== 'telegram') setTelegramContact('');
+    if (channel !== 'instagram') setInstagramContact('');
     if (channel !== 'email') setEmailContact('');
     if (channel !== 'phone') setPhoneContact('');
   };
@@ -554,6 +562,7 @@ const PublicOrderFormScreen: React.FC = () => {
     return digits.length >= 8 && digits.length <= 15;
   };
   const isWhatsappValid = validatePhone();
+
   const validateStep = (nextStep = step) => {
     const list = nextStep === 1
       ? validateStep1({ brand, model, year, bodyType, vin })
@@ -565,6 +574,7 @@ const PublicOrderFormScreen: React.FC = () => {
           customerContact,
           contactCountryCode,
           telegramContact,
+          instagramContact,
           emailContact,
           phoneContact,
           bestContactTime
@@ -587,13 +597,14 @@ const PublicOrderFormScreen: React.FC = () => {
         customerContact,
         contactCountryCode,
         telegramContact,
+        instagramContact,
         emailContact,
         phoneContact,
         bestContactTime
       });
     }
     return [];
-  }, [step, brand, model, year, bodyType, vin, requestedParts, deliveryCountry, preferredContactChannel, customerContact, contactCountryCode, telegramContact, emailContact, phoneContact, bestContactTime]);
+  }, [step, brand, model, year, bodyType, vin, requestedParts, deliveryCountry, preferredContactChannel, customerContact, contactCountryCode, telegramContact, instagramContact, emailContact, phoneContact, bestContactTime]);
 
   const canContinue = stepBlockingErrors.length === 0 || step === 4;
 
@@ -628,6 +639,7 @@ const PublicOrderFormScreen: React.FC = () => {
     setCustomerContact('');
     setPreferredContactChannel('whatsapp');
     setTelegramContact('');
+    setInstagramContact('');
     setEmailContact('');
     setPhoneContact('');
     setBestContactTime('');
@@ -797,6 +809,8 @@ const PublicOrderFormScreen: React.FC = () => {
           ? `${contactCountryCode}${customerContact.trim()}`
           : preferredContactChannel === 'telegram'
             ? telegramContact.trim()
+            : preferredContactChannel === 'instagram'
+              ? instagramContact.trim()
             : preferredContactChannel === 'email'
               ? emailContact.trim()
               : phoneContact.trim()
@@ -1271,9 +1285,10 @@ Best time: ${bestContactTime || '—'}`,
             <>
               <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Предпочтительный канал связи *</span>
-                <select value={preferredContactChannel} onChange={(e) => switchContactChannel(e.target.value as 'whatsapp' | 'telegram' | 'email' | 'phone')} className="h-12 w-full rounded-2xl border border-white/20 bg-white/10 px-4 text-sm outline-none">
+                <select value={preferredContactChannel} onChange={(e) => switchContactChannel(e.target.value as ContactChannel)} className="h-12 w-full rounded-2xl border border-white/20 bg-white/10 px-4 text-sm outline-none">
                   <option value="whatsapp" className="text-slate-900">WhatsApp</option>
                   <option value="telegram" className="text-slate-900">Telegram</option>
+                  <option value="instagram" className="text-slate-900">Instagram</option>
                   <option value="email" className="text-slate-900">E-mail</option>
                   <option value="phone" className="text-slate-900">Телефон</option>
                 </select>
@@ -1292,6 +1307,7 @@ Best time: ${bestContactTime || '—'}`,
               )}
 
               {preferredContactChannel === 'telegram' && <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Telegram *</span><input value={telegramContact} onChange={(e) => setTelegramContact(e.target.value)} placeholder="@username" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.telegram ? 'border-amber-300' : 'border-white/15'}`} />{errors.telegram && <p className="mt-1 text-xs text-amber-200">{errors.telegram}</p>}</label>}
+              {preferredContactChannel === 'instagram' && <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Instagram</span><input value={instagramContact} onChange={(e) => setInstagramContact(e.target.value)} placeholder="@username или ссылка" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.instagram ? 'border-amber-300' : 'border-white/15'}`} />{errors.instagram && <p className="mt-1 text-xs text-amber-200">{errors.instagram}</p>}</label>}
               {preferredContactChannel === 'email' && <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">E-mail *</span><input type="email" value={emailContact} onChange={(e) => setEmailContact(e.target.value)} placeholder="you@example.com" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.email ? 'border-amber-300' : 'border-white/15'}`} />{errors.email && <p className="mt-1 text-xs text-amber-200">{errors.email}</p>}</label>}
               {preferredContactChannel === 'phone' && <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Телефон *</span><input type="tel" value={phoneContact} onChange={(e) => setPhoneContact(e.target.value)} placeholder="+971..." className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.phoneAlt ? 'border-amber-300' : 'border-white/15'}`} />{errors.phoneAlt && <p className="mt-1 text-xs text-amber-200">{errors.phoneAlt}</p>}</label>}
 
