@@ -915,9 +915,6 @@ const SuppliersScreen: React.FC = () => {
         {isForceSyncingSuppliers ? 'Загружаю…' : 'Загрузить из сервера поставщиков'}
       </button>
 
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
-        Debug: rawSuppliers.length = {rawSuppliers.length} · filteredSuppliers.length = {filteredSuppliers.length}
-      </div>
       <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Filters</p>
@@ -935,14 +932,16 @@ const SuppliersScreen: React.FC = () => {
             Reset
           </button>
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
+        <div className="mb-2">
+          <select className="w-full rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
             <option value="smart">Sort: smart</option>
             <option value="trust">Trust ↓</option>
             <option value="heat">Heat ↓</option>
             <option value="near">Distance ↑</option>
             <option value="name">Name A→Z</option>
           </select>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
             <option value="all">Brand: all</option>
             {supplierFilterOptions.brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}

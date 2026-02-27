@@ -48,6 +48,29 @@ const parseCsv = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+const toLinkedPartsArray = (value: unknown): Supplier['linkedParts'] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      const status = String(row.status || 'searching');
+      if (!row.orderId || !row.partId || !row.partName || !row.orderLabel) return null;
+      return {
+        id: String(row.id || `${row.orderId}-${row.partId}`),
+        orderId: String(row.orderId),
+        orderLabel: String(row.orderLabel),
+        partId: String(row.partId),
+        partName: String(row.partName),
+        status: (['searching', 'found', 'not_found', 'follow_up'].includes(status) ? status : 'searching') as 'searching' | 'found' | 'not_found' | 'follow_up',
+        priceAed: Number.isFinite(Number(row.priceAed)) ? Number(row.priceAed) : undefined,
+        source: row.source === 'variant' ? 'variant' : 'manual',
+        updatedAt: Number.isFinite(Number(row.updatedAt)) ? Number(row.updatedAt) : Date.now()
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+};
+
 const hasValidCoordinates = (latitude?: number | null, longitude?: number | null) => {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
   return Number(latitude) !== 0 && Number(longitude) !== 0;
@@ -490,6 +513,7 @@ export const upsertSupplierToShops = async (supplier: Supplier) => {
     needs_manual_fix: false,
     specialization: normalized.brands || [],
     specialization_categories: normalized.mainPartCategories || [],
+    linked_parts: normalized.linkedParts || [],
     specialization_models: normalized.models || [],
     specialization_years: normalized.years || [],
     specialization_body_types: normalized.bodyTypes || []
@@ -550,6 +574,7 @@ const mapShopRowToSupplier = (row: any): Supplier => {
     brands: specializationBrands.length > 0 ? specializationBrands : specialization,
     mainBrands: toStringArray(row.main_brands),
     mainPartCategories: toStringArray(row.specialization_categories),
+    linkedParts: toLinkedPartsArray(row.linked_parts),
     models: toStringArray(row.specialization_models),
     years: toNumberArray(specializationYearsRaw),
     bodyTypes: toStringArray(row.specialization_body_types),
@@ -593,6 +618,7 @@ const mergeSuppliersPreferFilled = (base: Supplier, incoming: Supplier): Supplie
     years: (incoming.years || []).length > 0 ? incoming.years : base.years,
     bodyTypes: (incoming.bodyTypes || []).length > 0 ? incoming.bodyTypes : base.bodyTypes,
     mainPartCategories: (incoming.mainPartCategories || []).length > 0 ? incoming.mainPartCategories : base.mainPartCategories,
+    linkedParts: (incoming.linkedParts || []).length > 0 ? incoming.linkedParts : base.linkedParts,
     coordinates: incoming.coordinates || base.coordinates,
     phone: incoming.phone || base.phone,
     location: incoming.location || base.location
