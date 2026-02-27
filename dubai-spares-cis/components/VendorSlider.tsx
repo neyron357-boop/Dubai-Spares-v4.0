@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ExternalLink, Filter, ImageOff, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Priority, type Order, type Part } from '../types';
@@ -28,13 +28,15 @@ const sanitizeImages = (values: Array<unknown>) => {
 
 const VendorSliderContent: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { orders } = useStore();
 
   const initialBrand = searchParams.get('brand');
   const initialSlideId = searchParams.get('slide');
 
-  const [index, setIndex] = useState(0);
+  const [transientDragIndex, setTransientDragIndex] = useState(0);
+  const [committedIndex, setCommittedIndex] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [brandFilter, setBrandFilter] = useState<string>(initialBrand || 'all');
   const [selectedBrand, setSelectedBrand] = useState<string | null>(initialBrand || null);
@@ -45,6 +47,8 @@ const VendorSliderContent: React.FC = () => {
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
   const [brokenImages, setBrokenImages] = useState<Record<string, true>>({});
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const syncTimerRef = useRef<number | null>(null);
+  const lastUrlSyncAtRef = useRef(0);
 
   const orderSlides = useMemo(() => {
     const effectiveBrand = selectedBrand || brandFilter;
@@ -77,42 +81,70 @@ const VendorSliderContent: React.FC = () => {
         return (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt);
       });
   }, [orders, brandFilter, selectedBrand, priorityFilter, statusFilter, sortBy]);
-  const current = orderSlides[index];
+  const current = orderSlides[transientDragIndex];
+  const committedSlide = orderSlides[committedIndex];
 
   useEffect(() => {
-    if (index >= orderSlides.length) setIndex(0);
-  }, [index, orderSlides.length]);
+    if (transientDragIndex >= orderSlides.length) setTransientDragIndex(0);
+    if (committedIndex >= orderSlides.length) setCommittedIndex(0);
+  }, [transientDragIndex, committedIndex, orderSlides.length]);
 
   useEffect(() => {
     if (!initialSlideId || orderSlides.length === 0) return;
     const nextIndex = orderSlides.findIndex((slide) => slide.id === initialSlideId);
-    if (nextIndex >= 0) setIndex(nextIndex);
+    if (nextIndex >= 0) {
+      setTransientDragIndex(nextIndex);
+      setCommittedIndex(nextIndex);
+    }
   }, [initialSlideId, orderSlides]);
 
   useEffect(() => {
-    const currentBrand = searchParams.get('brand') || '';
-    const currentSlide = searchParams.get('slide') || '';
+    const currentQuery = location.search.startsWith('?') ? location.search.slice(1) : location.search;
     const nextBrand = selectedBrand || '';
-    const nextSlide = current?.id || '';
-
-    if (currentBrand === nextBrand && currentSlide === nextSlide) return;
-
+    const nextSlide = committedSlide?.id || '';
     const next = new URLSearchParams(searchParams);
     if (nextBrand) next.set('brand', nextBrand);
     else next.delete('brand');
     if (nextSlide) next.set('slide', nextSlide);
     else next.delete('slide');
+    const nextQuery = next.toString();
+    if (nextQuery === currentQuery) return;
 
-    setSearchParams(next, { replace: true });
-  }, [selectedBrand, current?.id, searchParams, setSearchParams]);
+    if (syncTimerRef.current) {
+      window.clearTimeout(syncTimerRef.current);
+    }
+
+    syncTimerRef.current = window.setTimeout(() => {
+      const now = Date.now();
+      if (now - lastUrlSyncAtRef.current < 200) return;
+      const liveQuery = window.location.search.startsWith('?') ? window.location.search.slice(1) : window.location.search;
+      if (liveQuery === nextQuery) return;
+      lastUrlSyncAtRef.current = now;
+      setSearchParams(next, { replace: true });
+    }, 300);
+
+    return () => {
+      if (syncTimerRef.current) {
+        window.clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = null;
+      }
+    };
+  }, [selectedBrand, committedSlide?.id, location.search, searchParams, setSearchParams]);
+
+  useEffect(() => () => {
+    if (syncTimerRef.current) {
+      window.clearTimeout(syncTimerRef.current);
+    }
+  }, []);
 
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
 
   const goTo = (next: number) => {
     const bounded = Math.max(0, Math.min(orderSlides.length - 1, next));
-    if (bounded === index) return;
+    if (bounded === committedIndex) return;
     vibrate(10);
-    setIndex(bounded);
+    setTransientDragIndex(bounded);
+    setCommittedIndex(bounded);
   };
 
   if (!selectedBrand && brandOptions.length > 0) {
@@ -164,7 +196,7 @@ const VendorSliderContent: React.FC = () => {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-2" onTouchStart={(e) => { const t = e.targetTouches[0]; touchStart.current = { x: t.clientX, y: t.clientY }; }} onTouchEnd={(e) => { if (!touchStart.current) return; const t = e.changedTouches[0]; const dx = t.clientX - touchStart.current.x; const dy = t.clientY - touchStart.current.y; if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.15) goTo(index + (dx > 0 ? -1 : 1)); touchStart.current = null; }}>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-2" onTouchStart={(e) => { const t = e.targetTouches[0]; touchStart.current = { x: t.clientX, y: t.clientY }; }} onTouchEnd={(e) => { if (!touchStart.current) return; const t = e.changedTouches[0]; const dx = t.clientX - touchStart.current.x; const dy = t.clientY - touchStart.current.y; if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.15) goTo(committedIndex + (dx > 0 ? -1 : 1)); touchStart.current = null; }}>
         {current.visibleParts.map((part) => {
           const images = sanitizeImages([
             ...(Array.isArray(part.photos) ? part.photos : []),
@@ -181,21 +213,21 @@ const VendorSliderContent: React.FC = () => {
                 <p className="truncate text-base font-black">{part.name}</p>
                 <p className="text-xs text-white/60">Статус: {part.status || 'searching'} • Вариантов: {part.variants.length}</p>
               </div>
-              <button type="button" onClick={() => navigate(`/order/${current.id}/part/${part.id}`, { state: { backTo: `/vendor?brand=${encodeURIComponent(selectedBrand || '')}&slide=${current.id}` } })} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-2 py-1.5 text-xs font-semibold text-white/90">Карточка детали <ExternalLink size={12} /></button>
+              <button type="button" onClick={() => navigate(`/order/${current.id}/part/${part.id}`, { replace: false, state: { backTo: `/vendor?brand=${encodeURIComponent(selectedBrand || '')}&slide=${current.id}` } })} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-2 py-1.5 text-xs font-semibold text-white/90">Карточка детали <ExternalLink size={12} /></button>
             </div>
           );
         })}
       </div>
 
       <div className="absolute bottom-3 inset-x-0 px-4 flex items-center justify-between">
-        <button type="button" onClick={() => goTo(index - 1)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Назад</button>
+        <button type="button" onClick={() => goTo(committedIndex - 1)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Назад</button>
         <button type="button" onClick={() => setPartsSheetOpen(true)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Авто список</button>
-        <button type="button" onClick={() => goTo(index + 1)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Далее</button>
+        <button type="button" onClick={() => goTo(committedIndex + 1)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Далее</button>
       </div>
 
       {filtersOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setFiltersOpen(false)}><div className="mt-20 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}><p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Фильтры</p><div className="space-y-3 text-sm"><div><p className="mb-1 text-xs text-white/70">Марки</p><select value={brandFilter} onChange={(e) => { const value = e.target.value; if (value === '__choose') { setSelectedBrand(null); return; } setBrandFilter(value); setSelectedBrand(value === 'all' ? null : value); }} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Все марки</option><option value="__choose">Выбрать экран марок</option>{brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}</select></div><div><p className="mb-1 text-xs text-white/70">Приоритет</p><select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Любой</option><option value={Priority.HIGH}>High</option><option value={Priority.MEDIUM}>Medium</option><option value={Priority.LOW}>Low</option></select></div><div><p className="mb-1 text-xs text-white/70">Статус</p><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Любой</option><option value="searching">Searching</option><option value="found">Found</option><option value="ordered">Ordered</option><option value="not_found">Not found</option></select></div><div><p className="mb-1 text-xs text-white/70">Сортировка</p><select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="priority">По приоритету</option><option value="year_asc">По году (старые сначала)</option><option value="year_desc">По году (новые сначала)</option></select></div></div></div></div>}
 
-      {partsSheetOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setPartsSheetOpen(false)}><div className="mt-16 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}><p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Автомобили</p><div className="max-h-[60vh] space-y-2 overflow-y-auto">{orderSlides.map((slide, idx) => <button key={slide.id} type="button" onClick={() => { setIndex(idx); setPartsSheetOpen(false); }} className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left ${idx === index ? 'bg-[#2563EB]/25 text-white' : 'bg-slate-800 text-slate-200'}`}><span className="font-semibold">{slide.brand} {slide.model}</span><span className="text-xs opacity-70">{slide.visibleParts.length} деталей</span></button>)}</div></div></div>}
+      {partsSheetOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setPartsSheetOpen(false)}><div className="mt-16 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}><p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Автомобили</p><div className="max-h-[60vh] space-y-2 overflow-y-auto">{orderSlides.map((slide, idx) => <button key={slide.id} type="button" onClick={() => { setTransientDragIndex(idx); setCommittedIndex(idx); setPartsSheetOpen(false); }} className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left ${idx === committedIndex ? 'bg-[#2563EB]/25 text-white' : 'bg-slate-800 text-slate-200'}`}><span className="font-semibold">{slide.brand} {slide.model}</span><span className="text-xs opacity-70">{slide.visibleParts.length} деталей</span></button>)}</div></div></div>}
 
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
     </div>
