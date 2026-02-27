@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Camera, Check, ChevronDown, ChevronLeft, Copy, Mic, MicOff, Upload } from 'lucide-react';
+import { ArrowRight, Camera, Check, ChevronDown, ChevronLeft, Copy, Mic, MicOff, Search, Trash2, Upload } from 'lucide-react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
 import { leadCreate } from '../serverApi';
 import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
@@ -11,13 +11,14 @@ import { addOrderItem } from '../orderStore';
 import { cloudFeatureFlags, isCloudConfigured } from '../cloudConfig';
 import { runCloudDiagnostics } from '../utils/cloudDiagnostics';
 
-type FormStep = 1 | 2 | 3 | 4 | 5;
+type FormStep = 1 | 2 | 3 | 4;
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 4;
 const MAX_REQUEST_PART_FIELDS = 10;
-const DRAFT_KEY = 'public_order_form_draft_v2';
+const DRAFT_KEY = 'public_order_form_draft_v3';
+const DRAFT_LINK_ID_KEY = 'public_order_form_draft_link_id_v1';
 
-const STEP_NAMES = ['Автомобиль', 'Детали', 'Фото / VIN', 'Контакты', 'Подтверждение'];
+const STEP_NAMES = ['Автомобиль', 'Детали', 'Контакты', 'Подтверждение'];
 
 const POPULAR_BRANDS = ['Toyota', 'BMW', 'Mercedes-Benz', 'Lexus', 'Kia', 'Hyundai'];
 const PART_SUGGESTIONS: Record<string, string[]> = {
@@ -58,6 +59,10 @@ const DELIVERY_CITIES: Record<(typeof DELIVERY_COUNTRIES)[number], string[]> = {
 interface RequestedPartInput {
   id: string;
   name: string;
+  quantity: string;
+  side: string;
+  partCode: string;
+  comment: string;
   photoDataList: string[];
   audioNote?: string | null;
 }
@@ -70,6 +75,10 @@ const createId = () =>
 const createRequestedPartInput = (): RequestedPartInput => ({
   id: createId(),
   name: '',
+  quantity: '1',
+  side: '',
+  partCode: '',
+  comment: '',
   photoDataList: [],
   audioNote: null
 });
@@ -109,6 +118,10 @@ const normalizeDraftRequestedParts = (input: unknown): RequestedPartInput[] => {
     return {
       id: typeof part.id === 'string' && part.id ? part.id : createId(),
       name: typeof part.name === 'string' ? part.name : '',
+      quantity: typeof part.quantity === 'string' && part.quantity ? part.quantity : '1',
+      side: typeof part.side === 'string' ? part.side : '',
+      partCode: typeof part.partCode === 'string' ? part.partCode : '',
+      comment: typeof part.comment === 'string' ? part.comment : '',
       photoDataList,
       audioNote: typeof part.audioNote === 'string' ? part.audioNote : null
     } satisfies RequestedPartInput;
@@ -147,10 +160,18 @@ const ButtonDropdown: React.FC<{
   placeholder: string;
   options: string[];
   disabled?: boolean;
+  required?: boolean;
   onChange: (value: string) => void;
-}> = ({ value, placeholder, options, disabled, onChange }) => {
+}> = ({ value, placeholder, options, disabled, required, onChange }) => {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  const filteredOptions = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return options;
+    return options.filter((item) => item.toLowerCase().includes(normalized));
+  }, [options, query]);
 
   useEffect(() => {
     const onOutsideClick = (event: MouseEvent) => {
@@ -170,25 +191,37 @@ const ButtonDropdown: React.FC<{
         onClick={() => setOpen((prev) => !prev)}
         className="flex h-14 w-full items-center justify-between rounded-3xl border border-white/15 bg-white/10 px-5 text-left text-base outline-none disabled:cursor-not-allowed disabled:opacity-60"
       >
-        <span className={value ? 'text-white' : 'text-slate-300'}>{value || placeholder}</span>
+        <span className={value ? 'text-white' : 'text-slate-300'}>{value || `${placeholder}${required ? ' *' : ''}`}</span>
         <ChevronDown className={`h-4 w-4 text-slate-300 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="absolute z-40 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-white/15 bg-slate-900/95 p-2 shadow-2xl backdrop-blur">
-          {options.length > 0 ? options.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => {
-                onChange(item);
-                setOpen(false);
-              }}
-              className="w-full rounded-xl px-3 py-2 text-left text-sm text-slate-100 hover:bg-white/10"
-            >
-              {item}
-            </button>
-          )) : <p className="px-3 py-2 text-xs text-slate-300">Нет доступных вариантов</p>}
+        <div className="absolute z-40 mt-2 w-full rounded-2xl border border-white/15 bg-slate-900/95 p-2 shadow-2xl backdrop-blur">
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 py-2">
+            <Search className="h-4 w-4 text-slate-300" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Поиск..."
+              className="w-full bg-transparent text-sm text-white outline-none"
+            />
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            {filteredOptions.length > 0 ? filteredOptions.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => {
+                  onChange(item);
+                  setOpen(false);
+                  setQuery('');
+                }}
+                className="w-full rounded-xl px-3 py-2 text-left text-sm text-slate-100 hover:bg-white/10"
+              >
+                {item}
+              </button>
+            )) : <p className="px-3 py-2 text-xs text-slate-300">Ничего не найдено</p>}
+          </div>
         </div>
       )}
     </div>
@@ -207,6 +240,11 @@ const PublicOrderFormScreen: React.FC = () => {
   const [vinPhotoData, setVinPhotoData] = useState<string | null>(null);
   const [contactCountryCode, setContactCountryCode] = useState(PHONE_CODES[0].code);
   const [customerContact, setCustomerContact] = useState('');
+  const [preferredContactChannel, setPreferredContactChannel] = useState<'whatsapp' | 'telegram' | 'email' | 'phone'>('whatsapp');
+  const [telegramContact, setTelegramContact] = useState('');
+  const [emailContact, setEmailContact] = useState('');
+  const [phoneContact, setPhoneContact] = useState('');
+  const [bestContactTime, setBestContactTime] = useState('');
   const [messageSource, setMessageSource] = useState<Source>(Source.WHATSAPP);
   const [clientAlias, setClientAlias] = useState('');
   const [deliveryCountry, setDeliveryCountry] = useState('');
@@ -224,7 +262,8 @@ const PublicOrderFormScreen: React.FC = () => {
   const [manualModelMode, setManualModelMode] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { settings } = useAppSettings();
-  const publicFormUrl = `${window.location.origin}${window.location.pathname}#/request`;
+  const [draftLinkId, setDraftLinkId] = useState(() => localStorage.getItem(DRAFT_LINK_ID_KEY) || createId());
+  const publicFormUrl = `${window.location.origin}${window.location.pathname}?draft=${draftLinkId}#/request`;
   const refCode = useMemo(() => {
     try {
       return new URLSearchParams(window.location.search).get('ref') || '';
@@ -245,6 +284,12 @@ const PublicOrderFormScreen: React.FC = () => {
 
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
   const deliveryCityOptions = useMemo(() => DELIVERY_CITIES[deliveryCountry as keyof typeof DELIVERY_CITIES] || [], [deliveryCountry]);
+  const [cityQuery, setCityQuery] = useState('');
+  const filteredCityOptions = useMemo(() => {
+    const normalized = cityQuery.trim().toLowerCase();
+    if (!normalized) return deliveryCityOptions;
+    return deliveryCityOptions.filter((city) => city.toLowerCase().includes(normalized));
+  }, [cityQuery, deliveryCityOptions]);
   const smartSuggestionKey = `${brand}|${model}|${bodyType}`;
   const progress = (step / TOTAL_STEPS) * 100;
 
@@ -287,10 +332,14 @@ const PublicOrderFormScreen: React.FC = () => {
     try {
       const params = new URLSearchParams(window.location.search);
       const source = (params.get('source') || '').toLowerCase();
+      const incomingDraftId = params.get('draft') || localStorage.getItem(DRAFT_LINK_ID_KEY) || createId();
+      setDraftLinkId(incomingDraftId);
+      localStorage.setItem(DRAFT_LINK_ID_KEY, incomingDraftId);
+
       if (source.includes('insta') || source.includes('ig')) {
         setMessageSource(Source.INSTAGRAM);
       }
-      const saved = localStorage.getItem(DRAFT_KEY);
+      const saved = localStorage.getItem(`${DRAFT_KEY}_${incomingDraftId}`) || localStorage.getItem(DRAFT_KEY);
       if (saved) {
         const draft = JSON.parse(saved);
         setBrand(draft.brand || '');
@@ -301,6 +350,11 @@ const PublicOrderFormScreen: React.FC = () => {
         setRequestedParts(normalizeDraftRequestedParts(draft.requestedParts));
         setCustomerContact(draft.customerContact || '');
         setContactCountryCode(draft.contactCountryCode || PHONE_CODES[0].code);
+        setPreferredContactChannel(draft.preferredContactChannel || 'whatsapp');
+        setTelegramContact(draft.telegramContact || '');
+        setEmailContact(draft.emailContact || '');
+        setPhoneContact(draft.phoneContact || '');
+        setBestContactTime(draft.bestContactTime || '');
         setDeliveryCountry(draft.deliveryCountry || '');
         setDeliveryCity(draft.deliveryCity || '');
         setDeliveryAddressNote(draft.deliveryAddressNote || '');
@@ -315,15 +369,21 @@ const PublicOrderFormScreen: React.FC = () => {
 
   useEffect(() => {
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      localStorage.setItem(DRAFT_LINK_ID_KEY, draftLinkId);
+      localStorage.setItem(`${DRAFT_KEY}_${draftLinkId}`, JSON.stringify({
         brand,
         model,
         year,
         bodyType,
         vin,
-        requestedParts: requestedParts.map((part) => ({ id: part.id, name: part.name })),
+        requestedParts,
         customerContact,
         contactCountryCode,
+        preferredContactChannel,
+        telegramContact,
+        emailContact,
+        phoneContact,
+        bestContactTime,
         deliveryCountry,
         deliveryCity,
         deliveryAddressNote,
@@ -335,7 +395,7 @@ const PublicOrderFormScreen: React.FC = () => {
       const message = error instanceof Error ? error.message : 'unknown';
       void logger.warn('public-form:draft', 'Draft save skipped', { reason: message });
     }
-  }, [brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode, deliveryCountry, deliveryCity, deliveryAddressNote, engineCode, clientAlias, messageSource]);
+  }, [brand, model, year, bodyType, vin, requestedParts, customerContact, contactCountryCode, preferredContactChannel, telegramContact, emailContact, phoneContact, bestContactTime, deliveryCountry, deliveryCity, deliveryAddressNote, engineCode, clientAlias, messageSource, draftLinkId]);
 
   useEffect(() => {
     if (brand === 'BMW') setShowEngineCode(true);
@@ -381,15 +441,17 @@ const PublicOrderFormScreen: React.FC = () => {
   };
 
   const validatePhone = () => customerContact.replace(/\D/g, '').length >= 8;
+  const validateVin = (value: string) => !value || /^[A-HJ-NPR-Z0-9]{17}$/.test(value);
+  const validateEmail = () => !emailContact.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailContact.trim());
+  const validateTelegram = () => !telegramContact.trim() || /^@?[A-Za-z0-9_]{5,}$/.test(telegramContact.trim());
 
   const isWhatsappValid = validatePhone();
 
   const canContinue =
-    (step === 1 && Boolean(brand && model && year)) ||
+    (step === 1 && Boolean(brand && model && year && validateVin(vin))) ||
     (step === 2 && Boolean(requestedParts.some((part) => part.name.trim()))) ||
-    step === 3 ||
-    (step === 4 && Boolean(validatePhone() && deliveryCountry)) ||
-    step === 5;
+    (step === 3 && Boolean(deliveryCountry && (preferredContactChannel !== 'whatsapp' || validatePhone()))) ||
+    step === 4;
 
   const validateStep = (nextStep = step) => {
     const nextErrors: Record<string, string> = {};
@@ -397,11 +459,16 @@ const PublicOrderFormScreen: React.FC = () => {
       if (!brand) nextErrors.brand = 'Выберите марку';
       if (!model) nextErrors.model = 'Выберите модель';
       if (!year) nextErrors.year = 'Выберите год';
+      if (Number(year) > new Date().getFullYear()) nextErrors.year = 'Год не может быть больше текущего';
       if (bodyType.length > 40) nextErrors.bodyType = 'Максимум 40 символов';
+      if (!validateVin(vin)) nextErrors.vin = 'VIN должен содержать 17 символов (латиница/цифры)';
     }
-    if (nextStep === 4) {
-      if (!validatePhone()) nextErrors.phone = 'Введите корректный WhatsApp';
+    if (nextStep === 3) {
       if (!deliveryCountry) nextErrors.deliveryCountry = 'Выберите страну доставки';
+      if (preferredContactChannel === 'whatsapp' && !validatePhone()) nextErrors.phone = 'Введите корректный WhatsApp';
+      if (preferredContactChannel === 'telegram' && !validateTelegram()) nextErrors.telegram = 'Введите корректный Telegram (@username)';
+      if (preferredContactChannel === 'email' && !validateEmail()) nextErrors.email = 'Введите корректный e-mail';
+      if (preferredContactChannel === 'phone' && phoneContact.replace(/\D/g, '').length < 8) nextErrors.phoneAlt = 'Введите корректный номер телефона';
     }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -413,6 +480,16 @@ const PublicOrderFormScreen: React.FC = () => {
   };
 
   const goBack = () => setStep((current) => Math.max(1, current - 1) as FormStep);
+  const goToStep = (targetStep: FormStep) => {
+    if (targetStep === step) return;
+    if (targetStep < step) {
+      setStep(targetStep);
+      return;
+    }
+    const checkpoints = Array.from({ length: targetStep - 1 }, (_, index) => (index + 1) as FormStep);
+    const allPreviousValid = checkpoints.every((checkpoint) => validateStep(checkpoint));
+    if (allPreviousValid) setStep(targetStep);
+  };
 
   const resetForm = () => {
     setStep(1);
@@ -426,6 +503,11 @@ const PublicOrderFormScreen: React.FC = () => {
     setVinPhotoData(null);
     setContactCountryCode(PHONE_CODES[0].code);
     setCustomerContact('');
+    setPreferredContactChannel('whatsapp');
+    setTelegramContact('');
+    setEmailContact('');
+    setPhoneContact('');
+    setBestContactTime('');
     setMessageSource(Source.WHATSAPP);
     setDeliveryCountry('');
     setDeliveryCity('');
@@ -434,7 +516,7 @@ const PublicOrderFormScreen: React.FC = () => {
     setShowEngineCode(false);
     setEngineCode('');
     setClientAlias('');
-    localStorage.removeItem(DRAFT_KEY);
+    localStorage.removeItem(`${DRAFT_KEY}_${draftLinkId}`);
   };
 
   const formatPhone = (value: string) => {
@@ -515,7 +597,7 @@ const PublicOrderFormScreen: React.FC = () => {
   };
 
   const submitOrder = async () => {
-    if (!validateStep(1) || !validateStep(4)) {
+    if (!validateStep(1) || !validateStep(3)) {
       pushNotification({
         type: NotificationType.SYNC_ERROR,
         title: 'Ошибка валидации',
@@ -571,6 +653,15 @@ const PublicOrderFormScreen: React.FC = () => {
       }
 
       const uploadedAudios = filledRequestedParts.map((part) => part.audioNote || '').filter(Boolean);
+      const primaryContactValue = (
+        preferredContactChannel === 'whatsapp'
+          ? `${contactCountryCode}${customerContact.trim()}`
+          : preferredContactChannel === 'telegram'
+            ? telegramContact.trim()
+            : preferredContactChannel === 'email'
+              ? emailContact.trim()
+              : phoneContact.trim()
+      );
 
       const notes = [{
         id: createId(),
@@ -579,7 +670,9 @@ const PublicOrderFormScreen: React.FC = () => {
 Имя/ник: ${clientAlias || '—'}
 VIN: ${vin || '—'}
 Engine code: ${engineCode || '—'}
-Country: ${deliveryCountry}`,
+Country: ${deliveryCountry}
+Primary contact: ${preferredContactChannel} ${primaryContactValue || '—'}
+Best time: ${bestContactTime || '—'}`,
         photos: uploadedVinPhotos,
         audios: uploadedAudios,
         createdAt: Date.now()
@@ -620,7 +713,7 @@ Country: ${deliveryCountry}`,
         orderId,
         idempotency_key: orderId,
         name: clientAlias.trim() || 'Public Lead',
-        phone: `${contactCountryCode}${customerContact.trim()}`.trim(),
+        phone: primaryContactValue || `${contactCountryCode}${customerContact.trim()}`.trim(),
         message: JSON.stringify({
           source: messageSource,
           brand: brand.trim(),
@@ -628,8 +721,10 @@ Country: ${deliveryCountry}`,
           year: year.trim(),
           vin: vin.trim(),
           bodyType: bodyType.trim() || null,
-          requestedParts: filledRequestedParts.map((part) => part.name.trim()),
-          refCode: refCode || null
+          requestedParts: filledRequestedParts.map((part) => ({ name: part.name.trim(), qty: part.quantity || '1', side: part.side || null, partCode: part.partCode || null, comment: part.comment || null })),
+          refCode: refCode || null,
+          preferredContactChannel,
+          bestContactTime: bestContactTime || null
         }),
         parts: partsToInsert,
         notes,
@@ -706,7 +801,7 @@ Country: ${deliveryCountry}`,
           isSold: false,
           isLead: true,
           notes,
-          customerContact: `${contactCountryCode}${customerContact.trim()}`.trim(),
+          customerContact: primaryContactValue || `${contactCountryCode}${customerContact.trim()}`.trim(),
           socialNickname: clientAlias.trim() || undefined,
           leadUnread: true,
           leadSource: 'public_form',
@@ -805,9 +900,19 @@ Country: ${deliveryCountry}`,
         <div className="mb-6 mt-6">
           <div className="mb-2 flex items-center justify-between text-xs text-slate-300"><span>Шаг {step} из {TOTAL_STEPS}</span><span>{Math.round(progress)}%</span></div>
           <div className="mb-2 flex gap-2 overflow-x-auto pb-2 text-xs">
-            {STEP_NAMES.map((name, index) => (
-              <div key={name} className={`rounded-full border px-3 py-1 whitespace-nowrap ${step >= index + 1 ? 'border-amber-200/70 bg-amber-200/15' : 'border-white/20'}`}>{name}</div>
-            ))}
+            {STEP_NAMES.map((name, index) => {
+              const itemStep = (index + 1) as FormStep;
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => goToStep(itemStep)}
+                  className={`rounded-full border px-3 py-1 whitespace-nowrap transition ${step >= itemStep ? 'border-amber-200/70 bg-amber-200/15' : 'border-white/20'}`}
+                >
+                  {name}
+                </button>
+              );
+            })}
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-amber-300 via-orange-300 to-yellow-100 transition-all duration-500" style={{ width: `${progress}%` }} /></div>
         </div>
@@ -817,7 +922,7 @@ Country: ${deliveryCountry}`,
             <>
               <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm">🚗 {brand || 'Марка'} {model || ''} {year || ''}</div>
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Марка</span>
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Марка *</span>
                 <ButtonDropdown
                   value={brand}
                   placeholder="Выберите марку"
@@ -832,7 +937,7 @@ Country: ${deliveryCountry}`,
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Модель</span>
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Модель *</span>
                 <ButtonDropdown
                   value={model}
                   placeholder="Выберите модель"
@@ -863,11 +968,8 @@ Country: ${deliveryCountry}`,
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label>
-                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Год</span>
-                  <select value={year} onChange={(e) => setYear(e.target.value)} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.year ? 'border-amber-300' : 'border-white/15'}`}>
-                    <option value="">Выберите год</option>
-                    {YEARS.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
-                  </select>
+                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Год *</span>
+                  <ButtonDropdown value={year} placeholder="Выберите год" options={YEARS.map((item) => String(item))} required onChange={setYear} />
                   {errors.year && <p className="mt-1 text-xs text-amber-200">{errors.year}</p>}
                 </label>
                 <label>
@@ -879,8 +981,19 @@ Country: ${deliveryCountry}`,
 
               <label className="block">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">VIN (опционально)</span>
-                <input value={vin} onChange={(e) => { const formatted = formatVinInput(e.target.value); setVin(formatted); detectByVin(formatted); }} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" placeholder="WDB123456789..." />
+                <input value={vin} onChange={(e) => { const formatted = formatVinInput(e.target.value); setVin(formatted); detectByVin(formatted); }} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.vin ? 'border-amber-300' : 'border-white/15'}`} placeholder="WDB123456789..." />
+                {errors.vin && <p className="mt-1 text-xs text-amber-200">{errors.vin}</p>}
               </label>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">VIN: введите вручную или загрузите фото</span>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button type="button" onClick={() => vinInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Upload className="h-4 w-4" />Галерея</button>
+                  <button type="button" onClick={() => vinCameraInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Camera className="h-4 w-4" />Камера</button>
+                </div>
+                <input ref={vinInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setVinPhotoData); e.target.value = ''; }} />
+                <input ref={vinCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setVinPhotoData); e.target.value = ''; }} />
+                {vinPhotoData && <img src={vinPhotoData} alt="vin-preview" className="mt-2 h-28 w-full rounded-xl object-cover" />}
+              </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
                 <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Фото автомобиля (в начале заявки)</span>
@@ -917,6 +1030,10 @@ Country: ${deliveryCountry}`,
 
               {requestedParts.map((part, index) => (
                 <div key={part.id} className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-300">Деталь #{index + 1}</p>
+                    {requestedParts.length > 1 && <button type="button" onClick={() => setRequestedParts((current) => current.filter((item) => item.id !== part.id))} className="rounded-lg border border-white/20 p-1 text-slate-200"><Trash2 className="h-4 w-4" /></button>}
+                  </div>
                   <input
                     value={part.name}
                     onChange={(e) => {
@@ -929,9 +1046,15 @@ Country: ${deliveryCountry}`,
                       }
                       updateRequestedPart(index, { name: value });
                     }}
-                    placeholder="Например: капот и бампер"
-                    className="h-14 w-full rounded-2xl border border-white/15 bg-white/10 px-4 outline-none"
+                    placeholder="Наименование детали *"
+                    className="h-12 w-full rounded-2xl border border-white/15 bg-white/10 px-4 outline-none"
                   />
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <input value={part.quantity} onChange={(e) => updateRequestedPart(index, { quantity: e.target.value })} placeholder="Количество" className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none" />
+                    <input value={part.side} onChange={(e) => updateRequestedPart(index, { side: e.target.value })} placeholder="Сторона (левая/правая)" className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none" />
+                    <input value={part.partCode} onChange={(e) => updateRequestedPart(index, { partCode: e.target.value })} placeholder="Код детали (если есть)" className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none" />
+                    <input value={part.comment} onChange={(e) => updateRequestedPart(index, { comment: e.target.value })} placeholder="Комментарий" className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none" />
+                  </div>
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
                     <input id={`${part.id}-gallery`} type="file" accept="image/*" multiple onChange={(e) => { if (e.target.files?.length) { void handleFilesToDataUrls(e.target.files, (values) => { updateRequestedPart(index, { photoDataList: [...part.photoDataList, ...values].slice(0, MAX_PART_PHOTOS) }); void logger.info('public-form:media', 'Part photo attached from gallery', { partId: part.id, index, count: values.length }); }); } e.target.value = ''; }} className="hidden" />
                     <input id={`${part.id}-camera`} type="file" accept="image/*" capture="environment" onChange={(e) => { if (e.target.files?.length) { void handleFilesToDataUrls(e.target.files, (values) => { updateRequestedPart(index, { photoDataList: [...part.photoDataList, ...values].slice(0, MAX_PART_PHOTOS) }); void logger.info('public-form:media', 'Part photo attached from camera', { partId: part.id, index, count: values.length }); }); } e.target.value = ''; }} className="hidden" />
@@ -986,93 +1109,61 @@ Country: ${deliveryCountry}`,
 
           {step === 3 && (
             <>
-              <p className="text-sm text-slate-300">VIN помогает подобрать точную запчасть.</p>
-              <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-300">Загрузить фото VIN</span>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <button type="button" onClick={() => vinInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Upload className="h-4 w-4" />Галерея</button>
-                <button type="button" onClick={() => vinCameraInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Camera className="h-4 w-4" />Камера</button>
-              </div>
-              <input ref={vinInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setVinPhotoData); e.target.value = ''; }} />
-              <input ref={vinCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setVinPhotoData); e.target.value = ''; }} />
-              {vinPhotoData && <img src={vinPhotoData} alt="vin-preview" className="h-28 w-full rounded-xl object-cover" />}
-
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ввести VIN вручную</span>
-                <input type="text" value={vin} onChange={(e) => setVin(formatVinInput(e.target.value))} placeholder="WDB123456789..." className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" />
-              </label>
-            </>
-          )}
-
-          {step === 4 && (
-            <>
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">WhatsApp (обязательное)</span>
-                <div className="grid grid-cols-[130px_1fr] gap-2">
-                  <select value={contactCountryCode} onChange={(e) => setContactCountryCode(e.target.value)} className="h-14 rounded-3xl border border-white/15 bg-white/10 px-3 text-sm outline-none">
-                    {PHONE_CODES.map((item) => <option key={item.id} value={item.code} className="text-slate-900">{item.label} {item.code}</option>)}
-                  </select>
-                  <input type="tel" value={customerContact} onChange={(e) => setCustomerContact(formatPhone(e.target.value))} placeholder="901234567" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-lg outline-none ${errors.phone ? 'border-amber-300' : 'border-white/15'}`} />
-                </div>
-                {errors.phone && <p className="mt-1 text-xs text-amber-200">{errors.phone}</p>}
-                {!errors.phone && customerContact && <p className={`mt-1 text-xs ${isWhatsappValid ? 'text-emerald-200' : 'text-amber-200'}`}>{isWhatsappValid ? 'WhatsApp номер выглядит корректно' : 'Проверьте номер WhatsApp'}</p>}
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Страна доставки (обязательное)</span>
-                <select value={deliveryCountry} onChange={(e) => { setDeliveryCountry(e.target.value); setDeliveryCity(''); }} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.deliveryCountry ? 'border-amber-300' : 'border-white/15'}`}>
-                  <option value="">Выберите страну</option>
-                  {DELIVERY_COUNTRIES.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
-                </select>
-                {errors.deliveryCountry && <p className="mt-1 text-xs text-amber-200">{errors.deliveryCountry}</p>}
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Город (опционально)</span>
-                <select value={deliveryCity} onChange={(e) => setDeliveryCity(e.target.value)} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none">
-                  <option value="">Выберите город</option>
-                  {deliveryCityOptions.map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ваше имя или ник (опционально)</span>
-                <input value={clientAlias} onChange={(e) => setClientAlias(e.target.value.slice(0, 60))} placeholder="Напр. @alex" className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" />
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Откуда вы пишете</span>
-                <select value={messageSource} onChange={(e) => setMessageSource(e.target.value as Source)} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none">
-                  {[Source.INSTAGRAM, Source.WHATSAPP, Source.TELEGRAM, Source.TIKTOK, Source.FACEBOOK, Source.OTHER].map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Комментарий (опционально)</span>
-                <textarea value={deliveryAddressNote} onChange={(e) => setDeliveryAddressNote(e.target.value)} rows={3} placeholder="Район, адрес и комментарий" className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none" />
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Срочность заявки</span>
-                <div className="grid grid-cols-3 gap-2">
-                  {([Priority.LOW, Priority.MEDIUM, Priority.HIGH] as Priority[]).map((p) => (
-                    <button key={p} type="button" onClick={() => setOrderPriority(p)}
-                      className={`h-12 rounded-3xl border text-sm font-semibold transition-colors ${orderPriority === p ? 'border-amber-300 bg-amber-200/20 text-amber-200' : 'border-white/20 bg-white/10 text-white/70'}`}>
-                      {p === Priority.LOW ? '🟢 Обычная' : p === Priority.MEDIUM ? '🟡 Средняя' : '🔴 Срочная'}
+                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Предпочтительный канал связи *</span>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {([
+                    { id: 'whatsapp', label: 'WhatsApp' },
+                    { id: 'telegram', label: 'Telegram' },
+                    { id: 'email', label: 'E-mail' },
+                    { id: 'phone', label: 'Телефон' }
+                  ] as const).map((channel) => (
+                    <button key={channel.id} type="button" onClick={() => setPreferredContactChannel(channel.id)} className={`h-11 rounded-2xl border text-sm ${preferredContactChannel === channel.id ? 'border-amber-300 bg-amber-200/20 text-amber-100' : 'border-white/20 bg-white/10'}`}>
+                      {channel.label}
                     </button>
                   ))}
                 </div>
               </label>
+
+              {preferredContactChannel === 'whatsapp' && (
+                <label className="block">
+                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">WhatsApp *</span>
+                  <div className="grid grid-cols-[130px_1fr] gap-2">
+                    <select value={contactCountryCode} onChange={(e) => setContactCountryCode(e.target.value)} className="h-14 rounded-3xl border border-white/15 bg-white/10 px-3 text-sm outline-none">{PHONE_CODES.map((item) => <option key={item.id} value={item.code} className="text-slate-900">{item.label} {item.code}</option>)}</select>
+                    <input type="tel" value={customerContact} onChange={(e) => setCustomerContact(formatPhone(e.target.value))} placeholder="901234567" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-lg outline-none ${errors.phone ? 'border-amber-300' : 'border-white/15'}`} />
+                  </div>
+                  {errors.phone && <p className="mt-1 text-xs text-amber-200">{errors.phone}</p>}
+                  {!errors.phone && customerContact && <p className={`mt-1 text-xs ${isWhatsappValid ? 'text-emerald-200' : 'text-amber-200'}`}>{isWhatsappValid ? 'WhatsApp номер выглядит корректно' : 'Проверьте номер WhatsApp'}</p>}
+                </label>
+              )}
+
+              {preferredContactChannel === 'telegram' && <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Telegram *</span><input value={telegramContact} onChange={(e) => setTelegramContact(e.target.value)} placeholder="@username" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.telegram ? 'border-amber-300' : 'border-white/15'}`} />{errors.telegram && <p className="mt-1 text-xs text-amber-200">{errors.telegram}</p>}</label>}
+              {preferredContactChannel === 'email' && <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">E-mail *</span><input type="email" value={emailContact} onChange={(e) => setEmailContact(e.target.value)} placeholder="you@example.com" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.email ? 'border-amber-300' : 'border-white/15'}`} />{errors.email && <p className="mt-1 text-xs text-amber-200">{errors.email}</p>}</label>}
+              {preferredContactChannel === 'phone' && <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Телефон *</span><input type="tel" value={phoneContact} onChange={(e) => setPhoneContact(e.target.value)} placeholder="+971..." className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.phoneAlt ? 'border-amber-300' : 'border-white/15'}`} />{errors.phoneAlt && <p className="mt-1 text-xs text-amber-200">{errors.phoneAlt}</p>}</label>}
+
+              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Страна доставки *</span><ButtonDropdown value={deliveryCountry} placeholder="Выберите страну" options={[...DELIVERY_COUNTRIES]} required onChange={(value) => { setDeliveryCountry(value); setDeliveryCity(''); setCityQuery(''); }} />{errors.deliveryCountry && <p className="mt-1 text-xs text-amber-200">{errors.deliveryCountry}</p>}</label>
+
+              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Город (опционально)</span><div className="rounded-3xl border border-white/15 bg-white/10 p-3"><input value={cityQuery} onChange={(e) => setCityQuery(e.target.value)} placeholder="Начните вводить город" className="h-10 w-full rounded-2xl bg-black/20 px-3 text-sm outline-none" /><div className="mt-2 max-h-36 overflow-y-auto">{filteredCityOptions.map((item) => <button key={item} type="button" onClick={() => setDeliveryCity(item)} className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${deliveryCity === item ? 'bg-amber-200/20 text-amber-100' : 'hover:bg-white/10'}`}>{item}</button>)}</div></div></label>
+
+              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Лучшее время для связи (опционально)</span><input value={bestContactTime} onChange={(e) => setBestContactTime(e.target.value.slice(0, 80))} placeholder="Например: 10:00–14:00 GST" className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" /></label>
+              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ваше имя или ник (опционально)</span><input value={clientAlias} onChange={(e) => setClientAlias(e.target.value.slice(0, 60))} placeholder="Напр. @alex" className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" /></label>
+              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Откуда вы пишете</span><select value={messageSource} onChange={(e) => setMessageSource(e.target.value as Source)} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none">{[Source.INSTAGRAM, Source.WHATSAPP, Source.TELEGRAM, Source.TIKTOK, Source.FACEBOOK, Source.OTHER].map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}</select></label>
+              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Комментарий (опционально)</span><textarea value={deliveryAddressNote} onChange={(e) => setDeliveryAddressNote(e.target.value)} rows={3} placeholder="Район, адрес и комментарий" className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none" /></label>
             </>
           )}
 
-          {step === 5 && (
+          {step === 4 && (
             <div className="rounded-3xl border border-amber-200/30 bg-gradient-to-br from-amber-100/15 via-white/10 to-transparent p-5">
               <p className="text-xl font-black tracking-tight">{brand} {model} {year}</p>
               <p className="mt-3 text-sm">🧩 {requestedParts.filter((item) => item.name.trim()).length} детали</p>
-              <p className="text-sm">🌍 Доставка: {deliveryCountry || '—'}</p>
-              <p className="text-sm">⚡ Срочность: {orderPriority === Priority.LOW ? 'Обычная' : orderPriority === Priority.MEDIUM ? 'Средняя' : 'Срочная'}</p>
-              <p className="mt-2 text-xs text-slate-300">📱 {contactCountryCode}{customerContact || '—'}</p>
-              <p className="text-xs text-slate-300">👤 {clientAlias || '—'} • {messageSource}</p>
+              <p className="text-sm">🌍 Доставка: {deliveryCountry || '—'} {deliveryCity ? `(${deliveryCity})` : ''}</p>
+              <p className="text-sm">Контакт: {preferredContactChannel}</p>
+              <p className="text-sm">VIN: {vin || '—'}</p>
+              <div className="mt-3 grid gap-2 text-xs text-slate-200">
+                <button type="button" onClick={() => goToStep(1)} className="rounded-xl border border-white/20 px-3 py-2 text-left">Редактировать автомобиль</button>
+                <button type="button" onClick={() => goToStep(2)} className="rounded-xl border border-white/20 px-3 py-2 text-left">Редактировать детали</button>
+                <button type="button" onClick={() => goToStep(3)} className="rounded-xl border border-white/20 px-3 py-2 text-left">Редактировать контакты</button>
+              </div>
             </div>
           )}
         </div>
