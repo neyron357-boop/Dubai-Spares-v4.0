@@ -16,6 +16,8 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const panStartRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
   const pinchStateRef = useRef<{ distance: number; zoom: number } | null>(null);
@@ -27,10 +29,24 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
 
   const clampOffset = (nextZoom: number, x: number, y: number) => {
     if (nextZoom <= 1.01) return { x: 0, y: 0 };
-    const limit = ((nextZoom - 1) * 100) / 2;
+
+    const viewportRect = viewportRef.current?.getBoundingClientRect();
+    const imageRect = imageRef.current?.getBoundingClientRect();
+    if (!viewportRect || !imageRect || viewportRect.width <= 0 || viewportRect.height <= 0) {
+      return { x: 0, y: 0 };
+    }
+
+    const baseWidth = imageRect.width / Math.max(zoom, 1);
+    const baseHeight = imageRect.height / Math.max(zoom, 1);
+    const scaledWidth = baseWidth * nextZoom;
+    const scaledHeight = baseHeight * nextZoom;
+
+    const limitX = Math.max(0, (scaledWidth - viewportRect.width) / 2);
+    const limitY = Math.max(0, (scaledHeight - viewportRect.height) / 2);
+
     return {
-      x: clamp(x, -limit, limit),
-      y: clamp(y, -limit, limit)
+      x: clamp(x, -limitX, limitX),
+      y: clamp(y, -limitY, limitY)
     };
   };
 
@@ -170,6 +186,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
       )}
 
       <div
+        ref={viewportRef}
         className="max-h-full max-w-full flex items-center justify-center px-4"
         onClick={(e) => e.stopPropagation()}
         onWheel={(e) => {
@@ -214,7 +231,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
             const touch = e.touches[0];
             const dx = touch.clientX - panStartRef.current.x;
             const dy = touch.clientY - panStartRef.current.y;
-            setOffset(clampOffset(zoom, panStartRef.current.offsetX + dx / zoom, panStartRef.current.offsetY + dy / zoom));
+            setOffset(clampOffset(zoom, panStartRef.current.offsetX + dx, panStartRef.current.offsetY + dy));
           }
         }}
         onTouchEnd={(e) => {
@@ -239,6 +256,7 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
         style={{ touchAction: 'none' }}
       >
         <SafeImage
+          ref={imageRef}
           src={images[currentIndex]}
           alt={`Preview ${currentIndex + 1}`}
           className="max-w-full max-h-full object-contain"
