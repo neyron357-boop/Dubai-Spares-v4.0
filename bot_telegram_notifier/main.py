@@ -23,7 +23,7 @@ LIMIT = 30
 TRACKED_SOURCES = [
     {
         "table": "orders",
-        "select": "id,created_at,name,phone,message,brand,model,year,vin,customer_name,customer_phone,notes",
+        "select": "id,created_at,updated_at,name,phone,message,brand,model,year,vin,customer_name,customer_phone,notes,car_photo_url,car_photos,vin_photo_url,vin_photos,parts",
         "order_fields": ["created_at", "updated_at", "id"],
     },
 ]
@@ -84,11 +84,39 @@ def tg_api(method: str, payload: dict | None = None):
     return http_json(url=url, method="POST" if payload is not None else "GET", headers=headers, data=data, timeout=60)
 
 
-def send_message(chat_id: int, text: str):
+def send_message(chat_id: int, text: str, reply_markup: dict | None = None):
     try:
-        tg_api("sendMessage", {"chat_id": chat_id, "text": text})
+        payload = {"chat_id": chat_id, "text": text}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        tg_api("sendMessage", payload)
     except Exception as e:
         print(f"[TELEGRAM ERROR] sendMessage failed for {chat_id}: {e}")
+
+
+def send_photo(chat_id: int, photo_url: str, caption: str = "", reply_markup: dict | None = None):
+    try:
+        payload = {
+            "chat_id": chat_id,
+            "photo": photo_url,
+        }
+        if caption:
+            payload["caption"] = caption
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        tg_api("sendPhoto", payload)
+    except Exception as e:
+        print(f"[TELEGRAM ERROR] sendPhoto failed for {chat_id}: {e}")
+
+
+def send_document(chat_id: int, file_url: str, caption: str = ""):
+    try:
+        payload = {"chat_id": chat_id, "document": file_url}
+        if caption:
+            payload["caption"] = caption
+        tg_api("sendDocument", payload)
+    except Exception as e:
+        print(f"[TELEGRAM ERROR] sendDocument failed for {chat_id}: {e}")
 
 
 def broadcast_message(text: str):
@@ -156,6 +184,60 @@ def extract_from_note_lines(lines: list[str]) -> dict[str, str]:
     return result
 
 
+def normalize_phone(raw: str) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    cleaned = re.sub(r"[^\d+]", "", text)
+    if cleaned.startswith("00"):
+        cleaned = f"+{cleaned[2:]}"
+    return cleaned
+
+
+def build_whatsapp_url(contact: str) -> str:
+    phone = normalize_phone(contact)
+    phone = phone.replace("+", "")
+    return f"https://wa.me/{phone}" if phone else ""
+
+
+def build_telegram_url(contact: str) -> str:
+    value = str(contact or "").strip()
+    if not value:
+        return ""
+    if value.startswith("@"):
+        return f"https://t.me/{value[1:]}"
+    if re.fullmatch(r"[A-Za-z0-9_]{5,}", value):
+        return f"https://t.me/{value}"
+    return ""
+
+
+def extract_contact_details(row: dict, message_data, note_details: dict[str, str]) -> tuple[str, str, str]:
+    phone = pick_first(row, ["phone", "customer_phone"], default="")
+    if phone in {"", "—"}:
+        phone = note_details.get("phone", "")
+
+    channel = note_details.get("channel", "")
+    if isinstance(message_data, dict):
+        channel = channel or str(message_data.get("preferredContactChannel") or message_data.get("source") or "")
+
+    channel = channel.strip().lower()
+    contact_value = phone
+    if isinstance(message_data, dict):
+        for key in ["telegram", "telegramContact", "email", "phone", "whatsapp", "customerContact"]:
+            value = message_data.get(key)
+            if value and str(value).strip():
+                if key.startswith("telegram") and channel in {"telegram", ""}:
+                    contact_value = str(value).strip()
+                if key in {"phone", "whatsapp", "customerContact"} and channel in {"whatsapp", "phone", ""}:
+                    contact_value = str(value).strip()
+
+    if not channel:
+        low = str(contact_value).lower()
+        channel = "telegram" if "@" in low else "whatsapp"
+
+    return phone or "—", channel, contact_value or ""
+
+
 def build_requested_parts(message_data) -> str:
     if not isinstance(message_data, dict):
         return "—"
@@ -163,18 +245,83 @@ def build_requested_parts(message_data) -> str:
     if not isinstance(parts, list) or not parts:
         return "—"
     rendered = []
-    for part in parts[:3]:
+    for part in parts:
         if not isinstance(part, dict):
             continue
         name = str(part.get("name") or "деталь").strip()
         comment = str(part.get("comment") or "").strip()
         rendered.append(f"{name} ({comment})" if comment else name)
-    if len(parts) > 3:
-        rendered.append(f"+{len(parts) - 3} ещё")
     return ", ".join(rendered) if rendered else "—"
 
 
-def format_notification(row: dict) -> str:
+def as_list(value) -> list:
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return []
+    parsed = parse_structured(value)
+    return parsed if isinstance(parsed, list) else []
+
+
+def collect_media_urls(row: dict) -> tuple[list[str], list[str]]:
+    photos: list[str] = []
+    audios: list[str] = []
+
+    def add_photo(url):
+        if isinstance(url, str) and url.startswith(("http://", "https://")) and url not in photos:
+            photos.append(url)
+
+    def add_audio(url):
+        if isinstance(url, str) and url.startswith(("http://", "https://")) and url not in audios:
+            audios.append(url)
+
+    add_photo(row.get("car_photo_url"))
+    add_photo(row.get("vin_photo_url"))
+    for item in as_list(row.get("car_photos")):
+        add_photo(item)
+    for item in as_list(row.get("vin_photos")):
+        add_photo(item)
+
+    for note in as_list(row.get("notes")):
+        if not isinstance(note, dict):
+            continue
+        for item in as_list(note.get("photos")):
+            add_photo(item)
+        for item in as_list(note.get("audios")):
+            add_audio(item)
+
+    for part in as_list(row.get("parts")):
+        if not isinstance(part, dict):
+            continue
+        add_photo(part.get("photoUrl") or part.get("photo_url"))
+        for item in as_list(part.get("photos")):
+            add_photo(item)
+
+    return photos, audios
+
+
+def build_reply_markup(row: dict, channel: str, contact_value: str) -> dict | None:
+    buttons = []
+    channel_norm = channel.lower().strip()
+    if channel_norm == "whatsapp":
+        wa_url = build_whatsapp_url(contact_value)
+        if wa_url:
+            buttons.append({"text": "WhatsApp", "url": wa_url})
+    elif channel_norm == "telegram":
+        tg_url = build_telegram_url(contact_value)
+        if tg_url:
+            buttons.append({"text": "Telegram", "url": tg_url})
+
+    photos, audios = collect_media_urls(row)
+    if photos or audios:
+        buttons.append({"text": "📎 Медиа", "callback_data": f"media:{row.get('id')}"})
+
+    if not buttons:
+        return None
+    return {"inline_keyboard": [[button] for button in buttons]}
+
+
+def format_notification(row: dict) -> tuple[str, dict | None, str | None]:
     message_data = parse_structured(row.get("message"))
     notes_data = parse_structured(row.get("notes"))
 
@@ -208,27 +355,17 @@ def format_notification(row: dict) -> str:
     if name in {"", "—"}:
         name = note_details.get("name", "—")
 
-    phone = pick_first(row, ["phone", "customer_phone"], default="")
-    if phone in {"", "—"}:
-        phone = note_details.get("phone", "—")
-
-    channel = note_details.get("channel", "")
-    if isinstance(message_data, dict):
-        channel = channel or str(message_data.get("preferredContactChannel") or message_data.get("source") or "")
+    phone, channel, contact_value = extract_contact_details(row, message_data, note_details)
 
     vin = pick_first(row, ["vin"], default="")
     if vin in {"", "—"} and isinstance(message_data, dict):
         vin = str(message_data.get("vin") or "—")
 
     requested_parts = build_requested_parts(message_data)
-    contact_line = phone
-    if channel and channel != "—":
-        contact_line = f"{phone} ({channel})" if phone not in {"", "—"} else channel
-
-    return "\n".join(
+    contact_line = f"{phone} ({channel})" if channel else phone
+    text = "\n".join(
         [
             "🆕 Новый заказ",
-            f"🆔 ID: {pick_first(row, ['id'])}",
             f"🕒 Дата: {to_local_time(pick_first(row, ['created_at', 'updated_at'], default=''))}",
             f"👤 Клиент: {name}",
             f"📞 Контакт: {contact_line or '—'}",
@@ -237,6 +374,46 @@ def format_notification(row: dict) -> str:
             f"🔧 Запрос: {requested_parts}",
         ]
     )
+    reply_markup = build_reply_markup(row, channel, contact_value)
+    car_photo = ""
+    for candidate in [row.get("car_photo_url"), *(as_list(row.get("car_photos")))]:
+        if isinstance(candidate, str) and candidate.startswith(("http://", "https://")):
+            car_photo = candidate
+            break
+    return text, reply_markup, car_photo or None
+
+
+def fetch_order_by_id(order_id: str) -> dict | None:
+    params = urllib.parse.urlencode({"select": "*", "id": f"eq.{order_id}", "limit": "1"})
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/orders?{params}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Accept": "application/json",
+    }
+    rows = http_json(url=url, method="GET", headers=headers, timeout=30)
+    if isinstance(rows, list) and rows:
+        return rows[0]
+    return None
+
+
+def send_order_media(chat_id: int, order_id: str):
+    try:
+        row = fetch_order_by_id(order_id)
+        if not row:
+            send_message(chat_id, "⚠️ Заказ не найден")
+            return
+        photos, audios = collect_media_urls(row)
+        if not photos and not audios:
+            send_message(chat_id, "ℹ️ Для этого заказа нет медиа")
+            return
+        for idx, photo_url in enumerate(photos, start=1):
+            send_photo(chat_id, photo_url, caption=f"Фото {idx}/{len(photos)}")
+        for idx, audio_url in enumerate(audios, start=1):
+            send_document(chat_id, audio_url, caption=f"Аудио {idx}/{len(audios)}")
+    except Exception as e:
+        print(f"[MEDIA ERROR] order={order_id}: {e}")
+        send_message(chat_id, "⚠️ Не удалось отправить медиа")
 
 
 def fetch_rows(table: str, select_fields: str, order_field: str) -> list[dict]:
@@ -326,7 +503,14 @@ def supabase_poll_loop():
                 any_success = True
                 new_rows = find_new_rows(source_name, rows, order_field)
                 for row in new_rows:
-                    broadcast_message(format_notification(row))
+                    text, reply_markup, car_photo = format_notification(row)
+                    if not subscribers:
+                        continue
+                    for chat_id in list(subscribers):
+                        if car_photo:
+                            send_photo(chat_id, car_photo, caption=text, reply_markup=reply_markup)
+                        else:
+                            send_message(chat_id, text, reply_markup=reply_markup)
                     print(f"[SENT] {source_name} id={row.get('id')}")
 
             if not any_success:
@@ -375,6 +559,20 @@ def cmd_status(chat_id: int):
 
 
 def handle_update(upd: dict):
+    callback = upd.get("callback_query") or {}
+    if callback:
+        data = str(callback.get("data") or "")
+        callback_id = callback.get("id")
+        callback_chat_id = (((callback.get("message") or {}).get("chat") or {}).get("id"))
+        if callback_id:
+            try:
+                tg_api("answerCallbackQuery", {"callback_query_id": callback_id})
+            except Exception:
+                pass
+        if callback_chat_id is not None and data.startswith("media:"):
+            send_order_media(int(callback_chat_id), data.split(":", 1)[1])
+        return
+
     message = upd.get("message") or {}
     text = (message.get("text") or "").strip()
     chat = message.get("chat") or {}
@@ -408,7 +606,7 @@ def telegram_updates_loop():
                 {
                     "timeout": 30,
                     "offset": offset,
-                    "allowed_updates": ["message"],
+                    "allowed_updates": ["message", "callback_query"],
                 },
             )
             updates = result.get("result", []) if isinstance(result, dict) else []
