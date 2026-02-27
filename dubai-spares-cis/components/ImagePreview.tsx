@@ -57,25 +57,46 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
 
   const currentImageUrl = images[currentIndex];
 
+  const toImageFile = async (url: string, index: number) => {
+    const response = await fetch(url, { mode: 'cors' });
+    const blob = await response.blob();
+    const ext = blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : 'jpg';
+    return new File([blob], `photo-${index + 1}.${ext}`, { type: blob.type || 'image/jpeg' });
+  };
+
   const handleShare = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (!currentImageUrl) return;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: 'Фото', url: currentImageUrl });
-      } catch {
-        // user cancelled share sheet
+    if (!images.length || !navigator.share) return;
+    try {
+      const preparedFiles = await Promise.allSettled(images.map((image, index) => toImageFile(image, index)));
+      const files = preparedFiles
+        .filter((item): item is PromiseFulfilledResult<File> => item.status === 'fulfilled')
+        .map((item) => item.value);
+
+      if (files.length > 0 && navigator.canShare?.({ files })) {
+        await navigator.share({ title: 'Фото автомобиля', files });
+        return;
       }
+
+      await navigator.share({
+        title: 'Фото автомобиля',
+        text: images.join('\n')
+      });
+    } catch {
+      // user cancelled share sheet
     }
   };
 
   const handleSave = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (!currentImageUrl) return;
-    const link = document.createElement('a');
-    link.href = currentImageUrl;
-    link.download = 'image.jpg';
-    link.click();
+    if (!images.length) return;
+    images.forEach((url, index) => {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `image-${index + 1}.jpg`;
+      link.rel = 'noopener';
+      link.click();
+    });
   };
 
   useEffect(() => {
