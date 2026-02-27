@@ -37,6 +37,12 @@ const CONTACT_CHANNEL_LABELS: Record<'whatsapp' | 'telegram' | 'email' | 'phone'
   phone: 'Телефон'
 };
 
+const PRIORITY_LABELS: Record<Priority, string> = {
+  [Priority.LOW]: 'Низкий',
+  [Priority.MEDIUM]: 'Средний',
+  [Priority.HIGH]: 'Высокий'
+};
+
 const POPULAR_BRANDS = ['Toyota', 'BMW', 'Mercedes-Benz', 'Lexus', 'Kia', 'Hyundai'];
 const PART_SUGGESTIONS: Record<string, string[]> = {
   'BMW|5 Series|E39': ['Front bumper', 'Hood', 'Headlight', 'Engine', 'Transmission']
@@ -174,6 +180,7 @@ const ButtonDropdown: React.FC<{
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const justSelectedAtRef = useRef(0);
 
   const filteredOptions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -202,7 +209,11 @@ const ButtonDropdown: React.FC<{
       <button
         type="button"
         disabled={disabled}
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          const justSelected = Date.now() - justSelectedAtRef.current < 220;
+          if (justSelected) return;
+          setOpen((prev) => !prev);
+        }}
         className="flex h-14 w-full items-center justify-between rounded-3xl border border-white/15 bg-white/10 px-5 text-left text-base outline-none disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className={value ? 'text-white' : 'text-slate-300'}>{value || `${placeholder}${required ? ' *' : ''}`}</span>
@@ -226,6 +237,7 @@ const ButtonDropdown: React.FC<{
                 key={item}
                 type="button"
                 onClick={() => {
+                  justSelectedAtRef.current = Date.now();
                   onChange(item);
                   setOpen(false);
                   setQuery('');
@@ -757,6 +769,7 @@ const PublicOrderFormScreen: React.FC = () => {
 VIN: ${vin || 'VIN не указан'}
 Engine code: ${engineCode || '—'}
 Country: ${deliveryCountry}
+Priority: ${PRIORITY_LABELS[orderPriority]}
 Primary contact: ${CONTACT_CHANNEL_LABELS[preferredContactChannel]} ${primaryContactValue || '—'}
 Best time: ${bestContactTime || '—'}`,
         photos: uploadedVinPhotos,
@@ -815,6 +828,7 @@ Best time: ${bestContactTime || '—'}`,
           vin: vin.trim(),
           bodyType: bodyType.trim() || null,
           requestedParts: filledRequestedParts.map((part) => ({ name: part.name.trim(), comment: part.comment || null })),
+          priority: orderPriority,
           refCode: refCode || null,
           preferredContactChannel,
           bestContactTime: bestContactTime || null
@@ -1255,6 +1269,23 @@ Best time: ${bestContactTime || '—'}`,
               <p className="text-sm">🌍 Доставка: {deliveryCountry || '—'} {deliveryCity ? `(${deliveryCity})` : ''}</p>
               <p className="text-sm">Контакт: {CONTACT_CHANNEL_LABELS[preferredContactChannel]}</p>
               <p className="text-sm">VIN: {vin || 'VIN не указан'}</p>
+              <p className="text-sm">Приоритет: {PRIORITY_LABELS[orderPriority]}</p>
+
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">Приоритет заявки</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[Priority.LOW, Priority.MEDIUM, Priority.HIGH].map((priority) => (
+                    <button
+                      key={priority}
+                      type="button"
+                      onClick={() => setOrderPriority(priority)}
+                      className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${orderPriority === priority ? 'border-amber-200 bg-amber-200/20 text-amber-100' : 'border-white/20 text-slate-200 hover:bg-white/10'}`}
+                    >
+                      {PRIORITY_LABELS[priority]}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <div className="mt-4 space-y-2 text-xs text-slate-100">
                 <p className="font-semibold">Детали:</p>
