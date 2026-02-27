@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Camera, Check, ChevronDown, ChevronLeft, Copy, Mic, MicOff, Search, Trash2, Upload } from 'lucide-react';
+import { ArrowRight, Camera, Check, ChevronDown, ChevronLeft, Copy, Loader2, Mic, MicOff, Search, Trash2, Upload } from 'lucide-react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
 import { leadCreate } from '../serverApi';
 import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
@@ -21,6 +21,12 @@ const DRAFT_LINK_ID_KEY = 'public_order_form_draft_link_id_v1';
 const MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
 
 const STEP_NAMES = ['Автомобиль', 'Детали', 'Контакты', 'Подтверждение'];
+const STEP_TITLES: Record<FormStep, string> = {
+  1: 'Введите, пожалуйста, данные вашего автомобиля',
+  2: 'Введите, какую запчасть вы ищете',
+  3: 'Укажите контакты для связи и доставки',
+  4: 'Проверьте данные и подтвердите отправку заявки'
+};
 const CONTACT_TIME_OPTIONS = [
   '09:00 - 11:00',
   '11:00 - 13:00',
@@ -287,6 +293,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const [recordingTick, setRecordingTick] = useState(0);
   const [manualModelMode, setManualModelMode] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [submitProgress, setSubmitProgress] = useState(0);
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [messageSourceTouched, setMessageSourceTouched] = useState(false);
@@ -323,6 +330,24 @@ const PublicOrderFormScreen: React.FC = () => {
   }, [cityQuery, deliveryCityOptions]);
   const smartSuggestionKey = `${brand}|${model}|${bodyType}`;
   const progress = (step / TOTAL_STEPS) * 100;
+  const stepTitle = STEP_TITLES[step];
+
+  useEffect(() => {
+    if (!isSubmitting) {
+      setSubmitProgress(0);
+      return;
+    }
+
+    setSubmitProgress(8);
+    const progressTimer = window.setInterval(() => {
+      setSubmitProgress((current) => {
+        if (current >= 92) return current;
+        return Math.min(92, current + Math.max(2, Math.round((100 - current) * 0.12)));
+      });
+    }, 220);
+
+    return () => window.clearInterval(progressTimer);
+  }, [isSubmitting]);
   const voiceEnabled = Boolean(navigator.mediaDevices?.getUserMedia);
 
   useEffect(() => {
@@ -1003,7 +1028,7 @@ Best time: ${bestContactTime || '—'}`,
           {companyLogoUrl && <img src={companyLogoUrl} alt="Company logo" className="h-10 w-auto max-w-[160px] object-contain" />}
         </div>
                 <div className="mt-2 flex items-center justify-between gap-3">
-                  <h1 className="text-3xl font-semibold tracking-tight">Премиальная заявка на запчасти</h1>
+                  <h1 className="text-3xl font-semibold tracking-tight">{stepTitle}</h1>
                   <button type="button" onClick={startNewRequest} className="rounded-2xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold">Начать новую заявку</button>
                 </div>
 
@@ -1336,11 +1361,22 @@ Best time: ${bestContactTime || '—'}`,
           <button type="button" onClick={goNext} disabled={isSubmitting} aria-disabled={!canContinue} className={`flex h-12 min-w-[160px] items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold transition ${canContinue ? 'bg-white text-slate-950' : 'bg-white/70 text-slate-700'} disabled:cursor-not-allowed disabled:opacity-40`}>Далее<ArrowRight className="h-4 w-4" /></button>
           ) : (
             <>
-              <button type="button" onClick={() => setShowSubmitConfirm(true)} disabled={isSubmitting || submitLockedRef.current} className="flex h-12 min-w-[180px] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-200 to-white px-6 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40">{isSubmitting ? 'Отправка...' : 'Подтвердить заявку'}<Copy className="h-4 w-4" /></button>
+              <button type="button" onClick={() => setShowSubmitConfirm(true)} disabled={isSubmitting || submitLockedRef.current} className="flex h-12 min-w-[180px] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-200 to-white px-6 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40">{isSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" />Отправка... {submitProgress}%</>) : (<>Подтвердить заявку<Copy className="h-4 w-4" /></>)}</button>
               {submitController && <button type="button" onClick={() => submitController.abort('user_cancelled')} className="flex h-12 min-w-[160px] items-center justify-center gap-2 rounded-full border border-white/40 px-6 text-sm font-semibold text-white">Отменить отправку</button>}
             </>
           )}
         </div>
+        {isSubmitting && (
+          <div className="mx-auto mt-3 w-full max-w-2xl rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
+            <div className="mb-1 flex items-center justify-between text-[11px] text-slate-200">
+              <span>Отправляем заявку, пожалуйста подождите…</span>
+              <span>{submitProgress}%</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/15">
+              <div className="h-full rounded-full bg-gradient-to-r from-amber-300 via-orange-300 to-yellow-100 transition-all duration-200" style={{ width: `${submitProgress}%` }} />
+            </div>
+          </div>
+        )}
       </div>
 
       {showSubmitConfirm && (
