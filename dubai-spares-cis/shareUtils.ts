@@ -335,12 +335,9 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
     rates: options?.rates
   });
   const link = snapshot.url;
-  const text = `Quote for ${order.brand} ${order.model} ${order.year}`;
 
   if (navigator.share) {
     await navigator.share({
-      title: text,
-      text,
       url: link
     });
     return { method: 'native' as const, link };
@@ -351,7 +348,7 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
     return { method: 'clipboard' as const, link };
   }
 
-  await shareMessage(`Hello! We found the parts for your ${order.brand} ${order.model}. View details and prices here: ${link}`);
+  await shareMessage(link);
   return { method: 'fallback' as const, link };
 };
 
