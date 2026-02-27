@@ -228,6 +228,7 @@ const SuppliersScreen: React.FC = () => {
   const [brandFilter, setBrandFilter] = useState('all');
   const [modelFilter, setModelFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
+  const [partCategoryFilter, setPartCategoryFilter] = useState('all');
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [expandedAddedPartsIds, setExpandedAddedPartsIds] = useState<Set<string>>(new Set());
   const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
@@ -355,6 +356,7 @@ const SuppliersScreen: React.FC = () => {
     const brands = new Set<string>();
     const models = new Set<string>();
     const years = new Set<string>();
+    const partCategories = new Set<string>();
 
     rawSuppliers.forEach((supplier) => {
       pickSupplierBrands(supplier).forEach((brand) => {
@@ -366,12 +368,16 @@ const SuppliersScreen: React.FC = () => {
       normalizeSupplierYears(supplier.years).forEach((year) => {
         years.add(String(year));
       });
+      (supplier.mainPartCategories || []).forEach((category) => {
+        if (category) partCategories.add(category);
+      });
     });
 
     return {
       brands: Array.from(brands).sort((a, b) => a.localeCompare(b)),
       models: Array.from(models).sort((a, b) => a.localeCompare(b)),
-      years: Array.from(years).sort((a, b) => Number(b) - Number(a))
+      years: Array.from(years).sort((a, b) => Number(b) - Number(a)),
+      partCategories: Array.from(new Set([...SUPPLIER_PART_CATEGORIES, ...partCategories])).sort((a, b) => a.localeCompare(b))
     };
   }, [rawSuppliers]);
 
@@ -392,7 +398,8 @@ const SuppliersScreen: React.FC = () => {
         const modelMatch = modelFilter === 'all' || (supplier.models || []).includes(modelFilter);
         const supplierYears = normalizeSupplierYears(supplier.years);
         const yearMatch = !hasSelectedYear || supplierYears.includes(selectedYear);
-        return brandMatch && modelMatch && yearMatch;
+        const categoryMatch = partCategoryFilter === 'all' || (supplier.mainPartCategories || []).includes(partCategoryFilter);
+        return brandMatch && modelMatch && yearMatch && categoryMatch;
       })
       .sort((a, b) => {
       const distanceA = calcDistanceKm(a);
@@ -404,7 +411,7 @@ const SuppliersScreen: React.FC = () => {
       if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
       return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
     });
-  }, [brandFilter, modelFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
+  }, [brandFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -911,26 +918,46 @@ const SuppliersScreen: React.FC = () => {
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
         Debug: rawSuppliers.length = {rawSuppliers.length} · filteredSuppliers.length = {filteredSuppliers.length}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-        <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
-          <option value="smart">Sort: smart</option>
-          <option value="trust">Trust ↓</option>
-          <option value="heat">Heat ↓</option>
-          <option value="near">Distance ↑</option>
-          <option value="name">Name A→Z</option>
-        </select>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-          <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
+      <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Filters</p>
+          <button
+            type="button"
+            onClick={() => {
+              setSortByExtended('smart');
+              setBrandFilter('all');
+              setModelFilter('all');
+              setYearFilter('all');
+              setPartCategoryFilter('all');
+            }}
+            className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600"
+          >
+            Reset
+          </button>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
+            <option value="smart">Sort: smart</option>
+            <option value="trust">Trust ↓</option>
+            <option value="heat">Heat ↓</option>
+            <option value="near">Distance ↑</option>
+            <option value="name">Name A→Z</option>
+          </select>
+          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
             <option value="all">Brand: all</option>
             {supplierFilterOptions.brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
           </select>
-          <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
+          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
             <option value="all">Model: all</option>
             {supplierFilterOptions.models.map((model) => <option key={model} value={model}>{model}</option>)}
           </select>
-          <select className="rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-semibold" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
+          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
             <option value="all">Year: all</option>
             {supplierFilterOptions.years.map((year) => <option key={year} value={year}>{year}</option>)}
+          </select>
+          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={partCategoryFilter} onChange={(e) => setPartCategoryFilter(e.target.value)}>
+            <option value="all">Part category: all</option>
+            {supplierFilterOptions.partCategories.map((category) => <option key={category} value={category}>{category}</option>)}
           </select>
         </div>
       </div>

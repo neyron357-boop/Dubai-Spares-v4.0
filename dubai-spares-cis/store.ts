@@ -30,6 +30,9 @@ const normalizeSupplier = (supplier: Supplier): Supplier => ({
     ? supplier.years.map((year) => Number(year)).filter((year) => Number.isFinite(year))
     : [],
   bodyTypes: Array.isArray(supplier.bodyTypes) ? supplier.bodyTypes : [],
+  mainPartCategories: Array.isArray(supplier.mainPartCategories)
+    ? supplier.mainPartCategories.filter((category): category is string => typeof category === 'string' && category.trim().length > 0)
+    : [],
   primaryBrand: typeof supplier.primaryBrand === 'string' ? supplier.primaryBrand : (Array.isArray(supplier.mainBrands) && supplier.mainBrands[0]) || '',
   gpsAccuracyMeters: Number.isFinite(Number(supplier.gpsAccuracyMeters)) ? Number(supplier.gpsAccuracyMeters) : undefined,
   workingHours: typeof supplier.workingHours === 'string' ? supplier.workingHours : '',

@@ -131,36 +131,34 @@ const VendorSliderContent: React.FC = () => {
   const availableCarImages = carImages.filter((image) => !brokenImages[image]);
 
   return (
-    <div className="absolute inset-0 z-50 h-full w-full overflow-hidden bg-[#0B1220] text-white">
+    <div className="absolute inset-0 z-50 flex h-full w-full flex-col overflow-hidden bg-[#0B1220] text-white">
       <div className="relative h-[32vh] min-h-[210px] max-h-[300px] overflow-hidden border-b border-slate-800">
         {availableCarImages[0] ? (
           <button type="button" onClick={() => setGallery({ images: availableCarImages, index: 0 })} className="h-full w-full">
             <SafeImage src={availableCarImages[0]} alt="car" className="h-full w-full object-cover" onError={() => setBrokenImages((prev) => ({ ...prev, [availableCarImages[0]]: true }))} />
           </button>
         ) : <div className="h-full w-full bg-slate-900" />}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
         <div className="absolute right-3 top-3 z-10 flex gap-2">
           <button type="button" onClick={() => setFiltersOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Filter size={18} /></button>
           <button type="button" onClick={() => setSelectedBrand(null)} className="rounded-full bg-black/45 px-3 text-[11px] font-bold">Марки</button>
           <button type="button" onClick={() => navigate(-1)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><X size={20} /></button>
         </div>
-        <div className="absolute bottom-3 left-3 right-3 z-10">
-          <div className="rounded-2xl border border-white/20 bg-black/45 p-3 backdrop-blur-sm">
-            <p className="truncate text-xl font-black leading-tight">{current.brand} {current.model}</p>
-            <p className="mt-1 text-sm font-bold text-amber-200">{current.year} · {current.bodyType || '—'} · {current.visibleParts.length} деталей</p>
-            <p className="mt-1 truncate text-xs font-bold tracking-[0.18em] text-amber-300">VIN: {current.vin || '—'}</p>
-            <button
-              type="button"
-              onClick={() => navigate(`/order/${current.id}`)}
-              className="mt-2 rounded-xl border border-white/35 bg-black/30 px-3 py-1 text-xs font-bold text-white"
-            >
-              Открыть заказ
-            </button>
-          </div>
-        </div>
       </div>
 
-      <div className="h-[calc(100%-30vh)] overflow-y-auto p-3 space-y-2" onTouchStart={(e) => { const t = e.targetTouches[0]; touchStart.current = { x: t.clientX, y: t.clientY }; }} onTouchEnd={(e) => { if (!touchStart.current) return; const t = e.changedTouches[0]; const dx = t.clientX - touchStart.current.x; const dy = t.clientY - touchStart.current.y; if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.15) goTo(index + (dx > 0 ? -1 : 1)); touchStart.current = null; }}>
+      <div className="border-b border-slate-800 px-3 pb-3 pt-2">
+        <p className="truncate text-xl font-black leading-tight">{current.brand} {current.model}</p>
+        <p className="mt-1 text-sm font-bold text-amber-200">{current.year} · {current.bodyType || '—'} · {current.visibleParts.length} деталей</p>
+        <p className="mt-1 truncate text-xs font-bold tracking-[0.18em] text-amber-300">VIN: {current.vin || '—'}</p>
+        <button
+          type="button"
+          onClick={() => navigate(`/order/${current.id}`)}
+          className="mt-2 rounded-xl border border-slate-600 px-3 py-1 text-xs font-bold text-white"
+        >
+          Открыть заказ
+        </button>
+        </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-2" onTouchStart={(e) => { const t = e.targetTouches[0]; touchStart.current = { x: t.clientX, y: t.clientY }; }} onTouchEnd={(e) => { if (!touchStart.current) return; const t = e.changedTouches[0]; const dx = t.clientX - touchStart.current.x; const dy = t.clientY - touchStart.current.y; if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.15) goTo(index + (dx > 0 ? -1 : 1)); touchStart.current = null; }}>
         {current.visibleParts.map((part) => {
           const images = sanitizeImages([
             ...(Array.isArray(part.photos) ? part.photos : []),
