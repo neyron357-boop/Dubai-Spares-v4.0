@@ -230,6 +230,7 @@ const SuppliersScreen: React.FC = () => {
   const [yearFilter, setYearFilter] = useState('all');
   const [partCategoryFilter, setPartCategoryFilter] = useState('all');
   const [favoriteFilter, setFavoriteFilter] = useState<'all' | 'favorites'>('all');
+  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [expandedAddedPartsIds, setExpandedAddedPartsIds] = useState<Set<string>>(new Set());
   const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
@@ -918,8 +919,14 @@ const SuppliersScreen: React.FC = () => {
       </button>
 
       <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Filters</p>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => setIsFiltersOpen((prev) => !prev)}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black uppercase tracking-[0.14em] text-slate-600"
+          >
+            Filters {isFiltersOpen ? '▲' : '▼'}
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -935,37 +942,41 @@ const SuppliersScreen: React.FC = () => {
             Reset
           </button>
         </div>
-        <div className="mb-2">
-          <select className="w-full rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
-            <option value="smart">Sort: smart</option>
-            <option value="trust">Trust ↓</option>
-            <option value="heat">Heat ↓</option>
-            <option value="near">Distance ↑</option>
-            <option value="name">Name A→Z</option>
-          </select>
-        </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={favoriteFilter} onChange={(e) => setFavoriteFilter(e.target.value as 'all' | 'favorites')}>
-            <option value="all">Suppliers: all</option>
-            <option value="favorites">Избранные поставщики</option>
-          </select>
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
-            <option value="all">Brand: all</option>
-            {supplierFilterOptions.brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
-          </select>
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
-            <option value="all">Model: all</option>
-            {supplierFilterOptions.models.map((model) => <option key={model} value={model}>{model}</option>)}
-          </select>
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
-            <option value="all">Year: all</option>
-            {supplierFilterOptions.years.map((year) => <option key={year} value={year}>{year}</option>)}
-          </select>
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={partCategoryFilter} onChange={(e) => setPartCategoryFilter(e.target.value)}>
-            <option value="all">Part category: all</option>
-            {supplierFilterOptions.partCategories.map((category) => <option key={category} value={category}>{category}</option>)}
-          </select>
-        </div>
+        {isFiltersOpen && (
+          <>
+            <div className="mb-2">
+              <select className="w-full rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
+                <option value="smart">Sort: smart</option>
+                <option value="trust">Trust ↓</option>
+                <option value="heat">Heat ↓</option>
+                <option value="near">Distance ↑</option>
+                <option value="name">Name A→Z</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={favoriteFilter} onChange={(e) => setFavoriteFilter(e.target.value as 'all' | 'favorites')}>
+                <option value="all">Suppliers: all</option>
+                <option value="favorites">Избранные поставщики</option>
+              </select>
+              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
+                <option value="all">Brand: all</option>
+                {supplierFilterOptions.brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+              </select>
+              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
+                <option value="all">Model: all</option>
+                {supplierFilterOptions.models.map((model) => <option key={model} value={model}>{model}</option>)}
+              </select>
+              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
+                <option value="all">Year: all</option>
+                {supplierFilterOptions.years.map((year) => <option key={year} value={year}>{year}</option>)}
+              </select>
+              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={partCategoryFilter} onChange={(e) => setPartCategoryFilter(e.target.value)}>
+                <option value="all">Part category: all</option>
+                {supplierFilterOptions.partCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+            </div>
+          </>
+        )}
       </div>
 
       {importError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-red-100"><AlertTriangle size={16} />{importError}</div>}
@@ -1168,9 +1179,10 @@ const SuppliersScreen: React.FC = () => {
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${s.type === 'scrapyard' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}><Icon size={24} /></div>
                       )}
                       <div className="min-w-0">
-                        <p className="font-black text-sm leading-tight truncate">{brands.slice(0, 2).join(' • ') || 'Без марки'}</p>
+                        <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">Название поставщика</p>
+                        <p className="font-black text-sm leading-tight truncate">{s.name}</p>
                         <p className="text-[11px] font-semibold text-indigo-600 truncate">{(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}</p>
-                        <p className="text-[11px] text-gray-500 truncate">{s.name}</p>
+                        <p className="text-[11px] text-gray-500 truncate">{brands.slice(0, 2).join(' • ') || 'Без марки'}</p>
                       </div>
                     </div>
                     <div className="text-right text-[10px] text-slate-500">

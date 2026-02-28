@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Order } from '../types';
-import { X, Share2, RefreshCcw, Images } from 'lucide-react';
+import { X, Share2, RefreshCcw, Images, CheckCircle2 } from 'lucide-react';
 import { DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
 import ImagePreview from './ImagePreview';
 import { useAppSettings } from '../appSettings';
