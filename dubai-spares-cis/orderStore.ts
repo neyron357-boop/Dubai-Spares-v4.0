@@ -498,7 +498,7 @@ const notifyAboutIncomingLeads = (previousOrders: Order[], nextOrders: Order[]) 
     });
   });
 };
-const getMissingColumnName = (error: unknown): string | null => {
+const getMissingColumnIssue = (error: unknown): { table: 'orders' | 'parts' | 'price_variants'; column: string } | null => {
   if (typeof error !== 'object' || !error) return null;
   const anyErr = error as { code?: unknown; message?: unknown };
   if (typeof anyErr.message !== 'string') return null;
@@ -506,13 +506,27 @@ const getMissingColumnName = (error: unknown): string | null => {
   const message = anyErr.message;
   if (anyErr.code === 'PGRST204') {
     const match = message.match(/Could not find the '([^']+)' column of 'orders'/);
-    return match?.[1] || null;
+    return match?.[1] ? { table: 'orders', column: match[1] } : null;
   }
 
   if (anyErr.code === '42703') {
-    const postgresMatch = message.match(/column\s+orders\.([a-zA-Z0-9_]+)\s+does not exist/i);
-    const quotedMatch = message.match(/column\s+["']?orders["']?\.["']?([a-zA-Z0-9_]+)["']?\s+does not exist/i);
-    return postgresMatch?.[1] || quotedMatch?.[1] || null;
+    const missingColumnPatterns = [
+      /column\s+(["']?)([a-zA-Z0-9_]+)\1\.(["']?)([a-zA-Z0-9_]+)\3\s+does not exist/i,
+      /column\s+([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s+does not exist/i
+    ];
+
+    for (const pattern of missingColumnPatterns) {
+      const match = message.match(pattern);
+      if (!match) continue;
+
+      const relation = match[2] || match[1];
+      const column = match[4] || match[2];
+      if (!relation || !column) continue;
+
+      if (relation === 'orders') return { table: 'orders', column };
+      if (relation.startsWith('parts')) return { table: 'parts', column };
+      if (relation.startsWith('price_variants')) return { table: 'price_variants', column };
+    }
   }
 
   return null;
@@ -560,21 +574,32 @@ const fetchOrdersGraphWithSchemaFallbacks = async () => {
       continue;
     }
 
-    const missingColumn = getMissingColumnName(response.error);
-    if (!missingColumn || !orderColumns.includes(missingColumn)) {
+    const missingIssue = getMissingColumnIssue(response.error);
+    if (!missingIssue) {
       return response;
     }
 
-    const isNewlyMissing = markMissingColumn('orders', missingColumn);
-    if (isNewlyMissing && !schemaMissingColumns.has(missingColumn)) {
-      schemaMissingColumns.add(missingColumn);
-      addMissingColumns([missingColumn]);
-      syncPerf.addSchemaWarning(`orders.${missingColumn}`);
-      logSyncCategory('SCHEMA_MISMATCH', 'column_missing', { table: 'orders', column: missingColumn });
-      await logger.warn('sync:fetch', `schema_missing_columns: ["${missingColumn}"]`);
-      await logDatabaseIntegrity('sync:fetch', response.error, { column: missingColumn });
+    const tableColumns = getSelectableColumns(missingIssue.table);
+    if (!tableColumns.includes(missingIssue.column)) {
+      return response;
     }
-    orderColumns = orderColumns.filter((column) => column !== missingColumn);
+
+    const isNewlyMissing = markMissingColumn(missingIssue.table, missingIssue.column);
+    if (isNewlyMissing) {
+      const schemaKey = `${missingIssue.table}.${missingIssue.column}`;
+      if (!schemaMissingColumns.has(schemaKey)) {
+        schemaMissingColumns.add(schemaKey);
+        addMissingColumns([schemaKey]);
+      }
+      syncPerf.addSchemaWarning(schemaKey);
+      logSyncCategory('SCHEMA_MISMATCH', 'column_missing', { table: missingIssue.table, column: missingIssue.column });
+      await logger.warn('sync:fetch', `schema_missing_columns: ["${schemaKey}"]`);
+      await logDatabaseIntegrity('sync:fetch', response.error, { table: missingIssue.table, column: missingIssue.column });
+    }
+
+    if (missingIssue.table === 'orders') {
+      orderColumns = orderColumns.filter((column) => column !== missingIssue.column);
+    }
   }
 };
 
@@ -692,7 +717,7 @@ const isNetworkError = (error: unknown) => {
 };
 
 const isSchemaError = (error: unknown) => {
-  if (getMissingColumnName(error)) return true;
+  if (getMissingColumnIssue(error)) return true;
   if (typeof error !== 'object' || !error) return false;
   const anyErr = error as { status?: unknown; message?: unknown; code?: unknown };
   const status = Number(anyErr.status);
@@ -1170,13 +1195,13 @@ const persistOrderPatch = async (orderId: string, patch: Partial<Order>) => {
   let { error } = await supabase.from('orders').update(cleanPayload).eq('id', orderId);
 
   while (error) {
-    const missingColumn = getMissingColumnName(error);
-    if (!missingColumn || !(missingColumn in cleanPayload)) break;
-    markMissingColumn('orders', missingColumn);
-    addMissingColumns([missingColumn]);
-    syncPerf.addSchemaWarning(`orders.${missingColumn}`);
-    await logger.warn('sync:persist', `orders.${missingColumn} missing during patch; retrying without it`, { orderId });
-    cleanPayload = Object.fromEntries(Object.entries(cleanPayload).filter(([key]) => key !== missingColumn));
+    const missingIssue = getMissingColumnIssue(error);
+    if (!missingIssue || missingIssue.table !== 'orders' || !(missingIssue.column in cleanPayload)) break;
+    markMissingColumn('orders', missingIssue.column);
+    addMissingColumns([`orders.${missingIssue.column}`]);
+    syncPerf.addSchemaWarning(`orders.${missingIssue.column}`);
+    await logger.warn('sync:persist', `orders.${missingIssue.column} missing during patch; retrying without it`, { orderId });
+    cleanPayload = Object.fromEntries(Object.entries(cleanPayload).filter(([key]) => key !== missingIssue.column));
     ({ error } = await supabase.from('orders').update(cleanPayload).eq('id', orderId));
   }
 
