@@ -566,6 +566,29 @@ const jsonBytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(va
 
 const trimPayloadForSize = (payload: PublicQuotePayloadV1): { payload: PublicQuotePayloadV1; photosOmitted: boolean } => {
   if (jsonBytes(payload) <= MAX_PAYLOAD_BYTES) return { payload, photosOmitted: false };
+
+  const withPhotoLimit = (maxPhotosPerPart: number): PublicQuotePayloadV1 => ({
+    ...payload,
+    order: {
+      ...payload.order,
+      photo_omitted_notice: 'Some photos were reduced to keep link fast'
+    },
+    parts: payload.parts.map((part) => ({
+      ...part,
+      photo_urls: dedupePhotoUrls(part.photo_urls || []).slice(0, Math.max(0, maxPhotosPerPart))
+    }))
+  });
+
+  const payloadWithTwoPhotos = withPhotoLimit(2);
+  if (jsonBytes(payloadWithTwoPhotos) <= MAX_PAYLOAD_BYTES) {
+    return { payload: payloadWithTwoPhotos, photosOmitted: true };
+  }
+
+  const payloadWithOnePhoto = withPhotoLimit(1);
+  if (jsonBytes(payloadWithOnePhoto) <= MAX_PAYLOAD_BYTES) {
+    return { payload: payloadWithOnePhoto, photosOmitted: true };
+  }
+
   return {
     photosOmitted: true,
     payload: {
