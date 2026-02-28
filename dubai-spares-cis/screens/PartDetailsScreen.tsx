@@ -140,6 +140,7 @@ const PartDetailsScreen: React.FC = () => {
   const location = useLocation();
   const { orders, updateOrder, suppliers, addSupplier, updateSupplier } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sampleFileInputRef = useRef<HTMLInputElement>(null);
   const variantsListRef = useRef<HTMLDivElement>(null);
   const formSessionRef = useRef<string | null>(null);
   const generatedSupplierNamesRef = useRef<Set<string>>(new Set());
@@ -597,6 +598,41 @@ const PartDetailsScreen: React.FC = () => {
     setIsEditingPartName(true);
   };
 
+
+
+  const getSamplePhotos = () => {
+    if (part.photos && part.photos.length > 0) return part.photos;
+    if (part.photoUrl) return [part.photoUrl];
+    return [];
+  };
+
+  const replaceSamplePhotos = (photos: string[]) => {
+    const updatedParts = order.parts.map((p) => (p.id === part.id ? { ...p, photos, photoUrl: photos[0] || '' } : p));
+    updateOrder({ ...order, parts: updatedParts });
+  };
+
+  const removeSamplePhoto = (photoIndex: number) => {
+    const next = getSamplePhotos().filter((_, index) => index !== photoIndex);
+    replaceSamplePhotos(next);
+  };
+
+  const handleSamplePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    Promise.all(files.map(async (file) => {
+      try {
+        return await optimizeImageForUpload(file, `part-details:sample:${file.name}`);
+      } catch {
+        return '';
+      }
+    })).then((photos) => {
+      const merged = Array.from(new Set([...(getSamplePhotos() || []), ...photos.filter(Boolean)]));
+      replaceSamplePhotos(merged);
+    }).finally(() => {
+      e.target.value = '';
+    });
+  };
+
   const submitPartName = () => {
     const nextName = partNameDraft.trim();
     if (!nextName || nextName === part.name) {
@@ -655,6 +691,30 @@ const PartDetailsScreen: React.FC = () => {
       <div className="p-4 space-y-4">
         {!isAdding ? (
           <div className="space-y-3">
+            <div className="rounded-2xl border border-gray-200 bg-white p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Пример фото деталей</p>
+                <button type="button" onClick={() => sampleFileInputRef.current?.click()} className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-600">Добавить</button>
+              </div>
+              {getSamplePhotos().length > 0 ? (
+                <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                  {getSamplePhotos().map((photo, photoIndex) => (
+                    <div key={`${part.id}-sample-${photoIndex}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                      <button type="button" onClick={() => setGallery({ images: getSamplePhotos(), index: photoIndex })} className="h-full w-full">
+                        <img src={photo} className="h-full w-full object-cover" />
+                      </button>
+                      <button type="button" onClick={() => removeSamplePhoto(photoIndex)} className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white" aria-label="Удалить пример фото">
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[10px] font-semibold text-gray-400">Пока нет пример-фото.</p>
+              )}
+              <input type="file" ref={sampleFileInputRef} onChange={handleSamplePhotoChange} className="hidden" accept="image/*" multiple />
+            </div>
+
             <button type="button" onClick={() => { setIsAdding(true); setEditingVariantId(null); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg uppercase text-xs"><Plus size={20} /> Добавить вариант</button>
             {latestOrderVariant && (
               <button type="button" onClick={() => setForm((prev) => ({ ...prev, shopName: latestOrderVariant.shopName || '', phone: latestOrderVariant.phone || prev.phone, locationText: latestOrderVariant.locationText || latestOrderVariant.location || '' }))} className="w-full px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-black">Последний магазин: {latestOrderVariant.shopName}</button>

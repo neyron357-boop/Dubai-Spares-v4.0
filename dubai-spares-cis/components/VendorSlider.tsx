@@ -194,8 +194,8 @@ const VendorSliderContent: React.FC = () => {
         ) : <div className="h-full w-full bg-slate-900" />}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pb-3 pt-8">
           <p className="truncate text-xl font-black leading-tight">{current.brand} {current.model}</p>
-          <p className="mt-1 text-sm font-bold text-amber-200">{current.year} · {current.bodyType || '—'} · {current.visibleParts.length} деталей</p>
-          <p className="mt-1 truncate text-xs font-bold tracking-[0.18em] text-amber-300">VIN: {current.vin || '—'}</p>
+          <p className="mt-1 text-base font-black text-amber-200">{current.year} · {current.bodyType || '—'} · {current.visibleParts.length} деталей</p>
+          <p className="mt-1 truncate text-sm font-black tracking-[0.16em] text-amber-200">VIN: {current.vin || '—'}</p>
           <button
             type="button"
             onClick={() => navigate(`/order/${current.id}`)}
