@@ -37,14 +37,14 @@ import { addRadarManualSelection, getRadarManualSelections, RADAR_MANUAL_SELECTI
 import { toast } from '../feedback';
 
 const FIELD_TYPES: Array<{ value: SupplierType; label: string; icon: React.ReactNode }> = [
-  { value: 'new_parts', label: 'New Parts', icon: <Gem size={12} /> },
-  { value: 'scrapyard', label: 'Scrapyard', icon: <Wrench size={12} /> },
-  { value: 'engine_specialist', label: 'Engine Specialist', icon: <Wrench size={12} /> },
-  { value: 'body_parts', label: 'Body Parts', icon: <Wrench size={12} /> },
-  { value: 'electrical', label: 'Electrical', icon: <Sparkles size={12} /> },
-  { value: 'mixed', label: 'Mixed', icon: <Store size={12} /> },
-  { value: 'dealer', label: 'Dealer', icon: <Store size={12} /> },
-  { value: 'warehouse', label: 'Warehouse', icon: <Store size={12} /> }
+  { value: 'new_parts', label: 'Новые запчасти', icon: <Gem size={12} /> },
+  { value: 'scrapyard', label: 'Разборка', icon: <Wrench size={12} /> },
+  { value: 'engine_specialist', label: 'Специалист по ДВС', icon: <Wrench size={12} /> },
+  { value: 'body_parts', label: 'Кузовные детали', icon: <Wrench size={12} /> },
+  { value: 'electrical', label: 'Электрика', icon: <Sparkles size={12} /> },
+  { value: 'mixed', label: 'Смешанный профиль', icon: <Store size={12} /> },
+  { value: 'dealer', label: 'Официальный дилер', icon: <Store size={12} /> },
+  { value: 'warehouse', label: 'Склад', icon: <Store size={12} /> }
 ];
 
 const ZONE_GEOFENCES = [
@@ -112,9 +112,24 @@ const mergeUniqueYears = (current: number[] = [], incoming: number[] = []) => {
 const daysAgoLabel = (ts?: number) => {
   if (!ts || !Number.isFinite(ts)) return 'нет контактов';
   const diff = Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24));
-  if (diff <= 0) return 'сегодня';
+  if (diff <= 0) return 'Обновлено сегодня';
   if (diff === 1) return '1 день назад';
-  return `${diff} дней назад`;
+  return `Обновлено ${diff} дней назад`;
+};
+
+const CONTACT_STATUS = {
+  full: { label: '✅ Есть контакты', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+  partial: { label: '⚠️ Частично заполнено', className: 'border-amber-200 bg-amber-50 text-amber-700' },
+  empty: { label: '❌ Нет контактов', className: 'border-rose-200 bg-rose-50 text-rose-700' }
+};
+
+const getBrandBadge = (brand?: string) => {
+  const key = (brand || '').toLowerCase();
+  if (key.includes('bmw')) return { logo: '🟦', className: 'bg-blue-50 text-blue-700' };
+  if (key.includes('audi')) return { logo: '⚪', className: 'bg-zinc-100 text-zinc-700' };
+  if (key.includes('toyota')) return { logo: '🔴', className: 'bg-rose-50 text-rose-700' };
+  if (key.includes('mercedes')) return { logo: '⭐', className: 'bg-slate-100 text-slate-700' };
+  return { logo: '🚗', className: 'bg-indigo-50 text-indigo-700' };
 };
 
 const pickSupplierBrands = (supplier: Supplier) => {
@@ -224,7 +239,9 @@ const SuppliersScreen: React.FC = () => {
   const [contactWhatsapp, setContactWhatsapp] = useState('');
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [sortByDistanceRef, setSortByDistanceRef] = useState<{ lat: number; lng: number }>({ lat: 25.2048, lng: 55.2708 });
-  const [sortByExtended, setSortByExtended] = useState<'smart' | 'trust' | 'heat' | 'near' | 'name'>('smart');
+  const [sortByExtended, setSortByExtended] = useState<'smart' | 'trust' | 'heat' | 'near' | 'name' | 'updated' | 'rating' | 'contacts'>('smart');
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [contactsOnly, setContactsOnly] = useState(false);
   const [brandFilter, setBrandFilter] = useState('all');
   const [modelFilter, setModelFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
@@ -391,27 +408,43 @@ const SuppliersScreen: React.FC = () => {
 
     const selectedYear = Number(yearFilter);
     const hasSelectedYear = yearFilter !== 'all' && Number.isFinite(selectedYear);
+    const normalizedSearch = supplierSearch.trim().toLowerCase();
 
     return [...rawSuppliers]
       .filter((supplier) => {
-        const brandMatch = brandFilter === 'all' || pickSupplierBrands(supplier).includes(brandFilter);
+        const brands = pickSupplierBrands(supplier);
+        const hasPhone = isValidE164(normalizePhone(supplier.phone || ''));
+        const hasWhatsapp = isValidE164(normalizePhone(supplier.whatsapp || ''));
+        const hasContacts = hasPhone || hasWhatsapp;
+        const searchable = [supplier.name, ...brands].join(' ').toLowerCase();
+        const searchMatch = !normalizedSearch || searchable.includes(normalizedSearch);
+        const brandMatch = brandFilter === 'all' || brands.includes(brandFilter);
         const modelMatch = modelFilter === 'all' || (supplier.models || []).includes(modelFilter);
         const supplierYears = normalizeSupplierYears(supplier.years);
         const yearMatch = !hasSelectedYear || supplierYears.includes(selectedYear);
         const categoryMatch = partCategoryFilter === 'all' || (supplier.mainPartCategories || []).includes(partCategoryFilter);
-        return brandMatch && modelMatch && yearMatch && categoryMatch;
+        const contactsMatch = !contactsOnly || hasContacts;
+        return searchMatch && brandMatch && modelMatch && yearMatch && categoryMatch && contactsMatch;
       })
       .sort((a, b) => {
-      const distanceA = calcDistanceKm(a);
-      const distanceB = calcDistanceKm(b);
+        const distanceA = calcDistanceKm(a);
+        const distanceB = calcDistanceKm(b);
+        const ratingA = Number(a.autoTrustScore ?? a.trustLevel ?? 0);
+        const ratingB = Number(b.autoTrustScore ?? b.trustLevel ?? 0);
+        const updatedA = Number(a.updatedAt || 0);
+        const updatedB = Number(b.updatedAt || 0);
+        const contactsA = Number(Boolean(isValidE164(normalizePhone(a.phone || '')) || isValidE164(normalizePhone(a.whatsapp || ''))));
+        const contactsB = Number(Boolean(isValidE164(normalizePhone(b.phone || '')) || isValidE164(normalizePhone(b.whatsapp || ''))));
 
-      if (sortByExtended === 'trust') return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
-      if (sortByExtended === 'heat') return (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
-      if (sortByExtended === 'near') return distanceA - distanceB || (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0));
-      if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
-      return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
-    });
-  }, [brandFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
+        if (sortByExtended === 'trust' || sortByExtended === 'rating') return (ratingB - ratingA) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
+        if (sortByExtended === 'heat') return (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || (ratingB - ratingA) || distanceA - distanceB || a.name.localeCompare(b.name);
+        if (sortByExtended === 'near') return distanceA - distanceB || (ratingB - ratingA);
+        if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
+        if (sortByExtended === 'updated') return (updatedB - updatedA) || (ratingB - ratingA) || distanceA - distanceB;
+        if (sortByExtended === 'contacts') return (contactsB - contactsA) || (ratingB - ratingA) || a.name.localeCompare(b.name);
+        return (ratingB - ratingA) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
+      });
+  }, [brandFilter, contactsOnly, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, supplierSearch, yearFilter]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -893,6 +926,7 @@ const SuppliersScreen: React.FC = () => {
   };
 
   const requiredReady = !!toTitle(name.trim()) && isValidE164(currentPhone) && !!location.trim();
+  const activeOrderLinkSupplier = activeOrderLinkShopId ? filteredSuppliers.find((supplier) => supplier.id === activeOrderLinkShopId) || null : null;
 
   return (
     <div className="p-4 space-y-4 pb-20 overflow-x-hidden">
@@ -915,47 +949,63 @@ const SuppliersScreen: React.FC = () => {
         {isForceSyncingSuppliers ? 'Загружаю…' : 'Загрузить из сервера поставщиков'}
       </button>
 
-      <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Filters</p>
+      <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm space-y-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          <p className="font-bold">Легенда: <span className="font-semibold">Разборка</span> — б/у детали, <span className="font-semibold">Новые запчасти</span> — новые позиции от поставщика.</p>
+          <p className="mt-1 text-sm">Тег «Обновлено сегодня» означает, что поставщик недавно актуализировал контакты или карточку.</p>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-black uppercase tracking-[0.08em] text-slate-500">Фильтры</p>
           <button
             type="button"
             onClick={() => {
               setSortByExtended('smart');
+              setSupplierSearch('');
+              setContactsOnly(false);
               setBrandFilter('all');
               setModelFilter('all');
               setYearFilter('all');
               setPartCategoryFilter('all');
             }}
-            className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600"
+            className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold text-slate-600"
           >
-            Reset
+            Сбросить
           </button>
         </div>
-        <div className="mb-2">
-          <select className="w-full rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
-            <option value="smart">Sort: smart</option>
-            <option value="trust">Trust ↓</option>
-            <option value="heat">Heat ↓</option>
-            <option value="near">Distance ↑</option>
-            <option value="name">Name A→Z</option>
-          </select>
-        </div>
+        <input
+          value={supplierSearch}
+          onChange={(e) => setSupplierSearch(e.target.value)}
+          placeholder="Поиск по поставщику или бренду"
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium"
+        />
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
-            <option value="all">Brand: all</option>
+          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-sm font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
+            <option value="smart">Сортировка: умная</option>
+            <option value="trust">По доверию</option>
+            <option value="heat">По активности</option>
+            <option value="near">По расстоянию</option>
+            <option value="updated">По обновлению</option>
+            <option value="rating">По рейтингу</option>
+            <option value="contacts">Сначала с контактами</option>
+            <option value="name">По имени А→Я</option>
+          </select>
+          <label className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 inline-flex items-center gap-2">
+            <input type="checkbox" checked={contactsOnly} onChange={(e) => setContactsOnly(e.target.checked)} /> Только с контактами
+          </label>
+          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-sm font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
+            <option value="all">Марка: все</option>
             {supplierFilterOptions.brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
           </select>
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
-            <option value="all">Model: all</option>
+          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-sm font-semibold" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
+            <option value="all">Модель: все</option>
             {supplierFilterOptions.models.map((model) => <option key={model} value={model}>{model}</option>)}
           </select>
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
-            <option value="all">Year: all</option>
+          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-sm font-semibold" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
+            <option value="all">Год: все</option>
             {supplierFilterOptions.years.map((year) => <option key={year} value={year}>{year}</option>)}
           </select>
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={partCategoryFilter} onChange={(e) => setPartCategoryFilter(e.target.value)}>
-            <option value="all">Part category: all</option>
+          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-sm font-semibold" value={partCategoryFilter} onChange={(e) => setPartCategoryFilter(e.target.value)}>
+            <option value="all">Категория деталей: все</option>
             {supplierFilterOptions.partCategories.map((category) => <option key={category} value={category}>{category}</option>)}
           </select>
         </div>
@@ -988,7 +1038,7 @@ const SuppliersScreen: React.FC = () => {
               <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Телефон (E.164) *</label>
               <div className="flex gap-2">
                 <input placeholder="+971..." value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="off" className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
-                {currentPhone && <a href={`tel:${currentPhone}`} className="px-3 rounded-xl bg-green-50 text-green-700 text-[10px] font-black inline-flex items-center gap-1"><Phone size={12} />Call</a>}
+                {currentPhone && <a href={`tel:${currentPhone}`} className="px-3 rounded-xl bg-green-50 text-green-700 text-[10px] font-black inline-flex items-center gap-1"><Phone size={12} />Звонок</a>}
               </div>
               <p className={`text-[10px] mt-1 font-semibold ${isValidE164(currentPhone) ? 'text-green-700' : 'text-red-600'}`}>{isValidE164(currentPhone) ? `✔ ${currentPhone} · WhatsApp ${hasWhatsapp ? 'detected' : 'not detected'}` : 'Введите корректный E.164 (+971...)'}</p>
             </div>
@@ -1131,12 +1181,16 @@ const SuppliersScreen: React.FC = () => {
           <div className="py-20 text-center opacity-30 italic flex flex-col items-center gap-3"><Store size={48} />Поставщики не найдены</div>
         ) : (
           filteredSuppliers.map((s) => {
-            const Icon = s.type === 'scrapyard' ? Wrench : Gem;
             const brands = pickSupplierBrands(s);
+            const primaryBrandValue = brands[0] || '';
+            const brandBadge = getBrandBadge(primaryBrandValue);
+            const hasPhone = isValidE164(normalizePhone(s.phone || ''));
+            const hasWhatsappContact = isValidE164(normalizePhone(s.whatsapp || ''));
+            const contactStatus = hasPhone && hasWhatsappContact ? CONTACT_STATUS.full : (hasPhone || hasWhatsappContact) ? CONTACT_STATUS.partial : CONTACT_STATUS.empty;
             const isExpanded = expandedSupplierIds.has(s.id);
             const linkedParts = [...(s.linkedParts || [])].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-            const isManagePartsExpanded = activeOrderLinkShopId === s.id;
             const isAddedPartsExpanded = expandedAddedPartsIds.has(s.id);
+            const rating = Math.max(1, Math.min(5, Math.round(Number(s.autoTrustScore ?? s.trustLevel ?? 3))));
 
             return (
               <div key={s.id} className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}>
@@ -1156,23 +1210,24 @@ const SuppliersScreen: React.FC = () => {
                           <img src={((s.photos && s.photos[0]) || s.photoUrl) as string} alt={s.name} className="h-full w-full object-cover" />
                         </button>
                       ) : (
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${s.type === 'scrapyard' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}><Icon size={24} /></div>
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${brandBadge.className}`}><span className="text-lg">{brandBadge.logo}</span></div>
                       )}
                       <div className="min-w-0">
                         <p className="font-black text-sm leading-tight truncate">{brands.slice(0, 2).join(' • ') || 'Без марки'}</p>
-                        <p className="text-[11px] font-semibold text-indigo-600 truncate">{(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}</p>
-                        <p className="text-[11px] text-gray-500 truncate">{s.name}</p>
+                        <p className="text-base font-black text-slate-800 truncate">{s.name}</p>
+                        <p className="text-sm font-semibold text-indigo-600 truncate">{(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}</p>
                       </div>
                     </div>
-                    <div className="text-right text-[10px] text-slate-500">
-                      <p className="font-black">{s.coordinates ? `${Math.max(0.1, Number((Math.abs(s.coordinates.lat - sortByDistanceRef.lat) * 111).toFixed(1)))} km` : 'n/a'}</p>
+                    <div className="text-right text-xs text-slate-500">
+                      {s.coordinates ? <p className="font-black">{Math.max(0.1, Number((Math.abs(s.coordinates.lat - sortByDistanceRef.lat) * 111).toFixed(1)))} км</p> : null}
                       <p>{isExpanded ? 'Свернуть' : 'Открыть'}</p>
                     </div>
                   </div>
 
-                  <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
-                    <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
-                    <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{daysAgoLabel(s.lastContactAt)}</span>
+                  <div className="flex items-center flex-wrap gap-2 text-xs font-black">
+                    <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700" title="Рейтинг поставщика">{'★'.repeat(rating)}{'☆'.repeat(5 - rating)}</span>
+                    <span className={`rounded-full px-2 py-1 border ${contactStatus.className}`}>{contactStatus.label}</span>
+                    <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{daysAgoLabel(s.updatedAt || s.lastContactAt)}</span>
                   </div>
                 </button>
 
@@ -1180,17 +1235,16 @@ const SuppliersScreen: React.FC = () => {
                 {isExpanded && <>
                 <div className="rounded-xl border border-gray-100 bg-slate-50 p-2 space-y-1">
                   <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Марки:</span> {(brands.length > 0 ? brands : ['—']).join(', ')}</p>
-                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Модели:</span> {((s.models || []).length > 0 ? (s.models || []) : ['—']).join(', ')}</p>
-                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Годы:</span> {(normalizeSupplierYears(s.years).length > 0 ? normalizeSupplierYears(s.years).join(', ') : '—')}</p>
+                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Модели/годы:</span> {((s.models || []).length > 0 ? (s.models || []) : ['—']).join(', ')} • {(normalizeSupplierYears(s.years).length > 0 ? normalizeSupplierYears(s.years).join(', ') : '—')}</p>
+                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Категории:</span> {(s.mainPartCategories || []).slice(0, 4).join(', ') || '—'}</p>
                 </div>
-                {Array.isArray(s.mainPartCategories) && s.mainPartCategories.length > 0 && <p className="text-[11px] text-slate-500">Основные детали: {s.mainPartCategories.slice(0, 3).join(', ')}</p>}
 
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">
-                  <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Map</button>
+                  <button type="button" onClick={() => openMap(s.location || '')} title="Открыть на карте" aria-label="Открыть на карте" className="rounded-lg bg-red-50 px-2 py-1.5 text-xs font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Карта</button>
                   {(s.phone || '').trim() ? (
                     <>
-                      <a href={`https://wa.me/${((s.whatsapp || s.phone) || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
-                      <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-1.5 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
+                      <a href={`https://wa.me/${((s.whatsapp || s.phone) || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" title="Написать в WhatsApp" aria-label="Написать в WhatsApp" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-xs font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
+                      <a href={`tel:${s.phone}`} title="Позвонить поставщику" aria-label="Позвонить поставщику" className="rounded-lg bg-green-50 px-2 py-1.5 text-xs font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Звонок</a>
                     </>
                   ) : (
                     <>
@@ -1199,63 +1253,15 @@ const SuppliersScreen: React.FC = () => {
                       <button type="button" onClick={() => { navigator.clipboard.writeText(s.name); alert('Название скопировано'); }} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700">Скопировать название</button>
                     </>
                   )}
-                  <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput(normalizeSupplierYears(s.years).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
-                  <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
-                  <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
+                  <button type="button" title="Редактировать карточку" aria-label="Редактировать карточку" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput(normalizeSupplierYears(s.years).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Редактировать</button>
+                  <button type="button" title="Удалить поставщика" aria-label="Удалить поставщика" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-xs font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Удалить</button>
+                  <button type="button" title="Добавить в избранное" aria-label="Добавить в избранное" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-xs font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Избранное</button>
                   
                 </div>
                 </>}
                 {isExpanded && (
                 <div className="border-t border-gray-100 pt-3 space-y-2">
-                  <button type="button" onClick={() => setActiveOrderLinkShopId(isManagePartsExpanded ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-between gap-2"><span className="inline-flex items-center gap-2"><Link2 size={13} /> Управление деталями поставщика</span>{isManagePartsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>
-                  <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isManagePartsExpanded ? 800 : 0, opacity: isManagePartsExpanded ? 1 : 0 }}>
-                  {isManagePartsExpanded && (
-                    <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-2">
-                      <select
-                        className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold"
-                        value={selectedOrderBySupplier[s.id] || ''}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setSelectedOrderBySupplier((prev) => ({ ...prev, [s.id]: value }));
-                          setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: value, partId: prev?.partId || '' }));
-                        }}
-                      >
-                        <option value="">Выберите активный заказ...</option>
-                        {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model} • {order.vin}</option>)}
-                      </select>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const selectedOrderId = selectedOrderBySupplier[s.id];
-                          if (!selectedOrderId) return;
-                          const selectedOrder = activeOrders.find((order) => order.id === selectedOrderId);
-                          if (!selectedOrder) return;
-                          const selectedPartIds = activeOrderPartLink?.supplierId === s.id && activeOrderPartLink.partId
-                            ? [activeOrderPartLink.partId]
-                            : selectedOrder.parts.map((part) => part.id);
-                          addSupplierToOrder(s.id, selectedOrderId, selectedPartIds);
-                          alert('Поставщик добавлен в активный заказ.');
-                        }}
-                        className="w-full rounded-lg bg-blue-100 px-2 py-2 text-[11px] font-black text-blue-800"
-                      >
-                        Сохранить в активный заказ
-                      </button>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : ''} onChange={(e) => setActiveOrderPartLink({ supplierId: s.id, orderId: e.target.value, partId: '' })}>
-                          <option value="">Заказ для детали</option>
-                          {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model}</option>)}
-                        </select>
-                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.partId : ''} onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: (prev?.supplierId === s.id ? prev.orderId : '') || selectedOrderBySupplier[s.id] || '', partId: e.target.value }))}>
-                          <option value="">Деталь</option>
-                          {(activeOrders.find((order) => order.id === (activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : selectedOrderBySupplier[s.id]))?.parts || []).map((part) => <option key={part.id} value={part.id}>{part.name}</option>)}
-                        </select>
-                      </div>
-                      <button type="button" onClick={addSupplierToOrderPart} className="w-full rounded-lg bg-violet-100 px-2 py-2 text-[11px] font-black text-violet-800">Добавить деталь в карточку</button>
-                    </div>
-                  )}
-                  </div>
+                  <button type="button" onClick={() => setActiveOrderLinkShopId(s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-black text-blue-700 inline-flex items-center justify-between gap-2" title="Открыть управление деталями" aria-label="Открыть управление деталями"><span className="inline-flex items-center gap-2"><Link2 size={15} /> Открыть управление деталями</span><ChevronDown size={14} /></button>
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 space-y-2">
                     <button
@@ -1310,6 +1316,56 @@ const SuppliersScreen: React.FC = () => {
           })
         )}
       </div>
+
+
+      {activeOrderLinkSupplier && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3" onClick={() => setActiveOrderLinkShopId(null)}>
+          <div className="w-full max-w-lg rounded-2xl bg-white p-4 space-y-3 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <p className="text-base font-black">Управление деталями: {activeOrderLinkSupplier.name}</p>
+            <select
+              className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm font-semibold"
+              value={selectedOrderBySupplier[activeOrderLinkSupplier.id] || ''}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSelectedOrderBySupplier((prev) => ({ ...prev, [activeOrderLinkSupplier.id]: value }));
+                setActiveOrderPartLink((prev) => ({ supplierId: activeOrderLinkSupplier.id, orderId: value, partId: prev?.partId || '' }));
+              }}
+            >
+              <option value="">Выберите активный заказ...</option>
+              {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model} • {order.vin}</option>)}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                const selectedOrderId = selectedOrderBySupplier[activeOrderLinkSupplier.id];
+                if (!selectedOrderId) return;
+                const selectedOrder = activeOrders.find((order) => order.id === selectedOrderId);
+                if (!selectedOrder) return;
+                const selectedPartIds = activeOrderPartLink?.supplierId === activeOrderLinkSupplier.id && activeOrderPartLink.partId
+                  ? [activeOrderPartLink.partId]
+                  : selectedOrder.parts.map((part) => part.id);
+                addSupplierToOrder(activeOrderLinkSupplier.id, selectedOrderId, selectedPartIds);
+                alert('Поставщик добавлен в активный заказ.');
+              }}
+              className="w-full rounded-lg bg-blue-100 px-2 py-2 text-sm font-black text-blue-800"
+            >
+              Сохранить в активный заказ
+            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm font-semibold" value={activeOrderPartLink?.supplierId === activeOrderLinkSupplier.id ? activeOrderPartLink.orderId : ''} onChange={(e) => setActiveOrderPartLink({ supplierId: activeOrderLinkSupplier.id, orderId: e.target.value, partId: '' })}>
+                <option value="">Заказ для детали</option>
+                {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model}</option>)}
+              </select>
+              <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm font-semibold" value={activeOrderPartLink?.supplierId === activeOrderLinkSupplier.id ? activeOrderPartLink.partId : ''} onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: activeOrderLinkSupplier.id, orderId: (prev?.supplierId === activeOrderLinkSupplier.id ? prev.orderId : '') || selectedOrderBySupplier[activeOrderLinkSupplier.id] || '', partId: e.target.value }))}>
+                <option value="">Деталь</option>
+                {(activeOrders.find((order) => order.id === (activeOrderPartLink?.supplierId === activeOrderLinkSupplier.id ? activeOrderPartLink.orderId : selectedOrderBySupplier[activeOrderLinkSupplier.id]))?.parts || []).map((part) => <option key={part.id} value={part.id}>{part.name}</option>)}
+              </select>
+            </div>
+            <button type="button" onClick={addSupplierToOrderPart} className="w-full rounded-lg bg-violet-100 px-2 py-2 text-sm font-black text-violet-800">Добавить деталь в карточку</button>
+            <button type="button" onClick={() => setActiveOrderLinkShopId(null)} className="w-full rounded-lg bg-gray-100 px-2 py-2 text-sm font-black text-slate-700">Закрыть</button>
+          </div>
+        </div>
+      )}
 
 
       {contactEditorSupplierId && (
