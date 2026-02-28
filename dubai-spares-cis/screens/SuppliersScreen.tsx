@@ -229,6 +229,7 @@ const SuppliersScreen: React.FC = () => {
   const [modelFilter, setModelFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
   const [partCategoryFilter, setPartCategoryFilter] = useState('all');
+  const [favoriteFilter, setFavoriteFilter] = useState<'all' | 'favorites'>('all');
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [expandedAddedPartsIds, setExpandedAddedPartsIds] = useState<Set<string>>(new Set());
   const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
@@ -399,7 +400,8 @@ const SuppliersScreen: React.FC = () => {
         const supplierYears = normalizeSupplierYears(supplier.years);
         const yearMatch = !hasSelectedYear || supplierYears.includes(selectedYear);
         const categoryMatch = partCategoryFilter === 'all' || (supplier.mainPartCategories || []).includes(partCategoryFilter);
-        return brandMatch && modelMatch && yearMatch && categoryMatch;
+        const favoriteMatch = favoriteFilter === 'all' || supplier.isFavorite === true;
+        return brandMatch && modelMatch && yearMatch && categoryMatch && favoriteMatch;
       })
       .sort((a, b) => {
       const distanceA = calcDistanceKm(a);
@@ -411,7 +413,7 @@ const SuppliersScreen: React.FC = () => {
       if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
       return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
     });
-  }, [brandFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
+  }, [brandFilter, favoriteFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -926,6 +928,7 @@ const SuppliersScreen: React.FC = () => {
               setModelFilter('all');
               setYearFilter('all');
               setPartCategoryFilter('all');
+              setFavoriteFilter('all');
             }}
             className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600"
           >
@@ -942,6 +945,10 @@ const SuppliersScreen: React.FC = () => {
           </select>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={favoriteFilter} onChange={(e) => setFavoriteFilter(e.target.value as 'all' | 'favorites')}>
+            <option value="all">Suppliers: all</option>
+            <option value="favorites">Избранные поставщики</option>
+          </select>
           <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
             <option value="all">Brand: all</option>
             {supplierFilterOptions.brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
@@ -1135,6 +1142,8 @@ const SuppliersScreen: React.FC = () => {
             const brands = pickSupplierBrands(s);
             const isExpanded = expandedSupplierIds.has(s.id);
             const linkedParts = [...(s.linkedParts || [])].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+            const linkedFoundCount = linkedParts.filter((entry) => entry.status === 'found').length;
+            const linkedNotFoundCount = linkedParts.filter((entry) => entry.status === 'not_found').length;
             const isManagePartsExpanded = activeOrderLinkShopId === s.id;
             const isAddedPartsExpanded = expandedAddedPartsIds.has(s.id);
 
@@ -1167,12 +1176,27 @@ const SuppliersScreen: React.FC = () => {
                     <div className="text-right text-[10px] text-slate-500">
                       <p className="font-black">{s.coordinates ? `${Math.max(0.1, Number((Math.abs(s.coordinates.lat - sortByDistanceRef.lat) * 111).toFixed(1)))} km` : 'n/a'}</p>
                       <p>{isExpanded ? 'Свернуть' : 'Открыть'}</p>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(s);
+                        }}
+                        className={`mt-1 inline-flex items-center justify-end gap-1 rounded-full px-2 py-1 text-[10px] font-black ${s.isFavorite ? 'bg-pink-100 text-pink-700' : 'bg-slate-100 text-slate-600'}`}
+                        aria-label={s.isFavorite ? 'Убрать из избранных' : 'Добавить в избранные'}
+                      >
+                        <Heart size={11} fill={s.isFavorite ? 'currentColor' : 'none'} />
+                        {s.isFavorite ? 'В избранном' : 'Избранное'}
+                      </button>
                     </div>
                   </div>
 
                   <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
                     <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
                     <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{daysAgoLabel(s.lastContactAt)}</span>
+                    <span className="rounded-full px-2 py-1 border border-indigo-200 bg-indigo-50 text-indigo-700">Добавлено: {linkedParts.length}</span>
+                    <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">Найдено: {linkedFoundCount}</span>
+                    <span className="rounded-full px-2 py-1 border border-rose-200 bg-rose-50 text-rose-700">Не найдено: {linkedNotFoundCount}</span>
                   </div>
                 </button>
 
@@ -1201,7 +1225,7 @@ const SuppliersScreen: React.FC = () => {
                   )}
                   <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput(normalizeSupplierYears(s.years).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
                   <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
-                  <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
+                  <button type="button" onClick={() => toggleFavorite(s)} className={`rounded-lg px-2 py-1.5 text-[10px] font-black inline-flex items-center justify-center gap-1 ${s.isFavorite ? 'bg-pink-100 text-pink-700' : 'bg-pink-50 text-pink-700'}`}><Heart size={12} fill={s.isFavorite ? 'currentColor' : 'none'} />{s.isFavorite ? 'Убрать из избранных' : 'В избранные'}</button>
                   
                 </div>
                 </>}
