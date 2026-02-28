@@ -1124,6 +1124,17 @@ const pickHotFieldPatch = (previous: Order | undefined, next: Order): Partial<Or
   return patch;
 };
 
+const hasCriticalFinancialPatch = (patch: Partial<Order>) => {
+  if (!patch || !Object.keys(patch).length) return false;
+  return Boolean(
+    patch.markupPercent !== undefined
+    || patch.markupType !== undefined
+    || patch.markupFixedAed !== undefined
+    || patch.logistics !== undefined
+    || patch.pricingEvents !== undefined
+  );
+};
+
 const scheduleBackgroundFlush = () => {
   const timerKey = '__network_flush__';
   const existing = mutationTimers.get(timerKey);
@@ -1684,6 +1695,7 @@ export const updateOrderItem = async (order: Order) => {
   setState({ orders: next, error: null });
   const structuralDiff = hasStructuralDiff(previousOrder, normalized);
   const patch = structuralDiff ? {} : pickHotFieldPatch(previousOrder, normalized);
+  const shouldPrioritizeSync = structuralDiff || hasCriticalFinancialPatch(patch);
   scheduleLocalCommit(normalized, structuralDiff ? undefined : patch);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
@@ -1699,6 +1711,9 @@ export const updateOrderItem = async (order: Order) => {
   }
 
   await queueMutation('upsert', structuralDiff ? normalized : undefined, normalized.id, patch);
+  if (shouldPrioritizeSync && navigator.onLine) {
+    void flushOfflineMutations({ force: true });
+  }
   return true;
 };
 
@@ -1820,7 +1835,13 @@ export const useOrderStore = () => {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshLeadsOnly();
+      } else {
+        void flushOfflineMutations({ force: true });
       }
+    };
+
+    const onPageHide = () => {
+      void flushOfflineMutations({ force: true });
     };
 
     const LEADS_POLL_INTERVAL_MS = 2 * 60 * 1000; // poll every 2 minutes
@@ -1833,6 +1854,7 @@ export const useOrderStore = () => {
     window.addEventListener('online', onOnline);
     window.addEventListener('idb-autosync-paused', onIdbPaused as EventListener);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', onPageHide);
     navigator.serviceWorker?.addEventListener?.('message', onSwMessage);
     return () => {
       lifecycleEventsBound = false;
@@ -1840,6 +1862,7 @@ export const useOrderStore = () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('idb-autosync-paused', onIdbPaused as EventListener);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', onPageHide);
       navigator.serviceWorker?.removeEventListener?.('message', onSwMessage);
     };
   }, []);
