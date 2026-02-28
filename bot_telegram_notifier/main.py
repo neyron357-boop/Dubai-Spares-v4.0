@@ -26,6 +26,11 @@ TRACKED_SOURCES = [
         "select": "id,created_at,name,phone,message,brand,model,year,vin,customer_name,customer_phone,notes",
         "order_fields": ["created_at", "updated_at", "id"],
     },
+    {
+        "table": "client_leads",
+        "select": "id,order_id,created_at,updated_at,name,phone,message,payload_json,payload",
+        "order_fields": ["created_at", "updated_at", "id"],
+    },
 ]
 
 # ============ RUNTIME STATE ============
@@ -175,7 +180,16 @@ def build_requested_parts(message_data) -> str:
 
 
 def format_notification(row: dict) -> str:
+    payload_data = parse_structured(row.get("payload_json"))
+    if not isinstance(payload_data, dict):
+        payload_data = parse_structured(row.get("payload"))
+    if not isinstance(payload_data, dict):
+        payload_data = {}
+
     message_data = parse_structured(row.get("message"))
+    if not isinstance(message_data, dict) and isinstance(payload_data.get("message"), (dict, str, list)):
+        message_data = parse_structured(payload_data.get("message"))
+
     notes_data = parse_structured(row.get("notes"))
 
     note_lines: list[str] = []
@@ -201,14 +215,24 @@ def format_notification(row: dict) -> str:
         brand = brand or str(message_data.get("brand") or "")
         model = model or str(message_data.get("model") or "")
         year = year or str(message_data.get("year") or "")
+    if isinstance(payload_data, dict):
+        brand = brand or str(payload_data.get("brand") or "")
+        model = model or str(payload_data.get("model") or "")
+        year = year or str(payload_data.get("year") or "")
 
     car = " ".join([x for x in [brand, model, year] if x and x != "—"]).strip() or "—"
 
     name = pick_first(row, ["name", "customer_name"], default="")
     if name in {"", "—"}:
+        if isinstance(payload_data, dict):
+            name = str(payload_data.get("name") or "")
+    if name in {"", "—"}:
         name = note_details.get("name", "—")
 
     phone = pick_first(row, ["phone", "customer_phone"], default="")
+    if phone in {"", "—"}:
+        if isinstance(payload_data, dict):
+            phone = str(payload_data.get("phone") or "")
     if phone in {"", "—"}:
         phone = note_details.get("phone", "—")
 
@@ -219,6 +243,8 @@ def format_notification(row: dict) -> str:
     vin = pick_first(row, ["vin"], default="")
     if vin in {"", "—"} and isinstance(message_data, dict):
         vin = str(message_data.get("vin") or "—")
+    if vin in {"", "—"} and isinstance(payload_data, dict):
+        vin = str(payload_data.get("vin") or "—")
 
     requested_parts = build_requested_parts(message_data)
     contact_line = phone
@@ -228,7 +254,7 @@ def format_notification(row: dict) -> str:
     return "\n".join(
         [
             "🆕 Новый заказ",
-            f"🆔 ID: {pick_first(row, ['id'])}",
+            f"🆔 ID: {pick_first(row, ['order_id', 'id'])}",
             f"🕒 Дата: {to_local_time(pick_first(row, ['created_at', 'updated_at'], default=''))}",
             f"👤 Клиент: {name}",
             f"📞 Контакт: {contact_line or '—'}",

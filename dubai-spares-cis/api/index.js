@@ -79,6 +79,43 @@ const sanitizeOrderPayload = (record, matchStats) => {
   };
 };
 
+const parseMaybeJson = (value) => {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const normalizeOrderLikePayload = (table, record) => {
+  if (table === 'orders') return record;
+
+  const payload = parseMaybeJson(record.payload_json)
+    || parseMaybeJson(record.payload)
+    || parseMaybeJson(record.message)
+    || {};
+  const preferredName = typeof payload.name === 'string' && payload.name.trim()
+    ? payload.name.trim()
+    : (typeof record.name === 'string' ? record.name : 'Public Lead');
+  const preferredPhone = typeof payload.phone === 'string' && payload.phone.trim()
+    ? payload.phone.trim()
+    : (typeof record.phone === 'string' ? record.phone : '');
+
+  return {
+    id: record.order_id || record.id,
+    created_at: record.created_at,
+    brand: payload.brand || record.brand || '',
+    model: payload.model || record.model || '',
+    year: payload.year || record.year || '',
+    name: preferredName,
+    phone: preferredPhone,
+    source: payload.source || 'public_form'
+  };
+};
+
 const getAdminSubscriptions = async () => {
   const { data, error } = await supabase
     .from('push_subscriptions')
@@ -176,12 +213,13 @@ app.post('/webhooks/orders', validateWebhookKey, async (req, res) => {
     const payload = req.body ?? {};
     const table = payload.table ?? payload?.record?.table;
 
-    if (table && table !== 'orders') {
+    if (table && table !== 'orders' && table !== 'client_leads') {
       return res.status(202).json({ message: 'Ignored non-orders event' });
     }
 
     const record = payload.record ?? payload.new ?? {};
-    const tieredMatches = await fetchMatchingShops(record);
+    const normalizedRecord = normalizeOrderLikePayload(table, record);
+    const tieredMatches = await fetchMatchingShops(normalizedRecord);
     const matchStats = {
       high: tieredMatches.high.length,
       medium: tieredMatches.medium.length,
@@ -192,7 +230,7 @@ app.post('/webhooks/orders', validateWebhookKey, async (req, res) => {
       return res.status(202).json({ message: 'Order has no shop specialization matches', matchStats });
     }
 
-    const notification = sanitizeOrderPayload(record, matchStats);
+    const notification = sanitizeOrderPayload(normalizedRecord, matchStats);
     const result = await sendPushToAdmins(notification);
 
     return res.status(200).json({
