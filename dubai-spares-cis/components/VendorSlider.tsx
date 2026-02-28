@@ -139,6 +139,21 @@ const VendorSliderContent: React.FC = () => {
 
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
 
+  const brandActiveNeedCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    orders
+      .filter((order) => !order.isArchived && !order.isSold)
+      .forEach((order) => {
+        const hasSearchingPart = order.parts.some((part) => {
+          const hasOffer = part.isFound || part.status === 'found' || part.status === 'ordered' || part.variants.some((variant) => Number(variant.priceAed) > 0);
+          return !hasOffer;
+        });
+        if (!hasSearchingPart) return;
+        counts.set(order.brand, (counts.get(order.brand) || 0) + 1);
+      });
+    return counts;
+  }, [orders]);
+
   const goTo = (next: number) => {
     const bounded = Math.max(0, Math.min(orderSlides.length - 1, next));
     if (bounded === committedIndex) return;
@@ -154,7 +169,7 @@ const VendorSliderContent: React.FC = () => {
           <p className="text-sm font-black uppercase tracking-[0.2em] text-white/70">Выберите марку</p>
           <button type="button" onClick={() => navigate(-1)} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/45"><X size={18} /></button>
         </div>
-        <div className="mt-6 grid grid-cols-2 gap-3">{brandOptions.map((brand) => <button key={brand} type="button" onClick={() => { setSelectedBrand(brand); setBrandFilter(brand); }} className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-4 text-left text-lg font-black hover:border-[#2563EB]">{brand}</button>)}</div>
+        <div className="mt-6 grid grid-cols-2 gap-3">{brandOptions.map((brand) => <button key={brand} type="button" onClick={() => { setSelectedBrand(brand); setBrandFilter(brand); }} className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-4 text-left text-lg font-black hover:border-[#2563EB]"><span>{brand}</span><span className="mt-1 block text-xs font-semibold text-white/65">Найти заказов: {brandActiveNeedCounts.get(brand) || 0}</span></button>)}</div>
       </div>
     );
   }

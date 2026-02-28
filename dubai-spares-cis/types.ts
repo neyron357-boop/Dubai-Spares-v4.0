@@ -47,6 +47,7 @@ export interface PriceVariant {
   photos?: string[];
   isBest?: boolean;
   syncStatus?: OfferSyncStatus;
+  note?: string;
   createdAt: number;
   updatedAt?: number;
 }
