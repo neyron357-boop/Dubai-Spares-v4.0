@@ -760,7 +760,7 @@ const OrderDetailsScreen: React.FC = () => {
     if (!isEditMode) return;
     const keyStart = performance.now();
     const shouldDebounce = (typeof value === 'string' || typeof value === 'number')
-      && !['markupType', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType'].includes(String(field));
+      && !['markupType', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType', 'customerContact', 'socialNickname'].includes(String(field));
 
     if (!shouldDebounce) {
       commitDeferredOrderField(field, value);
@@ -822,7 +822,8 @@ const OrderDetailsScreen: React.FC = () => {
       const savedValue = Number(order.logistics?.[field] || 0);
       return draftValue !== savedValue;
     });
-    const hasMarkupDiff = Number(markupFixedInput || 0) !== Number(order.markupFixedAed || 0) || (order.markupType || 'percent') !== 'fixed';
+    const hasMarkupDiff = (order.markupType || 'percent') === 'fixed'
+      && (Number(markupFixedInput || 0) !== Number(order.markupFixedAed || 0));
     return hasLogisticsDiff || hasMarkupDiff;
   }, [logisticsDraft, markupFixedInput, order]);
 
@@ -851,6 +852,7 @@ const OrderDetailsScreen: React.FC = () => {
     const nextMarkupFixed = Number(markupFixedInput || 0);
     const previousMarkupFixed = Number(order.markupFixedAed || 0);
     const previousMarkupType = order.markupType || 'percent';
+    const shouldPersistFixedMarkup = previousMarkupType === 'fixed';
 
     const nextEvents = (['deliveryAed', 'packingAed', 'serviceFeeAed'] as const)
       .map((field) => createPricingEvent(
@@ -861,14 +863,15 @@ const OrderDetailsScreen: React.FC = () => {
       ))
       .filter(Boolean) as OrderPricingEvent[];
 
-    const markupAmountEvent = createPricingEvent('markupFixedAed', 'Наценка (фикс AED)', previousMarkupFixed, nextMarkupFixed);
-    const markupTypeEvent = previousMarkupType !== 'fixed' ? createPricingEvent('markupType', 'Тип наценки', previousMarkupType, 'fixed') : null;
-    const mergedEvents = [markupAmountEvent, markupTypeEvent, ...nextEvents].filter(Boolean) as OrderPricingEvent[];
+    const markupAmountEvent = shouldPersistFixedMarkup
+      ? createPricingEvent('markupFixedAed', 'Наценка (фикс AED)', previousMarkupFixed, nextMarkupFixed)
+      : null;
+    const mergedEvents = [markupAmountEvent, ...nextEvents].filter(Boolean) as OrderPricingEvent[];
 
     updateOrder({
       ...order,
-      markupFixedAed: nextMarkupFixed,
-      markupType: 'fixed',
+      markupFixedAed: shouldPersistFixedMarkup ? nextMarkupFixed : order.markupFixedAed,
+      markupType: previousMarkupType,
       logistics: nextLogistics,
       pricingEvents: mergedEvents.length ? [...mergedEvents, ...(order.pricingEvents || [])] : order.pricingEvents
     });
@@ -1851,71 +1854,94 @@ const OrderDetailsScreen: React.FC = () => {
              const samplePhotos = getPartSamplePhotos(part);
              const usesSamplePhoto = displayPhotos.length > 0 && samplePhotos.includes(displayPhotos[0]);
              return (
-              <div key={part.id} onClick={() => navigate(`/order/${order.id}/part/${part.id}`)} className="bg-white p-3.5 rounded-2xl shadow-sm flex items-center gap-3 active:bg-gray-50 transition-colors border border-gray-50">
-                <button 
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); togglePartFound(part.id); }} 
-                  className={`flex-shrink-0 p-1 rounded-full transition-colors ${part.isFound ? 'text-green-500 bg-green-50' : 'text-gray-200'}`}
-                >
-                  {part.isFound ? <CheckCircle2 size={28} /> : <Circle size={28} />}
-                </button>
-                <div 
-                  className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden shrink-0 border border-gray-100 relative"
-                >
-                  {displayPhotos.length > 0 ? (
-                    <>
-                      <img 
-                        src={displayPhotos[0]} 
-                        className="w-full h-full object-cover cursor-pointer" 
-                        onClick={(e) => openGallery(e, part)}
-                      />
-                      {displayPhotos.length > 1 && (
-                          <div className="absolute bottom-0 right-0 bg-black/60 text-white text-[8px] font-bold px-1 rounded-tl-md">
-                              +{displayPhotos.length - 1}
-                          </div>
-                      )}
-                      {usesSamplePhoto && samplePhotos.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removePartSamplePhoto(part.id, 0);
-                          }}
-                          className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white"
-                          aria-label="Удалить пример фото"
-                        >
-                          <X size={10} />
-                        </button>
-                      )}
-                      
-                    </>
-                  ) : (
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setPartSampleTargetId(part.id); partSampleFileRef.current?.click(); }} className="flex h-full w-full items-center justify-center"><Package size={20} className="text-gray-200" /></button>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-black text-sm text-gray-800 truncate leading-none mb-1 uppercase tracking-tight">{part.name}</h4>
-                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">{part.variants.length} вариантов · {part.priority === 'urgent' ? 'urgent' : 'normal'}</p>
-                  {part.variants[0] && (
-                    <p className="text-[10px] text-emerald-700 font-bold">Лучший: {part.variants[0].priceAed} AED · {part.variants[0].shopName || 'магазин не указан'}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); void shareMessage(buildPartShareText(order, part)); }}
-                    className="p-4 -m-2 text-gray-200 hover:text-emerald-600 transition-all"
-                  >
-                    <Share2 size={18} />
-                  </button>
+              <div key={part.id} onClick={() => navigate(`/order/${order.id}/part/${part.id}`)} className="bg-white p-3.5 rounded-2xl shadow-sm active:bg-gray-50 transition-colors border border-gray-50 space-y-2">
+                <div className="flex items-center gap-3">
                   <button 
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setDeletePartId(part.id); }}
-                    className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700"
+                    onClick={(e) => { e.stopPropagation(); togglePartFound(part.id); }} 
+                    className={`flex-shrink-0 p-1 rounded-full transition-colors ${part.isFound ? 'text-green-500 bg-green-50' : 'text-gray-200'}`}
                   >
-                    Удалить
+                    {part.isFound ? <CheckCircle2 size={28} /> : <Circle size={28} />}
                   </button>
-                  <ChevronRight size={18} className="text-gray-200" />
+                  <div 
+                    className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden shrink-0 border border-gray-100 relative"
+                  >
+                    {displayPhotos.length > 0 ? (
+                      <>
+                        <img 
+                          src={displayPhotos[0]} 
+                          className="w-full h-full object-cover cursor-pointer" 
+                          onClick={(e) => openGallery(e, part)}
+                        />
+                        {displayPhotos.length > 1 && (
+                            <div className="absolute bottom-0 right-0 bg-black/60 text-white text-[8px] font-bold px-1 rounded-tl-md">
+                                +{displayPhotos.length - 1}
+                            </div>
+                        )}
+                        {usesSamplePhoto && samplePhotos.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removePartSamplePhoto(part.id, 0);
+                            }}
+                            className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white"
+                            aria-label="Удалить пример фото"
+                          >
+                            <X size={10} />
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setPartSampleTargetId(part.id); partSampleFileRef.current?.click(); }} className="flex h-full w-full items-center justify-center"><Package size={20} className="text-gray-200" /></button>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-black text-sm text-gray-800 truncate leading-none mb-1 uppercase tracking-tight">{part.name}</h4>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">{part.variants.length} вариантов · {part.priority === 'urgent' ? 'urgent' : 'normal'}</p>
+                    {part.variants[0] && (
+                      <p className="text-[10px] text-emerald-700 font-bold">Лучший: {part.variants[0].priceAed} AED · {part.variants[0].shopName || 'магазин не указан'}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); void shareMessage(buildPartShareText(order, part)); }}
+                      className="p-4 -m-2 text-gray-200 hover:text-emerald-600 transition-all"
+                    >
+                      <Share2 size={18} />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setDeletePartId(part.id); }}
+                      className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700"
+                    >
+                      Удалить
+                    </button>
+                    <ChevronRight size={18} className="text-gray-200" />
+                  </div>
+                </div>
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-2" onClick={(e) => e.stopPropagation()}>
+                  <div className="mb-1 flex items-center justify-between">
+                    <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Пример фото деталей</p>
+                    <button type="button" onClick={() => { setPartSampleTargetId(part.id); partSampleFileRef.current?.click(); }} className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-600">Добавить</button>
+                  </div>
+                  {samplePhotos.length > 0 ? (
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                      {samplePhotos.map((photo, photoIndex) => (
+                        <div key={`${part.id}-sample-${photoIndex}`} className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                          <button type="button" onClick={() => setGallery({ images: samplePhotos, index: photoIndex, partId: part.id })} className="h-full w-full">
+                            <img src={photo} className="h-full w-full object-cover" />
+                          </button>
+                          <button type="button" onClick={() => removePartSamplePhoto(part.id, photoIndex)} className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white" aria-label="Удалить пример фото">
+                            <X size={10} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] font-semibold text-gray-400">Пока нет пример-фото.</p>
+                  )}
                 </div>
               </div>
              );
