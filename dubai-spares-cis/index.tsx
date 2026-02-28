@@ -6,6 +6,7 @@ import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import { extractOrderIdFromQuoteSlug } from './shareUtils';
 import { installRuntimeDiagnostics } from './runtimeDiagnostics';
+import { offlineDb } from './storage/offlineDb';
 
 installRuntimeDiagnostics();
 
@@ -24,17 +25,68 @@ const hashQuoteToken = hashQuoteMatch ? decodeURIComponent(hashQuoteMatch[1].tri
 const publicQuoteOrderId = publicQuotePathParam ? extractOrderIdFromQuoteSlug(publicQuotePathParam) : null;
 const isPublicScrollableRoute = isPublicOrderFormRoute || !!publicQuoteOrderId || !!hashQuoteToken;
 
-if (isPublicScrollableRoute) {
-  document.documentElement.classList.add('public-order-form');
-  document.body.classList.add('public-order-form');
-  rootElement.classList.add('public-order-form');
-}
+const BOOT_RESET_MARKER = 'dubai-spares-public-form-hard-reset-done';
 
-root.render(
-  <React.StrictMode>
-    {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : hashQuoteToken ? <PublicQuoteScreen orderId={hashQuoteToken} /> : publicQuotePathParam ? <PublicQuoteScreen orderId={publicQuotePathParam} /> : <App />}
-  </React.StrictMode>
-);
+const deleteIndexedDbByName = (name: string) => new Promise<void>((resolve) => {
+  const request = indexedDB.deleteDatabase(name);
+  request.onsuccess = () => resolve();
+  request.onerror = () => resolve();
+  request.onblocked = () => resolve();
+});
+
+const clearApplicationStorage = async () => {
+  if ('serviceWorker' in navigator) {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+  }
+
+  if ('caches' in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((key) => caches.delete(key)));
+  }
+
+  if ('indexedDB' in window) {
+    await offlineDb.rebuildIndex();
+  }
+
+  if ('indexedDB' in window && typeof indexedDB.databases === 'function') {
+    const databases = await indexedDB.databases();
+    const names = (databases || [])
+      .map((database) => database?.name)
+      .filter((name): name is string => typeof name === 'string' && name.length > 0);
+    await Promise.all(names.map((name) => deleteIndexedDbByName(name)));
+  }
+
+  window.localStorage.clear();
+  window.sessionStorage.clear();
+};
+
+const hardResetPublicFormOnBoot = async (): Promise<void> => {
+  if (!isPublicOrderFormRoute) return;
+  if (window.sessionStorage.getItem(BOOT_RESET_MARKER) === '1') return;
+
+  await clearApplicationStorage();
+
+  window.sessionStorage.setItem(BOOT_RESET_MARKER, '1');
+  window.location.replace(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+  await new Promise<never>(() => undefined);
+};
+
+void (async () => {
+  await hardResetPublicFormOnBoot();
+
+  if (isPublicScrollableRoute) {
+    document.documentElement.classList.add('public-order-form');
+    document.body.classList.add('public-order-form');
+    rootElement.classList.add('public-order-form');
+  }
+
+  root.render(
+    <React.StrictMode>
+      {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : hashQuoteToken ? <PublicQuoteScreen orderId={hashQuoteToken} /> : publicQuotePathParam ? <PublicQuoteScreen orderId={publicQuotePathParam} /> : <App />}
+    </React.StrictMode>
+  );
+})();
 
 let audioContext: AudioContext | null = null;
 const playLeadAlertSound = () => {
