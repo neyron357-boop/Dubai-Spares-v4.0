@@ -95,6 +95,13 @@ export interface Order {
   salesStatus?: SalesStatus;
   customerContact?: string;
   socialNickname?: string;
+  contactLinks?: {
+    phone?: string;
+    instagramUrl?: string;
+    tiktokUrl?: string;
+    facebookUrl?: string;
+    telegramUrl?: string;
+  };
   whatsappTemplateLanguage?: 'ru' | 'en' | 'ar';
   updatedAt?: number;
   recommendedShopIds?: string[];
@@ -295,6 +302,13 @@ export interface DbOrderRow {
   customer_status?: 'VIP' | 'LEAD' | 'INQUIRY' | null;
   customer_contact?: string;
   social_nickname?: string;
+  contact_links?: {
+    phone?: string;
+    instagram_url?: string;
+    tiktok_url?: string;
+    facebook_url?: string;
+    telegram_url?: string;
+  };
   updated_at?: number | string;
   recommended_shop_ids?: string[];
   dismissed_shop_ids?: string[];

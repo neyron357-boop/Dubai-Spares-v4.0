@@ -520,6 +520,7 @@ const mapDbOrder = (row: any): Order => ({
   clientName: row.client_name || '',
   customerContact: row.customer_contact || '',
   socialNickname: row.social_nickname || '',
+  contactLinks: row.contact_links || undefined,
   source: row.source || 'WhatsApp',
   carPhotoUrl: row.car_photo_url || row.car_photos?.[0] || row.vin_photo_url || '',
   carPhotos: row.car_photos || [],
@@ -530,6 +531,7 @@ const mapDbOrder = (row: any): Order => ({
     id: String(part.id),
     orderId: String(part.order_id || row.id),
     name: part.name || 'Part',
+    comment: part.comment || '',
     photoUrl: part.photo_url || part.photos?.[0] || '',
     photos: part.photos || [],
     isFound: !!part.is_found,
@@ -573,6 +575,7 @@ const mapSnapshotOrder = (row: any): Order => {
   clientName: row?.clientName || row?.client_name || header?.clientName || header?.client_name || '',
   customerContact: row?.customerContact || row?.customer_contact || header?.customerContact || header?.customer_contact || '',
   socialNickname: row?.socialNickname || row?.social_nickname || header?.socialNickname || header?.social_nickname || '',
+  contactLinks: row?.contactLinks || row?.contact_links || header?.contactLinks || header?.contact_links || row?.customer_links || undefined,
   source: header?.source || row?.source || 'WhatsApp',
   carPhotoUrl: row?.carPhotoUrl || row?.car_photo_url || header?.carPhotoUrl || header?.car_photo_url || row?.carPhotos?.[0] || row?.car_photos?.[0] || header?.carPhotos?.[0] || header?.car_photos?.[0] || row?.vinPhotoUrl || row?.vin_photo_url || header?.vinPhotoUrl || header?.vin_photo_url || '',
   carPhotos: row?.carPhotos || row?.car_photos || header?.carPhotos || header?.car_photos || [],
@@ -586,6 +589,7 @@ const mapSnapshotOrder = (row: any): Order => {
     id: String(part?.id || ''),
     orderId: String(part?.orderId || part?.order_id || row?.order_id || row?.id || ''),
     name: part?.name || 'Part',
+    comment: part?.comment || '',
     photoUrl: part?.photoUrl || part?.photo_url || photos?.[0] || '',
     photos,
     isFound: !!part?.isFound || !!part?.is_found,
@@ -1555,6 +1559,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 {/* Name + status — center */}
                 <div className="flex-1 min-w-0">
                   <h3 className="font-bold leading-snug text-slate-900 text-sm sm:text-base">{part.name}</h3>
+                  {part.comment ? <p className="mt-1 text-xs text-slate-500">{part.comment}</p> : null}
                   <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>{availability}
                   </span>
