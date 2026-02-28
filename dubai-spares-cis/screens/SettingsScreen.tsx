@@ -9,6 +9,7 @@ import { testSupabaseConnection } from '../utils/testSupabaseConnection';
 import { deleteStorageDuplicateMappings, runStorageImageMaintenance, uploadImageToStorage } from '../storage/photos';
 import { Order } from '../types';
 import { clearBrokenImageBlacklist, isBrokenImageUrl, markBrokenImageUrl, normalizeBrokenImageKey, shouldBlacklistByStatus } from '../storage/brokenImageBlacklist';
+import { CAR_DATABASE } from '../carDatabase';
 
 const loadImageFromFile = (file: File): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const url = URL.createObjectURL(file);
@@ -165,6 +166,8 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
   </div>
 );
 
+const normalizeBrandKey = (brand: string) => String(brand || '').trim().toLowerCase();
+
 const SettingsScreen: React.FC = () => {
   const publicRequestFormUrl = `${window.location.origin}${window.location.pathname}#/request`;
   const navigate = useNavigate();
@@ -182,10 +185,12 @@ const SettingsScreen: React.FC = () => {
   const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
   const [dangerActionProgress, setDangerActionProgress] = useState<{ label: string; processed: number; total: number; details?: string } | null>(null);
   const [isHardResetting, setIsHardResetting] = useState(false);
-  const [logoCrop, setLogoCrop] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [logoCrop, setLogoCrop] = useState<{ file: File; previewUrl: string; target: 'company' | 'brand'; brand?: string } | null>(null);
   const [logoCropZoom, setLogoCropZoom] = useState(1);
+  const [selectedBrandLogo, setSelectedBrandLogo] = useState('');
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
+  const brandOptions = useMemo(() => Object.keys(CAR_DATABASE).sort((a, b) => a.localeCompare(b)), []);
 
 
   useEffect(() => {
@@ -198,8 +203,8 @@ const SettingsScreen: React.FC = () => {
 
 
 
-  const updateDraft = (patch: Partial<AppSettings>) => {
-    setDraftSettings((prev) => ({ ...prev, ...patch }));
+  const updateDraft = (patch: Partial<AppSettings> | ((prev: AppSettings) => Partial<AppSettings>)) => {
+    setDraftSettings((prev) => ({ ...prev, ...(typeof patch === 'function' ? patch(prev) : patch) }));
     setSaveNotice(null);
   };
 
@@ -484,7 +489,7 @@ const SettingsScreen: React.FC = () => {
       const previewUrl = URL.createObjectURL(file);
       setLogoCrop((prev) => {
         if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
-        return { file, previewUrl };
+        return { file, previewUrl, target: 'company' };
       });
       setLogoCropZoom(1);
       return;
@@ -512,17 +517,56 @@ const SettingsScreen: React.FC = () => {
 
   const saveLogoCrop = () => {
     if (!logoCrop) return;
-    void withBusy('branding-logo', async () => {
-      const cropped = await cropSquareFromImage(logoCrop.file, logoCropZoom);
-      await uploadBrandingImage(cropped, 'logo');
+    const cropTarget = logoCrop;
+    const busyKey = cropTarget.target === 'brand' ? 'branding-brand-logo' : 'branding-logo';
+    void withBusy(busyKey, async () => {
+      const cropped = await cropSquareFromImage(cropTarget.file, logoCropZoom);
+      if (cropTarget.target === 'brand' && cropTarget.brand) {
+        const fileName = `${normalizeBrandKey(cropTarget.brand)}-${Date.now()}`;
+        const uploadedUrl = await uploadImageToStorage(cropped, 'branding/brand-logos', fileName);
+        if (!uploadedUrl) throw new Error('Не удалось загрузить логотип марки');
+        updateDraft((prev) => ({
+          brandLogoUrls: {
+            ...(prev.brandLogoUrls || {}),
+            [normalizeBrandKey(cropTarget.brand || '')]: uploadedUrl
+          }
+        }));
+        window.dispatchEvent(new CustomEvent('app-toast', {
+          detail: {
+            tone: 'success',
+            message: `Логотип ${cropTarget.brand} обрезан и загружен`
+          }
+        }));
+      } else {
+        await uploadBrandingImage(cropped, 'logo');
+        window.dispatchEvent(new CustomEvent('app-toast', {
+          detail: {
+            tone: 'success',
+            message: 'Логотип компании обрезан и загружен'
+          }
+        }));
+      }
       closeLogoCrop();
-      window.dispatchEvent(new CustomEvent('app-toast', {
-        detail: {
-          tone: 'success',
-          message: 'Логотип обрезан и загружен'
-        }
-      }));
     });
+  };
+
+  const handleBrandLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !selectedBrandLogo) return;
+    const previewUrl = URL.createObjectURL(file);
+    setLogoCrop((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return { file, previewUrl, target: 'brand', brand: selectedBrandLogo };
+    });
+    setLogoCropZoom(1);
+  };
+
+  const removeBrandLogo = (brand: string) => {
+    const key = normalizeBrandKey(brand);
+    const next = { ...(draftSettings.brandLogoUrls || {}) };
+    delete next[key];
+    updateDraft({ brandLogoUrls: next });
   };
 
   const loadSnapshots = async () => {
@@ -705,9 +749,9 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
       {logoCrop && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-4 space-y-3 shadow-xl">
-            <p className="text-sm font-black text-gray-900">Обрезка логотипа (квадрат)</p>
+            <p className="text-sm font-black text-gray-900">{logoCrop.target === 'brand' ? `Обрезка логотипа марки ${logoCrop.brand || ''}` : 'Обрезка логотипа компании'} (квадрат)</p>
             <div className="mx-auto h-52 w-52 overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
-              <img src={logoCrop.previewUrl} alt="Logo crop preview" className="h-full w-full object-cover" style={{ transform: `scale(${logoCropZoom})` }} />
+              <img src={logoCrop.previewUrl} alt={logoCrop.target === 'brand' ? 'Brand logo crop preview' : 'Company logo crop preview'} className="h-full w-full object-cover" style={{ transform: `scale(${logoCropZoom})` }} />
             </div>
             <label className="text-xs font-semibold text-gray-600">Масштаб: {logoCropZoom.toFixed(2)}x</label>
             <input type="range" min={1} max={2.5} step={0.05} value={logoCropZoom} onChange={(event) => setLogoCropZoom(Number(event.target.value) || 1)} className="w-full" />
@@ -829,6 +873,54 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               rows={4}
             />
           </Field>
+        </div>
+      </Section>
+
+      <Section title="Логотипы марок для карточек поставщиков">
+        <div className="space-y-3">
+          <Field label="Марка для логотипа">
+            <select
+              value={selectedBrandLogo}
+              onChange={(e) => setSelectedBrandLogo(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Выберите марку…</option>
+              {brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+            </select>
+          </Field>
+
+          <Field label="Загрузить логотип выбранной марки">
+            <p className="mb-1 text-xs text-gray-500">После выбора файла откроется окно обрезки, затем логотип будет загружен и сохранён.</p>
+            <input
+              type="file"
+              accept="image/*"
+              disabled={!selectedBrandLogo}
+              onChange={handleBrandLogoUpload}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {brandOptions
+              .filter((brand) => !!draftSettings.brandLogoUrls?.[normalizeBrandKey(brand)])
+              .map((brand) => (
+                <div key={brand} className="rounded-xl border border-gray-200 bg-gray-50 p-2 space-y-2">
+                  <p className="truncate text-xs font-bold text-gray-700">{brand}</p>
+                  <img
+                    src={draftSettings.brandLogoUrls?.[normalizeBrandKey(brand)] || ''}
+                    alt={`${brand} logo`}
+                    className="h-12 w-full rounded-lg bg-white object-contain p-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeBrandLogo(brand)}
+                    className="w-full rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-bold text-rose-700"
+                  >
+                    Удалить
+                  </button>
+                </div>
+              ))}
+          </div>
         </div>
       </Section>
 

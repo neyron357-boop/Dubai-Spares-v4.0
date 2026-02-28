@@ -40,9 +40,10 @@ export interface AppSettings {
   publicCompanyLogoUrl: string;
   publicInvoiceSignatureUrl: string;
   publicContactsUpdatedAt: number;
+  brandLogoUrls: Record<string, string>;
 }
 
-type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl'>;
+type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl' | 'brandLogoUrls'>;
 type CloudPublicSettings = PublicAppSettings & Pick<AppSettings, 'publicContactsUpdatedAt'>;
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -72,7 +73,19 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   publicWorkTerms: '',
   publicCompanyLogoUrl: '',
   publicInvoiceSignatureUrl: '',
-  publicContactsUpdatedAt: 0
+  publicContactsUpdatedAt: 0,
+  brandLogoUrls: {}
+};
+
+const normalizeBrandLogoUrls = (raw: unknown): Record<string, string> => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.entries(raw as Record<string, unknown>).reduce<Record<string, string>>((acc, [key, value]) => {
+    const normalizedKey = String(key || '').trim().toLowerCase();
+    const normalizedValue = typeof value === 'string' ? value.trim() : '';
+    if (!normalizedKey || !normalizedValue) return acc;
+    acc[normalizedKey] = normalizedValue;
+    return acc;
+  }, {});
 };
 
 const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSettings => ({
@@ -89,7 +102,8 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
   publicWorkTerms: typeof raw?.publicWorkTerms === 'string' ? raw.publicWorkTerms : '',
   publicCompanyLogoUrl: typeof raw?.publicCompanyLogoUrl === 'string' ? raw.publicCompanyLogoUrl : '',
   publicInvoiceSignatureUrl: typeof raw?.publicInvoiceSignatureUrl === 'string' ? raw.publicInvoiceSignatureUrl : '',
-  publicContactsUpdatedAt: Number.isFinite(Number(raw?.publicContactsUpdatedAt)) ? Number(raw?.publicContactsUpdatedAt) : 0
+  publicContactsUpdatedAt: Number.isFinite(Number(raw?.publicContactsUpdatedAt)) ? Number(raw?.publicContactsUpdatedAt) : 0,
+  brandLogoUrls: normalizeBrandLogoUrls(raw?.brandLogoUrls)
 });
 
 const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): PublicAppSettings => {
@@ -101,7 +115,8 @@ const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): Publi
     publicDeliveryTerms: normalized.publicDeliveryTerms,
     publicWorkTerms: normalized.publicWorkTerms,
     publicCompanyLogoUrl: normalized.publicCompanyLogoUrl,
-    publicInvoiceSignatureUrl: normalized.publicInvoiceSignatureUrl
+    publicInvoiceSignatureUrl: normalized.publicInvoiceSignatureUrl,
+    brandLogoUrls: normalized.brandLogoUrls
   };
 };
 
@@ -163,7 +178,7 @@ export const loadAppSettings = (): AppSettings => {
 };
 
 export const saveAppSettings = (patch: Partial<AppSettings>): AppSettings => {
-  const touchesPublicContacts = ['publicWhatsappNumber', 'publicTelegramUrl', 'publicInstagramUrl', 'publicDeliveryTerms', 'publicWorkTerms', 'publicCompanyLogoUrl', 'publicInvoiceSignatureUrl']
+  const touchesPublicContacts = ['publicWhatsappNumber', 'publicTelegramUrl', 'publicInstagramUrl', 'publicDeliveryTerms', 'publicWorkTerms', 'publicCompanyLogoUrl', 'publicInvoiceSignatureUrl', 'brandLogoUrls']
     .some((field) => Object.prototype.hasOwnProperty.call(patch, field));
   const next = normalizeSettings({
     ...loadAppSettings(),

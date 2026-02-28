@@ -35,6 +35,7 @@ import { CAR_DATABASE } from '../carDatabase';
 import { optimizeImageForUpload } from '../storage/photos';
 import { addRadarManualSelection, getRadarManualSelections, RADAR_MANUAL_SELECTIONS_EVENT, removeRadarManualSelection } from '../radarManualSelections';
 import { toast } from '../feedback';
+import { useAppSettings } from '../appSettings';
 
 const FIELD_TYPES: Array<{ value: SupplierType; label: string; icon: React.ReactNode }> = [
   { value: 'new_parts', label: 'New Parts', icon: <Gem size={12} /> },
@@ -123,6 +124,14 @@ const pickSupplierBrands = (supplier: Supplier) => {
   return main.length > 0 ? main : fallback;
 };
 
+const normalizeBrandKey = (brand: string) => String(brand || '').trim().toLowerCase();
+
+const truncateStoreName = (name: string, maxLength = 22) => {
+  const value = String(name || '').trim();
+  if (!value) return 'Без названия';
+  return value.length > maxLength ? `${value.slice(0, maxLength).trimEnd()}…` : value;
+};
+
 const normalizeSupplierYears = (years: unknown): number[] => {
   const parsed = Array.isArray(years)
     ? years
@@ -175,6 +184,7 @@ const inferZoneFromCoords = (coords?: { lat: number; lng: number }) => {
 
 const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, restoreData, orders, updateOrder, updateSupplier, lastSuppliersSyncError } = useStore();
+  const { settings } = useAppSettings();
 
   const [isAdding, setIsAdding] = useState(false);
   const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
@@ -1140,6 +1150,10 @@ const SuppliersScreen: React.FC = () => {
           filteredSuppliers.map((s) => {
             const Icon = s.type === 'scrapyard' ? Wrench : Gem;
             const brands = pickSupplierBrands(s);
+            const brandLogos = brands
+              .map((brand) => settings.brandLogoUrls?.[normalizeBrandKey(brand)] || '')
+              .filter(Boolean)
+              .slice(0, 4);
             const isExpanded = expandedSupplierIds.has(s.id);
             const linkedParts = [...(s.linkedParts || [])].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
             const linkedFoundCount = linkedParts.filter((entry) => entry.status === 'found').length;
@@ -1168,9 +1182,17 @@ const SuppliersScreen: React.FC = () => {
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${s.type === 'scrapyard' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}><Icon size={24} /></div>
                       )}
                       <div className="min-w-0">
-                        <p className="font-black text-sm leading-tight truncate">{brands.slice(0, 2).join(' • ') || 'Без марки'}</p>
+                        <p className="font-black text-sm leading-tight truncate">{truncateStoreName(s.name)}</p>
                         <p className="text-[11px] font-semibold text-indigo-600 truncate">{(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}</p>
-                        <p className="text-[11px] text-gray-500 truncate">{s.name}</p>
+                        {brandLogos.length > 0 && (
+                          <div className="mt-1 grid grid-cols-4 gap-1">
+                            {brandLogos.map((logo, index) => (
+                              <div key={`${s.id}-logo-${index}`} className="flex h-7 items-center justify-center rounded-md border border-slate-200 bg-white p-1">
+                                <img src={logo} alt="Brand logo" className="max-h-full w-full object-contain" />
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="text-right text-[10px] text-slate-500">
@@ -1203,7 +1225,6 @@ const SuppliersScreen: React.FC = () => {
                 <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isExpanded ? 2200 : 0, opacity: isExpanded ? 1 : 0 }}>
                 {isExpanded && <>
                 <div className="rounded-xl border border-gray-100 bg-slate-50 p-2 space-y-1">
-                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Марки:</span> {(brands.length > 0 ? brands : ['—']).join(', ')}</p>
                   <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Модели:</span> {((s.models || []).length > 0 ? (s.models || []) : ['—']).join(', ')}</p>
                   <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Годы:</span> {(normalizeSupplierYears(s.years).length > 0 ? normalizeSupplierYears(s.years).join(', ') : '—')}</p>
                 </div>
