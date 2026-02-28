@@ -105,12 +105,14 @@ const LogisticsAmountInput = React.memo(({
   field,
   label,
   value,
-  onChange
+  onChange,
+  onBlur
 }: {
   field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed';
   label: string;
   value: string;
   onChange: (field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', nextValue: string) => void;
+  onBlur?: () => void;
 }) => {
   return (
     <div>
@@ -128,6 +130,7 @@ const LogisticsAmountInput = React.memo(({
         onChange={(e) => {
           onChange(field, sanitizeNumericInput(e.currentTarget.value));
         }}
+        onBlur={onBlur}
         className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100"
       />
     </div>
@@ -196,6 +199,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   const [newPartName, setNewPartName] = useState('');
   const [newPartComment, setNewPartComment] = useState('');
+  const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
   // Multiple photos for new part
   const [newPartPhotos, setNewPartPhotos] = useState<string[]>([]);
   const partFileRef = useRef<HTMLInputElement>(null);
@@ -245,6 +249,13 @@ const OrderDetailsScreen: React.FC = () => {
     });
   }, [order?.id, order?.logistics?.deliveryAed, order?.logistics?.packingAed, order?.logistics?.serviceFeeAed]);
 
+  useEffect(() => {
+    const nextDrafts = (order.parts || []).reduce((acc, part) => {
+      acc[part.id] = part.comment || '';
+      return acc;
+    }, {} as Record<string, string>);
+    setPartCommentDrafts(nextDrafts);
+  }, [order.id, order.parts]);
 
   useEffect(() => () => {
     if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
@@ -954,6 +965,18 @@ const OrderDetailsScreen: React.FC = () => {
     updateOrder({ ...order, parts: updatedParts });
   };
 
+  const updatePartCommentDraft = useCallback((partId: string, comment: string) => {
+    setPartCommentDrafts((prev) => ({ ...prev, [partId]: comment }));
+  }, []);
+
+  const savePartComment = useCallback((partId: string) => {
+    const draft = partCommentDrafts[partId] ?? '';
+    const current = order.parts.find((part) => part.id === partId)?.comment ?? '';
+    if (draft === current) return;
+    updatePartComment(partId, draft);
+    setToast({ message: 'Комментарий сохранён' });
+  }, [order.parts, partCommentDrafts]);
+
   const confirmDeletePart = () => {
     if (deletePartId) {
       void removePart(order.id, deletePartId);
@@ -1570,6 +1593,7 @@ const OrderDetailsScreen: React.FC = () => {
                 label={label}
                 value={logisticsDraft[field]}
                 onChange={onLogisticsDraftChange}
+                onBlur={saveLogisticsDraft}
               />
             ))}
             <div className="col-span-2 pt-1">
@@ -1893,12 +1917,22 @@ const OrderDetailsScreen: React.FC = () => {
                 </div>
                 <div className="mt-2" onClick={(e) => e.stopPropagation()}>
                   <textarea
-                    value={part.comment || ''}
-                    onChange={(e) => updatePartComment(part.id, e.target.value)}
+                    value={partCommentDrafts[part.id] ?? part.comment ?? ''}
+                    onChange={(e) => updatePartCommentDraft(part.id, e.target.value)}
+                    onBlur={() => savePartComment(part.id)}
                     placeholder="Комментарий к детали"
                     className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-[11px] font-semibold text-slate-700 outline-none"
                     rows={2}
                   />
+                  <div className="mt-1 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => savePartComment(part.id)}
+                      className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700"
+                    >
+                      Сохранить
+                    </button>
+                  </div>
                 </div>
               </div>
              );
