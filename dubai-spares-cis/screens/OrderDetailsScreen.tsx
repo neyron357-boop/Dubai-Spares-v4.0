@@ -105,14 +105,12 @@ const LogisticsAmountInput = React.memo(({
   field,
   label,
   value,
-  onChange,
-  onBlur
+  onChange
 }: {
   field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed';
   label: string;
   value: string;
   onChange: (field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', nextValue: string) => void;
-  onBlur?: () => void;
 }) => {
   return (
     <div>
@@ -130,7 +128,6 @@ const LogisticsAmountInput = React.memo(({
         onChange={(e) => {
           onChange(field, sanitizeNumericInput(e.currentTarget.value));
         }}
-        onBlur={onBlur}
         className="w-full h-10 mt-1 font-black bg-gray-50 rounded-xl px-3 border border-gray-100"
       />
     </div>
@@ -256,13 +253,6 @@ const OrderDetailsScreen: React.FC = () => {
     if (markupCommitTimerRef.current) {
       window.clearTimeout(markupCommitTimerRef.current);
       markupCommitTimerRef.current = null;
-      const latestOrder = orderRef.current;
-      const nextValue = Number(markupFixedInput || 0);
-      const previousValue = Number(latestOrder?.markupFixedAed || 0);
-      const previousType = latestOrder?.markupType || 'percent';
-      if (latestOrder && (nextValue !== previousValue || previousType !== 'fixed')) {
-        void updateOrder({ ...latestOrder, markupFixedAed: nextValue, markupType: 'fixed' });
-      }
     }
 
     if (exchangeRateCommitTimerRef.current) {
@@ -885,12 +875,6 @@ const OrderDetailsScreen: React.FC = () => {
     scheduleDebouncedSaveLog();
     setToast({ message: 'Логистика сохранена' });
   }, [hasPendingPricingChanges, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, order, scheduleDebouncedSaveLog, updateOrder, markupFixedInput]);
-
-  useEffect(() => {
-    return () => {
-      if (hasPendingPricingChanges) saveLogisticsDraft();
-    };
-  }, [hasPendingPricingChanges, saveLogisticsDraft]);
 
   const updateLogisticsField = (field: 'deliveryType', value: string) => {
     if (!isEditMode) return value;
@@ -1575,7 +1559,7 @@ const OrderDetailsScreen: React.FC = () => {
                 {MARKUP_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}%</option>)}
               </select>
             ) : (
-              <input type="text" inputMode="numeric" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onBlur={() => { if (!markupFixedInput) setMarkupFixedInput('0'); saveLogisticsDraft(); }}  onChange={handleMarkupFixedChange} className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100" placeholder="AED" />
+              <input type="text" inputMode="numeric" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onBlur={() => { if (!markupFixedInput) setMarkupFixedInput('0'); }}  onChange={handleMarkupFixedChange} className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100" placeholder="AED" />
             )}
             <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-gray-500">
               <input type="checkbox" checked={!!order.useMarkupAsDefaultForNewParts} onChange={(e) => updateOrderField('useMarkupAsDefaultForNewParts', e.target.checked)} />
@@ -1608,7 +1592,6 @@ const OrderDetailsScreen: React.FC = () => {
                 label={label}
                 value={logisticsDraft[field]}
                 onChange={onLogisticsDraftChange}
-                onBlur={saveLogisticsDraft}
               />
             ))}
             <div className="col-span-2 pt-1">
@@ -1618,7 +1601,7 @@ const OrderDetailsScreen: React.FC = () => {
                 disabled={!hasPendingPricingChanges}
                 className={`h-10 w-full rounded-xl text-xs font-black uppercase tracking-wide transition ${hasPendingPricingChanges ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
               >
-                Сохранить финансы
+                Сохранить
               </button>
             </div>
           </div>
