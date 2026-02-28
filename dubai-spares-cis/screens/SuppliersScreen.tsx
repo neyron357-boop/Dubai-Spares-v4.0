@@ -224,7 +224,11 @@ const SuppliersScreen: React.FC = () => {
   const [contactWhatsapp, setContactWhatsapp] = useState('');
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [sortByDistanceRef, setSortByDistanceRef] = useState<{ lat: number; lng: number }>({ lat: 25.2048, lng: 55.2708 });
-  const [sortByExtended, setSortByExtended] = useState<'smart' | 'trust' | 'heat' | 'near' | 'name'>('smart');
+  const [sortByExtended, setSortByExtended] = useState<'smart' | 'trust' | 'heat' | 'near' | 'name' | 'updated' | 'contacts'>('smart');
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSuppliersLoading, setIsSuppliersLoading] = useState(false);
+  const [detailSupplierId, setDetailSupplierId] = useState<string | null>(null);
   const [brandFilter, setBrandFilter] = useState('all');
   const [modelFilter, setModelFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
@@ -399,7 +403,13 @@ const SuppliersScreen: React.FC = () => {
         const supplierYears = normalizeSupplierYears(supplier.years);
         const yearMatch = !hasSelectedYear || supplierYears.includes(selectedYear);
         const categoryMatch = partCategoryFilter === 'all' || (supplier.mainPartCategories || []).includes(partCategoryFilter);
-        return brandMatch && modelMatch && yearMatch && categoryMatch;
+        const q = searchQuery.trim().toLowerCase();
+        const searchMatch = !q
+          || supplier.name.toLowerCase().includes(q)
+          || pickSupplierBrands(supplier).some((brand) => brand.toLowerCase().includes(q))
+          || (supplier.zone || '').toLowerCase().includes(q)
+          || (supplier.location || '').toLowerCase().includes(q);
+        return brandMatch && modelMatch && yearMatch && categoryMatch && searchMatch;
       })
       .sort((a, b) => {
       const distanceA = calcDistanceKm(a);
@@ -409,9 +419,23 @@ const SuppliersScreen: React.FC = () => {
       if (sortByExtended === 'heat') return (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
       if (sortByExtended === 'near') return distanceA - distanceB || (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0));
       if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
+      if (sortByExtended === 'updated') return Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0);
+      if (sortByExtended === 'contacts') {
+        const contactA = Number(Boolean((a.phone || '').trim() || (a.whatsapp || '').trim()));
+        const contactB = Number(Boolean((b.phone || '').trim() || (b.whatsapp || '').trim()));
+        return contactB - contactA || distanceA - distanceB;
+      }
       return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
     });
-  }, [brandFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
+  }, [brandFilter, modelFilter, partCategoryFilter, rawSuppliers, searchQuery, sortByExtended, sortByDistanceRef, yearFilter]);
+
+  const detailSupplier = useMemo(() => filteredSuppliers.find((supplier) => supplier.id === detailSupplierId) || null, [detailSupplierId, filteredSuppliers]);
+
+  useEffect(() => {
+    setIsSuppliersLoading(true);
+    const timeoutId = window.setTimeout(() => setIsSuppliersLoading(false), 260);
+    return () => window.clearTimeout(timeoutId);
+  }, [viewMode, brandFilter, modelFilter, yearFilter, partCategoryFilter, sortByExtended, searchQuery]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -916,6 +940,10 @@ const SuppliersScreen: React.FC = () => {
       </button>
 
       <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm">
+        <div className="mb-3 inline-flex rounded-xl border border-violet-200 bg-violet-50 p-1">
+          <button type="button" onClick={() => setViewMode('list')} className={`rounded-lg px-3 py-1.5 text-xs font-black transition ${viewMode === 'list' ? 'bg-white text-violet-700 shadow-sm' : 'text-violet-500'}`}>Список</button>
+          <button type="button" onClick={() => setViewMode('map')} className={`rounded-lg px-3 py-1.5 text-xs font-black transition ${viewMode === 'map' ? 'bg-white text-violet-700 shadow-sm' : 'text-violet-500'}`}>Карта</button>
+        </div>
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Filters</p>
           <button
@@ -932,6 +960,12 @@ const SuppliersScreen: React.FC = () => {
             Reset
           </button>
         </div>
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Поиск: поставщик, бренд, зона, GPS"
+          className="mb-2 w-full rounded-xl border border-violet-100 bg-violet-50/60 px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-violet-300"
+        />
         <div className="mb-2">
           <select className="w-full rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
             <option value="smart">Sort: smart</option>
@@ -939,7 +973,14 @@ const SuppliersScreen: React.FC = () => {
             <option value="heat">Heat ↓</option>
             <option value="near">Distance ↑</option>
             <option value="name">Name A→Z</option>
+            <option value="updated">Updated ↓</option>
+            <option value="contacts">Contacts first</option>
           </select>
+        </div>
+        <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+          {[{ label: '⭐ Smart', value: 'smart' }, { label: 'Trust', value: 'trust' }, { label: 'Heat', value: 'heat' }, { label: 'Near', value: 'near' }, { label: 'Updated', value: 'updated' }, { label: 'Contacts', value: 'contacts' }].map((item) => (
+            <button key={item.value} type="button" onClick={() => setSortByExtended(item.value as any)} className={`rounded-full border px-3 py-1 text-[10px] font-black ${sortByExtended === item.value ? 'border-violet-400 bg-violet-600 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>{item.label}</button>
+          ))}
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
@@ -1127,189 +1168,122 @@ const SuppliersScreen: React.FC = () => {
           </div>
         )}
 
-        {filteredSuppliers.length === 0 ? (
+        {isSuppliersLoading ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="animate-pulse rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="mb-3 h-4 w-2/3 rounded bg-slate-200" />
+                <div className="mb-2 h-3 w-full rounded bg-slate-100" />
+                <div className="h-3 w-1/2 rounded bg-slate-100" />
+              </div>
+            ))}
+          </div>
+        ) : filteredSuppliers.length === 0 ? (
           <div className="py-20 text-center opacity-30 italic flex flex-col items-center gap-3"><Store size={48} />Поставщики не найдены</div>
+        ) : viewMode === 'map' ? (
+          <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-violet-700">Supplier map</p>
+              <span className="text-[11px] font-bold text-violet-600">Маркеры: {filteredSuppliers.filter((item) => item.coordinates).length}</span>
+            </div>
+            <div className="relative h-[360px] overflow-hidden rounded-2xl border border-violet-100 bg-[radial-gradient(circle_at_20%_20%,#ddd6fe,transparent_35%),radial-gradient(circle_at_80%_70%,#bfdbfe,transparent_40%),#eef2ff]">
+              {filteredSuppliers.filter((item) => item.coordinates).map((supplier) => {
+                const lat = supplier.coordinates?.lat || 25.2048;
+                const lng = supplier.coordinates?.lng || 55.2708;
+                const top = Math.max(8, Math.min(92, 100 - ((lat - 25.0) / 0.45) * 100));
+                const left = Math.max(6, Math.min(94, ((lng - 55.1) / 0.55) * 100));
+                return (
+                  <button
+                    key={supplier.id}
+                    type="button"
+                    style={{ top: `${top}%`, left: `${left}%` }}
+                    className="group absolute -translate-x-1/2 -translate-y-1/2"
+                    onClick={() => setDetailSupplierId(supplier.id)}
+                  >
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-violet-600 text-white shadow-lg transition group-hover:scale-110">
+                      <MapPin size={14} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[11px] font-semibold text-violet-700">Нажмите на маркер для карточки с быстрыми действиями: позвонить, WhatsApp, добавить в заказ.</p>
+          </div>
         ) : (
           filteredSuppliers.map((s) => {
-            const Icon = s.type === 'scrapyard' ? Wrench : Gem;
             const brands = pickSupplierBrands(s);
-            const isExpanded = expandedSupplierIds.has(s.id);
-            const linkedParts = [...(s.linkedParts || [])].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-            const isManagePartsExpanded = activeOrderLinkShopId === s.id;
-            const isAddedPartsExpanded = expandedAddedPartsIds.has(s.id);
-
+            const hasContacts = Boolean((s.phone || '').trim() || (s.whatsapp || '').trim());
+            const contactState = hasContacts ? 'ok' : ((s.location || '').trim() ? 'partial' : 'none');
+            const trust = Number(s.trustLevel || s.autoTrustScore || 0);
             return (
-              <div key={s.id} className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}>
-                <button type="button" onClick={() => setExpandedSupplierIds((prev) => { const next = new Set(prev); if (next.has(s.id)) next.delete(s.id); else next.add(s.id); return next; })} className="w-full text-left space-y-2">
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      {((s.photos && s.photos.length > 0) || s.photoUrl) ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const images = ((s.photos && s.photos.length > 0) ? s.photos : [s.photoUrl || '']).filter(Boolean) as string[];
-                            if (images.length > 0) setGallery({ images, index: 0 });
-                          }}
-                          className="w-12 h-12 rounded-xl overflow-hidden border border-gray-200 shrink-0"
-                        >
-                          <img src={((s.photos && s.photos[0]) || s.photoUrl) as string} alt={s.name} className="h-full w-full object-cover" />
-                        </button>
-                      ) : (
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${s.type === 'scrapyard' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}><Icon size={24} /></div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="font-black text-sm leading-tight truncate">{brands.slice(0, 2).join(' • ') || 'Без марки'}</p>
-                        <p className="text-[11px] font-semibold text-indigo-600 truncate">{(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}</p>
-                        <p className="text-[11px] text-gray-500 truncate">{s.name}</p>
-                      </div>
+              <div key={s.id} className="group rounded-2xl border border-violet-100 bg-gradient-to-br from-white to-violet-50 p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="flex items-start justify-between gap-2">
+                  <button type="button" onClick={() => setDetailSupplierId(s.id)} className="min-w-0 text-left">
+                    <p className="truncate text-sm font-black text-slate-800">{s.name}</p>
+                    <p className="truncate text-[11px] font-semibold text-violet-700">{(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}</p>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {brands.slice(0, 3).map((brand) => <span key={brand} className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-black text-indigo-700">{brand}</span>)}
+                      {brands.length > 3 ? <span title={brands.slice(3).join(', ')} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-600">+{brands.length - 3}</span> : null}
                     </div>
-                    <div className="text-right text-[10px] text-slate-500">
-                      <p className="font-black">{s.coordinates ? `${Math.max(0.1, Number((Math.abs(s.coordinates.lat - sortByDistanceRef.lat) * 111).toFixed(1)))} km` : 'n/a'}</p>
-                      <p>{isExpanded ? 'Свернуть' : 'Открыть'}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
-                    <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
-                    <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{daysAgoLabel(s.lastContactAt)}</span>
-                  </div>
-                </button>
-
-                <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isExpanded ? 2200 : 0, opacity: isExpanded ? 1 : 0 }}>
-                {isExpanded && <>
-                <div className="rounded-xl border border-gray-100 bg-slate-50 p-2 space-y-1">
-                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Марки:</span> {(brands.length > 0 ? brands : ['—']).join(', ')}</p>
-                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Модели:</span> {((s.models || []).length > 0 ? (s.models || []) : ['—']).join(', ')}</p>
-                  <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Годы:</span> {(normalizeSupplierYears(s.years).length > 0 ? normalizeSupplierYears(s.years).join(', ') : '—')}</p>
-                </div>
-                {Array.isArray(s.mainPartCategories) && s.mainPartCategories.length > 0 && <p className="text-[11px] text-slate-500">Основные детали: {s.mainPartCategories.slice(0, 3).join(', ')}</p>}
-
-                <div className="grid grid-cols-2 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">
-                  <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Map</button>
-                  {(s.phone || '').trim() ? (
-                    <>
-                      <a href={`https://wa.me/${((s.whatsapp || s.phone) || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
-                      <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-1.5 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
-                    </>
-                  ) : (
-                    <>
-                      <span className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-black text-amber-700">Нет контакта</span>
-                      <button type="button" onClick={() => openContactEditor(s)} className="rounded-lg bg-amber-100 px-2 py-1.5 text-[10px] font-black text-amber-800 inline-flex items-center justify-center gap-1">➕ Добавить контакт</button>
-                      <button type="button" onClick={() => { navigator.clipboard.writeText(s.name); alert('Название скопировано'); }} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700">Скопировать название</button>
-                    </>
-                  )}
-                  <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput(normalizeSupplierYears(s.years).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
-                  <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
-                  <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
-                  
-                </div>
-                </>}
-                {isExpanded && (
-                <div className="border-t border-gray-100 pt-3 space-y-2">
-                  <button type="button" onClick={() => setActiveOrderLinkShopId(isManagePartsExpanded ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-between gap-2"><span className="inline-flex items-center gap-2"><Link2 size={13} /> Управление деталями поставщика</span>{isManagePartsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>
-                  <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isManagePartsExpanded ? 800 : 0, opacity: isManagePartsExpanded ? 1 : 0 }}>
-                  {isManagePartsExpanded && (
-                    <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-2">
-                      <select
-                        className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold"
-                        value={selectedOrderBySupplier[s.id] || ''}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setSelectedOrderBySupplier((prev) => ({ ...prev, [s.id]: value }));
-                          setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: value, partId: prev?.partId || '' }));
-                        }}
-                      >
-                        <option value="">Выберите активный заказ...</option>
-                        {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model} • {order.vin}</option>)}
-                      </select>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const selectedOrderId = selectedOrderBySupplier[s.id];
-                          if (!selectedOrderId) return;
-                          const selectedOrder = activeOrders.find((order) => order.id === selectedOrderId);
-                          if (!selectedOrder) return;
-                          const selectedPartIds = activeOrderPartLink?.supplierId === s.id && activeOrderPartLink.partId
-                            ? [activeOrderPartLink.partId]
-                            : selectedOrder.parts.map((part) => part.id);
-                          addSupplierToOrder(s.id, selectedOrderId, selectedPartIds);
-                          alert('Поставщик добавлен в активный заказ.');
-                        }}
-                        className="w-full rounded-lg bg-blue-100 px-2 py-2 text-[11px] font-black text-blue-800"
-                      >
-                        Сохранить в активный заказ
-                      </button>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : ''} onChange={(e) => setActiveOrderPartLink({ supplierId: s.id, orderId: e.target.value, partId: '' })}>
-                          <option value="">Заказ для детали</option>
-                          {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model}</option>)}
-                        </select>
-                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.partId : ''} onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: (prev?.supplierId === s.id ? prev.orderId : '') || selectedOrderBySupplier[s.id] || '', partId: e.target.value }))}>
-                          <option value="">Деталь</option>
-                          {(activeOrders.find((order) => order.id === (activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : selectedOrderBySupplier[s.id]))?.parts || []).map((part) => <option key={part.id} value={part.id}>{part.name}</option>)}
-                        </select>
-                      </div>
-                      <button type="button" onClick={addSupplierToOrderPart} className="w-full rounded-lg bg-violet-100 px-2 py-2 text-[11px] font-black text-violet-800">Добавить деталь в карточку</button>
-                    </div>
-                  )}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => setExpandedAddedPartsIds((prev) => { const next = new Set(prev); if (next.has(s.id)) next.delete(s.id); else next.add(s.id); return next; })}
-                      className="w-full inline-flex items-center justify-between text-[11px] font-black text-slate-700"
-                    >
-                      <span>Добавленные детали ({linkedParts.length})</span>
-                      {isAddedPartsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </button>
-                    <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isAddedPartsExpanded ? 900 : 0, opacity: isAddedPartsExpanded ? 1 : 0 }}>
-                    {isAddedPartsExpanded && (linkedParts.length === 0 ? (
-                      <p className="text-[11px] text-slate-500">Нет деталей. Добавьте через блок выше или через «Добавить варианты».</p>
-                    ) : linkedParts.map((entry) => (
-                      <div key={entry.id} className="mb-1.5 rounded-md bg-white border border-slate-200 p-1.5 text-[10px]">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="font-bold text-slate-700">{entry.orderLabel}</p>
-                            <p className="text-slate-600">{entry.partName}</p>
-                          </div>
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${entry.source === 'variant' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                            {entry.source === 'variant' ? 'Вариант' : 'Вручную'}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-1.5">
-                          <select
-                            value={entry.status}
-                            onChange={(e) => updateLinkedPartStatus(s, entry, e.target.value as SupplierLinkedPartStatus)}
-                            className="rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold"
-                          >
-                            {Object.entries(LINKED_PART_STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => removeLinkedPartEntry(s, entry)}
-                            className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 font-black text-rose-700"
-                          >
-                            <Trash2 size={11} />
-                            Убрать
-                          </button>
-                          {entry.priceAed ? <span className="font-black text-[10px] text-emerald-700">{entry.priceAed} AED</span> : null}
-                        </div>
-                      </div>
-                    ))) }
-                    </div>
+                  </button>
+                  <div className="text-right">
+                    <p className="text-xs font-black text-amber-500">{'★'.repeat(Math.max(1, Math.min(5, Math.round(trust) || 3)))}</p>
+                    <p className="text-[10px] font-semibold text-slate-500">{daysAgoLabel(s.lastContactAt)}</p>
                   </div>
                 </div>
-                )}
+
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-black ${contactState === 'ok' ? 'bg-emerald-100 text-emerald-700' : contactState === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
+                    {contactState === 'ok' ? '✅ Есть контакты' : contactState === 'partial' ? '⚠️ Частично заполнено' : '❌ Нет контактов'}
+                  </span>
+                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-700">{(s.models || []).length > 0 ? (s.models || []).slice(0, 3).join(', ') : 'Все модели'}</span>
+                </div>
+
+                <div className="mt-3 grid grid-cols-4 gap-2 text-[10px] font-black">
+                  <button type="button" title="Открыть локацию на карте" onClick={() => openMap(s.location)} className="rounded-lg bg-indigo-50 px-2 py-1.5 text-indigo-700">Карта</button>
+                  <a title="Написать в WhatsApp" href={`https://wa.me/${((s.whatsapp || s.phone) || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className={`rounded-lg px-2 py-1.5 text-center ${hasContacts ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400 pointer-events-none'}`}>WA</a>
+                  <a title="Позвонить поставщику" href={`tel:${s.phone}`} className={`rounded-lg px-2 py-1.5 text-center ${hasContacts ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-400 pointer-events-none'}`}>Call</a>
+                  <button type="button" title="Открыть подробный bottom-sheet" onClick={() => setDetailSupplierId(s.id)} className="rounded-lg bg-violet-600 px-2 py-1.5 text-white">Подробнее</button>
                 </div>
               </div>
             );
           })
         )}
       </div>
+
+      {detailSupplier && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-2" onClick={() => setDetailSupplierId(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-h-[86vh] max-w-2xl overflow-y-auto rounded-t-3xl border border-violet-100 bg-white p-4 shadow-2xl sm:rounded-3xl">
+            <div className="mb-2 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-black text-slate-900">{detailSupplier.name}</p>
+                <p className="text-xs font-semibold text-violet-700">{(detailSupplier.zone || inferZoneFromCoords(detailSupplier.coordinates) || 'Зона не указана')}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" title="Избранное" onClick={() => toggleFavorite(detailSupplier)} className="rounded-lg border border-pink-200 bg-pink-50 p-2 text-pink-700"><Heart size={14} /></button>
+                <button type="button" title="Редактировать" onClick={() => { setIsAdding(true); setEditingSupplierId(detailSupplier.id); setDetailSupplierId(null); setName(detailSupplier.name); setPhone(detailSupplier.phone); setLocation(detailSupplier.location); }} className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-700"><Pencil size={14} /></button>
+                <button type="button" title="Удалить" onClick={() => setDeleteSupplierId(detailSupplier.id)} className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-700"><Trash2 size={14} /></button>
+              </div>
+            </div>
+
+            <div className="grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-700 sm:grid-cols-2">
+              <p><span className="font-black">Бренды:</span> {(pickSupplierBrands(detailSupplier).join(', ') || '—')}</p>
+              <p><span className="font-black">Модели:</span> {((detailSupplier.models || []).join(', ') || 'Все модели')}</p>
+              <p><span className="font-black">Годы:</span> {(normalizeSupplierYears(detailSupplier.years).join(', ') || '—')}</p>
+              <p><span className="font-black">Категории:</span> {((detailSupplier.mainPartCategories || []).join(', ') || '—')}</p>
+              <p><span className="font-black">Контакты:</span> {detailSupplier.phone || '—'}</p>
+              <p><span className="font-black">WhatsApp:</span> {detailSupplier.whatsapp || detailSupplier.phone || '—'}</p>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <a href={`tel:${detailSupplier.phone}`} className="rounded-xl bg-green-600 px-3 py-2 text-center text-xs font-black text-white">Позвонить</a>
+              <a href={`https://wa.me/${((detailSupplier.whatsapp || detailSupplier.phone) || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-600 px-3 py-2 text-center text-xs font-black text-white">WhatsApp</a>
+              <button type="button" onClick={() => { setActiveOrderLinkShopId(detailSupplier.id); setDetailSupplierId(null); }} className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-black text-white">Добавить в заказ</button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
 
       {contactEditorSupplierId && (
