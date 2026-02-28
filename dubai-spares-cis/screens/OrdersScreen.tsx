@@ -8,7 +8,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
 
-type TabType = 'active' | 'vip' | 'sold' | 'archive';
+type TabType = 'active' | 'vip' | 'lead' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
 type SearchState = 'searching' | 'waiting_response' | 'found' | 'offer_sent' | 'sold' | 'archived';
 
@@ -420,6 +420,11 @@ const OrdersScreen: React.FC = () => {
   const tabCounts = useMemo(() => ({
     active: orders.filter((o) => !o.isArchived && !o.isSold).length,
     vip: orders.filter((o) => o.isVip && !o.isSold).length,
+    lead: orders.filter((o) => o.isLead && !o.isSold).length,
+    found: orders.filter((o) => !o.isSold && isOrderFound(o)).length,
+    urgent: orders.filter((o) => !o.isSold && o.priority === Priority.HIGH).length,
+    medium: orders.filter((o) => !o.isSold && o.priority === Priority.MEDIUM).length,
+    low: orders.filter((o) => !o.isSold && o.priority === Priority.LOW).length,
     sold: orders.filter((o) => o.isSold).length,
     archive: orders.filter((o) => o.isArchived && !o.isSold).length
   }), [orders]);
@@ -439,6 +444,11 @@ const OrdersScreen: React.FC = () => {
       if (activeTab === 'sold') return order.isSold;
       if (activeTab === 'archive') return order.isArchived && !order.isSold;
       if (activeTab === 'vip') return order.isVip && !order.isSold;
+      if (activeTab === 'lead') return order.isLead && !order.isSold;
+      if (activeTab === 'found') return !order.isSold && isOrderFound(order);
+      if (activeTab === 'urgent') return !order.isSold && order.priority === Priority.HIGH;
+      if (activeTab === 'medium') return !order.isSold && order.priority === Priority.MEDIUM;
+      if (activeTab === 'low') return !order.isSold && order.priority === Priority.LOW;
       return !order.isArchived && !order.isSold;
     });
 
@@ -540,6 +550,11 @@ const OrdersScreen: React.FC = () => {
           {([
             ['active', 'Актив'],
             ['vip', 'VIP'],
+            ['lead', 'Лид'],
+            ['found', 'Найденные'],
+            ['urgent', 'Срочно'],
+            ['medium', 'Средняя'],
+            ['low', 'Низкая'],
             ['sold', 'Продано'],
             ['archive', 'Архив']
           ] as [TabType, string][]).map(([tab, label]) => (

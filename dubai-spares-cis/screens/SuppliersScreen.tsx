@@ -1179,8 +1179,7 @@ const SuppliersScreen: React.FC = () => {
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${s.type === 'scrapyard' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}><Icon size={24} /></div>
                       )}
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">Название поставщика</p>
-                        <p className="font-black text-sm leading-tight truncate">{s.name}</p>
+                                                <p className="font-black text-sm leading-tight truncate">{s.name}</p>
                         <p className="text-[11px] font-semibold text-indigo-600 truncate">{(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}</p>
                         <p className="text-[11px] text-gray-500 truncate">{brands.slice(0, 2).join(' • ') || 'Без марки'}</p>
                       </div>

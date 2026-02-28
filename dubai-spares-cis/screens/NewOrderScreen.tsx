@@ -671,6 +671,7 @@ const NewOrderScreen: React.FC = () => {
       parts: parts.filter((part) => part.name.trim()).map((part) => ({
         id: createId(),
         name: part.name.trim(),
+        comment: part.comment.trim(),
         photos: part.photos,
         photoUrl: part.photos[0],
         variants: [],
@@ -686,13 +687,6 @@ const NewOrderScreen: React.FC = () => {
       leadSource: fromLead ? 'public_form' : 'manual',
       notes: [
         ...(shippingNote ? [{ id: createId(), text: `Доставка: ${shippingNote}`, createdAt: now }] : []),
-        ...parts
-          .filter((part) => part.name.trim() && part.comment.trim())
-          .map((part) => ({
-            id: createId(),
-            text: `${part.name.trim()} — ${part.comment.trim()}`,
-            createdAt: now
-          })),
         ...notes
           .filter((note) => note.text.trim() || note.photos.length > 0 || note.voices.length > 0)
           .map((note) => ({

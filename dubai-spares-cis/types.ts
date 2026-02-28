@@ -56,6 +56,7 @@ export interface Part {
   id: string;
   orderId?: string;
   name: string;
+  comment?: string;
   photoUrl?: string;
   photos?: string[];
   variants: PriceVariant[];
@@ -247,6 +248,7 @@ export interface DbPartRow {
   id: string;
   order_id: string;
   name: string;
+  comment?: string | null;
   photo_url: string | null;
   photos: string[];
   is_found: boolean;

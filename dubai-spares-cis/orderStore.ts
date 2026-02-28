@@ -137,7 +137,7 @@ const normalizeOrder = (order: Order): Order => {
           return { ...variant, photos: variantPhotos, photoUrl: variantPhotos[0] || '' };
         })
         : [];
-      return { ...part, photos: partPhotos, photoUrl: partPhotos[0] || '', variants };
+      return { ...part, comment: String(part.comment || ''), photos: partPhotos, photoUrl: partPhotos[0] || '', variants };
     })
     : [];
 
@@ -744,6 +744,7 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
       id: String(part.id),
       orderId: String(part.order_id),
       name: part.name,
+      comment: (part as any).comment || '',
       photos: part.photos || [],
       photoUrl: part.photo_url || part.photos?.[0],
       isFound: !!part.is_found,
@@ -1004,6 +1005,7 @@ const persistOrderGraph = async (order: Order) => {
     id: part.id,
     order_id: uploadedOrder.id,
     name: part.name,
+    comment: part.comment || '',
     photo_url: part.photoUrl,
     photos: part.photos || [],
     is_found: !!part.isFound
