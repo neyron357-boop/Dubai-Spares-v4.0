@@ -8,11 +8,21 @@ interface Props {
   onClose: () => void;
   onDeleteCurrent?: (index: number) => void;
   deleteLabel?: string;
+  shareTitle?: string;
+  shareText?: string;
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDeleteCurrent, deleteLabel = 'Удалить' }) => {
+const ImagePreview: React.FC<Props> = ({
+  images,
+  initialIndex = 0,
+  onClose,
+  onDeleteCurrent,
+  deleteLabel = 'Удалить',
+  shareTitle = 'Vehicle photos',
+  shareText = 'Vehicle photos'
+}) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -90,13 +100,13 @@ const ImagePreview: React.FC<Props> = ({ images, initialIndex = 0, onClose, onDe
         .map((item) => item.value);
 
       if (files.length > 0 && navigator.canShare?.({ files })) {
-        await navigator.share({ title: 'Фото автомобиля', files });
+        await navigator.share({ title: shareTitle, text: shareText, files });
         return;
       }
 
       await navigator.share({
-        title: 'Фото автомобиля',
-        text: images.join('\n')
+        title: shareTitle,
+        text: `${shareText}\n${images.join('\n')}`.trim()
       });
     } catch {
       // user cancelled share sheet
