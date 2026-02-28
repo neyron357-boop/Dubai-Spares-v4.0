@@ -641,6 +641,7 @@ const buildSnapshotPayload = (
       return {
         id: String(part.id),
         name: String(part.name || 'Part'),
+        comment: String(part.comment || ''),
         qty: 1,
         supplier_price_aed: supplierAed,
         client_price_aed: round2(clientAed),
@@ -749,6 +750,13 @@ const buildSnapshotPayload = (
     },
     brand: {
       name: order.brand || null
+    },
+    customer_links: {
+      phone: order.contactLinks?.phone || order.customerContact || null,
+      instagram_url: order.contactLinks?.instagramUrl || null,
+      tiktok_url: order.contactLinks?.tiktokUrl || null,
+      facebook_url: order.contactLinks?.facebookUrl || null,
+      telegram_url: order.contactLinks?.telegramUrl || null
     },
     contact: {
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone) || normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),

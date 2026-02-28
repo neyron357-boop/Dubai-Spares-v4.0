@@ -159,6 +159,8 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
   const payloadTelegram = toTrimmedString(mergedPayload.telegramContact);
   const payloadInstagram = toTrimmedString(mergedPayload.instagramContact);
   const payloadPhone = toTrimmedString(mergedPayload.phoneContact);
+  const payloadTiktok = toTrimmedString(mergedPayload.tiktokContact);
+  const payloadFacebook = toTrimmedString(mergedPayload.facebookContact);
   const fallbackContact = lead.phone || fallbackPhone;
   const resolvedWhatsapp = payloadWhatsapp
     || (preferredChannel === 'whatsapp' ? payloadCustomerContact : '')
@@ -171,6 +173,13 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
     || (normalizedSource === Source.INSTAGRAM ? resolvedInstagram : '')
     || toTrimmedString(mergedPayload.socialNickname)
     || undefined;
+  const contactLinks: NonNullable<Order['contactLinks']> = {
+    phone: resolvedPrimaryContact || undefined,
+    instagramUrl: resolvedInstagram || undefined,
+    tiktokUrl: payloadTiktok || undefined,
+    facebookUrl: payloadFacebook || undefined,
+    telegramUrl: resolvedTelegram || undefined
+  };
 
   return {
     id: lead.order_id || lead.id,
@@ -199,6 +208,7 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
     clientName: lead.name || fallbackName,
     customerContact: resolvedPrimaryContact,
     socialNickname: resolvedSocial,
+    contactLinks,
     priority: Priority.HIGH,
     status: 'lead',
     source: normalizedSource,

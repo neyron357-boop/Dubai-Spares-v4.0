@@ -45,6 +45,7 @@ create table if not exists public.orders (
   source_platform text,
   customer_contact text not null default '',
   social_nickname text not null default '',
+  contact_links jsonb,
   car_photo_url text,
   car_photos text[] not null default '{}',
   markup_percent numeric not null default 20,

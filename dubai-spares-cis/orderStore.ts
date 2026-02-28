@@ -119,6 +119,28 @@ const normalizeLogistics = (raw: unknown): Order['logistics'] | undefined => {
   };
 };
 
+const normalizeContactLinks = (raw: unknown): Order['contactLinks'] | undefined => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const src = raw as Record<string, unknown>;
+  const asText = (...values: unknown[]) => {
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return undefined;
+  };
+
+  const normalized: NonNullable<Order['contactLinks']> = {
+    phone: asText(src.phone),
+    instagramUrl: asText(src.instagramUrl, src.instagram_url),
+    tiktokUrl: asText(src.tiktokUrl, src.tiktok_url),
+    facebookUrl: asText(src.facebookUrl, src.facebook_url),
+    telegramUrl: asText(src.telegramUrl, src.telegram_url)
+  };
+
+  if (!Object.values(normalized).some(Boolean)) return undefined;
+  return normalized;
+};
+
 const normalizeOrder = (order: Order): Order => {
   const salesStatus = normalizeSalesStatus(order.salesStatus);
   const isCompleted = salesStatus === 'Completed';
@@ -165,7 +187,8 @@ const normalizeOrder = (order: Order): Order => {
     leadUnread: order.leadUnread === true,
     leadSource: order.leadSource === 'public_form' ? 'public_form' : 'manual',
     leadReadAt: Number.isFinite(Number(order.leadReadAt)) ? Number(order.leadReadAt) : undefined,
-    pricingEvents: Array.isArray(order.pricingEvents) ? order.pricingEvents : []
+    pricingEvents: Array.isArray(order.pricingEvents) ? order.pricingEvents : [],
+    contactLinks: normalizeContactLinks(order.contactLinks)
   };
 };
 
@@ -372,6 +395,7 @@ const hotFieldKeys: Array<keyof Order> = [
   'soldProfitUsd',
   'customerContact',
   'socialNickname',
+  'contactLinks',
   'updatedAt'
 ];
 let cachedQueueLength = 0;
@@ -811,6 +835,7 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     statusChangedBy: typeof (row as any).status_changed_by === 'string' ? (row as any).status_changed_by : undefined,
     customerContact: row.customer_contact || '',
     socialNickname: row.social_nickname || '',
+    contactLinks: normalizeContactLinks((row as any).contact_links),
     updatedAt: parseTimestamp(row.updated_at ?? row.created_at),
     recommendedShopIds: Array.isArray(row.recommended_shop_ids) ? row.recommended_shop_ids : [],
     dismissedShopIds: Array.isArray(row.dismissed_shop_ids) ? row.dismissed_shop_ids : [],
@@ -912,6 +937,15 @@ const persistOrderGraph = async (order: Order) => {
     notes: uploadedOrder.notes || [],
     customer_contact: uploadedOrder.customerContact || '',
     social_nickname: uploadedOrder.socialNickname || '',
+    contact_links: uploadedOrder.contactLinks
+      ? {
+          phone: uploadedOrder.contactLinks.phone || null,
+          instagram_url: uploadedOrder.contactLinks.instagramUrl || null,
+          tiktok_url: uploadedOrder.contactLinks.tiktokUrl || null,
+          facebook_url: uploadedOrder.contactLinks.facebookUrl || null,
+          telegram_url: uploadedOrder.contactLinks.telegramUrl || null
+        }
+      : null,
     recommended_shop_ids: uploadedOrder.recommendedShopIds || [],
     dismissed_shop_ids: uploadedOrder.dismissedShopIds || [],
     lead_unread: !!uploadedOrder.leadUnread,
@@ -932,6 +966,7 @@ const persistOrderGraph = async (order: Order) => {
       'vin_photo_url',
       'customer_contact',
       'social_nickname',
+      'contact_links',
       'recommended_shop_ids',
       'dismissed_shop_ids',
       'body_type',
@@ -1191,6 +1226,15 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   status_changed_by: patch.statusChangedBy,
   customer_contact: patch.customerContact,
   social_nickname: patch.socialNickname,
+  contact_links: patch.contactLinks
+    ? {
+        phone: patch.contactLinks.phone,
+        instagram_url: patch.contactLinks.instagramUrl,
+        tiktok_url: patch.contactLinks.tiktokUrl,
+        facebook_url: patch.contactLinks.facebookUrl,
+        telegram_url: patch.contactLinks.telegramUrl
+      }
+    : undefined,
   updated_at: toIsoTimestamp(patch.updatedAt || Date.now())
 });
 

@@ -539,22 +539,26 @@ const OrderDetailsScreen: React.FC = () => {
 
   const sourceLabel = String(draftFields.source ?? order.source ?? '').toLowerCase();
   const socialValue = String(draftFields.socialNickname ?? order.socialNickname ?? '').trim();
+  const contactLinks = order.contactLinks || {};
 
   const getClientChannelLink = () => {
     if (sourceLabel.includes('instagram')) {
-      if (!socialValue) return '';
-      if (socialValue.startsWith('http')) return socialValue;
-      return `https://instagram.com/${socialValue.replace(/^@/, '')}`;
+      const resolved = socialValue || contactLinks.instagramUrl || '';
+      if (!resolved) return '';
+      if (resolved.startsWith('http')) return resolved;
+      return `https://instagram.com/${resolved.replace(/^@/, '')}`;
     }
     if (sourceLabel.includes('tiktok')) {
-      if (!socialValue) return '';
-      if (socialValue.startsWith('http')) return socialValue;
-      return `https://www.tiktok.com/@${socialValue.replace(/^@/, '')}`;
+      const resolved = socialValue || contactLinks.tiktokUrl || '';
+      if (!resolved) return '';
+      if (resolved.startsWith('http')) return resolved;
+      return `https://www.tiktok.com/@${resolved.replace(/^@/, '')}`;
     }
     if (sourceLabel.includes('telegram')) {
-      if (!socialValue) return '';
-      if (socialValue.startsWith('http')) return socialValue;
-      const normalized = socialValue.replace(/^@/, '');
+      const resolved = socialValue || contactLinks.telegramUrl || '';
+      if (!resolved) return '';
+      if (resolved.startsWith('http')) return resolved;
+      const normalized = resolved.replace(/^@/, '');
       return /^\+?\d{6,}$/.test(normalized)
         ? `https://t.me/${normalized.replace(/^\+/, '')}`
         : `https://t.me/${normalized}`;

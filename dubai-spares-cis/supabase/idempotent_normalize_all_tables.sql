@@ -27,6 +27,7 @@ alter table public.orders add column if not exists source text not null default 
 alter table public.orders add column if not exists source_platform text;
 alter table public.orders add column if not exists customer_contact text not null default '';
 alter table public.orders add column if not exists social_nickname text not null default '';
+alter table public.orders add column if not exists contact_links jsonb;
 alter table public.orders add column if not exists car_photo_url text;
 alter table public.orders add column if not exists car_photos text[] not null default '{}';
 alter table public.orders add column if not exists sales_status text not null default 'Inquiry';
