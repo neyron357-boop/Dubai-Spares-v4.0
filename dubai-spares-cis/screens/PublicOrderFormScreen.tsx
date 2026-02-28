@@ -933,21 +933,13 @@ Best time: ${bestContactTime || '—'}`,
         const nextQueue = [...readPendingLeadQueue().filter((item) => item.orderId !== orderId), { orderId, leadPayload: validatedLeadPayload }];
         writePendingLeadQueue(nextQueue);
 
-        await logger.warn('public-form', 'Lead create failed - will save locally', {
+        await logger.warn('public-form', 'Lead create failed - keeping pending queue entry', {
           reason: leadResult.error,
           code: leadResult.code,
           orderId
         });
 
-        pushNotification({
-          type: NotificationType.SYNC_ERROR,
-          title: '⚠️ Частичная ошибка',
-          message: '⚠️ Заявка сохранена локально и будет отправлена при восстановлении соединения',
-          orderId,
-          source: 'web_form',
-          route: `/order/${orderId}`,
-          severity: 'warning'
-        });
+        throw new Error(leadResult.error || 'Не удалось отправить заявку в облако. Попробуйте ещё раз.');
       } else {
         await logger.info('public-form', 'Lead successfully created on server', {
           orderId,
