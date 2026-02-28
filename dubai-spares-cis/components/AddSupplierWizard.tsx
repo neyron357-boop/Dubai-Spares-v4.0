@@ -936,7 +936,6 @@ const AddSupplierWizard: React.FC<AddSupplierWizardProps> = ({
           <span>{'★'.repeat(data.trustLevel)}{'☆'.repeat(5 - data.trustLevel)}</span>
           {data.workingHours && <span>{data.workingHours}</span>}
           {data.whatsappFast && <Pill label="WA Fast" color="bg-emerald-50 text-emerald-700" />}
-          {data.hasDelivery && <Pill label={data.deliveryDescription ? `Доставка: ${data.deliveryDescription}` : 'Доставка'} color="bg-emerald-50 text-emerald-700" />}
         </div>
         {data.comment && <p className="text-xs text-slate-500 mt-1 italic">"{data.comment}"</p>}
       </ReviewSection>

@@ -174,6 +174,11 @@ const inferZoneFromCoords = (coords?: { lat: number; lng: number }) => {
   return matched?.name || '';
 };
 
+const renderTrustStars = (trustLevel?: number, autoTrustScore?: number) => {
+  const tl = Math.max(1, Math.min(5, Math.round(Number(trustLevel || autoTrustScore || 1))));
+  return `${'★'.repeat(tl)}${'☆'.repeat(5 - tl)}`;
+};
+
 const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, restoreData, orders, updateOrder, updateSupplier, lastSuppliersSyncError } = useStore();
 
@@ -1070,8 +1075,9 @@ const SuppliersScreen: React.FC = () => {
               type="button"
               onClick={() => setBrandFilter('all')}
               className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold border bg-blue-600 text-white border-blue-600"
+              title="Снять фильтр"
             >
-              {brandFilter}
+              {brandFilter} ×
             </button>
           )}
           {supplierFilterOptions.brands.length > 8 && (
@@ -1188,11 +1194,9 @@ const SuppliersScreen: React.FC = () => {
                   </div>
 
                   <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
-                    {(() => { const tl = Math.max(1, Math.min(5, Math.round(s.trustLevel || s.autoTrustScore || 1))); return (
-                      <span className="rounded-full px-2 py-1 border border-amber-200 bg-amber-50 text-amber-700">
-                        {'★'.repeat(tl)}{'☆'.repeat(5 - tl)}
-                      </span>
-                    ); })()}
+                    <span className="rounded-full px-2 py-1 border border-amber-200 bg-amber-50 text-amber-700">
+                      {renderTrustStars(s.trustLevel, s.autoTrustScore)}
+                    </span>
                     <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{daysAgoLabel(s.lastContactAt)}</span>
                     <span className={`rounded-full px-2 py-1 border text-[10px] font-black uppercase ${
                       (s.phone || '').trim()
