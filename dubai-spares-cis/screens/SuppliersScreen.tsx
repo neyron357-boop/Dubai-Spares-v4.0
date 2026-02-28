@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import ImagePreview from '../components/ImagePreview';
+import AddSupplierWizard, { WizardFormData } from '../components/AddSupplierWizard';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops, updateSupplierContacts } from '../radarShops';
 import { createUuid } from '../id';
@@ -225,6 +226,7 @@ const SuppliersScreen: React.FC = () => {
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [sortByDistanceRef, setSortByDistanceRef] = useState<{ lat: number; lng: number }>({ lat: 25.2048, lng: 55.2708 });
   const [sortByExtended, setSortByExtended] = useState<'smart' | 'trust' | 'heat' | 'near' | 'name'>('smart');
+  const [nameSearch, setNameSearch] = useState('');
   const [brandFilter, setBrandFilter] = useState('all');
   const [modelFilter, setModelFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
@@ -394,12 +396,14 @@ const SuppliersScreen: React.FC = () => {
 
     return [...rawSuppliers]
       .filter((supplier) => {
+        const nameSearchLower = nameSearch.trim().toLowerCase();
         const brandMatch = brandFilter === 'all' || pickSupplierBrands(supplier).includes(brandFilter);
         const modelMatch = modelFilter === 'all' || (supplier.models || []).includes(modelFilter);
         const supplierYears = normalizeSupplierYears(supplier.years);
         const yearMatch = !hasSelectedYear || supplierYears.includes(selectedYear);
         const categoryMatch = partCategoryFilter === 'all' || (supplier.mainPartCategories || []).includes(partCategoryFilter);
-        return brandMatch && modelMatch && yearMatch && categoryMatch;
+        const nameMatch = !nameSearchLower || supplier.name.toLowerCase().includes(nameSearchLower);
+        return brandMatch && modelMatch && yearMatch && categoryMatch && nameMatch;
       })
       .sort((a, b) => {
       const distanceA = calcDistanceKm(a);
@@ -411,7 +415,7 @@ const SuppliersScreen: React.FC = () => {
       if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
       return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
     });
-  }, [brandFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
+  }, [brandFilter, modelFilter, nameSearch, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -627,6 +631,100 @@ const SuppliersScreen: React.FC = () => {
       setIsSavingSupplier(false);
     }
   };
+
+  const handleWizardSave = async (wizardData: WizardFormData) => {
+    setIsSavingSupplier(true);
+    try {
+      const normalizedName = toTitle(wizardData.name.trim());
+      const normalizedPhone = normalizePhone(wizardData.phone);
+      const resolvedCoordinates = wizardData.coords || await resolveCoordinatesFromLocation(wizardData.location, {
+        fallbackQueries: wizardData.name.trim() ? [wizardData.name.trim(), `${wizardData.name.trim()} Dubai`] : [],
+        onManualLocationRequired: () => {}
+      });
+      const inferredZone = wizardData.zone || inferZoneFromCoords(resolvedCoordinates || undefined);
+      const parsedModels = wizardData.supplierModelsInput.split(',').map((item) => item.trim()).filter(Boolean);
+      const parsedYears = wizardData.supplierYearsInput.split(',').map((item) => Number(item.trim())).filter((year) => Number.isFinite(year));
+      const now = Date.now();
+      const existingSupplier = editingSupplierId ? suppliers.find((s) => s.id === editingSupplierId) : null;
+      const supplierPayload: Supplier = {
+        id: existingSupplier?.id || createUuid(),
+        name: normalizedName,
+        phone: normalizedPhone,
+        location: wizardData.location,
+        type: wizardData.shopTypes[0] || 'new_parts',
+        types: wizardData.shopTypes,
+        zone: inferredZone,
+        heatLevel: 0,
+        brands: wizardData.mainBrands,
+        mainBrands: wizardData.mainBrands,
+        primaryBrand: wizardData.primaryBrand || wizardData.mainBrands[0] || '',
+        models: parsedModels,
+        years: parsedYears,
+        bodyTypes: existingSupplier?.bodyTypes || [],
+        mainPartCategories: wizardData.mainPartCategories,
+        photoUrl: wizardData.supplierPhotos[0],
+        photos: wizardData.supplierPhotos,
+        coordinates: resolvedCoordinates,
+        gpsAccuracyMeters: wizardData.gpsAccuracy || undefined,
+        workingHours: wizardData.workingHours,
+        trustLevel: wizardData.trustLevel,
+        hasDelivery: wizardData.hasDelivery,
+        hasWhatsapp: isValidE164(normalizedPhone),
+        whatsappFast: wizardData.whatsappFast,
+        comment: wizardData.comment,
+        website: wizardData.website,
+        foundCount: existingSupplier?.foundCount || 0,
+        notFoundCount: existingSupplier?.notFoundCount || 0,
+        wrongInfoCount: existingSupplier?.wrongInfoCount || 0,
+        successRate: existingSupplier?.successRate || 0,
+        activityScore: existingSupplier?.activityScore || 0,
+        lastContactAt: existingSupplier?.lastContactAt || 0,
+        isFavorite: existingSupplier?.isFavorite === true,
+        createdAt: existingSupplier?.createdAt || now,
+        updatedAt: now,
+        syncStatus: navigator.onLine ? 'synced' : 'pending_sync'
+      };
+      if (existingSupplier) updateSupplier(supplierPayload);
+      else addSupplier(supplierPayload);
+      if (navigator.onLine) {
+        try { await upsertSupplierToShops(supplierPayload); }
+        catch { updateSupplier({ ...supplierPayload, syncStatus: 'error' }); }
+      }
+      setIsAdding(false);
+      setEditingSupplierId(null);
+    } finally {
+      setIsSavingSupplier(false);
+    }
+  };
+
+  const buildWizardInitialValues = (supplierId: string): Partial<WizardFormData> => {
+    const s = suppliers.find((supplier) => supplier.id === supplierId);
+    if (!s) return {};
+    return {
+      name: s.name,
+      phone: s.phone,
+      shopTypes: (s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[],
+      location: s.location,
+      zone: s.zone || '',
+      coords: s.coordinates,
+      gpsAccuracy: s.gpsAccuracyMeters,
+      hasDelivery: !!s.hasDelivery,
+      deliveryDescription: '',
+      mainBrands: s.mainBrands || s.brands || [],
+      primaryBrand: s.primaryBrand || '',
+      supplierModelsInput: (s.models || []).join(', '),
+      supplierYearsInput: (normalizeSupplierYears(s.years)).join(', '),
+      supplierPhotos: s.photos || (s.photoUrl ? [s.photoUrl] : []),
+      mainPartCategories: s.mainPartCategories || [],
+      workingHours: s.workingHours || '',
+      website: s.website || '',
+      trustLevel: Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3,
+      whatsappFast: !!s.whatsappFast,
+      comment: s.comment || '',
+      isDraft: false
+    };
+  };
+
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -926,11 +1024,21 @@ const SuppliersScreen: React.FC = () => {
               setModelFilter('all');
               setYearFilter('all');
               setPartCategoryFilter('all');
+              setNameSearch('');
             }}
             className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600"
           >
             Reset
           </button>
+        </div>
+        {/* Name search */}
+        <div className="mb-2">
+          <input
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold focus:outline-none focus:border-blue-400"
+            placeholder="Поиск по названию…"
+            value={nameSearch}
+            onChange={(e) => setNameSearch(e.target.value)}
+          />
         </div>
         <div className="mb-2">
           <select className="w-full rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
@@ -941,11 +1049,55 @@ const SuppliersScreen: React.FC = () => {
             <option value="name">Name A→Z</option>
           </select>
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
-            <option value="all">Brand: all</option>
-            {supplierFilterOptions.brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
-          </select>
+        {/* Brand chips */}
+        <div className="mb-2 flex gap-1 overflow-x-auto pb-1 scrollbar-hide">
+          {(['all', ...supplierFilterOptions.brands.slice(0, 8)] as string[]).map((brand) => (
+            <button
+              key={brand}
+              type="button"
+              onClick={() => setBrandFilter(brand)}
+              className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold border transition-all ${
+                brandFilter === brand
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-slate-50 text-slate-700 border-slate-200'
+              }`}
+            >
+              {brand === 'all' ? 'All brands' : brand}
+            </button>
+          ))}
+          {supplierFilterOptions.brands.length > 8 && brandFilter !== 'all' && !supplierFilterOptions.brands.slice(0, 8).includes(brandFilter) && (
+            <button
+              type="button"
+              onClick={() => setBrandFilter('all')}
+              className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold border bg-blue-600 text-white border-blue-600"
+            >
+              {brandFilter}
+            </button>
+          )}
+          {supplierFilterOptions.brands.length > 8 && (
+            <span className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold border border-slate-200 bg-slate-50 text-slate-400">
+              +{supplierFilterOptions.brands.length - 8}
+            </span>
+          )}
+        </div>
+        {/* Category chips */}
+        <div className="mb-2 flex gap-1 overflow-x-auto pb-1 scrollbar-hide">
+          {(['all', ...supplierFilterOptions.partCategories] as string[]).map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setPartCategoryFilter(cat)}
+              className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold border transition-all ${
+                partCategoryFilter === cat
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-slate-50 text-slate-700 border-slate-200'
+              }`}
+            >
+              {cat === 'all' ? 'All cats' : cat}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
           <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
             <option value="all">Model: all</option>
             {supplierFilterOptions.models.map((model) => <option key={model} value={model}>{model}</option>)}
@@ -954,10 +1106,6 @@ const SuppliersScreen: React.FC = () => {
             <option value="all">Year: all</option>
             {supplierFilterOptions.years.map((year) => <option key={year} value={year}>{year}</option>)}
           </select>
-          <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={partCategoryFilter} onChange={(e) => setPartCategoryFilter(e.target.value)}>
-            <option value="all">Part category: all</option>
-            {supplierFilterOptions.partCategories.map((category) => <option key={category} value={category}>{category}</option>)}
-          </select>
         </div>
       </div>
 
@@ -965,145 +1113,14 @@ const SuppliersScreen: React.FC = () => {
       {showSuccess && <div className="bg-green-50 text-green-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-green-100"><CheckCircle2 size={16} />Данные успешно восстановлены!</div>}
 
       {isAdding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm" onClick={() => { setIsAdding(false); resetAddForm(); }}>
-          <form onSubmit={(e) => { e.preventDefault(); void handleSave(); }} className="bg-white w-full max-w-md rounded-3xl p-4 sm:p-5 shadow-2xl space-y-4 max-h-[85vh] sm:max-h-[90vh] overflow-y-auto overflow-x-hidden pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="text-xl font-bold">{editingSupplierId ? "Редактировать поставщика" : "Добавить поставщика"}</h2>
-                <p className="text-xs text-gray-400 font-semibold">Field Mode</p>
-              </div>
-              <button type="button" onClick={() => { setIsAdding(false); resetAddForm(); }} className="text-xs font-black text-gray-500">Cancel</button>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Название *</label>
-                <button type="button" onClick={generateUniqueSupplierName} className="text-[10px] font-black uppercase text-blue-700 inline-flex items-center gap-1"><Shuffle size={11} /> Генерировать</button>
-              </div>
-              <input placeholder="Dubai Parts LTD" value={name} onChange={(e) => setName(toTitle(e.target.value))} autoComplete="off" className="w-full bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
-              {duplicateWarning && <p className="text-[11px] text-amber-700 font-semibold mt-1">⚠️ {duplicateWarning}</p>}
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Телефон (E.164) *</label>
-              <div className="flex gap-2">
-                <input placeholder="+971..." value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="off" className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
-                {currentPhone && <a href={`tel:${currentPhone}`} className="px-3 rounded-xl bg-green-50 text-green-700 text-[10px] font-black inline-flex items-center gap-1"><Phone size={12} />Call</a>}
-              </div>
-              <p className={`text-[10px] mt-1 font-semibold ${isValidE164(currentPhone) ? 'text-green-700' : 'text-red-600'}`}>{isValidE164(currentPhone) ? `✔ ${currentPhone} · WhatsApp ${hasWhatsapp ? 'detected' : 'not detected'}` : 'Введите корректный E.164 (+971...)'}</p>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">GPS / Maps *</label>
-                <button type="button" onClick={autofillLocationFromGps} className="text-[10px] font-black uppercase text-blue-600 inline-flex items-center gap-1"><LocateFixed size={12} /> Определить местоположение</button>
-              </div>
-              <input placeholder="Ссылка Google Maps или адрес" value={location} onChange={(e) => { setLocation(e.target.value); setLocationParseNotice(null); }} autoComplete="off" className="w-full bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
-              {gpsAccuracy !== null && <p className="text-[10px] text-blue-700 font-semibold mt-1">Точность: {gpsAccuracy}м</p>}
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Тип магазина</label>
-              <div className="grid grid-cols-2 gap-2 mt-1">
-                {FIELD_TYPES.map((type) => (
-                  <button key={type.value} type="button" onClick={() => toggleShopType(type.value)} className={`rounded-xl border px-3 py-2 text-[10px] font-black inline-flex items-center justify-center gap-2 ${shopTypes.includes(type.value) ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-gray-200 text-gray-500'}`}>{type.icon} {type.label}</button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Зона (Geo-Fence)</label>
-              <input placeholder="Автоподсказка по GPS" value={zone} onChange={(e) => setZone(e.target.value)} autoComplete="off" className="w-full bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Main Brands</label>
-                <button type="button" onClick={() => setIsFastBrandMode((prev) => !prev)} className="text-[10px] font-black text-blue-700">Multi-select fast mode: {isFastBrandMode ? 'ON' : 'OFF'}</button>
-              </div>
-              <input value={brandSearch} onChange={(e) => setBrandSearch(e.target.value)} placeholder="Поиск бренда" className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
-              <div className="max-h-28 overflow-y-auto rounded-xl border border-gray-100 p-2 bg-gray-50 flex flex-wrap gap-1.5">
-                {filteredBrandOptions.map((brand) => (
-                  <button key={brand} type="button" onClick={() => toggleMainBrand(brand)} className={`px-2 py-1 rounded-lg text-[10px] font-black border ${mainBrands.includes(brand) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>
-                    {brand}
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input value={customBrand} onChange={(e) => setCustomBrand(e.target.value)} placeholder="Добавить свой бренд" className="flex-1 bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
-                <button type="button" onClick={addCustomBrand} className="px-3 rounded-xl bg-gray-100 text-gray-700 text-xs font-black">+ Add</button>
-                <button type="button" onClick={importFromSimilar} className="px-3 rounded-xl bg-violet-50 text-violet-700 text-xs font-black">Импорт похожего</button>
-              </div>
-              <select className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" value={primaryBrand} onChange={(e) => setPrimaryBrand(e.target.value)}>
-                <option value="">Primary brand</option>
-                {mainBrands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
-              </select>
-              <div className="rounded-xl border border-gray-100 bg-white p-2">
-                <p className="text-[10px] font-bold text-gray-500 uppercase mb-1">Категория: Марка → Модель → Год</p>
-                <p className="text-[11px] text-slate-600">
-                  {(mainBrands[0] || '—')} → {(supplierModelsInput.split(',').map((item) => item.trim()).filter(Boolean)[0] || '—')} → {(supplierYearsInput.split(',').map((item) => item.trim()).filter(Boolean)[0] || '—')}
-                </p>
-              </div>
-              <input value={supplierModelsInput} onChange={(e) => setSupplierModelsInput(e.target.value)} placeholder="Модели через запятую (Camry, Corolla)" className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
-              <input value={supplierYearsInput} onChange={(e) => setSupplierYearsInput(e.target.value.replace(/[^\d, ]/g, ''))} placeholder="Годы через запятую (2018, 2019)" className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
-                <label className="text-[10px] font-bold text-gray-500 uppercase">Основные категории деталей</label>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {SUPPLIER_PART_CATEGORIES.map((category) => (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() => toggleMainPartCategory(category)}
-                      className={`px-2 py-1 rounded-lg text-[10px] font-black border ${mainPartCategories.includes(category) ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-600 border-gray-200'}`}
-                    >
-                      {category}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
-                <label className="text-[10px] font-bold text-gray-500 uppercase">Фото поставщика (опционально)</label>
-                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-                  <label className="inline-flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 text-[10px] font-black text-gray-500">
-                    +Фото
-                    <input type="file" className="hidden" accept="image/*" multiple onChange={onSupplierPhotoChange} />
-                  </label>
-                  {supplierPhotos.map((photo, index) => (
-                    <div key={`${photo}-${index}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200">
-                      <button type="button" onClick={() => setGallery({ images: supplierPhotos, index })} className="h-full w-full">
-                        <img src={photo} alt="supplier" className="h-full w-full object-cover" />
-                      </button>
-                      <button type="button" onClick={() => removeSupplierPhoto(index)} className="absolute right-0.5 top-0.5 rounded-full bg-black/60 px-1 text-[9px] text-white">×</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-gray-100 bg-gray-50">
-              <button type="button" onClick={() => setShowAdvanced((prev) => !prev)} className="w-full p-3 text-left text-xs font-black text-gray-600 inline-flex items-center justify-between">Дополнительно <ChevronDown size={14} className={showAdvanced ? 'rotate-180' : ''} /></button>
-              {showAdvanced && (
-                <div className="p-3 pt-0 space-y-2">
-                  <input value={workingHours} onChange={(e) => setWorkingHours(e.target.value)} placeholder="Рабочие часы" className="w-full bg-white border border-gray-200 p-2 rounded-lg text-xs font-semibold" />
-                  <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="Website (AI suggest)" className="w-full bg-white border border-gray-200 p-2 rounded-lg text-xs font-semibold" />
-                  <label className="text-xs font-semibold text-gray-600">Уровень доверия: {trustLevel}/5</label>
-                  <input type="range" min={1} max={5} value={trustLevel} onChange={(e) => setTrustLevel(Number(e.target.value))} className="w-full" />
-                  <label className="text-xs font-semibold text-gray-700 inline-flex items-center gap-2"><input type="checkbox" checked={hasDelivery} onChange={(e) => setHasDelivery(e.target.checked)} /> Есть доставка</label>
-                  <label className="text-xs font-semibold text-gray-700 inline-flex items-center gap-2"><input type="checkbox" checked={whatsappFast} onChange={(e) => setWhatsappFast(e.target.checked)} /> Быстро отвечает в WhatsApp</label>
-                  <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className="w-full bg-white border border-gray-200 p-2 rounded-lg text-xs font-semibold" rows={2} />
-                </div>
-              )}
-            </div>
-
-            {locationParseNotice && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">{locationParseNotice}</div>}
-            {!navigator.onLine && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">⏳ Offline mode: поставщик будет сохранён как pending sync.</div>}
-
-            <div className="sticky bottom-0 -mx-4 sm:-mx-5 mt-1 px-4 sm:px-5 pt-2 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] bg-white/95 backdrop-blur border-t border-gray-100 flex gap-3">
-              <button type="button" onClick={() => { setIsAdding(false); resetAddForm(); }} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-2xl font-bold uppercase text-xs">Cancel</button>
-              <button type="submit" disabled={isSavingSupplier || !requiredReady} className="flex-1 py-3 bg-blue-600 text-white rounded-2xl font-bold uppercase text-xs disabled:opacity-40 inline-flex items-center justify-center gap-2">{isSavingSupplier ? <><Loader2 size={14} className="animate-spin" />Сохранение...</> : (editingSupplierId ? 'Update' : 'Save')}</button>
-            </div>
-          </form>
-        </div>
+        <AddSupplierWizard
+          existingSupplierId={editingSupplierId}
+          initialValues={editingSupplierId ? buildWizardInitialValues(editingSupplierId) : undefined}
+          onSave={handleWizardSave}
+          onClose={() => { setIsAdding(false); setEditingSupplierId(null); }}
+          suppliers={suppliers}
+          brandOptions={brandOptions}
+        />
       )}
 
       <div className="space-y-3">
@@ -1171,8 +1188,19 @@ const SuppliersScreen: React.FC = () => {
                   </div>
 
                   <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
-                    <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
+                    {(() => { const tl = Math.max(1, Math.min(5, Math.round(s.trustLevel || s.autoTrustScore || 1))); return (
+                      <span className="rounded-full px-2 py-1 border border-amber-200 bg-amber-50 text-amber-700">
+                        {'★'.repeat(tl)}{'☆'.repeat(5 - tl)}
+                      </span>
+                    ); })()}
                     <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{daysAgoLabel(s.lastContactAt)}</span>
+                    <span className={`rounded-full px-2 py-1 border text-[10px] font-black uppercase ${
+                      (s.phone || '').trim()
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-red-200 bg-red-50 text-red-700'
+                    }`}>
+                      {(s.phone || '').trim() ? 'Контакт ✓' : 'Нет контакта'}
+                    </span>
                   </div>
                 </button>
 
@@ -1199,7 +1227,7 @@ const SuppliersScreen: React.FC = () => {
                       <button type="button" onClick={() => { navigator.clipboard.writeText(s.name); alert('Название скопировано'); }} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700">Скопировать название</button>
                     </>
                   )}
-                  <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput(normalizeSupplierYears(s.years).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
+                  <button type="button" onClick={() => { setEditingSupplierId(s.id); setIsAdding(true); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
                   <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
                   <button type="button" onClick={() => toggleFavorite(s)} className="rounded-lg bg-pink-50 px-2 py-1.5 text-[10px] font-black text-pink-700 inline-flex items-center justify-center gap-1"><Heart size={12} />Favorite</button>
                   
