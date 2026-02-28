@@ -360,13 +360,18 @@ const hotFieldKeys: Array<keyof Order> = [
   'logistics',
   'pricingEvents',
   'isVip',
+  'isLead',
   'isPinned',
   'customerStatus',
+  'statusChangedAt',
+  'statusChangedBy',
   'status',
   'salesStatus',
   'isSold',
   'isArchived',
   'soldProfitUsd',
+  'customerContact',
+  'socialNickname',
   'updatedAt'
 ];
 let cachedQueueLength = 0;
@@ -774,6 +779,10 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     status: row.status || 'active',
     salesStatus: row.sales_status || 'Inquiry',
     customerStatus: (row as any).customer_status || undefined,
+    statusChangedAt: Number.isFinite(Number((row as any).status_changed_at))
+      ? Number((row as any).status_changed_at)
+      : undefined,
+    statusChangedBy: typeof (row as any).status_changed_by === 'string' ? (row as any).status_changed_by : undefined,
     customerContact: row.customer_contact || '',
     socialNickname: row.social_nickname || '',
     updatedAt: parseTimestamp(row.updated_at ?? row.created_at),
@@ -872,6 +881,8 @@ const persistOrderGraph = async (order: Order) => {
     is_pinned: !!uploadedOrder.isPinned,
     is_lead: !!uploadedOrder.isLead,
     customer_status: uploadedOrder.customerStatus || null,
+    status_changed_at: uploadedOrder.statusChangedAt ? toIsoTimestamp(uploadedOrder.statusChangedAt) : null,
+    status_changed_by: uploadedOrder.statusChangedBy || null,
     notes: uploadedOrder.notes || [],
     customer_contact: uploadedOrder.customerContact || '',
     social_nickname: uploadedOrder.socialNickname || '',
@@ -899,6 +910,8 @@ const persistOrderGraph = async (order: Order) => {
       'dismissed_shop_ids',
       'body_type',
       'customer_status',
+      'status_changed_at',
+      'status_changed_by',
       'lead_unread',
       'lead_source',
       'lead_read_at',
@@ -1119,6 +1132,7 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   logistics: patch.logistics,
   pricing_events: patch.pricingEvents,
   is_vip: typeof patch.isVip === 'boolean' ? patch.isVip : undefined,
+  is_lead: typeof patch.isLead === 'boolean' ? patch.isLead : undefined,
   is_pinned: typeof patch.isPinned === 'boolean' ? patch.isPinned : undefined,
   status: patch.status,
   brand: patch.brand,
@@ -1135,6 +1149,10 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   is_archived: typeof patch.isArchived === 'boolean' ? patch.isArchived : undefined,
   sold_profit_usd: typeof patch.soldProfitUsd === 'number' ? patch.soldProfitUsd : undefined,
   customer_status: patch.customerStatus,
+  status_changed_at: patch.statusChangedAt ? toIsoTimestamp(patch.statusChangedAt) : undefined,
+  status_changed_by: patch.statusChangedBy,
+  customer_contact: patch.customerContact,
+  social_nickname: patch.socialNickname,
   updated_at: toIsoTimestamp(patch.updatedAt || Date.now())
 });
 
@@ -1467,7 +1485,11 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
   }
 
   const localById = new Map(localOrders.map((item) => [item.id, normalizeOrder(item)]));
-  const pendingUpsertIds = new Set(pendingMutations.filter((mutation) => mutation.type === 'upsert').map((mutation) => mutation.orderId));
+  const pendingUpsertIds = new Set(
+    pendingMutations
+      .filter((mutation) => mutation.type === 'upsert' || mutation.type === 'patch')
+      .map((mutation) => mutation.orderId)
+  );
   const pendingDeleteIds = new Set(pendingMutations.filter((mutation) => mutation.type === 'delete').map((mutation) => mutation.orderId));
 
   const mergedOrders = orders
