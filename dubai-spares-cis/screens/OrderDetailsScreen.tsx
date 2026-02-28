@@ -548,7 +548,7 @@ const OrderDetailsScreen: React.FC = () => {
     .replace('{eta}', '1-2 дня')
     .replace('{order_link}', window.location.href);
 
-  const sourceLabel = (order.source || '').toLowerCase();
+  const sourceLabel = String(draftFields.source ?? order.source ?? '').toLowerCase();
   const socialValue = String(draftFields.socialNickname ?? order.socialNickname ?? '').trim();
 
   const getClientChannelLink = () => {
@@ -596,6 +596,19 @@ const OrderDetailsScreen: React.FC = () => {
       : sourceLabel.includes('telegram')
         ? 'Открыть Telegram'
         : 'WhatsApp';
+
+  const saveSocialNickname = () => {
+    if (!isEditMode) return;
+    const rawValue = window.prompt(
+      sourceLabel.includes('telegram')
+        ? 'Вставьте ссылку Telegram, @username или номер (+971...)'
+        : 'Вставьте ссылку или username',
+      String(draftFields.socialNickname ?? order.socialNickname ?? '')
+    );
+    if (rawValue === null) return;
+    updateOrderField('socialNickname', rawValue.trim());
+    flushDeferredOrderField('socialNickname');
+  };
 
   const updateCustomerStatus = (nextStatus: 'VIP' | 'LEAD' | 'INQUIRY') => {
     if (!isEditMode) return;
@@ -1436,16 +1449,33 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
           {(sourceLabel.includes('instagram') || sourceLabel.includes('tiktok') || sourceLabel.includes('telegram')) && (
             <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Ссылка / username</label>
-              <input
-                type="text"
-                value={String(draftFields.socialNickname ?? order.socialNickname ?? '')}
-                readOnly={!isEditMode}
-                onChange={(e) => updateOrderField('socialNickname', e.target.value)}
-                onBlur={() => flushDeferredOrderField('socialNickname')}
-                placeholder={sourceLabel.includes('telegram') ? '@username или +971...' : 'https://... или @username'}
-                className="w-full text-sm font-bold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
-              />
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Ссылка клиента</label>
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 flex flex-wrap items-center gap-2">
+                {isEditMode && (
+                  <button
+                    type="button"
+                    onClick={saveSocialNickname}
+                    className="h-9 px-3 rounded-lg border border-gray-200 bg-white text-xs font-bold text-gray-700"
+                  >
+                    {(draftFields.socialNickname ?? order.socialNickname ?? '') ? 'Изменить ссылку' : 'Вставить ссылку'}
+                  </button>
+                )}
+                {isEditMode && (draftFields.socialNickname ?? order.socialNickname ?? '') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateOrderField('socialNickname', '');
+                      flushDeferredOrderField('socialNickname');
+                    }}
+                    className="h-9 px-3 rounded-lg border border-rose-200 bg-rose-50 text-xs font-bold text-rose-600"
+                  >
+                    Очистить
+                  </button>
+                )}
+                <span className="text-xs font-semibold text-gray-500">
+                  {(draftFields.socialNickname ?? order.socialNickname ?? '') ? 'Ссылка сохранена и скрыта' : 'Ссылка не добавлена'}
+                </span>
+              </div>
             </div>
           )}
           <button
