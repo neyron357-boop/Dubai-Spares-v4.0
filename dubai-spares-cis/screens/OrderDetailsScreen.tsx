@@ -654,6 +654,13 @@ const OrderDetailsScreen: React.FC = () => {
     none: recommendedShops.filter((shop) => getShopRecommendationLevel(shop, order) === 'none')
   };
 
+  const carPhotoShareText = [
+    [order.brand, order.model].filter(Boolean).join(' ').trim(),
+    order.year ? `Year: ${order.year}` : '',
+    order.bodyType ? `Body type: ${order.bodyType}` : '',
+    order.vin ? `VIN: ${order.vin}` : ''
+  ].filter(Boolean).join('\n');
+
   const navigateToShop = (shop: Shop) => {
     window.open(buildShopMapLink(shop), '_blank');
   };
@@ -1940,6 +1947,8 @@ const OrderDetailsScreen: React.FC = () => {
         <ImagePreview
           images={gallery.images}
           initialIndex={gallery.index}
+          shareTitle="Vehicle details"
+          shareText={carPhotoShareText || 'Vehicle details'}
           onClose={() => setGallery(null)}
         />
       )}
