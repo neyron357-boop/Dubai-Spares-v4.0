@@ -44,6 +44,7 @@ interface OfferFormState {
   availability: OfferAvailability;
   deliveryEta: 'today' | 'tomorrow' | '2_3_days' | 'week';
   isBest: boolean;
+  note: string;
 }
 
 const DEFAULT_FORM: OfferFormState = {
@@ -57,7 +58,8 @@ const DEFAULT_FORM: OfferFormState = {
   condition: 'used',
   availability: 'in_stock',
   deliveryEta: 'today',
-  isBest: false
+  isBest: false,
+  note: ''
 };
 
 const conditionLabels: Record<OfferCondition, string> = {
@@ -116,6 +118,22 @@ const upsertLinkedPart = (entries: any[] = [], entry: any) => {
   return next;
 };
 
+const normalizePhone = (value: string) => value.replace(/[^\d]/g, '');
+
+const createRandomSupplierName = (usedNames: Set<string>) => {
+  const prefixes = ['Desert', 'Falcon', 'Turbo', 'Golden', 'Rapid', 'Prime', 'Royal', 'Nova', 'Metro', 'Apex'];
+  const suffixes = ['Auto', 'Parts', 'Motors', 'Garage', 'Trading', 'Hub', 'Store', 'Service'];
+  for (let i = 0; i < 200; i += 1) {
+    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
+    const serial = Math.floor(100 + Math.random() * 900);
+    const candidate = `${prefix} ${suffix} ${serial}`;
+    if (usedNames.has(candidate.toLowerCase())) continue;
+    return candidate;
+  }
+  return `Supplier ${Date.now()}`;
+};
+
 const PartDetailsScreen: React.FC = () => {
   const { orderId, partId } = useParams<{ orderId: string; partId: string }>();
   const navigate = useNavigate();
@@ -124,6 +142,7 @@ const PartDetailsScreen: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const variantsListRef = useRef<HTMLDivElement>(null);
   const formSessionRef = useRef<string | null>(null);
+  const generatedSupplierNamesRef = useRef<Set<string>>(new Set());
 
   const order = orders.find((o) => o.id === orderId);
   const part = order?.parts.find((p) => p.id === partId);
@@ -139,6 +158,8 @@ const PartDetailsScreen: React.FC = () => {
   const [editingVariantId, setEditingVariantId] = useState<string | null>(null);
   const [showAfterSaveSheet, setShowAfterSaveSheet] = useState(false);
   const [brokenPhotoUrls, setBrokenPhotoUrls] = useState<Record<string, true>>({});
+  const [isEditingPartName, setIsEditingPartName] = useState(false);
+  const [partNameDraft, setPartNameDraft] = useState('');
 
   const [form, setForm] = useState<OfferFormState>(DEFAULT_FORM);
   const [isLocating, setIsLocating] = useState(false);
@@ -196,7 +217,8 @@ const PartDetailsScreen: React.FC = () => {
         condition: editable.condition || 'used',
         availability: editable.availability || 'in_stock',
         deliveryEta: editable.deliveryEta || 'today',
-        isBest: part.bestOfferId === editable.id
+        isBest: part.bestOfferId === editable.id,
+        note: editable.note || ''
       });
       return;
     }
@@ -209,7 +231,8 @@ const PartDetailsScreen: React.FC = () => {
         locationText: latestOrderVariant.locationText || latestOrderVariant.location || '',
         mapsUrl: latestOrderVariant.mapsUrl || '',
         condition: latestOrderVariant.condition || prev.condition,
-        availability: latestOrderVariant.availability || prev.availability
+        availability: latestOrderVariant.availability || prev.availability,
+        note: ''
       }));
     } else {
       setForm(DEFAULT_FORM);
@@ -325,7 +348,11 @@ const PartDetailsScreen: React.FC = () => {
     setIsResolvingLocation(true);
     try {
       const normalizedShopName = form.shopName.trim().toLowerCase();
-      const existingSupplier = suppliers.find((s) => {
+      const normalizedFormPhone = normalizePhone(form.phone || '');
+      const existingSupplierByPhone = normalizedFormPhone
+        ? suppliers.find((supplier) => normalizePhone(supplier.phone || '') === normalizedFormPhone)
+        : undefined;
+      const existingSupplier = existingSupplierByPhone || suppliers.find((s) => {
         if (form.supplierId && s.id === form.supplierId) return true;
         return s.name.trim().toLowerCase() === normalizedShopName;
       });
@@ -411,12 +438,13 @@ const PartDetailsScreen: React.FC = () => {
       }
 
       const variantId = editingVariantId || createUuid();
+      const resolvedShopName = existingSupplierByPhone ? existingSupplierByPhone.name : form.shopName.trim();
       const newVariant: PriceVariant = {
         id: variantId,
         partId: part.id,
         priceAed: Number(form.priceAed.replace(/\s+/g, '')),
         currency: 'AED',
-        shopName: form.shopName.trim(),
+        shopName: resolvedShopName,
         shopId: targetSupplierId,
         shopNameManual: form.shopName.trim(),
         phone: form.phone,
@@ -432,6 +460,7 @@ const PartDetailsScreen: React.FC = () => {
         deliveryEta: form.deliveryEta,
         isBest: form.isBest,
         syncStatus: navigator.onLine ? 'synced' : 'pending',
+        note: form.note.trim(),
         createdAt: editingVariantId ? part.variants.find((v) => v.id === editingVariantId)?.createdAt || Date.now() : Date.now(),
         updatedAt: Date.now()
       };
@@ -499,6 +528,18 @@ const PartDetailsScreen: React.FC = () => {
 
   const filteredSuppliers = suppliers.filter((s) => s.name.toLowerCase().includes(form.shopName.toLowerCase())).slice(0, 5);
 
+  const generateShopName = () => {
+    const usedNames = new Set([
+      ...suppliers.map((supplier) => supplier.name.toLowerCase()),
+      ...orders.flatMap((entry) => entry.parts.flatMap((entryPart) => entryPart.variants.map((variant) => variant.shopName.toLowerCase()))),
+      ...generatedSupplierNamesRef.current
+    ]);
+    const name = createRandomSupplierName(usedNames);
+    generatedSupplierNamesRef.current.add(name.toLowerCase());
+    handleFormPatch('shopName', name);
+    handleFormPatch('supplierId', undefined);
+  };
+
   const openRoute = (variant: PriceVariant) => {
     const query = variant.mapsUrl || variant.locationText || variant.location;
     if (!query) return;
@@ -546,8 +587,25 @@ const PartDetailsScreen: React.FC = () => {
       condition: source.condition || 'used',
       availability: source.availability || 'in_stock',
       deliveryEta: source.deliveryEta || 'today',
-      isBest: false
+      isBest: false,
+      note: source.note || ''
     });
+  };
+
+  const startEditPartName = () => {
+    setPartNameDraft(part.name || '');
+    setIsEditingPartName(true);
+  };
+
+  const submitPartName = () => {
+    const nextName = partNameDraft.trim();
+    if (!nextName || nextName === part.name) {
+      setIsEditingPartName(false);
+      return;
+    }
+    const updatedParts = order.parts.map((p) => (p.id === part.id ? { ...p, name: nextName } : p));
+    updateOrder({ ...order, parts: updatedParts });
+    setIsEditingPartName(false);
   };
 
   return (
@@ -556,7 +614,29 @@ const PartDetailsScreen: React.FC = () => {
         <div className="flex items-start justify-between gap-2">
           <button onClick={goBack} className="p-3 -ml-2 text-gray-600 active:bg-gray-100 rounded-full transition-colors"><ArrowLeft size={22} /></button>
           <div className="text-center flex-1">
-            <h1 className="font-black text-lg truncate leading-tight uppercase tracking-tight">{part.name}</h1>
+            {isEditingPartName ? (
+              <div className="flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={partNameDraft}
+                  onChange={(e) => setPartNameDraft(e.target.value)}
+                  onBlur={submitPartName}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      submitPartName();
+                    }
+                    if (e.key === 'Escape') setIsEditingPartName(false);
+                  }}
+                  className="h-10 w-full rounded-xl border border-blue-200 px-3 text-sm font-black text-center"
+                />
+                <button type="button" onClick={submitPartName} className="rounded-lg bg-blue-600 px-2 py-2 text-white"><Check size={14} /></button>
+              </div>
+            ) : (
+              <button type="button" onClick={startEditPartName} className="mx-auto block max-w-full font-black text-lg truncate leading-tight uppercase tracking-tight hover:text-blue-700">
+                {part.name}
+              </button>
+            )}
             <p className="text-[11px] text-gray-600 font-bold">{order.brand} {order.model} · {order.year || '—'} {order.vin ? `· VIN ${order.vin}` : ''}</p>
           </div>
           <div className="relative">
@@ -652,6 +732,7 @@ const PartDetailsScreen: React.FC = () => {
                 <div className="flex items-center gap-2 h-12 px-3 mt-1 border border-gray-200 rounded-xl">
                   <Store size={16} className="text-gray-500" />
                   <input value={form.shopName} onChange={(e) => { handleFormPatch('shopName', e.target.value); handleFormPatch('supplierId', undefined); setShowSuggestions(true); }} className="flex-1 bg-transparent outline-none text-sm font-bold" placeholder="Поиск или новый магазин" />
+                  <button type="button" onClick={generateShopName} className="rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[10px] font-black text-violet-700">Рандом</button>
                 </div>
                 {showSuggestions && form.shopName && filteredSuppliers.length > 0 && (
                   <div className="absolute top-16 left-0 right-0 z-20 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
@@ -676,6 +757,17 @@ const PartDetailsScreen: React.FC = () => {
                   <button type="button" onClick={() => navigator.clipboard.writeText(form.phone)} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><Copy size={16} /></button>
                   <button type="button" onClick={() => openWhatsapp({ ...DEFAULT_FORM, ...form, id: 'tmp', priceAed: numericPrice, location: form.locationText, createdAt: Date.now() } as PriceVariant)} className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center"><MessageCircle size={16} /></button>
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-black text-gray-700">Заметка по варианту</label>
+                <textarea
+                  value={form.note}
+                  onChange={(e) => handleFormPatch('note', e.target.value)}
+                  rows={3}
+                  placeholder="Комментарий для этого варианта"
+                  className="mt-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold"
+                />
               </div>
 
               <div>
@@ -747,6 +839,7 @@ const PartDetailsScreen: React.FC = () => {
                       {isBest && <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700">Лучший</span>}
                     </div>
                     <p className="text-xs text-gray-600 truncate">{variant.locationText || variant.location || 'Локация не указана'}</p>
+                    {variant.note && <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1 font-semibold">📝 {variant.note}</p>}
                     <div className="flex gap-2 pt-1">
                       <button type="button" onClick={() => openWhatsapp(variant)} className="h-8 px-3 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-black">WhatsApp</button>
                       <button type="button" onClick={() => openRoute(variant)} className="h-8 px-3 rounded-lg bg-blue-50 text-blue-700 text-xs font-black">Маршрут</button>
