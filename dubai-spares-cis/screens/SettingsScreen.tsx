@@ -9,6 +9,7 @@ import { testSupabaseConnection } from '../utils/testSupabaseConnection';
 import { deleteStorageDuplicateMappings, runStorageImageMaintenance, uploadImageToStorage } from '../storage/photos';
 import { Order } from '../types';
 import { clearBrokenImageBlacklist, isBrokenImageUrl, markBrokenImageUrl, normalizeBrokenImageKey, shouldBlacklistByStatus } from '../storage/brokenImageBlacklist';
+import { flushOfflineMutations } from '../orderStore';
 
 const loadImageFromFile = (file: File): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const url = URL.createObjectURL(file);
@@ -280,12 +281,35 @@ const SettingsScreen: React.FC = () => {
     const first = window.confirm('⚠️ Это полностью очистит кэш, историю и все локальные данные. Продолжить?');
     if (!first) return;
 
+    const pendingBeforeSync = await offlineDb.getMutationCount();
+    if (pendingBeforeSync > 0) {
+      if (!navigator.onLine) {
+        alert(`Найдено ${pendingBeforeSync} несинхронизированных изменений. Подключите интернет и повторите, чтобы сначала отправить их на сервер.`);
+        return;
+      }
+
+      setDangerActionProgress({
+        label: 'Подготовка к очистке',
+        processed: 0,
+        total: 4,
+        details: `Отправляем ${pendingBeforeSync} локальных изменений на сервер`
+      });
+
+      await flushOfflineMutations({ force: true });
+
+      const pendingAfterSync = await offlineDb.getMutationCount();
+      if (pendingAfterSync > 0) {
+        alert(`Не удалось синхронизировать все локальные изменения (${pendingAfterSync} осталось в очереди). Очистка отменена.`);
+        return;
+      }
+    }
+
     setIsHardResetting(true);
-    setDangerActionProgress({ label: 'Очистка приложения', processed: 0, total: 3, details: 'Удаление кэша' });
+    setDangerActionProgress({ label: 'Очистка приложения', processed: 1, total: 4, details: 'Удаление кэша' });
     await clearApplicationCache();
-    setDangerActionProgress({ label: 'Очистка приложения', processed: 1, total: 3, details: 'Удаление оффлайн-данных' });
+    setDangerActionProgress({ label: 'Очистка приложения', processed: 2, total: 4, details: 'Удаление оффлайн-данных' });
     await offlineDb.clearAllOfflineData();
-    setDangerActionProgress({ label: 'Очистка приложения', processed: 2, total: 3, details: 'Перезапуск приложения' });
+    setDangerActionProgress({ label: 'Очистка приложения', processed: 3, total: 4, details: 'Перезапуск приложения' });
     window.location.reload();
   };
 

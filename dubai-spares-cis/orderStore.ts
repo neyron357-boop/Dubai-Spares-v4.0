@@ -1713,6 +1713,9 @@ export const addOrderItem = async (order: Order) => {
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
   await queueMutation('upsert', localOrder, localOrder.id);
+  if (navigator.onLine) {
+    await flushOfflineMutations({ force: true });
+  }
   return true;
 };
 
@@ -1762,7 +1765,7 @@ export const updateOrderItem = async (order: Order) => {
 
   await queueMutation('upsert', structuralDiff ? normalized : undefined, normalized.id, patch);
   if (shouldPrioritizeSync && navigator.onLine) {
-    void flushOfflineMutations({ force: true });
+    await flushOfflineMutations({ force: true });
   }
   return true;
 };
