@@ -4,6 +4,7 @@ import { supabase, isCloudSyncConfigured } from './supabase';
 import { deleteOrderFolderFromStorage, ensurePublicImageUrls, optimizeImageForUpload, recompressExistingStorageImage } from './storage/photos';
 import { OfflineMutation, isIdbAutoSyncPaused, offlineDb } from './storage/offlineDb';
 import { logger } from './logging';
+import { normalizeGroupItems, normalizePartQuantity } from './utils/groupItems';
 import { logDatabaseIntegrity } from './dbIntegrity';
 import { NotificationType, pushNotification, sendBrowserNotification } from './notificationCenter';
 import { addMissingColumns, normalizeSyncError, setLastIndexedDbError, setLastSupabaseError, setSyncStatus } from './syncDiagnostics';
@@ -183,11 +184,12 @@ const normalizeOrder = (order: Order): Order => {
         })
         : [];
       const groupItems = Array.isArray((part as any).groupItems)
-        ? (part as any).groupItems.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0).map((item: string) => item.trim())
+        ? normalizeGroupItems((part as any).groupItems)
         : [];
       const partKind = (part as any).partKind === 'group' ? 'group' : 'single';
       return {
         ...part,
+        quantity: normalizePartQuantity((part as any).quantity),
         comment: String(part.comment || ''),
         partKind,
         groupItems,
@@ -836,9 +838,8 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
       name: part.name,
       comment: (part as any).comment || '',
       partKind: (part as any).part_kind === 'group' ? 'group' : 'single',
-      groupItems: Array.isArray((part as any).group_items)
-        ? (part as any).group_items.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
-        : [],
+      quantity: normalizePartQuantity((part as any).quantity),
+      groupItems: normalizeGroupItems((part as any).group_items),
       photos: part.photos || [],
       photoUrl: part.photo_url || part.photos?.[0],
       isFound: !!part.is_found,
@@ -1111,10 +1112,9 @@ const persistOrderGraph = async (order: Order) => {
     order_id: uploadedOrder.id,
     name: part.name,
     comment: part.comment || '',
+    quantity: normalizePartQuantity(part.quantity),
     part_kind: part.partKind === 'group' ? 'group' : 'single',
-    group_items: Array.isArray(part.groupItems)
-      ? part.groupItems.filter((item) => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
-      : [],
+    group_items: normalizeGroupItems(part.groupItems).map((item) => ({ id: item.id, name: item.name, quantity: item.quantity })),
     photo_url: part.photoUrl,
     photos: part.photos || [],
     is_found: !!part.isFound

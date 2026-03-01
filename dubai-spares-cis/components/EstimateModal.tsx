@@ -5,6 +5,7 @@ import { DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
 import ImagePreview from './ImagePreview';
 import { useAppSettings } from '../appSettings';
 import { toast } from '../feedback';
+import { normalizePartQuantity } from '../utils/groupItems';
 
 interface Props {
   order: Order;
@@ -53,11 +54,12 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const fixedMarkupPerPart = isFixedMarkup && foundParts.length > 0 ? fixedMarkupTotal / foundParts.length : 0;
 
   const totalAed = foundParts.reduce((sum, p) => {
+    const qty = normalizePartQuantity((p as any).quantity);
     const costAed = p.variants[0].priceAed;
     const sellAed = isFixedMarkup
       ? costAed + fixedMarkupPerPart
       : costAed * (1 + order.markupPercent / 100);
-    return sum + sellAed;
+    return sum + (sellAed * qty);
   }, 0);
 
   const logistics = {
@@ -73,6 +75,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
 
   const previewParts = useMemo(
     () => foundParts.map((part) => {
+      const qty = normalizePartQuantity((part as any).quantity);
       const cheapestVariant = part.variants[0];
       const variantWithPhoto = part.variants.find((variant) => [variant.photoUrl || '', ...(variant.photos || [])].some(Boolean)) || cheapestVariant;
       const costAed = cheapestVariant.priceAed;
@@ -84,8 +87,9 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
       const photos = Array.from(new Set((variantPhotos.length > 0 ? variantPhotos : partPhotos) as string[]));
       return {
         part,
+        qty,
         sellAed,
-        sellConverted: sellAed * rates[currency],
+        sellConverted: sellAed * qty * rates[currency],
         photo: photos[0] || '',
         photos
       };
@@ -160,7 +164,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
             {previewParts.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-400">Нет найденных деталей</div>
             ) : (
-              previewParts.map(({ part, sellConverted, photo, photos }) => (
+              previewParts.map(({ part, qty, sellConverted, photo, photos }) => (
                 <div key={part.id} className="flex items-center gap-3 rounded-2xl bg-white border border-slate-100 p-3 shadow-sm">
                   <button type="button"
                     onClick={() => photos.length > 0 && setGallery({ images: photos, index: 0 })}
@@ -172,7 +176,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
                     {photos.length > 1 && <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 px-1 text-[8px] font-bold text-white">{photos.length}</span>}
                   </button>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm text-slate-900 leading-snug">{part.name}</p>
+                    <p className="font-bold text-sm text-slate-900 leading-snug">{part.name}{qty > 1 ? ` ×${qty}` : ''}</p>
                     <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600">
                       <CheckCircle2 size={9} /> В наличии
                     </span>
