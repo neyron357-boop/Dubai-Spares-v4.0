@@ -818,25 +818,33 @@ const openInvoicePrintWindow = ({
   order,
   lineItems,
   totals,
+  currency,
+  rates,
   logoUrl,
   signatureUrl
 }: {
   order: Order;
   lineItems: Array<{ name: string; price: number }>;
   totals: { delivery: number; packing: number; serviceFee: number; totalAed: number };
+  currency: QuoteCurrency;
+  rates: QuoteRates;
   logoUrl?: string;
   signatureUrl?: string;
 }) => {
   const printWindow = window.open('', '_blank');
   if (!printWindow) return false;
 
+  const exchangeRate = rates[currency] || 1;
+  const convertAmount = (amountAed: number) => amountAed * exchangeRate;
+  const moneyLabel = (amountAed: number) => `${convertAmount(amountAed).toFixed(2)} ${currency}`;
+
   const rows = lineItems.map((item, idx) => `
     <tr>
       <td>${idx + 1}</td>
       <td>${escapeHtml(item.name)}</td>
       <td style="text-align:center">1</td>
-      <td style="text-align:right">${item.price.toFixed(2)} AED</td>
-      <td style="text-align:right">${item.price.toFixed(2)} AED</td>
+      <td style="text-align:right">${moneyLabel(item.price)}</td>
+      <td style="text-align:right">${moneyLabel(item.price)}</td>
     </tr>
   `).join('');
 
@@ -913,10 +921,10 @@ const openInvoicePrintWindow = ({
     </table>
 
     <div class="totals">
-      <p><span>Delivery</span><span>${totals.delivery.toFixed(2)} AED</span></p>
-      <p><span>Packing</span><span>${totals.packing.toFixed(2)} AED</span></p>
-      <p><span>Service fee</span><span>${totals.serviceFee.toFixed(2)} AED</span></p>
-      <p class="total"><span>Total</span><span>${totals.totalAed.toFixed(2)} AED</span></p>
+      <p><span>Delivery</span><span>${moneyLabel(totals.delivery)}</span></p>
+      <p><span>Packing</span><span>${moneyLabel(totals.packing)}</span></p>
+      <p><span>Service fee</span><span>${moneyLabel(totals.serviceFee)}</span></p>
+      <p class="total"><span>Total</span><span>${moneyLabel(totals.totalAed)}</span></p>
     </div>
 
     <div class="signature">
@@ -1392,10 +1400,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         serviceFee: totals.serviceFee,
         totalAed: totals.totalAed
       },
+      currency,
+      rates,
       logoUrl,
       signatureUrl
     });
-    if (opened) logEvent('pdf_download');
+    if (opened) logEvent('pdf_download', { currency });
   };
 
   if (loading) return <div className="min-h-screen bg-[#f5f5f7] text-slate-900 grid place-items-center">{t.loading}</div>;
