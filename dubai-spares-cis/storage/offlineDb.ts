@@ -511,6 +511,7 @@ export const offlineDb = {
   async saveOrder(order: Order): Promise<void> {
     pendingOrderWrites.set(order.id, { type: 'put', order });
     scheduleOrderFlush();
+    await flushOrderWrites();
     logSyncCategory('IDB_TX', 'save_order', { orderId: order.id });
   },
 
@@ -519,12 +520,14 @@ export const offlineDb = {
     const existing = pendingOrderPatchWrites.get(orderId) || {};
     pendingOrderPatchWrites.set(orderId, { ...existing, ...patch });
     scheduleOrderPatchFlush();
+    await flushOrderPatchWrites();
     logSyncCategory('IDB_TX', 'save_order_patch', { orderId, fields: Object.keys(patch) });
   },
 
   async deleteOrder(orderId: string): Promise<void> {
     pendingOrderWrites.set(orderId, { type: 'delete' });
     scheduleOrderFlush();
+    await flushOrderWrites();
   },
 
   async enqueueMutation(mutation: OfflineMutation): Promise<void> {
@@ -546,6 +549,7 @@ export const offlineDb = {
 
     pendingMutationWrites.set(normalized.id, normalized);
     scheduleMutationFlush();
+    await flushMutationWrites();
     logSyncCategory('MUTATION_QUEUE', 'mutation_enqueued', { id: normalized.id, type: normalized.type, orderId: normalized.orderId });
   },
 
@@ -809,6 +813,29 @@ export const offlineDb = {
   },
 
   async clearAllOfflineData(): Promise<void> {
+    pendingOrderWrites.clear();
+    pendingOrderPatchWrites.clear();
+    pendingMutationWrites.clear();
+    pendingOrdersClear = false;
+    if (pendingOrderFlushTimer) {
+      window.clearTimeout(pendingOrderFlushTimer);
+      pendingOrderFlushTimer = null;
+    }
+    if (pendingOrderPatchFlushTimer) {
+      window.clearTimeout(pendingOrderPatchFlushTimer);
+      pendingOrderPatchFlushTimer = null;
+    }
+    if (pendingMutationFlushTimer) {
+      window.clearTimeout(pendingMutationFlushTimer);
+      pendingMutationFlushTimer = null;
+    }
+
+    await Promise.allSettled([
+      pendingOrderFlushPromise,
+      pendingOrderPatchFlushPromise,
+      pendingMutationFlushPromise
+    ]);
+
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction([...ALL_STORES], 'readwrite');
