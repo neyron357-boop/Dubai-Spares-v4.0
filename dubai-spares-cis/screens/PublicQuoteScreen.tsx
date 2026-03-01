@@ -1349,6 +1349,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const clientNickname = String(order?.socialNickname || '').trim();
 
   const invoiceLineItems = useMemo(() => {
+    if (!order) return [];
+
     const partByName = new Map(
       (order.parts || []).map((part) => [part.name.trim().toLowerCase(), part])
     );
@@ -1384,7 +1386,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         price: clientAed * normalizePartQuantity((part as any).quantity)
       }))
       .filter((item) => item.price > 0);
-  }, [order.parts, partCards, payloadTotals, rates]);
+  }, [order, partCards, payloadTotals, rates]);
   const confirmMessage = `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}. ID: ${order?.id || ''}`;
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};
