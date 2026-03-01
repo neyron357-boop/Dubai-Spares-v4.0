@@ -1573,6 +1573,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           {partCards.map(({ part, quantity, best, converted, previewPhotos, galleryPhotos, availability }) => {
             const partMessage = `Hello! I confirm ${part.name} for ${order.brand} ${order.model} ${order.year}.\nVIN: ${maskVin(order.vin || '')}.\nPrice: ${converted.toFixed(2)} ${currency}.`;
             const partWhatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(partMessage)}` : '';
+            const isGroupPart = part.partKind === 'group';
+            const groupItems = normalizeGroupItems((part as any).groupItems);
 
             return (
             <article key={part.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1598,6 +1600,14 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 {/* Name + status — center */}
                 <div className="flex-1 min-w-0">
                   <h3 className="font-bold leading-snug text-slate-900 text-sm sm:text-base">{part.name}{quantity > 1 ? ` ×${quantity}` : ''}</h3>
+                  {isGroupPart && (
+                    <p className="mt-1 text-[11px] font-semibold text-violet-700">Группа деталей · {groupItems.length} поз.</p>
+                  )}
+                  {isGroupPart && groupItems.length > 0 && (
+                    <div className="mt-1 space-y-0.5 text-[11px] text-slate-500">
+                      {groupItems.map((item, idx) => <p key={`${part.id}-public-item-${idx}`} className="truncate">• {item.name} ×{item.quantity}</p>)}
+                    </div>
+                  )}
                   {part.comment ? <p className="mt-1 text-xs text-slate-500">{part.comment}</p> : null}
                   <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>{availability}

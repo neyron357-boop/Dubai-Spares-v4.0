@@ -4,7 +4,7 @@ import { decodePayloadFromCompressedTransport } from './cloudCodec';
 import { buildPublicQuoteSlug, QuoteRates } from './shareUtils';
 import { Order } from './types';
 import { logger } from './logging';
-import { normalizePartQuantity } from './utils/groupItems';
+import { normalizeGroupItems, normalizePartQuantity } from './utils/groupItems';
 
 export type PublicQuotePayloadV1 = {
   version: 'public_quote_payload_v1';
@@ -39,6 +39,8 @@ export type PublicQuotePayloadV1 = {
   parts: Array<{
     id: string;
     name: string;
+    part_kind?: 'single' | 'group';
+    group_items?: Array<{ id: string; name: string; quantity: number }>;
     qty: number;
     supplier_price_aed: number;
     client_price_aed: number;
@@ -643,6 +645,12 @@ const buildSnapshotPayload = (
         id: String(part.id),
         name: String(part.name || 'Part'),
         comment: String(part.comment || ''),
+        part_kind: part.partKind === 'group' ? 'group' : 'single',
+        group_items: normalizeGroupItems((part as any).groupItems).map((item) => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity
+        })),
         qty: normalizePartQuantity((part as any).quantity),
         supplier_price_aed: supplierAed,
         client_price_aed: round2(clientAed),

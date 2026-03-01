@@ -1719,9 +1719,6 @@ const OrderDetailsScreen: React.FC = () => {
                 className="w-20 rounded-xl border border-gray-200 bg-white px-2 py-2 text-center text-sm font-bold"
                 placeholder="Кол-во"
               />
-              <button type="submit" className="p-3 bg-blue-600 text-white rounded-xl active:bg-blue-700 shadow-md">
-                <Plus size={24} />
-              </button>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -1785,8 +1782,9 @@ const OrderDetailsScreen: React.FC = () => {
               rows={2}
             />
 
-            <div className="flex gap-2 items-center overflow-x-auto no-scrollbar">
-                <button 
+            <div className="flex items-end justify-between gap-3">
+              <div className="flex flex-1 gap-2 items-center overflow-x-auto no-scrollbar">
+                <button
                   type="button" 
                   onClick={() => partFileRef.current?.click()}
                   className={`w-12 h-12 shrink-0 rounded-xl flex items-center justify-center border-2 border-dashed border-gray-200 transition-colors ${newPartPhotos.length > 0 ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-300'}`}
@@ -1806,6 +1804,13 @@ const OrderDetailsScreen: React.FC = () => {
                     </div>
                 ))}
                 <input type="file" ref={partFileRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
+              </div>
+              <button
+                type="submit"
+                className="h-12 shrink-0 rounded-xl bg-blue-600 px-4 text-xs font-black uppercase tracking-wide text-white shadow-md active:bg-blue-700"
+              >
+                Добавить
+              </button>
             </div>
           </form>
         </div>
