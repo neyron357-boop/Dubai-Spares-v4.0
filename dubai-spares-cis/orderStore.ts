@@ -182,7 +182,19 @@ const normalizeOrder = (order: Order): Order => {
           return { ...variant, photos: variantPhotos, photoUrl: variantPhotos[0] || '' };
         })
         : [];
-      return { ...part, comment: String(part.comment || ''), photos: partPhotos, photoUrl: partPhotos[0] || '', variants };
+      const groupItems = Array.isArray((part as any).groupItems)
+        ? (part as any).groupItems.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0).map((item: string) => item.trim())
+        : [];
+      const partKind = (part as any).partKind === 'group' ? 'group' : 'single';
+      return {
+        ...part,
+        comment: String(part.comment || ''),
+        partKind,
+        groupItems,
+        photos: partPhotos,
+        photoUrl: partPhotos[0] || '',
+        variants
+      };
     })
     : [];
 
@@ -823,6 +835,10 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
       orderId: String(part.order_id),
       name: part.name,
       comment: (part as any).comment || '',
+      partKind: (part as any).part_kind === 'group' ? 'group' : 'single',
+      groupItems: Array.isArray((part as any).group_items)
+        ? (part as any).group_items.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
+        : [],
       photos: part.photos || [],
       photoUrl: part.photo_url || part.photos?.[0],
       isFound: !!part.is_found,
@@ -1095,6 +1111,10 @@ const persistOrderGraph = async (order: Order) => {
     order_id: uploadedOrder.id,
     name: part.name,
     comment: part.comment || '',
+    part_kind: part.partKind === 'group' ? 'group' : 'single',
+    group_items: Array.isArray(part.groupItems)
+      ? part.groupItems.filter((item) => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
+      : [],
     photo_url: part.photoUrl,
     photos: part.photos || [],
     is_found: !!part.isFound
