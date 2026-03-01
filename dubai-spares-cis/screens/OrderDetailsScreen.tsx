@@ -198,8 +198,11 @@ const OrderDetailsScreen: React.FC = () => {
   const [shopTagMap, setShopTagMap] = useState<Record<string, { models: string[]; years: string[] }>>({});
 
   const [newPartName, setNewPartName] = useState('');
+  const [newPartKind, setNewPartKind] = useState<'single' | 'group'>('single');
+  const [newPartGroupItems, setNewPartGroupItems] = useState('');
   const [newPartComment, setNewPartComment] = useState('');
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
+  const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
   // Multiple photos for new part
   const [newPartPhotos, setNewPartPhotos] = useState<string[]>([]);
   const partFileRef = useRef<HTMLInputElement>(null);
@@ -256,6 +259,10 @@ const OrderDetailsScreen: React.FC = () => {
     }, {} as Record<string, string>);
     setPartCommentDrafts(nextDrafts);
   }, [order.id, order.parts]);
+
+  useEffect(() => {
+    setPartCommentExpanded({});
+  }, [order.id]);
 
   useEffect(() => () => {
     if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
@@ -972,9 +979,11 @@ const OrderDetailsScreen: React.FC = () => {
   const savePartComment = useCallback((partId: string) => {
     const draft = partCommentDrafts[partId] ?? '';
     const current = order.parts.find((part) => part.id === partId)?.comment ?? '';
-    if (draft === current) return;
-    updatePartComment(partId, draft);
-    setToast({ message: 'Комментарий сохранён' });
+    if (draft !== current) {
+      updatePartComment(partId, draft);
+      setToast({ message: 'Комментарий сохранён' });
+    }
+    setPartCommentExpanded((prev) => ({ ...prev, [partId]: false }));
   }, [order.parts, partCommentDrafts]);
 
   const confirmDeletePart = () => {
@@ -1012,10 +1021,15 @@ const OrderDetailsScreen: React.FC = () => {
   const addNewPart = () => {
     if (!isEditMode) return;
     if (!newPartName.trim()) return;
+    const parsedGroupItems = newPartKind === 'group'
+      ? newPartGroupItems.split('\n').map((item) => item.trim()).filter(Boolean)
+      : [];
     const newPart: Part = {
       id: Math.random().toString(36).substr(2, 9),
       name: newPartName.trim(),
       comment: newPartComment.trim(),
+      partKind: newPartKind,
+      groupItems: parsedGroupItems,
       photos: newPartPhotos,
       photoUrl: newPartPhotos[0], // Back-compat
       variants: [],
@@ -1025,6 +1039,8 @@ const OrderDetailsScreen: React.FC = () => {
     };
     updateOrder({ ...order, parts: [...order.parts, newPart] });
     setNewPartName('');
+    setNewPartKind('single');
+    setNewPartGroupItems('');
     setNewPartComment('');
     setNewPartPhotos([]);
     partInputRef.current?.focus();
@@ -1666,10 +1682,35 @@ const OrderDetailsScreen: React.FC = () => {
                 <Plus size={24} />
               </button>
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setNewPartKind('single')}
+                className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-wide ${newPartKind === 'single' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500'}`}
+              >
+                Обычная деталь
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewPartKind('group')}
+                className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-wide ${newPartKind === 'group' ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-gray-200 bg-white text-gray-500'}`}
+              >
+                Группа деталей
+              </button>
+            </div>
+            {newPartKind === 'group' && (
+              <textarea
+                value={newPartGroupItems}
+                onChange={(e) => setNewPartGroupItems(e.target.value)}
+                placeholder="Состав группы (каждая деталь с новой строки)"
+                className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm font-semibold outline-none"
+                rows={3}
+              />
+            )}
             <textarea
               value={newPartComment}
               onChange={(e) => setNewPartComment(e.target.value)}
-              placeholder="Комментарий к детали (необязательно)"
+              placeholder={newPartKind === 'group' ? 'Комментарий к группе (необязательно)' : 'Комментарий к детали (необязательно)'}
               className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm font-semibold outline-none"
               rows={2}
             />
@@ -1857,6 +1898,9 @@ const OrderDetailsScreen: React.FC = () => {
           )}
           {order.parts.map(part => {
              const displayPhotos = getPartPreviewPhotos(part);
+             const isGroupPart = part.partKind === 'group';
+             const groupItems = Array.isArray(part.groupItems) ? part.groupItems.filter((item) => item.trim().length > 0) : [];
+             const isCommentExpanded = !!partCommentExpanded[part.id];
              return (
               <div key={part.id} onClick={() => navigate(`/order/${order.id}/part/${part.id}`)} className="bg-white p-3.5 rounded-2xl shadow-sm active:bg-gray-50 transition-colors border border-gray-50 space-y-2">
                 <div className="flex items-center gap-3">
@@ -1889,8 +1933,15 @@ const OrderDetailsScreen: React.FC = () => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="font-black text-sm text-gray-800 truncate leading-none mb-1 uppercase tracking-tight">{part.name}</h4>
+                    {isGroupPart && <p className="text-[10px] font-black uppercase tracking-wide text-violet-600">Группа деталей · {groupItems.length} позиций</p>}
                     <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">{part.variants.length} вариантов · {part.priority === 'urgent' ? 'urgent' : 'normal'}</p>
-                    {part.comment?.trim() && (
+                    {isGroupPart && groupItems.length > 0 && (
+                      <div className="mt-1 rounded-lg bg-violet-50 px-2 py-1 text-[10px] text-violet-700">
+                        {groupItems.slice(0, 3).map((item, idx) => <p key={`${part.id}-item-${idx}`} className="truncate">• {item}</p>)}
+                        {groupItems.length > 3 && <p>и ещё {groupItems.length - 3}…</p>}
+                      </div>
+                    )}
+                    {!isCommentExpanded && part.comment?.trim() && (
                       <p className="mt-1 text-[11px] font-semibold text-slate-600">📝 {part.comment}</p>
                     )}
                     {part.variants[0] && (
@@ -1916,23 +1967,43 @@ const OrderDetailsScreen: React.FC = () => {
                   </div>
                 </div>
                 <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-                  <textarea
-                    value={partCommentDrafts[part.id] ?? part.comment ?? ''}
-                    onChange={(e) => updatePartCommentDraft(part.id, e.target.value)}
-                    onBlur={() => savePartComment(part.id)}
-                    placeholder="Комментарий к детали"
-                    className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-[11px] font-semibold text-slate-700 outline-none"
-                    rows={2}
-                  />
-                  <div className="mt-1 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => savePartComment(part.id)}
-                      className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700"
-                    >
-                      Сохранить
-                    </button>
-                  </div>
+                  {!isCommentExpanded ? (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: true }))}
+                        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700"
+                      >
+                        {part.comment?.trim() ? 'Изменить комментарий' : 'Добавить комментарий'}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <textarea
+                        value={partCommentDrafts[part.id] ?? part.comment ?? ''}
+                        onChange={(e) => updatePartCommentDraft(part.id, e.target.value)}
+                        placeholder={isGroupPart ? 'Комментарий к группе' : 'Комментарий к детали'}
+                        className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-[11px] font-semibold text-slate-700 outline-none"
+                        rows={2}
+                      />
+                      <div className="mt-1 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: false }))}
+                          className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-600"
+                        >
+                          Отмена
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => savePartComment(part.id)}
+                          className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700"
+                        >
+                          Сохранить
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
              );

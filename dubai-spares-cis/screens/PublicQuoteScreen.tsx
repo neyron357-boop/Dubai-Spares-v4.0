@@ -11,7 +11,7 @@ import {
   RefreshCcw,
   Send
 } from 'lucide-react';
-import { Order, PriceVariant } from '../types';
+import { Order, Part, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
 import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { getOptimizedImageUrl } from '../storage/photos';
@@ -824,7 +824,7 @@ const openInvoicePrintWindow = ({
   signatureUrl
 }: {
   order: Order;
-  lineItems: Array<{ name: string; price: number }>;
+  lineItems: Array<{ name: string; description?: string; price: number }>;
   totals: { delivery: number; packing: number; serviceFee: number; totalAed: number };
   currency: QuoteCurrency;
   rates: QuoteRates;
@@ -841,7 +841,10 @@ const openInvoicePrintWindow = ({
   const rows = lineItems.map((item, idx) => `
     <tr>
       <td>${idx + 1}</td>
-      <td>${escapeHtml(item.name)}</td>
+      <td>
+        <div>${escapeHtml(item.name)}</div>
+        ${item.description ? `<div style="margin-top:4px;font-size:11px;color:#64748b;white-space:pre-line">${escapeHtml(item.description)}</div>` : ''}
+      </td>
       <td style="text-align:center">1</td>
       <td style="text-align:right">${moneyLabel(item.price)}</td>
       <td style="text-align:right">${moneyLabel(item.price)}</td>
@@ -1338,12 +1341,29 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const clientNickname = String(order?.socialNickname || '').trim();
 
   const invoiceLineItems = useMemo(() => {
+    const partByName = new Map(
+      (order.parts || []).map((part) => [part.name.trim().toLowerCase(), part])
+    );
+    const buildPartDescription = (part?: Part | null) => {
+      if (!part) return '';
+      const groupItems = Array.isArray((part as any).groupItems)
+        ? (part as any).groupItems.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
+        : [];
+      const groupDetails = groupItems.length > 0
+        ? `Состав группы:\n${groupItems.map((item) => `• ${item.trim()}`).join('\n')}`
+        : '';
+      const commentDetails = part.comment?.trim() ? `Комментарий: ${part.comment.trim()}` : '';
+      return [groupDetails, commentDetails].filter(Boolean).join('\n');
+    };
+
     const fromPayload = (payloadTotals?.items || [])
       .map((item) => {
         const convertedUnitAed = convertFromSourceToAed(item.unitPrice, item.currency, rates);
         const qty = Number.isFinite(Number(item.qty)) && Number(item.qty) > 0 ? Number(item.qty) : 1;
+        const matchedPart = partByName.get(String(item.title || '').trim().toLowerCase()) || null;
         return {
           name: item.title,
+          description: buildPartDescription(matchedPart),
           price: convertedUnitAed * qty
         };
       })
@@ -1352,9 +1372,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     if (fromPayload.length > 0) return fromPayload;
 
     return partCards
-      .map(({ part, clientAed }) => ({ name: part.name, price: clientAed }))
+      .map(({ part, clientAed }) => ({
+        name: part.name,
+        description: buildPartDescription(part),
+        price: clientAed
+      }))
       .filter((item) => item.price > 0);
-  }, [partCards, payloadTotals, rates]);
+  }, [order.parts, partCards, payloadTotals, rates]);
   const confirmMessage = `Здравствуйте! Подтверждаю смету по ${order?.brand || ''} ${order?.model || ''} ${order?.year || ''}. ID: ${order?.id || ''}`;
   const payloadOwner = (order as any)?.payloadOwner || (order as any)?.owner || {};
   const payloadSettings = (order as any)?.public_settings || {};

@@ -57,6 +57,8 @@ export interface Part {
   orderId?: string;
   name: string;
   comment?: string;
+  partKind?: 'single' | 'group';
+  groupItems?: string[];
   photoUrl?: string;
   photos?: string[];
   variants: PriceVariant[];
