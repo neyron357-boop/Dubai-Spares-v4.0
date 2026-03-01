@@ -1256,7 +1256,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const partCards = useMemo(() => {
     if (!order) return [];
-    const fallbackCarPhotos = sanitizePhotoList([order.carPhotoUrl || '', ...(order.carPhotos || []), order.vinPhotoUrl || '']);
     const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
     const fixedMarkupTotal = Number(order.markupFixedAed || 0);
     const partsWithPriceCount = order.parts.filter((part) => {
@@ -1281,9 +1280,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const anyVariantPhotos = sanitizePhotoList(sortedVariants.flatMap((variant) => [variant.photoUrl || '', ...(variant.photos || [])]));
       const variantPhotos = bestVariantPhotos.length > 0 ? bestVariantPhotos : anyVariantPhotos;
       const basePartPhotos = sanitizePhotoList([part.photoUrl || '', ...(part.photos || [])]);
-      const photoSource = variantPhotos.length > 0
-        ? variantPhotos
-        : (basePartPhotos.length > 0 ? basePartPhotos : fallbackCarPhotos);
+      const photoSource = variantPhotos.length > 0 ? variantPhotos : basePartPhotos;
       const uniquePhotos = sanitizePhotoList(photoSource);
       const previewPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 480, quality: 64 }));
       const galleryPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 1600, quality: 74 }));
