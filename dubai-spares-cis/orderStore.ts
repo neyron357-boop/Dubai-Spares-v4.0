@@ -57,6 +57,29 @@ const normalizeSalesStatus = (value: unknown): SalesStatus => {
   return SALES_STATUS_ALIASES[normalizedKey] || 'Inquiry';
 };
 
+const getMissingColumnName = (error: unknown): string | null => {
+  const payload = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown } | null;
+  if (!payload) return null;
+
+  const code = typeof payload.code === 'string' ? payload.code : '';
+  const text = [payload.message, payload.details, payload.hint]
+    .filter((chunk): chunk is string => typeof chunk === 'string' && chunk.length > 0)
+    .join(' ');
+
+  if (!text || !['42703', 'PGRST204', 'PGRST205'].includes(code)) return null;
+
+  const dotMatch = text.match(/column\s+([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s+does not exist/i);
+  if (dotMatch) return dotMatch[2];
+
+  const quotedMatch = text.match(/column\s+"?([a-zA-Z0-9_]+)"?\s+does not exist/i);
+  if (quotedMatch) return quotedMatch[1];
+
+  const postgrestMatch = text.match(/'([a-zA-Z0-9_]+)'\s*column/i);
+  if (postgrestMatch) return postgrestMatch[1];
+
+  return null;
+};
+
 
 const normalizePhotoKey = (url: string) => {
   const trimmed = String(url || '').trim();
