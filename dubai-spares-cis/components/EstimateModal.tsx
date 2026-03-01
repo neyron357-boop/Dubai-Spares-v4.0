@@ -5,7 +5,7 @@ import { DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
 import ImagePreview from './ImagePreview';
 import { useAppSettings } from '../appSettings';
 import { toast } from '../feedback';
-import { normalizePartQuantity } from '../utils/groupItems';
+import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 
 interface Props {
   order: Order;
@@ -177,6 +177,11 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
                   </button>
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-sm text-slate-900 leading-snug">{part.name}{qty > 1 ? ` ×${qty}` : ''}</p>
+                    {part.partKind === 'group' && (
+                      <div className="mt-1 space-y-0.5 text-[10px] text-slate-500">
+                        {normalizeGroupItems((part as any).groupItems).map((item, idx) => <p key={`${part.id}-estimate-group-${idx}`} className="truncate">• {item.name} ×{item.quantity}</p>)}
+                      </div>
+                    )}
                     <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600">
                       <CheckCircle2 size={9} /> В наличии
                     </span>
