@@ -529,8 +529,14 @@ const getMissingColumnIssue = (error: unknown): { table: 'orders' | 'parts' | 'p
 
   const message = anyErr.message;
   if (anyErr.code === 'PGRST204') {
-    const match = message.match(/Could not find the '([^']+)' column of 'orders'/);
-    return match?.[1] ? { table: 'orders', column: match[1] } : null;
+    const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i);
+    const missingColumn = match?.[1];
+    const relation = match?.[2];
+    if (!missingColumn || !relation) return null;
+    if (relation === 'orders') return { table: 'orders', column: missingColumn };
+    if (relation.startsWith('parts')) return { table: 'parts', column: missingColumn };
+    if (relation.startsWith('price_variants')) return { table: 'price_variants', column: missingColumn };
+    return null;
   }
 
   if (anyErr.code === '42703') {
