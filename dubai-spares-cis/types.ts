@@ -56,9 +56,10 @@ export interface Part {
   id: string;
   orderId?: string;
   name: string;
+  quantity?: number;
   comment?: string;
   partKind?: 'single' | 'group';
-  groupItems?: string[];
+  groupItems?: Array<string | { id?: string; name?: string; quantity?: number }>;
   photoUrl?: string;
   photos?: string[];
   variants: PriceVariant[];
@@ -257,6 +258,7 @@ export interface DbPartRow {
   id: string;
   order_id: string;
   name: string;
+  quantity?: number | null;
   comment?: string | null;
   photo_url: string | null;
   photos: string[];

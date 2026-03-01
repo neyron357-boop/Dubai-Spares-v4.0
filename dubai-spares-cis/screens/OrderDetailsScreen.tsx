@@ -44,6 +44,7 @@ import { syncPerf } from '../syncPerf';
 import { optimizeImageForUpload } from '../storage/photos';
 import { FEATURE_RADAR_V2 } from '../featureFlags';
 import { ensureRadarSessionForOrder } from '../radarSessionService';
+import { normalizeGroupItems, normalizePartQuantity, NormalizedGroupItem } from '../utils/groupItems';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -198,8 +199,9 @@ const OrderDetailsScreen: React.FC = () => {
   const [shopTagMap, setShopTagMap] = useState<Record<string, { models: string[]; years: string[] }>>({});
 
   const [newPartName, setNewPartName] = useState('');
+  const [newPartQuantity, setNewPartQuantity] = useState('1');
   const [newPartKind, setNewPartKind] = useState<'single' | 'group'>('single');
-  const [newPartGroupItems, setNewPartGroupItems] = useState('');
+  const [newPartGroupItems, setNewPartGroupItems] = useState<Array<NormalizedGroupItem>>([{ id: `group-item-${Date.now()}`, name: '', quantity: 1 }]);
   const [newPartComment, setNewPartComment] = useState('');
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
@@ -1018,15 +1020,33 @@ const OrderDetailsScreen: React.FC = () => {
     setNewPartPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
+  const addGroupItemRow = () => {
+    setNewPartGroupItems((prev) => [...prev, { id: `group-item-${Date.now()}-${prev.length}`, name: '', quantity: 1 }]);
+  };
+
+  const updateGroupItemRow = (id: string, key: 'name' | 'quantity', value: string) => {
+    setNewPartGroupItems((prev) => prev.map((item) => {
+      if (item.id !== id) return item;
+      if (key === 'name') return { ...item, name: value };
+      return { ...item, quantity: normalizePartQuantity(value) };
+    }));
+  };
+
+  const removeGroupItemRow = (id: string) => {
+    setNewPartGroupItems((prev) => {
+      const filtered = prev.filter((item) => item.id !== id);
+      return filtered.length > 0 ? filtered : [{ id: `group-item-${Date.now()}`, name: '', quantity: 1 }];
+    });
+  };
+
   const addNewPart = () => {
     if (!isEditMode) return;
     if (!newPartName.trim()) return;
-    const parsedGroupItems = newPartKind === 'group'
-      ? newPartGroupItems.split('\n').map((item) => item.trim()).filter(Boolean)
-      : [];
+    const parsedGroupItems = newPartKind === 'group' ? normalizeGroupItems(newPartGroupItems) : [];
     const newPart: Part = {
       id: Math.random().toString(36).substr(2, 9),
       name: newPartName.trim(),
+      quantity: normalizePartQuantity(newPartQuantity),
       comment: newPartComment.trim(),
       partKind: newPartKind,
       groupItems: parsedGroupItems,
@@ -1039,8 +1059,9 @@ const OrderDetailsScreen: React.FC = () => {
     };
     updateOrder({ ...order, parts: [...order.parts, newPart] });
     setNewPartName('');
+    setNewPartQuantity('1');
     setNewPartKind('single');
-    setNewPartGroupItems('');
+    setNewPartGroupItems([{ id: `group-item-${Date.now()}`, name: '', quantity: 1 }]);
     setNewPartComment('');
     setNewPartPhotos([]);
     partInputRef.current?.focus();
@@ -1678,6 +1699,14 @@ const OrderDetailsScreen: React.FC = () => {
                   className="flex-1 bg-transparent outline-none p-1 text-base font-bold"
                 />
               </div>
+              <input
+                type="number"
+                min={1}
+                value={newPartQuantity}
+                onChange={(e) => setNewPartQuantity(e.target.value)}
+                className="w-20 rounded-xl border border-gray-200 bg-white px-2 py-2 text-center text-sm font-bold"
+                placeholder="Кол-во"
+              />
               <button type="submit" className="p-3 bg-blue-600 text-white rounded-xl active:bg-blue-700 shadow-md">
                 <Plus size={24} />
               </button>
@@ -1692,20 +1721,47 @@ const OrderDetailsScreen: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => setNewPartKind('group')}
+                onClick={() => {
+                  setNewPartKind('group');
+                  setNewPartGroupItems((prev) => prev.length > 0 ? prev : [{ id: `group-item-${Date.now()}`, name: '', quantity: 1 }]);
+                }}
                 className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-wide ${newPartKind === 'group' ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-gray-200 bg-white text-gray-500'}`}
               >
                 Группа деталей
               </button>
             </div>
             {newPartKind === 'group' && (
-              <textarea
-                value={newPartGroupItems}
-                onChange={(e) => setNewPartGroupItems(e.target.value)}
-                placeholder="Состав группы (каждая деталь с новой строки)"
-                className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm font-semibold outline-none"
-                rows={3}
-              />
+              <div className="space-y-2 rounded-xl border border-violet-100 bg-violet-50/60 p-3">
+                <p className="text-[11px] font-black uppercase tracking-wide text-violet-700">Состав группы</p>
+                {newPartGroupItems.map((item, index) => (
+                  <div key={item.id} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={item.name}
+                      onChange={(e) => updateGroupItemRow(item.id, 'name', e.target.value)}
+                      placeholder={`Деталь #${index + 1}`}
+                      className="flex-1 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm font-semibold outline-none"
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      value={item.quantity}
+                      onChange={(e) => updateGroupItemRow(item.id, 'quantity', e.target.value)}
+                      className="w-20 rounded-lg border border-violet-100 bg-white px-2 py-2 text-center text-sm font-bold"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeGroupItemRow(item.id)}
+                      className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+                <button type="button" onClick={addGroupItemRow} className="rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-black uppercase tracking-wide text-violet-700">
+                  + Добавить деталь в группу
+                </button>
+              </div>
             )}
             <textarea
               value={newPartComment}
@@ -1899,7 +1955,8 @@ const OrderDetailsScreen: React.FC = () => {
           {order.parts.map(part => {
              const displayPhotos = getPartPreviewPhotos(part);
              const isGroupPart = part.partKind === 'group';
-             const groupItems = Array.isArray(part.groupItems) ? part.groupItems.filter((item) => item.trim().length > 0) : [];
+             const groupItems = normalizeGroupItems(part.groupItems);
+             const partQuantity = normalizePartQuantity(part.quantity);
              const isCommentExpanded = !!partCommentExpanded[part.id];
              return (
               <div key={part.id} onClick={() => navigate(`/order/${order.id}/part/${part.id}`)} className="bg-white p-3.5 rounded-2xl shadow-sm active:bg-gray-50 transition-colors border border-gray-50 space-y-2">
@@ -1932,12 +1989,12 @@ const OrderDetailsScreen: React.FC = () => {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-black text-sm text-gray-800 truncate leading-none mb-1 uppercase tracking-tight">{part.name}</h4>
+                    <h4 className="font-black text-sm text-gray-800 truncate leading-none mb-1 uppercase tracking-tight">{part.name} <span className="text-xs text-gray-500">×{partQuantity}</span></h4>
                     {isGroupPart && <p className="text-[10px] font-black uppercase tracking-wide text-violet-600">Группа деталей · {groupItems.length} позиций</p>}
                     <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">{part.variants.length} вариантов · {part.priority === 'urgent' ? 'urgent' : 'normal'}</p>
                     {isGroupPart && groupItems.length > 0 && (
                       <div className="mt-1 rounded-lg bg-violet-50 px-2 py-1 text-[10px] text-violet-700">
-                        {groupItems.slice(0, 3).map((item, idx) => <p key={`${part.id}-item-${idx}`} className="truncate">• {item}</p>)}
+                        {groupItems.slice(0, 3).map((item, idx) => <p key={`${part.id}-item-${idx}`} className="truncate">• {item.name} ×{item.quantity}</p>)}
                         {groupItems.length > 3 && <p>и ещё {groupItems.length - 3}…</p>}
                       </div>
                     )}

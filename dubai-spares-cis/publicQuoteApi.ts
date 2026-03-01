@@ -4,6 +4,7 @@ import { decodePayloadFromCompressedTransport } from './cloudCodec';
 import { buildPublicQuoteSlug, QuoteRates } from './shareUtils';
 import { Order } from './types';
 import { logger } from './logging';
+import { normalizePartQuantity } from './utils/groupItems';
 
 export type PublicQuotePayloadV1 = {
   version: 'public_quote_payload_v1';
@@ -642,7 +643,7 @@ const buildSnapshotPayload = (
         id: String(part.id),
         name: String(part.name || 'Part'),
         comment: String(part.comment || ''),
-        qty: 1,
+        qty: normalizePartQuantity((part as any).quantity),
         supplier_price_aed: supplierAed,
         client_price_aed: round2(clientAed),
         photo_urls: dedupePhotoUrls([part.photoUrl || '', ...(part.photos || []), variant?.photoUrl || '', ...(variant?.photos || [])])

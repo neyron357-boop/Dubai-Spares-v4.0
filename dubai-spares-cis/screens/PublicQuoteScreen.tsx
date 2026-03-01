@@ -17,6 +17,7 @@ import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrenc
 import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
 import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot, resolveClientUnitPriceAed } from '../publicQuoteApi';
+import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 
 type Language = 'en' | 'ru';
 
@@ -531,7 +532,10 @@ const mapDbOrder = (row: any): Order => ({
     id: String(part.id),
     orderId: String(part.order_id || row.id),
     name: part.name || 'Part',
+    quantity: normalizePartQuantity(part.quantity),
     comment: part.comment || '',
+    partKind: part.part_kind === 'group' ? 'group' : 'single',
+    groupItems: normalizeGroupItems(part.group_items),
     photoUrl: part.photo_url || part.photos?.[0] || '',
     photos: part.photos || [],
     isFound: !!part.is_found,
@@ -589,7 +593,10 @@ const mapSnapshotOrder = (row: any): Order => {
     id: String(part?.id || ''),
     orderId: String(part?.orderId || part?.order_id || row?.order_id || row?.id || ''),
     name: part?.name || 'Part',
+    quantity: normalizePartQuantity(part?.quantity),
     comment: part?.comment || '',
+    partKind: part?.partKind === 'group' || part?.part_kind === 'group' ? 'group' : 'single',
+    groupItems: normalizeGroupItems(part?.groupItems || part?.group_items),
     photoUrl: part?.photoUrl || part?.photo_url || photos?.[0] || '',
     photos,
     isFound: !!part?.isFound || !!part?.is_found,
@@ -1276,6 +1283,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     const fixedMarkupPerPart = isFixedMarkup && partsWithPriceCount > 0 ? fixedMarkupTotal / partsWithPriceCount : 0;
 
     return order.parts.map((part) => {
+      const quantity = normalizePartQuantity((part as any).quantity);
       const sortedVariants = [...part.variants].sort((a, b) => a.priceAed - b.priceAed);
       const best = sortedVariants[0];
       const supplierAed = best?.priceAed || 0;
@@ -1286,7 +1294,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           ? supplierAed + fixedMarkupPerPart
           : supplierAed)
         : resolveClientUnitPriceAed(best as unknown as Record<string, unknown>, { markupPercent: order.markupPercent });
-      const converted = clientAed * rates[currency];
+      const converted = clientAed * quantity * rates[currency];
       const bestVariantPhotos = sanitizePhotoList([best?.photoUrl || '', ...(best?.photos || [])]);
       const anyVariantPhotos = sanitizePhotoList(sortedVariants.flatMap((variant) => [variant.photoUrl || '', ...(variant.photos || [])]));
       const variantPhotos = bestVariantPhotos.length > 0 ? bestVariantPhotos : anyVariantPhotos;
@@ -1295,7 +1303,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const uniquePhotos = sanitizePhotoList(photoSource);
       const previewPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 480, quality: 64 }));
       const galleryPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 1600, quality: 74 }));
-      return { part, best, previewPhotos, galleryPhotos, converted, clientAed, isReady, availability: isReady ? t.inStock : t.onOrder };
+      return { part, quantity, best, previewPhotos, galleryPhotos, converted, clientAed, isReady, availability: isReady ? t.inStock : t.onOrder };
     });
   }, [order, currency, rates, t.inStock, t.onOrder]);
 
@@ -1307,7 +1315,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   );
 
   const totals = useMemo(() => {
-    const fallbackSubtotal = foundParts.reduce((sum, item) => sum + item.clientAed, 0);
+    const fallbackSubtotal = foundParts.reduce((sum, item) => sum + (item.clientAed * item.quantity), 0);
     const subtotalFromPayload = payloadTotals?.itemsTotalAed ?? 0;
     const shouldUseFallbackSubtotal = fallbackSubtotal > 0 && subtotalFromPayload <= 0;
     const subtotal = shouldUseFallbackSubtotal ? fallbackSubtotal : subtotalFromPayload;
@@ -1346,11 +1354,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     );
     const buildPartDescription = (part?: Part | null) => {
       if (!part) return '';
-      const groupItems = Array.isArray((part as any).groupItems)
-        ? (part as any).groupItems.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
-        : [];
+      const groupItems = normalizeGroupItems((part as any).groupItems);
       const groupDetails = groupItems.length > 0
-        ? `Состав группы:\n${groupItems.map((item) => `• ${item.trim()}`).join('\n')}`
+        ? `Состав группы:\n${groupItems.map((item) => `• ${item.name} ×${item.quantity}`).join('\n')}`
         : '';
       const commentDetails = part.comment?.trim() ? `Комментарий: ${part.comment.trim()}` : '';
       return [groupDetails, commentDetails].filter(Boolean).join('\n');
@@ -1362,7 +1368,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         const qty = Number.isFinite(Number(item.qty)) && Number(item.qty) > 0 ? Number(item.qty) : 1;
         const matchedPart = partByName.get(String(item.title || '').trim().toLowerCase()) || null;
         return {
-          name: item.title,
+          name: qty > 1 ? `${item.title} ×${qty}` : item.title,
           description: buildPartDescription(matchedPart),
           price: convertedUnitAed * qty
         };
@@ -1373,9 +1379,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
     return partCards
       .map(({ part, clientAed }) => ({
-        name: part.name,
+        name: normalizePartQuantity((part as any).quantity) > 1 ? `${part.name} ×${normalizePartQuantity((part as any).quantity)}` : part.name,
         description: buildPartDescription(part),
-        price: clientAed
+        price: clientAed * normalizePartQuantity((part as any).quantity)
       }))
       .filter((item) => item.price > 0);
   }, [order.parts, partCards, payloadTotals, rates]);
@@ -1562,7 +1568,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           <div className="flex items-center justify-between">
             <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{t.partsGallery} — {partCards.length} {lang === 'ru' ? 'позиц.' : 'items'}</h2>
           </div>
-          {partCards.map(({ part, best, converted, previewPhotos, galleryPhotos, availability }) => {
+          {partCards.map(({ part, quantity, best, converted, previewPhotos, galleryPhotos, availability }) => {
             const partMessage = `Hello! I confirm ${part.name} for ${order.brand} ${order.model} ${order.year}.\nVIN: ${maskVin(order.vin || '')}.\nPrice: ${converted.toFixed(2)} ${currency}.`;
             const partWhatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(partMessage)}` : '';
 
@@ -1589,7 +1595,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
                 {/* Name + status — center */}
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-bold leading-snug text-slate-900 text-sm sm:text-base">{part.name}</h3>
+                  <h3 className="font-bold leading-snug text-slate-900 text-sm sm:text-base">{part.name}{quantity > 1 ? ` ×${quantity}` : ''}</h3>
                   {part.comment ? <p className="mt-1 text-xs text-slate-500">{part.comment}</p> : null}
                   <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>{availability}
