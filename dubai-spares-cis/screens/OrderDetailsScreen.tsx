@@ -44,7 +44,7 @@ import { syncPerf } from '../syncPerf';
 import { optimizeImageForUpload } from '../storage/photos';
 import { FEATURE_RADAR_V2 } from '../featureFlags';
 import { ensureRadarSessionForOrder } from '../radarSessionService';
-import { normalizeGroupItems, normalizePartQuantity, NormalizedGroupItem } from '../utils/groupItems';
+import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -163,6 +163,18 @@ const createPricingEvent = (field: OrderPricingEvent['field'], label: string, pr
 
 const MAX_RETRY_ATTEMPTS = 3;
 
+type GroupItemDraft = {
+  id: string;
+  name: string;
+  quantity: string;
+};
+
+const createGroupItemDraft = (suffix = ''): GroupItemDraft => ({
+  id: `group-item-${Date.now()}${suffix ? `-${suffix}` : ''}`,
+  name: '',
+  quantity: '1'
+});
+
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -201,7 +213,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [newPartName, setNewPartName] = useState('');
   const [newPartQuantity, setNewPartQuantity] = useState('1');
   const [newPartKind, setNewPartKind] = useState<'single' | 'group'>('single');
-  const [newPartGroupItems, setNewPartGroupItems] = useState<Array<NormalizedGroupItem>>([{ id: `group-item-${Date.now()}`, name: '', quantity: 1 }]);
+  const [newPartGroupItems, setNewPartGroupItems] = useState<Array<GroupItemDraft>>([createGroupItemDraft()]);
   const [newPartComment, setNewPartComment] = useState('');
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
@@ -1021,21 +1033,21 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const addGroupItemRow = () => {
-    setNewPartGroupItems((prev) => [...prev, { id: `group-item-${Date.now()}-${prev.length}`, name: '', quantity: 1 }]);
+    setNewPartGroupItems((prev) => [...prev, createGroupItemDraft(String(prev.length))]);
   };
 
   const updateGroupItemRow = (id: string, key: 'name' | 'quantity', value: string) => {
     setNewPartGroupItems((prev) => prev.map((item) => {
       if (item.id !== id) return item;
       if (key === 'name') return { ...item, name: value };
-      return { ...item, quantity: normalizePartQuantity(value) };
+      return { ...item, quantity: value.replace(/[^\d]/g, '') };
     }));
   };
 
   const removeGroupItemRow = (id: string) => {
     setNewPartGroupItems((prev) => {
       const filtered = prev.filter((item) => item.id !== id);
-      return filtered.length > 0 ? filtered : [{ id: `group-item-${Date.now()}`, name: '', quantity: 1 }];
+      return filtered.length > 0 ? filtered : [createGroupItemDraft()];
     });
   };
 
@@ -1061,7 +1073,7 @@ const OrderDetailsScreen: React.FC = () => {
     setNewPartName('');
     setNewPartQuantity('1');
     setNewPartKind('single');
-    setNewPartGroupItems([{ id: `group-item-${Date.now()}`, name: '', quantity: 1 }]);
+    setNewPartGroupItems([createGroupItemDraft()]);
     setNewPartComment('');
     setNewPartPhotos([]);
     partInputRef.current?.focus();
@@ -1723,7 +1735,7 @@ const OrderDetailsScreen: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setNewPartKind('group');
-                  setNewPartGroupItems((prev) => prev.length > 0 ? prev : [{ id: `group-item-${Date.now()}`, name: '', quantity: 1 }]);
+                  setNewPartGroupItems((prev) => prev.length > 0 ? prev : [createGroupItemDraft()]);
                 }}
                 className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-wide ${newPartKind === 'group' ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-gray-200 bg-white text-gray-500'}`}
               >
@@ -1734,31 +1746,33 @@ const OrderDetailsScreen: React.FC = () => {
               <div className="space-y-2 rounded-xl border border-violet-100 bg-violet-50/60 p-3">
                 <p className="text-[11px] font-black uppercase tracking-wide text-violet-700">Состав группы</p>
                 {newPartGroupItems.map((item, index) => (
-                  <div key={item.id} className="flex items-center gap-2">
+                  <div key={item.id} className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <input
                       type="text"
                       value={item.name}
                       onChange={(e) => updateGroupItemRow(item.id, 'name', e.target.value)}
                       placeholder={`Деталь #${index + 1}`}
-                      className="flex-1 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm font-semibold outline-none"
+                      className="w-full flex-1 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm font-semibold outline-none"
                     />
-                    <input
-                      type="number"
-                      min={1}
-                      value={item.quantity}
-                      onChange={(e) => updateGroupItemRow(item.id, 'quantity', e.target.value)}
-                      className="w-20 rounded-lg border border-violet-100 bg-white px-2 py-2 text-center text-sm font-bold"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeGroupItemRow(item.id)}
-                      className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-600"
-                    >
-                      <X size={14} />
-                    </button>
+                    <div className="flex items-center gap-2 sm:shrink-0">
+                      <input
+                        type="number"
+                        min={1}
+                        value={item.quantity}
+                        onChange={(e) => updateGroupItemRow(item.id, 'quantity', e.target.value)}
+                        className="w-20 rounded-lg border border-violet-100 bg-white px-2 py-2 text-center text-sm font-bold"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeGroupItemRow(item.id)}
+                        className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-600"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
                 ))}
-                <button type="button" onClick={addGroupItemRow} className="rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-black uppercase tracking-wide text-violet-700">
+                <button type="button" onClick={addGroupItemRow} className="w-full rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-black uppercase tracking-wide text-violet-700 sm:w-auto">
                   + Добавить деталь в группу
                 </button>
               </div>
