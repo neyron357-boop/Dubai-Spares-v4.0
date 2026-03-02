@@ -259,7 +259,9 @@ export const uploadImageToStorage = async (
   const blob = await toBlob(source);
   const compressed = await compressBlob(blob);
   const ext = extensionFromBlob(compressed);
-  const path = `${folder}/${fileName}.${ext}`;
+  const normalizedName = fileName.trim();
+  const hasKnownExtension = /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(normalizedName);
+  const path = `${folder}/${hasKnownExtension ? normalizedName : `${normalizedName}.${ext}`}`;
 
   if (!isCloudConfigured) {
     await logger.warn('storage:upload-skipped', 'Remote photo upload skipped: cloud not configured', {
@@ -771,10 +773,29 @@ export const deleteOrderFolderFromStorage = async (orderId: string): Promise<voi
 export const ensurePublicImageUrls = async (
   images: string[],
   folder: string,
-  options?: { skipUpload?: boolean }
+  options?: { skipUpload?: boolean; fileNames?: string[]; cleanupExtraFiles?: boolean }
 ): Promise<string[]> => {
-  if (!images.length) return [];
   if (options?.skipUpload) return [];
+
+  if (!images.length) {
+    if (options?.cleanupExtraFiles && isCloudConfigured) {
+      for (const bucket of BUCKET_CANDIDATES) {
+        try {
+          const remote = await listStoragePathsRecursive(bucket, folder);
+          for (let offset = 0; offset < remote.length; offset += 20) {
+            await deleteStorageFiles(bucket, remote.slice(offset, offset + 20));
+          }
+        } catch (error) {
+          await logger.warn('storage:cleanup-extra-files', 'Failed to cleanup folder after image removal', {
+            bucket,
+            folder,
+            error: String(error)
+          });
+        }
+      }
+    }
+    return [];
+  }
 
   const uploaded = await Promise.all(
     images.map(async (image, index) => {
@@ -787,7 +808,9 @@ export const ensurePublicImageUrls = async (
       }
 
       try {
-        return await uploadImageToStorage(image, folder, `${Date.now()}-${index}`);
+        const fallbackName = `${Date.now()}-${index}`;
+        const fileName = options?.fileNames?.[index] || fallbackName;
+        return await uploadImageToStorage(image, folder, fileName);
       } catch (error) {
         if (isBucketNotFoundError(error)) {
           return image;
@@ -797,6 +820,31 @@ export const ensurePublicImageUrls = async (
       }
     })
   );
+
+  if (options?.cleanupExtraFiles && isCloudConfigured) {
+    for (const bucket of BUCKET_CANDIDATES) {
+      try {
+        const currentPaths = new Set(
+          uploaded
+            .map((url) => parseSupabasePublicStorageUrl(url))
+            .filter((entry): entry is { bucket: string; path: string } => !!entry && entry.bucket === bucket)
+            .map((entry) => entry.path)
+        );
+        if (!currentPaths.size) continue;
+        const remote = await listStoragePathsRecursive(bucket, folder);
+        const extraPaths = remote.filter((path) => !currentPaths.has(path));
+        for (let offset = 0; offset < extraPaths.length; offset += 20) {
+          await deleteStorageFiles(bucket, extraPaths.slice(offset, offset + 20));
+        }
+      } catch (error) {
+        await logger.warn('storage:cleanup-extra-files', 'Failed to cleanup extra files in folder', {
+          bucket,
+          folder,
+          error: String(error)
+        });
+      }
+    }
+  }
 
   return uploaded;
 };

@@ -895,7 +895,12 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
 const withUploadedPhotos = async (order: Order): Promise<Order> => {
   const orderId = ensureUuid(order.id);
   const skipUpload = !!order.localOnlyPhotos;
-  const carPhotos = await ensurePublicImageUrls(order.carPhotos || [], `orders/${orderId}/car`, { skipUpload });
+  const carSource = (order.carPhotos || []).slice(0, 1);
+  const carPhotos = await ensurePublicImageUrls(carSource, `orders/${orderId}`, {
+    skipUpload,
+    fileNames: ['car.jpg'],
+    cleanupExtraFiles: true
+  });
 
   const notes = await Promise.all(
     (order.notes || []).map(async (note, noteIndex) => {
@@ -907,7 +912,12 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
   const parts: Part[] = await Promise.all(
     (order.parts || []).map(async (part) => {
       const partId = ensureUuid(part.id);
-      const partPhotos = await ensurePublicImageUrls(part.photos || [], `orders/${orderId}/parts/${partId}`, { skipUpload });
+      const partPhotoNames = (part.photos || []).map((_, photoIndex) => `${photoIndex}.jpg`);
+      const partPhotos = await ensurePublicImageUrls(part.photos || [], `orders/${orderId}/parts/${partId}/example`, {
+        skipUpload,
+        fileNames: partPhotoNames,
+        cleanupExtraFiles: true
+      });
 
       const variants = await Promise.all(
         (part.variants || []).map(async (variant) => {
@@ -915,7 +925,11 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
           const variantPhotos = await ensurePublicImageUrls(
             variant.photos || [],
             `orders/${orderId}/parts/${partId}/variants/${variantId}`,
-            { skipUpload }
+            {
+              skipUpload,
+              fileNames: (variant.photos || []).map((_, photoIndex) => `${photoIndex}.jpg`),
+              cleanupExtraFiles: true
+            }
           );
 
           return { ...variant, id: variantId, partId, photos: variantPhotos, photoUrl: variantPhotos[0] };
