@@ -4,7 +4,7 @@ export const ORDER_GRAPH_COLUMNS = [
 
 export const COMPAT_TABLE_COLUMNS = {
   orders: [...ORDER_GRAPH_COLUMNS],
-  parts: ['id','order_id','name','comment','photo_url','photos','is_found'],
+  parts: ['id','order_id','name','comment','quantity','part_kind','group_items','photo_url','photos','is_found'],
   price_variants: ['id','part_id','price_aed','condition','availability','shop_name','shop_id','phone','location','photo_url','photos','created_at'],
   public_quote_snapshots: ['token','order_id','payload','created_at','expires_at']
 } as const;
