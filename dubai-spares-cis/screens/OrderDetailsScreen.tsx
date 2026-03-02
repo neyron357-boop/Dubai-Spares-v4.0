@@ -1642,7 +1642,6 @@ const OrderDetailsScreen: React.FC = () => {
                 label={label}
                 value={logisticsDraft[field]}
                 onChange={onLogisticsDraftChange}
-                onBlur={saveLogisticsDraft}
               />
             ))}
             <div className="col-span-2 pt-1">
@@ -2058,6 +2057,7 @@ const OrderDetailsScreen: React.FC = () => {
                       <textarea
                         value={partCommentDrafts[part.id] ?? part.comment ?? ''}
                         onChange={(e) => updatePartCommentDraft(part.id, e.target.value)}
+                        onBlur={() => savePartComment(part.id)}
                         placeholder={isGroupPart ? 'Комментарий к группе' : 'Комментарий к детали'}
                         className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-[11px] font-semibold text-slate-700 outline-none"
                         rows={2}
