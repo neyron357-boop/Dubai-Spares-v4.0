@@ -13,6 +13,7 @@ const TARGET_BYTES = 200 * 1024; // aggressive compression target (~1 MB -> ~200
 const STORAGE_UPLOAD_RETRY_DELAYS_MS = [600, 1600];
 const STORAGE_LIST_PAGE_SIZE = 100;
 const MAINTENANCE_CONCURRENCY = Math.min(16, Math.max(8, (typeof navigator !== 'undefined' && Number(navigator.hardwareConcurrency)) || 8));
+const CANONICAL_FILENAME_RE = /^(\d+|car|vin)\.(jpe?g|png|webp|gif|bmp|avif)$/i;
 
 type ImageTransformOptions = {
   width?: number;
@@ -32,6 +33,8 @@ export type StorageMaintenanceResult = {
   compressed: number;
   bytesSaved: number;
   failures: number;
+  missingObjects: number;
+  errors: string[];
   dedupMappings: Array<{ bucket: string; canonicalPath: string; duplicatePath: string; size: number }>;
 };
 
@@ -44,6 +47,7 @@ export type StorageMaintenanceProgress = {
   deduplicated: number;
   compressed: number;
   failures: number;
+  missingObjects: number;
   bytesSaved: number;
   currentPath?: string;
 };
@@ -443,16 +447,19 @@ export const runStorageImageMaintenance = async (options: {
     compressed: 0,
     bytesSaved: 0,
     failures: 0,
+    missingObjects: 0,
+    errors: [],
     dedupMappings: []
   };
 
-  const emitProgress = (progress: Omit<StorageMaintenanceProgress, 'imageFiles' | 'deduplicated' | 'compressed' | 'failures' | 'bytesSaved'>) => {
+  const emitProgress = (progress: Omit<StorageMaintenanceProgress, 'imageFiles' | 'deduplicated' | 'compressed' | 'failures' | 'missingObjects' | 'bytesSaved'>) => {
     options.onProgress?.({
       ...progress,
       imageFiles: result.imageFiles,
       deduplicated: result.deduplicated,
       compressed: result.compressed,
       failures: result.failures,
+      missingObjects: result.missingObjects,
       bytesSaved: result.bytesSaved
     });
   };
@@ -477,6 +484,45 @@ export const runStorageImageMaintenance = async (options: {
     result.imageFiles += imageObjects.length;
 
     const deletedPaths = new Set<string>();
+
+    // Pass 1: path-pattern based dedup — detect suffix-variant files (-compressed, -original, _copy, uuid-like)
+    if (options.deduplicateByExactSize) {
+      const pathPatternDuplicates: Array<{ canonicalPath: string; duplicatePath: string; size: number }> = [];
+      const SUFFIX_VARIANT_RE = /[-_](compressed|original|orig|copy|bak|backup|\d{10,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\./i;
+
+      // Group files by their folder (directory path)
+      const byFolder = new Map<string, StorageObjectEntry[]>();
+      for (const entry of imageObjects) {
+        const slashIndex = entry.path.lastIndexOf('/');
+        const dir = slashIndex >= 0 ? entry.path.slice(0, slashIndex) : '';
+        const list = byFolder.get(dir) || [];
+        list.push(entry);
+        byFolder.set(dir, list);
+      }
+
+      for (const [, folderEntries] of byFolder) {
+        if (folderEntries.length < 2) continue;
+        const canonicals = folderEntries.filter((e) => {
+          const name = e.path.slice(e.path.lastIndexOf('/') + 1);
+          return CANONICAL_FILENAME_RE.test(name);
+        });
+        if (!canonicals.length) continue;
+        const nonCanonicals = folderEntries.filter((e) => {
+          const name = e.path.slice(e.path.lastIndexOf('/') + 1);
+          return !CANONICAL_FILENAME_RE.test(name) && SUFFIX_VARIANT_RE.test(name);
+        });
+        for (const dup of nonCanonicals) {
+          // pick the canonical in the same folder (first one found)
+          const canonical = canonicals[0];
+          pathPatternDuplicates.push({ canonicalPath: canonical.path, duplicatePath: dup.path, size: dup.size });
+        }
+      }
+
+      pathPatternDuplicates.forEach((entry) => {
+        result.dedupMappings.push({ bucket, ...entry });
+      });
+    }
+
     if (options.deduplicateByExactSize) {
       const groups = new Map<number, StorageObjectEntry[]>();
       imageObjects.forEach((entry) => {
@@ -505,11 +551,19 @@ export const runStorageImageMaintenance = async (options: {
         return hex;
       };
 
+      // Canonical score: prefer names like car.jpg, 0.jpg, 1.jpg over uuid-named files
+      const canonicalScore = (path: string): number => {
+        const name = path.slice(path.lastIndexOf('/') + 1);
+        return CANONICAL_FILENAME_RE.test(name) ? 0 : 1;
+      };
+
+      const alreadyMappedDuplicates = new Set(result.dedupMappings.map((m) => m.duplicatePath));
       const candidateGroups = Array.from(groups.values()).filter((group) => group.length >= 2);
       await runWithConcurrency(candidateGroups, Math.max(2, Math.floor(MAINTENANCE_CONCURRENCY / 2)), async (group) => {
         const hashGroups = new Map<string, StorageObjectEntry[]>();
 
         await runWithConcurrency(group, MAINTENANCE_CONCURRENCY, async (entry) => {
+          if (alreadyMappedDuplicates.has(entry.path)) return;
           dedupProcessed += 1;
           emitProgress({ phase: 'deduplicate', bucket, processed: dedupProcessed, total: imageObjects.length, currentPath: entry.path });
           try {
@@ -529,7 +583,11 @@ export const runStorageImageMaintenance = async (options: {
 
         for (const [, hashGroup] of hashGroups) {
           if (hashGroup.length < 2) continue;
-          const sorted = [...hashGroup].sort((a, b) => a.path.localeCompare(b.path));
+          // Sort by canonical score first, then alphabetically
+          const sorted = [...hashGroup].sort((a, b) => {
+            const scoreDiff = canonicalScore(a.path) - canonicalScore(b.path);
+            return scoreDiff !== 0 ? scoreDiff : a.path.localeCompare(b.path);
+          });
           const canonical = sorted[0];
           const duplicates = sorted.slice(1);
           duplicates.forEach((entry) => {
@@ -583,7 +641,15 @@ export const runStorageImageMaintenance = async (options: {
         });
         if (!downloadResponse.ok) {
           if (shouldBlacklistByStatus(downloadResponse.status)) {
+            result.missingObjects += 1;
+            const errorMsg = `missing: ${bucket}/${image.path}: status ${downloadResponse.status}`;
+            result.errors.push(errorMsg);
             markBrokenImageUrl(`${SUPABASE_URL}/storage/v1/object/public/${bucket}/${image.path}`);
+            await logger.warn('storage:maintenance', 'Missing object during recompress', {
+              bucket,
+              path: image.path,
+              status: downloadResponse.status
+            });
             return;
           }
           throw new Error(`download ${downloadResponse.status}`);
@@ -611,6 +677,8 @@ export const runStorageImageMaintenance = async (options: {
         result.bytesSaved += Math.max(0, originalBlob.size - compressedBlob.size);
       } catch (error) {
         result.failures += 1;
+        const errorMsg = `error: ${bucket}/${image.path}: ${String(error)}`;
+        result.errors.push(errorMsg);
         await logger.warn('storage:maintenance', 'Failed to recompress image', {
           bucket,
           path: image.path,

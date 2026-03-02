@@ -182,6 +182,8 @@ const SettingsScreen: React.FC = () => {
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
   const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
   const [dangerActionProgress, setDangerActionProgress] = useState<{ label: string; processed: number; total: number; details?: string } | null>(null);
+  const [dangerActionStatus, setDangerActionStatus] = useState<'idle' | 'running' | 'done'>('idle');
+  const [dangerActionErrors, setDangerActionErrors] = useState<string[]>([]);
   const [isHardResetting, setIsHardResetting] = useState(false);
   const [logoCrop, setLogoCrop] = useState<{ file: File; previewUrl: string } | null>(null);
   const [logoCropZoom, setLogoCropZoom] = useState(1);
@@ -238,9 +240,13 @@ const SettingsScreen: React.FC = () => {
   const withBusy = async (label: string, fn: () => Promise<void>) => {
     setBusy(label);
     setDangerActionProgress(null);
+    setDangerActionStatus('running');
+    setDangerActionErrors([]);
     try {
       await fn();
+      setDangerActionStatus('done');
     } catch (error) {
+      setDangerActionStatus('done');
       const message = error instanceof Error ? error.message : 'Cloud action failed';
       alert(`${message}. Use "Copy diagnostics" and retry.`);
     } finally {
@@ -346,12 +352,16 @@ const SettingsScreen: React.FC = () => {
         });
       }
     });
+    if (result.errors.length > 0) {
+      setDangerActionErrors(result.errors);
+    }
     const mbSaved = (result.bytesSaved / (1024 * 1024)).toFixed(2);
     const tone = result.failures > 0 ? 'warning' : 'success';
+    const missingNote = result.missingObjects > 0 ? `, недоступно: ${result.missingObjects}` : '';
     window.dispatchEvent(new CustomEvent('app-toast', {
       detail: {
         tone,
-        message: `Сжато: ${result.compressed}, проверено фото: ${result.imageFiles}, экономия: ${mbSaved} MB${result.failures > 0 ? `, ошибок: ${result.failures}` : ''}`
+        message: `Сжато: ${result.compressed}, проверено фото: ${result.imageFiles}, экономия: ${mbSaved} MB${missingNote}${result.failures > 0 ? `, ошибок: ${result.failures}` : ''}`
       }
     }));
   });
@@ -372,6 +382,10 @@ const SettingsScreen: React.FC = () => {
         });
       }
     });
+
+    if (result.errors.length > 0) {
+      setDangerActionErrors(result.errors);
+    }
 
     const replacements = new Map<string, string>();
     result.dedupMappings.forEach((mapping) => {
@@ -1044,12 +1058,36 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           })}>{busyLabel('index', 'Перестроить индекс', 'Перестраиваем индекс…')}</button>
         </div>
         {dangerActionProgress && (
-          <div className="rounded-xl border border-rose-200 bg-white p-2">
-            <p className="text-[11px] font-bold text-rose-700">{dangerActionProgress.label}</p>
+          <div className="rounded-xl border border-rose-200 bg-white p-2 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-bold text-rose-700">{dangerActionProgress.label}</p>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${dangerActionStatus === 'running' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                {dangerActionStatus === 'running' ? 'Running…' : 'Done'}
+              </span>
+            </div>
             <p className="text-[11px] text-rose-600">{dangerActionProgress.processed} / {dangerActionProgress.total}{dangerActionProgress.details ? ` · ${dangerActionProgress.details}` : ''}</p>
             <div className="mt-1 h-1.5 w-full rounded bg-rose-100 overflow-hidden">
               <div className="h-full bg-rose-500 transition-all" style={{ width: `${dangerActionProgress.total > 0 ? Math.min(100, Math.round((dangerActionProgress.processed / dangerActionProgress.total) * 100)) : 0}%` }} />
             </div>
+            {dangerActionErrors.length > 0 && (
+              <div className="mt-1 space-y-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold text-rose-700">Ошибки ({dangerActionErrors.length})</p>
+                  <button
+                    type="button"
+                    className="text-[10px] text-rose-500 underline"
+                    onClick={() => {
+                      navigator.clipboard.writeText(dangerActionErrors.join('\n')).then(() => {
+                        window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: 'success', message: 'Список ошибок скопирован' } }));
+                      }).catch(() => {
+                        window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: 'error', message: 'Не удалось скопировать' } }));
+                      });
+                    }}
+                  >Копировать</button>
+                </div>
+                <pre className="max-h-24 overflow-y-auto rounded bg-rose-50 p-1 text-[9px] text-rose-700 whitespace-pre-wrap break-all">{dangerActionErrors.join('\n')}</pre>
+              </div>
+            )}
           </div>
         )}
       </Section>
