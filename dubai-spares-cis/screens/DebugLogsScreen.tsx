@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { logger } from '../logging';
 import { SystemLogEntry } from '../types';
+import { egressDebug } from '../egressDebug';
 
 const MAX_VISIBLE_LOGS = 300;
 const INITIAL_RENDER_COUNT = 60;
@@ -35,12 +36,19 @@ const DebugLogsScreen: React.FC = () => {
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'errors' | 'other'>('all');
   const [mode, setMode] = useState<'regular' | 'absolute'>('regular');
+  const [egressSnapshot, setEgressSnapshot] = useState(() => egressDebug.getSnapshot());
 
   useEffect(() => {
     void logger.getRecentStored(MAX_VISIBLE_LOGS * 3).then((next) => {
       setLogs(next.filter((entry) => entry.mode !== 'absolute').slice(0, MAX_VISIBLE_LOGS));
       setAbsoluteLogs(next.filter((entry) => entry.mode === 'absolute').slice(0, MAX_VISIBLE_LOGS));
     });
+  }, []);
+
+  useEffect(() => {
+    const onEgressUpdated = () => setEgressSnapshot(egressDebug.getSnapshot());
+    window.addEventListener('egress-debug-updated', onEgressUpdated);
+    return () => window.removeEventListener('egress-debug-updated', onEgressUpdated);
   }, []);
 
   useEffect(() => {
@@ -74,7 +82,8 @@ const DebugLogsScreen: React.FC = () => {
   const handleCopyAll = async () => {
     try {
       const payload = filteredLogs.map(toLogText).join('\n\n');
-      await navigator.clipboard.writeText(payload || 'Логи пусты');
+      const egressText = egressDebug.copySummaryText();
+      await navigator.clipboard.writeText(`${egressText}\n\n${payload || 'Логи пусты'}`);
       setCopyStatus('Логи скопированы');
     } catch {
       setCopyStatus('Не удалось скопировать логи');
@@ -93,6 +102,23 @@ const DebugLogsScreen: React.FC = () => {
 
       <p className="text-xs text-gray-500">Упрощённый список: только время, уровень, scope и сообщение. Нажмите запись для подробностей.</p>
       {copyStatus && <div className="text-[11px] font-bold text-emerald-600">{copyStatus}</div>}
+
+      <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900 space-y-1">
+        <p className="font-black uppercase tracking-wide">Egress Debug (local only)</p>
+        <p>REST requests / min: <span className="font-black">{egressSnapshot.restRequestsPerMinute}</span></p>
+        <p>REST requests count: <span className="font-black">{egressSnapshot.restRequestsCount}</span></p>
+        <p>Storage hits count: <span className="font-black">{egressSnapshot.storageHitsCount}</span></p>
+        <p>Total response bytes: <span className="font-black">{egressSnapshot.totalResponseBytes}</span></p>
+        <div>
+          <p className="font-bold">Top endpoints:</p>
+          <ul className="list-disc pl-4">
+            {egressSnapshot.topEndpoints.map((item) => (
+              <li key={item.endpoint}>{item.endpoint} — {item.hits}</li>
+            ))}
+            {egressSnapshot.topEndpoints.length === 0 && <li>Пока нет данных</li>}
+          </ul>
+        </div>
+      </div>
 
       <div className="flex gap-2">
         <button className={`px-3 py-2 rounded-xl text-xs font-black ${mode === 'regular' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700'}`} type="button" onClick={() => setMode('regular')}>
@@ -117,6 +143,7 @@ const DebugLogsScreen: React.FC = () => {
         <button className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black" type="button" onClick={() => {
           setLogs(logger.getRecentBuffered(MAX_VISIBLE_LOGS));
           setAbsoluteLogs(logger.getRecentAbsoluteBuffered(MAX_VISIBLE_LOGS));
+          setEgressSnapshot(egressDebug.getSnapshot());
         }}>
           Обновить
         </button>
