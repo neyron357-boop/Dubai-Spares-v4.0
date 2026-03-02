@@ -430,6 +430,38 @@ const isImagePath = (path: string, mimetype: string): boolean => {
   return /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(path);
 };
 
+const sha256Hex = async (buffer: ArrayBuffer): Promise<string> => {
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(digest)).map((item) => item.toString(16).padStart(2, '0')).join('');
+};
+
+const buildVisualSignature = async (blob: Blob): Promise<string | null> => {
+  if (typeof document === 'undefined') return null;
+
+  const imageUrl = URL.createObjectURL(blob);
+  try {
+    const image = await loadImage(imageUrl);
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return null;
+
+    context.drawImage(image, 0, 0, width, height);
+    const rgba = context.getImageData(0, 0, width, height).data;
+    const rawHash = await sha256Hex(rgba.buffer);
+    return `${width}x${height}:${rawHash}`;
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+};
+
 export const runStorageImageMaintenance = async (options: {
   deduplicateByExactSize?: boolean;
   applyDedupDeletes?: boolean;
@@ -478,17 +510,11 @@ export const runStorageImageMaintenance = async (options: {
 
     const deletedPaths = new Set<string>();
     if (options.deduplicateByExactSize) {
-      const groups = new Map<number, StorageObjectEntry[]>();
-      imageObjects.forEach((entry) => {
-        const list = groups.get(entry.size) || [];
-        list.push(entry);
-        groups.set(entry.size, list);
-      });
-
       let dedupProcessed = 0;
+      const signatureGroups = new Map<string, StorageObjectEntry[]>();
       const hashCache = new Map<string, string>();
 
-      const fileHash = async (path: string): Promise<string> => {
+      const fileSignature = async (path: string): Promise<string> => {
         const cached = hashCache.get(path);
         if (cached) return cached;
         const encodedPath = path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
@@ -498,50 +524,56 @@ export const runStorageImageMaintenance = async (options: {
         });
         if (!response.ok) throw new Error(`download ${response.status}`);
         const blob = await response.blob();
+        const visual = await buildVisualSignature(blob);
+        if (visual) {
+          hashCache.set(path, `visual:${visual}`);
+          return `visual:${visual}`;
+        }
+
         const buffer = await blob.arrayBuffer();
-        const digest = await crypto.subtle.digest('SHA-256', buffer);
-        const hex = Array.from(new Uint8Array(digest)).map((item) => item.toString(16).padStart(2, '0')).join('');
-        hashCache.set(path, hex);
-        return hex;
+        const binaryHash = await sha256Hex(buffer);
+        const fallback = `binary:${binaryHash}`;
+        hashCache.set(path, fallback);
+        return fallback;
       };
 
-      const candidateGroups = Array.from(groups.values()).filter((group) => group.length >= 2);
-      await runWithConcurrency(candidateGroups, Math.max(2, Math.floor(MAINTENANCE_CONCURRENCY / 2)), async (group) => {
-        const hashGroups = new Map<string, StorageObjectEntry[]>();
-
-        await runWithConcurrency(group, MAINTENANCE_CONCURRENCY, async (entry) => {
-          dedupProcessed += 1;
-          emitProgress({ phase: 'deduplicate', bucket, processed: dedupProcessed, total: imageObjects.length, currentPath: entry.path });
-          try {
-            const hash = await fileHash(entry.path);
-            const list = hashGroups.get(hash) || [];
-            list.push(entry);
-            hashGroups.set(hash, list);
-          } catch (error) {
-            result.failures += 1;
-            await logger.warn('storage:maintenance', 'Failed to hash image for deduplication', {
-              bucket,
-              path: entry.path,
-              error: String(error)
-            });
-          }
-        });
-
-        for (const [, hashGroup] of hashGroups) {
-          if (hashGroup.length < 2) continue;
-          const sorted = [...hashGroup].sort((a, b) => a.path.localeCompare(b.path));
-          const canonical = sorted[0];
-          const duplicates = sorted.slice(1);
-          duplicates.forEach((entry) => {
-            result.dedupMappings.push({
-              bucket,
-              canonicalPath: canonical.path,
-              duplicatePath: entry.path,
-              size: entry.size
-            });
+      await runWithConcurrency(imageObjects, MAINTENANCE_CONCURRENCY, async (entry) => {
+        dedupProcessed += 1;
+        emitProgress({ phase: 'deduplicate', bucket, processed: dedupProcessed, total: imageObjects.length, currentPath: entry.path });
+        try {
+          const signature = await fileSignature(entry.path);
+          const list = signatureGroups.get(signature) || [];
+          list.push(entry);
+          signatureGroups.set(signature, list);
+        } catch (error) {
+          result.failures += 1;
+          await logger.warn('storage:maintenance', 'Failed to hash image for deduplication', {
+            bucket,
+            path: entry.path,
+            error: String(error)
           });
         }
       });
+
+      for (const [, signatureGroup] of signatureGroups) {
+        if (signatureGroup.length < 2) continue;
+
+        const sortedByPreferredCanonical = [...signatureGroup].sort((a, b) => {
+          if (a.size !== b.size) return a.size - b.size;
+          return a.path.localeCompare(b.path);
+        });
+
+        const canonical = sortedByPreferredCanonical[0];
+        const heavierDuplicates = sortedByPreferredCanonical.filter((entry) => entry.path !== canonical.path && entry.size > canonical.size);
+        heavierDuplicates.forEach((entry) => {
+          result.dedupMappings.push({
+            bucket,
+            canonicalPath: canonical.path,
+            duplicatePath: entry.path,
+            size: entry.size
+          });
+        });
+      }
 
       if (options.applyDedupDeletes !== false && result.dedupMappings.length > 0) {
         const duplicatesToDelete = result.dedupMappings
@@ -572,8 +604,10 @@ export const runStorageImageMaintenance = async (options: {
     if (!options.recompressAll) continue;
 
     const compressQueue = imageObjects.filter((image) => !deletedPaths.has(image.path));
+    let compressedProcessed = 0;
     await runWithConcurrency(compressQueue, MAINTENANCE_CONCURRENCY, async (image) => {
-      emitProgress({ phase: 'compress', bucket, processed: result.compressed, total: imageObjects.length, currentPath: image.path });
+      compressedProcessed += 1;
+      emitProgress({ phase: 'compress', bucket, processed: compressedProcessed, total: compressQueue.length, currentPath: image.path });
 
       try {
         const encodedPath = image.path.split('/').map((segment) => encodeURIComponent(segment)).join('/');

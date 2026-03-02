@@ -332,7 +332,7 @@ const SettingsScreen: React.FC = () => {
   };
 
   const handleCompressAllServerPhotos = () => void withBusy('storage-compress-all', async () => {
-    const first = window.confirm('Сжать ВСЕ фотографии на сервере до минимального размера? Это может занять много времени.');
+    const first = window.confirm('Сжать ВСЕ фотографии на сервере: заменить оригиналы сжатыми версиями в том же пути (без потери ссылок)? Это может занять много времени.');
     if (!first) return;
 
     const result = await runStorageImageMaintenance({
@@ -351,13 +351,13 @@ const SettingsScreen: React.FC = () => {
     window.dispatchEvent(new CustomEvent('app-toast', {
       detail: {
         tone,
-        message: `Сжато: ${result.compressed}, проверено фото: ${result.imageFiles}, экономия: ${mbSaved} MB${result.failures > 0 ? `, ошибок: ${result.failures}` : ''}`
+        message: `Обновлено (заменено сжатыми): ${result.compressed}, проверено фото: ${result.imageFiles}, экономия: ${mbSaved} MB${result.failures > 0 ? `, ошибок: ${result.failures}` : ''}`
       }
     }));
   });
 
   const handleRemovePhotoDuplicates = () => void withBusy('storage-delete-duplicates', async () => {
-    const first = window.confirm('Удалить дубликаты фото по идентичному содержимому и автоматически переназначить ссылки во всех заказах?');
+    const first = window.confirm('Удалить только более тяжёлые дубликаты фото (оставить самые лёгкие версии) и автоматически переназначить ссылки во всех заказах?');
     if (!first) return;
 
     const result = await runStorageImageMaintenance({
@@ -400,7 +400,8 @@ const SettingsScreen: React.FC = () => {
       })
     );
 
-    const mbSaved = (result.bytesSaved / (1024 * 1024)).toFixed(2);
+    const deletedBytes = result.dedupMappings.reduce((sum, mapping) => sum + mapping.size, 0);
+    const mbSaved = (deletedBytes / (1024 * 1024)).toFixed(2);
     const tone = (result.failures + deleteResult.failures) > 0 ? 'warning' : 'success';
     window.dispatchEvent(new CustomEvent('app-toast', {
       detail: {
