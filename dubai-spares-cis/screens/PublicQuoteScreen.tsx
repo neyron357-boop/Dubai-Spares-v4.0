@@ -1360,7 +1360,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const groupDetails = groupItems.length > 0
         ? `Состав группы:\n${groupItems.map((item) => `• ${item.name} ×${item.quantity}`).join('\n')}`
         : '';
-      const commentDetails = part.comment?.trim() ? `Комментарий: ${part.comment.trim()}` : '';
+      const commentDetails = part.comment?.trim() || '';
       return [groupDetails, commentDetails].filter(Boolean).join('\n');
     };
 
