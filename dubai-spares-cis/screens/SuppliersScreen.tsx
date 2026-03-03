@@ -173,6 +173,16 @@ const inferZoneFromCoords = (coords?: { lat: number; lng: number }) => {
   return matched?.name || '';
 };
 
+const calcDistanceKm = (
+  supplier: Supplier & { coordinates?: { lat: number; lng: number } },
+  reference: { lat: number; lng: number }
+) => {
+  if (!supplier.coordinates) return Number.POSITIVE_INFINITY;
+  const latDiff = (supplier.coordinates.lat - reference.lat) * 111;
+  const lngDiff = (supplier.coordinates.lng - reference.lng) * 111;
+  return Math.sqrt((latDiff * latDiff) + (lngDiff * lngDiff));
+};
+
 const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, restoreData, orders, updateOrder, updateSupplier, lastSuppliersSyncError } = useStore();
 
@@ -224,12 +234,13 @@ const SuppliersScreen: React.FC = () => {
   const [contactWhatsapp, setContactWhatsapp] = useState('');
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [sortByDistanceRef, setSortByDistanceRef] = useState<{ lat: number; lng: number }>({ lat: 25.2048, lng: 55.2708 });
-  const [sortByExtended, setSortByExtended] = useState<'smart' | 'trust' | 'heat' | 'near' | 'name'>('smart');
+  const [sortByExtended, setSortByExtended] = useState<'smart' | 'fast' | 'trust' | 'heat' | 'near' | 'name'>('smart');
   const [brandFilter, setBrandFilter] = useState('all');
   const [modelFilter, setModelFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
   const [partCategoryFilter, setPartCategoryFilter] = useState('all');
   const [favoriteFilter, setFavoriteFilter] = useState<'all' | 'favorites'>('all');
+  const [fastWhatsappFilter, setFastWhatsappFilter] = useState<'all' | 'fast'>('all');
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [expandedAddedPartsIds, setExpandedAddedPartsIds] = useState<Set<string>>(new Set());
@@ -384,13 +395,6 @@ const SuppliersScreen: React.FC = () => {
   }, [rawSuppliers]);
 
   const filteredSuppliers = useMemo(() => {
-    const calcDistanceKm = (supplier: Supplier & { coordinates?: { lat: number; lng: number } }) => {
-      if (!supplier.coordinates) return Number.POSITIVE_INFINITY;
-      const latDiff = (supplier.coordinates.lat - sortByDistanceRef.lat) * 111;
-      const lngDiff = (supplier.coordinates.lng - sortByDistanceRef.lng) * 111;
-      return Math.sqrt((latDiff * latDiff) + (lngDiff * lngDiff));
-    };
-
     const selectedYear = Number(yearFilter);
     const hasSelectedYear = yearFilter !== 'all' && Number.isFinite(selectedYear);
 
@@ -402,11 +406,21 @@ const SuppliersScreen: React.FC = () => {
         const yearMatch = !hasSelectedYear || supplierYears.includes(selectedYear);
         const categoryMatch = partCategoryFilter === 'all' || (supplier.mainPartCategories || []).includes(partCategoryFilter);
         const favoriteMatch = favoriteFilter === 'all' || supplier.isFavorite === true;
-        return brandMatch && modelMatch && yearMatch && categoryMatch && favoriteMatch;
+        const fastWhatsappMatch = fastWhatsappFilter === 'all' || supplier.whatsappFast === true;
+        return brandMatch && modelMatch && yearMatch && categoryMatch && favoriteMatch && fastWhatsappMatch;
       })
       .sort((a, b) => {
-      const distanceA = calcDistanceKm(a);
-      const distanceB = calcDistanceKm(b);
+      const distanceA = calcDistanceKm(a, sortByDistanceRef);
+      const distanceB = calcDistanceKm(b, sortByDistanceRef);
+
+      if (sortByExtended === 'fast') {
+        const fastA = a.whatsappFast === true ? 1 : 0;
+        const fastB = b.whatsappFast === true ? 1 : 0;
+        if (fastA !== fastB) return fastB - fastA;
+        return (Number(b.trustLevel ?? b.autoTrustScore ?? 0) - Number(a.trustLevel ?? a.autoTrustScore ?? 0))
+          || distanceA - distanceB
+          || a.name.localeCompare(b.name);
+      }
 
       if (sortByExtended === 'trust') return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
       if (sortByExtended === 'heat') return (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
@@ -414,7 +428,7 @@ const SuppliersScreen: React.FC = () => {
       if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
       return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
     });
-  }, [brandFilter, favoriteFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
+  }, [brandFilter, fastWhatsappFilter, favoriteFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -936,6 +950,7 @@ const SuppliersScreen: React.FC = () => {
               setYearFilter('all');
               setPartCategoryFilter('all');
               setFavoriteFilter('all');
+              setFastWhatsappFilter('all');
             }}
             className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600"
           >
@@ -947,13 +962,18 @@ const SuppliersScreen: React.FC = () => {
             <div className="mb-2">
               <select className="w-full rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
                 <option value="smart">Sort: smart</option>
+                <option value="fast">Fast first</option>
                 <option value="trust">Trust ↓</option>
                 <option value="heat">Heat ↓</option>
-                <option value="near">Distance ↑</option>
+                <option value="near">Nearest</option>
                 <option value="name">Name A→Z</option>
               </select>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={fastWhatsappFilter} onChange={(e) => setFastWhatsappFilter(e.target.value as 'all' | 'fast')}>
+                <option value="all">Fast WhatsApp: all</option>
+                <option value="fast">Fast WhatsApp only</option>
+              </select>
               <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={favoriteFilter} onChange={(e) => setFavoriteFilter(e.target.value as 'all' | 'favorites')}>
                 <option value="all">Suppliers: all</option>
                 <option value="favorites">Избранные поставщики</option>
@@ -1157,9 +1177,16 @@ const SuppliersScreen: React.FC = () => {
             const linkedNotFoundCount = linkedParts.filter((entry) => entry.status === 'not_found').length;
             const isManagePartsExpanded = activeOrderLinkShopId === s.id;
             const isAddedPartsExpanded = expandedAddedPartsIds.has(s.id);
+            const distanceKm = calcDistanceKm(s, sortByDistanceRef);
+            const trustDisplay = Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : Number(s.autoTrustScore || 0);
+            const responseSpeed = s.whatsappFast === true
+              ? { label: 'FAST', icon: '⚡', classes: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
+              : s.whatsappFast === false
+                ? { label: 'SLOW', icon: '⏳', classes: 'border-amber-200 bg-amber-50 text-amber-700' }
+                : { label: 'UNKNOWN', icon: '❔', classes: 'border-slate-200 bg-slate-100 text-slate-600' };
 
             return (
-              <div key={s.id} className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}>
+              <div key={s.id} className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${s.whatsappFast === true ? 'ring-1 ring-emerald-200' : ''} ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}>
                 <button type="button" onClick={() => setExpandedSupplierIds((prev) => { const next = new Set(prev); if (next.has(s.id)) next.delete(s.id); else next.add(s.id); return next; })} className="w-full text-left space-y-2">
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -1185,7 +1212,7 @@ const SuppliersScreen: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-right text-[10px] text-slate-500">
-                      <p className="font-black">{s.coordinates ? `${Math.max(0.1, Number((Math.abs(s.coordinates.lat - sortByDistanceRef.lat) * 111).toFixed(1)))} km` : 'n/a'}</p>
+                      <p className="font-black">{Number.isFinite(distanceKm) ? `${Math.max(0.1, Number(distanceKm.toFixed(1)))} km` : 'n/a'}</p>
                       <p>{isExpanded ? 'Свернуть' : 'Открыть'}</p>
                       <button
                         type="button"
@@ -1203,13 +1230,25 @@ const SuppliersScreen: React.FC = () => {
                   </div>
 
                   <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
-                    <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
-                    <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{daysAgoLabel(s.lastContactAt)}</span>
-                    <span className="rounded-full px-2 py-1 border border-indigo-200 bg-indigo-50 text-indigo-700">Добавлено: {linkedParts.length}</span>
-                    <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">Найдено: {linkedFoundCount}</span>
-                    <span className="rounded-full px-2 py-1 border border-rose-200 bg-rose-50 text-rose-700">Не найдено: {linkedNotFoundCount}</span>
+                    <span className={`rounded-full border px-2 py-1 ${responseSpeed.classes}`}>{responseSpeed.icon} {responseSpeed.label}</span>
+                    <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-violet-700">⭐ {Math.max(1, Math.min(5, Math.round(trustDisplay || 0)))}/5</span>
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-slate-700">📍 {Number.isFinite(distanceKm) ? `${Math.max(0.1, Number(distanceKm.toFixed(1)))} km` : 'n/a'}</span>
                   </div>
                 </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {(s.phone || '').trim() ? (
+                    <>
+                      <a href={`https://wa.me/${((s.whatsapp || s.phone) || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className={`rounded-lg px-2 py-2 text-[10px] font-black inline-flex items-center justify-center gap-1 active:scale-[0.98] transition ${s.whatsappFast === true ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300' : 'bg-emerald-50 text-emerald-700'}`}><MessageCircle size={12} />WhatsApp</a>
+                      <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-2 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
+                    </>
+                  ) : (
+                    <>
+                      <span className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-[10px] font-black text-amber-700 inline-flex items-center justify-center">Нет контакта</span>
+                      <button type="button" onClick={() => openContactEditor(s)} className="rounded-lg bg-amber-100 px-2 py-2 text-[10px] font-black text-amber-800 inline-flex items-center justify-center gap-1">➕ Добавить контакт</button>
+                    </>
+                  )}
+                </div>
 
                 <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isExpanded ? 2200 : 0, opacity: isExpanded ? 1 : 0 }}>
                 {isExpanded && <>
@@ -1220,24 +1259,20 @@ const SuppliersScreen: React.FC = () => {
                 </div>
                 {Array.isArray(s.mainPartCategories) && s.mainPartCategories.length > 0 && <p className="text-[11px] text-slate-500">Основные детали: {s.mainPartCategories.slice(0, 3).join(', ')}</p>}
 
-                <div className="grid grid-cols-2 md:grid-cols-7 gap-2 border-t border-gray-100 pt-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 border-t border-gray-100 pt-3">
                   <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Map</button>
-                  {(s.phone || '').trim() ? (
-                    <>
-                      <a href={`https://wa.me/${((s.whatsapp || s.phone) || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center justify-center gap-1"><MessageCircle size={12} />WhatsApp</a>
-                      <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-1.5 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
-                    </>
-                  ) : (
-                    <>
-                      <span className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-black text-amber-700">Нет контакта</span>
-                      <button type="button" onClick={() => openContactEditor(s)} className="rounded-lg bg-amber-100 px-2 py-1.5 text-[10px] font-black text-amber-800 inline-flex items-center justify-center gap-1">➕ Добавить контакт</button>
-                      <button type="button" onClick={() => { navigator.clipboard.writeText(s.name); alert('Название скопировано'); }} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700">Скопировать название</button>
-                    </>
-                  )}
                   <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput(normalizeSupplierYears(s.years).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
                   <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
                   <button type="button" onClick={() => toggleFavorite(s)} className={`rounded-lg px-2 py-1.5 text-[10px] font-black inline-flex items-center justify-center gap-1 ${s.isFavorite ? 'bg-pink-100 text-pink-700' : 'bg-pink-50 text-pink-700'}`}><Heart size={12} fill={s.isFavorite ? 'currentColor' : 'none'} />{s.isFavorite ? 'Убрать из избранных' : 'В избранные'}</button>
-                  
+                  <button type="button" onClick={() => { navigator.clipboard.writeText(s.name); alert('Название скопировано'); }} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700">Скопировать название</button>
+                </div>
+
+                <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
+                  <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
+                  <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{daysAgoLabel(s.lastContactAt)}</span>
+                  <span className="rounded-full px-2 py-1 border border-indigo-200 bg-indigo-50 text-indigo-700">Добавлено: {linkedParts.length}</span>
+                  <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">Найдено: {linkedFoundCount}</span>
+                  <span className="rounded-full px-2 py-1 border border-rose-200 bg-rose-50 text-rose-700">Не найдено: {linkedNotFoundCount}</span>
                 </div>
                 </>}
                 {isExpanded && (
