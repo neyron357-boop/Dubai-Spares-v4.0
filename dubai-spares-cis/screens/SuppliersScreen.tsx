@@ -183,6 +183,38 @@ const calcDistanceKm = (
   return Math.sqrt((latDiff * latDiff) + (lngDiff * lngDiff));
 };
 
+const clampScore = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+
+const normalizeToken = (value: unknown) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+const parseCsvTokens = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.map((item) => normalizeToken(item)).filter(Boolean);
+  if (typeof value === 'string') return value.split(',').map((item) => normalizeToken(item)).filter(Boolean);
+  return [];
+};
+
+const inferPartCategory = (part: { name?: string; category?: string } | null) => {
+  const explicit = normalizeToken(part?.category);
+  if (explicit) return explicit;
+  const source = normalizeToken(part?.name);
+  if (!source) return '';
+  if (/(bumper|bonnet|fender|door)/.test(source)) return 'body';
+  if (/(engine|gearbox|transmission)/.test(source)) return 'mechanical';
+  if (/(light|headlamp)/.test(source)) return 'optics';
+  if (/(sensor|module|ecu)/.test(source)) return 'electrical';
+  return '';
+};
+
+const mapSupplierCategory = (value: string) => {
+  const normalized = normalizeToken(value);
+  if (!normalized) return '';
+  if (/(кузов|body|bumper|bonnet|fender|door)/.test(normalized)) return 'body';
+  if (/(двс|мкпп|акпп|механ|engine|gearbox|transmission|mechanical)/.test(normalized)) return 'mechanical';
+  if (/(оптик|light|headlamp|optics)/.test(normalized)) return 'optics';
+  if (/(элект|electrical|sensor|module|ecu)/.test(normalized)) return 'electrical';
+  return normalized;
+};
+
 const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, restoreData, orders, updateOrder, updateSupplier, lastSuppliersSyncError } = useStore();
 
@@ -247,6 +279,11 @@ const SuppliersScreen: React.FC = () => {
   const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
   const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
   const [isForceSyncingSuppliers, setIsForceSyncingSuppliers] = useState(false);
+  const [topRequest, setTopRequest] = useState<{ orderId: string; partId: string } | null>(null);
+  const [bulkSendQueueSupplierIds, setBulkSendQueueSupplierIds] = useState<string[]>([]);
+  const [bulkSendIndex, setBulkSendIndex] = useState(0);
+  const [bulkSendMode, setBulkSendMode] = useState<3 | 5 | null>(null);
+  const [bulkSendStartedAt, setBulkSendStartedAt] = useState<number | null>(null);
 
 
   const activeOrders = useMemo(
@@ -429,6 +466,117 @@ const SuppliersScreen: React.FC = () => {
       return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
     });
   }, [brandFilter, fastWhatsappFilter, favoriteFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
+
+  const activeOrderForTop = useMemo(() => {
+    if (!topRequest?.orderId) return null;
+    return activeOrders.find((order) => order.id === topRequest.orderId) || null;
+  }, [activeOrders, topRequest?.orderId]);
+
+  const selectedPartForTop = useMemo(() => {
+    if (!activeOrderForTop || !topRequest?.partId) return null;
+    return activeOrderForTop.parts.find((part) => part.id === topRequest.partId) || null;
+  }, [activeOrderForTop, topRequest?.partId]);
+
+  const topSuppliers = useMemo(() => {
+    if (!activeOrderForTop || !selectedPartForTop) return [];
+
+    const targetBrand = normalizeToken(activeOrderForTop.brand);
+    const targetModel = normalizeToken(activeOrderForTop.model);
+    const targetYear = Number(activeOrderForTop.year);
+    const targetCategory = inferPartCategory(selectedPartForTop as { name?: string; category?: string });
+
+    return filteredSuppliers
+      .map((supplier) => {
+        const distanceKm = calcDistanceKm(supplier, sortByDistanceRef);
+        const brands = [supplier.primaryBrand, ...(supplier.mainBrands || []), ...(supplier.brands || [])]
+          .map((item) => normalizeToken(item))
+          .filter(Boolean);
+        const models = parseCsvTokens(supplier.models);
+        const years = normalizeSupplierYears(supplier.years);
+        const categories = (supplier.mainPartCategories || []).map((item) => mapSupplierCategory(item)).filter(Boolean);
+
+        const speedScore = supplier.whatsappFast === true ? 40 : supplier.whatsappFast === false ? 0 : 10;
+        const trustRaw = Number(supplier.trustLevel ?? supplier.autoTrustScore ?? 0);
+        const trustScore = Math.round((Math.max(0, Math.min(5, trustRaw)) / 5) * 20);
+
+        const distanceScore = !Number.isFinite(distanceKm)
+          ? 10
+          : distanceKm <= 1 ? 20 : distanceKm <= 3 ? 16 : distanceKm <= 7 ? 12 : distanceKm <= 15 ? 8 : 4;
+
+        const ageMs = Date.now() - Number(supplier.lastContactAt || 0);
+        const freshnessPenalty = Number(supplier.lastContactAt || 0) <= 0
+          ? 0
+          : ageMs < 2 * 60 * 60 * 1000 ? -15 : ageMs < 24 * 60 * 60 * 1000 ? -8 : ageMs < 3 * 24 * 60 * 60 * 1000 ? -3 : 0;
+
+        const brandMatch = targetBrand && brands.some((brand) => brand === targetBrand || brand.includes(targetBrand) || targetBrand.includes(brand));
+        const modelMatch = targetModel && models.some((model) => model === targetModel || model.includes(targetModel) || targetModel.includes(model));
+        const yearMatch = Number.isFinite(targetYear) && years.includes(targetYear);
+        const categoryMatch = !!targetCategory && categories.some((category) => category === targetCategory || category.includes(targetCategory));
+        const matchScore = categories.length === 0 && models.length === 0 && years.length === 0 && brands.length === 0
+          ? 5
+          : (brandMatch ? 15 : 0) + (modelMatch ? 10 : 0) + (yearMatch ? 5 : 0) + (categoryMatch ? 10 : 0);
+
+        return {
+          supplier,
+          score: clampScore(speedScore + trustScore + distanceScore + freshnessPenalty + matchScore),
+          distanceKm,
+          speedLabel: supplier.whatsappFast === true ? 'FAST' : supplier.whatsappFast === false ? 'SLOW' : '?'
+        };
+      })
+      .sort((a, b) => b.score - a.score || a.distanceKm - b.distanceKm || a.supplier.name.localeCompare(b.supplier.name))
+      .slice(0, 5);
+  }, [activeOrderForTop, filteredSuppliers, selectedPartForTop, sortByDistanceRef]);
+
+  const buildAskPriceMessage = (orderId: string, partId: string) => {
+    const order = orders.find((item) => item.id === orderId);
+    if (!order) return 'Hello\n\nNeed price and photo please.';
+    const part = order.parts.find((item) => item.id === partId);
+    const vehicleLine = [order.brand, order.model, order.year].map((item) => String(item || '').trim()).filter(Boolean).join(' ');
+    return ['Hello', '', vehicleLine, part?.name || '', '', 'Need price and photo please.', '', 'I will send car photo.', 'Thanks']
+      .filter((line, index, arr) => line || (arr[index - 1] && arr[index - 1] !== ''))
+      .join('\n')
+      .trim();
+  };
+
+  const openAskPrice = (supplier: Supplier, orderId: string, partId: string) => {
+    const phone = (supplier.whatsapp || supplier.phone || '').replace(/[^\d]/g, '');
+    if (!phone) {
+      toast('У поставщика нет WhatsApp контакта', 'error');
+      return;
+    }
+    const message = buildAskPriceMessage(orderId, partId);
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    updateSupplier({ ...supplier, lastContactAt: Date.now(), updatedAt: Date.now() });
+  };
+
+  const startBulkSend = (mode: 3 | 5) => {
+    if (!topRequest || topSuppliers.length === 0) return;
+    const queue = topSuppliers.slice(0, mode).map((item) => item.supplier.id);
+    setBulkSendQueueSupplierIds(queue);
+    setBulkSendIndex(0);
+    setBulkSendMode(mode);
+    setBulkSendStartedAt(Date.now());
+  };
+
+  const cancelBulkSend = () => {
+    setBulkSendQueueSupplierIds([]);
+    setBulkSendIndex(0);
+    setBulkSendMode(null);
+    setBulkSendStartedAt(null);
+  };
+
+  const openBulkSendNext = () => {
+    if (!topRequest || bulkSendQueueSupplierIds.length === 0) return;
+    const supplierId = bulkSendQueueSupplierIds[bulkSendIndex];
+    const supplier = suppliers.find((item) => item.id === supplierId);
+    if (!supplier) return;
+    openAskPrice(supplier, topRequest.orderId, topRequest.partId);
+    if (bulkSendIndex >= bulkSendQueueSupplierIds.length - 1) {
+      setBulkSendIndex(bulkSendQueueSupplierIds.length);
+      return;
+    }
+    setBulkSendIndex((prev) => prev + 1);
+  };
 
   const buildSupplierFallbackQueries = () => {
     const queries = new Set<string>();
@@ -1165,6 +1313,70 @@ const SuppliersScreen: React.FC = () => {
           </div>
         )}
 
+
+        <section className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-3 space-y-3">
+          <div>
+            <p className="text-xs font-black uppercase text-indigo-700">🔥 TOP-5 for current request</p>
+            <p className="text-[10px] font-semibold text-indigo-600">Based on: Brand / Model / Year / Category / Speed / Trust / Distance</p>
+          </div>
+
+          {!activeOrderForTop || !selectedPartForTop ? (
+            <p className="rounded-xl border border-dashed border-indigo-200 bg-white px-3 py-3 text-xs font-semibold text-indigo-600">Выберите активный заказ и деталь</p>
+          ) : (
+            <>
+              <div className="space-y-2">
+                {topSuppliers.map((entry, index) => {
+                  const supplier = entry.supplier;
+                  const typeLabel = FIELD_TYPES.find((item) => item.value === (supplier.type || 'new_parts'))?.label || supplier.type || 'Supplier';
+                  const trustDisplay = Math.max(1, Math.min(5, Math.round(Number(supplier.trustLevel ?? supplier.autoTrustScore ?? 0) || 0)));
+                  const isBestMatch = index === 0;
+                  return (
+                    <article key={`top-${supplier.id}`} className={`rounded-xl border bg-white px-3 py-2 ${isBestMatch ? 'border-emerald-300 ring-2 ring-emerald-200/80 shadow-[0_0_0_2px_rgba(16,185,129,0.12)]' : 'border-indigo-100'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-black text-slate-800">{supplier.name}</p>
+                          <p className="text-[10px] font-semibold text-indigo-600">{typeLabel} {isBestMatch ? '• Best match' : ''}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] font-black">
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">⚡ {entry.speedLabel}</span>
+                            <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-violet-700">⭐ {trustDisplay}/5</span>
+                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-700">📍 {Number.isFinite(entry.distanceKm) ? `${Math.max(0.1, Number(entry.distanceKm.toFixed(1)))} km` : 'n/a'}</span>
+                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">🎯 Score {entry.score}</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openAskPrice(supplier, activeOrderForTop.id, selectedPartForTop.id)}
+                          className="shrink-0 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-700 inline-flex items-center gap-1"
+                        >
+                          <MessageCircle size={12} />
+                          Ask price
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {bulkSendMode && bulkSendQueueSupplierIds.length > 0 ? (
+                  <>
+                    <button type="button" onClick={openBulkSendNext} className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-black text-white">
+                      {bulkSendIndex >= bulkSendQueueSupplierIds.length ? 'Done' : `Next (${Math.min(bulkSendIndex + 1, bulkSendQueueSupplierIds.length)}/${bulkSendQueueSupplierIds.length})`}
+                    </button>
+                    <button type="button" onClick={cancelBulkSend} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700">Cancel bulk send</button>
+                    {bulkSendStartedAt ? <span className="text-[10px] font-semibold text-slate-500">Started {new Date(bulkSendStartedAt).toLocaleTimeString()}</span> : null}
+                  </>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => startBulkSend(3)} className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-black text-indigo-700 disabled:opacity-40" disabled={topSuppliers.length < 3}>Send to TOP-3</button>
+                    <button type="button" onClick={() => startBulkSend(5)} className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-black text-indigo-700 disabled:opacity-40" disabled={topSuppliers.length < 5}>Send to TOP-5</button>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+
         {filteredSuppliers.length === 0 ? (
           <div className="py-20 text-center opacity-30 italic flex flex-col items-center gap-3"><Store size={48} />Поставщики не найдены</div>
         ) : (
@@ -1313,11 +1525,11 @@ const SuppliersScreen: React.FC = () => {
                       </button>
 
                       <div className="grid grid-cols-2 gap-2">
-                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : ''} onChange={(e) => setActiveOrderPartLink({ supplierId: s.id, orderId: e.target.value, partId: '' })}>
+                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : ''} onChange={(e) => { setActiveOrderPartLink({ supplierId: s.id, orderId: e.target.value, partId: '' }); setTopRequest((prev) => ({ orderId: e.target.value, partId: prev?.orderId === e.target.value ? prev.partId : '' })); }}>
                           <option value="">Заказ для детали</option>
                           {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model}</option>)}
                         </select>
-                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.partId : ''} onChange={(e) => setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: (prev?.supplierId === s.id ? prev.orderId : '') || selectedOrderBySupplier[s.id] || '', partId: e.target.value }))}>
+                        <select className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" value={activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.partId : ''} onChange={(e) => { const nextOrderId = (activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : selectedOrderBySupplier[s.id]) || ''; setActiveOrderPartLink((prev) => ({ supplierId: s.id, orderId: (prev?.supplierId === s.id ? prev.orderId : '') || selectedOrderBySupplier[s.id] || '', partId: e.target.value })); setTopRequest({ orderId: nextOrderId, partId: e.target.value }); }}>
                           <option value="">Деталь</option>
                           {(activeOrders.find((order) => order.id === (activeOrderPartLink?.supplierId === s.id ? activeOrderPartLink.orderId : selectedOrderBySupplier[s.id]))?.parts || []).map((part) => <option key={part.id} value={part.id}>{part.name}</option>)}
                         </select>
