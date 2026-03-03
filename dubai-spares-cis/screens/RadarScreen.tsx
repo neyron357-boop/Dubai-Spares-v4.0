@@ -180,6 +180,26 @@ const makeWhatsappLink = (shopPhone: string, message: string) => {
   return `https://wa.me/${normalizedPhone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`;
 };
 
+const resolveOrderCarPhoto = (order: Order) => {
+  const legacyOrder = order as Order & { car_photo?: string; car_photo_url?: string; car_photos?: string[] };
+  return order.carPhotoUrl || order.carPhotos?.[0] || legacyOrder.car_photo || legacyOrder.car_photo_url || legacyOrder.car_photos?.[0] || '';
+};
+
+const buildAskPriceMessage = (order: Order, partName?: string) => {
+  const vehicleLine = [order.brand, order.model, order.year].map((item) => String(item || '').trim()).filter(Boolean).join(' ');
+  return [
+    'Hello',
+    '',
+    vehicleLine,
+    partName || '',
+    '',
+    'Need price and photo please.',
+    '',
+    'I will send car photo.',
+    'Thanks'
+  ].filter((line, index, arr) => line || (arr[index - 1] && arr[index - 1] !== '')).join('\n').trim();
+};
+
 const getDismissKey = (shopId: string, orderId: string) => `order:${orderId}:shop:${shopId}`;
 const getLegacyDismissKey = (shop: Shop) => shop.location?.trim().toLowerCase() ? `location:${shop.location.trim().toLowerCase()}` : `id:${shop.id}`;
 
@@ -241,6 +261,7 @@ const RadarScreen: React.FC = () => {
   const [proximityAlerts, setProximityAlerts] = useState<Set<string>>(new Set());
   const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
   const [listType, setListType] = useState<RadarListType>('manual');
+  const [photoActionEntry, setPhotoActionEntry] = useState<{ shopName: string; order: Order; photoUrl: string } | null>(null);
 
   useEffect(() => { void offlineDb.getRadarInteractions().then(setInteractions); }, []);
   useEffect(() => {
@@ -519,12 +540,15 @@ const RadarScreen: React.FC = () => {
   };
 
   const onWhatsApp = async (entry: RadarEntry) => {
-    const message = templateText(entry.order, templateLanguage, templateLength);
+    const primaryPart = getPrimaryPart(entry.order, entry.partId);
+    const message = buildAskPriceMessage(entry.order, primaryPart?.name || '');
     const link = makeWhatsappLink(entry.shop.phone || '', message);
     if (!link) {
       toast('У точки нет WhatsApp номера', 'error');
       return;
     }
+    const photoUrl = resolveOrderCarPhoto(entry.order);
+    setPhotoActionEntry(photoUrl ? { shopName: entry.shop.name, order: entry.order, photoUrl } : null);
     window.open(link, '_blank');
     await addInteraction({ shopId: entry.shop.id, orderId: entry.order.id, result: 'message_sent', comment: 'WhatsApp opened' });
     pushNotification({
@@ -551,6 +575,43 @@ const RadarScreen: React.FC = () => {
       minutes: 30
     });
     toast('Шаблон WhatsApp открыт', 'success');
+  };
+
+  const shareCarPhoto = async () => {
+    if (!photoActionEntry) return;
+    if (!navigator.share) {
+      toast('Share не поддерживается на этом устройстве', 'error');
+      return;
+    }
+    try {
+      const photoUrl = photoActionEntry.photoUrl;
+      if (photoUrl.startsWith('data:')) {
+        const [meta, base64 = ''] = photoUrl.split(',');
+        const mime = meta.match(/data:(.*?);base64/)?.[1] || 'image/jpeg';
+        const bin = atob(base64);
+        const bytes = Uint8Array.from(bin, (char) => char.charCodeAt(0));
+        const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+        const file = new File([bytes], `car-photo.${ext}`, { type: mime });
+        if (navigator.canShare?.({ files: [file] })) {
+          await navigator.share({
+            title: `${photoActionEntry.order.brand} ${photoActionEntry.order.model}`.trim(),
+            text: 'Car photo',
+            files: [file]
+          });
+          toast('Фото готово к отправке', 'success');
+          return;
+        }
+      }
+
+      await navigator.share({
+        title: `${photoActionEntry.order.brand} ${photoActionEntry.order.model}`.trim(),
+        text: `Car photo\n${photoActionEntry.photoUrl}`.trim(),
+        url: photoActionEntry.photoUrl
+      });
+      toast('Фото готово к отправке', 'success');
+    } catch {
+      // user canceled
+    }
   };
 
   const quickResult = async (entry: RadarEntry, result: RadarInteractionResult) => {    const primaryPart = getPrimaryPart(entry.order);
@@ -944,6 +1005,9 @@ const RadarScreen: React.FC = () => {
               {bestEntry.openNow === true ? <span className="text-emerald-300">Open now</span> : bestEntry.openNow === false ? <span className="text-rose-300">Closed</span> : <span>hours unknown</span>}
               <span>•</span>
               <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-200">{orders.length} добавленных деталей</span>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${resolveOrderCarPhoto(bestEntry.order) ? 'bg-blue-500/20 text-blue-200' : 'bg-slate-700 text-slate-300'}`}>
+                {resolveOrderCarPhoto(bestEntry.order) ? '📷 Car photo available' : 'No car photo'}
+              </span>
             </div>
 
             {mode === 'detail' && (
@@ -956,7 +1020,7 @@ const RadarScreen: React.FC = () => {
 
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => void openShopRoute(bestEntry)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase text-slate-950"><Navigation size={12} /> Маршрут</button>
-              <button type="button" onClick={() => onWhatsApp(bestEntry)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><MessageCircle size={12} /> WhatsApp</button>
+              <button type="button" onClick={() => onWhatsApp(bestEntry)} className="inline-flex items-center gap-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase text-emerald-200"><MessageCircle size={12} /> {resolveOrderCarPhoto(bestEntry.order) ? 'Ask price + photo' : 'Ask price'}</button>
               <button type="button" onClick={() => void openCalls(shop.phone, bestEntry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-200"><PhoneCall size={12} /> Call</button>
               <button type="button" onClick={() => void hideShop(bestEntry)} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><EyeOff size={12} /> Hide</button>
               <button type="button" onClick={() => { void markVisitedShop(bestEntry); void quickResult(bestEntry, 'follow_up'); }} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-3 py-2 text-[11px] font-black uppercase text-slate-300"><MapPinned size={12} /> Я у магазина</button>
@@ -1005,6 +1069,16 @@ const RadarScreen: React.FC = () => {
         <p className="inline-flex items-center gap-1"><ListChecks size={12} /> One-scale recommendation: High (80-100) / Medium (50-79) / Low (&lt;50).</p>
       </section>
     </div>
+
+    {photoActionEntry && (
+      <button
+        type="button"
+        onClick={() => void shareCarPhoto()}
+        className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-blue-500 px-4 py-3 text-xs font-black uppercase text-slate-950 shadow-lg"
+      >
+        📸 Send car photo · {photoActionEntry.shopName}
+      </button>
+    )}
   );
 };
 
