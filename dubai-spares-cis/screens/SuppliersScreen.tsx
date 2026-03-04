@@ -24,7 +24,8 @@ import {
   Route,
   MessageCircle,
   Pencil,
-  Shuffle
+  Shuffle,
+  MoreHorizontal
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import ImagePreview from '../components/ImagePreview';
@@ -76,6 +77,17 @@ const SUPPLIER_STATUS_LABELS: Record<SupplierStatus, string> = {
   blacklist: 'Blacklist'
 };
 
+const MAIN_STATUS_PRIORITY: SupplierStatus[] = ['trusted', 'visited', 'responded', 'contacted', 'new'];
+
+const pickPriorityStatus = (current: SupplierStatus | undefined, incoming: SupplierStatus): SupplierStatus => {
+  if (!current) return incoming;
+  const currentRank = MAIN_STATUS_PRIORITY.indexOf(current);
+  const incomingRank = MAIN_STATUS_PRIORITY.indexOf(incoming);
+  if (currentRank === -1) return incoming;
+  if (incomingRank === -1) return current;
+  return currentRank <= incomingRank ? current : incoming;
+};
+
 const SUPPLIER_STATUS_COLORS: Record<SupplierStatus, string> = {
   new: 'bg-blue-50 text-blue-700 border-blue-200',
   contacted: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -84,24 +96,6 @@ const SUPPLIER_STATUS_COLORS: Record<SupplierStatus, string> = {
   verified: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   trusted: 'bg-green-100 text-green-800 border-green-300',
   blacklist: 'bg-rose-100 text-rose-800 border-rose-300'
-};
-
-const WHATSAPP_TEMPLATES = {
-  generic: `Hello
-
-I am looking for auto parts suppliers in UAE.
-
-Do you have parts for BMW / Mercedes?
-
-Thank you.`,
-  specific: `Hello
-
-Do you have:
-
-BMW X5 2019
-Engine N63
-
-Thank you.`
 };
 
 const normalizePhone = (raw: string) => {
@@ -323,6 +317,8 @@ const SuppliersScreen: React.FC = () => {
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [expandedAddedPartsIds, setExpandedAddedPartsIds] = useState<Set<string>>(new Set());
+  const [overflowSupplierId, setOverflowSupplierId] = useState<string | null>(null);
+  const [fullHistorySupplierIds, setFullHistorySupplierIds] = useState<Set<string>>(new Set());
   const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
   const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
   const [isForceSyncingSuppliers, setIsForceSyncingSuppliers] = useState(false);
@@ -643,20 +639,77 @@ const SuppliersScreen: React.FC = () => {
   };
 
   const markContacted = (supplier: Supplier) => {
-    addSupplierInteraction(supplier, 'whatsapp', 'WhatsApp message sent', { supplierStatus: 'contacted', lastContactAt: Date.now() });
+    addSupplierInteraction(supplier, 'whatsapp', 'WhatsApp message sent', {
+      supplierStatus: pickPriorityStatus(supplier.supplierStatus, 'contacted'),
+      lastContactAt: Date.now()
+    });
   };
 
   const markResponded = (supplier: Supplier) => {
-    addSupplierInteraction(supplier, 'whatsapp_reply', 'Supplier replied in WhatsApp', { supplierStatus: 'responded', lastRespondedAt: Date.now(), lastContactAt: Date.now() });
+    addSupplierInteraction(supplier, 'whatsapp_reply', 'Supplier replied in WhatsApp', {
+      supplierStatus: pickPriorityStatus(supplier.supplierStatus, 'responded'),
+      lastRespondedAt: Date.now(),
+      lastContactAt: Date.now()
+    });
   };
 
-  const openTemplateMessage = (supplier: Supplier, template: keyof typeof WHATSAPP_TEMPLATES) => {
+  const markCalled = (supplier: Supplier) => {
+    addSupplierInteraction(supplier, 'call', 'Supplier called', {
+      supplierStatus: pickPriorityStatus(supplier.supplierStatus, 'contacted'),
+      lastContactAt: Date.now()
+    });
+  };
+
+  const openWhatsAppAndTrack = (supplier: Supplier, message?: string) => {
     const phone = (supplier.whatsapp || supplier.phone || '').replace(/[^\d]/g, '');
     if (!phone) {
       toast('У поставщика нет WhatsApp контакта', 'error');
       return;
     }
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(WHATSAPP_TEMPLATES[template])}`, '_blank');
+    const targetUrl = message
+      ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/${phone}`;
+    window.open(targetUrl, '_blank');
+    markContacted(supplier);
+  };
+
+  const resolveMainStatus = (supplier: Supplier): SupplierStatus => {
+    const statusSet = new Set<SupplierStatus>();
+    if (supplier.supplierStatus && MAIN_STATUS_PRIORITY.includes(supplier.supplierStatus)) {
+      statusSet.add(supplier.supplierStatus);
+    }
+    (supplier.interactions || []).forEach((item) => {
+      if (item.type === 'visit') statusSet.add('visited');
+      if (item.type === 'whatsapp_reply') statusSet.add('responded');
+      if (item.type === 'whatsapp' || item.type === 'call' || item.type === 'price_request') statusSet.add('contacted');
+    });
+    if (statusSet.size === 0) return 'new';
+    return MAIN_STATUS_PRIORITY.find((status) => statusSet.has(status)) || 'new';
+  };
+
+  const startEditSupplier = (supplier: Supplier) => {
+    setIsAdding(true);
+    setEditingSupplierId(supplier.id);
+    setName(supplier.name);
+    setPhone(supplier.phone);
+    setLocation(supplier.location);
+    setShopType(supplier.type || 'new_parts');
+    setShopTypes((supplier.types && supplier.types.length > 0 ? supplier.types : [supplier.type || 'new_parts']) as SupplierType[]);
+    setZone(supplier.zone || '');
+    setMainBrands(supplier.mainBrands || supplier.brands || []);
+    setPrimaryBrand(supplier.primaryBrand || '');
+    setCoords(supplier.coordinates);
+    setGpsAccuracy(supplier.gpsAccuracyMeters || null);
+    setSupplierModelsInput((supplier.models || []).join(', '));
+    setSupplierYearsInput(normalizeSupplierYears(supplier.years).join(', '));
+    setSupplierPhotos(supplier.photos || (supplier.photoUrl ? [supplier.photoUrl] : []));
+    setMainPartCategories(supplier.mainPartCategories || []);
+    setWorkingHours(supplier.workingHours || '');
+    setTrustLevel(Number.isFinite(Number(supplier.trustLevel)) ? Number(supplier.trustLevel) : 3);
+    setHasDelivery(!!supplier.hasDelivery);
+    setWhatsappFast(!!supplier.whatsappFast);
+    setComment(supplier.comment || '');
+    setWebsite(supplier.website || '');
   };
 
   const startBulkSend = (mode: 3 | 5) => {
@@ -1558,11 +1611,14 @@ const SuppliersScreen: React.FC = () => {
             const isAddedPartsExpanded = expandedAddedPartsIds.has(s.id);
             const distanceKm = calcDistanceKm(s, sortByDistanceRef);
             const trustDisplay = Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : Number(s.autoTrustScore || 0);
+            const mainStatus = resolveMainStatus(s);
+            const showFullHistory = fullHistorySupplierIds.has(s.id);
+            const historyItems = showFullHistory ? (s.interactions || []) : (s.interactions || []).slice(0, 3);
             const responseSpeed = s.whatsappFast === true
-              ? { label: 'FAST', icon: '⚡', classes: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
+              ? { label: 'FAST', classes: 'border-slate-200 bg-slate-100 text-slate-700' }
               : s.whatsappFast === false
-                ? { label: 'SLOW', icon: '⏳', classes: 'border-amber-200 bg-amber-50 text-amber-700' }
-                : { label: 'UNKNOWN', icon: '❔', classes: 'border-slate-200 bg-slate-100 text-slate-600' };
+                ? { label: 'SLOW', classes: 'border-amber-200 bg-amber-50 text-amber-700' }
+                : { label: '?', classes: 'border-slate-200 bg-slate-100 text-slate-600' };
 
             return (
               <div key={s.id} className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${s.whatsappFast === true ? 'ring-1 ring-emerald-200' : ''} ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}>
@@ -1585,33 +1641,52 @@ const SuppliersScreen: React.FC = () => {
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${s.type === 'scrapyard' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}><Icon size={24} /></div>
                       )}
                       <div className="min-w-0">
-                                                <p className="font-black text-sm leading-tight truncate">{s.name}</p>
-                        <p className="text-[11px] font-semibold text-indigo-600 truncate">{(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}</p>
-                        <p className="text-[11px] text-gray-500 truncate">{brands.slice(0, 2).join(' • ') || 'Без марки'}</p>
-                        <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black ${SUPPLIER_STATUS_COLORS[s.supplierStatus || 'new']}`}>{SUPPLIER_STATUS_LABELS[s.supplierStatus || 'new']}</span>
+                        <p className="font-black text-sm leading-tight truncate">{s.name}</p>
+                        <p className="text-[11px] text-slate-600 truncate">{`${brands[0] || 'Unknown brand'} • ${(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}`}</p>
+                        <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black ${SUPPLIER_STATUS_COLORS[mainStatus]}`}>{SUPPLIER_STATUS_LABELS[mainStatus]}</span>
                       </div>
                     </div>
-                    <div className="text-right text-[10px] text-slate-500">
-                      <p className="font-black">{Number.isFinite(distanceKm) ? `${Math.max(0.1, Number(distanceKm.toFixed(1)))} km` : 'n/a'}</p>
-                      <p>{isExpanded ? 'Свернуть' : 'Открыть'}</p>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleFavorite(s);
-                        }}
-                        className={`mt-1 inline-flex items-center justify-end gap-1 rounded-full px-2 py-1 text-[10px] font-black ${s.isFavorite ? 'bg-pink-100 text-pink-700' : 'bg-slate-100 text-slate-600'}`}
-                        aria-label={s.isFavorite ? 'Убрать из избранных' : 'Добавить в избранные'}
-                      >
-                        <Heart size={11} fill={s.isFavorite ? 'currentColor' : 'none'} />
-                        {s.isFavorite ? 'В избранном' : 'Избранное'}
-                      </button>
+                    <div className="relative text-right text-[10px] text-slate-500" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedSupplierIds((prev) => { const next = new Set(prev); if (next.has(s.id)) next.delete(s.id); else next.add(s.id); return next; })}
+                          className="rounded-full border border-slate-200 p-1 text-slate-500"
+                          aria-label={isExpanded ? 'Свернуть карточку' : 'Раскрыть карточку'}
+                        >
+                          {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOverflowSupplierId((prev) => prev === s.id ? null : s.id)}
+                          className="rounded-full border border-slate-200 p-1 text-slate-500"
+                          aria-label="Открыть меню действий"
+                        >
+                          <MoreHorizontal size={12} />
+                        </button>
+                      </div>
+                      {overflowSupplierId === s.id && (
+                        <div className="absolute right-3 mt-1 z-20 w-40 rounded-xl border border-slate-200 bg-white p-1 shadow-lg text-left">
+                          <button type="button" onClick={() => { openMap(s.location || ''); setOverflowSupplierId(null); }} className="w-full rounded-lg px-2 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1"><Route size={12} />Map</button>
+                          <button type="button" onClick={() => { startEditSupplier(s); setOverflowSupplierId(null); }} className="w-full rounded-lg px-2 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1"><Pencil size={12} />Edit</button>
+                          <button type="button" onClick={() => { setDeleteSupplierId(s.id); setOverflowSupplierId(null); }} className="w-full rounded-lg px-2 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 inline-flex items-center gap-1"><Trash2 size={12} />Delete</button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              toggleFavorite(s);
+                              setOverflowSupplierId(null);
+                            }}
+                            className="w-full rounded-lg px-2 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1"
+                          ><Heart size={12} />Favorite</button>
+                          <button type="button" onClick={() => { navigator.clipboard.writeText(s.name); toast('Название скопировано', 'success'); setOverflowSupplierId(null); }} className="w-full rounded-lg px-2 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1"><Tag size={12} />Copy name</button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
-                    <span className={`rounded-full border px-2 py-1 ${responseSpeed.classes}`}>{responseSpeed.icon} {responseSpeed.label}</span>
-                    <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-violet-700">⭐ {Math.max(1, Math.min(5, Math.round(trustDisplay || 0)))}/5</span>
+                    <span className={`rounded-full border px-2 py-1 ${responseSpeed.classes}`}>🕒 {responseSpeed.label}</span>
+                    <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-slate-700">⭐ {Math.max(1, Math.min(5, Math.round(trustDisplay || 0)))}/5</span>
                     <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-slate-700">📍 {Number.isFinite(distanceKm) ? `${Math.max(0.1, Number(distanceKm.toFixed(1)))} km` : 'n/a'}</span>
                   </div>
                 </button>
@@ -1619,8 +1694,8 @@ const SuppliersScreen: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2">
                   {(s.phone || '').trim() ? (
                     <>
-                      <a href={`https://wa.me/${((s.whatsapp || s.phone) || '').replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer" className={`rounded-lg px-2 py-2 text-[10px] font-black inline-flex items-center justify-center gap-1 active:scale-[0.98] transition ${s.whatsappFast === true ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300' : 'bg-emerald-50 text-emerald-700'}`}><MessageCircle size={12} />WhatsApp</a>
-                      <a href={`tel:${s.phone}`} className="rounded-lg bg-green-50 px-2 py-2 text-[10px] font-black text-green-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
+                      <button type="button" onClick={() => openWhatsAppAndTrack(s)} className="rounded-lg bg-blue-600 px-2 py-2 text-[10px] font-black text-white inline-flex items-center justify-center gap-1 active:scale-[0.98] transition"><MessageCircle size={12} />WhatsApp</button>
+                      <a href={`tel:${s.phone}`} onClick={() => markCalled(s)} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Phone size={12} />Call</a>
                     </>
                   ) : (
                     <>
@@ -1631,13 +1706,9 @@ const SuppliersScreen: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 text-[10px] font-black">
-                  <button type="button" onClick={() => markContacted(s)} className="rounded-lg bg-amber-100 px-2 py-2 text-amber-800">📩 Написал</button>
-                  <button type="button" onClick={() => markResponded(s)} className="rounded-lg bg-cyan-100 px-2 py-2 text-cyan-800">📥 Ответил</button>
-                  <button type="button" onClick={() => setVisitFormSupplierId(s.id)} className="rounded-lg bg-violet-100 px-2 py-2 text-violet-800">🏪 Посетил</button>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-[10px] font-black">
-                  <button type="button" onClick={() => openTemplateMessage(s, 'generic')} className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-2 text-emerald-700">Send message template</button>
-                  <button type="button" onClick={() => openTemplateMessage(s, 'specific')} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-2 text-indigo-700">Specific part template</button>
+                  <button type="button" onClick={() => markContacted(s)} className="h-8 rounded-full border border-slate-300 bg-white px-2 text-slate-700">✉️ Написал</button>
+                  <button type="button" onClick={() => markResponded(s)} className="h-8 rounded-full border border-emerald-200 bg-emerald-50 px-2 text-emerald-700">✅ Ответил</button>
+                  <button type="button" onClick={() => setVisitFormSupplierId(s.id)} className="h-8 rounded-full border border-slate-300 bg-white px-2 text-slate-700">📍 Посетил</button>
                 </div>
 
                 <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isExpanded ? 2200 : 0, opacity: isExpanded ? 1 : 0 }}>
@@ -1653,19 +1724,25 @@ const SuppliersScreen: React.FC = () => {
                 
                 <div className="rounded-xl border border-slate-200 bg-white p-2 space-y-1">
                   <p className="text-[11px] font-black text-slate-700">SUPPLIER HISTORY</p>
-                  {(s.interactions || []).slice(0, 4).map((item) => <p key={item.id} className="text-[10px] text-slate-600">{new Date(item.date).toLocaleDateString()} — {item.type} {item.note ? `· ${item.note}` : ''}</p>)}
+                  {historyItems.map((item) => <p key={item.id} className="text-[10px] text-slate-600">{new Date(item.date).toLocaleDateString()} — {item.type} {item.note ? `· ${item.note}` : ''}</p>)}
                   {(!s.interactions || s.interactions.length === 0) ? <p className="text-[10px] text-slate-500">История пока пустая.</p> : null}
+                  {(s.interactions || []).length > 3 && (
+                    <button
+                      type="button"
+                      onClick={() => setFullHistorySupplierIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(s.id)) next.delete(s.id);
+                        else next.add(s.id);
+                        return next;
+                      })}
+                      className="text-[10px] font-black text-blue-700"
+                    >
+                      {showFullHistory ? 'Скрыть' : 'Показать все'}
+                    </button>
+                  )}
                   <textarea value={s.internalNotes || ''} onChange={(e) => updateSupplier({ ...s, internalNotes: e.target.value, updatedAt: Date.now() })} placeholder="internal notes" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[10px] font-semibold" />
                 </div>
 
-
-<div className="grid grid-cols-2 md:grid-cols-5 gap-2 border-t border-gray-100 pt-3">
-                  <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Map</button>
-                  <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput(normalizeSupplierYears(s.years).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
-                  <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
-                  <button type="button" onClick={() => toggleFavorite(s)} className={`rounded-lg px-2 py-1.5 text-[10px] font-black inline-flex items-center justify-center gap-1 ${s.isFavorite ? 'bg-pink-100 text-pink-700' : 'bg-pink-50 text-pink-700'}`}><Heart size={12} fill={s.isFavorite ? 'currentColor' : 'none'} />{s.isFavorite ? 'Убрать из избранных' : 'В избранные'}</button>
-                  <button type="button" onClick={() => { navigator.clipboard.writeText(s.name); alert('Название скопировано'); }} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700">Скопировать название</button>
-                </div>
 
                 <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
                   <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
