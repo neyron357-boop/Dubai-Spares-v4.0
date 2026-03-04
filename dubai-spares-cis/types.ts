@@ -161,6 +161,17 @@ export interface OrderNote {
 export type SupplierType = 'new_parts' | 'scrapyard' | 'engine_specialist' | 'body_parts' | 'electrical' | 'mixed' | 'dealer' | 'warehouse';
 export type SupplierSyncStatus = 'synced' | 'pending_sync' | 'error';
 export type SupplierLinkedPartStatus = 'searching' | 'found' | 'not_found' | 'follow_up';
+export type SupplierStatus = 'new' | 'contacted' | 'responded' | 'visited' | 'verified' | 'trusted' | 'blacklist';
+export type SupplierInteractionType = 'whatsapp' | 'whatsapp_reply' | 'call' | 'visit' | 'price_request' | 'order' | 'problem';
+
+export interface SupplierInteraction {
+  id: string;
+  supplierId: string;
+  type: SupplierInteractionType;
+  date: number;
+  note: string;
+  createdAt: number;
+}
 
 export interface SupplierLinkedPartEntry {
   id: string;
@@ -218,6 +229,14 @@ export interface Supplier {
   radarCount?: number;
   activeOrderIds?: string[];
   linkedParts?: SupplierLinkedPartEntry[];
+  supplierStatus?: SupplierStatus;
+  interactions?: SupplierInteraction[];
+  shopPhotos?: string[];
+  supplierScore?: number;
+  internalNotes?: string;
+  lastVisitedAt?: number;
+  lastRespondedAt?: number;
+  ordersCompleted?: number;
 }
 
 export interface Shop {

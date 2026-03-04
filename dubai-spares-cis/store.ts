@@ -75,6 +75,35 @@ const normalizeSupplier = (supplier: Supplier): Supplier => ({
       }))
       .filter((item) => item.orderId && item.partId)
     : [],
+  supplierStatus: supplier.supplierStatus === 'contacted'
+    || supplier.supplierStatus === 'responded'
+    || supplier.supplierStatus === 'visited'
+    || supplier.supplierStatus === 'verified'
+    || supplier.supplierStatus === 'trusted'
+    || supplier.supplierStatus === 'blacklist'
+    ? supplier.supplierStatus
+    : 'new',
+  interactions: Array.isArray(supplier.interactions)
+    ? supplier.interactions
+      .filter((item): item is NonNullable<Supplier['interactions']>[number] => !!item && typeof item === 'object')
+      .map((item) => ({
+        id: typeof item.id === 'string' ? item.id : ensureUuid(),
+        supplierId: typeof item.supplierId === 'string' ? item.supplierId : normalizeSupplierId(supplier.id),
+        type: item.type === 'whatsapp_reply' || item.type === 'call' || item.type === 'visit' || item.type === 'price_request' || item.type === 'order' || item.type === 'problem' ? item.type : 'whatsapp',
+        date: Number.isFinite(Number(item.date)) ? Number(item.date) : Date.now(),
+        note: typeof item.note === 'string' ? item.note : '',
+        createdAt: Number.isFinite(Number(item.createdAt)) ? Number(item.createdAt) : Date.now()
+      }))
+      .sort((a, b) => Number(b.date || 0) - Number(a.date || 0))
+    : [],
+  shopPhotos: Array.isArray(supplier.shopPhotos)
+    ? supplier.shopPhotos.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : (Array.isArray(supplier.photos) ? supplier.photos.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []),
+  supplierScore: Number.isFinite(Number(supplier.supplierScore)) ? Number(supplier.supplierScore) : 0,
+  internalNotes: typeof supplier.internalNotes === 'string' ? supplier.internalNotes : '',
+  lastVisitedAt: Number.isFinite(Number(supplier.lastVisitedAt)) ? Number(supplier.lastVisitedAt) : 0,
+  lastRespondedAt: Number.isFinite(Number(supplier.lastRespondedAt)) ? Number(supplier.lastRespondedAt) : 0,
+  ordersCompleted: Number.isFinite(Number(supplier.ordersCompleted)) ? Number(supplier.ordersCompleted) : 0,
 });
 
 try {
