@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore, syncSuppliersFromServer } from '../store';
-import { Supplier, SupplierLinkedPartEntry, SupplierLinkedPartStatus, SupplierType } from '../types';
+import { Supplier, SupplierInteraction, SupplierInteractionType, SupplierLinkedPartEntry, SupplierLinkedPartStatus, SupplierStatus, SupplierType } from '../types';
 import {
   Phone,
   MapPin,
@@ -64,6 +64,45 @@ const SUPPLIER_PART_CATEGORIES = [
   'Салон / Интерьер',
   'Оптика / Освещение'
 ];
+
+
+const SUPPLIER_STATUS_LABELS: Record<SupplierStatus, string> = {
+  new: 'New',
+  contacted: 'Contacted',
+  responded: 'Responded',
+  visited: 'Visited',
+  verified: 'Verified',
+  trusted: 'Trusted',
+  blacklist: 'Blacklist'
+};
+
+const SUPPLIER_STATUS_COLORS: Record<SupplierStatus, string> = {
+  new: 'bg-blue-50 text-blue-700 border-blue-200',
+  contacted: 'bg-amber-50 text-amber-700 border-amber-200',
+  responded: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+  visited: 'bg-violet-50 text-violet-700 border-violet-200',
+  verified: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  trusted: 'bg-green-100 text-green-800 border-green-300',
+  blacklist: 'bg-rose-100 text-rose-800 border-rose-300'
+};
+
+const WHATSAPP_TEMPLATES = {
+  generic: `Hello
+
+I am looking for auto parts suppliers in UAE.
+
+Do you have parts for BMW / Mercedes?
+
+Thank you.`,
+  specific: `Hello
+
+Do you have:
+
+BMW X5 2019
+Engine N63
+
+Thank you.`
+};
 
 const normalizePhone = (raw: string) => {
   const trimmed = raw.replace(/[\s\-()]/g, '');
@@ -273,6 +312,14 @@ const SuppliersScreen: React.FC = () => {
   const [partCategoryFilter, setPartCategoryFilter] = useState('all');
   const [favoriteFilter, setFavoriteFilter] = useState<'all' | 'favorites'>('all');
   const [fastWhatsappFilter, setFastWhatsappFilter] = useState<'all' | 'fast'>('all');
+  const [visitTodayFilter, setVisitTodayFilter] = useState<'all' | 'visit_today'>('all');
+  const [fieldMode, setFieldMode] = useState(false);
+  const [visitFormSupplierId, setVisitFormSupplierId] = useState<string | null>(null);
+  const [visitOwnerName, setVisitOwnerName] = useState('');
+  const [visitPartsCount, setVisitPartsCount] = useState('');
+  const [visitShopSize, setVisitShopSize] = useState('');
+  const [visitComment, setVisitComment] = useState('');
+  const [visitPhotos, setVisitPhotos] = useState<string[]>([]);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [expandedAddedPartsIds, setExpandedAddedPartsIds] = useState<Set<string>>(new Set());
@@ -444,7 +491,8 @@ const SuppliersScreen: React.FC = () => {
         const categoryMatch = partCategoryFilter === 'all' || (supplier.mainPartCategories || []).includes(partCategoryFilter);
         const favoriteMatch = favoriteFilter === 'all' || supplier.isFavorite === true;
         const fastWhatsappMatch = fastWhatsappFilter === 'all' || supplier.whatsappFast === true;
-        return brandMatch && modelMatch && yearMatch && categoryMatch && favoriteMatch && fastWhatsappMatch;
+        const visitTodayMatch = visitTodayFilter === 'all' || ((supplier.supplierStatus === 'contacted' || supplier.supplierStatus === 'responded') && supplier.supplierStatus !== 'visited' && !(Number(supplier.lastVisitedAt || 0) > 0));
+        return brandMatch && modelMatch && yearMatch && categoryMatch && favoriteMatch && fastWhatsappMatch && visitTodayMatch;
       })
       .sort((a, b) => {
       const distanceA = calcDistanceKm(a, sortByDistanceRef);
@@ -463,9 +511,23 @@ const SuppliersScreen: React.FC = () => {
       if (sortByExtended === 'heat') return (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
       if (sortByExtended === 'near') return distanceA - distanceB || (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0));
       if (sortByExtended === 'name') return a.name.localeCompare(b.name) || distanceA - distanceB;
-      return (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
+      return (Number(b.supplierScore || 0) - Number(a.supplierScore || 0)) || (Number(b.autoTrustScore ?? b.trustLevel ?? 0) - Number(a.autoTrustScore ?? a.trustLevel ?? 0)) || (Number(b.heatLevel || 0) - Number(a.heatLevel || 0)) || distanceA - distanceB || a.name.localeCompare(b.name);
     });
-  }, [brandFilter, fastWhatsappFilter, favoriteFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, yearFilter]);
+  }, [brandFilter, fastWhatsappFilter, favoriteFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, visitTodayFilter, yearFilter]);
+
+
+  const supplierAnalytics = useMemo(() => {
+    const initial = { total: rawSuppliers.length, contacted: 0, responded: 0, visited: 0, trusted: 0 };
+    rawSuppliers.forEach((supplier) => {
+      if (supplier.supplierStatus === 'contacted') initial.contacted += 1;
+      if (supplier.supplierStatus === 'responded') initial.responded += 1;
+      if (supplier.supplierStatus === 'visited' || supplier.supplierStatus === 'verified' || supplier.supplierStatus === 'trusted') initial.visited += 1;
+      if (supplier.supplierStatus === 'trusted') initial.trusted += 1;
+    });
+    return initial;
+  }, [rawSuppliers]);
+
+  const followUpSuppliers = useMemo(() => rawSuppliers.filter((supplier) => supplier.supplierStatus === 'contacted' && Number(supplier.lastContactAt || 0) > 0 && Date.now() - Number(supplier.lastContactAt || 0) >= 24 * 60 * 60 * 1000), [rawSuppliers]);
 
   const activeOrderForTop = useMemo(() => {
     if (!topRequest?.orderId) return null;
@@ -547,6 +609,54 @@ const SuppliersScreen: React.FC = () => {
     const message = buildAskPriceMessage(orderId, partId);
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
     updateSupplier({ ...supplier, lastContactAt: Date.now(), updatedAt: Date.now() });
+  };
+
+
+  const computeSupplierScore = (supplier: Supplier) => {
+    const trust = Math.max(0, Math.min(5, Number(supplier.trustLevel ?? 0))) * 20;
+    const responseSpeed = supplier.whatsappFast ? 20 : 8;
+    const visit = supplier.supplierStatus === 'visited' || supplier.supplierStatus === 'verified' || supplier.supplierStatus === 'trusted' ? 20 : 0;
+    const ordersCompleted = Math.min(20, Number(supplier.ordersCompleted || 0) * 2);
+    const distanceKm = calcDistanceKm(supplier, sortByDistanceRef);
+    const distance = Number.isFinite(distanceKm) ? Math.max(0, 20 - Math.round(distanceKm)) : 5;
+    return clampScore(trust + responseSpeed + visit + ordersCompleted + distance);
+  };
+
+  const addSupplierInteraction = (supplier: Supplier, type: SupplierInteractionType, note: string, overrides: Partial<Supplier> = {}) => {
+    const now = Date.now();
+    const interaction: SupplierInteraction = {
+      id: createUuid(),
+      supplierId: supplier.id,
+      type,
+      date: now,
+      note,
+      createdAt: now
+    };
+    const nextSupplier = {
+      ...supplier,
+      interactions: [interaction, ...(supplier.interactions || [])],
+      supplierScore: computeSupplierScore({ ...supplier, ...overrides }),
+      updatedAt: now,
+      ...overrides
+    };
+    updateSupplier(nextSupplier);
+  };
+
+  const markContacted = (supplier: Supplier) => {
+    addSupplierInteraction(supplier, 'whatsapp', 'WhatsApp message sent', { supplierStatus: 'contacted', lastContactAt: Date.now() });
+  };
+
+  const markResponded = (supplier: Supplier) => {
+    addSupplierInteraction(supplier, 'whatsapp_reply', 'Supplier replied in WhatsApp', { supplierStatus: 'responded', lastRespondedAt: Date.now(), lastContactAt: Date.now() });
+  };
+
+  const openTemplateMessage = (supplier: Supplier, template: keyof typeof WHATSAPP_TEMPLATES) => {
+    const phone = (supplier.whatsapp || supplier.phone || '').replace(/[^\d]/g, '');
+    if (!phone) {
+      toast('У поставщика нет WhatsApp контакта', 'error');
+      return;
+    }
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(WHATSAPP_TEMPLATES[template])}`, '_blank');
   };
 
   const startBulkSend = (mode: 3 | 5) => {
@@ -714,6 +824,39 @@ const SuppliersScreen: React.FC = () => {
 
   const removeSupplierPhoto = (index: number) => {
     setSupplierPhotos((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const onVisitPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files ? Array.from(event.target.files) : [];
+    void Promise.all(files.map(async (file) => optimizeImageForUpload(file, `suppliers:visit:${file.name}`))).then((images) => {
+      setVisitPhotos((prev) => [...prev, ...images.filter(Boolean)]);
+    });
+    event.target.value = '';
+  };
+
+  const saveVisitInteraction = () => {
+    const supplier = suppliers.find((item) => item.id === visitFormSupplierId);
+    if (!supplier) return;
+    const note = [
+      visitOwnerName ? `Owner: ${visitOwnerName}` : '',
+      visitPartsCount ? `Parts qty: ${visitPartsCount}` : '',
+      visitShopSize ? `Shop size: ${visitShopSize}` : '',
+      visitComment
+    ].filter(Boolean).join('\n');
+
+    addSupplierInteraction(supplier, 'visit', note || 'Visited supplier shop', {
+      supplierStatus: 'visited',
+      lastVisitedAt: Date.now(),
+      lastContactAt: Date.now(),
+      shopPhotos: [...(supplier.shopPhotos || []), ...visitPhotos],
+      photos: [...(supplier.photos || []), ...visitPhotos]
+    });
+    setVisitFormSupplierId(null);
+    setVisitOwnerName('');
+    setVisitPartsCount('');
+    setVisitShopSize('');
+    setVisitComment('');
+    setVisitPhotos([]);
   };
 
   const handleSave = async () => {
@@ -1066,6 +1209,8 @@ const SuppliersScreen: React.FC = () => {
         <div className="flex flex-wrap justify-end gap-2">
           <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleFileSelect} />
           <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2.5 bg-violet-50 text-violet-600 rounded-xl" title="Импорт"><Upload size={18} /></button>
+          <button type="button" onClick={() => setFieldMode((prev) => !prev)} className={`p-2.5 rounded-xl ${fieldMode ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700'}`} title="FIELD MODE">📍</button>
+          <button type="button" onClick={() => { setFieldMode(true); setIsAdding(true); }} className="p-2.5 bg-indigo-600 text-white rounded-xl" title="+ QUICK SUPPLIER">+Q</button>
           <button type="button" onClick={() => setIsAdding(true)} className="p-2.5 bg-blue-600 text-white rounded-xl" title="Добавить"><UserPlus size={20} /></button>
         </div>
       </div>
@@ -1099,6 +1244,7 @@ const SuppliersScreen: React.FC = () => {
               setPartCategoryFilter('all');
               setFavoriteFilter('all');
               setFastWhatsappFilter('all');
+              setVisitTodayFilter('all');
             }}
             className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600"
           >
@@ -1123,8 +1269,13 @@ const SuppliersScreen: React.FC = () => {
                 <option value="fast">Fast WhatsApp only</option>
               </select>
               <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={favoriteFilter} onChange={(e) => setFavoriteFilter(e.target.value as 'all' | 'favorites')}>
+
                 <option value="all">Suppliers: all</option>
                 <option value="favorites">Избранные поставщики</option>
+              </select>
+              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={visitTodayFilter} onChange={(e) => setVisitTodayFilter(e.target.value as 'all' | 'visit_today')}>
+                <option value="all">VISIT TODAY: off</option>
+                <option value="visit_today">VISIT TODAY</option>
               </select>
               <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
                 <option value="all">Brand: all</option>
@@ -1146,6 +1297,22 @@ const SuppliersScreen: React.FC = () => {
           </>
         )}
       </div>
+
+
+      <section className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-black text-indigo-800">SUPPLIER ANALYTICS</p>
+          <p className="text-[11px] font-semibold text-indigo-600">FIELD MODE: {fieldMode ? 'ON' : 'OFF'} • MAP MODE (soon)</p>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-black sm:grid-cols-5">
+          <span className="rounded-lg bg-white px-2 py-1 text-slate-700">Total: {supplierAnalytics.total}</span>
+          <span className="rounded-lg bg-white px-2 py-1 text-amber-700">Contacted: {supplierAnalytics.contacted}</span>
+          <span className="rounded-lg bg-white px-2 py-1 text-cyan-700">Responded: {supplierAnalytics.responded}</span>
+          <span className="rounded-lg bg-white px-2 py-1 text-violet-700">Visited: {supplierAnalytics.visited}</span>
+          <span className="rounded-lg bg-white px-2 py-1 text-emerald-700">Trusted: {supplierAnalytics.trusted}</span>
+        </div>
+        {followUpSuppliers.length > 0 ? <p className="mt-2 text-xs font-bold text-rose-700">🔔 Follow up supplier: {followUpSuppliers.map((item) => item.name).join(', ')}</p> : null}
+      </section>
 
       {importError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-red-100"><AlertTriangle size={16} />{importError}</div>}
       {showSuccess && <div className="bg-green-50 text-green-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-green-100"><CheckCircle2 size={16} />Данные успешно восстановлены!</div>}
@@ -1421,6 +1588,7 @@ const SuppliersScreen: React.FC = () => {
                                                 <p className="font-black text-sm leading-tight truncate">{s.name}</p>
                         <p className="text-[11px] font-semibold text-indigo-600 truncate">{(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}</p>
                         <p className="text-[11px] text-gray-500 truncate">{brands.slice(0, 2).join(' • ') || 'Без марки'}</p>
+                        <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black ${SUPPLIER_STATUS_COLORS[s.supplierStatus || 'new']}`}>{SUPPLIER_STATUS_LABELS[s.supplierStatus || 'new']}</span>
                       </div>
                     </div>
                     <div className="text-right text-[10px] text-slate-500">
@@ -1462,6 +1630,16 @@ const SuppliersScreen: React.FC = () => {
                   )}
                 </div>
 
+                <div className="grid grid-cols-3 gap-2 text-[10px] font-black">
+                  <button type="button" onClick={() => markContacted(s)} className="rounded-lg bg-amber-100 px-2 py-2 text-amber-800">📩 Написал</button>
+                  <button type="button" onClick={() => markResponded(s)} className="rounded-lg bg-cyan-100 px-2 py-2 text-cyan-800">📥 Ответил</button>
+                  <button type="button" onClick={() => setVisitFormSupplierId(s.id)} className="rounded-lg bg-violet-100 px-2 py-2 text-violet-800">🏪 Посетил</button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[10px] font-black">
+                  <button type="button" onClick={() => openTemplateMessage(s, 'generic')} className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-2 text-emerald-700">Send message template</button>
+                  <button type="button" onClick={() => openTemplateMessage(s, 'specific')} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-2 text-indigo-700">Specific part template</button>
+                </div>
+
                 <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isExpanded ? 2200 : 0, opacity: isExpanded ? 1 : 0 }}>
                 {isExpanded && <>
                 <div className="rounded-xl border border-gray-100 bg-slate-50 p-2 space-y-1">
@@ -1470,8 +1648,18 @@ const SuppliersScreen: React.FC = () => {
                   <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Годы:</span> {(normalizeSupplierYears(s.years).length > 0 ? normalizeSupplierYears(s.years).join(', ') : '—')}</p>
                 </div>
                 {Array.isArray(s.mainPartCategories) && s.mainPartCategories.length > 0 && <p className="text-[11px] text-slate-500">Основные детали: {s.mainPartCategories.slice(0, 3).join(', ')}</p>}
+                {s.supplierStatus === 'blacklist' ? <p className="rounded-lg border border-rose-300 bg-rose-100 px-2 py-1 text-xs font-black text-rose-800">🔴 WARNING · Опасный поставщик</p> : null}
 
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 border-t border-gray-100 pt-3">
+                
+                <div className="rounded-xl border border-slate-200 bg-white p-2 space-y-1">
+                  <p className="text-[11px] font-black text-slate-700">SUPPLIER HISTORY</p>
+                  {(s.interactions || []).slice(0, 4).map((item) => <p key={item.id} className="text-[10px] text-slate-600">{new Date(item.date).toLocaleDateString()} — {item.type} {item.note ? `· ${item.note}` : ''}</p>)}
+                  {(!s.interactions || s.interactions.length === 0) ? <p className="text-[10px] text-slate-500">История пока пустая.</p> : null}
+                  <textarea value={s.internalNotes || ''} onChange={(e) => updateSupplier({ ...s, internalNotes: e.target.value, updatedAt: Date.now() })} placeholder="internal notes" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[10px] font-semibold" />
+                </div>
+
+
+<div className="grid grid-cols-2 md:grid-cols-5 gap-2 border-t border-gray-100 pt-3">
                   <button type="button" onClick={() => openMap(s.location || '')} className="rounded-lg bg-red-50 px-2 py-1.5 text-[10px] font-black text-red-700 inline-flex items-center justify-center gap-1"><Route size={12} />Map</button>
                   <button type="button" onClick={() => { setIsAdding(true); setEditingSupplierId(s.id); setName(s.name); setPhone(s.phone); setLocation(s.location); setShopType(s.type || 'new_parts'); setShopTypes((s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']) as SupplierType[]); setZone(s.zone || ''); setMainBrands(s.mainBrands || s.brands || []); setPrimaryBrand(s.primaryBrand || ''); setCoords(s.coordinates); setGpsAccuracy(s.gpsAccuracyMeters || null); setSupplierModelsInput((s.models || []).join(', ')); setSupplierYearsInput(normalizeSupplierYears(s.years).join(', ')); setSupplierPhotos(s.photos || (s.photoUrl ? [s.photoUrl] : [])); setMainPartCategories(s.mainPartCategories || []); setWorkingHours(s.workingHours || ''); setTrustLevel(Number.isFinite(Number(s.trustLevel)) ? Number(s.trustLevel) : 3); setHasDelivery(!!s.hasDelivery); setWhatsappFast(!!s.whatsappFast); setComment(s.comment || ''); setWebsite(s.website || ''); }} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 inline-flex items-center justify-center gap-1"><Pencil size={12} />Edit</button>
                   <button type="button" onClick={() => setDeleteSupplierId(s.id)} className="rounded-lg bg-rose-50 px-2 py-1.5 text-[10px] font-black text-rose-700 inline-flex items-center justify-center gap-1"><Trash2 size={12} />Delete</button>
@@ -1481,6 +1669,7 @@ const SuppliersScreen: React.FC = () => {
 
                 <div className="flex items-center flex-wrap gap-2 text-[10px] font-black uppercase">
                   <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">⭐ {s.successRate}%</span>
+                  <span className="rounded-full px-2 py-1 border border-blue-200 bg-blue-50 text-blue-700">Score: {computeSupplierScore(s)}</span>
                   <span className="rounded-full px-2 py-1 border border-slate-200 bg-slate-50 text-slate-700">{daysAgoLabel(s.lastContactAt)}</span>
                   <span className="rounded-full px-2 py-1 border border-indigo-200 bg-indigo-50 text-indigo-700">Добавлено: {linkedParts.length}</span>
                   <span className="rounded-full px-2 py-1 border border-emerald-200 bg-emerald-50 text-emerald-700">Найдено: {linkedFoundCount}</span>
@@ -1592,6 +1781,24 @@ const SuppliersScreen: React.FC = () => {
           })
         )}
       </div>
+
+
+      {visitFormSupplierId && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3">
+          <div className="w-full max-w-md rounded-2xl bg-white p-4 space-y-2">
+            <p className="text-sm font-black">🏪 Посетил лично</p>
+            <input value={visitOwnerName} onChange={(e) => setVisitOwnerName(e.target.value)} placeholder="Имя владельца" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold" />
+            <input value={visitPartsCount} onChange={(e) => setVisitPartsCount(e.target.value)} placeholder="Количество деталей" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold" />
+            <input value={visitShopSize} onChange={(e) => setVisitShopSize(e.target.value)} placeholder="Размер магазина" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold" />
+            <textarea value={visitComment} onChange={(e) => setVisitComment(e.target.value)} placeholder="Комментарий" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold min-h-[88px]" />
+            <input type="file" accept="image/*" multiple onChange={onVisitPhotoChange} className="w-full text-xs" />
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setVisitFormSupplierId(null)} className="flex-1 rounded-xl bg-gray-100 py-2 text-xs font-black">Cancel</button>
+              <button type="button" onClick={saveVisitInteraction} className="flex-1 rounded-xl bg-violet-600 text-white py-2 text-xs font-black">Save visit</button>
+            </div>
+          </div>
+        </div>
+      )}
 
 
       {contactEditorSupplierId && (
