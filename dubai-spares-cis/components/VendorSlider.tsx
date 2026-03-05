@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ExternalLink, Filter, ImageOff, MapPin, MessageCircle, Phone, Plus, Users, X } from 'lucide-react';
 import { useStore } from '../store';
-import { Priority, type OrderVendorContact, type Part } from '../types';
+import { Priority, type OrderVendorContact, type Part, type Supplier } from '../types';
 import { vibrate } from '../feedback';
 import ImagePreview from './ImagePreview';
 import SafeImage from './SafeImage';
@@ -35,7 +35,7 @@ const VendorSliderContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { orders, updateOrder } = useStore();
+  const { orders, updateOrder, suppliers, addSupplier } = useStore();
 
   const initialBrand = searchParams.get('brand');
   const initialSlideId = searchParams.get('slide');
@@ -59,7 +59,6 @@ const VendorSliderContent: React.FC = () => {
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const syncTimerRef = useRef<number | null>(null);
   const lastUrlSyncAtRef = useRef(0);
-  const slideSnapshotRef = useRef<HTMLDivElement | null>(null);
 
   const orderSlides = useMemo(() => {
     const effectiveBrand = selectedBrand || brandFilter;
@@ -192,75 +191,109 @@ const VendorSliderContent: React.FC = () => {
 
   const supplierContacts = current?.vendorContacts || [];
 
-  const buildWhatsappCaption = (contactName: string) => {
+  const buildWhatsappCaption = () => {
     if (!current) return '';
     const carLine = `${current.brand} ${current.model} ${current.year}`.trim();
-    return `Здравствуйте, ${contactName || 'поставщик'}!\n${carLine}\nVIN: ${current.vin || '—'}`;
+    return `${carLine}\nVIN: ${current.vin || '—'}`;
   };
 
+  const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.decoding = 'async';
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('image-load-failed'));
+    image.src = src;
+  });
+
   const makeSlideImageFile = async () => {
-    if (!slideSnapshotRef.current || !current) return null;
+    if (!current) return null;
 
-    const source = slideSnapshotRef.current;
-    const width = Math.max(1, Math.floor(source.clientWidth));
-    const height = Math.max(1, Math.floor(source.clientHeight));
-    const cloned = source.cloneNode(true) as HTMLElement;
+    const width = 1080;
+    const height = 1920;
+    const headerHeight = 620;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
 
-    cloned.style.width = `${width}px`;
-    cloned.style.height = `${height}px`;
-    cloned.style.position = 'relative';
-    cloned.style.overflow = 'hidden';
+    context.fillStyle = '#0B1220';
+    context.fillRect(0, 0, width, height);
 
-    const serialized = new XMLSerializer().serializeToString(cloned);
-    const svgMarkup = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-        <foreignObject width="100%" height="100%">
-          ${serialized}
-        </foreignObject>
-      </svg>
-    `;
-
-    const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
-    const svgUrl = URL.createObjectURL(svgBlob);
-
-    try {
-      const image = new Image();
-      image.crossOrigin = 'anonymous';
-      image.decoding = 'async';
-
-      await new Promise<void>((resolve, reject) => {
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error('snapshot-render-failed'));
-        image.src = svgUrl;
-      });
-
-      const canvas = document.createElement('canvas');
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.floor(width * ratio);
-      canvas.height = Math.floor(height * ratio);
-      const context = canvas.getContext('2d');
-      if (!context) return null;
-      context.scale(ratio, ratio);
-      context.drawImage(image, 0, 0, width, height);
-
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
-      if (!blob) return null;
-
-      const fileName = `order-${current.brand}-${current.model}-${current.vin || 'vin'}-${Date.now()}.jpg`
-        .replace(/\s+/g, '-')
-        .replace(/[^a-zA-Z0-9_.-]/g, '');
-
-      return new File([blob], fileName, { type: 'image/jpeg' });
-    } finally {
-      URL.revokeObjectURL(svgUrl);
+    const carImages = sanitizeImages([...(Array.isArray(current.carPhotos) ? current.carPhotos : []), current.carPhotoUrl]);
+    const firstImage = carImages.find((image) => !brokenImages[image]);
+    if (firstImage) {
+      try {
+        const image = await loadImage(firstImage);
+        const ratio = Math.max(width / image.width, headerHeight / image.height);
+        const drawWidth = image.width * ratio;
+        const drawHeight = image.height * ratio;
+        const drawX = (width - drawWidth) / 2;
+        const drawY = (headerHeight - drawHeight) / 2;
+        context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+      } catch {
+        context.fillStyle = '#111827';
+        context.fillRect(0, 0, width, headerHeight);
+      }
+    } else {
+      context.fillStyle = '#111827';
+      context.fillRect(0, 0, width, headerHeight);
     }
+
+    const gradient = context.createLinearGradient(0, headerHeight - 220, 0, headerHeight);
+    gradient.addColorStop(0, 'rgba(0,0,0,0)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0.82)');
+    context.fillStyle = gradient;
+    context.fillRect(0, headerHeight - 220, width, 220);
+
+    context.fillStyle = '#ffffff';
+    context.font = '700 62px Inter, Arial, sans-serif';
+    context.fillText(`${current.brand} ${current.model}`.trim(), 44, headerHeight - 132);
+
+    context.fillStyle = '#fcd34d';
+    context.font = '700 42px Inter, Arial, sans-serif';
+    context.fillText(`${current.year} · ${current.bodyType || '—'} · ${current.visibleParts.length} деталей`, 44, headerHeight - 78);
+
+    context.fillStyle = '#fcd34d';
+    context.font = '700 44px Inter, Arial, sans-serif';
+    context.fillText(`VIN: ${current.vin || '—'}`, 44, headerHeight - 28);
+
+    let y = headerHeight + 34;
+    current.visibleParts.slice(0, 18).forEach((part, idx) => {
+      context.fillStyle = '#111a2d';
+      context.strokeStyle = 'rgba(71,85,105,0.8)';
+      context.lineWidth = 2;
+      context.beginPath();
+      context.roundRect(30, y, width - 60, 78, 22);
+      context.fill();
+      context.stroke();
+
+      context.fillStyle = '#ffffff';
+      context.font = '700 30px Inter, Arial, sans-serif';
+      context.fillText(`${idx + 1}. ${part.name}`.slice(0, 58), 52, y + 42);
+
+      context.fillStyle = 'rgba(255,255,255,0.68)';
+      context.font = '500 22px Inter, Arial, sans-serif';
+      context.fillText(`Статус: ${part.status || 'searching'} • Вариантов: ${part.variants.length}`, 52, y + 68);
+      y += 92;
+    });
+
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+    if (!blob) return null;
+
+    const fileName = `order-${current.brand}-${current.model}-${current.vin || 'vin'}-${Date.now()}.jpg`
+      .replace(/\s+/g, '-')
+      .replace(/[^a-zA-Z0-9_.-]/g, '');
+
+    return new File([blob], fileName, { type: 'image/jpeg' });
   };
 
   const openSupplierWhatsapp = async (contact: OrderVendorContact) => {
     const phone = phoneDigits(contact.whatsapp || contact.phone);
     if (!phone || !current) return;
 
-    const caption = buildWhatsappCaption(contact.name);
+    const caption = buildWhatsappCaption();
     setSharingSupplierId(contact.id);
 
     try {
@@ -307,6 +340,48 @@ const VendorSliderContent: React.FC = () => {
       createdAt: now,
       updatedAt: now
     };
+
+    const normalizedName = name.toLowerCase();
+    const normalizedPhone = phoneDigits(nextContact.phone || nextContact.whatsapp);
+    const existsInBase = suppliers.some((item) => {
+      const byName = item.name.trim().toLowerCase() === normalizedName;
+      const itemPhone = phoneDigits(item.phone || item.whatsapp || '');
+      const byPhone = normalizedPhone.length > 0 && itemPhone === normalizedPhone;
+      return byName || byPhone;
+    });
+
+    if (!existsInBase) {
+      const baseSupplier: Supplier = {
+        id: ensureUuid(),
+        name,
+        phone: nextContact.phone || nextContact.whatsapp || '',
+        whatsapp: nextContact.whatsapp || nextContact.phone || '',
+        hasWhatsapp: Boolean(nextContact.whatsapp || nextContact.phone),
+        location: nextContact.mapUrl || '',
+        brands: current.brand ? [current.brand] : [],
+        mainBrands: current.brand ? [current.brand] : [],
+        primaryBrand: current.brand || '',
+        models: current.model ? [current.model] : [],
+        years: Number.isFinite(Number(current.year)) ? [Number(current.year)] : [],
+        bodyTypes: current.bodyType ? [current.bodyType] : [],
+        type: 'mixed',
+        activeOrderIds: [current.id],
+        linkedParts: current.visibleParts.slice(0, 6).map((part) => ({
+          id: ensureUuid(),
+          orderId: current.id,
+          orderLabel: `${current.brand} ${current.model} • ${current.vin || '—'}`,
+          partId: part.id,
+          partName: part.name,
+          status: part.status === 'found' || part.isFound ? 'found' : 'searching',
+          source: 'manual',
+          updatedAt: now
+        })),
+        comment: nextContact.note || '',
+        createdAt: now,
+        updatedAt: now
+      };
+      addSupplier(baseSupplier);
+    }
 
     await updateOrder({
       ...current,
@@ -366,7 +441,7 @@ const VendorSliderContent: React.FC = () => {
   const availableCarImages = carImages.filter((image) => !brokenImages[image]);
 
   return (
-    <div ref={slideSnapshotRef} className="absolute inset-0 z-50 flex h-full w-full flex-col overflow-hidden bg-[#0B1220] text-white">
+    <div className="absolute inset-0 z-50 flex h-full w-full flex-col overflow-hidden bg-[#0B1220] text-white">
       <div className="relative h-[32vh] min-h-[210px] max-h-[300px] overflow-hidden border-b border-slate-800">
         {availableCarImages[0] ? (
           <button type="button" onClick={() => setGallery({ images: availableCarImages, index: 0 })} className="h-full w-full">
