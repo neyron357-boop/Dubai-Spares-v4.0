@@ -128,6 +128,18 @@ export interface Order {
     serviceFeeAed?: number;
   };
   pricingEvents?: OrderPricingEvent[];
+  vendorContacts?: OrderVendorContact[];
+}
+
+export interface OrderVendorContact {
+  id: string;
+  name: string;
+  phone?: string;
+  whatsapp?: string;
+  mapUrl?: string;
+  note?: string;
+  createdAt: number;
+  updatedAt?: number;
 }
 
 export type PricingFieldKey =
