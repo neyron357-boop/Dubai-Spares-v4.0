@@ -903,7 +903,8 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     leadUnread: !!(row as any).lead_unread,
     leadSource: (row as any).lead_source === 'public_form' ? 'public_form' : 'manual',
     leadReadAt: Number.isFinite(Number((row as any).lead_read_at)) ? Number((row as any).lead_read_at) : undefined,
-    pricingEvents: Array.isArray((row as any).pricing_events) ? (row as any).pricing_events : []
+    pricingEvents: Array.isArray((row as any).pricing_events) ? (row as any).pricing_events : [],
+    vendorContacts: Array.isArray((row as any).vendor_contacts) ? (row as any).vendor_contacts : []
   })
 });
 
@@ -1026,7 +1027,8 @@ const persistOrderGraph = async (order: Order) => {
     lead_unread: !!uploadedOrder.leadUnread,
     lead_source: uploadedOrder.leadSource || 'manual',
     lead_read_at: uploadedOrder.leadReadAt ? toIsoTimestamp(uploadedOrder.leadReadAt) : null,
-    pricing_events: uploadedOrder.pricingEvents || []
+    pricing_events: uploadedOrder.pricingEvents || [],
+    vendor_contacts: uploadedOrder.vendorContacts || []
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -1057,7 +1059,8 @@ const persistOrderGraph = async (order: Order) => {
       'client_currency',
       'fx_updated_at',
       'logistics',
-      'pricing_events'
+      'pricing_events',
+      'vendor_contacts'
     ]);
 
     let payload: Record<string, unknown> = { ...fallbackOrderPayload };
@@ -1226,7 +1229,8 @@ const hasStructuralDiff = (previous: Order | undefined, next: Order) => {
   return JSON.stringify(previous.parts || []) !== JSON.stringify(next.parts || [])
     || JSON.stringify(previous.notes || []) !== JSON.stringify(next.notes || [])
     || JSON.stringify(previous.pricingEvents || []) !== JSON.stringify(next.pricingEvents || [])
-    || JSON.stringify(previous.carPhotos || []) !== JSON.stringify(next.carPhotos || []);
+    || JSON.stringify(previous.carPhotos || []) !== JSON.stringify(next.carPhotos || [])
+    || JSON.stringify(previous.vendorContacts || []) !== JSON.stringify(next.vendorContacts || []);
 };
 
 const pickHotFieldPatch = (previous: Order | undefined, next: Order): Partial<Order> => {
@@ -1282,6 +1286,7 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   fx_updated_at: patch.fxUpdatedAt ? toIsoTimestamp(patch.fxUpdatedAt) : undefined,
   logistics: patch.logistics,
   pricing_events: patch.pricingEvents,
+  vendor_contacts: patch.vendorContacts,
   is_vip: typeof patch.isVip === 'boolean' ? patch.isVip : undefined,
   is_lead: typeof patch.isLead === 'boolean' ? patch.isLead : undefined,
   is_pinned: typeof patch.isPinned === 'boolean' ? patch.isPinned : undefined,
