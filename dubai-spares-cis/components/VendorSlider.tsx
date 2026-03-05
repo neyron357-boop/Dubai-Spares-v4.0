@@ -294,19 +294,11 @@ const VendorSliderContent: React.FC = () => {
     if (!phone || !current) return;
 
     const caption = buildWhatsappCaption();
+    const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(caption)}`;
     setSharingSupplierId(contact.id);
 
     try {
       const imageFile = await makeSlideImageFile();
-      if (imageFile && navigator.share && (navigator as Navigator & { canShare?: (data: ShareData) => boolean }).canShare?.({ files: [imageFile] })) {
-        await navigator.share({
-          title: `${current.brand} ${current.model}`,
-          text: caption,
-          files: [imageFile]
-        });
-        return;
-      }
-
       if (imageFile) {
         const imageUrl = URL.createObjectURL(imageFile);
         const link = document.createElement('a');
@@ -316,9 +308,9 @@ const VendorSliderContent: React.FC = () => {
         URL.revokeObjectURL(imageUrl);
       }
 
-      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(caption)}`, '_blank');
+      window.open(whatsappUrl, '_blank');
     } catch {
-      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(caption)}`, '_blank');
+      window.open(whatsappUrl, '_blank');
     } finally {
       setSharingSupplierId(null);
     }
