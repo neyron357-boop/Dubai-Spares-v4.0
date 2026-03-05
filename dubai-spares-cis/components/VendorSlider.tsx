@@ -296,6 +296,7 @@ const VendorSliderContent: React.FC = () => {
     const caption = buildWhatsappCaption();
     const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(caption)}`;
     setSharingSupplierId(contact.id);
+    const whatsappWindow = window.open('about:blank', '_blank', 'noopener,noreferrer');
 
     try {
       const imageFile = await makeSlideImageFile();
@@ -308,9 +309,17 @@ const VendorSliderContent: React.FC = () => {
         URL.revokeObjectURL(imageUrl);
       }
 
-      window.open(whatsappUrl, '_blank');
+      if (whatsappWindow) {
+        whatsappWindow.location.href = whatsappUrl;
+      } else {
+        window.open(whatsappUrl, '_blank');
+      }
     } catch {
-      window.open(whatsappUrl, '_blank');
+      if (whatsappWindow) {
+        whatsappWindow.location.href = whatsappUrl;
+      } else {
+        window.open(whatsappUrl, '_blank');
+      }
     } finally {
       setSharingSupplierId(null);
     }
