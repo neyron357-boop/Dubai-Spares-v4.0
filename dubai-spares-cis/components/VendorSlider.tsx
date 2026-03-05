@@ -35,6 +35,11 @@ const sanitizeImages = (values: Array<unknown>) => {
 };
 
 const phoneDigits = (value?: string) => (value || '').replace(/\D/g, '');
+const contactIdentityKey = (contact: Pick<OrderVendorContact, 'name' | 'phone' | 'whatsapp'>) => {
+  const normalizedName = contact.name.trim().toLowerCase();
+  const normalizedPhone = phoneDigits(contact.phone || contact.whatsapp || '');
+  return [normalizedName, normalizedPhone].join('|');
+};
 
 const isHttpUrl = (value: string) => /^https?:\/\//i.test(value.trim());
 
@@ -67,7 +72,7 @@ const VendorSliderContent: React.FC = () => {
   const [suppliersOpen, setSuppliersOpen] = useState(false);
   const [addingSupplier, setAddingSupplier] = useState(false);
   const [suppliersTab, setSuppliersTab] = useState<'active' | 'recommendations'>('active');
-  const [sharingSupplierId, setSharingSupplierId] = useState<string | null>(null);
+  const [sharingSupplierKey, setSharingSupplierKey] = useState<string | null>(null);
   const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
   const [supplierToDeleteId, setSupplierToDeleteId] = useState<string | null>(null);
   const [brokenImages, setBrokenImages] = useState<Record<string, true>>({});
@@ -191,7 +196,7 @@ const VendorSliderContent: React.FC = () => {
     setSupplierForm({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
     setAddingSupplier(false);
     setSuppliersTab('active');
-    setSharingSupplierId(null);
+    setSharingSupplierKey(null);
   }, [current?.id]);
 
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
@@ -377,9 +382,10 @@ const VendorSliderContent: React.FC = () => {
 
     const caption = buildWhatsappCaption();
     const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(caption)}`;
-    setSharingSupplierId(contact.id);
+    const sharingKey = contactIdentityKey(contact);
+    setSharingSupplierKey(sharingKey);
     window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
-    window.setTimeout(() => setSharingSupplierId(null), 400);
+    window.setTimeout(() => setSharingSupplierKey(null), 400);
   };
 
   const linkExistingSupplier = async (supplier: Supplier) => {
@@ -834,6 +840,8 @@ const VendorSliderContent: React.FC = () => {
               {suppliersTab === 'active' && supplierContacts.map((contact) => {
                 const whatsappMeta = getWhatsappMeta(contact);
                 const wasContacted = Boolean(whatsappMeta?.lastWhatsappAt);
+                const contactKey = contactIdentityKey(contact);
+                const isSharing = sharingSupplierKey === contactKey;
 
                 return (
                 <div
@@ -858,6 +866,11 @@ const VendorSliderContent: React.FC = () => {
                   }}
                 >
                   <p className="text-sm font-black text-white">{contact.name}</p>
+                  {wasContacted && (
+                    <span className="mt-1 inline-flex rounded-full border border-emerald-300/80 bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-100">
+                      WhatsApp отправлен
+                    </span>
+                  )}
                   {contact.note && <p className="mt-1 text-[11px] text-slate-300">{contact.note}</p>}
 
                   <div className="mt-2 grid grid-cols-3 gap-2">
@@ -885,11 +898,11 @@ const VendorSliderContent: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => void openSupplierWhatsapp(contact)}
-                      disabled={sharingSupplierId === contact.id}
-                      className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg text-[10px] font-bold text-white disabled:opacity-60 ${wasContacted ? 'border border-emerald-200 bg-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.45)]' : 'bg-emerald-700'}`}
+                      disabled={isSharing}
+                      className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg text-[10px] font-bold text-white disabled:opacity-60 ${wasContacted ? 'border border-emerald-100 bg-emerald-400 text-emerald-950 shadow-[0_0_0_2px_rgba(16,185,129,0.45)]' : 'bg-emerald-700'}`}
                       title={wasContacted ? `Последний контакт в WhatsApp: ${new Date(whatsappMeta?.lastWhatsappAt || 0).toLocaleString()}` : 'Отправить сообщение в WhatsApp'}
                     >
-                      <MessageCircle size={12} /> {sharingSupplierId === contact.id ? 'Открываю...' : wasContacted ? 'Написали ✓' : 'WhatsApp'}
+                      <MessageCircle size={12} /> {isSharing ? 'Открываю...' : wasContacted ? 'Написали ✓' : 'WhatsApp'}
                     </button>
                   </div>
 
