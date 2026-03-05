@@ -138,6 +138,8 @@ export interface OrderVendorContact {
   whatsapp?: string;
   mapUrl?: string;
   note?: string;
+  lastWhatsappAt?: number;
+  whatsappMessageCount?: number;
   createdAt: number;
   updatedAt?: number;
 }

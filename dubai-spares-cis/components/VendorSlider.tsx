@@ -311,6 +311,41 @@ const VendorSliderContent: React.FC = () => {
     const phone = phoneDigits(contact.whatsapp || contact.phone);
     if (!phone || !current) return;
 
+    const now = Date.now();
+    const contactPhone = phoneDigits(contact.phone || contact.whatsapp || '');
+    const nextVendorContacts = [...(current.vendorContacts || [])];
+    const existingIndex = nextVendorContacts.findIndex((item) => {
+      if (item.id === contact.id) return true;
+      const itemPhone = phoneDigits(item.phone || item.whatsapp || '');
+      if (contactPhone && itemPhone && contactPhone === itemPhone) return true;
+      return item.name.trim().toLowerCase() === contact.name.trim().toLowerCase();
+    });
+
+    if (existingIndex >= 0) {
+      const existing = nextVendorContacts[existingIndex];
+      nextVendorContacts[existingIndex] = {
+        ...existing,
+        lastWhatsappAt: now,
+        whatsappMessageCount: (existing.whatsappMessageCount || 0) + 1,
+        updatedAt: now
+      };
+    } else {
+      nextVendorContacts.unshift({
+        ...contact,
+        id: ensureUuid(),
+        createdAt: contact.createdAt || now,
+        lastWhatsappAt: now,
+        whatsappMessageCount: 1,
+        updatedAt: now
+      });
+    }
+
+    void updateOrder({
+      ...current,
+      vendorContacts: nextVendorContacts,
+      updatedAt: now
+    });
+
     const caption = buildWhatsappCaption();
     const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(caption)}`;
     setSharingSupplierId(contact.id);
@@ -818,11 +853,18 @@ const VendorSliderContent: React.FC = () => {
                       type="button"
                       onClick={() => void openSupplierWhatsapp(contact)}
                       disabled={sharingSupplierId === contact.id}
-                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-emerald-700 text-[10px] font-bold text-white disabled:opacity-60"
+                      className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg text-[10px] font-bold text-white disabled:opacity-60 ${contact.lastWhatsappAt ? 'border border-emerald-200 bg-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.45)]' : 'bg-emerald-700'}`}
+                      title={contact.lastWhatsappAt ? `Последний контакт в WhatsApp: ${new Date(contact.lastWhatsappAt).toLocaleString()}` : 'Отправить сообщение в WhatsApp'}
                     >
                       <MessageCircle size={12} /> {sharingSupplierId === contact.id ? 'Открываю...' : 'WhatsApp'}
                     </button>
                   </div>
+
+                  {contact.lastWhatsappAt && (
+                    <p className="mt-2 text-[10px] text-emerald-200/90">
+                      Уже писали: {new Date(contact.lastWhatsappAt).toLocaleString()} {contact.whatsappMessageCount ? `(${contact.whatsappMessageCount})` : ''}
+                    </p>
+                  )}
                 </div>
               ))}
 
