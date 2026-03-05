@@ -12,7 +12,7 @@ import { ensureUuid } from '../id';
 const priorityWeight = {
   [Priority.HIGH]: 3,
   [Priority.MEDIUM]: 2,
-  [Priority.LOW]: 1,
+  [Priority.LOW]: 1
 };
 
 const LEAD_SLIDES_KEY = '__lead';
@@ -52,11 +52,14 @@ const VendorSliderContent: React.FC = () => {
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
   const [suppliersOpen, setSuppliersOpen] = useState(false);
   const [addingSupplier, setAddingSupplier] = useState(false);
+  const [sharingSupplierId, setSharingSupplierId] = useState<string | null>(null);
   const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
   const [brokenImages, setBrokenImages] = useState<Record<string, true>>({});
+
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const syncTimerRef = useRef<number | null>(null);
   const lastUrlSyncAtRef = useRef(0);
+  const slideSnapshotRef = useRef<HTMLDivElement | null>(null);
 
   const orderSlides = useMemo(() => {
     const effectiveBrand = selectedBrand || brandFilter;
@@ -93,6 +96,7 @@ const VendorSliderContent: React.FC = () => {
         return (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt);
       });
   }, [orders, brandFilter, selectedBrand, priorityFilter, statusFilter, sortBy]);
+
   const current = orderSlides[transientDragIndex];
   const committedSlide = orderSlides[committedIndex];
 
@@ -123,10 +127,13 @@ const VendorSliderContent: React.FC = () => {
     const nextBrand = selectedBrand || '';
     const nextSlide = committedSlide?.id || '';
     const next = new URLSearchParams(searchParams);
+
     if (nextBrand) next.set('brand', nextBrand);
     else next.delete('brand');
+
     if (nextSlide) next.set('slide', nextSlide);
     else next.delete('slide');
+
     const nextQuery = next.toString();
     if (nextQuery === currentQuery) return;
 
@@ -160,13 +167,17 @@ const VendorSliderContent: React.FC = () => {
   useEffect(() => {
     setSupplierForm({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
     setAddingSupplier(false);
+    setSharingSupplierId(null);
   }, [current?.id]);
 
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
 
-  const leadActiveNeedCount = useMemo(() => orders
-    .filter((order) => !order.isArchived && !order.isSold && (order.isLead || order.customerStatus === 'LEAD' || order.status === 'lead'))
-    .reduce((sum, order) => sum + order.parts.filter((part) => !part.isFound && part.status !== 'found').length, 0), [orders]);
+  const leadActiveNeedCount = useMemo(
+    () => orders
+      .filter((order) => !order.isArchived && !order.isSold && (order.isLead || order.customerStatus === 'LEAD' || order.status === 'lead'))
+      .reduce((sum, order) => sum + order.parts.filter((part) => !part.isFound && part.status !== 'found').length, 0),
+    [orders]
+  );
 
   const brandActiveNeedCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -181,25 +192,110 @@ const VendorSliderContent: React.FC = () => {
 
   const supplierContacts = current?.vendorContacts || [];
 
-  const buildWhatsappMessage = (contactName: string) => {
+  const buildWhatsappCaption = (contactName: string) => {
     if (!current) return '';
-    const partLines = current.visibleParts.map((part, idx) => `${idx + 1}. ${part.name}`).join('\n');
     const carLine = `${current.brand} ${current.model} ${current.year}`.trim();
-    const imageLine = current.carPhotoUrl ? `\nФото слайда: ${current.carPhotoUrl}` : '';
-    return `Здравствуйте, ${contactName || 'поставщик'}!\nНужны запчасти по заказу:\n${carLine}\nVIN: ${current.vin || '—'}\n\nСписок деталей:\n${partLines || '—'}${imageLine}`;
+    return `Здравствуйте, ${contactName || 'поставщик'}!\n${carLine}\nVIN: ${current.vin || '—'}`;
   };
 
-  const openSupplierWhatsapp = (contact: OrderVendorContact) => {
+  const makeSlideImageFile = async () => {
+    if (!slideSnapshotRef.current || !current) return null;
+
+    const source = slideSnapshotRef.current;
+    const width = Math.max(1, Math.floor(source.clientWidth));
+    const height = Math.max(1, Math.floor(source.clientHeight));
+    const cloned = source.cloneNode(true) as HTMLElement;
+
+    cloned.style.width = `${width}px`;
+    cloned.style.height = `${height}px`;
+    cloned.style.position = 'relative';
+    cloned.style.overflow = 'hidden';
+
+    const serialized = new XMLSerializer().serializeToString(cloned);
+    const svgMarkup = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+        <foreignObject width="100%" height="100%">
+          ${serialized}
+        </foreignObject>
+      </svg>
+    `;
+
+    const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+
+    try {
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      image.decoding = 'async';
+
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error('snapshot-render-failed'));
+        image.src = svgUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(width * ratio);
+      canvas.height = Math.floor(height * ratio);
+      const context = canvas.getContext('2d');
+      if (!context) return null;
+      context.scale(ratio, ratio);
+      context.drawImage(image, 0, 0, width, height);
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+      if (!blob) return null;
+
+      const fileName = `order-${current.brand}-${current.model}-${current.vin || 'vin'}-${Date.now()}.jpg`
+        .replace(/\s+/g, '-')
+        .replace(/[^a-zA-Z0-9_.-]/g, '');
+
+      return new File([blob], fileName, { type: 'image/jpeg' });
+    } finally {
+      URL.revokeObjectURL(svgUrl);
+    }
+  };
+
+  const openSupplierWhatsapp = async (contact: OrderVendorContact) => {
     const phone = phoneDigits(contact.whatsapp || contact.phone);
-    if (!phone) return;
-    const message = buildWhatsappMessage(contact.name);
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    if (!phone || !current) return;
+
+    const caption = buildWhatsappCaption(contact.name);
+    setSharingSupplierId(contact.id);
+
+    try {
+      const imageFile = await makeSlideImageFile();
+      if (imageFile && navigator.share && (navigator as Navigator & { canShare?: (data: ShareData) => boolean }).canShare?.({ files: [imageFile] })) {
+        await navigator.share({
+          title: `${current.brand} ${current.model}`,
+          text: caption,
+          files: [imageFile]
+        });
+        return;
+      }
+
+      if (imageFile) {
+        const imageUrl = URL.createObjectURL(imageFile);
+        const link = document.createElement('a');
+        link.href = imageUrl;
+        link.download = imageFile.name;
+        link.click();
+        URL.revokeObjectURL(imageUrl);
+      }
+
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(caption)}`, '_blank');
+    } catch {
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(caption)}`, '_blank');
+    } finally {
+      setSharingSupplierId(null);
+    }
   };
 
   const saveSupplier = async () => {
     if (!current) return;
     const name = supplierForm.name.trim();
     if (!name) return;
+
     const now = Date.now();
     const nextContact: OrderVendorContact = {
       id: ensureUuid(),
@@ -212,7 +308,12 @@ const VendorSliderContent: React.FC = () => {
       updatedAt: now
     };
 
-    await updateOrder({ ...current, vendorContacts: [nextContact, ...(current.vendorContacts || [])], updatedAt: now });
+    await updateOrder({
+      ...current,
+      vendorContacts: [nextContact, ...(current.vendorContacts || [])],
+      updatedAt: now
+    });
+
     setSupplierForm({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
     setAddingSupplier(false);
   };
@@ -233,35 +334,59 @@ const VendorSliderContent: React.FC = () => {
             <span className="inline-flex items-center gap-2">🔥 ЛИД</span>
             <span className="mt-1 block text-xs font-semibold text-rose-100/85">Найти заказов: {leadActiveNeedCount}</span>
           </button>
-          {brandOptions.map((brand) => <button key={brand} type="button" onClick={() => { setSelectedBrand(brand); setBrandFilter(brand); }} className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-4 text-left text-lg font-black hover:border-[#2563EB]"><span>{brand}</span><span className="mt-1 block text-xs font-semibold text-white/65">Найти заказов: {brandActiveNeedCounts.get(brand) || 0}</span></button>)}
+          {brandOptions.map((brand) => (
+            <button
+              key={brand}
+              type="button"
+              onClick={() => {
+                setSelectedBrand(brand);
+                setBrandFilter(brand);
+              }}
+              className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-4 text-left text-lg font-black hover:border-[#2563EB]"
+            >
+              <span>{brand}</span>
+              <span className="mt-1 block text-xs font-semibold text-white/65">Найти заказов: {brandActiveNeedCounts.get(brand) || 0}</span>
+            </button>
+          ))}
         </div>
       </div>
     );
   }
 
   if (!current) {
-    return <div className="absolute inset-0 z-50 bg-[#0B1220] text-gray-300 flex flex-col items-center justify-center gap-4"><p>Нет данных</p><button type="button" onClick={() => navigate(-1)} className="rounded-xl border border-gray-700 px-4 py-2">Назад</button></div>;
+    return (
+      <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-[#0B1220] text-gray-300">
+        <p>Нет данных</p>
+        <button type="button" onClick={() => navigate(-1)} className="rounded-xl border border-gray-700 px-4 py-2">Назад</button>
+      </div>
+    );
   }
 
-  const carImages = sanitizeImages([
-    ...(Array.isArray(current.carPhotos) ? current.carPhotos : []),
-    current.carPhotoUrl
-  ]);
+  const carImages = sanitizeImages([...(Array.isArray(current.carPhotos) ? current.carPhotos : []), current.carPhotoUrl]);
   const availableCarImages = carImages.filter((image) => !brokenImages[image]);
 
   return (
-    <div className="absolute inset-0 z-50 flex h-full w-full flex-col overflow-hidden bg-[#0B1220] text-white">
+    <div ref={slideSnapshotRef} className="absolute inset-0 z-50 flex h-full w-full flex-col overflow-hidden bg-[#0B1220] text-white">
       <div className="relative h-[32vh] min-h-[210px] max-h-[300px] overflow-hidden border-b border-slate-800">
         {availableCarImages[0] ? (
           <button type="button" onClick={() => setGallery({ images: availableCarImages, index: 0 })} className="h-full w-full">
-            <SafeImage src={availableCarImages[0]} alt="car" className="h-full w-full object-cover" onError={() => setBrokenImages((prev) => ({ ...prev, [availableCarImages[0]]: true }))} />
+            <SafeImage
+              src={availableCarImages[0]}
+              alt="car"
+              className="h-full w-full object-cover"
+              onError={() => setBrokenImages((prev) => ({ ...prev, [availableCarImages[0]]: true }))}
+            />
           </button>
-        ) : <div className="h-full w-full bg-slate-900" />}
+        ) : (
+          <div className="h-full w-full bg-slate-900" />
+        )}
+
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pb-3 pt-8">
           <p className="truncate text-xl font-black leading-tight">{current.brand} {current.model}</p>
           {(selectedBrand || brandFilter) === LEAD_SLIDES_KEY && <p className="mt-1 text-xs font-black uppercase tracking-[0.2em] text-rose-200">Режим: ЛИД</p>}
           <p className="mt-1 text-base font-black text-amber-200">{current.year} · {current.bodyType || '—'} · {current.visibleParts.length} деталей</p>
           <p className="mt-1 truncate text-sm font-black tracking-[0.16em] text-amber-200">VIN: {current.vin || '—'}</p>
+
           <div className="pointer-events-auto mt-2 flex items-center gap-2">
             <button
               type="button"
@@ -279,6 +404,7 @@ const VendorSliderContent: React.FC = () => {
             </button>
           </div>
         </div>
+
         <div className="absolute right-3 top-3 z-10 flex gap-2">
           <button type="button" onClick={() => setFiltersOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Filter size={18} /></button>
           <button type="button" onClick={() => setSelectedBrand(null)} className="rounded-full bg-black/45 px-3 text-[11px] font-bold">Марки</button>
@@ -286,40 +412,225 @@ const VendorSliderContent: React.FC = () => {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-2" onTouchStart={(e) => { const t = e.targetTouches[0]; touchStart.current = { x: t.clientX, y: t.clientY }; }} onTouchEnd={(e) => { if (!touchStart.current) return; const t = e.changedTouches[0]; const dx = t.clientX - touchStart.current.x; const dy = t.clientY - touchStart.current.y; if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.15) goTo(committedIndex + (dx > 0 ? -1 : 1)); touchStart.current = null; }}>
+      <div
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3"
+        onTouchStart={(e) => {
+          const t = e.targetTouches[0];
+          touchStart.current = { x: t.clientX, y: t.clientY };
+        }}
+        onTouchEnd={(e) => {
+          if (!touchStart.current) return;
+          const t = e.changedTouches[0];
+          const dx = t.clientX - touchStart.current.x;
+          const dy = t.clientY - touchStart.current.y;
+          if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.15) goTo(committedIndex + (dx > 0 ? -1 : 1));
+          touchStart.current = null;
+        }}
+      >
         {current.visibleParts.map((part) => {
-          const images = sanitizeImages([
-            ...(Array.isArray(part.photos) ? part.photos : []),
-            part.photoUrl
-          ]);
+          const images = sanitizeImages([...(Array.isArray(part.photos) ? part.photos : []), part.photoUrl]);
           const availableImages = images.filter((image) => !brokenImages[image]);
           const isFound = part.isFound || part.status === 'found' || part.variants.some((variant) => Number(variant.priceAed) > 0);
+
           return (
-            <div key={part.id} className={`rounded-2xl border p-2 flex gap-3 items-center transition ${isFound ? 'border-emerald-700/80 bg-emerald-900/15 opacity-65' : 'border-slate-700 bg-[#111a2d]'}`}>
+            <div
+              key={part.id}
+              className={`flex items-center gap-3 rounded-2xl border p-2 transition ${isFound ? 'border-emerald-700/80 bg-emerald-900/15 opacity-65' : 'border-slate-700 bg-[#111a2d]'}`}
+            >
               <button type="button" className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-900" onClick={() => availableImages[0] && setGallery({ images: availableImages, index: 0 })}>
-                {availableImages[0] ? <SafeImage src={availableImages[0]} alt={part.name} className="h-full w-full object-cover" onError={() => setBrokenImages((prev) => ({ ...prev, [availableImages[0]]: true }))} /> : <div className="h-full w-full grid place-items-center text-slate-500"><ImageOff size={18} /></div>}
+                {availableImages[0] ? (
+                  <SafeImage
+                    src={availableImages[0]}
+                    alt={part.name}
+                    className="h-full w-full object-cover"
+                    onError={() => setBrokenImages((prev) => ({ ...prev, [availableImages[0]]: true }))}
+                  />
+                ) : (
+                  <div className="grid h-full w-full place-items-center text-slate-500"><ImageOff size={18} /></div>
+                )}
               </button>
+
               <div className="min-w-0 flex-1">
                 <p className="truncate text-base font-black">{part.name}</p>
                 <p className="text-xs text-white/60">Статус: {part.status || 'searching'} • Вариантов: {part.variants.length}</p>
               </div>
-              <button type="button" onClick={() => navigate(`/order/${current.id}/part/${part.id}`, { replace: false, state: { backTo: `/vendor?brand=${encodeURIComponent(selectedBrand || '')}&slide=${current.id}` } })} className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-2 py-1.5 text-xs font-semibold text-white/90">Карточка детали <ExternalLink size={12} /></button>
+
+              <button
+                type="button"
+                onClick={() => navigate(`/order/${current.id}/part/${part.id}`, { replace: false, state: { backTo: `/vendor?brand=${encodeURIComponent(selectedBrand || '')}&slide=${current.id}` } })}
+                className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-2 py-1.5 text-xs font-semibold text-white/90"
+              >
+                Карточка детали <ExternalLink size={12} />
+              </button>
             </div>
           );
         })}
       </div>
 
-      <div className="absolute bottom-3 inset-x-0 px-4 flex items-center justify-between">
+      <div className="absolute inset-x-0 bottom-3 flex items-center justify-between px-4">
         <button type="button" onClick={() => goTo(committedIndex - 1)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Назад</button>
         <button type="button" onClick={() => setPartsSheetOpen(true)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Авто список</button>
         <button type="button" onClick={() => goTo(committedIndex + 1)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Далее</button>
       </div>
 
-      {filtersOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setFiltersOpen(false)}><div className="mt-20 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}><p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Фильтры</p><div className="space-y-3 text-sm"><div><p className="mb-1 text-xs text-white/70">Марки</p><select value={brandFilter} onChange={(e) => { const value = e.target.value; if (value === '__choose') { setSelectedBrand(null); return; } setBrandFilter(value); setSelectedBrand(value === 'all' ? null : value); }} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Все марки</option><option value={LEAD_SLIDES_KEY}>Только ЛИД</option><option value="__choose">Выбрать экран марок</option>{brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}</select></div><div><p className="mb-1 text-xs text-white/70">Приоритет</p><select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Любой</option><option value={Priority.HIGH}>High</option><option value={Priority.MEDIUM}>Medium</option><option value={Priority.LOW}>Low</option></select></div><div><p className="mb-1 text-xs text-white/70">Статус</p><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Любой</option><option value="searching">Searching</option><option value="found">Found</option><option value="ordered">Ordered</option><option value="not_found">Not found</option></select></div><div><p className="mb-1 text-xs text-white/70">Сортировка</p><select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="priority">По приоритету</option><option value="year_asc">По году (старые сначала)</option><option value="year_desc">По году (новые сначала)</option></select></div></div></div></div>}
+      {filtersOpen && (
+        <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setFiltersOpen(false)}>
+          <div className="mt-20 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Фильтры</p>
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="mb-1 text-xs text-white/70">Марки</p>
+                <select
+                  value={brandFilter}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '__choose') {
+                      setSelectedBrand(null);
+                      return;
+                    }
+                    setBrandFilter(value);
+                    setSelectedBrand(value === 'all' ? null : value);
+                  }}
+                  className="w-full rounded-xl bg-slate-800 px-3 py-2"
+                >
+                  <option value="all">Все марки</option>
+                  <option value={LEAD_SLIDES_KEY}>Только ЛИД</option>
+                  <option value="__choose">Выбрать экран марок</option>
+                  {brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+                </select>
+              </div>
 
-      {partsSheetOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setPartsSheetOpen(false)}><div className="mt-16 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}><p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Автомобили</p><div className="max-h-[60vh] space-y-2 overflow-y-auto">{orderSlides.map((slide, idx) => <button key={slide.id} type="button" onClick={() => { setTransientDragIndex(idx); setCommittedIndex(idx); setPartsSheetOpen(false); }} className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left ${idx === committedIndex ? 'bg-[#2563EB]/25 text-white' : 'bg-slate-800 text-slate-200'}`}><span className="font-semibold">{slide.brand} {slide.model}</span><span className="text-xs opacity-70">{slide.visibleParts.length} деталей</span></button>)}</div></div></div>}
+              <div>
+                <p className="mb-1 text-xs text-white/70">Приоритет</p>
+                <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as 'all' | Priority)} className="w-full rounded-xl bg-slate-800 px-3 py-2">
+                  <option value="all">Любой</option>
+                  <option value={Priority.HIGH}>High</option>
+                  <option value={Priority.MEDIUM}>Medium</option>
+                  <option value={Priority.LOW}>Low</option>
+                </select>
+              </div>
 
-      {suppliersOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setSuppliersOpen(false)}><div className="mt-12 rounded-3xl border border-cyan-700/50 bg-[#0f1f35] p-4" onClick={(e) => e.stopPropagation()}><div className="mb-3 flex items-center justify-between"><p className="text-sm font-bold uppercase tracking-[0.2em] text-cyan-100">Поставщики заказа</p><button type="button" onClick={() => setAddingSupplier((prev) => !prev)} className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/80 px-2 py-1 text-[11px] font-bold text-cyan-100"><Plus size={12} /> Добавить</button></div>{addingSupplier && <div className="mb-3 space-y-2 rounded-xl border border-slate-700 bg-slate-900/60 p-3"><input value={supplierForm.name} onChange={(e) => setSupplierForm((prev) => ({ ...prev, name: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-sm" placeholder="Название поставщика" /><div className="grid grid-cols-2 gap-2"><input value={supplierForm.phone} onChange={(e) => setSupplierForm((prev) => ({ ...prev, phone: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Телефон" /><input value={supplierForm.whatsapp} onChange={(e) => setSupplierForm((prev) => ({ ...prev, whatsapp: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="WhatsApp" /></div><input value={supplierForm.mapUrl} onChange={(e) => setSupplierForm((prev) => ({ ...prev, mapUrl: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Ссылка карты" /><input value={supplierForm.note} onChange={(e) => setSupplierForm((prev) => ({ ...prev, note: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Комментарий" /><button type="button" onClick={() => void saveSupplier()} className="h-10 w-full rounded-lg bg-cyan-700 text-xs font-bold">Сохранить поставщика</button></div>}<div className="max-h-[48vh] space-y-2 overflow-y-auto">{supplierContacts.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">Пока нет добавленных поставщиков для этого заказа.</p>}{supplierContacts.map((contact) => (<div key={contact.id} className="rounded-xl border border-cyan-900/60 bg-slate-900/60 p-3"><p className="text-sm font-black text-white">{contact.name}</p>{contact.note && <p className="mt-1 text-[11px] text-slate-300">{contact.note}</p>}<div className="mt-2 grid grid-cols-3 gap-2"><button type="button" onClick={() => { if (contact.mapUrl) window.open(contact.mapUrl, '_blank'); }} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-600 text-[10px] font-bold"><MapPin size={12} /> Карта</button><button type="button" onClick={() => { const phone = contact.phone || contact.whatsapp; if (phone) window.open(`tel:${phone}`, '_self'); }} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-600 text-[10px] font-bold"><Phone size={12} /> Звонок</button><button type="button" onClick={() => openSupplierWhatsapp(contact)} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-emerald-700 text-[10px] font-bold text-white"><MessageCircle size={12} /> WhatsApp</button></div></div>))}</div></div></div>}
+              <div>
+                <p className="mb-1 text-xs text-white/70">Статус</p>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | NonNullable<Part['status']>)} className="w-full rounded-xl bg-slate-800 px-3 py-2">
+                  <option value="all">Любой</option>
+                  <option value="searching">Searching</option>
+                  <option value="found">Found</option>
+                  <option value="ordered">Ordered</option>
+                  <option value="not_found">Not found</option>
+                </select>
+              </div>
+
+              <div>
+                <p className="mb-1 text-xs text-white/70">Сортировка</p>
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'priority' | 'year_asc' | 'year_desc')} className="w-full rounded-xl bg-slate-800 px-3 py-2">
+                  <option value="priority">По приоритету</option>
+                  <option value="year_asc">По году (старые сначала)</option>
+                  <option value="year_desc">По году (новые сначала)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {partsSheetOpen && (
+        <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setPartsSheetOpen(false)}>
+          <div className="mt-16 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Автомобили</p>
+            <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+              {orderSlides.map((slide, idx) => (
+                <button
+                  key={slide.id}
+                  type="button"
+                  onClick={() => {
+                    setTransientDragIndex(idx);
+                    setCommittedIndex(idx);
+                    setPartsSheetOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left ${idx === committedIndex ? 'bg-[#2563EB]/25 text-white' : 'bg-slate-800 text-slate-200'}`}
+                >
+                  <span className="font-semibold">{slide.brand} {slide.model}</span>
+                  <span className="text-xs opacity-70">{slide.visibleParts.length} деталей</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {suppliersOpen && (
+        <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setSuppliersOpen(false)}>
+          <div className="mt-12 rounded-3xl border border-cyan-700/50 bg-[#0f1f35] p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-bold uppercase tracking-[0.2em] text-cyan-100">Поставщики заказа</p>
+              <button
+                type="button"
+                onClick={() => setAddingSupplier((prev) => !prev)}
+                className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/80 px-2 py-1 text-[11px] font-bold text-cyan-100"
+              >
+                <Plus size={12} /> Добавить
+              </button>
+            </div>
+
+            {addingSupplier && (
+              <div className="mb-3 space-y-2 rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+                <input value={supplierForm.name} onChange={(e) => setSupplierForm((prev) => ({ ...prev, name: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-sm" placeholder="Название поставщика" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input value={supplierForm.phone} onChange={(e) => setSupplierForm((prev) => ({ ...prev, phone: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Телефон" />
+                  <input value={supplierForm.whatsapp} onChange={(e) => setSupplierForm((prev) => ({ ...prev, whatsapp: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="WhatsApp" />
+                </div>
+                <input value={supplierForm.mapUrl} onChange={(e) => setSupplierForm((prev) => ({ ...prev, mapUrl: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Ссылка карты" />
+                <input value={supplierForm.note} onChange={(e) => setSupplierForm((prev) => ({ ...prev, note: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Комментарий" />
+                <button type="button" onClick={() => void saveSupplier()} className="h-10 w-full rounded-lg bg-cyan-700 text-xs font-bold">Сохранить поставщика</button>
+              </div>
+            )}
+
+            <div className="max-h-[48vh] space-y-2 overflow-y-auto">
+              {supplierContacts.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">Пока нет добавленных поставщиков для этого заказа.</p>}
+
+              {supplierContacts.map((contact) => (
+                <div key={contact.id} className="rounded-xl border border-cyan-900/60 bg-slate-900/60 p-3">
+                  <p className="text-sm font-black text-white">{contact.name}</p>
+                  {contact.note && <p className="mt-1 text-[11px] text-slate-300">{contact.note}</p>}
+
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (contact.mapUrl) window.open(contact.mapUrl, '_blank');
+                      }}
+                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-600 text-[10px] font-bold"
+                    >
+                      <MapPin size={12} /> Карта
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const phone = contact.phone || contact.whatsapp;
+                        if (phone) window.open(`tel:${phone}`, '_self');
+                      }}
+                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-600 text-[10px] font-bold"
+                    >
+                      <Phone size={12} /> Звонок
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => void openSupplierWhatsapp(contact)}
+                      disabled={sharingSupplierId === contact.id}
+                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-emerald-700 text-[10px] font-bold text-white disabled:opacity-60"
+                    >
+                      <MessageCircle size={12} /> {sharingSupplierId === contact.id ? 'Генерация...' : 'WhatsApp'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
     </div>
