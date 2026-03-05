@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ExternalLink, Filter, ImageOff, X } from 'lucide-react';
+import { ExternalLink, Filter, ImageOff, MapPin, MessageCircle, Phone, Plus, Users, X } from 'lucide-react';
 import { useStore } from '../store';
-import { Priority, type Order, type Part } from '../types';
+import { Priority, type OrderVendorContact, type Part } from '../types';
 import { vibrate } from '../feedback';
 import ImagePreview from './ImagePreview';
 import SafeImage from './SafeImage';
 import { SupplierSlidesErrorBoundary } from './SupplierSlidesErrorBoundary';
+import { ensureUuid } from '../id';
 
 const priorityWeight = {
   [Priority.HIGH]: 3,
@@ -28,11 +29,13 @@ const sanitizeImages = (values: Array<unknown>) => {
     });
 };
 
+const phoneDigits = (value?: string) => (value || '').replace(/\D/g, '');
+
 const VendorSliderContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { orders } = useStore();
+  const { orders, updateOrder } = useStore();
 
   const initialBrand = searchParams.get('brand');
   const initialSlideId = searchParams.get('slide');
@@ -47,6 +50,9 @@ const VendorSliderContent: React.FC = () => {
   const [sortBy, setSortBy] = useState<'priority' | 'year_asc' | 'year_desc'>('priority');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
+  const [suppliersOpen, setSuppliersOpen] = useState(false);
+  const [addingSupplier, setAddingSupplier] = useState(false);
+  const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
   const [brokenImages, setBrokenImages] = useState<Record<string, true>>({});
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const syncTimerRef = useRef<number | null>(null);
@@ -89,6 +95,14 @@ const VendorSliderContent: React.FC = () => {
   }, [orders, brandFilter, selectedBrand, priorityFilter, statusFilter, sortBy]);
   const current = orderSlides[transientDragIndex];
   const committedSlide = orderSlides[committedIndex];
+
+  const goTo = (nextIndex: number) => {
+    if (orderSlides.length === 0) return;
+    const normalized = (nextIndex + orderSlides.length) % orderSlides.length;
+    setTransientDragIndex(normalized);
+    setCommittedIndex(normalized);
+    vibrate(8);
+  };
 
   useEffect(() => {
     if (transientDragIndex >= orderSlides.length) setTransientDragIndex(0);
@@ -143,55 +157,78 @@ const VendorSliderContent: React.FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    setSupplierForm({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
+    setAddingSupplier(false);
+  }, [current?.id]);
+
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
 
   const leadActiveNeedCount = useMemo(() => orders
-    .filter((order) => !order.isArchived && !order.isSold)
-    .filter((order) => order.isLead || order.customerStatus === 'LEAD' || order.status === 'lead')
-    .filter((order) => order.parts.some((part) => {
-      const hasOffer = part.isFound || part.status === 'found' || part.status === 'ordered' || part.variants.some((variant) => Number(variant.priceAed) > 0);
-      return !hasOffer;
-    }))
-    .length, [orders]);
+    .filter((order) => !order.isArchived && !order.isSold && (order.isLead || order.customerStatus === 'LEAD' || order.status === 'lead'))
+    .reduce((sum, order) => sum + order.parts.filter((part) => !part.isFound && part.status !== 'found').length, 0), [orders]);
 
   const brandActiveNeedCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    orders
-      .filter((order) => !order.isArchived && !order.isSold)
-      .forEach((order) => {
-        const hasSearchingPart = order.parts.some((part) => {
-          const hasOffer = part.isFound || part.status === 'found' || part.status === 'ordered' || part.variants.some((variant) => Number(variant.priceAed) > 0);
-          return !hasOffer;
-        });
-        if (!hasSearchingPart) return;
-        counts.set(order.brand, (counts.get(order.brand) || 0) + 1);
-      });
+    orders.forEach((order) => {
+      if (order.isArchived || order.isSold) return;
+      const unresolved = order.parts.filter((part) => !part.isFound && part.status !== 'found').length;
+      if (unresolved <= 0) return;
+      counts.set(order.brand, (counts.get(order.brand) || 0) + unresolved);
+    });
     return counts;
   }, [orders]);
 
-  const goTo = (next: number) => {
-    const bounded = Math.max(0, Math.min(orderSlides.length - 1, next));
-    if (bounded === committedIndex) return;
-    vibrate(10);
-    setTransientDragIndex(bounded);
-    setCommittedIndex(bounded);
+  const supplierContacts = current?.vendorContacts || [];
+
+  const buildWhatsappMessage = (contactName: string) => {
+    if (!current) return '';
+    const partLines = current.visibleParts.map((part, idx) => `${idx + 1}. ${part.name}`).join('\n');
+    const carLine = `${current.brand} ${current.model} ${current.year}`.trim();
+    const imageLine = current.carPhotoUrl ? `\nФото слайда: ${current.carPhotoUrl}` : '';
+    return `Здравствуйте, ${contactName || 'поставщик'}!\nНужны запчасти по заказу:\n${carLine}\nVIN: ${current.vin || '—'}\n\nСписок деталей:\n${partLines || '—'}${imageLine}`;
   };
 
-  if (!selectedBrand && brandOptions.length > 0) {
+  const openSupplierWhatsapp = (contact: OrderVendorContact) => {
+    const phone = phoneDigits(contact.whatsapp || contact.phone);
+    if (!phone) return;
+    const message = buildWhatsappMessage(contact.name);
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
+  const saveSupplier = async () => {
+    if (!current) return;
+    const name = supplierForm.name.trim();
+    if (!name) return;
+    const now = Date.now();
+    const nextContact: OrderVendorContact = {
+      id: ensureUuid(),
+      name,
+      phone: supplierForm.phone.trim(),
+      whatsapp: supplierForm.whatsapp.trim(),
+      mapUrl: supplierForm.mapUrl.trim(),
+      note: supplierForm.note.trim(),
+      createdAt: now,
+      updatedAt: now
+    };
+
+    await updateOrder({ ...current, vendorContacts: [nextContact, ...(current.vendorContacts || [])], updatedAt: now });
+    setSupplierForm({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
+    setAddingSupplier(false);
+  };
+
+  if (!selectedBrand) {
     return (
-      <div className="absolute inset-0 z-50 bg-[#0B1220] pb-[max(84px,calc(env(safe-area-inset-bottom)+72px))] pt-[max(12px,env(safe-area-inset-top))] text-white px-4">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-black uppercase tracking-[0.2em] text-white/70">Выберите марку</p>
-          <button type="button" onClick={() => navigate(-1)} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/45"><X size={18} /></button>
-        </div>
-        <div className="mt-6 grid grid-cols-2 gap-3">
+      <div className="absolute inset-0 z-50 bg-[#0B1220] p-4 text-white">
+        <p className="mb-4 text-xl font-black">Выберите марку</p>
+        <div className="grid grid-cols-2 gap-3 overflow-auto pb-20">
           <button
             type="button"
             onClick={() => {
               setSelectedBrand(LEAD_SLIDES_KEY);
               setBrandFilter(LEAD_SLIDES_KEY);
             }}
-            className="rounded-2xl border border-rose-500/60 bg-gradient-to-br from-rose-500/20 to-amber-500/10 px-4 py-4 text-left text-lg font-black shadow-[0_0_0_1px_rgba(251,113,133,0.2)] hover:border-rose-400"
+            className="rounded-2xl border border-rose-500 bg-rose-900/45 px-4 py-4 text-left text-lg font-black shadow-[0_0_0_1px_rgba(251,113,133,0.2)] hover:border-rose-400"
           >
             <span className="inline-flex items-center gap-2">🔥 ЛИД</span>
             <span className="mt-1 block text-xs font-semibold text-rose-100/85">Найти заказов: {leadActiveNeedCount}</span>
@@ -225,13 +262,22 @@ const VendorSliderContent: React.FC = () => {
           {(selectedBrand || brandFilter) === LEAD_SLIDES_KEY && <p className="mt-1 text-xs font-black uppercase tracking-[0.2em] text-rose-200">Режим: ЛИД</p>}
           <p className="mt-1 text-base font-black text-amber-200">{current.year} · {current.bodyType || '—'} · {current.visibleParts.length} деталей</p>
           <p className="mt-1 truncate text-sm font-black tracking-[0.16em] text-amber-200">VIN: {current.vin || '—'}</p>
-          <button
-            type="button"
-            onClick={() => navigate(`/order/${current.id}`)}
-            className="pointer-events-auto mt-2 rounded-xl border border-slate-500/90 bg-black/40 px-3 py-1 text-xs font-bold text-white"
-          >
-            Открыть заказ
-          </button>
+          <div className="pointer-events-auto mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate(`/order/${current.id}`)}
+              className="rounded-xl border border-slate-500/90 bg-black/40 px-3 py-1 text-xs font-bold text-white"
+            >
+              Открыть заказ
+            </button>
+            <button
+              type="button"
+              onClick={() => setSuppliersOpen(true)}
+              className="inline-flex items-center gap-1 rounded-xl border border-cyan-400/70 bg-cyan-900/30 px-3 py-1 text-xs font-bold text-cyan-100"
+            >
+              <Users size={13} /> Поставщики ({supplierContacts.length})
+            </button>
+          </div>
         </div>
         <div className="absolute right-3 top-3 z-10 flex gap-2">
           <button type="button" onClick={() => setFiltersOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Filter size={18} /></button>
@@ -272,6 +318,8 @@ const VendorSliderContent: React.FC = () => {
       {filtersOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setFiltersOpen(false)}><div className="mt-20 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}><p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Фильтры</p><div className="space-y-3 text-sm"><div><p className="mb-1 text-xs text-white/70">Марки</p><select value={brandFilter} onChange={(e) => { const value = e.target.value; if (value === '__choose') { setSelectedBrand(null); return; } setBrandFilter(value); setSelectedBrand(value === 'all' ? null : value); }} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Все марки</option><option value={LEAD_SLIDES_KEY}>Только ЛИД</option><option value="__choose">Выбрать экран марок</option>{brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}</select></div><div><p className="mb-1 text-xs text-white/70">Приоритет</p><select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Любой</option><option value={Priority.HIGH}>High</option><option value={Priority.MEDIUM}>Medium</option><option value={Priority.LOW}>Low</option></select></div><div><p className="mb-1 text-xs text-white/70">Статус</p><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="all">Любой</option><option value="searching">Searching</option><option value="found">Found</option><option value="ordered">Ordered</option><option value="not_found">Not found</option></select></div><div><p className="mb-1 text-xs text-white/70">Сортировка</p><select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="w-full rounded-xl bg-slate-800 px-3 py-2"><option value="priority">По приоритету</option><option value="year_asc">По году (старые сначала)</option><option value="year_desc">По году (новые сначала)</option></select></div></div></div></div>}
 
       {partsSheetOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setPartsSheetOpen(false)}><div className="mt-16 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}><p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Автомобили</p><div className="max-h-[60vh] space-y-2 overflow-y-auto">{orderSlides.map((slide, idx) => <button key={slide.id} type="button" onClick={() => { setTransientDragIndex(idx); setCommittedIndex(idx); setPartsSheetOpen(false); }} className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left ${idx === committedIndex ? 'bg-[#2563EB]/25 text-white' : 'bg-slate-800 text-slate-200'}`}><span className="font-semibold">{slide.brand} {slide.model}</span><span className="text-xs opacity-70">{slide.visibleParts.length} деталей</span></button>)}</div></div></div>}
+
+      {suppliersOpen && <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setSuppliersOpen(false)}><div className="mt-12 rounded-3xl border border-cyan-700/50 bg-[#0f1f35] p-4" onClick={(e) => e.stopPropagation()}><div className="mb-3 flex items-center justify-between"><p className="text-sm font-bold uppercase tracking-[0.2em] text-cyan-100">Поставщики заказа</p><button type="button" onClick={() => setAddingSupplier((prev) => !prev)} className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/80 px-2 py-1 text-[11px] font-bold text-cyan-100"><Plus size={12} /> Добавить</button></div>{addingSupplier && <div className="mb-3 space-y-2 rounded-xl border border-slate-700 bg-slate-900/60 p-3"><input value={supplierForm.name} onChange={(e) => setSupplierForm((prev) => ({ ...prev, name: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-sm" placeholder="Название поставщика" /><div className="grid grid-cols-2 gap-2"><input value={supplierForm.phone} onChange={(e) => setSupplierForm((prev) => ({ ...prev, phone: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Телефон" /><input value={supplierForm.whatsapp} onChange={(e) => setSupplierForm((prev) => ({ ...prev, whatsapp: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="WhatsApp" /></div><input value={supplierForm.mapUrl} onChange={(e) => setSupplierForm((prev) => ({ ...prev, mapUrl: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Ссылка карты" /><input value={supplierForm.note} onChange={(e) => setSupplierForm((prev) => ({ ...prev, note: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Комментарий" /><button type="button" onClick={() => void saveSupplier()} className="h-10 w-full rounded-lg bg-cyan-700 text-xs font-bold">Сохранить поставщика</button></div>}<div className="max-h-[48vh] space-y-2 overflow-y-auto">{supplierContacts.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">Пока нет добавленных поставщиков для этого заказа.</p>}{supplierContacts.map((contact) => (<div key={contact.id} className="rounded-xl border border-cyan-900/60 bg-slate-900/60 p-3"><p className="text-sm font-black text-white">{contact.name}</p>{contact.note && <p className="mt-1 text-[11px] text-slate-300">{contact.note}</p>}<div className="mt-2 grid grid-cols-3 gap-2"><button type="button" onClick={() => { if (contact.mapUrl) window.open(contact.mapUrl, '_blank'); }} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-600 text-[10px] font-bold"><MapPin size={12} /> Карта</button><button type="button" onClick={() => { const phone = contact.phone || contact.whatsapp; if (phone) window.open(`tel:${phone}`, '_self'); }} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-600 text-[10px] font-bold"><Phone size={12} /> Звонок</button><button type="button" onClick={() => openSupplierWhatsapp(contact)} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-emerald-700 text-[10px] font-bold text-white"><MessageCircle size={12} /> WhatsApp</button></div></div>))}</div></div></div>}
 
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
     </div>
