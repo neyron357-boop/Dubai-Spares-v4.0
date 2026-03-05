@@ -225,7 +225,22 @@ const normalizeOrder = (order: Order): Order => {
     leadSource: order.leadSource === 'public_form' ? 'public_form' : 'manual',
     leadReadAt: Number.isFinite(Number(order.leadReadAt)) ? Number(order.leadReadAt) : undefined,
     pricingEvents: Array.isArray(order.pricingEvents) ? order.pricingEvents : [],
-    contactLinks: normalizeContactLinks(order.contactLinks)
+    contactLinks: normalizeContactLinks(order.contactLinks),
+    vendorContacts: Array.isArray(order.vendorContacts)
+      ? order.vendorContacts
+        .filter((item): item is NonNullable<Order['vendorContacts']>[number] => !!item && typeof item === 'object')
+        .map((item) => ({
+          id: typeof item.id === 'string' && item.id.trim().length > 0 ? item.id : ensureUuid(),
+          name: typeof item.name === 'string' ? item.name.trim() : '',
+          phone: typeof item.phone === 'string' ? item.phone.trim() : '',
+          whatsapp: typeof item.whatsapp === 'string' ? item.whatsapp.trim() : '',
+          mapUrl: typeof item.mapUrl === 'string' ? item.mapUrl.trim() : '',
+          note: typeof item.note === 'string' ? item.note.trim() : '',
+          createdAt: Number.isFinite(Number(item.createdAt)) ? Number(item.createdAt) : Date.now(),
+          updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : Date.now()
+        }))
+        .filter((item) => item.name.length > 0)
+      : []
   };
 };
 
