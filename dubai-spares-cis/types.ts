@@ -324,6 +324,7 @@ export interface DbOrderRow {
     serviceFeeAed?: number;
   };
   pricing_events?: OrderPricingEvent[];
+  vendor_contacts?: OrderVendorContact[];
   exchange_rate: number;
   created_at: number | string;
   is_archived: boolean;

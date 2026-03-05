@@ -16,6 +16,10 @@ const priorityWeight = {
 };
 
 const LEAD_SLIDES_KEY = '__lead';
+const FOUND_SLIDES_KEY = '__found_with_prices';
+const NOT_FOUND_SLIDES_KEY = '__without_prices';
+const SUPPLIER_SEARCH_KEY = '__supplier_search';
+const SUPPLIER_READY_KEY = '__supplier_ready';
 
 const sanitizeImages = (values: Array<unknown>) => {
   const seen = new Set<string>();
@@ -54,11 +58,16 @@ const VendorSliderContent: React.FC = () => {
   const [addingSupplier, setAddingSupplier] = useState(false);
   const [sharingSupplierId, setSharingSupplierId] = useState<string | null>(null);
   const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
+  const [supplierToDeleteId, setSupplierToDeleteId] = useState<string | null>(null);
   const [brokenImages, setBrokenImages] = useState<Record<string, true>>({});
 
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const syncTimerRef = useRef<number | null>(null);
+  const supplierDeletePressTimerRef = useRef<number | null>(null);
   const lastUrlSyncAtRef = useRef(0);
+
+  const hasPricedPart = (order: typeof orders[number]) => order.parts.some((part) => part.variants.length > 0);
+  const hasOrderSuppliers = (order: typeof orders[number]) => (order.vendorContacts || []).length > 0;
 
   const orderSlides = useMemo(() => {
     const effectiveBrand = selectedBrand || brandFilter;
@@ -67,6 +76,10 @@ const VendorSliderContent: React.FC = () => {
       .filter((o) => {
         if (effectiveBrand === 'all') return true;
         if (effectiveBrand === LEAD_SLIDES_KEY) return o.isLead || o.customerStatus === 'LEAD' || o.status === 'lead';
+        if (effectiveBrand === FOUND_SLIDES_KEY) return hasPricedPart(o);
+        if (effectiveBrand === NOT_FOUND_SLIDES_KEY) return !hasPricedPart(o);
+        if (effectiveBrand === SUPPLIER_SEARCH_KEY) return !hasOrderSuppliers(o);
+        if (effectiveBrand === SUPPLIER_READY_KEY) return hasOrderSuppliers(o);
         return o.brand === effectiveBrand;
       })
       .filter((o) => priorityFilter === 'all' || o.priority === priorityFilter)
@@ -194,135 +207,69 @@ const VendorSliderContent: React.FC = () => {
   const buildWhatsappCaption = () => {
     if (!current) return '';
     const carLine = `${current.brand} ${current.model} ${current.year}`.trim();
-    return `${carLine}\nVIN: ${current.vin || '—'}`;
+    const neededParts = current.visibleParts
+      .map((part, idx) => `${idx + 1}. ${part.name}`)
+      .join('\n');
+
+    return [
+      'Hello!',
+      '',
+      `Car: ${carLine}`,
+      `VIN: ${current.vin || '—'}`,
+      '',
+      'Required parts (EN):',
+      neededParts || '-'
+    ].join('\n');
   };
 
-  const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-    image.crossOrigin = 'anonymous';
-    image.decoding = 'async';
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('image-load-failed'));
-    image.src = src;
-  });
-
-  const makeSlideImageFile = async () => {
-    if (!current) return null;
-
-    const width = 1080;
-    const height = 1920;
-    const headerHeight = 620;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d');
-    if (!context) return null;
-
-    context.fillStyle = '#0B1220';
-    context.fillRect(0, 0, width, height);
-
-    const carImages = sanitizeImages([...(Array.isArray(current.carPhotos) ? current.carPhotos : []), current.carPhotoUrl]);
-    const firstImage = carImages.find((image) => !brokenImages[image]);
-    if (firstImage) {
-      try {
-        const image = await loadImage(firstImage);
-        const ratio = Math.max(width / image.width, headerHeight / image.height);
-        const drawWidth = image.width * ratio;
-        const drawHeight = image.height * ratio;
-        const drawX = (width - drawWidth) / 2;
-        const drawY = (headerHeight - drawHeight) / 2;
-        context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
-      } catch {
-        context.fillStyle = '#111827';
-        context.fillRect(0, 0, width, headerHeight);
-      }
-    } else {
-      context.fillStyle = '#111827';
-      context.fillRect(0, 0, width, headerHeight);
-    }
-
-    const gradient = context.createLinearGradient(0, headerHeight - 220, 0, headerHeight);
-    gradient.addColorStop(0, 'rgba(0,0,0,0)');
-    gradient.addColorStop(1, 'rgba(0,0,0,0.82)');
-    context.fillStyle = gradient;
-    context.fillRect(0, headerHeight - 220, width, 220);
-
-    context.fillStyle = '#ffffff';
-    context.font = '700 62px Inter, Arial, sans-serif';
-    context.fillText(`${current.brand} ${current.model}`.trim(), 44, headerHeight - 132);
-
-    context.fillStyle = '#fcd34d';
-    context.font = '700 42px Inter, Arial, sans-serif';
-    context.fillText(`${current.year} · ${current.bodyType || '—'} · ${current.visibleParts.length} деталей`, 44, headerHeight - 78);
-
-    context.fillStyle = '#fcd34d';
-    context.font = '700 44px Inter, Arial, sans-serif';
-    context.fillText(`VIN: ${current.vin || '—'}`, 44, headerHeight - 28);
-
-    let y = headerHeight + 34;
-    current.visibleParts.slice(0, 18).forEach((part, idx) => {
-      context.fillStyle = '#111a2d';
-      context.strokeStyle = 'rgba(71,85,105,0.8)';
-      context.lineWidth = 2;
-      context.beginPath();
-      context.roundRect(30, y, width - 60, 78, 22);
-      context.fill();
-      context.stroke();
-
-      context.fillStyle = '#ffffff';
-      context.font = '700 30px Inter, Arial, sans-serif';
-      context.fillText(`${idx + 1}. ${part.name}`.slice(0, 58), 52, y + 42);
-
-      context.fillStyle = 'rgba(255,255,255,0.68)';
-      context.font = '500 22px Inter, Arial, sans-serif';
-      context.fillText(`Статус: ${part.status || 'searching'} • Вариантов: ${part.variants.length}`, 52, y + 68);
-      y += 92;
-    });
-
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
-    if (!blob) return null;
-
-    const fileName = `order-${current.brand}-${current.model}-${current.vin || 'vin'}-${Date.now()}.jpg`
-      .replace(/\s+/g, '-')
-      .replace(/[^a-zA-Z0-9_.-]/g, '');
-
-    return new File([blob], fileName, { type: 'image/jpeg' });
-  };
-
-  const openSupplierWhatsapp = async (contact: OrderVendorContact) => {
+  const openSupplierWhatsapp = (contact: OrderVendorContact) => {
     const phone = phoneDigits(contact.whatsapp || contact.phone);
     if (!phone || !current) return;
 
     const caption = buildWhatsappCaption();
     const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(caption)}`;
     setSharingSupplierId(contact.id);
-    const whatsappWindow = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    window.setTimeout(() => setSharingSupplierId(null), 400);
+  };
 
-    try {
-      const imageFile = await makeSlideImageFile();
-      if (imageFile) {
-        const imageUrl = URL.createObjectURL(imageFile);
-        const link = document.createElement('a');
-        link.href = imageUrl;
-        link.download = imageFile.name;
-        link.click();
-        URL.revokeObjectURL(imageUrl);
-      }
+  const linkExistingSupplier = async (supplier: Supplier) => {
+    if (!current) return;
+    const normalizedPhone = phoneDigits(supplier.whatsapp || supplier.phone || '');
+    const alreadyLinked = (current.vendorContacts || []).some((item) => {
+      const itemPhone = phoneDigits(item.whatsapp || item.phone || '');
+      return item.id === supplier.id || (normalizedPhone.length > 0 && normalizedPhone === itemPhone);
+    });
+    if (alreadyLinked) return;
 
-      if (whatsappWindow) {
-        whatsappWindow.location.href = whatsappUrl;
-      } else {
-        window.open(whatsappUrl, '_blank');
-      }
-    } catch {
-      if (whatsappWindow) {
-        whatsappWindow.location.href = whatsappUrl;
-      } else {
-        window.open(whatsappUrl, '_blank');
-      }
-    } finally {
-      setSharingSupplierId(null);
-    }
+    const now = Date.now();
+    const nextContact: OrderVendorContact = {
+      id: ensureUuid(),
+      name: supplier.name,
+      phone: supplier.phone,
+      whatsapp: supplier.whatsapp || supplier.phone,
+      mapUrl: supplier.location,
+      note: supplier.comment || '',
+      createdAt: now,
+      updatedAt: now
+    };
+
+    await updateOrder({
+      ...current,
+      vendorContacts: [nextContact, ...(current.vendorContacts || [])],
+      updatedAt: now
+    });
+  };
+
+  const removeSupplierContact = async (contactId: string) => {
+    if (!current) return;
+    const now = Date.now();
+    await updateOrder({
+      ...current,
+      vendorContacts: (current.vendorContacts || []).filter((item) => item.id !== contactId),
+      updatedAt: now
+    });
+    setSupplierToDeleteId(null);
   };
 
   const saveSupplier = async () => {
@@ -409,6 +356,50 @@ const VendorSliderContent: React.FC = () => {
           >
             <span className="inline-flex items-center gap-2">🔥 ЛИД</span>
             <span className="mt-1 block text-xs font-semibold text-rose-100/85">Найти заказов: {leadActiveNeedCount}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedBrand(FOUND_SLIDES_KEY);
+              setBrandFilter(FOUND_SLIDES_KEY);
+            }}
+            className="rounded-2xl border border-emerald-600 bg-emerald-900/35 px-4 py-4 text-left text-lg font-black"
+          >
+            <span>✅ Найденные</span>
+            <span className="mt-1 block text-xs font-semibold text-emerald-100/80">Есть хотя бы 1 ценовой вариант</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedBrand(NOT_FOUND_SLIDES_KEY);
+              setBrandFilter(NOT_FOUND_SLIDES_KEY);
+            }}
+            className="rounded-2xl border border-amber-500 bg-amber-900/30 px-4 py-4 text-left text-lg font-black"
+          >
+            <span>🟨 Ненайденные</span>
+            <span className="mt-1 block text-xs font-semibold text-amber-100/80">Нет ни одного ценового варианта</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedBrand(SUPPLIER_SEARCH_KEY);
+              setBrandFilter(SUPPLIER_SEARCH_KEY);
+            }}
+            className="rounded-2xl border border-fuchsia-600 bg-fuchsia-900/35 px-4 py-4 text-left text-lg font-black"
+          >
+            <span>🔎 Поиск поставщика</span>
+            <span className="mt-1 block text-xs font-semibold text-fuchsia-100/80">Нет прикреплённых поставщиков</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedBrand(SUPPLIER_READY_KEY);
+              setBrandFilter(SUPPLIER_READY_KEY);
+            }}
+            className="rounded-2xl border border-cyan-500 bg-cyan-900/35 px-4 py-4 text-left text-lg font-black"
+          >
+            <span>👥 С поставщиками</span>
+            <span className="mt-1 block text-xs font-semibold text-cyan-100/80">Осталось отправить запросы</span>
           </button>
           {brandOptions.map((brand) => (
             <button
@@ -571,6 +562,10 @@ const VendorSliderContent: React.FC = () => {
                 >
                   <option value="all">Все марки</option>
                   <option value={LEAD_SLIDES_KEY}>Только ЛИД</option>
+                  <option value={FOUND_SLIDES_KEY}>Найденные (есть цена)</option>
+                  <option value={NOT_FOUND_SLIDES_KEY}>Ненайденные (без цен)</option>
+                  <option value={SUPPLIER_SEARCH_KEY}>Поиск поставщика (0 контактов)</option>
+                  <option value={SUPPLIER_READY_KEY}>С поставщиками (1+ контакт)</option>
                   <option value="__choose">Выбрать экран марок</option>
                   {brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
                 </select>
@@ -659,6 +654,23 @@ const VendorSliderContent: React.FC = () => {
                 <input value={supplierForm.mapUrl} onChange={(e) => setSupplierForm((prev) => ({ ...prev, mapUrl: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Ссылка карты" />
                 <input value={supplierForm.note} onChange={(e) => setSupplierForm((prev) => ({ ...prev, note: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Комментарий" />
                 <button type="button" onClick={() => void saveSupplier()} className="h-10 w-full rounded-lg bg-cyan-700 text-xs font-bold">Сохранить поставщика</button>
+
+                <div className="space-y-2 border-t border-slate-700 pt-2">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-100/80">Добавить из базы поставщиков</p>
+                  <div className="max-h-36 space-y-1 overflow-y-auto">
+                    {suppliers.map((supplier) => (
+                      <button
+                        key={supplier.id}
+                        type="button"
+                        onClick={() => void linkExistingSupplier(supplier)}
+                        className="flex w-full items-center justify-between rounded-lg border border-slate-700 bg-slate-800/80 px-2 py-1.5 text-left"
+                      >
+                        <span className="truncate text-xs">{supplier.name}</span>
+                        <span className="text-[10px] text-cyan-200">Прикрепить</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -666,7 +678,27 @@ const VendorSliderContent: React.FC = () => {
               {supplierContacts.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">Пока нет добавленных поставщиков для этого заказа.</p>}
 
               {supplierContacts.map((contact) => (
-                <div key={contact.id} className="rounded-xl border border-cyan-900/60 bg-slate-900/60 p-3">
+                <div
+                  key={contact.id}
+                  className="rounded-xl border border-cyan-900/60 bg-slate-900/60 p-3"
+                  onPointerDown={() => {
+                    supplierDeletePressTimerRef.current = window.setTimeout(() => {
+                      setSupplierToDeleteId(contact.id);
+                    }, 650);
+                  }}
+                  onPointerUp={() => {
+                    if (supplierDeletePressTimerRef.current) {
+                      window.clearTimeout(supplierDeletePressTimerRef.current);
+                      supplierDeletePressTimerRef.current = null;
+                    }
+                  }}
+                  onPointerLeave={() => {
+                    if (supplierDeletePressTimerRef.current) {
+                      window.clearTimeout(supplierDeletePressTimerRef.current);
+                      supplierDeletePressTimerRef.current = null;
+                    }
+                  }}
+                >
                   <p className="text-sm font-black text-white">{contact.name}</p>
                   {contact.note && <p className="mt-1 text-[11px] text-slate-300">{contact.note}</p>}
 
@@ -698,12 +730,22 @@ const VendorSliderContent: React.FC = () => {
                       disabled={sharingSupplierId === contact.id}
                       className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-emerald-700 text-[10px] font-bold text-white disabled:opacity-60"
                     >
-                      <MessageCircle size={12} /> {sharingSupplierId === contact.id ? 'Генерация...' : 'WhatsApp'}
+                      <MessageCircle size={12} /> {sharingSupplierId === contact.id ? 'Открываю...' : 'WhatsApp'}
                     </button>
                   </div>
                 </div>
               ))}
             </div>
+
+            {supplierToDeleteId && (
+              <div className="mt-3 rounded-xl border border-rose-700/70 bg-rose-900/25 p-3">
+                <p className="text-xs text-rose-100">Удалить поставщика из этого заказа?</p>
+                <div className="mt-2 flex gap-2">
+                  <button type="button" onClick={() => setSupplierToDeleteId(null)} className="h-8 rounded-lg border border-slate-600 px-3 text-xs">Отмена</button>
+                  <button type="button" onClick={() => void removeSupplierContact(supplierToDeleteId)} className="h-8 rounded-lg bg-rose-700 px-3 text-xs font-bold">Удалить</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
