@@ -8,6 +8,7 @@ import ImagePreview from './ImagePreview';
 import SafeImage from './SafeImage';
 import { SupplierSlidesErrorBoundary } from './SupplierSlidesErrorBoundary';
 import { ensureUuid } from '../id';
+import { getShopOrderMatchScore, isBrandMatch } from '../shopMatching';
 
 const priorityWeight = {
   [Priority.HIGH]: 3,
@@ -35,6 +36,15 @@ const sanitizeImages = (values: Array<unknown>) => {
 
 const phoneDigits = (value?: string) => (value || '').replace(/\D/g, '');
 
+const isHttpUrl = (value: string) => /^https?:\/\//i.test(value.trim());
+
+const resolveMapValue = (value?: string) => {
+  const normalized = (value || '').trim();
+  if (!normalized) return 'https://www.google.com/maps';
+  if (isHttpUrl(normalized)) return normalized;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(normalized)}`;
+};
+
 const VendorSliderContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -56,6 +66,7 @@ const VendorSliderContent: React.FC = () => {
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
   const [suppliersOpen, setSuppliersOpen] = useState(false);
   const [addingSupplier, setAddingSupplier] = useState(false);
+  const [suppliersTab, setSuppliersTab] = useState<'active' | 'recommendations'>('active');
   const [sharingSupplierId, setSharingSupplierId] = useState<string | null>(null);
   const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
   const [supplierToDeleteId, setSupplierToDeleteId] = useState<string | null>(null);
@@ -179,6 +190,7 @@ const VendorSliderContent: React.FC = () => {
   useEffect(() => {
     setSupplierForm({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
     setAddingSupplier(false);
+    setSuppliersTab('active');
     setSharingSupplierId(null);
   }, [current?.id]);
 
@@ -202,7 +214,80 @@ const VendorSliderContent: React.FC = () => {
     return counts;
   }, [orders]);
 
-  const supplierContacts = current?.vendorContacts || [];
+  const variantSupplierContacts = useMemo(() => {
+    if (!current) return [] as OrderVendorContact[];
+
+    const deduped = new Map<string, OrderVendorContact>();
+    current.parts.forEach((part) => {
+      part.variants.forEach((variant) => {
+        const variantShopName = (variant.shopNameManual || variant.shopName || '').trim();
+        if (!variantShopName) return;
+        const supplierById = variant.shopId ? suppliers.find((item) => item.id === variant.shopId) : null;
+        const supplierByName = suppliers.find((item) => item.name.trim().toLowerCase() === variantShopName.toLowerCase());
+        const baseSupplier = supplierById || supplierByName;
+
+        const phone = variant.phone || baseSupplier?.phone || '';
+        const whatsapp = baseSupplier?.whatsapp || phone;
+        const mapUrl = variant.mapsUrl || variant.locationText || variant.location || baseSupplier?.location || '';
+        const dedupeKey = [variant.shopId || baseSupplier?.id || variantShopName.toLowerCase(), phoneDigits(phone || whatsapp)].join('|');
+        deduped.set(dedupeKey, {
+          id: `variant-${part.id}-${variant.id}`,
+          name: baseSupplier?.name || variantShopName,
+          phone,
+          whatsapp,
+          mapUrl,
+          note: `Из варианта: ${part.name}`,
+          createdAt: variant.createdAt || Date.now(),
+          updatedAt: variant.updatedAt || variant.createdAt || Date.now()
+        });
+      });
+    });
+
+    return Array.from(deduped.values());
+  }, [current, suppliers]);
+
+  const supplierContacts = useMemo(() => {
+    const manual = current?.vendorContacts || [];
+    const deduped = new Map<string, OrderVendorContact>();
+    [...manual, ...variantSupplierContacts].forEach((contact) => {
+      const key = [contact.name.trim().toLowerCase(), phoneDigits(contact.phone || contact.whatsapp || '')].join('|');
+      if (!deduped.has(key)) deduped.set(key, contact);
+    });
+    return Array.from(deduped.values());
+  }, [current?.vendorContacts, variantSupplierContacts]);
+
+  const recommendedSuppliers = useMemo(() => {
+    if (!current) return [] as Supplier[];
+    const activeNames = new Set(supplierContacts.map((contact) => contact.name.trim().toLowerCase()));
+    const activePhones = new Set(supplierContacts.map((contact) => phoneDigits(contact.phone || contact.whatsapp || '')).filter(Boolean));
+
+    return suppliers
+      .filter((supplier) => {
+        const nameKey = supplier.name.trim().toLowerCase();
+        const phoneKey = phoneDigits(supplier.phone || supplier.whatsapp || '');
+        return !activeNames.has(nameKey) && (!phoneKey || !activePhones.has(phoneKey));
+      })
+      .map((supplier) => {
+        const score = getShopOrderMatchScore({
+          id: supplier.id,
+          name: supplier.name,
+          phone: supplier.phone,
+          location: supplier.location,
+          latitude: supplier.coordinates?.lat || 0,
+          longitude: supplier.coordinates?.lng || 0,
+          specialization: supplier.brands || [],
+          mainBrands: supplier.mainBrands || [],
+          specializationModels: supplier.models || [],
+          specializationYears: supplier.years || [],
+          specializationBodyTypes: supplier.bodyTypes || []
+        }, current);
+        const strictBrand = [...(supplier.brands || []), ...(supplier.mainBrands || [])].some((brand) => isBrandMatch(current.brand, brand));
+        return { supplier, score, strictBrand };
+      })
+      .filter((entry) => entry.strictBrand || entry.score >= 2)
+      .sort((a, b) => b.score - a.score)
+      .map((entry) => entry.supplier);
+  }, [current, supplierContacts, suppliers]);
 
   const buildWhatsappCaption = () => {
     if (!current) return '';
@@ -343,7 +428,7 @@ const VendorSliderContent: React.FC = () => {
 
   if (!selectedBrand) {
     return (
-      <div className="absolute inset-0 z-50 bg-[#0B1220] p-4 text-white">
+      <div className="fixed inset-0 z-50 min-h-screen bg-[#0B1220] p-4 text-white">
         <p className="mb-4 text-xl font-black">Выберите марку</p>
         <div className="grid grid-cols-2 gap-3 overflow-auto pb-20">
           <button
@@ -422,7 +507,7 @@ const VendorSliderContent: React.FC = () => {
 
   if (!current) {
     return (
-      <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-[#0B1220] text-gray-300">
+      <div className="fixed inset-0 z-50 flex min-h-screen flex-col items-center justify-center gap-4 bg-[#0B1220] text-gray-300">
         <p>Нет данных</p>
         <button type="button" onClick={() => navigate(-1)} className="rounded-xl border border-gray-700 px-4 py-2">Назад</button>
       </div>
@@ -433,7 +518,7 @@ const VendorSliderContent: React.FC = () => {
   const availableCarImages = carImages.filter((image) => !brokenImages[image]);
 
   return (
-    <div className="absolute inset-0 z-50 flex h-full w-full flex-col overflow-hidden bg-[#0B1220] text-white">
+    <div className="fixed inset-0 z-50 flex min-h-screen w-full flex-col overflow-hidden bg-[#0B1220] text-white">
       <div className="relative h-[32vh] min-h-[210px] max-h-[300px] overflow-hidden border-b border-slate-800">
         {availableCarImages[0] ? (
           <button type="button" onClick={() => setGallery({ images: availableCarImages, index: 0 })} className="h-full w-full">
@@ -644,6 +729,11 @@ const VendorSliderContent: React.FC = () => {
               </button>
             </div>
 
+            <div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border border-slate-700 bg-slate-900/40 p-1">
+              <button type="button" onClick={() => setSuppliersTab('active')} className={`rounded-lg px-2 py-1.5 text-[11px] font-bold ${suppliersTab === 'active' ? 'bg-cyan-700 text-white' : 'text-cyan-100/80'}`}>Активные</button>
+              <button type="button" onClick={() => setSuppliersTab('recommendations')} className={`rounded-lg px-2 py-1.5 text-[11px] font-bold ${suppliersTab === 'recommendations' ? 'bg-cyan-700 text-white' : 'text-cyan-100/80'}`}>Рекомендации</button>
+            </div>
+
             {addingSupplier && (
               <div className="mb-3 space-y-2 rounded-xl border border-slate-700 bg-slate-900/60 p-3">
                 <input value={supplierForm.name} onChange={(e) => setSupplierForm((prev) => ({ ...prev, name: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-sm" placeholder="Название поставщика" />
@@ -675,9 +765,9 @@ const VendorSliderContent: React.FC = () => {
             )}
 
             <div className="max-h-[48vh] space-y-2 overflow-y-auto">
-              {supplierContacts.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">Пока нет добавленных поставщиков для этого заказа.</p>}
+              {suppliersTab === 'active' && supplierContacts.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">Пока нет добавленных поставщиков для этого заказа.</p>}
 
-              {supplierContacts.map((contact) => (
+              {suppliersTab === 'active' && supplierContacts.map((contact) => (
                 <div
                   key={contact.id}
                   className="rounded-xl border border-cyan-900/60 bg-slate-900/60 p-3"
@@ -706,7 +796,7 @@ const VendorSliderContent: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        if (contact.mapUrl) window.open(contact.mapUrl, '_blank');
+                        window.open(resolveMapValue(contact.mapUrl), '_blank');
                       }}
                       className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-600 text-[10px] font-bold"
                     >
@@ -735,6 +825,22 @@ const VendorSliderContent: React.FC = () => {
                   </div>
                 </div>
               ))}
+
+              {suppliersTab === 'recommendations' && (
+                <>
+                  {recommendedSuppliers.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">Нет новых рекомендаций — все подходящие поставщики уже активны.</p>}
+                  {recommendedSuppliers.map((supplier) => (
+                    <div key={supplier.id} className="rounded-xl border border-cyan-900/60 bg-slate-900/60 p-3">
+                      <p className="text-sm font-black text-white">{supplier.name}</p>
+                      <p className="mt-1 truncate text-[11px] text-slate-300">{supplier.location || 'Локация не указана'}</p>
+                      <div className="mt-2 flex gap-2">
+                        <button type="button" onClick={() => void linkExistingSupplier(supplier)} className="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-700 px-3 text-[10px] font-bold text-white">Добавить в активные</button>
+                        <button type="button" onClick={() => window.open(resolveMapValue(supplier.location), '_blank')} className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-600 px-3 text-[10px] font-bold">Карта</button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
 
             {supplierToDeleteId && (
