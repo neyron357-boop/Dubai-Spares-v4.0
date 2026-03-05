@@ -256,6 +256,35 @@ const VendorSliderContent: React.FC = () => {
     return Array.from(deduped.values());
   }, [current?.vendorContacts, variantSupplierContacts]);
 
+  const contactedSupplierMeta = useMemo(() => {
+    const byId = new Map<string, Pick<OrderVendorContact, 'lastWhatsappAt' | 'whatsappMessageCount'>>();
+    const byNamePhone = new Map<string, Pick<OrderVendorContact, 'lastWhatsappAt' | 'whatsappMessageCount'>>();
+    const byPhone = new Map<string, Pick<OrderVendorContact, 'lastWhatsappAt' | 'whatsappMessageCount'>>();
+
+    (current?.vendorContacts || []).forEach((contact) => {
+      if (!contact.lastWhatsappAt) return;
+      const meta = {
+        lastWhatsappAt: contact.lastWhatsappAt,
+        whatsappMessageCount: contact.whatsappMessageCount || 0
+      };
+      const normalizedPhone = phoneDigits(contact.phone || contact.whatsapp || '');
+      const normalizedName = contact.name.trim().toLowerCase();
+      if (contact.id) byId.set(contact.id, meta);
+      if (normalizedPhone) byPhone.set(normalizedPhone, meta);
+      byNamePhone.set([normalizedName, normalizedPhone].join('|'), meta);
+    });
+
+    return { byId, byNamePhone, byPhone };
+  }, [current?.vendorContacts]);
+
+  const getWhatsappMeta = (contact: OrderVendorContact) => {
+    const normalizedPhone = phoneDigits(contact.phone || contact.whatsapp || '');
+    const normalizedName = contact.name.trim().toLowerCase();
+    return contactedSupplierMeta.byId.get(contact.id)
+      || contactedSupplierMeta.byNamePhone.get([normalizedName, normalizedPhone].join('|'))
+      || (normalizedPhone ? contactedSupplierMeta.byPhone.get(normalizedPhone) : undefined);
+  };
+
   const recommendedSuppliers = useMemo(() => {
     if (!current) return [] as Supplier[];
     const activeNames = new Set(supplierContacts.map((contact) => contact.name.trim().toLowerCase()));
@@ -802,10 +831,14 @@ const VendorSliderContent: React.FC = () => {
             <div className="max-h-[48vh] space-y-2 overflow-y-auto">
               {suppliersTab === 'active' && supplierContacts.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">Пока нет добавленных поставщиков для этого заказа.</p>}
 
-              {suppliersTab === 'active' && supplierContacts.map((contact) => (
+              {suppliersTab === 'active' && supplierContacts.map((contact) => {
+                const whatsappMeta = getWhatsappMeta(contact);
+                const wasContacted = Boolean(whatsappMeta?.lastWhatsappAt);
+
+                return (
                 <div
                   key={contact.id}
-                  className="rounded-xl border border-cyan-900/60 bg-slate-900/60 p-3"
+                  className={`rounded-xl border p-3 ${wasContacted ? 'border-emerald-500/70 bg-emerald-900/10' : 'border-cyan-900/60 bg-slate-900/60'}`}
                   onPointerDown={() => {
                     supplierDeletePressTimerRef.current = window.setTimeout(() => {
                       setSupplierToDeleteId(contact.id);
@@ -853,20 +886,20 @@ const VendorSliderContent: React.FC = () => {
                       type="button"
                       onClick={() => void openSupplierWhatsapp(contact)}
                       disabled={sharingSupplierId === contact.id}
-                      className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg text-[10px] font-bold text-white disabled:opacity-60 ${contact.lastWhatsappAt ? 'border border-emerald-200 bg-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.45)]' : 'bg-emerald-700'}`}
-                      title={contact.lastWhatsappAt ? `Последний контакт в WhatsApp: ${new Date(contact.lastWhatsappAt).toLocaleString()}` : 'Отправить сообщение в WhatsApp'}
+                      className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg text-[10px] font-bold text-white disabled:opacity-60 ${wasContacted ? 'border border-emerald-200 bg-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.45)]' : 'bg-emerald-700'}`}
+                      title={wasContacted ? `Последний контакт в WhatsApp: ${new Date(whatsappMeta?.lastWhatsappAt || 0).toLocaleString()}` : 'Отправить сообщение в WhatsApp'}
                     >
-                      <MessageCircle size={12} /> {sharingSupplierId === contact.id ? 'Открываю...' : 'WhatsApp'}
+                      <MessageCircle size={12} /> {sharingSupplierId === contact.id ? 'Открываю...' : wasContacted ? 'Написали ✓' : 'WhatsApp'}
                     </button>
                   </div>
 
-                  {contact.lastWhatsappAt && (
+                  {wasContacted && (
                     <p className="mt-2 text-[10px] text-emerald-200/90">
-                      Уже писали: {new Date(contact.lastWhatsappAt).toLocaleString()} {contact.whatsappMessageCount ? `(${contact.whatsappMessageCount})` : ''}
+                      Уже писали: {new Date(whatsappMeta?.lastWhatsappAt || 0).toLocaleString()} {whatsappMeta?.whatsappMessageCount ? `(${whatsappMeta.whatsappMessageCount})` : ''}
                     </p>
                   )}
                 </div>
-              ))}
+              )})}
 
               {suppliersTab === 'recommendations' && (
                 <>
