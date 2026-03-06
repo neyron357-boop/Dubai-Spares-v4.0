@@ -926,7 +926,8 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     leadSource: (row as any).lead_source === 'public_form' ? 'public_form' : 'manual',
     leadReadAt: Number.isFinite(Number((row as any).lead_read_at)) ? Number((row as any).lead_read_at) : undefined,
     pricingEvents: Array.isArray((row as any).pricing_events) ? (row as any).pricing_events : [],
-    vendorContacts: Array.isArray((row as any).vendor_contacts) ? (row as any).vendor_contacts : []
+    vendorContacts: Array.isArray((row as any).vendor_contacts) ? (row as any).vendor_contacts : [],
+    vendorChecklist: Array.isArray((row as any).vendor_checklist) ? (row as any).vendor_checklist : []
   })
 });
 
@@ -1050,7 +1051,8 @@ const persistOrderGraph = async (order: Order) => {
     lead_source: uploadedOrder.leadSource || 'manual',
     lead_read_at: uploadedOrder.leadReadAt ? toIsoTimestamp(uploadedOrder.leadReadAt) : null,
     pricing_events: uploadedOrder.pricingEvents || [],
-    vendor_contacts: uploadedOrder.vendorContacts || []
+    vendor_contacts: uploadedOrder.vendorContacts || [],
+    vendor_checklist: uploadedOrder.vendorChecklist || []
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -1082,7 +1084,8 @@ const persistOrderGraph = async (order: Order) => {
       'fx_updated_at',
       'logistics',
       'pricing_events',
-      'vendor_contacts'
+      'vendor_contacts',
+      'vendor_checklist'
     ]);
 
     let payload: Record<string, unknown> = { ...fallbackOrderPayload };
@@ -1252,7 +1255,8 @@ const hasStructuralDiff = (previous: Order | undefined, next: Order) => {
     || JSON.stringify(previous.notes || []) !== JSON.stringify(next.notes || [])
     || JSON.stringify(previous.pricingEvents || []) !== JSON.stringify(next.pricingEvents || [])
     || JSON.stringify(previous.carPhotos || []) !== JSON.stringify(next.carPhotos || [])
-    || JSON.stringify(previous.vendorContacts || []) !== JSON.stringify(next.vendorContacts || []);
+    || JSON.stringify(previous.vendorContacts || []) !== JSON.stringify(next.vendorContacts || [])
+    || JSON.stringify(previous.vendorChecklist || []) !== JSON.stringify(next.vendorChecklist || []);
 };
 
 const pickHotFieldPatch = (previous: Order | undefined, next: Order): Partial<Order> => {
@@ -1309,6 +1313,7 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   logistics: patch.logistics,
   pricing_events: patch.pricingEvents,
   vendor_contacts: patch.vendorContacts,
+  vendor_checklist: patch.vendorChecklist,
   is_vip: typeof patch.isVip === 'boolean' ? patch.isVip : undefined,
   is_lead: typeof patch.isLead === 'boolean' ? patch.isLead : undefined,
   is_pinned: typeof patch.isPinned === 'boolean' ? patch.isPinned : undefined,

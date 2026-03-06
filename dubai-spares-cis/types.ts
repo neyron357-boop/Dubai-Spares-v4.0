@@ -339,6 +339,7 @@ export interface DbOrderRow {
   };
   pricing_events?: OrderPricingEvent[];
   vendor_contacts?: OrderVendorContact[];
+  vendor_checklist?: VendorChecklistItem[];
   exchange_rate: number;
   created_at: number | string;
   is_archived: boolean;
