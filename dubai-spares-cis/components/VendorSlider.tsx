@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ExternalLink, Filter, ImageOff, MapPin, MessageCircle, Phone, Plus, Users, X } from 'lucide-react';
+import { CheckSquare, ExternalLink, Filter, ImageOff, MapPin, MessageCircle, Phone, Plus, Users, X } from 'lucide-react';
 import { useStore } from '../store';
-import { Priority, type OrderVendorContact, type Part, type Supplier } from '../types';
+import { Priority, type OrderVendorContact, type Part, type Supplier, type VendorChecklistItem } from '../types';
 import { vibrate } from '../feedback';
 import ImagePreview from './ImagePreview';
 import SafeImage from './SafeImage';
 import { SupplierSlidesErrorBoundary } from './SupplierSlidesErrorBoundary';
 import { ensureUuid } from '../id';
 import { getShopOrderMatchScore, isBrandMatch } from '../shopMatching';
+import { useAppSettings } from '../appSettings';
 
 const priorityWeight = {
   [Priority.HIGH]: 3,
@@ -50,11 +51,22 @@ const resolveMapValue = (value?: string) => {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(normalized)}`;
 };
 
+const SUPPLIER_STATUS_OPTIONS: Array<{ value: NonNullable<OrderVendorContact['orderStatus']>; label: string }> = [
+  { value: 'searching', label: 'Поиск' },
+  { value: 'found', label: 'Нашел' },
+  { value: 'not_found', label: 'Не нашел' },
+  { value: 'visit_required', label: 'Надо посетить' },
+  { value: 'awaiting_reply', label: 'Ждем ответ' },
+  { value: 'ordered', label: 'Заказан' },
+  { value: 'other', label: 'Другое' }
+];
+
 const VendorSliderContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { orders, updateOrder, suppliers, addSupplier } = useStore();
+  const { settings } = useAppSettings();
 
   const initialBrand = searchParams.get('brand');
   const initialSlideId = searchParams.get('slide');
@@ -70,6 +82,8 @@ const VendorSliderContent: React.FC = () => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
   const [suppliersOpen, setSuppliersOpen] = useState(false);
+  const [checklistOpen, setChecklistOpen] = useState(false);
+  const [newChecklistTask, setNewChecklistTask] = useState('');
   const [addingSupplier, setAddingSupplier] = useState(false);
   const [suppliersTab, setSuppliersTab] = useState<'active' | 'recommendations'>('active');
   const [sharingSupplierKey, setSharingSupplierKey] = useState<string | null>(null);
@@ -197,6 +211,7 @@ const VendorSliderContent: React.FC = () => {
     setAddingSupplier(false);
     setSuppliersTab('active');
     setSharingSupplierKey(null);
+    setNewChecklistTask('');
   }, [current?.id]);
 
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
@@ -288,6 +303,109 @@ const VendorSliderContent: React.FC = () => {
     return contactedSupplierMeta.byId.get(contact.id)
       || contactedSupplierMeta.byNamePhone.get([normalizedName, normalizedPhone].join('|'))
       || (normalizedPhone ? contactedSupplierMeta.byPhone.get(normalizedPhone) : undefined);
+  };
+
+  const mergedChecklistItems = useMemo(() => {
+    if (!current) return [] as VendorChecklistItem[];
+    const defaults = Array.isArray(settings.defaultVendorChecklist) ? settings.defaultVendorChecklist : [];
+    const byKey = new Map<string, VendorChecklistItem>();
+
+    defaults.forEach((task) => {
+      const text = String(task || '').trim();
+      if (!text) return;
+      byKey.set(text.toLowerCase(), {
+        id: `default-${text.toLowerCase().replace(/\s+/g, '-')}`,
+        text,
+        completed: false,
+        source: 'default',
+        updatedAt: 0
+      });
+    });
+
+    (current.vendorChecklist || []).forEach((item) => {
+      const text = String(item.text || '').trim();
+      if (!text) return;
+      const key = text.toLowerCase();
+      const existing = byKey.get(key);
+      byKey.set(key, {
+        id: item.id || existing?.id || ensureUuid(),
+        text,
+        completed: item.completed === true,
+        source: item.source === 'order' ? 'order' : existing?.source || 'default',
+        updatedAt: Number(item.updatedAt || existing?.updatedAt || Date.now())
+      });
+    });
+
+    return Array.from(byKey.values()).sort((a, b) => Number(a.completed) - Number(b.completed));
+  }, [current, settings.defaultVendorChecklist]);
+
+  const updateSupplierContactStatus = async (contact: OrderVendorContact, status: NonNullable<OrderVendorContact['orderStatus']>) => {
+    if (!current) return;
+    const now = Date.now();
+    const nextVendorContacts = [...(current.vendorContacts || [])];
+    const normalizedPhone = phoneDigits(contact.phone || contact.whatsapp || '');
+    const existingIndex = nextVendorContacts.findIndex((item) => {
+      if (item.id === contact.id) return true;
+      const itemPhone = phoneDigits(item.phone || item.whatsapp || '');
+      if (normalizedPhone && itemPhone && normalizedPhone === itemPhone) return true;
+      return item.name.trim().toLowerCase() === contact.name.trim().toLowerCase();
+    });
+
+    if (existingIndex >= 0) {
+      const existing = nextVendorContacts[existingIndex];
+      nextVendorContacts[existingIndex] = { ...existing, orderStatus: status, statusUpdatedAt: now, updatedAt: now };
+    } else {
+      nextVendorContacts.unshift({
+        ...contact,
+        id: ensureUuid(),
+        createdAt: contact.createdAt || now,
+        orderStatus: status,
+        statusUpdatedAt: now,
+        updatedAt: now
+      });
+    }
+
+    await updateOrder({
+      ...current,
+      vendorContacts: nextVendorContacts,
+      updatedAt: now
+    });
+  };
+
+  const persistChecklist = async (nextChecklist: VendorChecklistItem[]) => {
+    if (!current) return;
+    const now = Date.now();
+    await updateOrder({
+      ...current,
+      vendorChecklist: nextChecklist,
+      updatedAt: now
+    });
+  };
+
+  const toggleChecklistItem = async (item: VendorChecklistItem) => {
+    if (!current) return;
+    const now = Date.now();
+    const next = mergedChecklistItems.map((entry) => entry.text.toLowerCase() === item.text.toLowerCase()
+      ? { ...entry, completed: !entry.completed, updatedAt: now }
+      : entry);
+    await persistChecklist(next);
+  };
+
+  const addOrderChecklistTask = async () => {
+    if (!current) return;
+    const text = newChecklistTask.trim();
+    if (!text) return;
+    const now = Date.now();
+    const exists = mergedChecklistItems.some((entry) => entry.text.trim().toLowerCase() === text.toLowerCase());
+    if (exists) {
+      setNewChecklistTask('');
+      return;
+    }
+    await persistChecklist([
+      ...mergedChecklistItems,
+      { id: ensureUuid(), text, completed: false, source: 'order', updatedAt: now }
+    ]);
+    setNewChecklistTask('');
   };
 
   const recommendedSuppliers = useMemo(() => {
@@ -624,6 +742,13 @@ const VendorSliderContent: React.FC = () => {
             >
               <Users size={13} /> Поставщики ({supplierContacts.length})
             </button>
+            <button
+              type="button"
+              onClick={() => setChecklistOpen(true)}
+              className="inline-flex items-center gap-1 rounded-xl border border-violet-400/70 bg-violet-900/30 px-3 py-1 text-xs font-bold text-violet-100"
+            >
+              <CheckSquare size={13} /> Чек лист
+            </button>
           </div>
         </div>
 
@@ -873,6 +998,22 @@ const VendorSliderContent: React.FC = () => {
                   )}
                   {contact.note && <p className="mt-1 text-[11px] text-slate-300">{contact.note}</p>}
 
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {SUPPLIER_STATUS_OPTIONS.map((statusOption) => {
+                      const isActiveStatus = (contact.orderStatus || 'searching') === statusOption.value;
+                      return (
+                        <button
+                          key={statusOption.value}
+                          type="button"
+                          onClick={() => void updateSupplierContactStatus(contact, statusOption.value)}
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${isActiveStatus ? 'border-cyan-200 bg-cyan-500/80 text-slate-950' : 'border-slate-600 text-slate-200'}`}
+                        >
+                          {statusOption.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   <div className="mt-2 grid grid-cols-3 gap-2">
                     <button
                       type="button"
@@ -940,6 +1081,38 @@ const VendorSliderContent: React.FC = () => {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {checklistOpen && (
+        <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setChecklistOpen(false)}>
+          <div className="mt-12 rounded-3xl border border-violet-700/50 bg-[#1a1733] p-4" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-bold uppercase tracking-[0.2em] text-violet-100">Чек лист поиска</p>
+            <p className="mt-1 text-[11px] text-violet-100/80">Задачи сохраняются для этого заказа и не теряются после перезагрузки.</p>
+
+            <div className="mt-3 space-y-2">
+              {mergedChecklistItems.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-3 text-xs text-slate-300">Нет задач. Добавьте первую задачу ниже.</p>}
+              <div className="max-h-[44vh] space-y-2 overflow-y-auto">
+                {mergedChecklistItems.map((item) => (
+                  <label key={item.id} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/50 px-3 py-2">
+                    <input type="checkbox" checked={item.completed} onChange={() => void toggleChecklistItem(item)} className="h-4 w-4" />
+                    <span className={`flex-1 text-sm ${item.completed ? 'line-through text-slate-400' : 'text-white'}`}>{item.text}</span>
+                    <span className="text-[10px] uppercase text-violet-200/80">{item.source === 'order' ? 'заказ' : 'общий'}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-3 flex gap-2">
+              <input
+                value={newChecklistTask}
+                onChange={(e) => setNewChecklistTask(e.target.value)}
+                placeholder="Добавить задачу для этого заказа"
+                className="h-10 flex-1 rounded-lg bg-slate-800 px-3 text-xs"
+              />
+              <button type="button" onClick={() => void addOrderChecklistTask()} className="rounded-lg bg-violet-700 px-3 text-xs font-bold">Добавить</button>
+            </div>
           </div>
         </div>
       )}

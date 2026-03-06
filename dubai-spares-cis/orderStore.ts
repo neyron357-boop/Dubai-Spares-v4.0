@@ -236,10 +236,32 @@ const normalizeOrder = (order: Order): Order => {
           whatsapp: typeof item.whatsapp === 'string' ? item.whatsapp.trim() : '',
           mapUrl: typeof item.mapUrl === 'string' ? item.mapUrl.trim() : '',
           note: typeof item.note === 'string' ? item.note.trim() : '',
+          orderStatus: item.orderStatus === 'found'
+            || item.orderStatus === 'not_found'
+            || item.orderStatus === 'visit_required'
+            || item.orderStatus === 'awaiting_reply'
+            || item.orderStatus === 'ordered'
+            || item.orderStatus === 'other'
+            ? item.orderStatus
+            : 'searching',
+          statusNote: typeof item.statusNote === 'string' ? item.statusNote.trim() : '',
+          statusUpdatedAt: Number.isFinite(Number(item.statusUpdatedAt)) ? Number(item.statusUpdatedAt) : undefined,
           createdAt: Number.isFinite(Number(item.createdAt)) ? Number(item.createdAt) : Date.now(),
           updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : Date.now()
         }))
         .filter((item) => item.name.length > 0)
+      : [],
+    vendorChecklist: Array.isArray(order.vendorChecklist)
+      ? order.vendorChecklist
+        .filter((item): item is NonNullable<Order['vendorChecklist']>[number] => !!item && typeof item === 'object')
+        .map((item) => ({
+          id: typeof item.id === 'string' && item.id.trim().length > 0 ? item.id : ensureUuid(),
+          text: typeof item.text === 'string' ? item.text.trim() : '',
+          completed: item.completed === true,
+          source: item.source === 'order' ? 'order' : 'default',
+          updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : Date.now()
+        }))
+        .filter((item) => item.text.length > 0)
       : []
   };
 };

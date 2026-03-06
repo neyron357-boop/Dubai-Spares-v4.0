@@ -13,6 +13,7 @@ export type RadarDefaultFilter = 'all' | 'new_only' | 'used_only' | 'open_now';
 export type GpsUpdateInterval = '10s' | '30s' | 'manual';
 
 export interface AppSettings {
+  defaultVendorChecklist: string[];
   appLanguage: AppLanguage;
   waTemplateLanguage: WhatsAppTemplateLanguage;
   currencyFormat: CurrencyFormat;
@@ -46,6 +47,13 @@ type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTeleg
 type CloudPublicSettings = PublicAppSettings & Pick<AppSettings, 'publicContactsUpdatedAt'>;
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  defaultVendorChecklist: [
+    'Проверить номер и WhatsApp поставщика',
+    'Отправить фото/артикул детали',
+    'Уточнить наличие и цену',
+    'Уточнить срок доставки',
+    'Записать результат в статус поставщика'
+  ],
   appLanguage: 'ru',
   waTemplateLanguage: 'ru',
   currencyFormat: 'AED',
@@ -89,7 +97,13 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
   publicWorkTerms: typeof raw?.publicWorkTerms === 'string' ? raw.publicWorkTerms : '',
   publicCompanyLogoUrl: typeof raw?.publicCompanyLogoUrl === 'string' ? raw.publicCompanyLogoUrl : '',
   publicInvoiceSignatureUrl: typeof raw?.publicInvoiceSignatureUrl === 'string' ? raw.publicInvoiceSignatureUrl : '',
-  publicContactsUpdatedAt: Number.isFinite(Number(raw?.publicContactsUpdatedAt)) ? Number(raw?.publicContactsUpdatedAt) : 0
+  publicContactsUpdatedAt: Number.isFinite(Number(raw?.publicContactsUpdatedAt)) ? Number(raw?.publicContactsUpdatedAt) : 0,
+  defaultVendorChecklist: Array.isArray(raw?.defaultVendorChecklist)
+    ? raw.defaultVendorChecklist
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    : DEFAULT_APP_SETTINGS.defaultVendorChecklist
 });
 
 const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): PublicAppSettings => {
