@@ -498,9 +498,9 @@ const VendorSliderContent: React.FC = () => {
 
   if (!selectedBrand) {
     return (
-      <div className="fixed inset-0 z-50 min-h-screen bg-[#0B1220] p-4 text-white">
+      <div className="fixed inset-0 z-50 flex min-h-screen flex-col overflow-hidden bg-[#0B1220] p-4 text-white">
         <p className="mb-4 text-xl font-black">Выберите марку</p>
-        <div className="grid grid-cols-2 gap-3 overflow-auto pb-20">
+        <div className="min-h-0 flex-1 grid grid-cols-2 gap-3 overflow-y-auto pb-20">
           <button
             type="button"
             onClick={() => {
