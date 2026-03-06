@@ -129,6 +129,7 @@ export interface Order {
   };
   pricingEvents?: OrderPricingEvent[];
   vendorContacts?: OrderVendorContact[];
+  vendorChecklist?: VendorChecklistItem[];
 }
 
 export interface OrderVendorContact {
@@ -138,10 +139,21 @@ export interface OrderVendorContact {
   whatsapp?: string;
   mapUrl?: string;
   note?: string;
+  orderStatus?: 'searching' | 'found' | 'not_found' | 'visit_required' | 'awaiting_reply' | 'ordered' | 'other';
+  statusNote?: string;
+  statusUpdatedAt?: number;
   lastWhatsappAt?: number;
   whatsappMessageCount?: number;
   createdAt: number;
   updatedAt?: number;
+}
+
+export interface VendorChecklistItem {
+  id: string;
+  text: string;
+  completed: boolean;
+  source?: 'default' | 'order';
+  updatedAt: number;
 }
 
 export type PricingFieldKey =

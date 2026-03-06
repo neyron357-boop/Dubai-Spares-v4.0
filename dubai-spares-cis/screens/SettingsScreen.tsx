@@ -185,6 +185,7 @@ const SettingsScreen: React.FC = () => {
   const [isHardResetting, setIsHardResetting] = useState(false);
   const [logoCrop, setLogoCrop] = useState<{ file: File; previewUrl: string } | null>(null);
   const [logoCropZoom, setLogoCropZoom] = useState(1);
+  const [newDefaultChecklistTask, setNewDefaultChecklistTask] = useState('');
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -209,6 +210,22 @@ const SettingsScreen: React.FC = () => {
   const saveChanges = () => {
     updateSettings(draftSettings);
     setSaveNotice('Изменения сохранены и применены во всех разделах.');
+  };
+
+  const addDefaultChecklistTask = () => {
+    const text = newDefaultChecklistTask.trim();
+    if (!text) return;
+    const exists = (draftSettings.defaultVendorChecklist || []).some((item) => item.trim().toLowerCase() === text.toLowerCase());
+    if (exists) {
+      setNewDefaultChecklistTask('');
+      return;
+    }
+    updateDraft({ defaultVendorChecklist: [...(draftSettings.defaultVendorChecklist || []), text] });
+    setNewDefaultChecklistTask('');
+  };
+
+  const removeDefaultChecklistTask = (index: number) => {
+    updateDraft({ defaultVendorChecklist: (draftSettings.defaultVendorChecklist || []).filter((_, idx) => idx !== index) });
   };
 
 
@@ -728,6 +745,27 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               className="h-4 w-4"
             />
           </label>
+        </div>
+      </Section>
+
+      <Section title="Чек лист поиска поставщиков">
+        <p className="text-xs text-gray-500">Эти задачи подставляются по умолчанию во все слайды Vendor. Можно добавлять индивидуальные задачи уже в конкретном заказе.</p>
+        <div className="mt-3 space-y-2">
+          {(draftSettings.defaultVendorChecklist || []).map((task, idx) => (
+            <div key={`${task}-${idx}`} className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
+              <span className="flex-1 text-sm text-gray-800">{task}</span>
+              <button type="button" onClick={() => removeDefaultChecklistTask(idx)} className="rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-bold text-rose-700">Удалить</button>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <input
+              value={newDefaultChecklistTask}
+              onChange={(e) => setNewDefaultChecklistTask(e.target.value)}
+              placeholder="Новая задача по умолчанию"
+              className="h-10 flex-1 rounded-xl border border-gray-300 bg-white px-3 text-sm"
+            />
+            <button type="button" onClick={addDefaultChecklistTask} className="rounded-xl bg-blue-600 px-3 text-xs font-bold text-white">Добавить</button>
+          </div>
         </div>
       </Section>
 
