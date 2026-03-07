@@ -15,11 +15,12 @@ import {
   clearAllNotifications
 } from '../notificationCenter';
 
-const FILTERS: Array<{ label: string; id: 'all' | 'orders' | 'radar' | 'followup' | 'system' | 'sync' }> = [
+const FILTERS: Array<{ label: string; id: 'all' | 'orders' | 'radar' | 'followup' | 'actions' | 'system' | 'sync' }> = [
   { label: 'Все', id: 'all' },
   { label: 'Заказы', id: 'orders' },
   { label: 'Радар', id: 'radar' },
   { label: 'Follow-up', id: 'followup' },
+  { label: 'Действия', id: 'actions' },
   { label: 'Система', id: 'system' },
   { label: 'Ошибки/Синк', id: 'sync' }
 ];
@@ -96,6 +97,7 @@ const NotificationsScreen: React.FC = () => {
       if (filter === 'orders') return [NotificationType.ORDER_NEW, NotificationType.ORDER_STATUS_CHANGED].includes(item.type);
       if (filter === 'radar') return [NotificationType.RADAR_RESULT, NotificationType.RADAR_ACTION].includes(item.type);
       if (filter === 'followup') return item.type === NotificationType.FOLLOWUP_DUE;
+      if (filter === 'actions') return item.type === NotificationType.ACTION_LOG;
       if (filter === 'system') return item.type === NotificationType.SYSTEM_TIPS;
       return [NotificationType.SYNC_ERROR, NotificationType.OFFLINE_QUEUE].includes(item.type);
     });
@@ -146,6 +148,20 @@ const NotificationsScreen: React.FC = () => {
     return date.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   };
 
+
+  const canOpenEntity = (item: AppNotification) => Boolean(item.route || item.orderId || item.supplierId);
+
+  const openNotificationEntity = (item: AppNotification) => {
+    if (!canOpenEntity(item)) return;
+    markNotificationRead(item.id);
+    const fallbackRoute = item.orderId
+      ? `/order/${item.orderId}`
+      : item.supplierId
+        ? `/database?supplierId=${item.supplierId}`
+        : '/';
+    navigate(normalizeNotificationRoute(item.route, item.orderId) || fallbackRoute);
+  };
+
   const severityTone: Record<AppNotification['severity'], string> = {
     critical: 'border-rose-300 bg-rose-50 text-rose-700',
     warning: 'border-amber-300 bg-amber-50 text-amber-700',
@@ -157,6 +173,7 @@ const NotificationsScreen: React.FC = () => {
     if ([NotificationType.ORDER_NEW, NotificationType.ORDER_STATUS_CHANGED].includes(type)) return <Car size={14} />;
     if ([NotificationType.RADAR_ACTION, NotificationType.RADAR_RESULT].includes(type)) return <LocateFixed size={14} />;
     if (type === NotificationType.FOLLOWUP_DUE) return <Clock3 size={14} />;
+    if (type === NotificationType.ACTION_LOG) return <Bell size={14} />;
     if ([NotificationType.SYNC_ERROR, NotificationType.OFFLINE_QUEUE].includes(type)) return <AlertTriangle size={14} />;
     return <Bell size={14} />;
   };
@@ -277,11 +294,9 @@ const NotificationsScreen: React.FC = () => {
             <article
               key={item.id}
               onClick={() => {
-                if (!item.orderId) return;
-                markNotificationRead(item.id);
-                navigate(normalizeNotificationRoute(item.route, item.orderId));
+                openNotificationEntity(item);
               }}
-              className={`w-full rounded-2xl border px-3 py-3 text-left transition-all ${item.readAt ? 'bg-white border-gray-100' : 'bg-indigo-50 border-indigo-100'} ${item.orderId ? 'cursor-pointer active:scale-[0.995]' : ''}`}
+              className={`w-full rounded-2xl border px-3 py-3 text-left transition-all ${item.readAt ? 'bg-white border-gray-100' : 'bg-indigo-50 border-indigo-100'} ${canOpenEntity(item) ? 'cursor-pointer active:scale-[0.995]' : ''}`}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
@@ -300,9 +315,9 @@ const NotificationsScreen: React.FC = () => {
               </div>
 
               <div className="mt-2 grid grid-cols-2 gap-2" onClick={(event) => event.stopPropagation()}>
-                {item.orderId && (
-                  <button type="button" onClick={(event) => { event.stopPropagation(); markNotificationRead(item.id); navigate(normalizeNotificationRoute(item.route, item.orderId)); }} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-blue-600 px-2 text-[10px] font-black uppercase text-white">
-                    <ExternalLink size={12} /> Открыть заказ
+                {canOpenEntity(item) && (
+                  <button type="button" onClick={(event) => { event.stopPropagation(); openNotificationEntity(item); }} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-blue-600 px-2 text-[10px] font-black uppercase text-white">
+                    <ExternalLink size={12} /> {item.partId ? 'Открыть деталь' : item.supplierId && !item.orderId ? 'Открыть поставщика' : 'Открыть'}
                   </button>
                 )}
                 {item.phone && (

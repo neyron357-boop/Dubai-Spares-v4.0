@@ -6,7 +6,8 @@ export enum NotificationType {
   FOLLOWUP_DUE = 'FOLLOWUP_DUE',
   SYNC_ERROR = 'SYNC_ERROR',
   OFFLINE_QUEUE = 'OFFLINE_QUEUE',
-  SYSTEM_TIPS = 'SYSTEM_TIPS'
+  SYSTEM_TIPS = 'SYSTEM_TIPS',
+  ACTION_LOG = 'ACTION_LOG'
 }
 
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'critical';
@@ -14,6 +15,9 @@ export type NotificationSource = 'app' | 'web_form' | 'radar' | 'sync';
 export type NotificationTab = 'active' | 'archive';
 
 export interface AppNotification {
+  entityType?: 'order' | 'part' | 'supplier' | 'variant' | 'system';
+  entityId?: string;
+  partId?: string;
   id: string;
   type: NotificationType;
   createdAt: number;
@@ -44,7 +48,7 @@ export interface AppNotification {
 const STORAGE_KEY = 'dubai_spares_local_notifications_v2';
 const LEGACY_STORAGE_KEY = 'dubai_spares_local_notifications';
 const READ_SIGNATURES_KEY = 'dubai_spares_read_notification_signatures';
-const MAX_ITEMS = 1000;
+const MAX_ITEMS = 5000;
 
 const createId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -64,6 +68,7 @@ const inferSeverity = (type: NotificationType, title: string, message: string): 
   if (type === NotificationType.ORDER_NEW && text.includes('vip')) return 'critical';
   if (type === NotificationType.FOLLOWUP_DUE && text.includes('просроч')) return 'critical';
   if (text.includes('error') || text.includes('ошиб')) return 'warning';
+  if (type === NotificationType.ACTION_LOG) return 'info';
   if (text.includes('found') || text.includes('продан') || text.includes('успеш')) return 'success';
   return 'info';
 };
@@ -82,6 +87,9 @@ const normalizeNotification = (item: any): AppNotification | null => {
     severity: item.severity || inferSeverity(type, title, message),
     orderId: typeof item.orderId === 'string' ? item.orderId : undefined,
     supplierId: typeof item.supplierId === 'string' ? item.supplierId : (typeof item.shopId === 'string' ? item.shopId : undefined),
+    partId: typeof item.partId === 'string' ? item.partId : undefined,
+    entityType: item.entityType === 'order' || item.entityType === 'part' || item.entityType === 'supplier' || item.entityType === 'variant' ? item.entityType : 'system',
+    entityId: typeof item.entityId === 'string' ? item.entityId : undefined,
     radarSessionId: typeof item.radarSessionId === 'string' ? item.radarSessionId : undefined,
     title,
     message,
@@ -189,13 +197,13 @@ export const sendBrowserNotification = async (
   };
 };
 
-export const pushNotification = (payload: Omit<AppNotification, 'id' | 'createdAt' | 'severity'> & { severity?: NotificationSeverity }) => {
+export const pushNotification = (payload: Omit<AppNotification, 'id' | 'createdAt' | 'severity'> & { severity?: NotificationSeverity; allowDuplicates?: boolean }) => {
   const list = getNotifications();
   const signature = payload.signature || `${payload.type}:${payload.orderId || ''}:${payload.supplierId || ''}:${payload.title}:${payload.message}`;
   const signatures = getReadSignatures();
-  if (signatures[signature]) return null;
+  if (!payload.allowDuplicates && signatures[signature]) return null;
 
-  const existing = list.find((item) => item.signature === signature && !item.archivedAt);
+  const existing = payload.allowDuplicates ? null : list.find((item) => item.signature === signature && !item.archivedAt);
   if (existing) return existing;
 
   const next: AppNotification = {
@@ -205,6 +213,7 @@ export const pushNotification = (payload: Omit<AppNotification, 'id' | 'createdA
     id: createId(),
     createdAt: Date.now()
   };
+  delete (next as any).allowDuplicates;
   persist([next, ...list]);
   return next;
 };
@@ -297,6 +306,33 @@ export const createFollowupFromAction = (payload: {
   source: payload.source || 'radar',
   route: payload.route,
   severity: 'warning'
+});
+
+
+export const pushActivityNotification = (payload: {
+  title: string;
+  message: string;
+  orderId?: string;
+  partId?: string;
+  supplierId?: string;
+  route?: string;
+  entityType?: AppNotification['entityType'];
+  entityId?: string;
+  severity?: NotificationSeverity;
+}) => pushNotification({
+  type: NotificationType.ACTION_LOG,
+  title: payload.title,
+  message: payload.message,
+  orderId: payload.orderId,
+  partId: payload.partId,
+  supplierId: payload.supplierId,
+  route: payload.route,
+  entityType: payload.entityType || 'system',
+  entityId: payload.entityId,
+  source: 'app',
+  allowDuplicates: true,
+  signature: `${Date.now()}:${Math.random().toString(16).slice(2)}`,
+  severity: payload.severity || 'info'
 });
 
 export const getUnreadNotificationsCount = () => getNotifications().filter((item) => !item.readAt && !item.archivedAt).length;

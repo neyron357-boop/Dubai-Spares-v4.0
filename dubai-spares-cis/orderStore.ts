@@ -6,7 +6,7 @@ import { OfflineMutation, isIdbAutoSyncPaused, offlineDb } from './storage/offli
 import { logger } from './logging';
 import { normalizeGroupItems, normalizePartQuantity } from './utils/groupItems';
 import { logDatabaseIntegrity } from './dbIntegrity';
-import { NotificationType, pushNotification, sendBrowserNotification } from './notificationCenter';
+import { NotificationType, pushActivityNotification, pushNotification, sendBrowserNotification } from './notificationCenter';
 import { addMissingColumns, normalizeSyncError, setLastIndexedDbError, setLastSupabaseError, setSyncStatus } from './syncDiagnostics';
 import { getSelectableColumns, markMissingColumn } from './syncSchema';
 import { logSyncCategory, syncPerf } from './syncPerf';
@@ -1830,6 +1830,14 @@ export const addOrderItem = async (order: Order) => {
     route: `/order/${localOrder.id}`,
     severity: localOrder.isVip ? 'critical' : 'info'
   });
+  pushActivityNotification({
+    title: 'Создан заказ',
+    message: `${localOrder.brand} ${localOrder.model} · ${localOrder.vin}`,
+    orderId: localOrder.id,
+    entityType: 'order',
+    entityId: localOrder.id,
+    route: `/order/${localOrder.id}`
+  });
   const next = [localOrder, ...state.orders.filter((o) => o.id !== localOrder.id)];
   setState({ orders: next, error: null });
   await offlineDb.saveOrder(localOrder);
@@ -1866,6 +1874,14 @@ export const updateOrderItem = async (order: Order) => {
       route: `/order/${normalized.id}`,
       severity: normalized.status === 'vip' ? 'critical' : 'info'
     });
+    pushActivityNotification({
+      title: 'Обновлён статус заказа',
+      message: `${normalized.brand} ${normalized.model}: ${previousOrder.status} → ${normalized.status}` ,
+      orderId: normalized.id,
+      entityType: 'order',
+      entityId: normalized.id,
+      route: `/order/${normalized.id}`
+    });
   }
   const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
   setState({ orders: next, error: null });
@@ -1895,6 +1911,15 @@ export const updateOrderItem = async (order: Order) => {
 
 export const deleteOrderItem = async (orderId: string) => {
   const orderToDelete = state.orders.find((o) => o.id === orderId);
+  if (orderToDelete) {
+    pushActivityNotification({
+      title: 'Удалён заказ',
+      message: `${orderToDelete.brand} ${orderToDelete.model} · ${orderToDelete.vin}`,
+      orderId: orderToDelete.id,
+      entityType: 'order',
+      entityId: orderToDelete.id
+    });
+  }
   rememberLeadDeleted(orderId);
   const next = state.orders.filter((o) => o.id !== orderId);
   setState({ orders: next, error: null });
@@ -1923,6 +1948,15 @@ export const updatePartItem = async (orderId: string, part: Part) => {
   const exists = order.parts.some((p) => p.id === part.id);
   const parts = exists ? order.parts.map((p) => (p.id === part.id ? part : p)) : [...order.parts, part];
   await updateOrderItem({ ...order, parts });
+  pushActivityNotification({
+    title: exists ? 'Обновлена деталь' : 'Добавлена деталь',
+    message: `${part.name} · ${order.brand} ${order.model}`,
+    orderId: order.id,
+    partId: part.id,
+    entityType: 'part',
+    entityId: part.id,
+    route: `/order/${order.id}/part/${part.id}`
+  });
 };
 
 
@@ -1930,14 +1964,25 @@ export const removePartItem = async (orderId: string, partId: string) => {
   const order = state.orders.find((item) => item.id === orderId);
   if (!order) return;
 
+  const partName = order.parts.find((part) => part.id === partId)?.name || 'Деталь';
   const parts = order.parts.filter((part) => part.id !== partId);
   await updateOrderItem({ ...order, parts });
+  pushActivityNotification({
+    title: 'Удалена деталь',
+    message: `${partName} · ${order.brand} ${order.model}`,
+    orderId: order.id,
+    entityType: 'part',
+    entityId: partId,
+    route: `/order/${order.id}`
+  });
 };
 
 export const updatePriceVariantItem = async (partId: string, variant: PriceVariant) => {
   const order = state.orders.find((o) => o.parts.some((p) => p.id === partId));
   if (!order) return;
 
+  const part = order.parts.find((item) => item.id === partId);
+  const variantExists = part?.variants.some((v) => v.id === variant.id);
   const parts = order.parts.map((p) => {
     if (p.id !== partId) return p;
     const exists = p.variants.some((v) => v.id === variant.id);
@@ -1946,6 +1991,16 @@ export const updatePriceVariantItem = async (partId: string, variant: PriceVaria
   });
 
   await updateOrderItem({ ...order, parts });
+  pushActivityNotification({
+    title: variantExists ? 'Обновлён вариант цены' : 'Добавлен вариант цены',
+    message: `${part?.name || 'Деталь'} · ${variant.shopName || 'Магазин'} · ${variant.priceAed} AED`,
+    orderId: order.id,
+    partId,
+    supplierId: variant.shopId,
+    entityType: 'variant',
+    entityId: variant.id,
+    route: `/order/${order.id}/part/${partId}`
+  });
 };
 
 export const restoreOrdersExternal = (orders: Order[]) => {
