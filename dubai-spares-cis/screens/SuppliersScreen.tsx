@@ -644,6 +644,14 @@ const SuppliersScreen: React.FC = () => {
     [fullscreenSupplierId, suppliersForSelectedModel]
   );
 
+  const fullscreenSupplierOrders = useMemo(() => {
+    if (!fullscreenSupplier) return [] as typeof activeOrders;
+    const linkedOrderIds = Array.from(new Set((fullscreenSupplier.linkedParts || []).map((entry) => entry.orderId).filter(Boolean)));
+    return linkedOrderIds
+      .map((orderId) => activeOrders.find((order) => order.id === orderId))
+      .filter((order): order is (typeof activeOrders)[number] => !!order);
+  }, [activeOrders, fullscreenSupplier]);
+
   const buildAskPriceMessage = (orderId: string, partId: string) => {
     const order = orders.find((item) => item.id === orderId);
     if (!order) return 'Hello\n\nNeed price and photo please.';
@@ -717,6 +725,15 @@ const SuppliersScreen: React.FC = () => {
       supplierStatus: pickPriorityStatus(supplier.supplierStatus, 'contacted'),
       lastContactAt: Date.now()
     });
+  };
+
+  const markVisitedQuick = (supplier: Supplier) => {
+    addSupplierInteraction(supplier, 'visit', 'Visited supplier', {
+      supplierStatus: pickPriorityStatus(supplier.supplierStatus, 'visited'),
+      lastVisitedAt: Date.now(),
+      lastContactAt: Date.now()
+    });
+    toast('Статус "Посетил" сохранён', 'success');
   };
 
   const openWhatsAppAndTrack = (supplier: Supplier, message?: string) => {
@@ -1119,17 +1136,36 @@ const SuppliersScreen: React.FC = () => {
     const order = orders.find((item) => item.id === orderId);
     if (!order) return;
 
+    const linkedSupplier = suppliers.find((item) => item.id === shopId);
+    const normalizedSupplierPhone = (linkedSupplier?.whatsapp || linkedSupplier?.phone || '').replace(/\D/g, '');
+    const hasVendorContact = (order.vendorContacts || []).some((contact) => {
+      const contactPhone = (contact.whatsapp || contact.phone || '').replace(/\D/g, '');
+      return (linkedSupplier && contact.name.trim().toLowerCase() === linkedSupplier.name.trim().toLowerCase())
+        || (!!normalizedSupplierPhone && normalizedSupplierPhone === contactPhone);
+    });
+    const nextVendorContacts = (!hasVendorContact && linkedSupplier)
+      ? [{
+        id: createUuid(),
+        name: linkedSupplier.name,
+        phone: linkedSupplier.phone || '',
+        whatsapp: linkedSupplier.whatsapp || linkedSupplier.phone || '',
+        mapUrl: linkedSupplier.location || '',
+        note: linkedSupplier.comment || '',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      }, ...(order.vendorContacts || [])]
+      : (order.vendorContacts || []);
+
     const current = new Set(order.recommendedShopIds || []);
     current.add(shopId);
     const nextDismissed = (order.dismissedShopIds || []).filter((id) => id !== shopId);
-    updateOrder({ ...order, recommendedShopIds: Array.from(current), dismissedShopIds: nextDismissed, updatedAt: Date.now() });
+    updateOrder({ ...order, vendorContacts: nextVendorContacts, recommendedShopIds: Array.from(current), dismissedShopIds: nextDismissed, updatedAt: Date.now() });
 
     const partIds = selectedPartIds.length > 0
       ? selectedPartIds
       : (order.parts[0]?.id ? [order.parts[0].id] : []);
     partIds.forEach((partId) => addRadarManualSelection({ supplierId: shopId, orderId, partId, source: 'manual' }));
 
-    const linkedSupplier = suppliers.find((item) => item.id === shopId);
     if (linkedSupplier && order.brand) {
       const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
       const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
@@ -1313,6 +1349,15 @@ const SuppliersScreen: React.FC = () => {
   };
 
   const requiredReady = !!toTitle(name.trim()) && isValidE164(currentPhone) && !!location.trim();
+
+  useEffect(() => {
+    if (!fullscreenSupplierId) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [fullscreenSupplierId]);
 
   useEffect(() => {
     if (!selectedBrandView) {
@@ -1998,7 +2043,7 @@ const SuppliersScreen: React.FC = () => {
 
 
       {fullscreenSupplier && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-white">
+        <div className="fixed inset-0 z-[80] h-screen overflow-y-auto overscroll-contain bg-white" onClick={(event) => { if (event.target === event.currentTarget) setFullscreenSupplierId(null); }}>
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
             <button type="button" onClick={() => setFullscreenSupplierId(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700">Закрыть</button>
             <p className="text-sm font-black text-slate-800">{fullscreenSupplier.name}</p>
@@ -2021,7 +2066,7 @@ const SuppliersScreen: React.FC = () => {
             <div className="grid grid-cols-3 gap-2 text-[11px] font-black">
               <button type="button" onClick={() => markContacted(fullscreenSupplier)} className="h-9 rounded-full border border-slate-300 bg-white px-2 text-slate-700">✉️ Написал</button>
               <button type="button" onClick={() => markResponded(fullscreenSupplier)} className="h-9 rounded-full border border-emerald-200 bg-emerald-50 px-2 text-emerald-700">✅ Ответил</button>
-              <button type="button" onClick={() => setVisitFormSupplierId(fullscreenSupplier.id)} className="h-9 rounded-full border border-slate-300 bg-white px-2 text-slate-700">📍 Посетил</button>
+              <button type="button" onClick={() => markVisitedQuick(fullscreenSupplier)} className="h-9 rounded-full border border-slate-300 bg-white px-2 text-slate-700">📍 Посетил</button>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -2055,6 +2100,21 @@ const SuppliersScreen: React.FC = () => {
               >
                 Добавить поставщика в заказ
               </button>
+            </div>
+
+            <div className="rounded-xl border border-violet-200 bg-violet-50 p-3">
+              <p className="text-xs font-black text-violet-700">Добавленные заказы</p>
+              {fullscreenSupplierOrders.length === 0 ? (
+                <p className="mt-2 text-xs font-semibold text-violet-600">Пока нет добавленных заказов.</p>
+              ) : (
+                <div className="mt-2 space-y-1.5">
+                  {fullscreenSupplierOrders.map((order) => (
+                    <div key={order.id} className="rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700">
+                      {order.brand} {order.model} • {order.vin}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
