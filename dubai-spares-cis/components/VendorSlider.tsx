@@ -327,11 +327,17 @@ const VendorSliderContent: React.FC = () => {
       if (!text) return;
       const key = text.toLowerCase();
       const existing = byKey.get(key);
+      const source = item.source === 'order' ? 'order' : 'default';
+
+      if (source === 'default' && !existing) {
+        return;
+      }
+
       byKey.set(key, {
         id: item.id || existing?.id || ensureUuid(),
         text,
         completed: item.completed === true,
-        source: item.source === 'order' ? 'order' : existing?.source || 'default',
+        source,
         updatedAt: Number(item.updatedAt || existing?.updatedAt || Date.now())
       });
     });
