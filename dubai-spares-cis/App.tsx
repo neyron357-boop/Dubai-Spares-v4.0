@@ -1,5 +1,5 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { HashRouter, Routes, Route, NavLink, useLocation, useParams } from 'react-router-dom';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { HashRouter, Routes, Route, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import OrdersScreen from './screens/OrdersScreen';
 import NewOrderScreen from './screens/NewOrderScreen';
 import OrderDetailsScreen from './screens/OrderDetailsScreen';
@@ -24,14 +24,39 @@ const HashPublicQuoteRoute: React.FC = () => {
   return <PublicQuoteScreen orderId={orderId} />;
 };
 
+type BottomTab = 'orders' | 'new' | 'database' | 'notifications' | 'settings' | null;
+
+const resolveBottomTab = (pathname: string): BottomTab => {
+  if (pathname === '/' || pathname.startsWith('/order/') || pathname.startsWith('/vendor')) return 'orders';
+  if (pathname.startsWith('/new')) return 'new';
+  if (pathname.startsWith('/database')) return 'database';
+  if (pathname.startsWith('/notifications')) return 'notifications';
+  if (pathname.startsWith('/settings')) return 'settings';
+  return null;
+};
+
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const hideNav = location.pathname.includes('/estimate')
     || location.pathname.includes('/vendor')
     || location.pathname.includes('/request')
     || location.pathname.includes('/order-form')
     || location.pathname.includes('/public-order-form');
   const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
+  const [tabPaths, setTabPaths] = useState<Record<Exclude<BottomTab, null>, string>>({
+    orders: '/',
+    new: '/new',
+    database: '/database',
+    notifications: '/notifications',
+    settings: '/settings'
+  });
+
+  useEffect(() => {
+    const tab = resolveBottomTab(location.pathname);
+    if (!tab) return;
+    setTabPaths((prev) => (prev[tab] === location.pathname ? prev : { ...prev, [tab]: location.pathname }));
+  }, [location.pathname]);
 
   useEffect(() => {
     const updateUnread = () => setUnreadCount(getUnreadNotificationsCount());
@@ -50,6 +75,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
+  const handleTabNavigate = (tab: Exclude<BottomTab, null>) => {
+    const destination = tabPaths[tab];
+    if (destination) navigate(destination);
+  };
+
   return (
     <div className="fixed inset-0 h-[100dvh] w-full bg-slate-100 flex justify-center overflow-hidden"><div className="h-full w-full max-w-md bg-gray-50 flex flex-col overflow-hidden shadow-sm">
       <main className="flex-1 overflow-y-auto no-scrollbar relative">
@@ -60,18 +90,66 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       </main>
       {!hideNav && (
         <nav className="h-16 bg-white border-t border-gray-200 flex items-center justify-around px-2 pb-safe shrink-0 z-50">
-          <NavLink to="/" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
-          <NavLink to="/new" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">Новый</span></NavLink>
-          <NavLink to="/database" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">База</span></NavLink>
-          <NavLink to="/notifications" onClick={() => playSound('navigate')} className={({ isActive }) => `relative flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />
+          <NavLink to={tabPaths.orders} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('orders'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'orders' ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
+          <NavLink to={tabPaths.new} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('new'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'new' ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">Новый</span></NavLink>
+          <NavLink to={tabPaths.database} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('database'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'database' ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">База</span></NavLink>
+          <NavLink to={tabPaths.notifications} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('notifications'); }} className={() => `relative flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'notifications' ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />
             {unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{badgeLabel}</span>}
             <span className="text-[10px] font-medium">Оповещ.</span>
           </NavLink>
-          <NavLink to="/settings" onClick={() => playSound('navigate')} className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настр.</span></NavLink>
+          <NavLink to={tabPaths.settings} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('settings'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'settings' ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настр.</span></NavLink>
         </nav>
       )}
       </div>
     </div>
+  );
+};
+
+const CachedRoutes: React.FC = () => {
+  const location = useLocation();
+  const [cachedPaths, setCachedPaths] = useState<string[]>(() => [location.pathname]);
+
+  useEffect(() => {
+    setCachedPaths((prev) => (prev.includes(location.pathname) ? prev : [...prev, location.pathname]));
+  }, [location.pathname]);
+
+  const stablePaths = useMemo(() => cachedPaths, [cachedPaths]);
+
+  return (
+    <>
+      {stablePaths.map((pathname) => {
+        const isActive = pathname === location.pathname;
+        return (
+          <div key={pathname} className={isActive ? 'h-full' : 'hidden'}>
+            <Routes location={{ ...location, pathname }}>
+              <Route path="/" element={<OrdersScreen />} />
+              <Route path="/new" element={<NewOrderScreen />} />
+              <Route path="/vendor" element={<VendorSlider />} />
+              <Route path="/order/:id" element={<OrderDetailsScreen />} />
+              <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
+              <Route path="/database" element={<SuppliersScreen />} />
+              <Route path="/notifications" element={<NotificationsScreen />} />
+              <Route
+                path="/debug"
+                element={(
+                  <DebugRouteBoundary>
+                    <Suspense fallback={<div className="p-4 text-xs text-gray-500">Loading debug tools…</div>}>
+                      <DebugLogsScreen />
+                    </Suspense>
+                  </DebugRouteBoundary>
+                )}
+              />
+              <Route path="/settings" element={<SettingsScreen />} />
+              <Route path="/request" element={<PublicOrderFormScreen />} />
+              <Route path="/order-form" element={<PublicOrderFormScreen />} />
+              <Route path="/public-order-form" element={<PublicOrderFormScreen />} />
+              <Route path="/q/:orderId" element={<HashPublicQuoteRoute />} />
+              <Route path="*" element={<NotFoundScreen />} />
+            </Routes>
+          </div>
+        );
+      })}
+    </>
   );
 };
 
@@ -181,31 +259,7 @@ const App: React.FC = () => {
 
         <HashRouter>
           <Layout>
-            <Routes>
-              <Route path="/" element={<OrdersScreen />} />
-              <Route path="/new" element={<NewOrderScreen />} />
-              <Route path="/vendor" element={<VendorSlider />} />
-              <Route path="/order/:id" element={<OrderDetailsScreen />} />
-              <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
-              <Route path="/database" element={<SuppliersScreen />} />
-              <Route path="/notifications" element={<NotificationsScreen />} />
-              <Route
-                path="/debug"
-                element={(
-                  <DebugRouteBoundary>
-                    <Suspense fallback={<div className="p-4 text-xs text-gray-500">Loading debug tools…</div>}>
-                      <DebugLogsScreen />
-                    </Suspense>
-                  </DebugRouteBoundary>
-                )}
-              />
-              <Route path="/settings" element={<SettingsScreen />} />
-              <Route path="/request" element={<PublicOrderFormScreen />} />
-              <Route path="/order-form" element={<PublicOrderFormScreen />} />
-              <Route path="/public-order-form" element={<PublicOrderFormScreen />} />
-              <Route path="/q/:orderId" element={<HashPublicQuoteRoute />} />
-              <Route path="*" element={<NotFoundScreen />} />
-            </Routes>
+            <CachedRoutes />
           </Layout>
         </HashRouter>
       </div>

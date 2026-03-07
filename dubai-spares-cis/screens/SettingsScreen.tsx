@@ -152,12 +152,23 @@ const removeBrokenPhotosFromOrder = (order: Order): { next: Order; removed: numb
   };
 };
 
-const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger' }> = ({ title, children, tone = 'default' }) => (
-  <section className={`rounded-2xl border p-4 space-y-3 ${tone === 'danger' ? 'border-rose-200 bg-rose-50' : 'border-gray-200 bg-white'}`}>
-    <h2 className={`text-sm font-black ${tone === 'danger' ? 'text-rose-700' : 'text-gray-900'}`}>{title}</h2>
-    {children}
-  </section>
-);
+const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger' }> = ({ title, children, tone = 'default' }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <section className={`rounded-2xl border p-4 ${tone === 'danger' ? 'border-rose-200 bg-rose-50' : 'border-gray-200 bg-white'}`}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="w-full flex items-center justify-between gap-3"
+      >
+        <h2 className={`text-left text-sm font-black ${tone === 'danger' ? 'text-rose-700' : 'text-gray-900'}`}>{title}</h2>
+        <span className={`text-xs font-bold ${tone === 'danger' ? 'text-rose-600' : 'text-gray-500'}`}>{isOpen ? 'Скрыть' : 'Открыть'}</span>
+      </button>
+      {isOpen && <div className="mt-3 space-y-3">{children}</div>}
+    </section>
+  );
+};
 
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="space-y-1.5 min-w-0">
@@ -188,6 +199,20 @@ const SettingsScreen: React.FC = () => {
   const [newDefaultChecklistTask, setNewDefaultChecklistTask] = useState('');
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
+
+  const formatDateTime = (value?: string | null) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return '—';
+    const date = new Date(normalized);
+    if (Number.isNaN(date.getTime())) return normalized;
+    return date.toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
 
   useEffect(() => {
@@ -1038,10 +1063,19 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                       <p><span className="font-bold text-gray-900">ID:</span> {identity}</p>
                       <p><span className="font-bold text-gray-900">Авто:</span> {resolveSnapshotCarTitle(row)}</p>
                       <p><span className="font-bold text-gray-900">Token:</span> {row.token}</p>
-                      <p><span className="font-bold text-gray-900">Expires:</span> {row.expires_at}</p>
+                      <p><span className="font-bold text-gray-900">Создан:</span> {formatDateTime(row.created_at)}</p>
+                      <p><span className="font-bold text-gray-900">Истекает:</span> {formatDateTime(row.expires_at)}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <a href={buildSnapshotUrl(row)} target="_blank" rel="noreferrer" className="rounded-lg border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">Открыть</a>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-indigo-300 bg-indigo-50 px-2 py-1 text-xs font-bold text-indigo-700 disabled:opacity-50"
+                        onClick={() => row.order_id && navigate(`/order/${row.order_id}`)}
+                        disabled={!row.order_id}
+                      >
+                        Открыть заказ этого снапшота
+                      </button>
                       <button type="button" className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold" onClick={() => void copySnapshotUrl(row)}>Копировать ссылку</button>
                       <button type="button" className="rounded-lg border border-rose-300 bg-white px-2 py-1 text-xs font-bold text-rose-700" onClick={() => void handleSnapshotDelete(row)}>Удалить</button>
                     </div>
