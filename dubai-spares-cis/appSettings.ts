@@ -47,13 +47,7 @@ type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTeleg
 type CloudPublicSettings = PublicAppSettings & Pick<AppSettings, 'publicContactsUpdatedAt'>;
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
-  defaultVendorChecklist: [
-    'Проверить номер и WhatsApp поставщика',
-    'Отправить фото/артикул детали',
-    'Уточнить наличие и цену',
-    'Уточнить срок доставки',
-    'Записать результат в статус поставщика'
-  ],
+  defaultVendorChecklist: [],
   appLanguage: 'ru',
   waTemplateLanguage: 'ru',
   currencyFormat: 'AED',
