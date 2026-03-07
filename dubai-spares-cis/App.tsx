@@ -119,6 +119,8 @@ const CachedRoutes: React.FC = () => {
     <>
       {stablePaths.map((pathname) => {
         const isActive = pathname === location.pathname;
+        const keepMountedWhenHidden = pathname !== '/vendor';
+        if (!isActive && !keepMountedWhenHidden) return null;
         return (
           <div key={pathname} className={isActive ? 'h-full' : 'hidden'}>
             <Routes location={{ ...location, pathname }}>
