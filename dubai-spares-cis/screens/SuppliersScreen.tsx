@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useStore, syncSuppliersFromServer } from '../store';
 import { Supplier, SupplierInteraction, SupplierInteractionType, SupplierLinkedPartEntry, SupplierLinkedPartStatus, SupplierStatus, SupplierType } from '../types';
 import {
@@ -250,6 +251,7 @@ const mapSupplierCategory = (value: string) => {
 
 const SuppliersScreen: React.FC = () => {
   const { suppliers, addSupplier, deleteSupplier, restoreData, orders, updateOrder, updateSupplier, lastSuppliersSyncError } = useStore();
+  const locationRoute = useLocation();
 
   const [isAdding, setIsAdding] = useState(false);
   const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
@@ -333,6 +335,25 @@ const SuppliersScreen: React.FC = () => {
     () => orders.filter((order) => !order.isArchived && !order.isSold),
     [orders]
   );
+
+
+  useEffect(() => {
+    const params = new URLSearchParams(locationRoute.search);
+    const supplierId = params.get('supplierId');
+    if (!supplierId) return;
+    const hasSupplier = suppliers.some((supplier) => supplier.id === supplierId);
+    if (!hasSupplier) return;
+    setExpandedSupplierIds((current) => {
+      if (current.has(supplierId)) return current;
+      const next = new Set(current);
+      next.add(supplierId);
+      return next;
+    });
+    const el = document.getElementById(`supplier-card-${supplierId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [locationRoute.search, suppliers]);
 
   const manualSelectionsBySupplier = useMemo(() => {
     const grouped: Record<string, Array<{ orderId: string; orderLabel: string; partId: string; partName: string }>> = {};
@@ -1621,7 +1642,7 @@ const SuppliersScreen: React.FC = () => {
                 : { label: '?', classes: 'border-slate-200 bg-slate-100 text-slate-600' };
 
             return (
-              <div key={s.id} className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${s.whatsappFast === true ? 'ring-1 ring-emerald-200' : ''} ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}>
+              <div id={`supplier-card-${s.id}`} key={s.id} className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${s.whatsappFast === true ? 'ring-1 ring-emerald-200' : ''} ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}>
                 <button type="button" onClick={() => setExpandedSupplierIds((prev) => { const next = new Set(prev); if (next.has(s.id)) next.delete(s.id); else next.add(s.id); return next; })} className="w-full text-left space-y-2">
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3 flex-1 min-w-0">

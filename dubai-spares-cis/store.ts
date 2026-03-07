@@ -3,6 +3,7 @@ import { Supplier } from './types';
 import { useOrderStore, subscribeOrderStore, getOrderState, restoreOrdersExternal, fetchOrderDetails } from './orderStore';
 import { ensureUuid } from './id';
 import { deleteSupplierFromShops, fetchSuppliersFromShops } from './radarShops';
+import { pushActivityNotification } from './notificationCenter';
 
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
@@ -457,8 +458,17 @@ export const useStore = () => {
   }, [isHydrated, isLoading]);
 
   const addSupplier = useCallback((supplier: Supplier) => {
-    globalSuppliers = [normalizeSupplier(supplier), ...globalSuppliers];
+    const normalized = normalizeSupplier(supplier);
+    globalSuppliers = [normalized, ...globalSuppliers];
     notifySupplierListeners();
+    pushActivityNotification({
+      title: 'Добавлен поставщик',
+      message: `${normalized.name}${normalized.phone ? ` · ${normalized.phone}` : ''}`,
+      supplierId: normalized.id,
+      entityType: 'supplier',
+      entityId: normalized.id,
+      route: `/database?supplierId=${normalized.id}`
+    });
   }, []);
 
   const updateSupplier = useCallback((updated: Supplier) => {
@@ -466,16 +476,42 @@ export const useStore = () => {
     const existingIndex = globalSuppliers.findIndex((s) => s.id === normalized.id);
     if (existingIndex === -1) {
       globalSuppliers = [normalized, ...globalSuppliers];
+      pushActivityNotification({
+        title: 'Добавлен поставщик',
+        message: `${normalized.name}${normalized.phone ? ` · ${normalized.phone}` : ''}`,
+        supplierId: normalized.id,
+        entityType: 'supplier',
+        entityId: normalized.id,
+        route: `/database?supplierId=${normalized.id}`
+      });
     } else {
       globalSuppliers = globalSuppliers.map((s) => (s.id === normalized.id ? normalized : s));
+      pushActivityNotification({
+        title: 'Обновлён поставщик',
+        message: `${normalized.name}${normalized.phone ? ` · ${normalized.phone}` : ''}`,
+        supplierId: normalized.id,
+        entityType: 'supplier',
+        entityId: normalized.id,
+        route: `/database?supplierId=${normalized.id}`
+      });
     }
     notifySupplierListeners();
   }, []);
 
   const deleteSupplier = useCallback(async (id: string) => {
     const normalizedId = normalizeSupplierId(id);
+    const removedSupplier = globalSuppliers.find((s) => s.id === normalizedId);
     globalSuppliers = globalSuppliers.filter((s) => s.id !== normalizedId);
     notifySupplierListeners();
+    if (removedSupplier) {
+      pushActivityNotification({
+        title: 'Удалён поставщик',
+        message: `${removedSupplier.name}${removedSupplier.phone ? ` · ${removedSupplier.phone}` : ''}`,
+        supplierId: normalizedId,
+        entityType: 'supplier',
+        entityId: normalizedId
+      });
+    }
 
     await deleteSupplierFromShops(normalizedId);
 
