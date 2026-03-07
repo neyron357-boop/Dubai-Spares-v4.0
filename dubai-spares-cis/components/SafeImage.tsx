@@ -1,5 +1,5 @@
-import React, { forwardRef, useMemo, useState } from 'react';
-import { getBrokenImagePlaceholder, isBrokenImageUrl, markBrokenImageUrl } from '../storage/brokenImageBlacklist';
+import React, { forwardRef, useEffect, useMemo, useState } from 'react';
+import { getBrokenImagePlaceholder, isBrokenImageUrl, markBrokenImageUrl, removeBrokenImageUrl } from '../storage/brokenImageBlacklist';
 
 type Props = React.ImgHTMLAttributes<HTMLImageElement> & {
   src?: string | null;
@@ -10,6 +10,10 @@ const SafeImage = forwardRef<HTMLImageElement, Props>(({ src, onError, ...rest }
   const blacklisted = useMemo(() => (originalSrc ? isBrokenImageUrl(originalSrc) : false), [originalSrc]);
   const [failed, setFailed] = useState(blacklisted);
 
+  useEffect(() => {
+    setFailed(blacklisted);
+  }, [blacklisted, originalSrc]);
+
   const safeSrc = !originalSrc || failed ? getBrokenImagePlaceholder() : originalSrc;
 
   return (
@@ -17,6 +21,9 @@ const SafeImage = forwardRef<HTMLImageElement, Props>(({ src, onError, ...rest }
       ref={ref}
       {...rest}
       src={safeSrc}
+      onLoad={() => {
+        if (originalSrc) removeBrokenImageUrl(originalSrc);
+      }}
       onError={(event) => {
         if (!failed && originalSrc) {
           markBrokenImageUrl(originalSrc);
