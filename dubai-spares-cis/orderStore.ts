@@ -1278,6 +1278,24 @@ const hasCriticalFinancialPatch = (patch: Partial<Order>) => {
   );
 };
 
+const mergeChecklistFromLocal = (cloudOrder: Order, localOrder?: Order): Order => {
+  if (!localOrder) return cloudOrder;
+
+  const cloudChecklist = Array.isArray(cloudOrder.vendorChecklist) ? cloudOrder.vendorChecklist : [];
+  const localChecklist = Array.isArray(localOrder.vendorChecklist) ? localOrder.vendorChecklist : [];
+  if (localChecklist.length === 0) return cloudOrder;
+
+  const cloudUpdatedAt = Number(cloudOrder.updatedAt || cloudOrder.createdAt || 0);
+  const localUpdatedAt = Number(localOrder.updatedAt || localOrder.createdAt || 0);
+  const shouldUseLocalChecklist = cloudChecklist.length === 0 || localUpdatedAt > cloudUpdatedAt;
+  if (!shouldUseLocalChecklist) return cloudOrder;
+
+  return {
+    ...cloudOrder,
+    vendorChecklist: localChecklist
+  };
+};
+
 const scheduleBackgroundFlush = () => {
   const timerKey = '__network_flush__';
   const existing = mutationTimers.get(timerKey);
@@ -1687,8 +1705,9 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
   const mergedOrders = orders
     .filter((cloudOrder) => !pendingDeleteIds.has(cloudOrder.id))
     .map((cloudOrder) => {
-      if (!pendingUpsertIds.has(cloudOrder.id)) return cloudOrder;
-      return localById.get(cloudOrder.id) || cloudOrder;
+      const localOrder = localById.get(cloudOrder.id);
+      if (pendingUpsertIds.has(cloudOrder.id)) return localOrder || cloudOrder;
+      return mergeChecklistFromLocal(cloudOrder, localOrder);
     });
 
   localById.forEach((localOrder, localId) => {
