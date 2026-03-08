@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 import { CargoTariff, DEFAULT_CARGO_TARIFFS } from './utils/cargo';
 
 export const APP_SETTINGS_KEY = 'dubai_spares_app_settings_v1';
+const CLOUD_APP_SETTINGS_ID = 'app_settings';
 const CLOUD_PUBLIC_SETTINGS_ID = 'public_settings';
 
 export type AppLanguage = 'ru' | 'en';
@@ -41,11 +42,13 @@ export interface AppSettings {
   publicWorkTerms: string;
   publicCompanyLogoUrl: string;
   publicInvoiceSignatureUrl: string;
+  publicTermsFileUrl: string;
+  publicTermsFileName: string;
   publicContactsUpdatedAt: number;
   cargoTariffs: CargoTariff[];
 }
 
-type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl'>;
+type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl' | 'publicTermsFileUrl' | 'publicTermsFileName'>;
 type CloudPublicSettings = PublicAppSettings & Pick<AppSettings, 'publicContactsUpdatedAt'>;
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -76,6 +79,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   publicWorkTerms: '',
   publicCompanyLogoUrl: '',
   publicInvoiceSignatureUrl: '',
+  publicTermsFileUrl: '',
+  publicTermsFileName: '',
   publicContactsUpdatedAt: 0,
   cargoTariffs: DEFAULT_CARGO_TARIFFS
 };
@@ -94,6 +99,8 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
   publicWorkTerms: typeof raw?.publicWorkTerms === 'string' ? raw.publicWorkTerms : '',
   publicCompanyLogoUrl: typeof raw?.publicCompanyLogoUrl === 'string' ? raw.publicCompanyLogoUrl : '',
   publicInvoiceSignatureUrl: typeof raw?.publicInvoiceSignatureUrl === 'string' ? raw.publicInvoiceSignatureUrl : '',
+  publicTermsFileUrl: typeof raw?.publicTermsFileUrl === 'string' ? raw.publicTermsFileUrl : '',
+  publicTermsFileName: typeof raw?.publicTermsFileName === 'string' ? raw.publicTermsFileName : '',
   publicContactsUpdatedAt: Number.isFinite(Number(raw?.publicContactsUpdatedAt)) ? Number(raw?.publicContactsUpdatedAt) : 0,
   defaultVendorChecklist: Array.isArray(raw?.defaultVendorChecklist)
     ? raw.defaultVendorChecklist
@@ -115,8 +122,32 @@ const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): Publi
     publicDeliveryTerms: normalized.publicDeliveryTerms,
     publicWorkTerms: normalized.publicWorkTerms,
     publicCompanyLogoUrl: normalized.publicCompanyLogoUrl,
-    publicInvoiceSignatureUrl: normalized.publicInvoiceSignatureUrl
+    publicInvoiceSignatureUrl: normalized.publicInvoiceSignatureUrl,
+    publicTermsFileUrl: normalized.publicTermsFileUrl,
+    publicTermsFileName: normalized.publicTermsFileName
   };
+};
+
+const loadCloudAppSettings = async (): Promise<(AppSettings & { updatedAt: number }) | null> => {
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('app_state')
+      .select('data,updated_at')
+      .eq('id', CLOUD_APP_SETTINGS_ID)
+      .maybeSingle();
+
+    if (error) return null;
+    const normalized = normalizeSettings((data?.data || {}) as Partial<AppSettings>);
+    const updatedAt = Date.parse(String(data?.updated_at || ''));
+    return {
+      ...normalized,
+      updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0
+    };
+  } catch {
+    return null;
+  }
 };
 
 const loadCloudPublicSettings = async (): Promise<CloudPublicSettings | null> => {
@@ -166,6 +197,25 @@ const saveCloudPublicSettings = async (settings: AppSettings): Promise<void> => 
   }
 };
 
+const saveCloudAppSettings = async (settings: AppSettings): Promise<void> => {
+  if (!supabase) return;
+
+  try {
+    await supabase
+      .from('app_state')
+      .upsert(
+        {
+          id: CLOUD_APP_SETTINGS_ID,
+          data: settings,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: 'id' }
+      );
+  } catch {
+    // keep local settings as fallback
+  }
+};
+
 export const loadAppSettings = (): AppSettings => {
   try {
     const raw = localStorage.getItem(APP_SETTINGS_KEY);
@@ -177,7 +227,7 @@ export const loadAppSettings = (): AppSettings => {
 };
 
 export const saveAppSettings = (patch: Partial<AppSettings>): AppSettings => {
-  const touchesPublicContacts = ['publicWhatsappNumber', 'publicTelegramUrl', 'publicInstagramUrl', 'publicDeliveryTerms', 'publicWorkTerms', 'publicCompanyLogoUrl', 'publicInvoiceSignatureUrl']
+  const touchesPublicContacts = ['publicWhatsappNumber', 'publicTelegramUrl', 'publicInstagramUrl', 'publicDeliveryTerms', 'publicWorkTerms', 'publicCompanyLogoUrl', 'publicInvoiceSignatureUrl', 'publicTermsFileUrl', 'publicTermsFileName']
     .some((field) => Object.prototype.hasOwnProperty.call(patch, field));
   const next = normalizeSettings({
     ...loadAppSettings(),
@@ -196,16 +246,29 @@ export const useAppSettings = () => {
     let active = true;
 
     void (async () => {
+      const cloudSettings = await loadCloudAppSettings();
       const cloudPublicSettings = await loadCloudPublicSettings();
-      if (!cloudPublicSettings || !active) return;
+      if (!active) return;
 
       const localSettings = loadAppSettings();
+      const localUpdatedAt = Number(localSettings.publicContactsUpdatedAt || 0);
+
+      const mergedFromCloud = cloudSettings && Number(cloudSettings.updatedAt || 0) > localUpdatedAt
+        ? normalizeSettings(cloudSettings)
+        : localSettings;
+
+      if (!cloudPublicSettings) {
+        localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(mergedFromCloud));
+        setSettings(mergedFromCloud);
+        return;
+      }
+
       const cloudUpdatedAt = Number(cloudPublicSettings.publicContactsUpdatedAt || 0);
-      const shouldApplyCloud = cloudUpdatedAt > Number(localSettings.publicContactsUpdatedAt || 0);
+      const shouldApplyCloud = cloudUpdatedAt > Number(mergedFromCloud.publicContactsUpdatedAt || 0);
 
       const merged = normalizeSettings(shouldApplyCloud
-        ? { ...localSettings, ...cloudPublicSettings, publicContactsUpdatedAt: cloudUpdatedAt }
-        : localSettings);
+        ? { ...mergedFromCloud, ...cloudPublicSettings, publicContactsUpdatedAt: cloudUpdatedAt }
+        : mergedFromCloud);
       localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(merged));
       setSettings(merged);
     })();
@@ -230,6 +293,7 @@ export const useAppSettings = () => {
     const next = saveAppSettings(patch);
     setSettings(next);
     void saveCloudPublicSettings(next);
+    void saveCloudAppSettings(next);
     return next;
   };
 
