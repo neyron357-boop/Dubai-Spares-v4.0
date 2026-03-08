@@ -304,6 +304,9 @@ const SuppliersScreen: React.FC = () => {
   const [sortByExtended, setSortByExtended] = useState<'smart' | 'fast' | 'trust' | 'heat' | 'near' | 'name'>('smart');
   const [brandFilter, setBrandFilter] = useState('all');
   const [modelFilter, setModelFilter] = useState('all');
+  const [selectedBrandView, setSelectedBrandView] = useState<string | null>(null);
+  const [selectedModelView, setSelectedModelView] = useState<string | null>(null);
+  const [fullscreenSupplierId, setFullscreenSupplierId] = useState<string | null>(null);
   const [yearFilter, setYearFilter] = useState('all');
   const [partCategoryFilter, setPartCategoryFilter] = useState('all');
   const [favoriteFilter, setFavoriteFilter] = useState<'all' | 'favorites'>('all');
@@ -606,6 +609,49 @@ const SuppliersScreen: React.FC = () => {
       .slice(0, 5);
   }, [activeOrderForTop, filteredSuppliers, selectedPartForTop, sortByDistanceRef]);
 
+  const availableBrands = useMemo(() => {
+    const brands = new Set<string>();
+    rawSuppliers.forEach((supplier) => {
+      pickSupplierBrands(supplier).forEach((brand) => {
+        if (brand) brands.add(brand);
+      });
+    });
+    return Array.from(brands).sort((a, b) => a.localeCompare(b));
+  }, [rawSuppliers]);
+
+  const modelsForSelectedBrand = useMemo(() => {
+    if (!selectedBrandView) return [];
+    const models = new Set<string>();
+    rawSuppliers
+      .filter((supplier) => pickSupplierBrands(supplier).includes(selectedBrandView))
+      .forEach((supplier) => {
+        (supplier.models || []).forEach((model) => {
+          if (model) models.add(model);
+        });
+      });
+    return Array.from(models).sort((a, b) => a.localeCompare(b));
+  }, [rawSuppliers, selectedBrandView]);
+
+  const suppliersForSelectedModel = useMemo(() => {
+    if (!selectedBrandView || !selectedModelView) return [];
+    return filteredSuppliers.filter((supplier) => (
+      pickSupplierBrands(supplier).includes(selectedBrandView) && (supplier.models || []).includes(selectedModelView)
+    ));
+  }, [filteredSuppliers, selectedBrandView, selectedModelView]);
+
+  const fullscreenSupplier = useMemo(
+    () => suppliersForSelectedModel.find((supplier) => supplier.id === fullscreenSupplierId) || null,
+    [fullscreenSupplierId, suppliersForSelectedModel]
+  );
+
+  const fullscreenSupplierOrders = useMemo(() => {
+    if (!fullscreenSupplier) return [] as typeof activeOrders;
+    const linkedOrderIds = Array.from(new Set((fullscreenSupplier.linkedParts || []).map((entry) => entry.orderId).filter(Boolean)));
+    return linkedOrderIds
+      .map((orderId) => activeOrders.find((order) => order.id === orderId))
+      .filter((order): order is (typeof activeOrders)[number] => !!order);
+  }, [activeOrders, fullscreenSupplier]);
+
   const buildAskPriceMessage = (orderId: string, partId: string) => {
     const order = orders.find((item) => item.id === orderId);
     if (!order) return 'Hello\n\nNeed price and photo please.';
@@ -679,6 +725,15 @@ const SuppliersScreen: React.FC = () => {
       supplierStatus: pickPriorityStatus(supplier.supplierStatus, 'contacted'),
       lastContactAt: Date.now()
     });
+  };
+
+  const markVisitedQuick = (supplier: Supplier) => {
+    addSupplierInteraction(supplier, 'visit', 'Visited supplier', {
+      supplierStatus: pickPriorityStatus(supplier.supplierStatus, 'visited'),
+      lastVisitedAt: Date.now(),
+      lastContactAt: Date.now()
+    });
+    toast('Статус "Посетил" сохранён', 'success');
   };
 
   const openWhatsAppAndTrack = (supplier: Supplier, message?: string) => {
@@ -1081,17 +1136,36 @@ const SuppliersScreen: React.FC = () => {
     const order = orders.find((item) => item.id === orderId);
     if (!order) return;
 
+    const linkedSupplier = suppliers.find((item) => item.id === shopId);
+    const normalizedSupplierPhone = (linkedSupplier?.whatsapp || linkedSupplier?.phone || '').replace(/\D/g, '');
+    const hasVendorContact = (order.vendorContacts || []).some((contact) => {
+      const contactPhone = (contact.whatsapp || contact.phone || '').replace(/\D/g, '');
+      return (linkedSupplier && contact.name.trim().toLowerCase() === linkedSupplier.name.trim().toLowerCase())
+        || (!!normalizedSupplierPhone && normalizedSupplierPhone === contactPhone);
+    });
+    const nextVendorContacts = (!hasVendorContact && linkedSupplier)
+      ? [{
+        id: createUuid(),
+        name: linkedSupplier.name,
+        phone: linkedSupplier.phone || '',
+        whatsapp: linkedSupplier.whatsapp || linkedSupplier.phone || '',
+        mapUrl: linkedSupplier.location || '',
+        note: linkedSupplier.comment || '',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      }, ...(order.vendorContacts || [])]
+      : (order.vendorContacts || []);
+
     const current = new Set(order.recommendedShopIds || []);
     current.add(shopId);
     const nextDismissed = (order.dismissedShopIds || []).filter((id) => id !== shopId);
-    updateOrder({ ...order, recommendedShopIds: Array.from(current), dismissedShopIds: nextDismissed, updatedAt: Date.now() });
+    updateOrder({ ...order, vendorContacts: nextVendorContacts, recommendedShopIds: Array.from(current), dismissedShopIds: nextDismissed, updatedAt: Date.now() });
 
     const partIds = selectedPartIds.length > 0
       ? selectedPartIds
       : (order.parts[0]?.id ? [order.parts[0].id] : []);
     partIds.forEach((partId) => addRadarManualSelection({ supplierId: shopId, orderId, partId, source: 'manual' }));
 
-    const linkedSupplier = suppliers.find((item) => item.id === shopId);
     if (linkedSupplier && order.brand) {
       const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
       const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
@@ -1276,20 +1350,46 @@ const SuppliersScreen: React.FC = () => {
 
   const requiredReady = !!toTitle(name.trim()) && isValidE164(currentPhone) && !!location.trim();
 
+  useEffect(() => {
+    if (!fullscreenSupplierId) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [fullscreenSupplierId]);
+
+  useEffect(() => {
+    if (!selectedBrandView) {
+      setBrandFilter('all');
+      setModelFilter('all');
+      setSelectedModelView(null);
+      return;
+    }
+    setBrandFilter(selectedBrandView);
+    if (!selectedModelView) {
+      setModelFilter('all');
+      return;
+    }
+    setModelFilter(selectedModelView);
+  }, [selectedBrandView, selectedModelView]);
+
   return (
     <div className="p-4 space-y-4 pb-20 overflow-x-hidden">
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-bold">База Поставщиков</h1>
         <div className="flex flex-wrap justify-end gap-2">
-          <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleFileSelect} />
-          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2.5 bg-violet-50 text-violet-600 rounded-xl" title="Импорт"><Upload size={18} /></button>
-          <button type="button" onClick={() => setFieldMode((prev) => !prev)} className={`p-2.5 rounded-xl ${fieldMode ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700'}`} title="FIELD MODE">📍</button>
-          <button type="button" onClick={() => { setFieldMode(true); setIsAdding(true); }} className="p-2.5 bg-indigo-600 text-white rounded-xl" title="+ QUICK SUPPLIER">+Q</button>
+          {selectedBrandView && (
+            <button type="button" onClick={() => { setSelectedBrandView(null); setSelectedModelView(null); }} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">← Марки</button>
+          )}
+          {selectedBrandView && selectedModelView && (
+            <button type="button" onClick={() => setSelectedModelView(null)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">← Модели</button>
+          )}
           <button type="button" onClick={() => setIsAdding(true)} className="p-2.5 bg-blue-600 text-white rounded-xl" title="Добавить"><UserPlus size={20} /></button>
         </div>
       </div>
 
-      <button
+      {selectedModelView && <button
         type="button"
         onClick={() => void forceRefreshSuppliers()}
         disabled={isForceSyncingSuppliers}
@@ -1297,9 +1397,9 @@ const SuppliersScreen: React.FC = () => {
       >
         {isForceSyncingSuppliers ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
         {isForceSyncingSuppliers ? 'Загружаю…' : 'Загрузить из сервера поставщиков'}
-      </button>
+      </button>}
 
-      <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm">
+      {selectedModelView && <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm">
         <div className="mb-2 flex items-center justify-between gap-2">
           <button
             type="button"
@@ -1370,7 +1470,7 @@ const SuppliersScreen: React.FC = () => {
             </div>
           </>
         )}
-      </div>
+      </div>}
 
 
       <section className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-3">
@@ -1533,7 +1633,68 @@ const SuppliersScreen: React.FC = () => {
         </div>
       )}
 
-      <div className="space-y-3">
+      {!selectedBrandView && (
+        <section className="grid grid-cols-2 gap-3">
+          {availableBrands.map((brand) => (
+            <button
+              key={brand}
+              type="button"
+              onClick={() => setSelectedBrandView(brand)}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-8 text-center text-sm font-black text-slate-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+            >
+              {brand}
+            </button>
+          ))}
+        </section>
+      )}
+
+      {selectedBrandView && !selectedModelView && (
+        <section className="space-y-2">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Модели {selectedBrandView}</p>
+          <div className="grid grid-cols-2 gap-3">
+            {modelsForSelectedBrand.map((model) => (
+              <button
+                key={model}
+                type="button"
+                onClick={() => setSelectedModelView(model)}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-6 text-center text-sm font-bold text-slate-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+              >
+                {model}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {selectedBrandView && selectedModelView && (
+        <section className="space-y-3">
+          {suppliersForSelectedModel.map((supplier) => (
+            <div key={supplier.id} role="button" tabIndex={0} onClick={() => setFullscreenSupplierId(supplier.id)} onKeyDown={(e) => { if (e.key === 'Enter') setFullscreenSupplierId(supplier.id); }} className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm">
+              <div className="flex items-center gap-2">
+                <Store size={16} className="text-slate-500" />
+                <span className="flex-1 text-center text-sm font-black text-slate-800">{supplier.name}</span>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOverflowSupplierId((prev) => prev === supplier.id ? null : supplier.id);
+                  }}
+                  className="rounded-lg border border-slate-200 px-2 py-1 text-slate-500"
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsAppAndTrack(supplier); }} className="rounded-lg bg-emerald-500 px-2 py-1.5 text-[11px] font-black text-white">WhatsApp</button>
+                <a href={`tel:${supplier.phone || ''}`} onClick={(e) => { e.stopPropagation(); markCalled(supplier); }} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-center text-[11px] font-black text-slate-700">Позвонить</a>
+                <button type="button" onClick={(e) => { e.stopPropagation(); openMap(supplier.location || ''); }} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-black text-slate-700">Карта</button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      <div className="hidden space-y-3">
         {lastSuppliersSyncError && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-red-700 space-y-2">
             <div className="flex items-start gap-2">
@@ -1880,6 +2041,84 @@ const SuppliersScreen: React.FC = () => {
         )}
       </div>
 
+
+      {fullscreenSupplier && (
+        <div className="fixed inset-0 z-[80] h-screen overflow-y-auto overscroll-contain bg-white" onClick={(event) => { if (event.target === event.currentTarget) setFullscreenSupplierId(null); }}>
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+            <button type="button" onClick={() => setFullscreenSupplierId(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700">Закрыть</button>
+            <p className="text-sm font-black text-slate-800">{fullscreenSupplier.name}</p>
+            <div className="w-14" />
+          </div>
+          {fullscreenSupplier.photos?.[0] && <img src={fullscreenSupplier.photos[0]} alt={fullscreenSupplier.name} className="h-48 w-full object-cover" />}
+          <div className="space-y-3 p-4">
+            <div className="grid grid-cols-3 gap-2">
+              <button type="button" onClick={() => openWhatsAppAndTrack(fullscreenSupplier)} className="rounded-xl bg-emerald-500 px-2 py-2 text-xs font-black text-white">WhatsApp</button>
+              <a href={`tel:${fullscreenSupplier.phone || ''}`} onClick={() => markCalled(fullscreenSupplier)} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-center text-xs font-black text-slate-700">Позвонить</a>
+              <button type="button" onClick={() => openMap(fullscreenSupplier.location || '')} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-black text-slate-700">Карта</button>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-700">
+              <p><span className="font-black">Локация:</span> {fullscreenSupplier.location || '—'}</p>
+              <p><span className="font-black">Марки:</span> {(pickSupplierBrands(fullscreenSupplier).join(', ') || '—')}</p>
+              <p><span className="font-black">Модели:</span> {((fullscreenSupplier.models || []).join(', ') || '—')}</p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-[11px] font-black">
+              <button type="button" onClick={() => markContacted(fullscreenSupplier)} className="h-9 rounded-full border border-slate-300 bg-white px-2 text-slate-700">✉️ Написал</button>
+              <button type="button" onClick={() => markResponded(fullscreenSupplier)} className="h-9 rounded-full border border-emerald-200 bg-emerald-50 px-2 text-emerald-700">✅ Ответил</button>
+              <button type="button" onClick={() => markVisitedQuick(fullscreenSupplier)} className="h-9 rounded-full border border-slate-300 bg-white px-2 text-slate-700">📍 Посетил</button>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <p className="mb-2 text-xs font-black text-slate-700">История взаимодействий</p>
+              {(fullscreenSupplier.interactions || []).length === 0 ? <p className="text-xs text-slate-500">История пока пустая.</p> : (fullscreenSupplier.interactions || []).map((item) => (
+                <p key={item.id} className="text-xs text-slate-600">{new Date(item.date).toLocaleDateString()} — {item.type} {item.note ? `· ${item.note}` : ''}</p>
+              ))}
+            </div>
+
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+              <p className="text-xs font-black text-blue-700">Добавление деталей/заказов</p>
+              <select
+                className="mt-2 w-full rounded-lg border border-blue-200 bg-white px-2 py-2 text-xs font-semibold"
+                value={selectedOrderBySupplier[fullscreenSupplier.id] || ''}
+                onChange={(e) => setSelectedOrderBySupplier((prev) => ({ ...prev, [fullscreenSupplier.id]: e.target.value }))}
+              >
+                <option value="">Выберите активный заказ...</option>
+                {activeOrders.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model} • {order.vin}</option>)}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  const selectedOrderId = selectedOrderBySupplier[fullscreenSupplier.id];
+                  if (!selectedOrderId) return;
+                  const selectedOrder = activeOrders.find((order) => order.id === selectedOrderId);
+                  if (!selectedOrder) return;
+                  addSupplierToOrder(fullscreenSupplier.id, selectedOrderId, selectedOrder.parts.map((part) => part.id));
+                  toast('Поставщик добавлен в заказ', 'success');
+                }}
+                className="mt-2 w-full rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white"
+              >
+                Добавить поставщика в заказ
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-violet-200 bg-violet-50 p-3">
+              <p className="text-xs font-black text-violet-700">Добавленные заказы</p>
+              {fullscreenSupplierOrders.length === 0 ? (
+                <p className="mt-2 text-xs font-semibold text-violet-600">Пока нет добавленных заказов.</p>
+              ) : (
+                <div className="mt-2 space-y-1.5">
+                  {fullscreenSupplierOrders.map((order) => (
+                    <div key={order.id} className="rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700">
+                      {order.brand} {order.model} • {order.vin}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {visitFormSupplierId && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3">

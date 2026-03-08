@@ -96,6 +96,12 @@ const VendorSliderContent: React.FC = () => {
   const supplierDeletePressTimerRef = useRef<number | null>(null);
   const lastUrlSyncAtRef = useRef(0);
 
+  const clearPendingUrlSync = () => {
+    if (!syncTimerRef.current) return;
+    window.clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = null;
+  };
+
   const hasPricedPart = (order: typeof orders[number]) => order.parts.some((part) => part.variants.length > 0);
   const hasOrderSuppliers = (order: typeof orders[number]) => (order.vendorContacts || []).length > 0;
 
@@ -179,9 +185,7 @@ const VendorSliderContent: React.FC = () => {
     const nextQuery = next.toString();
     if (nextQuery === currentQuery) return;
 
-    if (syncTimerRef.current) {
-      window.clearTimeout(syncTimerRef.current);
-    }
+    clearPendingUrlSync();
 
     syncTimerRef.current = window.setTimeout(() => {
       const now = Date.now();
@@ -193,17 +197,12 @@ const VendorSliderContent: React.FC = () => {
     }, 300);
 
     return () => {
-      if (syncTimerRef.current) {
-        window.clearTimeout(syncTimerRef.current);
-        syncTimerRef.current = null;
-      }
+      clearPendingUrlSync();
     };
   }, [selectedBrand, committedSlide?.id, location.search, searchParams, setSearchParams]);
 
   useEffect(() => () => {
-    if (syncTimerRef.current) {
-      window.clearTimeout(syncTimerRef.current);
-    }
+    clearPendingUrlSync();
   }, []);
 
   useEffect(() => {
@@ -703,7 +702,7 @@ const VendorSliderContent: React.FC = () => {
     return (
       <div className="fixed inset-0 z-50 flex min-h-screen flex-col items-center justify-center gap-4 bg-[#0B1220] text-gray-300">
         <p>Нет данных</p>
-        <button type="button" onClick={() => navigate(-1)} className="rounded-xl border border-gray-700 px-4 py-2">Назад</button>
+        <button type="button" onClick={() => { clearPendingUrlSync(); navigate(-1); }} className="rounded-xl border border-gray-700 px-4 py-2">Назад</button>
       </div>
     );
   }
@@ -736,7 +735,10 @@ const VendorSliderContent: React.FC = () => {
           <div className="pointer-events-auto mt-2 flex items-center gap-2">
             <button
               type="button"
-              onClick={() => navigate(`/order/${current.id}`)}
+              onClick={() => {
+                clearPendingUrlSync();
+                navigate(`/order/${current.id}`);
+              }}
               className="rounded-xl border border-slate-500/90 bg-black/40 px-3 py-1 text-xs font-bold text-white"
             >
               Открыть заказ
@@ -761,7 +763,7 @@ const VendorSliderContent: React.FC = () => {
         <div className="absolute right-3 top-3 z-10 flex gap-2">
           <button type="button" onClick={() => setFiltersOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Filter size={18} /></button>
           <button type="button" onClick={() => setSelectedBrand(null)} className="rounded-full bg-black/45 px-3 text-[11px] font-bold">Марки</button>
-          <button type="button" onClick={() => navigate(-1)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><X size={20} /></button>
+          <button type="button" onClick={() => { clearPendingUrlSync(); navigate(-1); }} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><X size={20} /></button>
         </div>
       </div>
 
@@ -810,7 +812,10 @@ const VendorSliderContent: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => navigate(`/order/${current.id}/part/${part.id}`, { replace: false, state: { backTo: `/vendor?brand=${encodeURIComponent(selectedBrand || '')}&slide=${current.id}` } })}
+                onClick={() => {
+                  clearPendingUrlSync();
+                  navigate(`/order/${current.id}/part/${part.id}`, { replace: false, state: { backTo: `/vendor?brand=${encodeURIComponent(selectedBrand || '')}&slide=${current.id}` } });
+                }}
                 className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-2 py-1.5 text-xs font-semibold text-white/90"
               >
                 Карточка детали <ExternalLink size={12} />
