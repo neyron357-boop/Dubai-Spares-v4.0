@@ -364,7 +364,9 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
       publicDeliveryTerms: settings.publicDeliveryTerms,
       publicWorkTerms: settings.publicWorkTerms,
       publicCompanyLogoUrl: settings.publicCompanyLogoUrl,
-      publicInvoiceSignatureUrl: settings.publicInvoiceSignatureUrl
+      publicInvoiceSignatureUrl: settings.publicInvoiceSignatureUrl,
+      publicTermsFileUrl: settings.publicTermsFileUrl,
+      publicTermsFileName: settings.publicTermsFileName
     },
     rates: options?.rates
   });

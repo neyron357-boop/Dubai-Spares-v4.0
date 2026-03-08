@@ -333,6 +333,83 @@ export const uploadImageToStorage = async (
   return `local://${path}`;
 };
 
+export const uploadFileToStorage = async (
+  source: File | Blob | string,
+  folder: string,
+  fileName: string,
+  mimeType?: string
+): Promise<string> => {
+  const blob = await toBlob(source);
+  const normalizedName = fileName.trim();
+  const path = `${folder}/${normalizedName}`;
+
+  if (!isCloudConfigured) {
+    await logger.warn('storage:file-upload-skipped', 'Remote file upload skipped: cloud not configured', {
+      folder,
+      fileName,
+      sizeBytes: blob.size
+    });
+    return `local://${path}`;
+  }
+
+  let lastError: unknown;
+  for (const bucket of BUCKET_CANDIDATES) {
+    for (let attempt = 0; attempt <= STORAGE_UPLOAD_RETRY_DELAYS_MS.length; attempt++) {
+      if (attempt > 0) {
+        await wait(STORAGE_UPLOAD_RETRY_DELAYS_MS[attempt - 1]);
+      }
+      try {
+        const response = await fetch(
+          `${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`,
+          {
+            method: 'POST',
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              'x-upsert': 'true',
+              'Content-Type': mimeType || blob.type || 'application/octet-stream'
+            },
+            body: blob
+          }
+        );
+
+        if (response.ok) {
+          const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+          await logger.info('storage:file-upload-ok', `${folder}/${fileName} uploaded`, {
+            bucket,
+            path,
+            bytes: blob.size,
+            mimeType: mimeType || blob.type || 'application/octet-stream'
+          });
+          return publicUrl;
+        }
+
+        const text = await response.text().catch(() => '');
+        const err = new Error(`Upload failed ${response.status}: ${text.slice(0, 140)}`);
+        if (isBucketNotFoundError({ message: text, status: response.status })) {
+          lastError = err;
+          break;
+        }
+        if (!isTransientStorageUploadError({ status: response.status })) {
+          lastError = err;
+          break;
+        }
+        lastError = err;
+      } catch (error) {
+        lastError = error;
+        if (!isTransientStorageUploadError(error)) break;
+      }
+    }
+  }
+
+  await logger.warn('storage:file-upload-failed', 'Remote file upload failed, falling back to local', {
+    folder,
+    fileName,
+    error: String(lastError)
+  });
+  return `local://${path}`;
+};
+
 const listStorageObjectsRecursive = async (bucket: string, folder = ''): Promise<StorageObjectEntry[]> => {
   if (!isCloudConfigured) return [];
 

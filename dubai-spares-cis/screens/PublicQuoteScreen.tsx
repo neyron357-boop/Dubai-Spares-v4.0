@@ -685,7 +685,9 @@ const normalizePublicSettings = (raw: unknown) => {
     publicDeliveryTerms: read('publicDeliveryTerms', 'public_delivery_terms', 'deliveryTerms', 'delivery_terms'),
     publicWorkTerms: read('publicWorkTerms', 'public_work_terms', 'workTerms', 'work_terms'),
     publicCompanyLogoUrl: read('publicCompanyLogoUrl', 'public_company_logo_url', 'companyLogoUrl', 'logo', 'logoUrl'),
-    publicInvoiceSignatureUrl: read('publicInvoiceSignatureUrl', 'public_invoice_signature_url', 'invoiceSignatureUrl', 'signature', 'signatureUrl')
+    publicInvoiceSignatureUrl: read('publicInvoiceSignatureUrl', 'public_invoice_signature_url', 'invoiceSignatureUrl', 'signature', 'signatureUrl'),
+    publicTermsFileUrl: read('publicTermsFileUrl', 'public_terms_file_url', 'termsFileUrl', 'terms_file_url'),
+    publicTermsFileName: read('publicTermsFileName', 'public_terms_file_name', 'termsFileName', 'terms_file_name')
   };
 };
 
@@ -746,7 +748,9 @@ const mergePublicSettings = (
   publicDeliveryTerms: preferred.publicDeliveryTerms || fallback?.publicDeliveryTerms || '',
   publicWorkTerms: preferred.publicWorkTerms || fallback?.publicWorkTerms || '',
   publicCompanyLogoUrl: preferred.publicCompanyLogoUrl || fallback?.publicCompanyLogoUrl || '',
-  publicInvoiceSignatureUrl: preferred.publicInvoiceSignatureUrl || fallback?.publicInvoiceSignatureUrl || ''
+  publicInvoiceSignatureUrl: preferred.publicInvoiceSignatureUrl || fallback?.publicInvoiceSignatureUrl || '',
+  publicTermsFileUrl: preferred.publicTermsFileUrl || fallback?.publicTermsFileUrl || '',
+  publicTermsFileName: preferred.publicTermsFileName || fallback?.publicTermsFileName || ''
 });
 
 const normalizePayloadOwner = (raw: unknown) => {
@@ -866,7 +870,9 @@ const openInvoicePrintWindow = ({
   currency,
   rates,
   logoUrl,
-  signatureUrl
+  signatureUrl,
+  termsFileUrl,
+  termsFileName
 }: {
   order: Order;
   lineItems: Array<{ name: string; description?: string; price: number }>;
@@ -875,6 +881,8 @@ const openInvoicePrintWindow = ({
   rates: QuoteRates;
   logoUrl?: string;
   signatureUrl?: string;
+  termsFileUrl?: string;
+  termsFileName?: string;
 }) => {
   const printWindow = window.open('', '_blank');
   if (!printWindow) return false;
@@ -895,6 +903,8 @@ const openInvoicePrintWindow = ({
       <td style="text-align:right">${moneyLabel(item.price)}</td>
     </tr>
   `).join('');
+
+  const partsSubtotalAed = lineItems.reduce((sum, item) => sum + Number(item.price || 0), 0);
 
   const cargoComputed = calculateCargoEstimates(order, {});
   const cargoCountry = String(order.logistics?.cargoCountry || cargoComputed.air.country || '—');
@@ -982,9 +992,15 @@ const openInvoicePrintWindow = ({
       </tbody>
     </table>
 
+    <div class="totals">
+      <p class="total"><span>Parts subtotal</span><span>${moneyLabel(partsSubtotalAed)}</span></p>
+    </div>
 
     <table>
       <thead>
+        <tr>
+          <th colspan="4">Cargo / Logistics</th>
+        </tr>
         <tr>
           <th>Route</th>
           <th>Country</th>
@@ -1012,8 +1028,10 @@ const openInvoicePrintWindow = ({
       <p><span>Delivery</span><span>${moneyLabel(totals.delivery)}</span></p>
       <p><span>Packing</span><span>${moneyLabel(totals.packing)}</span></p>
       <p><span>Service fee</span><span>${moneyLabel(totals.serviceFee)}</span></p>
-      <p class="total"><span>Total</span><span>${moneyLabel(totals.totalAed)}</span></p>
+      <p class="total"><span>Grand total</span><span>${moneyLabel(totals.totalAed)}</span></p>
     </div>
+
+    ${termsFileUrl ? `<div style="margin-top:14px"><p class="muted" style="margin:0 0 6px">Terms / conditions document</p><a href="${escapeHtml(termsFileUrl)}" target="_blank" rel="noreferrer" style="font-size:12px;color:#2563eb;text-decoration:underline">${escapeHtml(termsFileName || 'Download attached terms file')}</a></div>` : ''}
 
     <div class="signature">
       <p class="muted" style="margin:0 0 8px">Owner signature</p>
@@ -1496,6 +1514,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const settings = mergePublicSettings(settingsFromPayload, resolvedSettings);
   const logoUrl = settings.publicCompanyLogoUrl;
   const signatureUrl = settings.publicInvoiceSignatureUrl;
+  const termsFileUrl = settings.publicTermsFileUrl;
+  const termsFileName = settings.publicTermsFileName;
   const normalizedOwner = normalizePayloadOwner(payloadOwner);
   const whatsappPhoneRaw = quoteContact?.whatsappPhone
     || settings.publicWhatsappNumber
@@ -1537,7 +1557,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       currency,
       rates,
       logoUrl,
-      signatureUrl
+      signatureUrl,
+      termsFileUrl,
+      termsFileName
     });
     if (opened) logEvent('pdf_download', { currency });
   };
@@ -1743,6 +1765,21 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         {settings.publicWorkTerms.trim() && (
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm p-5 text-sm text-slate-700">
             {settings.publicWorkTerms.trim() && <p className="whitespace-pre-line">{settings.publicWorkTerms.trim()}</p>}
+          </section>
+        )}
+
+        {termsFileUrl && (
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Условия и документы</p>
+            <a
+              href={termsFileUrl}
+              target="_blank"
+              rel="noreferrer"
+              download={termsFileName || 'terms.pdf'}
+              className="mt-3 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-sm"
+            >
+              <Download size={15} /> Скачать файл (PDF)
+            </a>
           </section>
         )}
 

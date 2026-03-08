@@ -6,7 +6,7 @@ import { backupUpload, clearPublicQuoteSnapshots, clearServerBackups, deletePubl
 import { cloudBuildGuardMessage, isCloudConfigured, SUPABASE_URL } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
-import { deleteStorageDuplicateMappings, runStorageImageMaintenance, uploadImageToStorage } from '../storage/photos';
+import { deleteStorageDuplicateMappings, runStorageImageMaintenance, uploadFileToStorage, uploadImageToStorage } from '../storage/photos';
 import { Order } from '../types';
 import { clearBrokenImageBlacklist, isBrokenImageUrl, markBrokenImageUrl, normalizeBrokenImageKey, shouldBlacklistByStatus } from '../storage/brokenImageBlacklist';
 import { flushOfflineMutations } from '../orderStore';
@@ -664,6 +664,30 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
+  const handlePublicTermsFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    void withBusy('public-terms-file', async () => {
+      const safeName = (file.name || `terms-${Date.now()}`)
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      const uploadName = `${Date.now()}-${safeName || 'terms-file'}`;
+      const uploadedUrl = await uploadFileToStorage(file, 'public/terms', uploadName, file.type || 'application/octet-stream');
+      updateDraft({
+        publicTermsFileUrl: uploadedUrl,
+        publicTermsFileName: file.name || uploadName
+      });
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: {
+          tone: 'success',
+          message: 'Файл условий загружен'
+        }
+      }));
+    });
+  };
+
   const handleBrandingFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: 'logo' | 'signature') => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -989,6 +1013,25 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                 placeholder="https://instagram.com/your_account"
                 className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
               />
+            </Field>
+
+            <Field label="Файл условий (cargo / доставка / и т.д.)">
+              <div className="space-y-2">
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.txt,.rtf"
+                  onChange={handlePublicTermsFileChange}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                />
+                {draftSettings.publicTermsFileUrl && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <a href={draftSettings.publicTermsFileUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                      {draftSettings.publicTermsFileName || 'Открыть файл'}
+                    </a>
+                    <button type="button" onClick={() => updateDraft({ publicTermsFileUrl: '', publicTermsFileName: '' })} className="rounded-lg border border-rose-200 px-3 py-1.5 font-bold text-rose-700">Удалить файл</button>
+                  </div>
+                )}
+              </div>
             </Field>
           </CompactBlock>
 
