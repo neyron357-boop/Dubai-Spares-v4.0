@@ -67,6 +67,7 @@ export interface Part {
   status?: 'searching' | 'found' | 'not_found' | 'ordered';
   priority?: 'normal' | 'urgent';
   bestOfferId?: string;
+  partType?: string;
   weightKg?: number;
   lengthCm?: number;
   widthCm?: number;

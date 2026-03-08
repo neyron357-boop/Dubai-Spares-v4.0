@@ -102,6 +102,16 @@ const sanitizeNumericInput = (raw: string) => {
   return withoutLeading || '0';
 };
 
+type PartCargoDraft = {
+  partType: string;
+  weightKg: string;
+  places: string;
+  lengthCm: string;
+  widthCm: string;
+  heightCm: string;
+  isOversized: boolean;
+};
+
 
 
 const LogisticsAmountInput = React.memo(({
@@ -217,12 +227,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [newPartKind, setNewPartKind] = useState<'single' | 'group'>('single');
   const [newPartGroupItems, setNewPartGroupItems] = useState<Array<GroupItemDraft>>([createGroupItemDraft()]);
   const [newPartComment, setNewPartComment] = useState('');
-  const [newPartWeight, setNewPartWeight] = useState('0');
-  const [newPartLength, setNewPartLength] = useState('0');
-  const [newPartWidth, setNewPartWidth] = useState('0');
-  const [newPartHeight, setNewPartHeight] = useState('0');
-  const [newPartPlaces, setNewPartPlaces] = useState('1');
-  const [newPartOversized, setNewPartOversized] = useState(false);
+  const [partCargoDrafts, setPartCargoDrafts] = useState<Record<string, PartCargoDraft>>({});
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
   // Multiple photos for new part
@@ -280,6 +285,22 @@ const OrderDetailsScreen: React.FC = () => {
       return acc;
     }, {} as Record<string, string>);
     setPartCommentDrafts(nextDrafts);
+  }, [order.id, order.parts]);
+
+  useEffect(() => {
+    const nextCargoDrafts = (order.parts || []).reduce((acc, part) => {
+      acc[part.id] = {
+        partType: String((part as any).partType || 'regular'),
+        weightKg: String(Number((part as any).weightKg || 0)),
+        places: String(Math.max(1, Number((part as any).places || 1))),
+        lengthCm: String(Number((part as any).lengthCm || 0)),
+        widthCm: String(Number((part as any).widthCm || 0)),
+        heightCm: String(Number((part as any).heightCm || 0)),
+        isOversized: Boolean((part as any).isOversized)
+      };
+      return acc;
+    }, {} as Record<string, PartCargoDraft>);
+    setPartCargoDrafts(nextCargoDrafts);
   }, [order.id, order.parts]);
 
   useEffect(() => {
@@ -859,6 +880,61 @@ const OrderDetailsScreen: React.FC = () => {
     setLogisticsDraft((prev) => ({ ...prev, [field]: nextValue }));
   }, []);
 
+
+  const applyPartCargoDrafts = useCallback((parts: Part[]) => {
+    return parts.map((part) => {
+      const draft = partCargoDrafts[part.id];
+      if (!draft) return part;
+      return {
+        ...part,
+        partType: draft.partType || 'regular',
+        weightKg: Number(draft.weightKg || 0),
+        places: Math.max(1, Number(draft.places || 1)),
+        lengthCm: Number(draft.lengthCm || 0),
+        widthCm: Number(draft.widthCm || 0),
+        heightCm: Number(draft.heightCm || 0),
+        isOversized: !!draft.isOversized
+      } as Part;
+    });
+  }, [partCargoDrafts]);
+
+  const onPartCargoDraftChange = useCallback((partId: string, field: keyof PartCargoDraft, value: string | boolean) => {
+    setPartCargoDrafts((prev) => {
+      const current = prev[partId] || {
+        partType: 'regular',
+        weightKg: '0',
+        places: '1',
+        lengthCm: '0',
+        widthCm: '0',
+        heightCm: '0',
+        isOversized: false
+      };
+      return {
+        ...prev,
+        [partId]: {
+          ...current,
+          [field]: value
+        }
+      };
+    });
+  }, []);
+
+  const hasPartCargoDiff = useMemo(() => {
+    return (order.parts || []).some((part) => {
+      const draft = partCargoDrafts[part.id];
+      if (!draft) return false;
+      return (
+        String((part as any).partType || 'regular') !== draft.partType
+        || Number((part as any).weightKg || 0) !== Number(draft.weightKg || 0)
+        || Math.max(1, Number((part as any).places || 1)) !== Math.max(1, Number(draft.places || 1))
+        || Number((part as any).lengthCm || 0) !== Number(draft.lengthCm || 0)
+        || Number((part as any).widthCm || 0) !== Number(draft.widthCm || 0)
+        || Number((part as any).heightCm || 0) !== Number(draft.heightCm || 0)
+        || Boolean((part as any).isOversized) !== Boolean(draft.isOversized)
+      );
+    });
+  }, [order.parts, partCargoDrafts]);
+
   const hasPendingPricingChanges = useMemo(() => {
     if (!order) return false;
     const hasLogisticsDiff = (['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).some((field) => {
@@ -868,8 +944,8 @@ const OrderDetailsScreen: React.FC = () => {
     });
     const hasMarkupDiff = (order.markupType || 'percent') === 'fixed'
       && (Number(markupFixedInput || 0) !== Number(order.markupFixedAed || 0));
-    return hasLogisticsDiff || hasMarkupDiff;
-  }, [logisticsDraft, markupFixedInput, order]);
+    return hasLogisticsDiff || hasMarkupDiff || hasPartCargoDiff;
+  }, [hasPartCargoDiff, logisticsDraft, markupFixedInput, order]);
 
   const saveLogisticsDraft = useCallback(() => {
     if (!isEditMode) return;
@@ -886,11 +962,24 @@ const OrderDetailsScreen: React.FC = () => {
       serviceFeeAed: 'logistics.serviceFeeAed'
     };
 
-    const nextLogistics = {
+    const baseLogistics = {
       ...order.logistics,
       deliveryAed: Number(logisticsDraft.deliveryAed || 0),
       packingAed: Number(logisticsDraft.packingAed || 0),
       serviceFeeAed: Number(logisticsDraft.serviceFeeAed || 0)
+    };
+
+    const nextParts = applyPartCargoDrafts(order.parts || []);
+    const nextCargo = calculateCargo({ ...order, parts: nextParts, logistics: baseLogistics }, settings);
+    const nextLogistics = {
+      ...baseLogistics,
+      cargoEtaDays: nextCargo.eta,
+      cargoTotalWeightKg: nextCargo.realWeight,
+      cargoChargeableWeightKg: nextCargo.chargeableWeight,
+      cargoVolumeCbm: nextCargo.volumeCbm,
+      cargoTotalPlaces: nextCargo.totalPlaces,
+      cargoBaseCostUsd: nextCargo.baseCostUsd,
+      cargoTotalCostUsd: nextCargo.totalCostUsd
     };
 
     const nextMarkupFixed = Number(markupFixedInput || 0);
@@ -914,6 +1003,7 @@ const OrderDetailsScreen: React.FC = () => {
 
     updateOrder({
       ...order,
+      parts: nextParts,
       markupFixedAed: shouldPersistFixedMarkup ? nextMarkupFixed : order.markupFixedAed,
       markupType: previousMarkupType,
       logistics: nextLogistics,
@@ -921,7 +1011,7 @@ const OrderDetailsScreen: React.FC = () => {
     });
     scheduleDebouncedSaveLog();
     setToast({ message: 'Логистика сохранена' });
-  }, [hasPendingPricingChanges, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, order, scheduleDebouncedSaveLog, updateOrder, markupFixedInput]);
+  }, [applyPartCargoDrafts, hasPendingPricingChanges, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, markupFixedInput, order, scheduleDebouncedSaveLog, settings, updateOrder]);
 
   const updateLogisticsField = (field: 'deliveryType', value: string) => {
     if (!isEditMode) return value;
@@ -1103,12 +1193,6 @@ const OrderDetailsScreen: React.FC = () => {
     setNewPartKind('single');
     setNewPartGroupItems([createGroupItemDraft()]);
     setNewPartComment('');
-    setNewPartWeight('0');
-    setNewPartLength('0');
-    setNewPartWidth('0');
-    setNewPartHeight('0');
-    setNewPartPlaces('1');
-    setNewPartOversized(false);
     setNewPartPhotos([]);
     partInputRef.current?.focus();
   };
@@ -1678,6 +1762,44 @@ const OrderDetailsScreen: React.FC = () => {
               </select>
             </div>
             <div className="col-span-2 rounded-xl bg-gray-50 p-2 text-xs font-semibold text-gray-600">Срок: {cargoCalc.eta} дней · Вес: {cargoCalc.realWeight.toFixed(1)} кг · Chargeable: {cargoCalc.chargeableWeight.toFixed(1)} кг · Мест: {cargoCalc.totalPlaces} · Карго: ${cargoCalc.totalCostUsd.toFixed(2)}</div>
+            <div className="col-span-2 space-y-2 rounded-xl border border-gray-200 bg-gray-50 p-2">
+              <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Параметры карго по деталям</p>
+              {(order.parts || []).length === 0 ? (
+                <p className="text-xs font-semibold text-gray-400">Сначала добавьте детали в заказ.</p>
+              ) : (
+                <div className="space-y-2">
+                  {(order.parts || []).map((part) => {
+                    const cargoDraft = partCargoDrafts[part.id] || {
+                      partType: String((part as any).partType || 'regular'),
+                      weightKg: String(Number((part as any).weightKg || 0)),
+                      places: String(Math.max(1, Number((part as any).places || 1))),
+                      lengthCm: String(Number((part as any).lengthCm || 0)),
+                      widthCm: String(Number((part as any).widthCm || 0)),
+                      heightCm: String(Number((part as any).heightCm || 0)),
+                      isOversized: Boolean((part as any).isOversized)
+                    };
+                    return (
+                      <div key={part.id} className="rounded-xl border border-gray-200 bg-white p-2">
+                        <p className="mb-2 text-xs font-bold text-gray-700">{part.name}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <select value={cargoDraft.partType} onChange={(e) => onPartCargoDraftChange(part.id, 'partType', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold">
+                            <option value="regular">Обычная</option>
+                            <option value="body">Кузовная</option>
+                            <option value="engine">Двигатель/агрегат</option>
+                          </select>
+                          <input type="number" min={0} step="0.1" value={cargoDraft.weightKg} onChange={(e) => onPartCargoDraftChange(part.id, 'weightKg', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Вес, кг" />
+                          <input type="number" min={1} value={cargoDraft.places} onChange={(e) => onPartCargoDraftChange(part.id, 'places', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Мест" />
+                          <input type="number" min={0} value={cargoDraft.lengthCm} onChange={(e) => onPartCargoDraftChange(part.id, 'lengthCm', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Длина, см" />
+                          <input type="number" min={0} value={cargoDraft.widthCm} onChange={(e) => onPartCargoDraftChange(part.id, 'widthCm', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Ширина, см" />
+                          <input type="number" min={0} value={cargoDraft.heightCm} onChange={(e) => onPartCargoDraftChange(part.id, 'heightCm', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Высота, см" />
+                          <label className="col-span-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold text-gray-600"><input type="checkbox" checked={cargoDraft.isOversized} onChange={(e) => onPartCargoDraftChange(part.id, 'isOversized', e.target.checked)} /> Крупногабарит</label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             {([
               { field: 'deliveryAed', label: 'Доставка' },
               { field: 'packingAed', label: 'Упаковка' },
@@ -1820,14 +1942,6 @@ const OrderDetailsScreen: React.FC = () => {
                 </button>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-2">
-              <input type="number" min={0} step="0.1" value={newPartWeight} onChange={(e) => setNewPartWeight(e.target.value)} className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm font-semibold" placeholder="Вес, кг" />
-              <input type="number" min={1} value={newPartPlaces} onChange={(e) => setNewPartPlaces(e.target.value)} className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm font-semibold" placeholder="Мест" />
-              <input type="number" min={0} value={newPartLength} onChange={(e) => setNewPartLength(e.target.value)} className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm font-semibold" placeholder="Длина см" />
-              <input type="number" min={0} value={newPartWidth} onChange={(e) => setNewPartWidth(e.target.value)} className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm font-semibold" placeholder="Ширина см" />
-              <input type="number" min={0} value={newPartHeight} onChange={(e) => setNewPartHeight(e.target.value)} className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm font-semibold" placeholder="Высота см" />
-              <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-2 py-2 text-xs font-semibold"><input type="checkbox" checked={newPartOversized} onChange={(e) => setNewPartOversized(e.target.checked)} /> Крупногабарит</label>
-            </div>
             <textarea
               value={newPartComment}
               onChange={(e) => setNewPartComment(e.target.value)}

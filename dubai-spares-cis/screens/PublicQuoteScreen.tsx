@@ -1154,7 +1154,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         expired,
         hasLogistics: !!diagnosticsLogistics,
         logistics: diagnosticsLogistics || null,
-        hasPublicTerms: !!(diagnosticsSettings.publicDeliveryTerms.trim() || diagnosticsSettings.publicWorkTerms.trim()),
+        hasPublicTerms: !!diagnosticsSettings.publicWorkTerms.trim(),
         hasContacts: !!(resolvedContact.whatsappPhone || diagnosticsOwner.whatsappPhone),
         hasPayloadCorruptionFlag: !!data.isPayloadCorrupted
       });
@@ -1664,10 +1664,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         </section>
 
 
-        {(settings.publicDeliveryTerms.trim() || settings.publicWorkTerms.trim()) && (
+        {settings.publicWorkTerms.trim() && (
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm p-5 text-sm text-slate-700">
-            {settings.publicDeliveryTerms.trim() && <p className="whitespace-pre-line">{settings.publicDeliveryTerms.trim()}</p>}
-            {settings.publicWorkTerms.trim() && <p className="whitespace-pre-line mt-2">{settings.publicWorkTerms.trim()}</p>}
+            {settings.publicWorkTerms.trim() && <p className="whitespace-pre-line">{settings.publicWorkTerms.trim()}</p>}
           </section>
         )}
 

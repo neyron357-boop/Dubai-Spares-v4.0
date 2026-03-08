@@ -902,16 +902,6 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
             </div>
           </Field>
 
-          <Field label="Условия доставки (для сметы клиенту)">
-            <textarea
-              value={draftSettings.publicDeliveryTerms}
-              onChange={(e) => updateDraft({ publicDeliveryTerms: e.target.value })}
-              placeholder="Например: Доставка 3-8 рабочих дней после подтверждения и оплаты."
-              className="min-h-20 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-              rows={4}
-            />
-          </Field>
-
           <Field label="Условия работы (для сметы клиенту)">
             <textarea
               value={draftSettings.publicWorkTerms}
@@ -921,6 +911,11 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               rows={4}
             />
           </Field>
+
+          <div className="pt-2">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-500">Калькулятор карго / доставки</p>
+            <p className="mt-1 text-xs text-gray-500">Тарифы по странам и типам карго.</p>
+          </div>
 
           <Field label="Cargo Tariffs (JSON, USD)">
             <textarea
