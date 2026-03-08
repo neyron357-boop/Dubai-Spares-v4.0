@@ -102,6 +102,13 @@ const sanitizeNumericInput = (raw: string) => {
   return withoutLeading || '0';
 };
 
+const parseCargoNumber = (value: unknown) => {
+  const normalized = String(value ?? '').replace(',', '.').trim();
+  if (!normalized) return 0;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 type PartCargoDraft = {
   partType: string;
   weightKg: string;
@@ -890,11 +897,11 @@ const OrderDetailsScreen: React.FC = () => {
       return {
         ...part,
         partType: draft.partType || 'regular',
-        weightKg: Number(draft.weightKg || 0),
-        places: Number(draft.places || 0),
-        lengthCm: Number(draft.lengthCm || 0),
-        widthCm: Number(draft.widthCm || 0),
-        heightCm: Number(draft.heightCm || 0),
+        weightKg: parseCargoNumber(draft.weightKg),
+        places: parseCargoNumber(draft.places),
+        lengthCm: parseCargoNumber(draft.lengthCm),
+        widthCm: parseCargoNumber(draft.widthCm),
+        heightCm: parseCargoNumber(draft.heightCm),
         isOversized: !!draft.isOversized
       } as Part;
     });
@@ -927,11 +934,11 @@ const OrderDetailsScreen: React.FC = () => {
       if (!draft) return false;
       return (
         String((part as any).partType || 'regular') !== draft.partType
-        || Number((part as any).weightKg || 0) !== Number(draft.weightKg || 0)
-        || Number((part as any).places || 0) !== Number(draft.places || 0)
-        || Number((part as any).lengthCm || 0) !== Number(draft.lengthCm || 0)
-        || Number((part as any).widthCm || 0) !== Number(draft.widthCm || 0)
-        || Number((part as any).heightCm || 0) !== Number(draft.heightCm || 0)
+        || Number((part as any).weightKg || 0) !== parseCargoNumber(draft.weightKg)
+        || Number((part as any).places || 0) !== parseCargoNumber(draft.places)
+        || Number((part as any).lengthCm || 0) !== parseCargoNumber(draft.lengthCm)
+        || Number((part as any).widthCm || 0) !== parseCargoNumber(draft.widthCm)
+        || Number((part as any).heightCm || 0) !== parseCargoNumber(draft.heightCm)
         || Boolean((part as any).isOversized) !== Boolean(draft.isOversized)
       );
     });
