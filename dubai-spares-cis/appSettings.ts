@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
+import { CargoTariff, DEFAULT_CARGO_TARIFFS } from './utils/cargo';
 
 export const APP_SETTINGS_KEY = 'dubai_spares_app_settings_v1';
 const CLOUD_PUBLIC_SETTINGS_ID = 'public_settings';
@@ -41,6 +42,7 @@ export interface AppSettings {
   publicCompanyLogoUrl: string;
   publicInvoiceSignatureUrl: string;
   publicContactsUpdatedAt: number;
+  cargoTariffs: CargoTariff[];
 }
 
 type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl'>;
@@ -74,7 +76,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   publicWorkTerms: '',
   publicCompanyLogoUrl: '',
   publicInvoiceSignatureUrl: '',
-  publicContactsUpdatedAt: 0
+  publicContactsUpdatedAt: 0,
+  cargoTariffs: DEFAULT_CARGO_TARIFFS
 };
 
 const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSettings => ({
@@ -97,7 +100,10 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
       .filter((item): item is string => typeof item === 'string')
       .map((item) => item.trim())
       .filter(Boolean)
-    : DEFAULT_APP_SETTINGS.defaultVendorChecklist
+    : DEFAULT_APP_SETTINGS.defaultVendorChecklist,
+  cargoTariffs: Array.isArray(raw?.cargoTariffs)
+    ? raw.cargoTariffs.filter((item): item is CargoTariff => !!item && typeof item === 'object' && typeof (item as CargoTariff).country === 'string')
+    : DEFAULT_APP_SETTINGS.cargoTariffs
 });
 
 const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): PublicAppSettings => {

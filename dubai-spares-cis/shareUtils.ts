@@ -217,6 +217,7 @@ const buildQuoteSnapshot = (order: Pick<Order,
   'markupType' | 'markupPercent' | 'markupFixedAed' | 'exchangeRate' | 'clientCurrency' | 'logistics' | 'pricingEvents' | 'parts'>) => {
   const pricedParts = (order.parts || []).filter((part) => part.isFound && part.variants.length > 0);
   const partsSumAed = pricedParts.reduce((sum, part) => sum + Number(part.variants[0]?.priceAed || 0), 0);
+  const cargoTotalCostUsd = Number(order.logistics?.cargoTotalCostUsd || 0);
   const deliveryAed = Number(order.logistics?.deliveryAed || 0);
   const packingAed = Number(order.logistics?.packingAed || 0);
   const commissionAed = Number(order.logistics?.serviceFeeAed || 0);
@@ -257,6 +258,7 @@ const buildQuoteSnapshot = (order: Pick<Order,
     commission_aed: commissionAed,
     markup_aed: markupAed,
     grand_total: grandTotalAed,
+    cargo_total_cost_usd: cargoTotalCostUsd,
     exchange_rate: Number(order.exchangeRate || 3.67),
     client_currency: order.clientCurrency || 'USD',
     created_at: new Date().toISOString()
@@ -266,6 +268,12 @@ const buildQuoteSnapshot = (order: Pick<Order,
     id: part.id,
     name: part.name,
     isFound: !!part.isFound,
+    weightKg: Number((part as any).weightKg || 0),
+    lengthCm: Number((part as any).lengthCm || 0),
+    widthCm: Number((part as any).widthCm || 0),
+    heightCm: Number((part as any).heightCm || 0),
+    places: Number((part as any).places || 1),
+    isOversized: !!(part as any).isOversized,
     photoUrl: part.photoUrl,
     photos: uniquePhotos(part.photos || []),
     variants: (part.variants || []).map((variant) => ({

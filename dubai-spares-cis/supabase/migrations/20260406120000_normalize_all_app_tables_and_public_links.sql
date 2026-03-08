@@ -96,6 +96,12 @@ create table if not exists public.parts (
   photo_url text,
   photos text[] not null default '{}',
   is_found boolean not null default false,
+  weight_kg numeric not null default 0,
+  length_cm numeric not null default 0,
+  width_cm numeric not null default 0,
+  height_cm numeric not null default 0,
+  places integer not null default 1,
+  is_oversized boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -103,6 +109,12 @@ alter table public.parts
   add column if not exists photo_url text,
   add column if not exists photos text[] not null default '{}',
   add column if not exists is_found boolean not null default false,
+  add column if not exists weight_kg numeric not null default 0,
+  add column if not exists length_cm numeric not null default 0,
+  add column if not exists width_cm numeric not null default 0,
+  add column if not exists height_cm numeric not null default 0,
+  add column if not exists places integer not null default 1,
+  add column if not exists is_oversized boolean not null default false,
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
 

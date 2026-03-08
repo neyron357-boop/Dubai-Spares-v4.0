@@ -858,6 +858,11 @@ const openInvoicePrintWindow = ({
     </tr>
   `).join('');
 
+  const cargoType = String(order.logistics?.cargoDeliveryType || 'air');
+  const cargoCountry = String(order.logistics?.cargoCountry || '—');
+  const cargoWeight = Number(order.logistics?.cargoChargeableWeightKg || order.logistics?.cargoTotalWeightKg || 0);
+  const cargoCostUsd = Number(order.logistics?.cargoTotalCostUsd || 0);
+
   const issueDate = new Date();
   const invoiceId = order.id.slice(0, 8).toUpperCase();
   const billToName = String((order as any).clientName || (order as any).client_name || (order as any).customerName || '').trim() || 'Customer';
@@ -930,10 +935,31 @@ const openInvoicePrintWindow = ({
       </tbody>
     </table>
 
+
+    <table>
+      <thead>
+        <tr>
+          <th>Cargo Type</th>
+          <th>Country</th>
+          <th style="width:170px">Weight</th>
+          <th style="width:170px;text-align:right">Cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>${escapeHtml(cargoType)}</td>
+          <td>${escapeHtml(cargoCountry)}</td>
+          <td>${cargoWeight.toFixed(1)} kg</td>
+          <td style="text-align:right">$${cargoCostUsd.toFixed(2)}</td>
+        </tr>
+      </tbody>
+    </table>
+
     <div class="totals">
       <p><span>Delivery</span><span>${moneyLabel(totals.delivery)}</span></p>
       <p><span>Packing</span><span>${moneyLabel(totals.packing)}</span></p>
       <p><span>Service fee</span><span>${moneyLabel(totals.serviceFee)}</span></p>
+      <p><span>Cargo (USD)</span><span>$${cargoCostUsd.toFixed(2)}</span></p>
       <p class="total"><span>Total</span><span>${moneyLabel(totals.totalAed)}</span></p>
     </div>
 
