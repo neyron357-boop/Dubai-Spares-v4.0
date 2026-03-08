@@ -76,8 +76,22 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   const handleTabNavigate = (tab: Exclude<BottomTab, null>) => {
-    const destination = tabPaths[tab];
-    if (destination) navigate(destination);
+    const rootByTab: Record<Exclude<BottomTab, null>, string> = {
+      orders: '/',
+      new: '/new',
+      database: '/database',
+      notifications: '/notifications',
+      settings: '/settings'
+    };
+
+    const activeTab = resolveBottomTab(location.pathname);
+    if (activeTab === tab) {
+      navigate(rootByTab[tab]);
+      return;
+    }
+
+    const destination = tabPaths[tab] || rootByTab[tab];
+    navigate(destination);
   };
 
   return (
