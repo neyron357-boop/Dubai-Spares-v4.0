@@ -10,7 +10,7 @@ import { deleteStorageDuplicateMappings, runStorageImageMaintenance, uploadImage
 import { Order } from '../types';
 import { clearBrokenImageBlacklist, isBrokenImageUrl, markBrokenImageUrl, normalizeBrokenImageKey, shouldBlacklistByStatus } from '../storage/brokenImageBlacklist';
 import { flushOfflineMutations } from '../orderStore';
-import { CargoTariff, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
+import { calculateCargo, calculateCargoEstimates, CargoTariff, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 
 const loadImageFromFile = (file: File): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const url = URL.createObjectURL(file);
@@ -195,6 +195,41 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
   </div>
 );
 
+const TariffNumberInput: React.FC<{
+  value: number;
+  placeholder?: string;
+  onCommit: (nextValue: number) => void;
+}> = ({ value, placeholder, onCommit }) => {
+  const [raw, setRaw] = useState(String(value));
+
+  useEffect(() => {
+    setRaw(String(value));
+  }, [value]);
+
+  const commit = () => {
+    onCommit(parseDecimalInput(raw));
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      placeholder={placeholder}
+      value={raw}
+      onChange={(e) => {
+        const next = e.target.value.replace(',', '.');
+        if (!/^[0-9]*\.?[0-9]*$/.test(next)) return;
+        setRaw(next);
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+      }}
+      className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+    />
+  );
+};
+
 const toTariffNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -275,7 +310,30 @@ const SettingsScreen: React.FC = () => {
   const hasUnsavedChanges = useMemo(() => JSON.stringify(draftSettings) !== JSON.stringify(settings), [draftSettings, settings]);
 
   const saveChanges = () => {
-    updateSettings(draftSettings);
+    const nextSettings = updateSettings(draftSettings);
+    const tariffsChanged = JSON.stringify(settings.cargoTariffs || []) !== JSON.stringify(nextSettings.cargoTariffs || []);
+    if (tariffsChanged) {
+      orders.forEach((currentOrder) => {
+        const nextCargo = calculateCargo(currentOrder, nextSettings);
+        const nextEstimates = calculateCargoEstimates(currentOrder, nextSettings);
+        updateOrder({
+          ...currentOrder,
+          logistics: {
+            ...currentOrder.logistics,
+            cargoEtaDays: nextCargo.eta,
+            cargoTotalWeightKg: nextCargo.realWeight,
+            cargoChargeableWeightKg: nextCargo.chargeableWeight,
+            cargoTotalPlaces: nextCargo.totalPlaces,
+            cargoBaseCostUsd: nextCargo.baseCostUsd,
+            cargoTotalCostUsd: nextCargo.totalCostUsd,
+            cargoAirEtaDays: nextEstimates.air.eta,
+            cargoAirCostUsd: nextEstimates.air.totalCostUsd,
+            cargoContainerEtaDays: nextEstimates.container.eta,
+            cargoContainerCostUsd: nextEstimates.container.totalCostUsd
+          }
+        });
+      });
+    }
     setSaveNotice('Изменения сохранены и применены во всех разделах.');
   };
 
@@ -1005,15 +1063,15 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                   </div>
 
                   <div className="grid gap-2 md:grid-cols-3">
-                    <Field label="Авиадоставка: цена за кг (обычный груз)"><input type="text" inputMode="decimal" placeholder="11.5" value={String(tariff.airRegularUsdPerKg)} onChange={(e) => updateCargoTariff(index, { airRegularUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                                        <Field label="Контейнер: цена за кг"><input type="text" inputMode="decimal" placeholder="0.75" value={String(tariff.containerUsdPerKg)} onChange={(e) => updateCargoTariff(index, { containerUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                    <Field label="Авиадоставка: цена за кг (крупногабарит)"><input type="text" inputMode="decimal" placeholder="13.25" value={String(tariff.airOversizedUsdPerKg)} onChange={(e) => updateCargoTariff(index, { airOversizedUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                                        <Field label="Авиадоставка: доплата за место ($)"><input type="text" inputMode="decimal" placeholder="10" value={String(tariff.airSeatUsd)} onChange={(e) => updateCargoTariff(index, { airSeatUsd: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Авиадоставка: цена за кг (обычный груз)"><TariffNumberInput placeholder="11.5" value={tariff.airRegularUsdPerKg} onCommit={(nextValue) => updateCargoTariff(index, { airRegularUsdPerKg: nextValue })} /></Field>
+                    <Field label="Контейнер: цена за кг"><TariffNumberInput placeholder="0.75" value={tariff.containerUsdPerKg} onCommit={(nextValue) => updateCargoTariff(index, { containerUsdPerKg: nextValue })} /></Field>
+                    <Field label="Авиадоставка: цена за кг (крупногабарит)"><TariffNumberInput placeholder="13.25" value={tariff.airOversizedUsdPerKg} onCommit={(nextValue) => updateCargoTariff(index, { airOversizedUsdPerKg: nextValue })} /></Field>
+                    <Field label="Авиадоставка: доплата за место ($)"><TariffNumberInput placeholder="10" value={tariff.airSeatUsd} onCommit={(nextValue) => updateCargoTariff(index, { airSeatUsd: nextValue })} /></Field>
                   </div>
 
                   <div className="grid gap-2 md:grid-cols-3">
-                    <Field label="Мин. авиа (кг)"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.minAirKg} onChange={(e) => updateCargoTariff(index, { minAirKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                    <Field label="Мин. контейнер (кг)"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.minContainerKg} onChange={(e) => updateCargoTariff(index, { minContainerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Мин. авиа (кг)"><TariffNumberInput placeholder="0.75" value={tariff.minAirKg} onCommit={(nextValue) => updateCargoTariff(index, { minAirKg: nextValue })} /></Field>
+                    <Field label="Мин. контейнер (кг)"><TariffNumberInput placeholder="0.75" value={tariff.minContainerKg} onCommit={(nextValue) => updateCargoTariff(index, { minContainerKg: nextValue })} /></Field>
                                         <Field label="Авиа срок (дней)"><input value={tariff.airEtaDays} onChange={(e) => updateCargoTariff(index, { airEtaDays: e.target.value })} placeholder="3-7" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
                     <Field label="Контейнер срок (дней)"><input value={tariff.containerEtaDays} onChange={(e) => updateCargoTariff(index, { containerEtaDays: e.target.value })} placeholder="25-45" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
                   </div>
