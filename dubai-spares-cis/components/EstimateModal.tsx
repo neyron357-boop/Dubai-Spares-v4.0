@@ -291,8 +291,8 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
             {rateNotice && <p className="px-4 py-2 text-[10px] font-semibold text-blue-600">{rateNotice}</p>}
           </div>
 
-          {(settings.publicDeliveryTerms.trim() || settings.publicWorkTerms.trim()) && (
-            <p className="mx-4 mb-4 text-[10px] text-slate-500 whitespace-pre-line">{[settings.publicDeliveryTerms.trim(), settings.publicWorkTerms.trim()].filter(Boolean).join('\n')}</p>
+          {settings.publicWorkTerms.trim() && (
+            <p className="mx-4 mb-4 text-[10px] text-slate-500 whitespace-pre-line">{settings.publicWorkTerms.trim()}</p>
           )}
         </div>
 
