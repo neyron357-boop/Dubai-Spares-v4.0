@@ -906,7 +906,9 @@ const openInvoicePrintWindow = ({
   const cargoContainerEta = String(order.logistics?.cargoContainerEtaDays || cargoComputed.container.eta || '—');
   const selectedTariff = DEFAULT_CARGO_TARIFFS.find((item) => item.country === cargoCountry) || DEFAULT_CARGO_TARIFFS[0];
   const airSeatUsd = Number(selectedTariff?.airSeatUsd || 0);
-  const airSeatTotalUsd = airSeatUsd * cargoPlaces;
+  const airSeatInfo = cargoPlaces > 0 && airSeatUsd > 0
+    ? ` (including place fee: ${cargoPlaces.toFixed(0)} × $${airSeatUsd.toFixed(2)})`
+    : '';
 
   const issueDate = new Date();
   const invoiceId = order.id.slice(0, 8).toUpperCase();
@@ -992,19 +994,13 @@ const openInvoicePrintWindow = ({
       </thead>
       <tbody>
         <tr>
-          <td>Air (${escapeHtml(cargoAirEta)} days)</td>
+          <td>AIR (${escapeHtml(cargoAirEta)} days)${airSeatInfo}</td>
           <td>${escapeHtml(cargoCountry)}</td>
           <td>${cargoRealWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
           <td style="text-align:right">$${cargoAirCostUsd.toFixed(2)}</td>
         </tr>
         <tr>
-          <td>Air Cargo Seat Fee</td>
-          <td>${escapeHtml(cargoCountry)}</td>
-          <td>${cargoPlaces.toFixed(0)} place(s) × $${airSeatUsd.toFixed(2)}</td>
-          <td style="text-align:right">$${airSeatTotalUsd.toFixed(2)}</td>
-        </tr>
-        <tr>
-          <td>Container (${escapeHtml(cargoContainerEta)} days)</td>
+          <td>CONTAINER (${escapeHtml(cargoContainerEta)} days)</td>
           <td>${escapeHtml(cargoCountry)}</td>
           <td>${cargoRealWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
           <td style="text-align:right">$${cargoContainerCostUsd.toFixed(2)}</td>
@@ -1440,7 +1436,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       chargeableWeight: Number(order.logistics?.cargoChargeableWeightKg ?? computed.air.chargeableWeight ?? 0),
       places,
       airSeatUsd: seatPriceUsd,
-      airSeatTotalUsd: seatPriceUsd * places,
       air: {
         eta: String(order.logistics?.cargoAirEtaDays || computed.air.eta || '—'),
         costUsd: Number(order.logistics?.cargoAirCostUsd || computed.air.totalCostUsd || 0)
@@ -1760,9 +1755,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Country</span><strong className="text-slate-900">{cargoEstimates.country}</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Weight</span><strong className="text-slate-900">{cargoEstimates.realWeight.toFixed(1)} kg</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Total places</span><strong className="text-slate-900">{cargoEstimates.places.toFixed(0)}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Air ({cargoEstimates.air.eta} days)</span><strong className="text-slate-900">${cargoEstimates.air.costUsd.toFixed(2)}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Air Cargo · {cargoEstimates.places.toFixed(0)} place × ${cargoEstimates.airSeatUsd.toFixed(2)}</span><strong className="text-slate-900">${cargoEstimates.airSeatTotalUsd.toFixed(2)}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Container ({cargoEstimates.container.eta} days)</span><strong className="text-slate-900">${cargoEstimates.container.costUsd.toFixed(2)}</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">AIR ({cargoEstimates.air.eta} days){cargoEstimates.places > 0 && cargoEstimates.airSeatUsd > 0 ? ` · includes place fee (${cargoEstimates.places.toFixed(0)} × $${cargoEstimates.airSeatUsd.toFixed(2)})` : ''}</span><strong className="text-slate-900">${cargoEstimates.air.costUsd.toFixed(2)}</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">CONTAINER ({cargoEstimates.container.eta} days)</span><strong className="text-slate-900">${cargoEstimates.container.costUsd.toFixed(2)}</strong></div>
             </div>
           </section>
         )}
