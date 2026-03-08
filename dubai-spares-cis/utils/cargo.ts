@@ -4,15 +4,12 @@ export type CargoDeliveryType = 'air' | 'express_air' | 'container';
 
 export interface CargoTariff {
   country: string;
-  airUsdPerKg: number;
-  expressAirUsdPerKg: number;
+  airRegularUsdPerKg: number;
+  airOversizedUsdPerKg: number;
   containerUsdPerKg: number;
-  oversizedUsdPerKg: number;
-  regularUsdPerKg: number;
   airSeatUsd: number;
   minAirKg: number;
   minContainerKg: number;
-  minContainerCbm: number;
   airEtaDays: string;
   containerEtaDays: string;
 }
@@ -22,9 +19,7 @@ export interface CargoCalculationResult {
   deliveryType: CargoDeliveryType;
   eta: string;
   realWeight: number;
-  volumeWeight: number;
   chargeableWeight: number;
-  volumeCbm: number;
   totalPlaces: number;
   oversizedWeight: number;
   regularWeight: number;
@@ -34,28 +29,12 @@ export interface CargoCalculationResult {
 }
 
 export const DEFAULT_CARGO_TARIFFS: CargoTariff[] = [
-  { country: 'Россия', airUsdPerKg: 6.12, expressAirUsdPerKg: 13, containerUsdPerKg: 1.6, oversizedUsdPerKg: 10, regularUsdPerKg: 6.12, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '3-7', containerEtaDays: '25-45' },
-  { country: 'Казахстан', airUsdPerKg: 3.5, expressAirUsdPerKg: 15, containerUsdPerKg: 1.4, oversizedUsdPerKg: 10, regularUsdPerKg: 3.5, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '4-8', containerEtaDays: '20-35' },
-  { country: 'Таджикистан', airUsdPerKg: 6.81, expressAirUsdPerKg: 12, containerUsdPerKg: 1.9, oversizedUsdPerKg: 10, regularUsdPerKg: 6.81, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '6-12', containerEtaDays: '25-45' },
-  { country: 'Узбекистан', airUsdPerKg: 7.62, expressAirUsdPerKg: 12, containerUsdPerKg: 1.7, oversizedUsdPerKg: 10, regularUsdPerKg: 7.62, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '4-8', containerEtaDays: '20-40' },
-  { country: 'Кыргызстан', airUsdPerKg: 6.81, expressAirUsdPerKg: 12, containerUsdPerKg: 1.8, oversizedUsdPerKg: 10, regularUsdPerKg: 6.81, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '6-12', containerEtaDays: '20-35' }
+  { country: 'Россия', airRegularUsdPerKg: 6.12, airOversizedUsdPerKg: 10, containerUsdPerKg: 1.6, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, airEtaDays: '3-7', containerEtaDays: '25-45' },
+  { country: 'Казахстан', airRegularUsdPerKg: 3.5, airOversizedUsdPerKg: 10, containerUsdPerKg: 1.4, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, airEtaDays: '4-8', containerEtaDays: '20-35' },
+  { country: 'Таджикистан', airRegularUsdPerKg: 6.81, airOversizedUsdPerKg: 10, containerUsdPerKg: 1.9, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, airEtaDays: '6-12', containerEtaDays: '25-45' },
+  { country: 'Узбекистан', airRegularUsdPerKg: 7.62, airOversizedUsdPerKg: 10, containerUsdPerKg: 1.7, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, airEtaDays: '4-8', containerEtaDays: '20-40' },
+  { country: 'Кыргызстан', airRegularUsdPerKg: 6.81, airOversizedUsdPerKg: 10, containerUsdPerKg: 1.8, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, airEtaDays: '6-12', containerEtaDays: '20-35' }
 ];
-
-const getPartVolumeWeight = (part: Part) => {
-  const l = Number((part as any).lengthCm || 0);
-  const w = Number((part as any).widthCm || 0);
-  const h = Number((part as any).heightCm || 0);
-  if (l <= 0 || w <= 0 || h <= 0) return 0;
-  return (l * w * h) / 6000;
-};
-
-const getPartVolumeCbm = (part: Part) => {
-  const l = Number((part as any).lengthCm || 0);
-  const w = Number((part as any).widthCm || 0);
-  const h = Number((part as any).heightCm || 0);
-  if (l <= 0 || w <= 0 || h <= 0) return 0;
-  return (l * w * h) / 1000000;
-};
 
 export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTariff[] }, forcedDeliveryType?: CargoDeliveryType): CargoCalculationResult => {
   const logistics = order.logistics || {};
@@ -67,22 +46,19 @@ export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTar
   const totals = (order.parts || []).reduce((acc, part) => {
     const qty = Number(part.quantity || 1);
     const realWeight = Number((part as any).weightKg || 0) * qty;
-    const volumeWeight = getPartVolumeWeight(part) * qty;
-    const volumeCbm = getPartVolumeCbm(part) * qty;
+    const chargeableWeight = realWeight;
     const places = Math.max(1, Number((part as any).places || 1)) * qty;
     const oversized = Boolean((part as any).isOversized);
     acc.realWeight += realWeight;
-    acc.volumeWeight += volumeWeight;
-    acc.chargeableWeight += Math.max(realWeight, volumeWeight);
-    acc.volumeCbm += volumeCbm;
+    acc.chargeableWeight += chargeableWeight;
     acc.totalPlaces += places;
     if (oversized) {
-      acc.oversizedWeight += Math.max(realWeight, volumeWeight);
+      acc.oversizedWeight += chargeableWeight;
     } else {
-      acc.regularWeight += Math.max(realWeight, volumeWeight);
+      acc.regularWeight += chargeableWeight;
     }
     return acc;
-  }, { realWeight: 0, volumeWeight: 0, chargeableWeight: 0, volumeCbm: 0, totalPlaces: 0, oversizedWeight: 0, regularWeight: 0 });
+  }, { realWeight: 0, chargeableWeight: 0, totalPlaces: 0, oversizedWeight: 0, regularWeight: 0 });
 
   const additional = logistics.additionalCostsUsd || {};
   const additionalTotal = Number(additional.packagingUsd || 0) + Number(additional.customsUsd || 0) + Number(additional.cityDeliveryUsd || 0) + Number(additional.insuranceUsd || 0);
@@ -95,15 +71,11 @@ export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTar
     eta = tariff.containerEtaDays;
   } else {
     const minWeight = Math.max(totals.chargeableWeight, Number(tariff.minAirKg || 0));
-    if (deliveryType === 'express_air') {
-      baseCost = minWeight * Number(tariff.expressAirUsdPerKg || 0);
-    } else {
-      baseCost = (totals.regularWeight * Number(tariff.regularUsdPerKg || tariff.airUsdPerKg || 0))
-        + (totals.oversizedWeight * Number(tariff.oversizedUsdPerKg || tariff.airUsdPerKg || 0));
-      if (baseCost <= 0) baseCost = minWeight * Number(tariff.airUsdPerKg || 0);
-      baseCost += totals.totalPlaces * Number(tariff.airSeatUsd || 0);
-      if (baseCost <= 0 && minWeight > 0) baseCost = minWeight * Number(tariff.airUsdPerKg || 0);
-    }
+    baseCost = (totals.regularWeight * Number(tariff.airRegularUsdPerKg || 0))
+      + (totals.oversizedWeight * Number(tariff.airOversizedUsdPerKg || tariff.airRegularUsdPerKg || 0));
+    if (baseCost <= 0) baseCost = minWeight * Number(tariff.airRegularUsdPerKg || 0);
+    baseCost += totals.totalPlaces * Number(tariff.airSeatUsd || 0);
+    if (baseCost <= 0 && minWeight > 0) baseCost = minWeight * Number(tariff.airRegularUsdPerKg || 0);
   }
 
   const totalCost = baseCost + additionalTotal;

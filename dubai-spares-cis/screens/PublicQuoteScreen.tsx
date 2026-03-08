@@ -18,7 +18,7 @@ import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
 import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot, resolveClientUnitPriceAed } from '../publicQuoteApi';
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
-import { calculateCargoEstimates } from '../utils/cargo';
+import { calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 
 type Language = 'en' | 'ru';
 
@@ -635,6 +635,9 @@ const mapSnapshotOrder = (row: any): Order => {
     photoUrl: part?.photoUrl || part?.photo_url || photos?.[0] || '',
     photos,
     isFound: !!part?.isFound || !!part?.is_found,
+    weightKg: Number(part?.weightKg ?? part?.weight_kg ?? 0),
+    places: Number(part?.places ?? 1),
+    isOversized: !!(part?.isOversized ?? part?.is_oversized),
     variants: (part?.variants || part?.price_variants || [{ id: `${part?.id || 'variant'}-public`, priceAed: variantPrice, price_aed: variantPrice }]).map((variant: any): PriceVariant => ({
       id: String(variant?.id || ''),
       partId: String(variant?.partId || variant?.part_id || part?.id || ''),
@@ -896,12 +899,14 @@ const openInvoicePrintWindow = ({
   const cargoComputed = calculateCargoEstimates(order, {});
   const cargoCountry = String(order.logistics?.cargoCountry || cargoComputed.air.country || '—');
   const cargoRealWeight = Number(order.logistics?.cargoTotalWeightKg ?? cargoComputed.air.realWeight ?? 0);
-  const cargoChargeableWeight = Number(order.logistics?.cargoChargeableWeightKg ?? cargoComputed.air.chargeableWeight ?? cargoRealWeight);
   const cargoPlaces = Number(order.logistics?.cargoTotalPlaces ?? cargoComputed.air.totalPlaces ?? 0);
   const cargoAirCostUsd = Number(order.logistics?.cargoAirCostUsd || cargoComputed.air.totalCostUsd || 0);
   const cargoContainerCostUsd = Number(order.logistics?.cargoContainerCostUsd || cargoComputed.container.totalCostUsd || 0);
   const cargoAirEta = String(order.logistics?.cargoAirEtaDays || cargoComputed.air.eta || '—');
   const cargoContainerEta = String(order.logistics?.cargoContainerEtaDays || cargoComputed.container.eta || '—');
+  const selectedTariff = DEFAULT_CARGO_TARIFFS.find((item) => item.country === cargoCountry) || DEFAULT_CARGO_TARIFFS[0];
+  const airSeatUsd = Number(selectedTariff?.airSeatUsd || 0);
+  const airSeatTotalUsd = airSeatUsd * cargoPlaces;
 
   const issueDate = new Date();
   const invoiceId = order.id.slice(0, 8).toUpperCase();
@@ -989,13 +994,19 @@ const openInvoicePrintWindow = ({
         <tr>
           <td>Air (${escapeHtml(cargoAirEta)} days)</td>
           <td>${escapeHtml(cargoCountry)}</td>
-          <td>${cargoRealWeight.toFixed(1)} / ${cargoChargeableWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
+          <td>${cargoRealWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
           <td style="text-align:right">$${cargoAirCostUsd.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td>Air Cargo Seat Fee</td>
+          <td>${escapeHtml(cargoCountry)}</td>
+          <td>${cargoPlaces.toFixed(0)} place(s) × $${airSeatUsd.toFixed(2)}</td>
+          <td style="text-align:right">$${airSeatTotalUsd.toFixed(2)}</td>
         </tr>
         <tr>
           <td>Container (${escapeHtml(cargoContainerEta)} days)</td>
           <td>${escapeHtml(cargoCountry)}</td>
-          <td>${cargoRealWeight.toFixed(1)} / ${cargoChargeableWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
+          <td>${cargoRealWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
           <td style="text-align:right">$${cargoContainerCostUsd.toFixed(2)}</td>
         </tr>
       </tbody>
@@ -1419,11 +1430,17 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const cargoEstimates = useMemo(() => {
     if (!order) return null;
     const computed = calculateCargoEstimates(order, {});
+    const country = String(order.logistics?.cargoCountry || computed.air.country || '—');
+    const selectedTariff = DEFAULT_CARGO_TARIFFS.find((item) => item.country === country) || DEFAULT_CARGO_TARIFFS[0];
+    const places = Number(order.logistics?.cargoTotalPlaces ?? computed.air.totalPlaces ?? 0);
+    const seatPriceUsd = Number(selectedTariff?.airSeatUsd || 0);
     return {
-      country: String(order.logistics?.cargoCountry || computed.air.country || '—'),
+      country,
       realWeight: Number(order.logistics?.cargoTotalWeightKg ?? computed.air.realWeight ?? 0),
       chargeableWeight: Number(order.logistics?.cargoChargeableWeightKg ?? computed.air.chargeableWeight ?? 0),
-      places: Number(order.logistics?.cargoTotalPlaces ?? computed.air.totalPlaces ?? 0),
+      places,
+      airSeatUsd: seatPriceUsd,
+      airSeatTotalUsd: seatPriceUsd * places,
       air: {
         eta: String(order.logistics?.cargoAirEtaDays || computed.air.eta || '—'),
         costUsd: Number(order.logistics?.cargoAirCostUsd || computed.air.totalCostUsd || 0)
@@ -1434,7 +1451,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       }
     };
   }, [order]);
-
 
   const clientDisplayName = String(order?.clientName || '').trim();
   const clientNickname = String(order?.socialNickname || '').trim();
@@ -1742,9 +1758,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             </div>
             <div className="divide-y divide-slate-100 px-5">
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Country</span><strong className="text-slate-900">{cargoEstimates.country}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Real / chargeable weight</span><strong className="text-slate-900">{cargoEstimates.realWeight.toFixed(1)} / {cargoEstimates.chargeableWeight.toFixed(1)} kg</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Weight</span><strong className="text-slate-900">{cargoEstimates.realWeight.toFixed(1)} kg</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Total places</span><strong className="text-slate-900">{cargoEstimates.places.toFixed(0)}</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Air ({cargoEstimates.air.eta} days)</span><strong className="text-slate-900">${cargoEstimates.air.costUsd.toFixed(2)}</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Air Cargo · {cargoEstimates.places.toFixed(0)} place × ${cargoEstimates.airSeatUsd.toFixed(2)}</span><strong className="text-slate-900">${cargoEstimates.airSeatTotalUsd.toFixed(2)}</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Container ({cargoEstimates.container.eta} days)</span><strong className="text-slate-900">${cargoEstimates.container.costUsd.toFixed(2)}</strong></div>
             </div>
           </section>

@@ -45,6 +45,9 @@ export type PublicQuotePayloadV1 = {
     supplier_price_aed: number;
     client_price_aed: number;
     photo_urls: string[];
+    weight_kg?: number;
+    places?: number;
+    is_oversized?: boolean;
   }>;
   owner: {
     whatsapp_phone: string | null;
@@ -654,7 +657,10 @@ const buildSnapshotPayload = (
         qty: normalizePartQuantity((part as any).quantity),
         supplier_price_aed: supplierAed,
         client_price_aed: round2(clientAed),
-        photo_urls: dedupePhotoUrls([part.photoUrl || '', ...(part.photos || []), variant?.photoUrl || '', ...(variant?.photos || [])])
+        photo_urls: dedupePhotoUrls([part.photoUrl || '', ...(part.photos || []), variant?.photoUrl || '', ...(variant?.photos || [])]),
+        weight_kg: parseMoney((part as any).weightKg),
+        places: parseMoney((part as any).places) || 1,
+        is_oversized: !!(part as any).isOversized
       };
     });
 
