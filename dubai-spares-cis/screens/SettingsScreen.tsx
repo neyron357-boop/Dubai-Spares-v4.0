@@ -171,6 +171,23 @@ const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'defa
   );
 };
 
+const CompactBlock: React.FC<{ title: string; subtitle?: string; children: React.ReactNode }> = ({ title, subtitle, children }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
+      <button type="button" onClick={() => setIsOpen((prev) => !prev)} className="flex w-full items-center justify-between gap-3 text-left">
+        <div>
+          <p className="text-sm font-bold text-gray-900">{title}</p>
+          {subtitle ? <p className="mt-0.5 text-[11px] text-gray-500">{subtitle}</p> : null}
+        </div>
+        <span className="text-xs font-bold text-gray-500">{isOpen ? 'Свернуть' : 'Открыть'}</span>
+      </button>
+      {isOpen ? <div className="mt-3 space-y-3">{children}</div> : null}
+    </div>
+  );
+};
+
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="space-y-1.5 min-w-0">
     <label className="text-xs font-bold text-gray-700">{label}</label>
@@ -180,6 +197,13 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
 
 const toTariffNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const parseDecimalInput = (value: string, fallback = 0) => {
+  const normalized = value.replace(',', '.').trim();
+  if (!normalized) return fallback;
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
@@ -767,10 +791,11 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           <Field label="Курс по умолчанию">
             <input
               value={draftSettings.defaultExchangeRate}
-              onChange={(e) => updateDraft({ defaultExchangeRate: Number(e.target.value) || 0 })}
+              onChange={(e) => updateDraft({ defaultExchangeRate: parseDecimalInput(e.target.value) })}
               className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-              type="number"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
+              placeholder="0.75"
             />
           </Field>
 
@@ -883,122 +908,125 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
 
       <Section title="Публичные контакты">
         <div className="space-y-3">
-          <Field label="WhatsApp номер для ссылки в заявке и смете">
-            <input
-              value={draftSettings.publicWhatsappNumber}
-              onChange={(e) => updateDraft({ publicWhatsappNumber: e.target.value.replace(/[^\d]/g, '') })}
-              placeholder="971521574546"
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-            />
-          </Field>
-
-          <Field label="Telegram ссылка">
-            <input
-              value={draftSettings.publicTelegramUrl}
-              onChange={(e) => updateDraft({ publicTelegramUrl: e.target.value.trim() })}
-              placeholder="https://t.me/your_account"
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-            />
-          </Field>
-
-          <Field label="Instagram ссылка">
-            <input
-              value={draftSettings.publicInstagramUrl}
-              onChange={(e) => updateDraft({ publicInstagramUrl: e.target.value.trim() })}
-              placeholder="https://instagram.com/your_account"
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-            />
-          </Field>
-
-          <Field label="Логотип компании (для публичной сметы и формы заявки)">
-            <div className="space-y-2">
+          <CompactBlock title="Контакты для клиента" subtitle="WhatsApp / Telegram / Instagram">
+            <Field label="WhatsApp номер для ссылки в заявке и смете">
               <input
-                type="file"
-                accept="image/*"
-                onChange={(event) => handleBrandingFileChange(event, 'logo')}
+                value={draftSettings.publicWhatsappNumber}
+                onChange={(e) => updateDraft({ publicWhatsappNumber: e.target.value.replace(/[^\d]/g, '') })}
+                placeholder="971521574546"
                 className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
               />
-              {draftSettings.publicCompanyLogoUrl && (
-                <div className="space-y-2">
-                  <img src={draftSettings.publicCompanyLogoUrl} alt="Company logo" className="h-16 w-auto rounded-lg border border-gray-200 bg-gray-50 p-1" />
-                  <button type="button" onClick={() => updateDraft({ publicCompanyLogoUrl: '' })} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700">Удалить логотип</button>
-                </div>
-              )}
-            </div>
-          </Field>
+            </Field>
 
-          <Field label="Подпись владельца (для invoice)">
-            <div className="space-y-2">
+            <Field label="Telegram ссылка">
               <input
-                type="file"
-                accept="image/*"
-                onChange={(event) => handleBrandingFileChange(event, 'signature')}
+                value={draftSettings.publicTelegramUrl}
+                onChange={(e) => updateDraft({ publicTelegramUrl: e.target.value.trim() })}
+                placeholder="https://t.me/your_account"
                 className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
               />
-              {draftSettings.publicInvoiceSignatureUrl && (
-                <div className="space-y-2">
-                  <img src={draftSettings.publicInvoiceSignatureUrl} alt="Owner signature" className="h-16 w-auto rounded-lg border border-gray-200 bg-gray-50 p-1" />
-                  <button type="button" onClick={() => updateDraft({ publicInvoiceSignatureUrl: '' })} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700">Удалить подпись</button>
-                </div>
-              )}
-            </div>
-          </Field>
+            </Field>
 
-          <Field label="Условия работы (для сметы клиенту)">
-            <textarea
-              value={draftSettings.publicWorkTerms}
-              onChange={(e) => updateDraft({ publicWorkTerms: e.target.value })}
-              placeholder="Например: Проверка наличия/цены перед оплатой, фото-отчёт перед отправкой."
-              className="min-h-20 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-              rows={4}
-            />
-          </Field>
+            <Field label="Instagram ссылка">
+              <input
+                value={draftSettings.publicInstagramUrl}
+                onChange={(e) => updateDraft({ publicInstagramUrl: e.target.value.trim() })}
+                placeholder="https://instagram.com/your_account"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              />
+            </Field>
+          </CompactBlock>
 
-          <div className="pt-2">
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-500">Калькулятор карго / доставки</p>
-            <p className="mt-1 text-xs text-gray-500">Тарифы по странам и типам карго.</p>
-          </div>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold text-gray-700">Тарифы по странам (USD)</p>
-              <button type="button" onClick={addCargoTariff} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700">+ Добавить страну</button>
-            </div>
-            {cargoTariffs.map((tariff, index) => (
-              <div key={`${tariff.country || 'country'}-${index}`} className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
-                <div className="grid gap-2 md:grid-cols-2">
-                  <Field label="Страна">
-                    <input
-                      value={tariff.country}
-                      onChange={(e) => updateCargoTariff(index, { country: e.target.value })}
-                      placeholder="Россия"
-                      className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                    />
-                  </Field>
-                  <div className="flex items-end justify-end">
-                    <button type="button" onClick={() => removeCargoTariff(index)} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-black text-rose-700">Удалить страну</button>
+          <CompactBlock title="Брендинг документов" subtitle="Логотип и подпись в публичной смете">
+            <Field label="Логотип компании (для публичной сметы и формы заявки)">
+              <div className="space-y-2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => handleBrandingFileChange(event, 'logo')}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                />
+                {draftSettings.publicCompanyLogoUrl && (
+                  <div className="space-y-2">
+                    <img src={draftSettings.publicCompanyLogoUrl} alt="Company logo" className="h-16 w-auto rounded-lg border border-gray-200 bg-gray-50 p-1" />
+                    <button type="button" onClick={() => updateDraft({ publicCompanyLogoUrl: '' })} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700">Удалить логотип</button>
                   </div>
-                </div>
-
-                <div className="grid gap-2 md:grid-cols-3">
-                  <Field label="Авиа $/кг"><input type="number" step="0.01" value={tariff.airUsdPerKg} onChange={(e) => updateCargoTariff(index, { airUsdPerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                  <Field label="Экспресс авиа $/кг"><input type="number" step="0.01" value={tariff.expressAirUsdPerKg} onChange={(e) => updateCargoTariff(index, { expressAirUsdPerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                  <Field label="Контейнер $/кг"><input type="number" step="0.01" value={tariff.containerUsdPerKg} onChange={(e) => updateCargoTariff(index, { containerUsdPerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                  <Field label="Крупногабарит $/кг"><input type="number" step="0.01" value={tariff.oversizedUsdPerKg} onChange={(e) => updateCargoTariff(index, { oversizedUsdPerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                  <Field label="Обычный груз $/кг"><input type="number" step="0.01" value={tariff.regularUsdPerKg} onChange={(e) => updateCargoTariff(index, { regularUsdPerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                  <Field label="Место авиа $"><input type="number" step="0.01" value={tariff.airSeatUsd} onChange={(e) => updateCargoTariff(index, { airSeatUsd: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                </div>
-
-                <div className="grid gap-2 md:grid-cols-3">
-                  <Field label="Мин. авиа (кг)"><input type="number" step="0.01" value={tariff.minAirKg} onChange={(e) => updateCargoTariff(index, { minAirKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                  <Field label="Мин. контейнер (кг)"><input type="number" step="0.01" value={tariff.minContainerKg} onChange={(e) => updateCargoTariff(index, { minContainerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                  <Field label="Мин. контейнер (м³)"><input type="number" step="0.01" value={tariff.minContainerCbm} onChange={(e) => updateCargoTariff(index, { minContainerCbm: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                  <Field label="Авиа срок (дней)"><input value={tariff.airEtaDays} onChange={(e) => updateCargoTariff(index, { airEtaDays: e.target.value })} placeholder="3-7" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                  <Field label="Контейнер срок (дней)"><input value={tariff.containerEtaDays} onChange={(e) => updateCargoTariff(index, { containerEtaDays: e.target.value })} placeholder="25-45" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                </div>
+                )}
               </div>
-            ))}
-          </div>
+            </Field>
+
+            <Field label="Подпись владельца (для invoice)">
+              <div className="space-y-2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => handleBrandingFileChange(event, 'signature')}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                />
+                {draftSettings.publicInvoiceSignatureUrl && (
+                  <div className="space-y-2">
+                    <img src={draftSettings.publicInvoiceSignatureUrl} alt="Owner signature" className="h-16 w-auto rounded-lg border border-gray-200 bg-gray-50 p-1" />
+                    <button type="button" onClick={() => updateDraft({ publicInvoiceSignatureUrl: '' })} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700">Удалить подпись</button>
+                  </div>
+                )}
+              </div>
+            </Field>
+          </CompactBlock>
+
+          <CompactBlock title="Условия работы" subtitle="Показываются клиенту в публичной смете">
+            <Field label="Условия работы (для сметы клиенту)">
+              <textarea
+                value={draftSettings.publicWorkTerms}
+                onChange={(e) => updateDraft({ publicWorkTerms: e.target.value })}
+                placeholder="Например: Проверка наличия/цены перед оплатой, фото-отчёт перед отправкой."
+                className="min-h-20 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                rows={4}
+              />
+            </Field>
+          </CompactBlock>
+
+          <CompactBlock title="Калькулятор карго / доставки" subtitle="Тарифы по странам и типам карго">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-gray-700">Тарифы по странам (USD)</p>
+                <button type="button" onClick={addCargoTariff} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700">+ Добавить страну</button>
+              </div>
+              {cargoTariffs.map((tariff, index) => (
+                <CompactBlock key={`${tariff.country || 'country'}-${index}`} title={tariff.country || `Страна ${index + 1}`} subtitle="Тарифы и сроки доставки">
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Field label="Страна">
+                      <input
+                        value={tariff.country}
+                        onChange={(e) => updateCargoTariff(index, { country: e.target.value })}
+                        placeholder="Россия"
+                        className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                      />
+                    </Field>
+                    <div className="flex items-end justify-end">
+                      <button type="button" onClick={() => removeCargoTariff(index)} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-black text-rose-700">Удалить страну</button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <Field label="Авиа $/кг"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.airUsdPerKg} onChange={(e) => updateCargoTariff(index, { airUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Экспресс авиа $/кг"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.expressAirUsdPerKg} onChange={(e) => updateCargoTariff(index, { expressAirUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Контейнер $/кг"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.containerUsdPerKg} onChange={(e) => updateCargoTariff(index, { containerUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Крупногабарит $/кг"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.oversizedUsdPerKg} onChange={(e) => updateCargoTariff(index, { oversizedUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Обычный груз $/кг"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.regularUsdPerKg} onChange={(e) => updateCargoTariff(index, { regularUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Место авиа $"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.airSeatUsd} onChange={(e) => updateCargoTariff(index, { airSeatUsd: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                  </div>
+
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <Field label="Мин. авиа (кг)"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.minAirKg} onChange={(e) => updateCargoTariff(index, { minAirKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Мин. контейнер (кг)"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.minContainerKg} onChange={(e) => updateCargoTariff(index, { minContainerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Мин. контейнер (м³)"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.minContainerCbm} onChange={(e) => updateCargoTariff(index, { minContainerCbm: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Авиа срок (дней)"><input value={tariff.airEtaDays} onChange={(e) => updateCargoTariff(index, { airEtaDays: e.target.value })} placeholder="3-7" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Контейнер срок (дней)"><input value={tariff.containerEtaDays} onChange={(e) => updateCargoTariff(index, { containerEtaDays: e.target.value })} placeholder="25-45" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                  </div>
+                </CompactBlock>
+              ))}
+            </div>
+          </CompactBlock>
         </div>
       </Section>
 

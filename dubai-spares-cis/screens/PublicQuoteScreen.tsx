@@ -895,7 +895,9 @@ const openInvoicePrintWindow = ({
 
   const cargoComputed = calculateCargoEstimates(order, {});
   const cargoCountry = String(order.logistics?.cargoCountry || cargoComputed.air.country || '—');
-  const cargoWeight = Number(order.logistics?.cargoChargeableWeightKg || order.logistics?.cargoTotalWeightKg || cargoComputed.air.chargeableWeight || cargoComputed.air.realWeight || 0);
+  const cargoRealWeight = Number(order.logistics?.cargoTotalWeightKg ?? cargoComputed.air.realWeight ?? 0);
+  const cargoChargeableWeight = Number(order.logistics?.cargoChargeableWeightKg ?? cargoComputed.air.chargeableWeight ?? cargoRealWeight);
+  const cargoPlaces = Number(order.logistics?.cargoTotalPlaces ?? cargoComputed.air.totalPlaces ?? 0);
   const cargoAirCostUsd = Number(order.logistics?.cargoAirCostUsd || cargoComputed.air.totalCostUsd || 0);
   const cargoContainerCostUsd = Number(order.logistics?.cargoContainerCostUsd || cargoComputed.container.totalCostUsd || 0);
   const cargoAirEta = String(order.logistics?.cargoAirEtaDays || cargoComputed.air.eta || '—');
@@ -979,7 +981,7 @@ const openInvoicePrintWindow = ({
         <tr>
           <th>Route</th>
           <th>Country</th>
-          <th style="width:170px">Weight</th>
+          <th style="width:220px">Weight / places</th>
           <th style="width:170px;text-align:right">Cost (info)</th>
         </tr>
       </thead>
@@ -987,13 +989,13 @@ const openInvoicePrintWindow = ({
         <tr>
           <td>Air (${escapeHtml(cargoAirEta)} days)</td>
           <td>${escapeHtml(cargoCountry)}</td>
-          <td>${cargoWeight.toFixed(1)} kg</td>
+          <td>${cargoRealWeight.toFixed(1)} / ${cargoChargeableWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
           <td style="text-align:right">$${cargoAirCostUsd.toFixed(2)}</td>
         </tr>
         <tr>
           <td>Container (${escapeHtml(cargoContainerEta)} days)</td>
           <td>${escapeHtml(cargoCountry)}</td>
-          <td>${cargoWeight.toFixed(1)} kg</td>
+          <td>${cargoRealWeight.toFixed(1)} / ${cargoChargeableWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
           <td style="text-align:right">$${cargoContainerCostUsd.toFixed(2)}</td>
         </tr>
       </tbody>
@@ -1419,7 +1421,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     const computed = calculateCargoEstimates(order, {});
     return {
       country: String(order.logistics?.cargoCountry || computed.air.country || '—'),
-      weight: Number(order.logistics?.cargoChargeableWeightKg || order.logistics?.cargoTotalWeightKg || computed.air.chargeableWeight || computed.air.realWeight || 0),
+      realWeight: Number(order.logistics?.cargoTotalWeightKg ?? computed.air.realWeight ?? 0),
+      chargeableWeight: Number(order.logistics?.cargoChargeableWeightKg ?? computed.air.chargeableWeight ?? 0),
+      places: Number(order.logistics?.cargoTotalPlaces ?? computed.air.totalPlaces ?? 0),
       air: {
         eta: String(order.logistics?.cargoAirEtaDays || computed.air.eta || '—'),
         costUsd: Number(order.logistics?.cargoAirCostUsd || computed.air.totalCostUsd || 0)
@@ -1738,7 +1742,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             </div>
             <div className="divide-y divide-slate-100 px-5">
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Country</span><strong className="text-slate-900">{cargoEstimates.country}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Chargeable weight</span><strong className="text-slate-900">{cargoEstimates.weight.toFixed(1)} kg</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Real / chargeable weight</span><strong className="text-slate-900">{cargoEstimates.realWeight.toFixed(1)} / {cargoEstimates.chargeableWeight.toFixed(1)} kg</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Total places</span><strong className="text-slate-900">{cargoEstimates.places.toFixed(0)}</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Air ({cargoEstimates.air.eta} days)</span><strong className="text-slate-900">${cargoEstimates.air.costUsd.toFixed(2)}</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Container ({cargoEstimates.container.eta} days)</span><strong className="text-slate-900">${cargoEstimates.container.costUsd.toFixed(2)}</strong></div>
             </div>
