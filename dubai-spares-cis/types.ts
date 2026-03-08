@@ -67,6 +67,12 @@ export interface Part {
   status?: 'searching' | 'found' | 'not_found' | 'ordered';
   priority?: 'normal' | 'urgent';
   bestOfferId?: string;
+  weightKg?: number;
+  lengthCm?: number;
+  widthCm?: number;
+  heightCm?: number;
+  places?: number;
+  isOversized?: boolean;
 }
 
 export interface Order {
@@ -126,6 +132,21 @@ export interface Order {
     deliveryAed?: number;
     packingAed?: number;
     serviceFeeAed?: number;
+    cargoCountry?: string;
+    cargoDeliveryType?: 'air' | 'express_air' | 'container';
+    cargoEtaDays?: string;
+    cargoTotalWeightKg?: number;
+    cargoChargeableWeightKg?: number;
+    cargoVolumeCbm?: number;
+    cargoTotalPlaces?: number;
+    cargoBaseCostUsd?: number;
+    cargoTotalCostUsd?: number;
+    additionalCostsUsd?: {
+      packagingUsd?: number;
+      insuranceUsd?: number;
+      customsUsd?: number;
+      cityDeliveryUsd?: number;
+    };
   };
   pricingEvents?: OrderPricingEvent[];
   vendorContacts?: OrderVendorContact[];
@@ -165,7 +186,10 @@ export type PricingFieldKey =
   | 'logistics.deliveryType'
   | 'logistics.deliveryAed'
   | 'logistics.packingAed'
-  | 'logistics.serviceFeeAed';
+  | 'logistics.serviceFeeAed'
+  | 'logistics.cargoCountry'
+  | 'logistics.cargoDeliveryType'
+  | 'logistics.cargoTotalCostUsd';
 
 export interface OrderPricingEvent {
   id: string;
@@ -308,6 +332,12 @@ export interface DbPartRow {
   photo_url: string | null;
   photos: string[];
   is_found: boolean;
+  weight_kg?: number | null;
+  length_cm?: number | null;
+  width_cm?: number | null;
+  height_cm?: number | null;
+  places?: number | null;
+  is_oversized?: boolean | null;
   price_variants?: DbPriceVariantRow[];
 }
 
@@ -336,6 +366,21 @@ export interface DbOrderRow {
     deliveryAed?: number;
     packingAed?: number;
     serviceFeeAed?: number;
+    cargoCountry?: string;
+    cargoDeliveryType?: 'air' | 'express_air' | 'container';
+    cargoEtaDays?: string;
+    cargoTotalWeightKg?: number;
+    cargoChargeableWeightKg?: number;
+    cargoVolumeCbm?: number;
+    cargoTotalPlaces?: number;
+    cargoBaseCostUsd?: number;
+    cargoTotalCostUsd?: number;
+    additionalCostsUsd?: {
+      packagingUsd?: number;
+      insuranceUsd?: number;
+      customsUsd?: number;
+      cityDeliveryUsd?: number;
+    };
   };
   pricing_events?: OrderPricingEvent[];
   vendor_contacts?: OrderVendorContact[];

@@ -921,6 +921,23 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               rows={4}
             />
           </Field>
+
+          <Field label="Cargo Tariffs (JSON, USD)">
+            <textarea
+              value={JSON.stringify(draftSettings.cargoTariffs || [], null, 2)}
+              onChange={(e) => {
+                try {
+                  const parsed = JSON.parse(e.target.value);
+                  if (Array.isArray(parsed)) updateDraft({ cargoTariffs: parsed as any });
+                } catch {
+                  // keep last valid JSON
+                }
+              }}
+              placeholder='[{"country":"Россия","airUsdPerKg":5.5}]'
+              className="min-h-40 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs font-mono"
+              rows={8}
+            />
+          </Field>
         </div>
       </Section>
 

@@ -139,7 +139,22 @@ const normalizeLogistics = (raw: unknown): Order['logistics'] | undefined => {
     deliveryType: src.deliveryType === 'export' || src.delivery_type === 'export' ? 'export' : 'uae',
     deliveryAed: toAmount(src.deliveryAed, src.delivery_aed),
     packingAed: toAmount(src.packingAed, src.packing_aed),
-    serviceFeeAed: toAmount(src.serviceFeeAed, src.service_fee_aed, src.commissionAed, src.commission_aed)
+    serviceFeeAed: toAmount(src.serviceFeeAed, src.service_fee_aed, src.commissionAed, src.commission_aed),
+    cargoCountry: typeof src.cargoCountry === 'string' ? src.cargoCountry : (typeof src.cargo_country === 'string' ? src.cargo_country : undefined),
+    cargoDeliveryType: src.cargoDeliveryType === 'container' || src.cargoDeliveryType === 'express_air' ? src.cargoDeliveryType : (src.cargo_delivery_type === 'container' || src.cargo_delivery_type === 'express_air' ? src.cargo_delivery_type : 'air'),
+    cargoEtaDays: typeof src.cargoEtaDays === 'string' ? src.cargoEtaDays : (typeof src.cargo_eta_days === 'string' ? src.cargo_eta_days : undefined),
+    cargoTotalWeightKg: toAmount(src.cargoTotalWeightKg, src.cargo_total_weight_kg),
+    cargoChargeableWeightKg: toAmount(src.cargoChargeableWeightKg, src.cargo_chargeable_weight_kg),
+    cargoVolumeCbm: toAmount(src.cargoVolumeCbm, src.cargo_volume_cbm),
+    cargoTotalPlaces: toAmount(src.cargoTotalPlaces, src.cargo_total_places),
+    cargoBaseCostUsd: toAmount(src.cargoBaseCostUsd, src.cargo_base_cost_usd),
+    cargoTotalCostUsd: toAmount(src.cargoTotalCostUsd, src.cargo_total_cost_usd),
+    additionalCostsUsd: {
+      packagingUsd: toAmount((src.additionalCostsUsd as any)?.packagingUsd, (src.additional_costs_usd as any)?.packagingUsd, (src as any).packagingUsd),
+      insuranceUsd: toAmount((src.additionalCostsUsd as any)?.insuranceUsd, (src.additional_costs_usd as any)?.insuranceUsd, (src as any).insuranceUsd),
+      customsUsd: toAmount((src.additionalCostsUsd as any)?.customsUsd, (src.additional_costs_usd as any)?.customsUsd, (src as any).customsUsd),
+      cityDeliveryUsd: toAmount((src.additionalCostsUsd as any)?.cityDeliveryUsd, (src.additional_costs_usd as any)?.cityDeliveryUsd, (src as any).cityDeliveryUsd)
+    }
   };
 };
 
@@ -880,6 +895,12 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
       photos: part.photos || [],
       photoUrl: part.photo_url || part.photos?.[0],
       isFound: !!part.is_found,
+      weightKg: Number((part as any).weight_kg || 0),
+      lengthCm: Number((part as any).length_cm || 0),
+      widthCm: Number((part as any).width_cm || 0),
+      heightCm: Number((part as any).height_cm || 0),
+      places: Number((part as any).places || 1),
+      isOversized: Boolean((part as any).is_oversized),
       variants: (part.price_variants || []).map((v): PriceVariant => ({
         id: String(v.id),
         partId: String(v.part_id),
@@ -1174,7 +1195,13 @@ const persistOrderGraph = async (order: Order) => {
     group_items: normalizeGroupItems(part.groupItems).map((item) => ({ id: item.id, name: item.name, quantity: item.quantity })),
     photo_url: part.photoUrl,
     photos: part.photos || [],
-    is_found: !!part.isFound
+    is_found: !!part.isFound,
+    weight_kg: Number((part as any).weightKg || 0),
+    length_cm: Number((part as any).lengthCm || 0),
+    width_cm: Number((part as any).widthCm || 0),
+    height_cm: Number((part as any).heightCm || 0),
+    places: Number((part as any).places || 1),
+    is_oversized: !!(part as any).isOversized
   }));
 
   for (let i = 0; i < partRows.length; i += 50) {
