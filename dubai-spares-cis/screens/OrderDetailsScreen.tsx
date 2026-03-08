@@ -110,12 +110,8 @@ const parseCargoNumber = (value: unknown) => {
 };
 
 type PartCargoDraft = {
-  partType: string;
   weightKg: string;
   places: string;
-  lengthCm: string;
-  widthCm: string;
-  heightCm: string;
   isOversized: boolean;
 };
 
@@ -297,12 +293,8 @@ const OrderDetailsScreen: React.FC = () => {
   useEffect(() => {
     const nextCargoDrafts = (order.parts || []).reduce((acc, part) => {
       acc[part.id] = {
-        partType: String((part as any).partType || 'regular'),
         weightKg: Number((part as any).weightKg || 0) > 0 ? String(Number((part as any).weightKg || 0)) : '',
         places: Number((part as any).places || 0) > 0 ? String(Number((part as any).places || 0)) : '',
-        lengthCm: Number((part as any).lengthCm || 0) > 0 ? String(Number((part as any).lengthCm || 0)) : '',
-        widthCm: Number((part as any).widthCm || 0) > 0 ? String(Number((part as any).widthCm || 0)) : '',
-        heightCm: Number((part as any).heightCm || 0) > 0 ? String(Number((part as any).heightCm || 0)) : '',
         isOversized: Boolean((part as any).isOversized)
       };
       return acc;
@@ -896,12 +888,8 @@ const OrderDetailsScreen: React.FC = () => {
       if (!draft) return part;
       return {
         ...part,
-        partType: draft.partType || 'regular',
         weightKg: parseCargoNumber(draft.weightKg),
         places: parseCargoNumber(draft.places),
-        lengthCm: parseCargoNumber(draft.lengthCm),
-        widthCm: parseCargoNumber(draft.widthCm),
-        heightCm: parseCargoNumber(draft.heightCm),
         isOversized: !!draft.isOversized
       } as Part;
     });
@@ -910,12 +898,8 @@ const OrderDetailsScreen: React.FC = () => {
   const onPartCargoDraftChange = useCallback((partId: string, field: keyof PartCargoDraft, value: string | boolean) => {
     setPartCargoDrafts((prev) => {
       const current = prev[partId] || {
-        partType: 'regular',
         weightKg: '',
         places: '',
-        lengthCm: '',
-        widthCm: '',
-        heightCm: '',
         isOversized: false
       };
       return {
@@ -933,12 +917,8 @@ const OrderDetailsScreen: React.FC = () => {
       const draft = partCargoDrafts[part.id];
       if (!draft) return false;
       return (
-        String((part as any).partType || 'regular') !== draft.partType
-        || Number((part as any).weightKg || 0) !== parseCargoNumber(draft.weightKg)
+        Number((part as any).weightKg || 0) !== parseCargoNumber(draft.weightKg)
         || Number((part as any).places || 0) !== parseCargoNumber(draft.places)
-        || Number((part as any).lengthCm || 0) !== parseCargoNumber(draft.lengthCm)
-        || Number((part as any).widthCm || 0) !== parseCargoNumber(draft.widthCm)
-        || Number((part as any).heightCm || 0) !== parseCargoNumber(draft.heightCm)
         || Boolean((part as any).isOversized) !== Boolean(draft.isOversized)
       );
     });
@@ -986,7 +966,6 @@ const OrderDetailsScreen: React.FC = () => {
       cargoEtaDays: nextCargo.eta,
       cargoTotalWeightKg: nextCargo.realWeight,
       cargoChargeableWeightKg: nextCargo.chargeableWeight,
-      cargoVolumeCbm: nextCargo.volumeCbm,
       cargoTotalPlaces: nextCargo.totalPlaces,
       cargoBaseCostUsd: nextCargo.baseCostUsd,
       cargoTotalCostUsd: nextCargo.totalCostUsd,
@@ -1047,7 +1026,6 @@ const OrderDetailsScreen: React.FC = () => {
         cargoEtaDays: next.eta,
         cargoTotalWeightKg: next.realWeight,
         cargoChargeableWeightKg: next.chargeableWeight,
-        cargoVolumeCbm: next.volumeCbm,
         cargoTotalPlaces: next.totalPlaces,
         cargoBaseCostUsd: next.baseCostUsd,
         cargoTotalCostUsd: next.totalCostUsd,
@@ -1755,66 +1733,28 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
 
           <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-2 gap-2">
-            <div>
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Валюта клиента</span>
-              <select value={order.clientCurrency || 'USD'} onChange={(e) => updateOrderField('clientCurrency', e.target.value)} className="w-full h-10 mt-1 font-bold bg-gray-50 rounded-xl px-3 border border-gray-100">
-                <option value="AED">AED</option><option value="USD">USD</option><option value="RUB">RUB</option><option value="TJS">TJS</option>
-              </select>
-            </div>
-            <div>
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Тип доставки</span>
-              <select value={logistics.deliveryType} onChange={(e) => updateLogisticsField('deliveryType', e.target.value)} className="w-full h-10 mt-1 font-bold bg-gray-50 rounded-xl px-3 border border-gray-100">
-                <option value="uae">Внутри UAE</option>
-                <option value="export">Экспорт</option>
-              </select>
-            </div>
-            <div>
+            <div className="col-span-2">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Страна карго</span>
               <select value={order.logistics?.cargoCountry || cargoCalc.country} onChange={(e) => updateCargoField({ cargoCountry: e.target.value })} className="w-full h-10 mt-1 font-bold bg-gray-50 rounded-xl px-3 border border-gray-100">{cargoTariffOptions.map((item) => <option key={item.country} value={item.country}>{item.country}</option>)}</select>
             </div>
-            <div>
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Тип карго</span>
-              <select value={order.logistics?.cargoDeliveryType || 'air'} onChange={(e) => updateCargoField({ cargoDeliveryType: e.target.value })} className="w-full h-10 mt-1 font-bold bg-gray-50 rounded-xl px-3 border border-gray-100">
-                <option value="air">Авиа</option>
-                <option value="express_air">Экспресс авиа</option>
-                <option value="container">Контейнер</option>
-              </select>
-            </div>
-            <div className="col-span-2 rounded-xl bg-gray-50 p-2 text-xs font-semibold text-gray-600">
-              Страна: {cargoCalc.country} · Вес: {cargoCalc.realWeight.toFixed(1)} кг · Chargeable: {cargoCalc.chargeableWeight.toFixed(1)} кг · Мест: {cargoCalc.totalPlaces}
-              <br />
-              Авиа: ${cargoEstimates.air.totalCostUsd.toFixed(2)} ({cargoEstimates.air.eta} дн.) · Контейнер: ${cargoEstimates.container.totalCostUsd.toFixed(2)} ({cargoEstimates.container.eta} дн.)
-            </div>
-            <div className="col-span-2 space-y-2 rounded-xl border border-gray-200 bg-gray-50 p-2">
-              <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Параметры карго по деталям</p>
+            <div className="col-span-2 rounded-xl border border-gray-200 bg-gray-50 p-2">
+              <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-400">Параметры карго (по деталям)</p>
               {(order.parts || []).length === 0 ? (
-                <p className="text-xs font-semibold text-gray-400">Сначала добавьте детали в заказ.</p>
+                <p className="text-xs text-gray-500">Добавьте детали, чтобы рассчитать карго.</p>
               ) : (
                 <div className="space-y-2">
                   {(order.parts || []).map((part) => {
                     const cargoDraft = partCargoDrafts[part.id] || {
-                      partType: String((part as any).partType || 'regular'),
                       weightKg: Number((part as any).weightKg || 0) > 0 ? String(Number((part as any).weightKg || 0)) : '',
                       places: Number((part as any).places || 0) > 0 ? String(Number((part as any).places || 0)) : '',
-                      lengthCm: Number((part as any).lengthCm || 0) > 0 ? String(Number((part as any).lengthCm || 0)) : '',
-                      widthCm: Number((part as any).widthCm || 0) > 0 ? String(Number((part as any).widthCm || 0)) : '',
-                      heightCm: Number((part as any).heightCm || 0) > 0 ? String(Number((part as any).heightCm || 0)) : '',
                       isOversized: Boolean((part as any).isOversized)
                     };
                     return (
                       <div key={part.id} className="rounded-xl border border-gray-200 bg-white p-2">
                         <p className="mb-2 text-xs font-bold text-gray-700">{part.name}</p>
                         <div className="grid grid-cols-2 gap-2">
-                          <select value={cargoDraft.partType} onChange={(e) => onPartCargoDraftChange(part.id, 'partType', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold">
-                            <option value="regular">Обычная</option>
-                            <option value="body">Кузовная</option>
-                            <option value="engine">Двигатель/агрегат</option>
-                          </select>
                           <input type="number" min={0} step="0.1" value={cargoDraft.weightKg} onChange={(e) => onPartCargoDraftChange(part.id, 'weightKg', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Вес, кг" />
-                          <input type="number" min={1} value={cargoDraft.places} onChange={(e) => onPartCargoDraftChange(part.id, 'places', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Мест" />
-                          <input type="number" min={0} value={cargoDraft.lengthCm} onChange={(e) => onPartCargoDraftChange(part.id, 'lengthCm', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Длина, см" />
-                          <input type="number" min={0} value={cargoDraft.widthCm} onChange={(e) => onPartCargoDraftChange(part.id, 'widthCm', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Ширина, см" />
-                          <input type="number" min={0} value={cargoDraft.heightCm} onChange={(e) => onPartCargoDraftChange(part.id, 'heightCm', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Высота, см" />
+                          <input type="number" min={1} step="1" value={cargoDraft.places} onChange={(e) => onPartCargoDraftChange(part.id, 'places', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Мест" />
                           <label className="col-span-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold text-gray-600"><input type="checkbox" checked={cargoDraft.isOversized} onChange={(e) => onPartCargoDraftChange(part.id, 'isOversized', e.target.checked)} /> Крупногабарит</label>
                         </div>
                       </div>
@@ -1848,7 +1788,7 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-2">
+<div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-2">
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Закупка</p><p className="font-black text-gray-800">{formatMoney(selectedOfferTotal)}</p></div>
               <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Логистика</p><p className="font-black text-gray-800">{formatMoney(logisticsTotal)}</p></div>

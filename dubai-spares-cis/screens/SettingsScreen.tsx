@@ -209,15 +209,12 @@ const parseDecimalInput = (value: string, fallback = 0) => {
 
 const normalizeTariff = (tariff: Partial<CargoTariff>): CargoTariff => ({
   country: String(tariff.country || '').trim(),
-  airUsdPerKg: toTariffNumber(tariff.airUsdPerKg),
-  expressAirUsdPerKg: toTariffNumber(tariff.expressAirUsdPerKg),
+  airRegularUsdPerKg: toTariffNumber((tariff as any).airRegularUsdPerKg, toTariffNumber((tariff as any).regularUsdPerKg, toTariffNumber((tariff as any).airUsdPerKg))),
+  airOversizedUsdPerKg: toTariffNumber((tariff as any).airOversizedUsdPerKg, toTariffNumber((tariff as any).oversizedUsdPerKg, toTariffNumber((tariff as any).airUsdPerKg))),
   containerUsdPerKg: toTariffNumber(tariff.containerUsdPerKg),
-  oversizedUsdPerKg: toTariffNumber(tariff.oversizedUsdPerKg),
-  regularUsdPerKg: toTariffNumber(tariff.regularUsdPerKg),
   airSeatUsd: toTariffNumber(tariff.airSeatUsd),
   minAirKg: toTariffNumber(tariff.minAirKg),
   minContainerKg: toTariffNumber(tariff.minContainerKg),
-  minContainerCbm: toTariffNumber(tariff.minContainerCbm),
   airEtaDays: String(tariff.airEtaDays || '').trim(),
   containerEtaDays: String(tariff.containerEtaDays || '').trim()
 });
@@ -985,7 +982,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
             </Field>
           </CompactBlock>
 
-          <CompactBlock title="Калькулятор карго / доставки" subtitle="Тарифы по странам и типам карго">
+          <CompactBlock title="Калькулятор карго / доставки" subtitle="Тарифы по странам (расчёт только по весу)">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-bold text-gray-700">Тарифы по странам (USD)</p>
@@ -1008,19 +1005,16 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                   </div>
 
                   <div className="grid gap-2 md:grid-cols-3">
-                    <Field label="Авиа $/кг"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.airUsdPerKg} onChange={(e) => updateCargoTariff(index, { airUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                    <Field label="Экспресс авиа $/кг"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.expressAirUsdPerKg} onChange={(e) => updateCargoTariff(index, { expressAirUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                    <Field label="Контейнер $/кг"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.containerUsdPerKg} onChange={(e) => updateCargoTariff(index, { containerUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                    <Field label="Крупногабарит $/кг"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.oversizedUsdPerKg} onChange={(e) => updateCargoTariff(index, { oversizedUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                    <Field label="Обычный груз $/кг"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.regularUsdPerKg} onChange={(e) => updateCargoTariff(index, { regularUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                    <Field label="Место авиа $"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.airSeatUsd} onChange={(e) => updateCargoTariff(index, { airSeatUsd: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Авиадоставка: цена за кг (обычный груз)"><input type="text" inputMode="decimal" placeholder="11.5" value={String(tariff.airRegularUsdPerKg)} onChange={(e) => updateCargoTariff(index, { airRegularUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                                        <Field label="Контейнер: цена за кг"><input type="text" inputMode="decimal" placeholder="0.75" value={String(tariff.containerUsdPerKg)} onChange={(e) => updateCargoTariff(index, { containerUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                    <Field label="Авиадоставка: цена за кг (крупногабарит)"><input type="text" inputMode="decimal" placeholder="13.25" value={String(tariff.airOversizedUsdPerKg)} onChange={(e) => updateCargoTariff(index, { airOversizedUsdPerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                                        <Field label="Авиадоставка: доплата за место ($)"><input type="text" inputMode="decimal" placeholder="10" value={String(tariff.airSeatUsd)} onChange={(e) => updateCargoTariff(index, { airSeatUsd: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
                   </div>
 
                   <div className="grid gap-2 md:grid-cols-3">
                     <Field label="Мин. авиа (кг)"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.minAirKg} onChange={(e) => updateCargoTariff(index, { minAirKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
                     <Field label="Мин. контейнер (кг)"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.minContainerKg} onChange={(e) => updateCargoTariff(index, { minContainerKg: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                    <Field label="Мин. контейнер (м³)"><input type="text" inputMode="decimal" placeholder="0.75" value={tariff.minContainerCbm} onChange={(e) => updateCargoTariff(index, { minContainerCbm: parseDecimalInput(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                    <Field label="Авиа срок (дней)"><input value={tariff.airEtaDays} onChange={(e) => updateCargoTariff(index, { airEtaDays: e.target.value })} placeholder="3-7" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                                        <Field label="Авиа срок (дней)"><input value={tariff.airEtaDays} onChange={(e) => updateCargoTariff(index, { airEtaDays: e.target.value })} placeholder="3-7" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
                     <Field label="Контейнер срок (дней)"><input value={tariff.containerEtaDays} onChange={(e) => updateCargoTariff(index, { containerEtaDays: e.target.value })} placeholder="25-45" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
                   </div>
                 </CompactBlock>
