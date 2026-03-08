@@ -140,13 +140,38 @@ export const parsePublicQuoteKey = (params: URLSearchParams, _pathParam: string)
 
   const tokenFromQuery = (params.get('token') || '').trim();
   const snapshotFromQuery = (params.get('snapshot') || '').trim();
-  if (!tokenFromQuery) return null;
+  if (tokenFromQuery) {
+    return {
+      value: tokenFromQuery,
+      source: 'token',
+      urlToken: tokenFromQuery || null,
+      urlSnapshot: snapshotFromQuery || null
+    };
+  }
+
+  const pathParam = decodeURIComponent(String(_pathParam || '').trim());
+  if (!pathParam) return null;
+
+  if (pathParam.includes('.')) {
+    const [pathToken, pathSnapshot] = pathParam.split('.');
+    if (pathToken) {
+      return {
+        value: pathToken,
+        source: 'token',
+        urlToken: pathToken,
+        urlSnapshot: (pathSnapshot || '').trim() || null
+      };
+    }
+  }
+
+  const looksLikeToken = /^[a-f0-9]{32}$/i.test(pathParam);
+  if (!looksLikeToken) return null;
 
   return {
-    value: tokenFromQuery,
+    value: pathParam,
     source: 'token',
-    urlToken: tokenFromQuery || null,
-    urlSnapshot: snapshotFromQuery || null
+    urlToken: pathParam,
+    urlSnapshot: null
   };
 };
 
