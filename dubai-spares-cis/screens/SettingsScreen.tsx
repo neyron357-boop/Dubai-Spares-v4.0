@@ -10,6 +10,7 @@ import { deleteStorageDuplicateMappings, runStorageImageMaintenance, uploadImage
 import { Order } from '../types';
 import { clearBrokenImageBlacklist, isBrokenImageUrl, markBrokenImageUrl, normalizeBrokenImageKey, shouldBlacklistByStatus } from '../storage/brokenImageBlacklist';
 import { flushOfflineMutations } from '../orderStore';
+import { CargoTariff, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 
 const loadImageFromFile = (file: File): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const url = URL.createObjectURL(file);
@@ -177,6 +178,26 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
   </div>
 );
 
+const toTariffNumber = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeTariff = (tariff: Partial<CargoTariff>): CargoTariff => ({
+  country: String(tariff.country || '').trim(),
+  airUsdPerKg: toTariffNumber(tariff.airUsdPerKg),
+  expressAirUsdPerKg: toTariffNumber(tariff.expressAirUsdPerKg),
+  containerUsdPerKg: toTariffNumber(tariff.containerUsdPerKg),
+  oversizedUsdPerKg: toTariffNumber(tariff.oversizedUsdPerKg),
+  regularUsdPerKg: toTariffNumber(tariff.regularUsdPerKg),
+  airSeatUsd: toTariffNumber(tariff.airSeatUsd),
+  minAirKg: toTariffNumber(tariff.minAirKg),
+  minContainerKg: toTariffNumber(tariff.minContainerKg),
+  minContainerCbm: toTariffNumber(tariff.minContainerCbm),
+  airEtaDays: String(tariff.airEtaDays || '').trim(),
+  containerEtaDays: String(tariff.containerEtaDays || '').trim()
+});
+
 const SettingsScreen: React.FC = () => {
   const publicRequestFormUrl = `${window.location.origin}${window.location.pathname}#/request`;
   const navigate = useNavigate();
@@ -251,6 +272,27 @@ const SettingsScreen: React.FC = () => {
 
   const removeDefaultChecklistTask = (index: number) => {
     updateDraft({ defaultVendorChecklist: (draftSettings.defaultVendorChecklist || []).filter((_, idx) => idx !== index) });
+  };
+
+  const cargoTariffs = useMemo(
+    () => (draftSettings.cargoTariffs?.length ? draftSettings.cargoTariffs : DEFAULT_CARGO_TARIFFS).map((item) => normalizeTariff(item)),
+    [draftSettings.cargoTariffs]
+  );
+
+  const updateCargoTariff = (index: number, patch: Partial<CargoTariff>) => {
+    const next = cargoTariffs.map((item, idx) => (idx === index ? normalizeTariff({ ...item, ...patch }) : item));
+    updateDraft({ cargoTariffs: next });
+  };
+
+  const addCargoTariff = () => {
+    const template = DEFAULT_CARGO_TARIFFS[0];
+    updateDraft({
+      cargoTariffs: [...cargoTariffs, normalizeTariff({ ...template, country: '' })]
+    });
+  };
+
+  const removeCargoTariff = (index: number) => {
+    updateDraft({ cargoTariffs: cargoTariffs.filter((_, idx) => idx !== index) });
   };
 
 
@@ -917,22 +959,46 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
             <p className="mt-1 text-xs text-gray-500">Тарифы по странам и типам карго.</p>
           </div>
 
-          <Field label="Cargo Tariffs (JSON, USD)">
-            <textarea
-              value={JSON.stringify(draftSettings.cargoTariffs || [], null, 2)}
-              onChange={(e) => {
-                try {
-                  const parsed = JSON.parse(e.target.value);
-                  if (Array.isArray(parsed)) updateDraft({ cargoTariffs: parsed as any });
-                } catch {
-                  // keep last valid JSON
-                }
-              }}
-              placeholder='[{"country":"Россия","airUsdPerKg":5.5}]'
-              className="min-h-40 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs font-mono"
-              rows={8}
-            />
-          </Field>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold text-gray-700">Тарифы по странам (USD)</p>
+              <button type="button" onClick={addCargoTariff} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700">+ Добавить страну</button>
+            </div>
+            {cargoTariffs.map((tariff, index) => (
+              <div key={`${tariff.country || 'country'}-${index}`} className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Field label="Страна">
+                    <input
+                      value={tariff.country}
+                      onChange={(e) => updateCargoTariff(index, { country: e.target.value })}
+                      placeholder="Россия"
+                      className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                    />
+                  </Field>
+                  <div className="flex items-end justify-end">
+                    <button type="button" onClick={() => removeCargoTariff(index)} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-black text-rose-700">Удалить страну</button>
+                  </div>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-3">
+                  <Field label="Авиа $/кг"><input type="number" step="0.01" value={tariff.airUsdPerKg} onChange={(e) => updateCargoTariff(index, { airUsdPerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                  <Field label="Экспресс авиа $/кг"><input type="number" step="0.01" value={tariff.expressAirUsdPerKg} onChange={(e) => updateCargoTariff(index, { expressAirUsdPerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                  <Field label="Контейнер $/кг"><input type="number" step="0.01" value={tariff.containerUsdPerKg} onChange={(e) => updateCargoTariff(index, { containerUsdPerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                  <Field label="Крупногабарит $/кг"><input type="number" step="0.01" value={tariff.oversizedUsdPerKg} onChange={(e) => updateCargoTariff(index, { oversizedUsdPerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                  <Field label="Обычный груз $/кг"><input type="number" step="0.01" value={tariff.regularUsdPerKg} onChange={(e) => updateCargoTariff(index, { regularUsdPerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                  <Field label="Место авиа $"><input type="number" step="0.01" value={tariff.airSeatUsd} onChange={(e) => updateCargoTariff(index, { airSeatUsd: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-3">
+                  <Field label="Мин. авиа (кг)"><input type="number" step="0.01" value={tariff.minAirKg} onChange={(e) => updateCargoTariff(index, { minAirKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                  <Field label="Мин. контейнер (кг)"><input type="number" step="0.01" value={tariff.minContainerKg} onChange={(e) => updateCargoTariff(index, { minContainerKg: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                  <Field label="Мин. контейнер (м³)"><input type="number" step="0.01" value={tariff.minContainerCbm} onChange={(e) => updateCargoTariff(index, { minContainerCbm: Number(e.target.value) })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                  <Field label="Авиа срок (дней)"><input value={tariff.airEtaDays} onChange={(e) => updateCargoTariff(index, { airEtaDays: e.target.value })} placeholder="3-7" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                  <Field label="Контейнер срок (дней)"><input value={tariff.containerEtaDays} onChange={(e) => updateCargoTariff(index, { containerEtaDays: e.target.value })} placeholder="25-45" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </Section>
 
