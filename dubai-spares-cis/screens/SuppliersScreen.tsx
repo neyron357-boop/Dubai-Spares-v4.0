@@ -646,8 +646,11 @@ const SuppliersScreen: React.FC = () => {
 
   const fullscreenSupplierOrders = useMemo(() => {
     if (!fullscreenSupplier) return [] as typeof activeOrders;
-    const linkedOrderIds = Array.from(new Set((fullscreenSupplier.linkedParts || []).map((entry) => entry.orderId).filter(Boolean)));
-    return linkedOrderIds
+    const linkedOrderIds = new Set<string>();
+    (fullscreenSupplier.activeOrderIds || []).forEach((orderId) => { if (orderId) linkedOrderIds.add(orderId); });
+    (fullscreenSupplier.linkedParts || []).forEach((entry) => { if (entry.orderId) linkedOrderIds.add(entry.orderId); });
+
+    return Array.from(linkedOrderIds)
       .map((orderId) => activeOrders.find((order) => order.id === orderId))
       .filter((order): order is (typeof activeOrders)[number] => !!order);
   }, [activeOrders, fullscreenSupplier]);
@@ -1230,7 +1233,26 @@ const SuppliersScreen: React.FC = () => {
 
     const current = new Set(order.recommendedShopIds || []);
     current.add(activeOrderPartLink.supplierId);
-    updateOrder({ ...order, recommendedShopIds: Array.from(current), updatedAt: Date.now() });
+    const normalizedSupplierPhone = (linkedSupplier?.whatsapp || linkedSupplier?.phone || '').replace(/\D/g, '');
+    const hasVendorContact = (order.vendorContacts || []).some((contact) => {
+      const contactPhone = (contact.whatsapp || contact.phone || '').replace(/\D/g, '');
+      return contact.name.trim().toLowerCase() === linkedSupplier.name.trim().toLowerCase()
+        || (!!normalizedSupplierPhone && normalizedSupplierPhone === contactPhone);
+    });
+    const nextVendorContacts = hasVendorContact
+      ? (order.vendorContacts || [])
+      : [{
+        id: createUuid(),
+        name: linkedSupplier.name,
+        phone: linkedSupplier.phone || '',
+        whatsapp: linkedSupplier.whatsapp || linkedSupplier.phone || '',
+        mapUrl: linkedSupplier.location || '',
+        note: linkedSupplier.comment || '',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      }, ...(order.vendorContacts || [])];
+
+    updateOrder({ ...order, vendorContacts: nextVendorContacts, recommendedShopIds: Array.from(current), updatedAt: Date.now() });
     addRadarManualSelection({ supplierId: activeOrderPartLink.supplierId, orderId: activeOrderPartLink.orderId, partId: activeOrderPartLink.partId, source: 'manual' });
 
     const currentBrands = linkedSupplier.mainBrands || linkedSupplier.brands || [];
@@ -1276,10 +1298,34 @@ const SuppliersScreen: React.FC = () => {
 
   const removeLinkedPartEntry = (supplier: Supplier, entry: SupplierLinkedPartEntry) => {
     const nextEntries = (supplier.linkedParts || []).filter((item) => item.id !== entry.id);
-    const nextSupplier = { ...supplier, linkedParts: nextEntries, updatedAt: Date.now() };
+    const nextOrderIds = Array.from(new Set(nextEntries.map((item) => item.orderId).filter(Boolean)));
+    const nextSupplier = { ...supplier, linkedParts: nextEntries, activeOrderIds: nextOrderIds, updatedAt: Date.now() };
     updateSupplier(nextSupplier);
     void upsertSupplierToShops(nextSupplier);
     removeRadarManualSelection({ supplierId: supplier.id, orderId: entry.orderId, partId: entry.partId });
+    refreshManualSelections();
+  };
+
+  const removeSupplierFromOrder = (supplier: Supplier, orderId: string) => {
+    const order = orders.find((item) => item.id === orderId);
+    if (!order) return;
+
+    const nextEntries = (supplier.linkedParts || []).filter((entry) => entry.orderId !== orderId);
+    const nextOrderIds = Array.from(new Set(nextEntries.map((entry) => entry.orderId).filter(Boolean)));
+    const normalizedSupplierPhone = (supplier.whatsapp || supplier.phone || '').replace(/\D/g, '');
+    const nextVendorContacts = (order.vendorContacts || []).filter((contact) => {
+      const byName = contact.name.trim().toLowerCase() === supplier.name.trim().toLowerCase();
+      const contactPhone = (contact.whatsapp || contact.phone || '').replace(/\D/g, '');
+      const byPhone = !!normalizedSupplierPhone && normalizedSupplierPhone === contactPhone;
+      return !(byName || byPhone);
+    });
+    const nextRecommended = (order.recommendedShopIds || []).filter((shopId) => shopId !== supplier.id);
+
+    updateOrder({ ...order, vendorContacts: nextVendorContacts, recommendedShopIds: nextRecommended, updatedAt: Date.now() });
+
+    const nextSupplier = { ...supplier, linkedParts: nextEntries, activeOrderIds: nextOrderIds, updatedAt: Date.now() };
+    updateSupplier(nextSupplier);
+    void upsertSupplierToShops(nextSupplier);
     refreshManualSelections();
   };
 
@@ -1684,6 +1730,20 @@ const SuppliersScreen: React.FC = () => {
                   <MoreHorizontal size={14} />
                 </button>
               </div>
+              {overflowSupplierId === supplier.id && (
+                <div className="mt-2 rounded-xl border border-slate-200 bg-white p-1 shadow-sm" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => { startEditSupplier(supplier); setOverflowSupplierId(null); }}
+                    className="w-full rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1"
+                  ><Pencil size={12} />Edit</button>
+                  <button
+                    type="button"
+                    onClick={() => { setDeleteSupplierId(supplier.id); setOverflowSupplierId(null); }}
+                    className="w-full rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold text-rose-700 hover:bg-rose-50 inline-flex items-center gap-1"
+                  ><Trash2 size={12} />Delete</button>
+                </div>
+              )}
               <div className="mt-3 grid grid-cols-3 gap-2">
                 <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsAppAndTrack(supplier); }} className="rounded-lg bg-emerald-500 px-2 py-1.5 text-[11px] font-black text-white">WhatsApp</button>
                 <a href={`tel:${supplier.phone || ''}`} onClick={(e) => { e.stopPropagation(); markCalled(supplier); }} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-center text-[11px] font-black text-slate-700">Позвонить</a>
@@ -2109,8 +2169,15 @@ const SuppliersScreen: React.FC = () => {
               ) : (
                 <div className="mt-2 space-y-1.5">
                   {fullscreenSupplierOrders.map((order) => (
-                    <div key={order.id} className="rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700">
-                      {order.brand} {order.model} • {order.vin}
+                    <div key={order.id} className="flex items-center justify-between gap-2 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700">
+                      <span>{order.brand} {order.model} • {order.vin}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeSupplierFromOrder(fullscreenSupplier, order.id)}
+                        className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-700"
+                      >
+                        Убрать
+                      </button>
                     </div>
                   ))}
                 </div>

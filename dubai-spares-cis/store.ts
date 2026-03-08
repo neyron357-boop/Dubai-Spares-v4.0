@@ -194,7 +194,92 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
   });
 
   const collected: Supplier[] = [];
+  const upsertSupplierFromContact = (order: ReturnType<typeof getOrderState>['orders'][number], contact: { name?: string; phone?: string; whatsapp?: string; mapUrl?: string; note?: string }) => {
+    const rawName = typeof contact.name === 'string' ? contact.name.trim() : '';
+    if (!rawName) return;
+    const key = rawName.toLowerCase();
+    const now = Date.now();
+    const existingSupplier = byName.get(key);
+
+    if (existingSupplier) {
+      const nextOrderIds = Array.from(new Set([...(existingSupplier.activeOrderIds || []), order.id]));
+      const nextPhone = existingSupplier.phone || contact.phone || contact.whatsapp || '';
+      const nextWhatsapp = existingSupplier.whatsapp || contact.whatsapp || contact.phone || '';
+      const nextLocation = existingSupplier.location || contact.mapUrl || '';
+      const nextComment = existingSupplier.comment || contact.note || '';
+      const nextBrands = appendUniqueTextValue(existingSupplier.brands, order.brand);
+      const nextMainBrands = appendUniqueTextValue(existingSupplier.mainBrands, order.brand);
+      const nextModels = appendUniqueTextValue(existingSupplier.models, order.model);
+      const nextYears = Number.isFinite(Number(order.year))
+        ? Array.from(new Set([...(existingSupplier.years || []), Number(order.year)])).sort((a, b) => a - b)
+        : (existingSupplier.years || []);
+      const nextPrimaryBrand = existingSupplier.primaryBrand || nextMainBrands[0] || '';
+
+      const shouldUpdate = nextOrderIds.length !== (existingSupplier.activeOrderIds || []).length
+        || nextPhone !== existingSupplier.phone
+        || nextWhatsapp !== (existingSupplier.whatsapp || '')
+        || nextLocation !== existingSupplier.location
+        || nextComment !== (existingSupplier.comment || '')
+        || nextBrands.length !== (existingSupplier.brands || []).length
+        || nextMainBrands.length !== (existingSupplier.mainBrands || []).length
+        || nextModels.length !== (existingSupplier.models || []).length
+        || nextYears.length !== (existingSupplier.years || []).length
+        || nextPrimaryBrand !== (existingSupplier.primaryBrand || '');
+
+      if (!shouldUpdate) return;
+
+      const updatedSupplier = normalizeSupplier({
+        ...existingSupplier,
+        phone: nextPhone,
+        whatsapp: nextWhatsapp,
+        location: nextLocation,
+        comment: nextComment,
+        brands: nextBrands,
+        mainBrands: nextMainBrands,
+        primaryBrand: nextPrimaryBrand,
+        models: nextModels,
+        years: nextYears,
+        activeOrderIds: nextOrderIds,
+        updatedAt: now,
+        syncStatus: existingSupplier.syncStatus === 'synced' ? 'pending_sync' : existingSupplier.syncStatus
+      });
+
+      globalSuppliers = globalSuppliers.map((supplier) => supplier.id === updatedSupplier.id ? updatedSupplier : supplier);
+      byName.set(key, updatedSupplier);
+      byId.set(updatedSupplier.id, updatedSupplier);
+      hasUpdates = true;
+      return;
+    }
+
+    const supplierFromContact: Supplier = normalizeSupplier({
+      id: ensureUuid(),
+      name: rawName,
+      phone: contact.phone || contact.whatsapp || '',
+      whatsapp: contact.whatsapp || contact.phone || '',
+      location: contact.mapUrl || '',
+      comment: contact.note || '',
+      hasWhatsapp: Boolean(contact.whatsapp || contact.phone),
+      brands: order.brand ? [order.brand] : [],
+      mainBrands: order.brand ? [order.brand] : [],
+      primaryBrand: order.brand || '',
+      models: order.model ? [order.model] : [],
+      years: Number.isFinite(Number(order.year)) ? [Number(order.year)] : [],
+      type: 'mixed',
+      types: ['mixed'],
+      activeOrderIds: [order.id],
+      createdAt: now,
+      updatedAt: now,
+      syncStatus: 'pending_sync'
+    });
+
+    byName.set(key, supplierFromContact);
+    byId.set(supplierFromContact.id, supplierFromContact);
+    collected.push(supplierFromContact);
+  };
+
   orders.forEach((order) => {
+    (order.vendorContacts || []).forEach((contact) => upsertSupplierFromContact(order, contact));
+
     order.parts.forEach((part) => {
       part.variants.forEach((variant) => {
         const rawName = typeof variant.shopName === 'string' ? variant.shopName.trim() : '';
