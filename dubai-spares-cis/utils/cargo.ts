@@ -17,12 +17,28 @@ export interface CargoTariff {
   containerEtaDays: string;
 }
 
+export interface CargoCalculationResult {
+  country: string;
+  deliveryType: CargoDeliveryType;
+  eta: string;
+  realWeight: number;
+  volumeWeight: number;
+  chargeableWeight: number;
+  volumeCbm: number;
+  totalPlaces: number;
+  oversizedWeight: number;
+  regularWeight: number;
+  baseCostUsd: number;
+  additionalTotalUsd: number;
+  totalCostUsd: number;
+}
+
 export const DEFAULT_CARGO_TARIFFS: CargoTariff[] = [
-  { country: 'Россия', airUsdPerKg: 5.5, expressAirUsdPerKg: 12, containerUsdPerKg: 1.6, oversizedUsdPerKg: 10, regularUsdPerKg: 5.5, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '3-7', containerEtaDays: '25-40' },
-  { country: 'Казахстан', airUsdPerKg: 6, expressAirUsdPerKg: 12, containerUsdPerKg: 1.4, oversizedUsdPerKg: 10, regularUsdPerKg: 5.5, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '4-7', containerEtaDays: '20-35' },
-  { country: 'Таджикистан', airUsdPerKg: 5, expressAirUsdPerKg: 11, containerUsdPerKg: 1.9, oversizedUsdPerKg: 10, regularUsdPerKg: 5.5, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '4-10', containerEtaDays: '25-45' },
-  { country: 'Узбекистан', airUsdPerKg: 5.5, expressAirUsdPerKg: 11, containerUsdPerKg: 1.7, oversizedUsdPerKg: 10, regularUsdPerKg: 5.5, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '4-8', containerEtaDays: '20-40' },
-  { country: 'Кыргызстан', airUsdPerKg: 5.5, expressAirUsdPerKg: 11, containerUsdPerKg: 1.8, oversizedUsdPerKg: 10, regularUsdPerKg: 5.5, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '4-7', containerEtaDays: '20-35' }
+  { country: 'Россия', airUsdPerKg: 6.12, expressAirUsdPerKg: 13, containerUsdPerKg: 1.6, oversizedUsdPerKg: 10, regularUsdPerKg: 6.12, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '3-7', containerEtaDays: '25-45' },
+  { country: 'Казахстан', airUsdPerKg: 3.5, expressAirUsdPerKg: 15, containerUsdPerKg: 1.4, oversizedUsdPerKg: 10, regularUsdPerKg: 3.5, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '4-8', containerEtaDays: '20-35' },
+  { country: 'Таджикистан', airUsdPerKg: 6.81, expressAirUsdPerKg: 12, containerUsdPerKg: 1.9, oversizedUsdPerKg: 10, regularUsdPerKg: 6.81, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '6-12', containerEtaDays: '25-45' },
+  { country: 'Узбекистан', airUsdPerKg: 7.62, expressAirUsdPerKg: 12, containerUsdPerKg: 1.7, oversizedUsdPerKg: 10, regularUsdPerKg: 7.62, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '4-8', containerEtaDays: '20-40' },
+  { country: 'Кыргызстан', airUsdPerKg: 6.81, expressAirUsdPerKg: 12, containerUsdPerKg: 1.8, oversizedUsdPerKg: 10, regularUsdPerKg: 6.81, airSeatUsd: 10, minAirKg: 10, minContainerKg: 30, minContainerCbm: 1, airEtaDays: '6-12', containerEtaDays: '20-35' }
 ];
 
 const getPartVolumeWeight = (part: Part) => {
@@ -41,10 +57,10 @@ const getPartVolumeCbm = (part: Part) => {
   return (l * w * h) / 1000000;
 };
 
-export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTariff[] }) => {
+export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTariff[] }, forcedDeliveryType?: CargoDeliveryType): CargoCalculationResult => {
   const logistics = order.logistics || {};
   const country = logistics.cargoCountry || DEFAULT_CARGO_TARIFFS[0].country;
-  const deliveryType = (logistics.cargoDeliveryType || 'air') as CargoDeliveryType;
+  const deliveryType = forcedDeliveryType || (logistics.cargoDeliveryType || 'air') as CargoDeliveryType;
   const tariffs = settings.cargoTariffs?.length ? settings.cargoTariffs : DEFAULT_CARGO_TARIFFS;
   const tariff = tariffs.find((item) => item.country === country) || tariffs[0] || DEFAULT_CARGO_TARIFFS[0];
 
@@ -100,4 +116,10 @@ export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTar
     additionalTotalUsd: Number(additionalTotal.toFixed(2)),
     totalCostUsd: Number(totalCost.toFixed(2))
   };
+};
+
+export const calculateCargoEstimates = (order: Order, settings: { cargoTariffs?: CargoTariff[] }) => {
+  const air = calculateCargo(order, settings, 'air');
+  const container = calculateCargo(order, settings, 'container');
+  return { air, container };
 };

@@ -149,6 +149,10 @@ const normalizeLogistics = (raw: unknown): Order['logistics'] | undefined => {
     cargoTotalPlaces: toAmount(src.cargoTotalPlaces, src.cargo_total_places),
     cargoBaseCostUsd: toAmount(src.cargoBaseCostUsd, src.cargo_base_cost_usd),
     cargoTotalCostUsd: toAmount(src.cargoTotalCostUsd, src.cargo_total_cost_usd),
+    cargoAirEtaDays: typeof src.cargoAirEtaDays === 'string' ? src.cargoAirEtaDays : (typeof src.cargo_air_eta_days === 'string' ? src.cargo_air_eta_days : undefined),
+    cargoAirCostUsd: toAmount(src.cargoAirCostUsd, src.cargo_air_cost_usd),
+    cargoContainerEtaDays: typeof src.cargoContainerEtaDays === 'string' ? src.cargoContainerEtaDays : (typeof src.cargo_container_eta_days === 'string' ? src.cargo_container_eta_days : undefined),
+    cargoContainerCostUsd: toAmount(src.cargoContainerCostUsd, src.cargo_container_cost_usd),
     additionalCostsUsd: {
       packagingUsd: toAmount((src.additionalCostsUsd as any)?.packagingUsd, (src.additional_costs_usd as any)?.packagingUsd, (src as any).packagingUsd),
       insuranceUsd: toAmount((src.additionalCostsUsd as any)?.insuranceUsd, (src.additional_costs_usd as any)?.insuranceUsd, (src as any).insuranceUsd),

@@ -456,14 +456,32 @@ const normalizeLogistics = (raw: any) => {
     raw.totalsCommissionAed
   );
   const deliveryType = raw.deliveryType || raw.delivery_type;
+  const cargoCountry = String(raw.cargoCountry || raw.cargo_country || '').trim();
+  const cargoTotalWeightKg = parseMoneyField(raw.cargoTotalWeightKg, raw.cargo_total_weight_kg);
+  const cargoChargeableWeightKg = parseMoneyField(raw.cargoChargeableWeightKg, raw.cargo_chargeable_weight_kg);
+  const cargoTotalPlaces = parseMoneyField(raw.cargoTotalPlaces, raw.cargo_total_places);
+  const cargoAirCostUsd = parseMoneyField(raw.cargoAirCostUsd, raw.cargo_air_cost_usd);
+  const cargoContainerCostUsd = parseMoneyField(raw.cargoContainerCostUsd, raw.cargo_container_cost_usd);
+  const cargoAirEtaDays = String(raw.cargoAirEtaDays || raw.cargo_air_eta_days || '').trim();
+  const cargoContainerEtaDays = String(raw.cargoContainerEtaDays || raw.cargo_container_eta_days || '').trim();
 
-  if (deliveryAed <= 0 && packingAed <= 0 && serviceFeeAed <= 0) return undefined;
+  const hasAedFees = deliveryAed > 0 || packingAed > 0 || serviceFeeAed > 0;
+  const hasCargo = Boolean(cargoCountry) || cargoTotalWeightKg > 0 || cargoChargeableWeightKg > 0 || cargoAirCostUsd > 0 || cargoContainerCostUsd > 0;
+  if (!hasAedFees && !hasCargo) return undefined;
 
   return {
     deliveryType: (deliveryType === 'export' ? 'export' : 'uae') as 'uae' | 'export',
     deliveryAed,
     packingAed,
-    serviceFeeAed
+    serviceFeeAed,
+    cargoCountry: cargoCountry || undefined,
+    cargoTotalWeightKg,
+    cargoChargeableWeightKg,
+    cargoTotalPlaces,
+    cargoAirCostUsd,
+    cargoContainerCostUsd,
+    cargoAirEtaDays: cargoAirEtaDays || undefined,
+    cargoContainerEtaDays: cargoContainerEtaDays || undefined
   };
 };
 
@@ -489,6 +507,22 @@ const resolveOrderLogistics = (row: any) => {
     commission_aed: row?.commission_aed,
     commission: row?.commission,
     fee: row?.fee,
+    cargoCountry: row?.cargoCountry,
+    cargo_country: row?.cargo_country,
+    cargoTotalWeightKg: row?.cargoTotalWeightKg,
+    cargo_total_weight_kg: row?.cargo_total_weight_kg,
+    cargoChargeableWeightKg: row?.cargoChargeableWeightKg,
+    cargo_chargeable_weight_kg: row?.cargo_chargeable_weight_kg,
+    cargoTotalPlaces: row?.cargoTotalPlaces,
+    cargo_total_places: row?.cargo_total_places,
+    cargoAirCostUsd: row?.cargoAirCostUsd,
+    cargo_air_cost_usd: row?.cargo_air_cost_usd,
+    cargoContainerCostUsd: row?.cargoContainerCostUsd,
+    cargo_container_cost_usd: row?.cargo_container_cost_usd,
+    cargoAirEtaDays: row?.cargoAirEtaDays,
+    cargo_air_eta_days: row?.cargo_air_eta_days,
+    cargoContainerEtaDays: row?.cargoContainerEtaDays,
+    cargo_container_eta_days: row?.cargo_container_eta_days,
     totalsLogisticsAed: row?.totals?.logistics_aed,
     totalsPackingAed: row?.totals?.packing_aed,
     totalsCommissionAed: row?.totals?.commission_aed,
@@ -858,10 +892,13 @@ const openInvoicePrintWindow = ({
     </tr>
   `).join('');
 
-  const cargoType = String(order.logistics?.cargoDeliveryType || 'air');
-  const cargoCountry = String(order.logistics?.cargoCountry || '—');
-  const cargoWeight = Number(order.logistics?.cargoChargeableWeightKg || order.logistics?.cargoTotalWeightKg || 0);
-  const cargoCostUsd = Number(order.logistics?.cargoTotalCostUsd || 0);
+  const cargoComputed = calculateCargoEstimates(order, {});
+  const cargoCountry = String(order.logistics?.cargoCountry || cargoComputed.air.country || '—');
+  const cargoWeight = Number(order.logistics?.cargoChargeableWeightKg || order.logistics?.cargoTotalWeightKg || cargoComputed.air.chargeableWeight || cargoComputed.air.realWeight || 0);
+  const cargoAirCostUsd = Number(order.logistics?.cargoAirCostUsd || cargoComputed.air.totalCostUsd || 0);
+  const cargoContainerCostUsd = Number(order.logistics?.cargoContainerCostUsd || cargoComputed.container.totalCostUsd || 0);
+  const cargoAirEta = String(order.logistics?.cargoAirEtaDays || cargoComputed.air.eta || '—');
+  const cargoContainerEta = String(order.logistics?.cargoContainerEtaDays || cargoComputed.container.eta || '—');
 
   const issueDate = new Date();
   const invoiceId = order.id.slice(0, 8).toUpperCase();
@@ -939,18 +976,24 @@ const openInvoicePrintWindow = ({
     <table>
       <thead>
         <tr>
-          <th>Cargo Type</th>
+          <th>Route</th>
           <th>Country</th>
           <th style="width:170px">Weight</th>
-          <th style="width:170px;text-align:right">Cost</th>
+          <th style="width:170px;text-align:right">Cost (info)</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td>${escapeHtml(cargoType)}</td>
+          <td>Air (${escapeHtml(cargoAirEta)} days)</td>
           <td>${escapeHtml(cargoCountry)}</td>
           <td>${cargoWeight.toFixed(1)} kg</td>
-          <td style="text-align:right">$${cargoCostUsd.toFixed(2)}</td>
+          <td style="text-align:right">$${cargoAirCostUsd.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td>Container (${escapeHtml(cargoContainerEta)} days)</td>
+          <td>${escapeHtml(cargoCountry)}</td>
+          <td>${cargoWeight.toFixed(1)} kg</td>
+          <td style="text-align:right">$${cargoContainerCostUsd.toFixed(2)}</td>
         </tr>
       </tbody>
     </table>
@@ -959,7 +1002,6 @@ const openInvoicePrintWindow = ({
       <p><span>Delivery</span><span>${moneyLabel(totals.delivery)}</span></p>
       <p><span>Packing</span><span>${moneyLabel(totals.packing)}</span></p>
       <p><span>Service fee</span><span>${moneyLabel(totals.serviceFee)}</span></p>
-      <p><span>Cargo (USD)</span><span>$${cargoCostUsd.toFixed(2)}</span></p>
       <p class="total"><span>Total</span><span>${moneyLabel(totals.totalAed)}</span></p>
     </div>
 
@@ -1371,6 +1413,24 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   }, [currency, foundParts, partCards.length, payloadTotals, rates]);
 
 
+  const cargoEstimates = useMemo(() => {
+    if (!order) return null;
+    const computed = calculateCargoEstimates(order, {});
+    return {
+      country: String(order.logistics?.cargoCountry || computed.air.country || '—'),
+      weight: Number(order.logistics?.cargoChargeableWeightKg || order.logistics?.cargoTotalWeightKg || computed.air.chargeableWeight || computed.air.realWeight || 0),
+      air: {
+        eta: String(order.logistics?.cargoAirEtaDays || computed.air.eta || '—'),
+        costUsd: Number(order.logistics?.cargoAirCostUsd || computed.air.totalCostUsd || 0)
+      },
+      container: {
+        eta: String(order.logistics?.cargoContainerEtaDays || computed.container.eta || '—'),
+        costUsd: Number(order.logistics?.cargoContainerCostUsd || computed.container.totalCostUsd || 0)
+      }
+    };
+  }, [order]);
+
+
   const clientDisplayName = String(order?.clientName || '').trim();
   const clientNickname = String(order?.socialNickname || '').trim();
 
@@ -1669,6 +1729,21 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             {settings.publicWorkTerms.trim() && <p className="whitespace-pre-line">{settings.publicWorkTerms.trim()}</p>}
           </section>
         )}
+
+        {cargoEstimates && (
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-3">
+              <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Cargo estimates (informational)</h2>
+            </div>
+            <div className="divide-y divide-slate-100 px-5">
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Country</span><strong className="text-slate-900">{cargoEstimates.country}</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Chargeable weight</span><strong className="text-slate-900">{cargoEstimates.weight.toFixed(1)} kg</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Air ({cargoEstimates.air.eta} days)</span><strong className="text-slate-900">${cargoEstimates.air.costUsd.toFixed(2)}</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Container ({cargoEstimates.container.eta} days)</span><strong className="text-slate-900">${cargoEstimates.container.costUsd.toFixed(2)}</strong></div>
+            </div>
+          </section>
+        )}
+
 
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-3">

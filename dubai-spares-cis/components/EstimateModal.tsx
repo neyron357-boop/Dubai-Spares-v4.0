@@ -68,13 +68,14 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     serviceFeeAed: Number(order.logistics?.serviceFeeAed || 0)
   };
   const cargo = {
-    type: order.logistics?.cargoDeliveryType || 'air',
     country: order.logistics?.cargoCountry || '—',
-    eta: order.logistics?.cargoEtaDays || '—',
     weight: Number(order.logistics?.cargoTotalWeightKg || 0),
     chargeableWeight: Number(order.logistics?.cargoChargeableWeightKg || 0),
     places: Number(order.logistics?.cargoTotalPlaces || 0),
-    costUsd: Number(order.logistics?.cargoTotalCostUsd || 0)
+    airEta: order.logistics?.cargoAirEtaDays || '—',
+    airCostUsd: Number(order.logistics?.cargoAirCostUsd || 0),
+    containerEta: order.logistics?.cargoContainerEtaDays || '—',
+    containerCostUsd: Number(order.logistics?.cargoContainerCostUsd || 0)
   };
   const finalTotalAed = totalAed + logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed;
 
@@ -209,12 +210,11 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Logistics / Cargo</p>
             </div>
             <div className="px-4 py-3 space-y-2 text-sm">
-              <div className="flex items-center justify-between"><span className="text-slate-600">Тип</span><span className="font-semibold text-slate-800">{cargo.type}</span></div>
-              <div className="flex items-center justify-between"><span className="text-slate-600">Страна</span><span className="font-semibold text-slate-800">{cargo.country}</span></div>
-              <div className="flex items-center justify-between"><span className="text-slate-600">Срок</span><span className="font-semibold text-slate-800">{cargo.eta} дней</span></div>
-              <div className="flex items-center justify-between"><span className="text-slate-600">Вес</span><span className="font-semibold text-slate-800">{cargo.weight.toFixed(1)} кг (CW {cargo.chargeableWeight.toFixed(1)})</span></div>
+                            <div className="flex items-center justify-between"><span className="text-slate-600">Страна</span><span className="font-semibold text-slate-800">{cargo.country}</span></div>
+                            <div className="flex items-center justify-between"><span className="text-slate-600">Вес</span><span className="font-semibold text-slate-800">{cargo.weight.toFixed(1)} кг (CW {cargo.chargeableWeight.toFixed(1)})</span></div>
               <div className="flex items-center justify-between"><span className="text-slate-600">Места</span><span className="font-semibold text-slate-800">{cargo.places}</span></div>
-              <div className="flex items-center justify-between"><span className="text-slate-600">Стоимость доставки</span><span className="font-semibold text-slate-800">${cargo.costUsd.toFixed(2)}</span></div>
+              <div className="flex items-center justify-between"><span className="text-slate-600">Авиа ({cargo.airEta} дн.)</span><span className="font-semibold text-slate-800">${cargo.airCostUsd.toFixed(2)}</span></div>
+              <div className="flex items-center justify-between"><span className="text-slate-600">Контейнер ({cargo.containerEta} дн.)</span><span className="font-semibold text-slate-800">${cargo.containerCostUsd.toFixed(2)}</span></div>
             </div>
           </div>
 

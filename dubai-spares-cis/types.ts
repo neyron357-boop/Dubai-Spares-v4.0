@@ -142,6 +142,10 @@ export interface Order {
     cargoTotalPlaces?: number;
     cargoBaseCostUsd?: number;
     cargoTotalCostUsd?: number;
+    cargoAirEtaDays?: string;
+    cargoAirCostUsd?: number;
+    cargoContainerEtaDays?: string;
+    cargoContainerCostUsd?: number;
     additionalCostsUsd?: {
       packagingUsd?: number;
       insuranceUsd?: number;
@@ -376,6 +380,10 @@ export interface DbOrderRow {
     cargoTotalPlaces?: number;
     cargoBaseCostUsd?: number;
     cargoTotalCostUsd?: number;
+    cargoAirEtaDays?: string;
+    cargoAirCostUsd?: number;
+    cargoContainerEtaDays?: string;
+    cargoContainerCostUsd?: number;
     additionalCostsUsd?: {
       packagingUsd?: number;
       insuranceUsd?: number;

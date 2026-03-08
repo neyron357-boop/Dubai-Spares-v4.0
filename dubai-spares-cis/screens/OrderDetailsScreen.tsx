@@ -46,7 +46,7 @@ import { FEATURE_RADAR_V2 } from '../featureFlags';
 import { ensureRadarSessionForOrder } from '../radarSessionService';
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 import { useAppSettings } from '../appSettings';
-import { calculateCargo } from '../utils/cargo';
+import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -291,11 +291,11 @@ const OrderDetailsScreen: React.FC = () => {
     const nextCargoDrafts = (order.parts || []).reduce((acc, part) => {
       acc[part.id] = {
         partType: String((part as any).partType || 'regular'),
-        weightKg: String(Number((part as any).weightKg || 0)),
-        places: String(Math.max(1, Number((part as any).places || 1))),
-        lengthCm: String(Number((part as any).lengthCm || 0)),
-        widthCm: String(Number((part as any).widthCm || 0)),
-        heightCm: String(Number((part as any).heightCm || 0)),
+        weightKg: Number((part as any).weightKg || 0) > 0 ? String(Number((part as any).weightKg || 0)) : '',
+        places: Number((part as any).places || 0) > 0 ? String(Number((part as any).places || 0)) : '',
+        lengthCm: Number((part as any).lengthCm || 0) > 0 ? String(Number((part as any).lengthCm || 0)) : '',
+        widthCm: Number((part as any).widthCm || 0) > 0 ? String(Number((part as any).widthCm || 0)) : '',
+        heightCm: Number((part as any).heightCm || 0) > 0 ? String(Number((part as any).heightCm || 0)) : '',
         isOversized: Boolean((part as any).isOversized)
       };
       return acc;
@@ -547,6 +547,8 @@ const OrderDetailsScreen: React.FC = () => {
   }), [order.logistics?.deliveryType, order.logistics?.deliveryAed, order.logistics?.packingAed, order.logistics?.serviceFeeAed]);
   const logisticsTotal = useMemo(() => logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed, [logistics.deliveryAed, logistics.packingAed, logistics.serviceFeeAed]);
   const cargoCalc = useMemo(() => calculateCargo(order, settings), [order, settings]);
+  const cargoEstimates = useMemo(() => calculateCargoEstimates(order, settings), [order, settings]);
+  const cargoTariffOptions = (settings.cargoTariffs?.length ? settings.cargoTariffs : DEFAULT_CARGO_TARIFFS);
   const markupType = order.markupType || 'percent';
   const markupAed = useMemo(() => (markupType === 'fixed'
     ? Number(markupFixedInput || 0)
@@ -889,7 +891,7 @@ const OrderDetailsScreen: React.FC = () => {
         ...part,
         partType: draft.partType || 'regular',
         weightKg: Number(draft.weightKg || 0),
-        places: Math.max(1, Number(draft.places || 1)),
+        places: Number(draft.places || 0),
         lengthCm: Number(draft.lengthCm || 0),
         widthCm: Number(draft.widthCm || 0),
         heightCm: Number(draft.heightCm || 0),
@@ -902,11 +904,11 @@ const OrderDetailsScreen: React.FC = () => {
     setPartCargoDrafts((prev) => {
       const current = prev[partId] || {
         partType: 'regular',
-        weightKg: '0',
-        places: '1',
-        lengthCm: '0',
-        widthCm: '0',
-        heightCm: '0',
+        weightKg: '',
+        places: '',
+        lengthCm: '',
+        widthCm: '',
+        heightCm: '',
         isOversized: false
       };
       return {
@@ -926,7 +928,7 @@ const OrderDetailsScreen: React.FC = () => {
       return (
         String((part as any).partType || 'regular') !== draft.partType
         || Number((part as any).weightKg || 0) !== Number(draft.weightKg || 0)
-        || Math.max(1, Number((part as any).places || 1)) !== Math.max(1, Number(draft.places || 1))
+        || Number((part as any).places || 0) !== Number(draft.places || 0)
         || Number((part as any).lengthCm || 0) !== Number(draft.lengthCm || 0)
         || Number((part as any).widthCm || 0) !== Number(draft.widthCm || 0)
         || Number((part as any).heightCm || 0) !== Number(draft.heightCm || 0)
@@ -971,6 +973,7 @@ const OrderDetailsScreen: React.FC = () => {
 
     const nextParts = applyPartCargoDrafts(order.parts || []);
     const nextCargo = calculateCargo({ ...order, parts: nextParts, logistics: baseLogistics }, settings);
+    const nextEstimates = calculateCargoEstimates({ ...order, parts: nextParts, logistics: baseLogistics }, settings);
     const nextLogistics = {
       ...baseLogistics,
       cargoEtaDays: nextCargo.eta,
@@ -979,7 +982,11 @@ const OrderDetailsScreen: React.FC = () => {
       cargoVolumeCbm: nextCargo.volumeCbm,
       cargoTotalPlaces: nextCargo.totalPlaces,
       cargoBaseCostUsd: nextCargo.baseCostUsd,
-      cargoTotalCostUsd: nextCargo.totalCostUsd
+      cargoTotalCostUsd: nextCargo.totalCostUsd,
+      cargoAirEtaDays: nextEstimates.air.eta,
+      cargoAirCostUsd: nextEstimates.air.totalCostUsd,
+      cargoContainerEtaDays: nextEstimates.container.eta,
+      cargoContainerCostUsd: nextEstimates.container.totalCostUsd
     };
 
     const nextMarkupFixed = Number(markupFixedInput || 0);
@@ -1024,6 +1031,7 @@ const OrderDetailsScreen: React.FC = () => {
   const updateCargoField = (patch: Record<string, unknown>) => {
     if (!isEditMode) return;
     const next = calculateCargo({ ...order, logistics: { ...order.logistics, ...patch } }, settings);
+    const estimates = calculateCargoEstimates({ ...order, logistics: { ...order.logistics, ...patch } }, settings);
     updateOrder({
       ...order,
       logistics: {
@@ -1035,7 +1043,11 @@ const OrderDetailsScreen: React.FC = () => {
         cargoVolumeCbm: next.volumeCbm,
         cargoTotalPlaces: next.totalPlaces,
         cargoBaseCostUsd: next.baseCostUsd,
-        cargoTotalCostUsd: next.totalCostUsd
+        cargoTotalCostUsd: next.totalCostUsd,
+        cargoAirEtaDays: estimates.air.eta,
+        cargoAirCostUsd: estimates.air.totalCostUsd,
+        cargoContainerEtaDays: estimates.container.eta,
+        cargoContainerCostUsd: estimates.container.totalCostUsd
       }
     });
   };
@@ -1751,7 +1763,7 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
             <div>
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Страна карго</span>
-              <select value={order.logistics?.cargoCountry || cargoCalc.country} onChange={(e) => updateCargoField({ cargoCountry: e.target.value })} className="w-full h-10 mt-1 font-bold bg-gray-50 rounded-xl px-3 border border-gray-100">{(settings.cargoTariffs || []).map((item) => <option key={item.country} value={item.country}>{item.country}</option>)}</select>
+              <select value={order.logistics?.cargoCountry || cargoCalc.country} onChange={(e) => updateCargoField({ cargoCountry: e.target.value })} className="w-full h-10 mt-1 font-bold bg-gray-50 rounded-xl px-3 border border-gray-100">{cargoTariffOptions.map((item) => <option key={item.country} value={item.country}>{item.country}</option>)}</select>
             </div>
             <div>
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Тип карго</span>
@@ -1761,7 +1773,11 @@ const OrderDetailsScreen: React.FC = () => {
                 <option value="container">Контейнер</option>
               </select>
             </div>
-            <div className="col-span-2 rounded-xl bg-gray-50 p-2 text-xs font-semibold text-gray-600">Срок: {cargoCalc.eta} дней · Вес: {cargoCalc.realWeight.toFixed(1)} кг · Chargeable: {cargoCalc.chargeableWeight.toFixed(1)} кг · Мест: {cargoCalc.totalPlaces} · Карго: ${cargoCalc.totalCostUsd.toFixed(2)}</div>
+            <div className="col-span-2 rounded-xl bg-gray-50 p-2 text-xs font-semibold text-gray-600">
+              Страна: {cargoCalc.country} · Вес: {cargoCalc.realWeight.toFixed(1)} кг · Chargeable: {cargoCalc.chargeableWeight.toFixed(1)} кг · Мест: {cargoCalc.totalPlaces}
+              <br />
+              Авиа: ${cargoEstimates.air.totalCostUsd.toFixed(2)} ({cargoEstimates.air.eta} дн.) · Контейнер: ${cargoEstimates.container.totalCostUsd.toFixed(2)} ({cargoEstimates.container.eta} дн.)
+            </div>
             <div className="col-span-2 space-y-2 rounded-xl border border-gray-200 bg-gray-50 p-2">
               <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Параметры карго по деталям</p>
               {(order.parts || []).length === 0 ? (
@@ -1771,11 +1787,11 @@ const OrderDetailsScreen: React.FC = () => {
                   {(order.parts || []).map((part) => {
                     const cargoDraft = partCargoDrafts[part.id] || {
                       partType: String((part as any).partType || 'regular'),
-                      weightKg: String(Number((part as any).weightKg || 0)),
-                      places: String(Math.max(1, Number((part as any).places || 1))),
-                      lengthCm: String(Number((part as any).lengthCm || 0)),
-                      widthCm: String(Number((part as any).widthCm || 0)),
-                      heightCm: String(Number((part as any).heightCm || 0)),
+                      weightKg: Number((part as any).weightKg || 0) > 0 ? String(Number((part as any).weightKg || 0)) : '',
+                      places: Number((part as any).places || 0) > 0 ? String(Number((part as any).places || 0)) : '',
+                      lengthCm: Number((part as any).lengthCm || 0) > 0 ? String(Number((part as any).lengthCm || 0)) : '',
+                      widthCm: Number((part as any).widthCm || 0) > 0 ? String(Number((part as any).widthCm || 0)) : '',
+                      heightCm: Number((part as any).heightCm || 0) > 0 ? String(Number((part as any).heightCm || 0)) : '',
                       isOversized: Boolean((part as any).isOversized)
                     };
                     return (
