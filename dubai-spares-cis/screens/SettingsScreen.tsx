@@ -254,6 +254,47 @@ const normalizeTariff = (tariff: Partial<CargoTariff>): CargoTariff => ({
   containerEtaDays: String(tariff.containerEtaDays || '').trim()
 });
 
+
+
+type GalleryRow = {
+  bucket: string;
+  path: string;
+  size: number;
+  mimetype: string;
+  publicUrl: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+type GallerySort = 'size_desc' | 'size_asc' | 'date_desc' | 'date_asc' | 'folder';
+type GalleryTaskType = 'compress' | 'delete' | 'quarantine';
+type GalleryTask = { id: string; label: string; type: GalleryTaskType; urls: string[]; createdAt: number; progress: number; total: number; done?: boolean; failed?: number };
+type GalleryQuarantineEntry = { key: string; bucket: string; path: string; publicUrl: string; size: number; quarantinedAt: number; purgeAt: number };
+
+const GALLERY_TASKS_KEY = 'dubai_spares_gallery_tasks_v1';
+const GALLERY_QUARANTINE_KEY = 'dubai_spares_gallery_quarantine_v1';
+const DEFAULT_QUARANTINE_DAYS = 14;
+
+const loadGalleryTasks = (): GalleryTask[] => {
+  try {
+    const raw = localStorage.getItem(GALLERY_TASKS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const loadGalleryQuarantine = (): GalleryQuarantineEntry[] => {
+  try {
+    const raw = localStorage.getItem(GALLERY_QUARANTINE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
 const LOCKED_SNAPSHOTS_KEY = 'dubai_spares_locked_public_snapshots_v1';
 
 const loadLockedSnapshotIds = (): string[] => {
@@ -289,11 +330,18 @@ const SettingsScreen: React.FC = () => {
   const [logoCropZoom, setLogoCropZoom] = useState(1);
   const [newDefaultChecklistTask, setNewDefaultChecklistTask] = useState('');
   const [lockedSnapshotIds, setLockedSnapshotIds] = useState<string[]>(() => loadLockedSnapshotIds());
-  const [serverGalleryRows, setServerGalleryRows] = useState<Array<{ bucket: string; path: string; size: number; mimetype: string; publicUrl: string }>>([]);
+  const [serverGalleryRows, setServerGalleryRows] = useState<GalleryRow[]>([]);
   const [serverGalleryLoading, setServerGalleryLoading] = useState(false);
   const [selectedGalleryKeys, setSelectedGalleryKeys] = useState<string[]>([]);
   const [isGalleryFullscreen, setIsGalleryFullscreen] = useState(false);
   const [gallerySearch, setGallerySearch] = useState('');
+  const [gallerySort, setGallerySort] = useState<GallerySort>('size_desc');
+  const [heavyOnly, setHeavyOnly] = useState(false);
+  const [folderFilter, setFolderFilter] = useState('all');
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [galleryTasks, setGalleryTasks] = useState<GalleryTask[]>(() => loadGalleryTasks());
+  const [galleryQuarantine, setGalleryQuarantine] = useState<GalleryQuarantineEntry[]>(() => loadGalleryQuarantine());
+  const [quarantineDays, setQuarantineDays] = useState(DEFAULT_QUARANTINE_DAYS);
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -909,17 +957,56 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
 
   const galleryKey = (row: { bucket: string; path: string }) => `${row.bucket}:${row.path}`;
 
+  const quarantinedKeySet = useMemo(() => new Set(galleryQuarantine.map((entry) => entry.key)), [galleryQuarantine]);
+
+  const activeGalleryRows = useMemo(() => serverGalleryRows.filter((row) => !quarantinedKeySet.has(galleryKey(row))), [serverGalleryRows, quarantinedKeySet]);
+
+  const folderOptions = useMemo(() => {
+    const folders = new Set<string>();
+    activeGalleryRows.forEach((row) => {
+      const folder = row.path.includes('/') ? row.path.split('/').slice(0, -1).join('/') : 'root';
+      folders.add(folder || 'root');
+    });
+    return ['all', ...Array.from(folders).sort((a, b) => a.localeCompare(b))];
+  }, [activeGalleryRows]);
+
   const selectedGalleryRows = useMemo(() => {
     if (!selectedGalleryKeys.length) return [];
     const selected = new Set(selectedGalleryKeys);
-    return serverGalleryRows.filter((row) => selected.has(galleryKey(row)));
-  }, [serverGalleryRows, selectedGalleryKeys]);
+    return activeGalleryRows.filter((row) => selected.has(galleryKey(row)));
+  }, [activeGalleryRows, selectedGalleryKeys]);
 
   const filteredGalleryRows = useMemo(() => {
     const query = gallerySearch.trim().toLowerCase();
-    if (!query) return serverGalleryRows;
-    return serverGalleryRows.filter((row) => row.path.toLowerCase().includes(query));
-  }, [gallerySearch, serverGalleryRows]);
+    let rows = activeGalleryRows.filter((row) => !query || row.path.toLowerCase().includes(query));
+    if (folderFilter !== 'all') {
+      rows = rows.filter((row) => (row.path.includes('/') ? row.path.split('/').slice(0, -1).join('/') : 'root') === folderFilter);
+    }
+    if (heavyOnly) {
+      const sorted = [...rows].sort((a, b) => b.size - a.size);
+      rows = sorted.slice(0, Math.max(20, Math.ceil(sorted.length * 0.15)));
+    }
+    const withDate = (row: GalleryRow) => new Date(row.updatedAt || row.createdAt || 0).getTime() || 0;
+    return [...rows].sort((a, b) => {
+      if (gallerySort === 'size_desc') return b.size - a.size;
+      if (gallerySort === 'size_asc') return a.size - b.size;
+      if (gallerySort === 'date_desc') return withDate(b) - withDate(a);
+      if (gallerySort === 'date_asc') return withDate(a) - withDate(b);
+      const fa = a.path.split('/').slice(0, -1).join('/');
+      const fb = b.path.split('/').slice(0, -1).join('/');
+      return fa.localeCompare(fb) || b.size - a.size;
+    });
+  }, [gallerySearch, activeGalleryRows, folderFilter, heavyOnly, gallerySort]);
+
+  const duplicateGroups = useMemo(() => {
+    const by = new Map<string, GalleryRow[]>();
+    activeGalleryRows.forEach((row) => {
+      const name = row.path.split('/').pop() || row.path;
+      const key = `${row.size}:${name.toLowerCase()}`;
+      by.set(key, [...(by.get(key) || []), row]);
+    });
+    return Array.from(by.values()).filter((group) => group.length > 1).sort((a, b) => b[0].size - a[0].size);
+  }, [activeGalleryRows]);
 
   const selectedGallerySet = useMemo(() => new Set(selectedGalleryKeys), [selectedGalleryKeys]);
 
@@ -929,6 +1016,85 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
   };
 
   const clearGallerySelection = () => setSelectedGalleryKeys([]);
+
+  useEffect(() => {
+    localStorage.setItem(GALLERY_TASKS_KEY, JSON.stringify(galleryTasks));
+  }, [galleryTasks]);
+
+  useEffect(() => {
+    localStorage.setItem(GALLERY_QUARANTINE_KEY, JSON.stringify(galleryQuarantine));
+  }, [galleryQuarantine]);
+
+  useEffect(() => {
+    if (serverGalleryRows.length > 0 && !isGalleryFullscreen) setIsGalleryFullscreen(true);
+  }, [serverGalleryRows.length, isGalleryFullscreen]);
+
+  const enqueueGalleryTask = (type: GalleryTaskType, rows: GalleryRow[], label: string) => {
+    if (!rows.length) return;
+    const task: GalleryTask = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      label,
+      type,
+      urls: rows.map((row) => row.publicUrl),
+      createdAt: Date.now(),
+      progress: 0,
+      total: rows.length,
+      done: false,
+      failed: 0
+    };
+    setGalleryTasks((prev) => [...prev, task]);
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: 'success', message: `Фоновая задача добавлена: ${label}` } }));
+  };
+
+  useEffect(() => {
+    const task = galleryTasks.find((item) => !item.done);
+    if (!task) return;
+    let cancelled = false;
+
+    const run = async () => {
+      let progress = task.progress;
+      let failed = task.failed || 0;
+      for (let index = task.progress; index < task.urls.length; index += 1) {
+        if (cancelled) return;
+        const url = task.urls[index];
+        let ok = false;
+        try {
+          if (task.type === 'compress') ok = await recompressExistingStorageImage(url);
+          else if (task.type === 'delete') ok = await deleteStorageImageByPublicUrl(url);
+          else {
+            const row = serverGalleryRows.find((item) => item.publicUrl === url);
+            if (row) {
+              const key = galleryKey(row);
+              const now = Date.now();
+              const purgeAt = now + quarantineDays * 24 * 60 * 60 * 1000;
+              setGalleryQuarantine((prev) => prev.some((entry) => entry.key === key) ? prev : [...prev, { key, bucket: row.bucket, path: row.path, publicUrl: row.publicUrl, size: row.size, quarantinedAt: now, purgeAt }]);
+              ok = true;
+            }
+          }
+        } catch {
+          ok = false;
+        }
+        progress += 1;
+        if (!ok) failed += 1;
+        setGalleryTasks((prev) => prev.map((entry) => entry.id === task.id ? { ...entry, progress, failed } : entry));
+      }
+      setGalleryTasks((prev) => prev.map((entry) => entry.id === task.id ? { ...entry, done: true, progress: entry.total, failed } : entry));
+      await loadServerGallery();
+    };
+
+    void run();
+    return () => { cancelled = true; };
+  }, [galleryTasks, serverGalleryRows, quarantineDays]);
+
+  const purgeExpiredQuarantine = () => void withBusy('gallery-purge-trash', async () => {
+    const now = Date.now();
+    const expired = galleryQuarantine.filter((entry) => entry.purgeAt <= now);
+    if (!expired.length) return;
+    const result = await processGalleryRows(expired.map((entry) => ({ path: entry.path, publicUrl: entry.publicUrl })), 'Очистка корзины', deleteStorageImageByPublicUrl);
+    setGalleryQuarantine((prev) => prev.filter((entry) => entry.purgeAt > now));
+    await loadServerGallery();
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: result.failures ? 'warning' : 'success', message: `Корзина очищена: ${result.success}` } }));
+  });
 
   const processGalleryRows = async (
     rows: Array<{ path: string; publicUrl: string }>,
@@ -973,39 +1139,27 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
     return { success, failures };
   };
 
-  const handleBulkCompressGallery = () => void withBusy('gallery-compress-selected', async () => {
+  const handleBulkCompressGallery = () => {
     if (!selectedGalleryRows.length) return;
-    const confirmed = window.confirm(`Сжать выбранные фото (${selectedGalleryRows.length})?`);
+    const confirmed = window.confirm(`Сжать выбранные фото (${selectedGalleryRows.length}) в фоне?`);
     if (!confirmed) return;
-
-    const result = await processGalleryRows(selectedGalleryRows, 'Сжатие выбранных фото', recompressExistingStorageImage);
-
+    enqueueGalleryTask('compress', selectedGalleryRows, `Сжать выбранные (${selectedGalleryRows.length})`);
     clearGallerySelection();
-    await loadServerGallery();
-    window.dispatchEvent(new CustomEvent('app-toast', {
-      detail: {
-        tone: result.failures ? 'warning' : 'success',
-        message: `Сжатие завершено: успешно ${result.success}${result.failures ? `, ошибок ${result.failures}` : ''}`
-      }
-    }));
-  });
+  };
 
-  const handleBulkDeleteGallery = () => void withBusy('gallery-delete-selected', async () => {
+  const handleBulkDeleteGallery = () => {
     if (!selectedGalleryRows.length) return;
-    const confirmed = window.confirm(`Удалить выбранные фото (${selectedGalleryRows.length})? Действие необратимо.`);
+    const confirmed = window.confirm(`Переместить выбранные фото (${selectedGalleryRows.length}) в корзину на ${quarantineDays} дней?`);
     if (!confirmed) return;
-
-    const result = await processGalleryRows(selectedGalleryRows, 'Удаление выбранных фото', deleteStorageImageByPublicUrl);
-
+    enqueueGalleryTask('quarantine', selectedGalleryRows, `В корзину (${selectedGalleryRows.length})`);
     clearGallerySelection();
-    await loadServerGallery();
-    window.dispatchEvent(new CustomEvent('app-toast', {
-      detail: {
-        tone: result.failures ? 'warning' : 'success',
-        message: `Удаление завершено: удалено ${result.success}${result.failures ? `, ошибок ${result.failures}` : ''}`
-      }
-    }));
-  });
+  };
+
+  const handleDeleteNowFromQuarantine = () => {
+    const rows = selectedGalleryRows.filter((row) => quarantinedKeySet.has(galleryKey(row)));
+    if (!rows.length) return;
+    enqueueGalleryTask('delete', rows, `Удалить из корзины (${rows.length})`);
+  };
 
   useEffect(() => () => {
     if (logoCrop?.previewUrl) URL.revokeObjectURL(logoCrop.previewUrl);
@@ -1475,27 +1629,18 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </div>
       </Section>
 
-      <Section title="Галерея сервера (все фото)">
+      <Section title="Галерея сервера (fullscreen only)">
         <div className="rounded-3xl border border-gray-200 bg-gradient-to-b from-slate-50 to-white p-3 shadow-inner">
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold disabled:opacity-50"
-              onClick={() => void loadServerGallery()}
-              disabled={serverGalleryLoading}
-            >
-              {serverGalleryLoading ? 'Обновляем…' : 'Обновить список фото'}
-            </button>
+            <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold disabled:opacity-50" onClick={() => void loadServerGallery()} disabled={serverGalleryLoading}>{serverGalleryLoading ? 'Обновляем…' : 'Обновить список фото'}</button>
             <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold disabled:opacity-50" disabled={!!busy || filteredGalleryRows.length === 0} onClick={() => setSelectedGalleryKeys(filteredGalleryRows.map((row) => galleryKey(row)))}>Выбрать видимые</button>
             <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold disabled:opacity-50" disabled={!!busy || selectedGalleryKeys.length === 0} onClick={clearGallerySelection}>Снять выбор</button>
-            <button type="button" className="rounded-2xl border border-slate-300 bg-slate-900 px-3 py-2 text-xs font-bold text-white disabled:opacity-50" disabled={serverGalleryRows.length === 0} onClick={() => setIsGalleryFullscreen(true)}>Открыть полноэкранную галерею</button>
-            <span className="text-xs text-gray-500">Всего: {serverGalleryRows.length} · Выбрано: {selectedGalleryKeys.length}</span>
+            <span className="text-xs text-gray-500">Всего: {activeGalleryRows.length} · В корзине: {galleryQuarantine.length} · Выбрано: {selectedGalleryKeys.length}</span>
           </div>
-          {serverGalleryRows.length === 0 ? <p className="mt-3 text-xs text-gray-500">Фото не найдены.</p> : <p className="mt-3 text-xs text-gray-500">Для максимально удобного просмотра и выбора откройте полноэкранный режим (как галерея телефона).</p>}
-
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 disabled:opacity-50" disabled={!!busy || selectedGalleryRows.length === 0} onClick={handleBulkCompressGallery}>{busyLabel('gallery-compress-selected', `Сжать выбранные (${selectedGalleryRows.length})`, 'Сжимаем выбранные…')}</button>
-            <button type="button" className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 disabled:opacity-50" disabled={!!busy || selectedGalleryRows.length === 0} onClick={handleBulkDeleteGallery}>{busyLabel('gallery-delete-selected', `Удалить выбранные (${selectedGalleryRows.length})`, 'Удаляем выбранные…')}</button>
+            <button type="button" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 disabled:opacity-50" disabled={selectedGalleryRows.length === 0} onClick={handleBulkCompressGallery}>Сжать выбранные ({selectedGalleryRows.length})</button>
+            <button type="button" className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 disabled:opacity-50" disabled={selectedGalleryRows.length === 0} onClick={handleBulkDeleteGallery}>В корзину ({selectedGalleryRows.length})</button>
+            <button type="button" className="rounded-xl border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-700 disabled:opacity-50" disabled={galleryQuarantine.length === 0 || !!busy} onClick={purgeExpiredQuarantine}>{busyLabel('gallery-purge-trash', 'Очистить просроченную корзину', 'Чистим корзину…')}</button>
             <button className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-700 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>{busyLabel('storage-compress-all', 'Сжать все фото на сервере', 'Сжимаем фото…')}</button>
             <button className="rounded-xl border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-700 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>{busyLabel('storage-delete-duplicates', 'Удалить дубликаты фото', 'Обработка дубликатов…')}</button>
           </div>
@@ -1507,31 +1652,30 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           <div className="flex h-full flex-col">
             <div className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/95 px-3 py-3">
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-black text-white" onClick={() => setIsGalleryFullscreen(false)}>Закрыть</button>
+                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-black text-white" onClick={() => setIsGalleryFullscreen(false)}>Свернуть</button>
                 <input value={gallerySearch} onChange={(event) => setGallerySearch(event.target.value)} placeholder="Поиск по имени/папке…" className="min-w-[220px] flex-1 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs text-white placeholder:text-white/60" />
-                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-bold text-white disabled:opacity-50" disabled={!filteredGalleryRows.length} onClick={() => setSelectedGalleryKeys(filteredGalleryRows.map((row) => galleryKey(row)))}>Выбрать найденные</button>
-                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-bold text-white disabled:opacity-50" disabled={!selectedGalleryKeys.length} onClick={clearGallerySelection}>Снять выбор</button>
-                <span className="text-xs text-white/80">Показано: {filteredGalleryRows.length} · Выбрано: {selectedGalleryKeys.length}</span>
+                <select value={gallerySort} onChange={(event) => setGallerySort(event.target.value as GallerySort)} className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs text-white">
+                  <option value="size_desc">Размер ↓</option><option value="size_asc">Размер ↑</option><option value="date_desc">Дата ↓</option><option value="date_asc">Дата ↑</option><option value="folder">Папка</option>
+                </select>
+                <select value={folderFilter} onChange={(event) => setFolderFilter(event.target.value)} className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs text-white">
+                  {folderOptions.map((folder) => <option key={folder} value={folder}>{folder === 'all' ? 'Все папки' : folder}</option>)}
+                </select>
+                <label className="inline-flex items-center gap-1 rounded-xl border border-white/20 px-2 py-2 text-xs text-white"><input type="checkbox" checked={heavyOnly} onChange={(e) => setHeavyOnly(e.target.checked)} />Самые тяжёлые</label>
+                <label className="inline-flex items-center gap-1 rounded-xl border border-white/20 px-2 py-2 text-xs text-white">Корзина (дни)<input type="number" min={1} max={60} value={quarantineDays} onChange={(e) => setQuarantineDays(Math.max(1, Number(e.target.value || DEFAULT_QUARANTINE_DAYS)))} className="w-14 rounded bg-white/90 px-1 text-slate-900" /></label>
               </div>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {!!galleryTasks.length && <div className="mb-3 rounded-2xl border border-white/15 bg-white/10 p-2 text-xs text-white">{galleryTasks.slice(-3).map((task) => <p key={task.id}>{task.label}: {task.progress}/{task.total}{task.done ? ' ✅' : ' ⏳'}{task.failed ? ` · ошибок ${task.failed}` : ''}</p>)}</div>}
+              {!!duplicateGroups.length && <div className="mb-3 rounded-2xl border border-amber-300/50 bg-amber-500/10 p-2 text-xs text-amber-100">Группы дубликатов: {duplicateGroups.length}. Рекомендуем "оставить лучший" (первый в группе по размеру/дате).</div>}
               <div className="columns-2 gap-3 sm:columns-3 lg:columns-4">
-                {filteredGalleryRows.map((row) => {
+                {filteredGalleryRows.map((row, idx) => {
                   const key = galleryKey(row);
                   const isSelected = selectedGallerySet.has(key);
                   return (
-                    <button
-                      key={key}
-                      type="button"
-                      className={`group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-2xl border text-left transition ${isSelected ? 'border-sky-400 ring-2 ring-sky-300/40' : 'border-white/10 hover:border-white/30'}`}
-                      onClick={() => toggleGalleryRow(row)}
-                    >
+                    <button key={key} type="button" className={`group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-2xl border text-left transition ${isSelected ? 'border-sky-400 ring-2 ring-sky-300/40' : 'border-white/10 hover:border-white/30'}`} onClick={() => toggleGalleryRow(row)} onDoubleClick={() => setLightboxIndex(idx)}>
                       <img src={row.publicUrl} alt={row.path} className="h-auto w-full object-cover" loading="lazy" />
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-[10px] text-white">
-                        <p className="truncate font-bold">{row.path.split('/').pop() || row.path}</p>
-                        <p className="truncate text-white/80">{(row.size / 1024 / 1024).toFixed(2)} MB</p>
-                      </div>
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-[10px] text-white"><p className="truncate font-bold">{row.path.split('/').pop() || row.path}</p><p className="truncate text-white/80">{(row.size / 1024 / 1024).toFixed(2)} MB · {formatDateTime(row.updatedAt || row.createdAt)}</p></div>
                       <span className={`absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-black ${isSelected ? 'border-sky-400 bg-sky-500 text-white' : 'border-white bg-white/90 text-slate-700'}`}>{isSelected ? '✓' : ''}</span>
                     </button>
                   );
@@ -1542,6 +1686,15 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           </div>
         </div>
       )}
+
+      {lightboxIndex !== null && filteredGalleryRows[lightboxIndex] && (
+        <div className="fixed inset-0 z-[140] bg-black/95" onClick={() => setLightboxIndex(null)}>
+          <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full border border-white/30 bg-black/40 px-3 py-2 text-white" onClick={(e) => { e.stopPropagation(); setLightboxIndex((prev) => prev === null ? null : Math.max(0, prev - 1)); }}>‹</button>
+          <img src={filteredGalleryRows[lightboxIndex].publicUrl} alt={filteredGalleryRows[lightboxIndex].path} className="h-full w-full object-contain" />
+          <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-white/30 bg-black/40 px-3 py-2 text-white" onClick={(e) => { e.stopPropagation(); setLightboxIndex((prev) => prev === null ? null : Math.min(filteredGalleryRows.length - 1, prev + 1)); }}>›</button>
+        </div>
+      )}
+
 
       <Section title="Опасные действия" tone="danger">
         <div className="text-xs text-rose-700">Изменения ниже могут удалить локальные данные и требуют подтверждения.</div>
