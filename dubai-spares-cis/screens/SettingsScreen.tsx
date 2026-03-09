@@ -292,6 +292,8 @@ const SettingsScreen: React.FC = () => {
   const [serverGalleryRows, setServerGalleryRows] = useState<Array<{ bucket: string; path: string; size: number; mimetype: string; publicUrl: string }>>([]);
   const [serverGalleryLoading, setServerGalleryLoading] = useState(false);
   const [selectedGalleryKeys, setSelectedGalleryKeys] = useState<string[]>([]);
+  const [isGalleryFullscreen, setIsGalleryFullscreen] = useState(false);
+  const [gallerySearch, setGallerySearch] = useState('');
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -913,32 +915,79 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
     return serverGalleryRows.filter((row) => selected.has(galleryKey(row)));
   }, [serverGalleryRows, selectedGalleryKeys]);
 
+  const filteredGalleryRows = useMemo(() => {
+    const query = gallerySearch.trim().toLowerCase();
+    if (!query) return serverGalleryRows;
+    return serverGalleryRows.filter((row) => row.path.toLowerCase().includes(query));
+  }, [gallerySearch, serverGalleryRows]);
+
+  const selectedGallerySet = useMemo(() => new Set(selectedGalleryKeys), [selectedGalleryKeys]);
+
   const toggleGalleryRow = (row: { bucket: string; path: string }) => {
     const key = galleryKey(row);
     setSelectedGalleryKeys((prev) => prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]);
   };
 
-  const selectAllGalleryRows = () => setSelectedGalleryKeys(serverGalleryRows.map((row) => galleryKey(row)));
   const clearGallerySelection = () => setSelectedGalleryKeys([]);
+
+  const processGalleryRows = async (
+    rows: Array<{ path: string; publicUrl: string }>,
+    actionLabel: string,
+    worker: (publicUrl: string) => Promise<boolean>
+  ) => {
+    const concurrency = 6;
+    let cursor = 0;
+    let completed = 0;
+    let success = 0;
+    let failures = 0;
+
+    const runSingle = async (row: { path: string; publicUrl: string }) => {
+      let ok = false;
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          ok = await worker(row.publicUrl);
+          if (ok) break;
+        } catch {
+          if (attempt >= 2) ok = false;
+        }
+      }
+      completed += 1;
+      if (ok) success += 1;
+      else failures += 1;
+      setDangerActionProgress({
+        label: actionLabel,
+        processed: completed,
+        total: rows.length,
+        details: row.path
+      });
+    };
+
+    await Promise.all(Array.from({ length: Math.min(concurrency, rows.length) }, async () => {
+      while (cursor < rows.length) {
+        const current = rows[cursor];
+        cursor += 1;
+        await runSingle(current);
+      }
+    }));
+
+    return { success, failures };
+  };
 
   const handleBulkCompressGallery = () => void withBusy('gallery-compress-selected', async () => {
     if (!selectedGalleryRows.length) return;
     const confirmed = window.confirm(`Сжать выбранные фото (${selectedGalleryRows.length})?`);
     if (!confirmed) return;
 
-    for (let index = 0; index < selectedGalleryRows.length; index++) {
-      const row = selectedGalleryRows[index];
-      setDangerActionProgress({
-        label: 'Сжатие выбранных фото',
-        processed: index + 1,
-        total: selectedGalleryRows.length,
-        details: row.path
-      });
-      await recompressExistingStorageImage(row.publicUrl);
-    }
+    const result = await processGalleryRows(selectedGalleryRows, 'Сжатие выбранных фото', recompressExistingStorageImage);
 
     clearGallerySelection();
     await loadServerGallery();
+    window.dispatchEvent(new CustomEvent('app-toast', {
+      detail: {
+        tone: result.failures ? 'warning' : 'success',
+        message: `Сжатие завершено: успешно ${result.success}${result.failures ? `, ошибок ${result.failures}` : ''}`
+      }
+    }));
   });
 
   const handleBulkDeleteGallery = () => void withBusy('gallery-delete-selected', async () => {
@@ -946,19 +995,16 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
     const confirmed = window.confirm(`Удалить выбранные фото (${selectedGalleryRows.length})? Действие необратимо.`);
     if (!confirmed) return;
 
-    for (let index = 0; index < selectedGalleryRows.length; index++) {
-      const row = selectedGalleryRows[index];
-      setDangerActionProgress({
-        label: 'Удаление выбранных фото',
-        processed: index + 1,
-        total: selectedGalleryRows.length,
-        details: row.path
-      });
-      await deleteStorageImageByPublicUrl(row.publicUrl);
-    }
+    const result = await processGalleryRows(selectedGalleryRows, 'Удаление выбранных фото', deleteStorageImageByPublicUrl);
 
     clearGallerySelection();
     await loadServerGallery();
+    window.dispatchEvent(new CustomEvent('app-toast', {
+      detail: {
+        tone: result.failures ? 'warning' : 'success',
+        message: `Удаление завершено: удалено ${result.success}${result.failures ? `, ошибок ${result.failures}` : ''}`
+      }
+    }));
   });
 
   useEffect(() => () => {
@@ -1440,34 +1486,12 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
             >
               {serverGalleryLoading ? 'Обновляем…' : 'Обновить список фото'}
             </button>
-            <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold disabled:opacity-50" disabled={!!busy || serverGalleryRows.length === 0} onClick={selectAllGalleryRows}>Выбрать все</button>
+            <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold disabled:opacity-50" disabled={!!busy || filteredGalleryRows.length === 0} onClick={() => setSelectedGalleryKeys(filteredGalleryRows.map((row) => galleryKey(row)))}>Выбрать видимые</button>
             <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold disabled:opacity-50" disabled={!!busy || selectedGalleryKeys.length === 0} onClick={clearGallerySelection}>Снять выбор</button>
+            <button type="button" className="rounded-2xl border border-slate-300 bg-slate-900 px-3 py-2 text-xs font-bold text-white disabled:opacity-50" disabled={serverGalleryRows.length === 0} onClick={() => setIsGalleryFullscreen(true)}>Открыть полноэкранную галерею</button>
             <span className="text-xs text-gray-500">Всего: {serverGalleryRows.length} · Выбрано: {selectedGalleryKeys.length}</span>
           </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-            {serverGalleryRows.map((row) => {
-              const key = `${row.bucket}:${row.path}`;
-              const isSelected = selectedGalleryKeys.includes(key);
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  className={`group relative overflow-hidden rounded-2xl border bg-black/5 text-left ${isSelected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'}`}
-                  onClick={() => toggleGalleryRow(row)}
-                >
-                  <img src={row.publicUrl} alt={row.path} className="h-28 w-full object-cover" loading="lazy" />
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-[10px] text-white">
-                    <p className="truncate font-bold">{row.path.split('/').pop() || row.path}</p>
-                    <p className="truncate text-white/80">{(row.size / 1024 / 1024).toFixed(2)} MB</p>
-                  </div>
-                  <span className={`absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-black ${isSelected ? 'border-blue-500 bg-blue-500 text-white' : 'border-white bg-white/90 text-slate-700'}`}>{isSelected ? '✓' : ''}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {serverGalleryRows.length === 0 && <p className="mt-3 text-xs text-gray-500">Фото не найдены.</p>}
+          {serverGalleryRows.length === 0 ? <p className="mt-3 text-xs text-gray-500">Фото не найдены.</p> : <p className="mt-3 text-xs text-gray-500">Для максимально удобного просмотра и выбора откройте полноэкранный режим (как галерея телефона).</p>}
 
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 disabled:opacity-50" disabled={!!busy || selectedGalleryRows.length === 0} onClick={handleBulkCompressGallery}>{busyLabel('gallery-compress-selected', `Сжать выбранные (${selectedGalleryRows.length})`, 'Сжимаем выбранные…')}</button>
@@ -1477,6 +1501,47 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           </div>
         </div>
       </Section>
+
+      {isGalleryFullscreen && (
+        <div className="fixed inset-0 z-[120] bg-slate-950/95 backdrop-blur-sm">
+          <div className="flex h-full flex-col">
+            <div className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/95 px-3 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-black text-white" onClick={() => setIsGalleryFullscreen(false)}>Закрыть</button>
+                <input value={gallerySearch} onChange={(event) => setGallerySearch(event.target.value)} placeholder="Поиск по имени/папке…" className="min-w-[220px] flex-1 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs text-white placeholder:text-white/60" />
+                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-bold text-white disabled:opacity-50" disabled={!filteredGalleryRows.length} onClick={() => setSelectedGalleryKeys(filteredGalleryRows.map((row) => galleryKey(row)))}>Выбрать найденные</button>
+                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-bold text-white disabled:opacity-50" disabled={!selectedGalleryKeys.length} onClick={clearGallerySelection}>Снять выбор</button>
+                <span className="text-xs text-white/80">Показано: {filteredGalleryRows.length} · Выбрано: {selectedGalleryKeys.length}</span>
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              <div className="columns-2 gap-3 sm:columns-3 lg:columns-4">
+                {filteredGalleryRows.map((row) => {
+                  const key = galleryKey(row);
+                  const isSelected = selectedGallerySet.has(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-2xl border text-left transition ${isSelected ? 'border-sky-400 ring-2 ring-sky-300/40' : 'border-white/10 hover:border-white/30'}`}
+                      onClick={() => toggleGalleryRow(row)}
+                    >
+                      <img src={row.publicUrl} alt={row.path} className="h-auto w-full object-cover" loading="lazy" />
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-[10px] text-white">
+                        <p className="truncate font-bold">{row.path.split('/').pop() || row.path}</p>
+                        <p className="truncate text-white/80">{(row.size / 1024 / 1024).toFixed(2)} MB</p>
+                      </div>
+                      <span className={`absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-black ${isSelected ? 'border-sky-400 bg-sky-500 text-white' : 'border-white bg-white/90 text-slate-700'}`}>{isSelected ? '✓' : ''}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {filteredGalleryRows.length === 0 && <p className="mt-6 text-center text-sm text-white/70">Нет фото по текущему фильтру.</p>}
+            </div>
+          </div>
+        </div>
+      )}
 
       <Section title="Опасные действия" tone="danger">
         <div className="text-xs text-rose-700">Изменения ниже могут удалить локальные данные и требуют подтверждения.</div>
