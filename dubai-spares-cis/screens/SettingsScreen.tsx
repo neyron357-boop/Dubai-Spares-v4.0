@@ -267,27 +267,14 @@ type GalleryRow = {
 };
 
 type GallerySort = 'size_desc' | 'size_asc' | 'date_desc' | 'date_asc' | 'folder';
-type GalleryTaskType = 'compress' | 'delete' | 'quarantine';
+type GalleryTaskType = 'compress' | 'delete';
 type GalleryTask = { id: string; label: string; type: GalleryTaskType; urls: string[]; createdAt: number; progress: number; total: number; done?: boolean; failed?: number };
-type GalleryQuarantineEntry = { key: string; bucket: string; path: string; publicUrl: string; size: number; quarantinedAt: number; purgeAt: number };
 
 const GALLERY_TASKS_KEY = 'dubai_spares_gallery_tasks_v1';
-const GALLERY_QUARANTINE_KEY = 'dubai_spares_gallery_quarantine_v1';
-const DEFAULT_QUARANTINE_DAYS = 14;
 
 const loadGalleryTasks = (): GalleryTask[] => {
   try {
     const raw = localStorage.getItem(GALLERY_TASKS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const loadGalleryQuarantine = (): GalleryQuarantineEntry[] => {
-  try {
-    const raw = localStorage.getItem(GALLERY_QUARANTINE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -333,6 +320,7 @@ const SettingsScreen: React.FC = () => {
   const [serverGalleryRows, setServerGalleryRows] = useState<GalleryRow[]>([]);
   const [serverGalleryLoading, setServerGalleryLoading] = useState(false);
   const [selectedGalleryKeys, setSelectedGalleryKeys] = useState<string[]>([]);
+  const [isGallerySelectionMode, setIsGallerySelectionMode] = useState(false);
   const [isGalleryFullscreen, setIsGalleryFullscreen] = useState(false);
   const [gallerySearch, setGallerySearch] = useState('');
   const [gallerySort, setGallerySort] = useState<GallerySort>('size_desc');
@@ -340,8 +328,6 @@ const SettingsScreen: React.FC = () => {
   const [folderFilter, setFolderFilter] = useState('all');
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [galleryTasks, setGalleryTasks] = useState<GalleryTask[]>(() => loadGalleryTasks());
-  const [galleryQuarantine, setGalleryQuarantine] = useState<GalleryQuarantineEntry[]>(() => loadGalleryQuarantine());
-  const [quarantineDays, setQuarantineDays] = useState(DEFAULT_QUARANTINE_DAYS);
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -957,9 +943,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
 
   const galleryKey = (row: { bucket: string; path: string }) => `${row.bucket}:${row.path}`;
 
-  const quarantinedKeySet = useMemo(() => new Set(galleryQuarantine.map((entry) => entry.key)), [galleryQuarantine]);
-
-  const activeGalleryRows = useMemo(() => serverGalleryRows.filter((row) => !quarantinedKeySet.has(galleryKey(row))), [serverGalleryRows, quarantinedKeySet]);
+  const activeGalleryRows = useMemo(() => serverGalleryRows, [serverGalleryRows]);
 
   const folderOptions = useMemo(() => {
     const folders = new Set<string>();
@@ -1021,14 +1005,6 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
     localStorage.setItem(GALLERY_TASKS_KEY, JSON.stringify(galleryTasks));
   }, [galleryTasks]);
 
-  useEffect(() => {
-    localStorage.setItem(GALLERY_QUARANTINE_KEY, JSON.stringify(galleryQuarantine));
-  }, [galleryQuarantine]);
-
-  useEffect(() => {
-    if (serverGalleryRows.length > 0 && !isGalleryFullscreen) setIsGalleryFullscreen(true);
-  }, [serverGalleryRows.length, isGalleryFullscreen]);
-
   const enqueueGalleryTask = (type: GalleryTaskType, rows: GalleryRow[], label: string) => {
     if (!rows.length) return;
     const task: GalleryTask = {
@@ -1061,16 +1037,6 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         try {
           if (task.type === 'compress') ok = await recompressExistingStorageImage(url);
           else if (task.type === 'delete') ok = await deleteStorageImageByPublicUrl(url);
-          else {
-            const row = serverGalleryRows.find((item) => item.publicUrl === url);
-            if (row) {
-              const key = galleryKey(row);
-              const now = Date.now();
-              const purgeAt = now + quarantineDays * 24 * 60 * 60 * 1000;
-              setGalleryQuarantine((prev) => prev.some((entry) => entry.key === key) ? prev : [...prev, { key, bucket: row.bucket, path: row.path, publicUrl: row.publicUrl, size: row.size, quarantinedAt: now, purgeAt }]);
-              ok = true;
-            }
-          }
         } catch {
           ok = false;
         }
@@ -1084,17 +1050,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
 
     void run();
     return () => { cancelled = true; };
-  }, [galleryTasks, serverGalleryRows, quarantineDays]);
-
-  const purgeExpiredQuarantine = () => void withBusy('gallery-purge-trash', async () => {
-    const now = Date.now();
-    const expired = galleryQuarantine.filter((entry) => entry.purgeAt <= now);
-    if (!expired.length) return;
-    const result = await processGalleryRows(expired.map((entry) => ({ path: entry.path, publicUrl: entry.publicUrl })), 'Очистка корзины', deleteStorageImageByPublicUrl);
-    setGalleryQuarantine((prev) => prev.filter((entry) => entry.purgeAt > now));
-    await loadServerGallery();
-    window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: result.failures ? 'warning' : 'success', message: `Корзина очищена: ${result.success}` } }));
-  });
+  }, [galleryTasks]);
 
   const processGalleryRows = async (
     rows: Array<{ path: string; publicUrl: string }>,
@@ -1149,16 +1105,17 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
 
   const handleBulkDeleteGallery = () => {
     if (!selectedGalleryRows.length) return;
-    const confirmed = window.confirm(`Переместить выбранные фото (${selectedGalleryRows.length}) в корзину на ${quarantineDays} дней?`);
+    const confirmed = window.confirm(`Удалить выбранные фото (${selectedGalleryRows.length}) с сервера без корзины? Действие необратимо.`);
     if (!confirmed) return;
-    enqueueGalleryTask('quarantine', selectedGalleryRows, `В корзину (${selectedGalleryRows.length})`);
+    enqueueGalleryTask('delete', selectedGalleryRows, `Удалить выбранные (${selectedGalleryRows.length})`);
     clearGallerySelection();
   };
 
-  const handleDeleteNowFromQuarantine = () => {
-    const rows = selectedGalleryRows.filter((row) => quarantinedKeySet.has(galleryKey(row)));
-    if (!rows.length) return;
-    enqueueGalleryTask('delete', rows, `Удалить из корзины (${rows.length})`);
+  const openServerGalleryFullscreen = () => {
+    if (!serverGalleryRows.length) {
+      void loadServerGallery();
+    }
+    setIsGalleryFullscreen(true);
   };
 
   useEffect(() => () => {
@@ -1629,20 +1586,12 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </div>
       </Section>
 
-      <Section title="Галерея сервера (fullscreen only)">
+      <Section title="Галерея сервера">
         <div className="rounded-3xl border border-gray-200 bg-gradient-to-b from-slate-50 to-white p-3 shadow-inner">
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold disabled:opacity-50" onClick={() => void loadServerGallery()} disabled={serverGalleryLoading}>{serverGalleryLoading ? 'Обновляем…' : 'Обновить список фото'}</button>
-            <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold disabled:opacity-50" disabled={!!busy || filteredGalleryRows.length === 0} onClick={() => setSelectedGalleryKeys(filteredGalleryRows.map((row) => galleryKey(row)))}>Выбрать видимые</button>
-            <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold disabled:opacity-50" disabled={!!busy || selectedGalleryKeys.length === 0} onClick={clearGallerySelection}>Снять выбор</button>
-            <span className="text-xs text-gray-500">Всего: {activeGalleryRows.length} · В корзине: {galleryQuarantine.length} · Выбрано: {selectedGalleryKeys.length}</span>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 disabled:opacity-50" disabled={selectedGalleryRows.length === 0} onClick={handleBulkCompressGallery}>Сжать выбранные ({selectedGalleryRows.length})</button>
-            <button type="button" className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 disabled:opacity-50" disabled={selectedGalleryRows.length === 0} onClick={handleBulkDeleteGallery}>В корзину ({selectedGalleryRows.length})</button>
-            <button type="button" className="rounded-xl border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-700 disabled:opacity-50" disabled={galleryQuarantine.length === 0 || !!busy} onClick={purgeExpiredQuarantine}>{busyLabel('gallery-purge-trash', 'Очистить просроченную корзину', 'Чистим корзину…')}</button>
-            <button className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-700 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>{busyLabel('storage-compress-all', 'Сжать все фото на сервере', 'Сжимаем фото…')}</button>
-            <button className="rounded-xl border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-700 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>{busyLabel('storage-delete-duplicates', 'Удалить дубликаты фото', 'Обработка дубликатов…')}</button>
+            <button type="button" className="rounded-2xl border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-700 disabled:opacity-50" onClick={openServerGalleryFullscreen} disabled={serverGalleryLoading}>{serverGalleryLoading ? 'Открываем…' : 'Открыть галерею сервера'}</button>
+            <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold disabled:opacity-50" onClick={() => void loadServerGallery()} disabled={serverGalleryLoading}>{serverGalleryLoading ? 'Обновляем…' : 'Обновить список фото'}</button>
+            <span className="text-xs text-gray-500">Всего: {activeGalleryRows.length}</span>
           </div>
         </div>
       </Section>
@@ -1652,7 +1601,18 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           <div className="flex h-full flex-col">
             <div className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/95 px-3 py-3">
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-black text-white" onClick={() => setIsGalleryFullscreen(false)}>Свернуть</button>
+                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-black text-white" onClick={() => setIsGalleryFullscreen(false)}>Закрыть</button>
+                <button type="button" className={`rounded-xl border px-3 py-2 text-xs font-black ${isGallerySelectionMode ? 'border-sky-300 bg-sky-500/30 text-sky-100' : 'border-white/20 text-white'}`} onClick={() => {
+                  const nextMode = !isGallerySelectionMode;
+                  setIsGallerySelectionMode(nextMode);
+                  if (!nextMode) clearGallerySelection();
+                }}>{isGallerySelectionMode ? 'Готово' : 'Выбрать'}</button>
+                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-black text-white disabled:opacity-50" disabled={!isGallerySelectionMode || filteredGalleryRows.length === 0 || !!busy} onClick={() => setSelectedGalleryKeys(filteredGalleryRows.map((row) => galleryKey(row)))}>Выбрать видимые</button>
+                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-black text-white disabled:opacity-50" disabled={!isGallerySelectionMode || selectedGalleryKeys.length === 0 || !!busy} onClick={clearGallerySelection}>Снять выбор</button>
+                <button type="button" className="rounded-xl border border-amber-300 bg-amber-500/20 px-3 py-2 text-xs font-black text-amber-100 disabled:opacity-50" disabled={!isGallerySelectionMode || selectedGalleryRows.length === 0 || !!busy} onClick={handleBulkCompressGallery}>Сжать выбранные ({selectedGalleryRows.length})</button>
+                <button type="button" className="rounded-xl border border-rose-300 bg-rose-500/20 px-3 py-2 text-xs font-black text-rose-100 disabled:opacity-50" disabled={!isGallerySelectionMode || selectedGalleryRows.length === 0 || !!busy} onClick={handleBulkDeleteGallery}>Удалить выбранные ({selectedGalleryRows.length})</button>
+                <button className="rounded-xl border border-amber-300 bg-white/10 px-3 py-2 text-xs font-black text-amber-100 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>{busyLabel('storage-compress-all', 'Сжать все фото', 'Сжимаем фото…')}</button>
+                <button className="rounded-xl border border-rose-300 bg-white/10 px-3 py-2 text-xs font-black text-rose-100 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>{busyLabel('storage-delete-duplicates', 'Удалить дубликаты фото', 'Обработка дубликатов…')}</button>
                 <input value={gallerySearch} onChange={(event) => setGallerySearch(event.target.value)} placeholder="Поиск по имени/папке…" className="min-w-[220px] flex-1 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs text-white placeholder:text-white/60" />
                 <select value={gallerySort} onChange={(event) => setGallerySort(event.target.value as GallerySort)} className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs text-white">
                   <option value="size_desc">Размер ↓</option><option value="size_asc">Размер ↑</option><option value="date_desc">Дата ↓</option><option value="date_asc">Дата ↑</option><option value="folder">Папка</option>
@@ -1661,7 +1621,6 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                   {folderOptions.map((folder) => <option key={folder} value={folder}>{folder === 'all' ? 'Все папки' : folder}</option>)}
                 </select>
                 <label className="inline-flex items-center gap-1 rounded-xl border border-white/20 px-2 py-2 text-xs text-white"><input type="checkbox" checked={heavyOnly} onChange={(e) => setHeavyOnly(e.target.checked)} />Самые тяжёлые</label>
-                <label className="inline-flex items-center gap-1 rounded-xl border border-white/20 px-2 py-2 text-xs text-white">Корзина (дни)<input type="number" min={1} max={60} value={quarantineDays} onChange={(e) => setQuarantineDays(Math.max(1, Number(e.target.value || DEFAULT_QUARANTINE_DAYS)))} className="w-14 rounded bg-white/90 px-1 text-slate-900" /></label>
               </div>
             </div>
 
@@ -1673,10 +1632,16 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                   const key = galleryKey(row);
                   const isSelected = selectedGallerySet.has(key);
                   return (
-                    <button key={key} type="button" className={`group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-2xl border text-left transition ${isSelected ? 'border-sky-400 ring-2 ring-sky-300/40' : 'border-white/10 hover:border-white/30'}`} onClick={() => toggleGalleryRow(row)} onDoubleClick={() => setLightboxIndex(idx)}>
+                    <button key={key} type="button" className={`group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-2xl border text-left transition ${isSelected ? 'border-sky-400 ring-2 ring-sky-300/40' : 'border-white/10 hover:border-white/30'}`} onClick={() => {
+                      if (isGallerySelectionMode) {
+                        toggleGalleryRow(row);
+                        return;
+                      }
+                      setLightboxIndex(idx);
+                    }}>
                       <img src={row.publicUrl} alt={row.path} className="h-auto w-full object-cover" loading="lazy" />
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-[10px] text-white"><p className="truncate font-bold">{row.path.split('/').pop() || row.path}</p><p className="truncate text-white/80">{(row.size / 1024 / 1024).toFixed(2)} MB · {formatDateTime(row.updatedAt || row.createdAt)}</p></div>
-                      <span className={`absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-black ${isSelected ? 'border-sky-400 bg-sky-500 text-white' : 'border-white bg-white/90 text-slate-700'}`}>{isSelected ? '✓' : ''}</span>
+                      {isGallerySelectionMode && <span className={`absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-black ${isSelected ? 'border-sky-400 bg-sky-500 text-white' : 'border-white bg-white/90 text-slate-700'}`}>{isSelected ? '✓' : ''}</span>}
                     </button>
                   );
                 })}
