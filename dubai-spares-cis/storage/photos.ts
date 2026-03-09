@@ -25,6 +25,14 @@ type StorageObjectEntry = {
   mimetype: string;
 };
 
+export type StorageImageEntry = {
+  bucket: string;
+  path: string;
+  size: number;
+  mimetype: string;
+  publicUrl: string;
+};
+
 export type StorageMaintenanceResult = {
   scanned: number;
   imageFiles: number;
@@ -474,6 +482,34 @@ export const listStoragePathsRecursive = async (bucket: string, folder: string):
   return objects.map((entry) => entry.path);
 };
 
+export const listAllStorageImages = async (): Promise<StorageImageEntry[]> => {
+  if (!isCloudConfigured) return [];
+
+  const result: StorageImageEntry[] = [];
+  for (const bucket of BUCKET_CANDIDATES) {
+    let objects: StorageObjectEntry[] = [];
+    try {
+      objects = await listStorageObjectsRecursive(bucket, '');
+    } catch {
+      continue;
+    }
+
+    objects
+      .filter((entry) => isImagePath(entry.path, entry.mimetype))
+      .forEach((entry) => {
+        result.push({
+          bucket,
+          path: entry.path,
+          size: Math.max(0, Number(entry.size || 0)),
+          mimetype: entry.mimetype,
+          publicUrl: `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${entry.path}`
+        });
+      });
+  }
+
+  return result;
+};
+
 const deleteStorageFiles = async (bucket: string, paths: string[]): Promise<void> => {
   if (!paths.length) return;
 
@@ -789,6 +825,13 @@ const parseSupabasePublicStorageUrl = (imageUrl: string): { bucket: string; path
   } catch {
     return null;
   }
+};
+
+export const deleteStorageImageByPublicUrl = async (imageUrl: string): Promise<boolean> => {
+  const parsed = parseSupabasePublicStorageUrl(imageUrl);
+  if (!parsed || !isCloudConfigured) return false;
+  await deleteStorageFiles(parsed.bucket, [parsed.path]);
+  return true;
 };
 
 export const recompressExistingStorageImage = async (imageUrl: string): Promise<boolean> => {

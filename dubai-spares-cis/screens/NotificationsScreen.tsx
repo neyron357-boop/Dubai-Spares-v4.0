@@ -14,6 +14,7 @@ import {
   snoozeNotification,
   clearAllNotifications
 } from '../notificationCenter';
+import { useStore } from '../store';
 
 const FILTERS: Array<{ label: string; id: 'all' | 'orders' | 'radar' | 'followup' | 'actions' | 'system' | 'sync' }> = [
   { label: 'Все', id: 'all' },
@@ -64,6 +65,7 @@ const NotificationsScreen: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullStart, setPullStart] = useState<number | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
+  const { orders } = useStore();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -154,6 +156,12 @@ const NotificationsScreen: React.FC = () => {
   const openNotificationEntity = (item: AppNotification) => {
     if (!canOpenEntity(item)) return;
     markNotificationRead(item.id);
+    if (item.orderId && !orders.some((order) => order.id === item.orderId)) {
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: { tone: 'warning', message: 'Этот заказ уже удалён и больше недоступен.' }
+      }));
+      return;
+    }
     const fallbackRoute = item.orderId
       ? `/order/${item.orderId}`
       : item.supplierId
