@@ -291,6 +291,7 @@ const SettingsScreen: React.FC = () => {
   const [lockedSnapshotIds, setLockedSnapshotIds] = useState<string[]>(() => loadLockedSnapshotIds());
   const [serverGalleryRows, setServerGalleryRows] = useState<Array<{ bucket: string; path: string; size: number; mimetype: string; publicUrl: string }>>([]);
   const [serverGalleryLoading, setServerGalleryLoading] = useState(false);
+  const [selectedGalleryKeys, setSelectedGalleryKeys] = useState<string[]>([]);
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -874,7 +875,13 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
     setServerGalleryLoading(true);
     try {
       const rows = await listAllStorageImages();
-      setServerGalleryRows(rows.sort((a, b) => b.size - a.size));
+      const sorted = rows.sort((a, b) => b.size - a.size);
+      setServerGalleryRows(sorted);
+      setSelectedGalleryKeys((prev) => {
+        if (!prev.length) return prev;
+        const allowed = new Set(sorted.map((row) => `${row.bucket}:${row.path}`));
+        return prev.filter((key) => allowed.has(key));
+      });
     } finally {
       setServerGalleryLoading(false);
     }
@@ -897,6 +904,62 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
   useEffect(() => {
     void loadServerGallery();
   }, []);
+
+  const galleryKey = (row: { bucket: string; path: string }) => `${row.bucket}:${row.path}`;
+
+  const selectedGalleryRows = useMemo(() => {
+    if (!selectedGalleryKeys.length) return [];
+    const selected = new Set(selectedGalleryKeys);
+    return serverGalleryRows.filter((row) => selected.has(galleryKey(row)));
+  }, [serverGalleryRows, selectedGalleryKeys]);
+
+  const toggleGalleryRow = (row: { bucket: string; path: string }) => {
+    const key = galleryKey(row);
+    setSelectedGalleryKeys((prev) => prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]);
+  };
+
+  const selectAllGalleryRows = () => setSelectedGalleryKeys(serverGalleryRows.map((row) => galleryKey(row)));
+  const clearGallerySelection = () => setSelectedGalleryKeys([]);
+
+  const handleBulkCompressGallery = () => void withBusy('gallery-compress-selected', async () => {
+    if (!selectedGalleryRows.length) return;
+    const confirmed = window.confirm(`Сжать выбранные фото (${selectedGalleryRows.length})?`);
+    if (!confirmed) return;
+
+    for (let index = 0; index < selectedGalleryRows.length; index++) {
+      const row = selectedGalleryRows[index];
+      setDangerActionProgress({
+        label: 'Сжатие выбранных фото',
+        processed: index + 1,
+        total: selectedGalleryRows.length,
+        details: row.path
+      });
+      await recompressExistingStorageImage(row.publicUrl);
+    }
+
+    clearGallerySelection();
+    await loadServerGallery();
+  });
+
+  const handleBulkDeleteGallery = () => void withBusy('gallery-delete-selected', async () => {
+    if (!selectedGalleryRows.length) return;
+    const confirmed = window.confirm(`Удалить выбранные фото (${selectedGalleryRows.length})? Действие необратимо.`);
+    if (!confirmed) return;
+
+    for (let index = 0; index < selectedGalleryRows.length; index++) {
+      const row = selectedGalleryRows[index];
+      setDangerActionProgress({
+        label: 'Удаление выбранных фото',
+        processed: index + 1,
+        total: selectedGalleryRows.length,
+        details: row.path
+      });
+      await deleteStorageImageByPublicUrl(row.publicUrl);
+    }
+
+    clearGallerySelection();
+    await loadServerGallery();
+  });
 
   useEffect(() => () => {
     if (logoCrop?.previewUrl) URL.revokeObjectURL(logoCrop.previewUrl);
@@ -1367,43 +1430,57 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
       </Section>
 
       <Section title="Галерея сервера (все фото)">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold disabled:opacity-50"
-            onClick={() => void loadServerGallery()}
-            disabled={serverGalleryLoading}
-          >
-            {serverGalleryLoading ? 'Обновляем…' : 'Обновить список фото'}
-          </button>
-          <span className="text-xs text-gray-500">Всего: {serverGalleryRows.length}</span>
-        </div>
-        <div className="max-h-80 overflow-auto rounded-xl border border-gray-200 bg-gray-50">
-          {serverGalleryRows.length === 0 ? (
-            <p className="p-3 text-xs text-gray-500">Фото не найдены.</p>
-          ) : (
-            <ul className="divide-y divide-gray-200">
-              {serverGalleryRows.map((row) => (
-                <li key={`${row.bucket}:${row.path}`} className="space-y-2 p-3">
-                  <p className="text-[11px] break-all text-gray-700">{row.bucket}/{row.path}</p>
-                  <p className="text-[11px] text-gray-500">Размер: {(row.size / 1024 / 1024).toFixed(2)} MB</p>
-                  <div className="flex flex-wrap gap-2">
-                    <a href={row.publicUrl} target="_blank" rel="noreferrer" className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold">Открыть</a>
-                    <button type="button" className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700" onClick={() => void withBusy(`gallery-compress-${row.path}`, () => handleCompressServerPhoto(row.publicUrl))}>Сжать</button>
-                    <button type="button" className="rounded-lg border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-bold text-rose-700" onClick={() => void withBusy(`gallery-delete-${row.path}`, () => handleDeleteServerPhoto(row.publicUrl))}>Удалить</button>
+        <div className="rounded-3xl border border-gray-200 bg-gradient-to-b from-slate-50 to-white p-3 shadow-inner">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold disabled:opacity-50"
+              onClick={() => void loadServerGallery()}
+              disabled={serverGalleryLoading}
+            >
+              {serverGalleryLoading ? 'Обновляем…' : 'Обновить список фото'}
+            </button>
+            <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold disabled:opacity-50" disabled={!!busy || serverGalleryRows.length === 0} onClick={selectAllGalleryRows}>Выбрать все</button>
+            <button type="button" className="rounded-2xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold disabled:opacity-50" disabled={!!busy || selectedGalleryKeys.length === 0} onClick={clearGallerySelection}>Снять выбор</button>
+            <span className="text-xs text-gray-500">Всего: {serverGalleryRows.length} · Выбрано: {selectedGalleryKeys.length}</span>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+            {serverGalleryRows.map((row) => {
+              const key = `${row.bucket}:${row.path}`;
+              const isSelected = selectedGalleryKeys.includes(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={`group relative overflow-hidden rounded-2xl border bg-black/5 text-left ${isSelected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'}`}
+                  onClick={() => toggleGalleryRow(row)}
+                >
+                  <img src={row.publicUrl} alt={row.path} className="h-28 w-full object-cover" loading="lazy" />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-[10px] text-white">
+                    <p className="truncate font-bold">{row.path.split('/').pop() || row.path}</p>
+                    <p className="truncate text-white/80">{(row.size / 1024 / 1024).toFixed(2)} MB</p>
                   </div>
-                </li>
-              ))}
-            </ul>
-          )}
+                  <span className={`absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-black ${isSelected ? 'border-blue-500 bg-blue-500 text-white' : 'border-white bg-white/90 text-slate-700'}`}>{isSelected ? '✓' : ''}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {serverGalleryRows.length === 0 && <p className="mt-3 text-xs text-gray-500">Фото не найдены.</p>}
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 disabled:opacity-50" disabled={!!busy || selectedGalleryRows.length === 0} onClick={handleBulkCompressGallery}>{busyLabel('gallery-compress-selected', `Сжать выбранные (${selectedGalleryRows.length})`, 'Сжимаем выбранные…')}</button>
+            <button type="button" className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 disabled:opacity-50" disabled={!!busy || selectedGalleryRows.length === 0} onClick={handleBulkDeleteGallery}>{busyLabel('gallery-delete-selected', `Удалить выбранные (${selectedGalleryRows.length})`, 'Удаляем выбранные…')}</button>
+            <button className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-700 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>{busyLabel('storage-compress-all', 'Сжать все фото на сервере', 'Сжимаем фото…')}</button>
+            <button className="rounded-xl border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-700 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>{busyLabel('storage-delete-duplicates', 'Удалить дубликаты фото', 'Обработка дубликатов…')}</button>
+          </div>
         </div>
       </Section>
 
       <Section title="Опасные действия" tone="danger">
         <div className="text-xs text-rose-700">Изменения ниже могут удалить локальные данные и требуют подтверждения.</div>
         <div className="flex flex-col gap-2 text-sm">
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>{busyLabel('storage-compress-all', 'Сжать все фото на сервере до минимума', 'Сжимаем фото…')}</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>{busyLabel('storage-delete-duplicates', 'Удалить дубликаты фото', 'Обработка дубликатов…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCheckAndCleanBrokenPhotos}>{busyLabel('check-clean-broken-photos', 'Проверить и очистить битые фото', 'Проверяем битые фото…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleClearBrokenLinks}>{busyLabel('clear-broken-links', 'Очистить битые ссылки', 'Очищаем битые ссылки…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => { clearBrokenImageBlacklist(); window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Локальный blacklist битых фото очищен', tone: 'success' } })); }}>Очистить blacklist битых фото</button>

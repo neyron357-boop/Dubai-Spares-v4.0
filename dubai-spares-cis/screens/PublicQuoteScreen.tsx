@@ -17,7 +17,7 @@ import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrenc
 import { logger } from '../logging';
 import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot, resolveClientUnitPriceAed } from '../publicQuoteApi';
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
-import { calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
+import { calculateCargoEstimates } from '../utils/cargo';
 
 type Language = 'en' | 'ru';
 
@@ -929,15 +929,10 @@ const openInvoicePrintWindow = ({
   const cargoCountry = String(order.logistics?.cargoCountry || cargoComputed.air.country || '—');
   const cargoRealWeight = Number(order.logistics?.cargoTotalWeightKg ?? cargoComputed.air.realWeight ?? 0);
   const cargoPlaces = Number(order.logistics?.cargoTotalPlaces ?? cargoComputed.air.totalPlaces ?? 0);
-  const cargoAirCostUsd = Number(order.logistics?.cargoAirCostUsd || cargoComputed.air.totalCostUsd || 0);
-  const cargoContainerCostUsd = Number(order.logistics?.cargoContainerCostUsd || cargoComputed.container.totalCostUsd || 0);
-  const cargoAirEta = String(order.logistics?.cargoAirEtaDays || cargoComputed.air.eta || '—');
-  const cargoContainerEta = String(order.logistics?.cargoContainerEtaDays || cargoComputed.container.eta || '—');
-  const selectedTariff = DEFAULT_CARGO_TARIFFS.find((item) => item.country === cargoCountry) || DEFAULT_CARGO_TARIFFS[0];
-  const airSeatUsd = Number(selectedTariff?.airSeatUsd || 0);
-  const airSeatInfo = cargoPlaces > 0 && airSeatUsd > 0
-    ? ` (including place fee: ${cargoPlaces.toFixed(0)} × $${airSeatUsd.toFixed(2)})`
-    : '';
+  const cargoAirCostUsd = Number(order.logistics?.cargoAirCostUsd ?? cargoComputed.air.totalCostUsd ?? 0);
+  const cargoContainerCostUsd = Number(order.logistics?.cargoContainerCostUsd ?? cargoComputed.container.totalCostUsd ?? 0);
+  const cargoAirEta = String(order.logistics?.cargoAirEtaDays ?? cargoComputed.air.eta ?? '—');
+  const cargoContainerEta = String(order.logistics?.cargoContainerEtaDays ?? cargoComputed.container.eta ?? '—');
   const shouldHideAirCargo = cargoAirCostUsd > 1000;
   const cargoCostLabel = (amountUsd: number) => `${(amountUsd * exchangeRate).toFixed(2)} ${currency} (${amountUsd.toFixed(2)} USD)`;
 
@@ -1038,7 +1033,7 @@ const openInvoicePrintWindow = ({
       </thead>
       <tbody>
         ${shouldHideAirCargo ? '' : `<tr>
-          <td>AIR (${escapeHtml(cargoAirEta)} days)${airSeatInfo}</td>
+          <td>AIR (${escapeHtml(cargoAirEta)} days)</td>
           <td>${escapeHtml(cargoCountry)}</td>
           <td>${cargoRealWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
           <td style="text-align:right">${cargoCostLabel(cargoAirCostUsd)}</td>
@@ -1466,15 +1461,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     if (!order) return null;
     const computed = calculateCargoEstimates(order, {});
     const country = String(order.logistics?.cargoCountry || computed.air.country || '—');
-    const selectedTariff = DEFAULT_CARGO_TARIFFS.find((item) => item.country === country) || DEFAULT_CARGO_TARIFFS[0];
     const places = Number(order.logistics?.cargoTotalPlaces ?? computed.air.totalPlaces ?? 0);
-    const seatPriceUsd = Number(selectedTariff?.airSeatUsd || 0);
     return {
       country,
       realWeight: Number(order.logistics?.cargoTotalWeightKg ?? computed.air.realWeight ?? 0),
       chargeableWeight: Number(order.logistics?.cargoChargeableWeightKg ?? computed.air.chargeableWeight ?? 0),
       places,
-      airSeatUsd: seatPriceUsd,
+      airSeatUsd: 0,
       air: {
         eta: String(order.logistics?.cargoAirEtaDays || computed.air.eta || '—'),
         costUsd: Number(order.logistics?.cargoAirCostUsd || computed.air.totalCostUsd || 0)
