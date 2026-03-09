@@ -171,6 +171,28 @@ const normalizeSupplierYears = (years: unknown): number[] => {
   return Array.from(new Set(normalized)).sort((a, b) => a - b);
 };
 
+const deriveSupplierMetaFromOrderIds = (
+  supplier: Supplier,
+  orderIds: string[],
+  orders: Array<{ id: string; brand?: string; model?: string; year?: number | string }>
+) => {
+  const relatedOrders = orderIds
+    .map((orderId) => orders.find((order) => order.id === orderId))
+    .filter(Boolean) as Array<{ id: string; brand?: string; model?: string; year?: number | string }>;
+
+  const derivedBrands = mergeUniqueStrings([], relatedOrders.map((order) => order.brand || ''));
+  const derivedModels = mergeUniqueStrings([], relatedOrders.map((order) => order.model || ''));
+  const derivedYears = mergeUniqueYears([], relatedOrders.map((order) => Number(order.year)));
+
+  return {
+    mainBrands: derivedBrands,
+    brands: derivedBrands,
+    models: derivedModels,
+    years: derivedYears,
+    primaryBrand: derivedBrands[0] || supplier.primaryBrand || ''
+  };
+};
+
 
 const LINKED_PART_STATUS_LABELS: Record<SupplierLinkedPartStatus, string> = {
   searching: 'В поиске',
@@ -1299,7 +1321,14 @@ const SuppliersScreen: React.FC = () => {
   const removeLinkedPartEntry = (supplier: Supplier, entry: SupplierLinkedPartEntry) => {
     const nextEntries = (supplier.linkedParts || []).filter((item) => item.id !== entry.id);
     const nextOrderIds = Array.from(new Set(nextEntries.map((item) => item.orderId).filter(Boolean)));
-    const nextSupplier = { ...supplier, linkedParts: nextEntries, activeOrderIds: nextOrderIds, updatedAt: Date.now() };
+    const derivedMeta = deriveSupplierMetaFromOrderIds(supplier, nextOrderIds, orders);
+    const nextSupplier = {
+      ...supplier,
+      ...derivedMeta,
+      linkedParts: nextEntries,
+      activeOrderIds: nextOrderIds,
+      updatedAt: Date.now()
+    };
     updateSupplier(nextSupplier);
     void upsertSupplierToShops(nextSupplier);
     removeRadarManualSelection({ supplierId: supplier.id, orderId: entry.orderId, partId: entry.partId });
@@ -1323,9 +1352,19 @@ const SuppliersScreen: React.FC = () => {
 
     updateOrder({ ...order, vendorContacts: nextVendorContacts, recommendedShopIds: nextRecommended, updatedAt: Date.now() });
 
-    const nextSupplier = { ...supplier, linkedParts: nextEntries, activeOrderIds: nextOrderIds, updatedAt: Date.now() };
+    const derivedMeta = deriveSupplierMetaFromOrderIds(supplier, nextOrderIds, orders);
+    const nextSupplier = {
+      ...supplier,
+      ...derivedMeta,
+      linkedParts: nextEntries,
+      activeOrderIds: nextOrderIds,
+      updatedAt: Date.now()
+    };
     updateSupplier(nextSupplier);
     void upsertSupplierToShops(nextSupplier);
+    (supplier.linkedParts || [])
+      .filter((entry) => entry.orderId === orderId)
+      .forEach((entry) => removeRadarManualSelection({ supplierId: supplier.id, orderId: entry.orderId, partId: entry.partId }));
     refreshManualSelections();
   };
 
@@ -1885,6 +1924,8 @@ const SuppliersScreen: React.FC = () => {
                       <div className="min-w-0">
                         <p className="font-black text-sm leading-tight truncate">{s.name}</p>
                         <p className="text-[11px] text-slate-600 truncate">{`${brands[0] || 'Unknown brand'} • ${(s.types && s.types.length > 0 ? s.types : [s.type || 'new_parts']).map((value) => FIELD_TYPES.find((t) => t.value === value)?.label || value).join(' + ')}`}</p>
+                        <p className="text-[10px] text-slate-500 truncate"><span className="font-bold">Марки:</span> {(brands.length > 0 ? brands : ['—']).join(', ')}</p>
+                        <p className="text-[10px] text-slate-500 truncate"><span className="font-bold">Модели:</span> {((s.models || []).length > 0 ? (s.models || []) : ['—']).join(', ')}</p>
                         <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black ${SUPPLIER_STATUS_COLORS[mainStatus]}`}>{SUPPLIER_STATUS_LABELS[mainStatus]}</span>
                       </div>
                     </div>
@@ -2109,12 +2150,23 @@ const SuppliersScreen: React.FC = () => {
             <p className="text-sm font-black text-slate-800">{fullscreenSupplier.name}</p>
             <div className="w-14" />
           </div>
-          {fullscreenSupplier.photos?.[0] && <img src={fullscreenSupplier.photos[0]} alt={fullscreenSupplier.name} className="h-48 w-full object-cover" />}
+          <div className="relative">
+            {fullscreenSupplier.photos?.[0] ? (
+              <img src={fullscreenSupplier.photos[0]} alt={fullscreenSupplier.name} className="h-64 w-full object-cover" />
+            ) : (
+              <div className="h-56 w-full bg-gradient-to-r from-indigo-600 to-blue-600" />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-transparent" />
+            <div className="absolute bottom-0 w-full px-4 pb-4 text-white">
+              <p className="text-2xl font-black tracking-tight">{fullscreenSupplier.name}</p>
+              <p className="text-xs font-semibold text-white/90">{fullscreenSupplier.location || 'Локация не указана'}</p>
+            </div>
+          </div>
           <div className="space-y-3 p-4">
             <div className="grid grid-cols-3 gap-2">
-              <button type="button" onClick={() => openWhatsAppAndTrack(fullscreenSupplier)} className="rounded-xl bg-emerald-500 px-2 py-2 text-xs font-black text-white">WhatsApp</button>
-              <a href={`tel:${fullscreenSupplier.phone || ''}`} onClick={() => markCalled(fullscreenSupplier)} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-center text-xs font-black text-slate-700">Позвонить</a>
-              <button type="button" onClick={() => openMap(fullscreenSupplier.location || '')} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-black text-slate-700">Карта</button>
+              <button type="button" onClick={() => openWhatsAppAndTrack(fullscreenSupplier)} className="rounded-xl bg-emerald-500 px-2 py-2 text-xs font-black text-white shadow-sm">WhatsApp</button>
+              <a href={`tel:${fullscreenSupplier.phone || ''}`} onClick={() => markCalled(fullscreenSupplier)} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-center text-xs font-black text-slate-700 shadow-sm">Позвонить</a>
+              <button type="button" onClick={() => openMap(fullscreenSupplier.location || '')} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-black text-slate-700 shadow-sm">Карта</button>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-700">
