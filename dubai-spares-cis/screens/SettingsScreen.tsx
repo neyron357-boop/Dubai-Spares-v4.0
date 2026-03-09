@@ -2,11 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
-import { backupUpload, clearPublicQuoteSnapshots, clearServerBackups, deletePublicQuoteSnapshot, listPublicQuoteSnapshots } from '../serverApi';
+import { backupUpload, clearServerBackups, deletePublicQuoteSnapshot, listPublicQuoteSnapshots } from '../serverApi';
 import { cloudBuildGuardMessage, isCloudConfigured, SUPABASE_URL } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
-import { deleteStorageDuplicateMappings, runStorageImageMaintenance, uploadFileToStorage, uploadImageToStorage } from '../storage/photos';
+import { deleteStorageDuplicateMappings, deleteStorageImageByPublicUrl, listAllStorageImages, recompressExistingStorageImage, runStorageImageMaintenance, uploadFileToStorage, uploadImageToStorage } from '../storage/photos';
 import { Order } from '../types';
 import { clearBrokenImageBlacklist, isBrokenImageUrl, markBrokenImageUrl, normalizeBrokenImageKey, shouldBlacklistByStatus } from '../storage/brokenImageBlacklist';
 import { flushOfflineMutations } from '../orderStore';
@@ -254,6 +254,20 @@ const normalizeTariff = (tariff: Partial<CargoTariff>): CargoTariff => ({
   containerEtaDays: String(tariff.containerEtaDays || '').trim()
 });
 
+const LOCKED_SNAPSHOTS_KEY = 'dubai_spares_locked_public_snapshots_v1';
+
+const loadLockedSnapshotIds = (): string[] => {
+  try {
+    const raw = localStorage.getItem(LOCKED_SNAPSHOTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item) => String(item || '').trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
 const SettingsScreen: React.FC = () => {
   const publicRequestFormUrl = `${window.location.origin}${window.location.pathname}#/request`;
   const navigate = useNavigate();
@@ -274,6 +288,9 @@ const SettingsScreen: React.FC = () => {
   const [logoCrop, setLogoCrop] = useState<{ file: File; previewUrl: string } | null>(null);
   const [logoCropZoom, setLogoCropZoom] = useState(1);
   const [newDefaultChecklistTask, setNewDefaultChecklistTask] = useState('');
+  const [lockedSnapshotIds, setLockedSnapshotIds] = useState<string[]>(() => loadLockedSnapshotIds());
+  const [serverGalleryRows, setServerGalleryRows] = useState<Array<{ bucket: string; path: string; size: number; mimetype: string; publicUrl: string }>>([]);
+  const [serverGalleryLoading, setServerGalleryLoading] = useState(false);
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -763,6 +780,16 @@ const SettingsScreen: React.FC = () => {
     return snapshotId ? `${token}.${snapshotId}` : token;
   };
 
+  const toggleSnapshotLock = (row: { id: string; token: string; snapshot_id?: string | null }) => {
+    const key = String(row.snapshot_id || row.id || '').trim();
+    if (!key) return;
+    setLockedSnapshotIds((prev) => {
+      const next = prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key];
+      localStorage.setItem(LOCKED_SNAPSHOTS_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
   const buildSnapshotSlug = (row: { payload_json?: unknown; order_id?: string | null }) => {
     const payload = row.payload_json && typeof row.payload_json === 'object' && !Array.isArray(row.payload_json)
       ? row.payload_json as Record<string, unknown>
@@ -814,6 +841,10 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
   const handleSnapshotDelete = async (row: { id: string; token: string; snapshot_id?: string | null }) => {
     const key = String(row.snapshot_id || row.id || row.token || '').trim();
     if (!key) return;
+    if (lockedSnapshotIds.includes(key)) {
+      setSnapshotNotice('Снапшот в замке. Снимите замок перед удалением.');
+      return;
+    }
     const result = await deletePublicQuoteSnapshot(key);
     if (!result.ok) {
       setSnapshotNotice(`Не удалось удалить снапшот: ${result.error}`);
@@ -823,8 +854,48 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
     await loadSnapshots();
   };
 
+  const handleClearSnapshotsExceptLocked = async () => {
+    const unlocked = snapshotRows.filter((row) => {
+      const key = String(row.snapshot_id || row.id || '').trim();
+      return key && !lockedSnapshotIds.includes(key);
+    });
+    let removed = 0;
+    for (const row of unlocked) {
+      const key = String(row.snapshot_id || row.id || row.token || '').trim();
+      if (!key) continue;
+      const result = await deletePublicQuoteSnapshot(key);
+      if (result.ok && result.data?.removed) removed += 1;
+    }
+    setSnapshotNotice(`Удалено снапшотов: ${removed}. Защищено замком: ${lockedSnapshotIds.length}.`);
+    await loadSnapshots();
+  };
+
+  const loadServerGallery = async () => {
+    setServerGalleryLoading(true);
+    try {
+      const rows = await listAllStorageImages();
+      setServerGalleryRows(rows.sort((a, b) => b.size - a.size));
+    } finally {
+      setServerGalleryLoading(false);
+    }
+  };
+
+  const handleDeleteServerPhoto = async (url: string) => {
+    await deleteStorageImageByPublicUrl(url);
+    await loadServerGallery();
+  };
+
+  const handleCompressServerPhoto = async (url: string) => {
+    await recompressExistingStorageImage(url);
+    await loadServerGallery();
+  };
+
   useEffect(() => {
     void loadSnapshots();
+  }, []);
+
+  useEffect(() => {
+    void loadServerGallery();
   }, []);
 
   useEffect(() => () => {
@@ -1278,11 +1349,51 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                         Открыть заказ этого снапшота
                       </button>
                       <button type="button" className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold" onClick={() => void copySnapshotUrl(row)}>Копировать ссылку</button>
+                      <button
+                        type="button"
+                        className={`rounded-lg border px-2 py-1 text-xs font-bold ${lockedSnapshotIds.includes(String(row.snapshot_id || row.id || '').trim()) ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-gray-300 bg-white text-gray-700'}`}
+                        onClick={() => toggleSnapshotLock(row)}
+                      >
+                        {lockedSnapshotIds.includes(String(row.snapshot_id || row.id || '').trim()) ? '🔒 В замке' : '🔓 Без замка'}
+                      </button>
                       <button type="button" className="rounded-lg border border-rose-300 bg-white px-2 py-1 text-xs font-bold text-rose-700" onClick={() => void handleSnapshotDelete(row)}>Удалить</button>
                     </div>
                   </li>
                 );
               })}
+            </ul>
+          )}
+        </div>
+      </Section>
+
+      <Section title="Галерея сервера (все фото)">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold disabled:opacity-50"
+            onClick={() => void loadServerGallery()}
+            disabled={serverGalleryLoading}
+          >
+            {serverGalleryLoading ? 'Обновляем…' : 'Обновить список фото'}
+          </button>
+          <span className="text-xs text-gray-500">Всего: {serverGalleryRows.length}</span>
+        </div>
+        <div className="max-h-80 overflow-auto rounded-xl border border-gray-200 bg-gray-50">
+          {serverGalleryRows.length === 0 ? (
+            <p className="p-3 text-xs text-gray-500">Фото не найдены.</p>
+          ) : (
+            <ul className="divide-y divide-gray-200">
+              {serverGalleryRows.map((row) => (
+                <li key={`${row.bucket}:${row.path}`} className="space-y-2 p-3">
+                  <p className="text-[11px] break-all text-gray-700">{row.bucket}/{row.path}</p>
+                  <p className="text-[11px] text-gray-500">Размер: {(row.size / 1024 / 1024).toFixed(2)} MB</p>
+                  <div className="flex flex-wrap gap-2">
+                    <a href={row.publicUrl} target="_blank" rel="noreferrer" className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-bold">Открыть</a>
+                    <button type="button" className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700" onClick={() => void withBusy(`gallery-compress-${row.path}`, () => handleCompressServerPhoto(row.publicUrl))}>Сжать</button>
+                    <button type="button" className="rounded-lg border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-bold text-rose-700" onClick={() => void withBusy(`gallery-delete-${row.path}`, () => handleDeleteServerPhoto(row.publicUrl))}>Удалить</button>
+                  </div>
+                </li>
+              ))}
             </ul>
           )}
         </div>
@@ -1298,10 +1409,8 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => { clearBrokenImageBlacklist(); window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Локальный blacklist битых фото очищен', tone: 'success' } })); }}>Очистить blacklist битых фото</button>
           <button className="w-full rounded-xl border border-rose-300 bg-rose-600 text-white px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy || isHardResetting} onClick={() => void withBusy('hard-reset', clearAllLocalDataAndRestart)}>{busyLabel('hard-reset', 'Очистить кэш и все локальные данные', 'Очищаем и перезапускаем…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('public-snapshots', async () => {
-            const result = await clearPublicQuoteSnapshots();
-            const message = result.ok ? 'Серверные снапшоты смет очищены' : `Ошибка: ${result.error}`;
-            const tone = result.ok ? 'success' : 'error';
-            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, tone } }));
+            await handleClearSnapshotsExceptLocked();
+            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Очистка снапшотов завершена (с учетом замков)', tone: 'success' } }));
           })}>{busyLabel('public-snapshots', 'Очистить снапшоты публичных смет на сервере', 'Очистка снапшотов…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('server-backups', async () => {
             const first = window.confirm('⚠️ Это удалит ВСЕ backup записи на сервере. Продолжить?');

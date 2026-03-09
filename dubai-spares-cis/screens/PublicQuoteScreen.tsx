@@ -14,7 +14,6 @@ import {
 import { Order, Part, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
 import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
-import { getOptimizedImageUrl } from '../storage/photos';
 import { logger } from '../logging';
 import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot, resolveClientUnitPriceAed } from '../publicQuoteApi';
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
@@ -623,7 +622,7 @@ const mapSnapshotOrder = (row: any): Order => {
   markupFixedAed: Number(header?.markupFixedAed ?? row?.markupFixedAed ?? row?.markup_fixed_aed ?? row?.totals?.markup_aed ?? 0),
   parts: (row?.parts || []).map((part: any) => {
     const variantPrice = Number(part?.supplier_price_aed ?? part?.supplierPriceAed ?? part?.priceAed ?? part?.price_aed ?? part?.price ?? 0);
-    const photos = part?.photo_urls || part?.photos || [];
+    const photos = normalizeUnknownPhotoList(part?.photo_urls || part?.photos || []);
     return ({
     id: String(part?.id || ''),
     orderId: String(part?.orderId || part?.order_id || row?.order_id || row?.id || ''),
@@ -648,7 +647,7 @@ const mapSnapshotOrder = (row: any): Order => {
       phone: variant?.phone || '',
       location: variant?.location || '',
       photoUrl: variant?.photoUrl || variant?.photo_url || variant?.photo_urls?.[0] || variant?.photos?.[0] || '',
-      photos: variant?.photos || variant?.photo_urls || [],
+      photos: normalizeUnknownPhotoList(variant?.photos || variant?.photo_urls || []),
       createdAt: parseTimestamp(variant?.createdAt ?? variant?.created_at),
       priceClientAed: variant?.priceClientAed ?? variant?.price_client_aed,
       priceWithMarkupAed: variant?.priceWithMarkupAed ?? variant?.price_with_markup_aed,
@@ -725,6 +724,26 @@ const sanitizePhotoList = (photos: string[]) => {
       next.push(photo);
     });
   return next;
+};
+
+const normalizeUnknownPhotoList = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return sanitizePhotoList(value.flatMap((item) => normalizeUnknownPhotoList(item)));
+  }
+  if (typeof value !== 'string') return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      return normalizeUnknownPhotoList(JSON.parse(trimmed));
+    } catch {
+      return [];
+    }
+  }
+  if (trimmed.includes(',')) {
+    return sanitizePhotoList(trimmed.split(',').map((part) => part.trim()));
+  }
+  return sanitizePhotoList([trimmed]);
 };
 
 const isPlaceholderWhatsapp = (value: string | null | undefined) => {
@@ -919,6 +938,8 @@ const openInvoicePrintWindow = ({
   const airSeatInfo = cargoPlaces > 0 && airSeatUsd > 0
     ? ` (including place fee: ${cargoPlaces.toFixed(0)} × $${airSeatUsd.toFixed(2)})`
     : '';
+  const shouldHideAirCargo = cargoAirCostUsd > 1000;
+  const cargoCostLabel = (amountUsd: number) => `${(amountUsd * exchangeRate).toFixed(2)} ${currency} (${amountUsd.toFixed(2)} USD)`;
 
   const issueDate = new Date();
   const invoiceId = order.id.slice(0, 8).toUpperCase();
@@ -1016,17 +1037,17 @@ const openInvoicePrintWindow = ({
         </tr>
       </thead>
       <tbody>
-        <tr>
+        ${shouldHideAirCargo ? '' : `<tr>
           <td>AIR (${escapeHtml(cargoAirEta)} days)${airSeatInfo}</td>
           <td>${escapeHtml(cargoCountry)}</td>
           <td>${cargoRealWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
-          <td style="text-align:right">$${cargoAirCostUsd.toFixed(2)}</td>
-        </tr>
+          <td style="text-align:right">${cargoCostLabel(cargoAirCostUsd)}</td>
+        </tr>`}
         <tr>
           <td>CONTAINER (${escapeHtml(cargoContainerEta)} days)</td>
           <td>${escapeHtml(cargoCountry)}</td>
           <td>${cargoRealWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
-          <td style="text-align:right">$${cargoContainerCostUsd.toFixed(2)}</td>
+          <td style="text-align:right">${cargoCostLabel(cargoContainerCostUsd)}</td>
         </tr>
       </tbody>
     </table>
@@ -1365,7 +1386,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const heroPhoto = useMemo(() => {
     if (!order) return '';
     const photo = sanitizePhotoList([order.carPhotoUrl || '', ...(order.carPhotos || []), order.vinPhotoUrl || ''])[0] || '';
-    return getOptimizedImageUrl(photo, { width: 1600, quality: 74 });
+    return photo;
   }, [order]);
 
   const partCards = useMemo(() => {
@@ -1397,8 +1418,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       const basePartPhotos = sanitizePhotoList([part.photoUrl || '', ...(part.photos || [])]);
       const photoSource = variantPhotos.length > 0 ? variantPhotos : basePartPhotos;
       const uniquePhotos = sanitizePhotoList(photoSource);
-      const previewPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 480, quality: 64 }));
-      const galleryPhotos = uniquePhotos.map((photo) => getOptimizedImageUrl(photo, { width: 1600, quality: 74 }));
+      const previewPhotos = uniquePhotos;
+      const galleryPhotos = uniquePhotos;
       return { part, quantity, best, previewPhotos, galleryPhotos, converted, clientAed, isReady, availability: isReady ? t.inStock : t.onOrder };
     });
   }, [order, currency, rates, t.inStock, t.onOrder]);
@@ -1792,8 +1813,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Country</span><strong className="text-slate-900">{cargoEstimates.country}</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Weight</span><strong className="text-slate-900">{cargoEstimates.realWeight.toFixed(1)} kg</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Total places</span><strong className="text-slate-900">{cargoEstimates.places.toFixed(0)}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">AIR ({cargoEstimates.air.eta} days){cargoEstimates.places > 0 && cargoEstimates.airSeatUsd > 0 ? ` · includes place fee (${cargoEstimates.places.toFixed(0)} × $${cargoEstimates.airSeatUsd.toFixed(2)})` : ''}</span><strong className="text-slate-900">${cargoEstimates.air.costUsd.toFixed(2)}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">CONTAINER ({cargoEstimates.container.eta} days)</span><strong className="text-slate-900">${cargoEstimates.container.costUsd.toFixed(2)}</strong></div>
+              {cargoEstimates.air.costUsd <= 1000 && (
+                <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">AIR ({cargoEstimates.air.eta} days){cargoEstimates.places > 0 && cargoEstimates.airSeatUsd > 0 ? ` · includes place fee (${cargoEstimates.places.toFixed(0)} × $${cargoEstimates.airSeatUsd.toFixed(2)})` : ''}</span><strong className="text-slate-900">{(cargoEstimates.air.costUsd * rates[currency]).toFixed(2)} {currency}</strong></div>
+              )}
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">CONTAINER ({cargoEstimates.container.eta} days)</span><strong className="text-slate-900">{(cargoEstimates.container.costUsd * rates[currency]).toFixed(2)} {currency}</strong></div>
             </div>
           </section>
         )}
