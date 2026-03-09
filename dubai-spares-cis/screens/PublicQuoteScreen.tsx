@@ -996,7 +996,14 @@ const openInvoicePrintWindow = ({
       <p class="total"><span>Parts subtotal</span><span>${moneyLabel(partsSubtotalAed)}</span></p>
     </div>
 
-    <table>
+    <div class="totals">
+      <p><span>Delivery</span><span>${moneyLabel(totals.delivery)}</span></p>
+      <p><span>Packing</span><span>${moneyLabel(totals.packing)}</span></p>
+      <p><span>Service fee</span><span>${moneyLabel(totals.serviceFee)}</span></p>
+      <p class="total"><span>Grand total</span><span>${moneyLabel(totals.totalAed)}</span></p>
+    </div>
+
+    <table style="margin-top:20px">
       <thead>
         <tr>
           <th colspan="4">Cargo / Logistics</th>
@@ -1023,13 +1030,6 @@ const openInvoicePrintWindow = ({
         </tr>
       </tbody>
     </table>
-
-    <div class="totals">
-      <p><span>Delivery</span><span>${moneyLabel(totals.delivery)}</span></p>
-      <p><span>Packing</span><span>${moneyLabel(totals.packing)}</span></p>
-      <p><span>Service fee</span><span>${moneyLabel(totals.serviceFee)}</span></p>
-      <p class="total"><span>Grand total</span><span>${moneyLabel(totals.totalAed)}</span></p>
-    </div>
 
     ${termsFileUrl ? `<div style="margin-top:14px"><p class="muted" style="margin:0 0 6px">Terms / conditions document</p><a href="${escapeHtml(termsFileUrl)}" target="_blank" rel="noreferrer" style="font-size:12px;color:#2563eb;text-decoration:underline">${escapeHtml(termsFileName || 'Download attached terms file')}</a></div>` : ''}
 
