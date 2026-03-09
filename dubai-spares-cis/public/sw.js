@@ -1,4 +1,4 @@
-const APP_SHELL_CACHE = 'dubai-spares-shell-v7';
+const APP_SHELL_CACHE = 'dubai-spares-shell-v8';
 const RUNTIME_IMAGE_CACHE = 'dubai-spares-runtime-images-v1';
 const APP_SHELL_FILES = ['/', '/index.html', '/manifest.json', '/icon-32.png', '/icon-180.png', '/icon-192.png', '/icon-512.png'];
 
@@ -25,6 +25,21 @@ self.addEventListener('message', (event) => {
     })());
   }
 });
+
+const networkFirst = async (request) => {
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) {
+      const cloned = response.clone();
+      caches.open(APP_SHELL_CACHE).then((cache) => cache.put(request, cloned));
+    }
+    return response;
+  } catch (error) {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    throw error;
+  }
+};
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
@@ -62,11 +77,5 @@ self.addEventListener('fetch', (event) => {
   const isStaticAsset = request.destination === 'script' || request.destination === 'style' || request.destination === 'image' || request.destination === 'font' || request.destination === 'document';
   if (!isStaticAsset) return;
 
-  event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-    if (response.ok) {
-      const cloned = response.clone();
-      caches.open(APP_SHELL_CACHE).then((cache) => cache.put(request, cloned));
-    }
-    return response;
-  })));
+  event.respondWith(networkFirst(request));
 });
