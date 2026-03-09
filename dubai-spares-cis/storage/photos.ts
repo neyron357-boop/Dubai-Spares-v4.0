@@ -23,6 +23,8 @@ type StorageObjectEntry = {
   path: string;
   size: number;
   mimetype: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type StorageImageEntry = {
@@ -31,6 +33,8 @@ export type StorageImageEntry = {
   size: number;
   mimetype: string;
   publicUrl: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type StorageMaintenanceResult = {
@@ -449,7 +453,7 @@ const listStorageObjectsRecursive = async (bucket: string, folder = ''): Promise
         throw new Error(`Storage list failed ${response.status}: ${text.slice(0, 140)}`);
       }
 
-      const page = (await response.json().catch(() => [])) as Array<{ name?: string; id?: string | null; metadata?: { size?: number; mimetype?: string } | null }>;
+      const page = (await response.json().catch(() => [])) as Array<{ name?: string; id?: string | null; metadata?: { size?: number; mimetype?: string } | null; created_at?: string; updated_at?: string; last_accessed_at?: string }>;
       if (!Array.isArray(page) || page.length === 0) break;
 
       for (const item of page) {
@@ -465,7 +469,9 @@ const listStorageObjectsRecursive = async (bucket: string, folder = ''): Promise
         entries.push({
           path: childPath,
           size: Math.max(0, Number(item.metadata?.size || 0)),
-          mimetype: String(item.metadata?.mimetype || '')
+          mimetype: String(item.metadata?.mimetype || ''),
+          createdAt: typeof item.created_at === 'string' ? item.created_at : undefined,
+          updatedAt: typeof item.updated_at === 'string' ? item.updated_at : (typeof item.last_accessed_at === 'string' ? item.last_accessed_at : undefined)
         });
       }
 
@@ -502,7 +508,9 @@ export const listAllStorageImages = async (): Promise<StorageImageEntry[]> => {
           path: entry.path,
           size: Math.max(0, Number(entry.size || 0)),
           mimetype: entry.mimetype,
-          publicUrl: `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${entry.path}`
+          publicUrl: `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${entry.path}`,
+          createdAt: entry.createdAt,
+          updatedAt: entry.updatedAt
         });
       });
   }
