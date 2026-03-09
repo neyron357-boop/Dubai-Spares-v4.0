@@ -71,11 +71,13 @@ export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTar
     eta = tariff.containerEtaDays;
   } else {
     const minWeight = Math.max(totals.chargeableWeight, Number(tariff.minAirKg || 0));
+    const regularRate = Number(tariff.airRegularUsdPerKg || 0);
+    const oversizedRate = Number(tariff.airOversizedUsdPerKg || tariff.airRegularUsdPerKg || 0);
     baseCost = (totals.regularWeight * Number(tariff.airRegularUsdPerKg || 0))
-      + (totals.oversizedWeight * Number(tariff.airOversizedUsdPerKg || tariff.airRegularUsdPerKg || 0));
-    if (baseCost <= 0) baseCost = minWeight * Number(tariff.airRegularUsdPerKg || 0);
+      + (totals.oversizedWeight * oversizedRate);
+    const minBaseCost = minWeight * regularRate;
+    if (baseCost < minBaseCost) baseCost = minBaseCost;
     baseCost += totals.totalPlaces * Number(tariff.airSeatUsd || 0);
-    if (baseCost <= 0 && minWeight > 0) baseCost = minWeight * Number(tariff.airRegularUsdPerKg || 0);
   }
 
   const totalCost = baseCost + additionalTotal;
