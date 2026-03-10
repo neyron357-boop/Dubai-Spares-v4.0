@@ -222,11 +222,19 @@ export interface OrderPricingEvent {
   createdAt: number;
 }
 
+export interface VoiceNoteAudio {
+  id: string;
+  fileUrl: string;
+  duration: number;
+  createdAt: number;
+  author: string;
+}
+
 export interface OrderNote {
   id: string;
   text: string;
   photos?: string[];
-  audios?: string[];
+  audios?: Array<string | VoiceNoteAudio>;
   createdAt: number;
 }
 

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { Order, OrderPricingEvent, Part, Priority, OrderNote, Shop } from '../types';
+import { Order, OrderPricingEvent, Part, Priority, OrderNote, Shop, VoiceNoteAudio } from '../types';
 import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationDiagnostics, getShopRecommendationLevel, isBrandMatch, isShopCompatibleWithOrder } from '../shopMatching';
 import { SOURCES } from '../constants';
 import { 
@@ -32,7 +32,9 @@ import {
   Play,
   Pause,
   FileAudio,
-  Rocket
+  Rocket,
+  Share2,
+  Download
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
@@ -220,6 +222,9 @@ const createPricingEvent = (field: OrderPricingEvent['field'], label: string, pr
 };
 
 const MAX_RETRY_ATTEMPTS = 3;
+const MAX_VOICE_RECORD_SECONDS = 5 * 60;
+const MAX_VOICE_FILE_SIZE_MB = 10;
+const WAVEFORM_SAMPLE_MS = 50;
 
 type GroupItemDraft = {
   id: string;
@@ -249,7 +254,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [deletePartId, setDeletePartId] = useState<string | null>(null);
   const [newNoteText, setNewNoteText] = useState('');
   const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
-  const [newNoteAudios, setNewNoteAudios] = useState<string[]>([]);
+  const [newNoteAudios, setNewNoteAudios] = useState<Array<string | VoiceNoteAudio>>([]);
   const noteFileRef = useRef<HTMLInputElement>(null);
   const carFileRef = useRef<HTMLInputElement>(null);
   const noteAudioFileRef = useRef<HTMLInputElement>(null);
@@ -263,13 +268,23 @@ const OrderDetailsScreen: React.FC = () => {
         : (order?.isVip ? 'VIP' : order?.isLead ? 'Lead' : 'Inquiry');
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingTimerRef = useRef<number | null>(null);
+  const waveformTimerRef = useRef<number | null>(null);
+  const [recordingWaveform, setRecordingWaveform] = useState<number[]>(Array.from({ length: 40 }, () => 10));
+  const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [recordingSavedLocally, setRecordingSavedLocally] = useState(false);
+
   // Sell Flow State
   const [showSellConfirm, setShowSellConfirm] = useState(false);
   const [sellError, setSellError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [recordingTick, setRecordingTick] = useState(0);
+  const [isRecordingPaused, setIsRecordingPaused] = useState(false);
   const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
+  const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0);
+  const [isUploadingVoice, setIsUploadingVoice] = useState(false);
+  const [voiceUploadProgress, setVoiceUploadProgress] = useState(0);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({});
   const [shops, setShops] = useState<Shop[]>([]);
@@ -1395,9 +1410,20 @@ const OrderDetailsScreen: React.FC = () => {
     const files = Array.from(e.target.files);
     files.forEach((file) => {
       if (!file.type.startsWith('audio/')) return;
+      if (file.size > MAX_VOICE_FILE_SIZE_MB * 1024 * 1024) {
+        setRecordingError(`Voice note must be smaller than ${MAX_VOICE_FILE_SIZE_MB}MB`);
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => {
-        setNewNoteAudios((prev) => [...prev, reader.result as string]);
+        const audio: VoiceNoteAudio = {
+          id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `voice-${Date.now()}`,
+          fileUrl: String(reader.result || ''),
+          duration: 0,
+          createdAt: Date.now(),
+          author: settings.managerName || 'Manager'
+        };
+        setNewNoteAudios((prev) => [...prev, audio]);
       };
       reader.readAsDataURL(file);
     });
@@ -1426,58 +1452,227 @@ const OrderDetailsScreen: React.FC = () => {
     return `${min}:${sec}`;
   };
 
+  const toVoiceNoteAudio = (audio: string | VoiceNoteAudio): VoiceNoteAudio => {
+    if (typeof audio === 'string') {
+      return {
+        id: `legacy-${audio.slice(0, 12)}`,
+        fileUrl: audio,
+        duration: 0,
+        createdAt: Date.now(),
+        author: settings.managerName || 'Manager'
+      };
+    }
+    return audio;
+  };
+
+  const stopVoiceTimers = () => {
+    if (recordingTimerRef.current) {
+      window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (waveformTimerRef.current) {
+      window.clearInterval(waveformTimerRef.current);
+      waveformTimerRef.current = null;
+    }
+  };
+
+  const stopStreamTracks = () => {
+    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    recordingStreamRef.current = null;
+  };
+
+  const resetVoiceRecordingState = () => {
+    stopVoiceTimers();
+    stopStreamTracks();
+    recorderRef.current = null;
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setIsRecordingPaused(false);
+    setRecordingStartedAt(null);
+    setRecordingElapsedSeconds(0);
+    setRecordingWaveform(Array.from({ length: 40 }, () => 10));
+  };
+
   useEffect(() => {
     if (!isRecording) return;
-    const timer = window.setInterval(() => setRecordingTick((prev) => prev + 1), 260);
-    return () => window.clearInterval(timer);
+    recordingTimerRef.current = window.setInterval(() => {
+      setRecordingElapsedSeconds((prev) => {
+        if (prev >= MAX_VOICE_RECORD_SECONDS) {
+          setRecordingError('Recording limit reached');
+          recorderRef.current?.stop();
+          return MAX_VOICE_RECORD_SECONDS;
+        }
+        return prev + 1;
+      });
+    }, 1000);
+
+    waveformTimerRef.current = window.setInterval(() => {
+      setRecordingWaveform((prev) => [...prev.slice(1), 8 + Math.round(Math.random() * 92)]);
+    }, WAVEFORM_SAMPLE_MS);
+
+    return () => stopVoiceTimers();
   }, [isRecording]);
 
-  const toggleRecording = async () => {
-    if (isRecording) {
-      recorderRef.current?.stop();
-      setIsRecording(false);
-      setRecordingStartedAt(null);
-      return;
-    }
+  useEffect(() => {
+    if (!isRecording) return;
+    const key = `voice-note-draft-${order.id}`;
+    localStorage.setItem(key, JSON.stringify({ startedAt: recordingStartedAt || Date.now(), elapsed: recordingElapsedSeconds }));
+    return () => {
+      localStorage.removeItem(key);
+    };
+  }, [isRecording, order.id, recordingElapsedSeconds, recordingStartedAt]);
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      alert('Запись аудио не поддерживается на этом устройстве');
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isRecording) return;
+      event.preventDefault();
+      event.returnValue = 'Discard recording?';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isRecording]);
+
+  useEffect(() => {
+    document.body.style.overflow = isRecording ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isRecording]);
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const canvas = document.getElementById('voice-recorder-wave') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const width = canvas.clientWidth || 320;
+    const height = canvas.clientHeight || 56;
+    canvas.width = width;
+    canvas.height = height;
+    ctx.clearRect(0, 0, width, height);
+    const barWidth = Math.max(2, Math.floor(width / recordingWaveform.length) - 1);
+
+    recordingWaveform.forEach((value, index) => {
+      const barHeight = Math.max(3, (value / 100) * (height - 4));
+      const x = index * (barWidth + 1);
+      ctx.fillStyle = '#f43f5e';
+      ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+    });
+  }, [isRecording, recordingWaveform]);
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setRecordingError('Voice recording not supported');
       return;
     }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordingStreamRef.current = stream;
       const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
       const supportedMimeType = mimeTypes.find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
       const recorder = new MediaRecorder(stream, supportedMimeType ? { mimeType: supportedMimeType } : undefined);
       recorderRef.current = recorder;
       audioChunksRef.current = [];
+      setRecordingError(null);
+      setRecordingElapsedSeconds(0);
+      setRecordingSavedLocally(false);
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
+      recorder.onpause = () => setIsRecordingPaused(true);
+      recorder.onresume = () => setIsRecordingPaused(false);
+
       recorder.onstop = () => {
-        setIsRecording(false);
-        setRecordingStartedAt(null);
-        recorderRef.current = null;
         const mimeType = recorder.mimeType || 'audio/webm';
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        resetVoiceRecordingState();
+
+        if (blob.size > MAX_VOICE_FILE_SIZE_MB * 1024 * 1024) {
+          setRecordingError(`Voice note must be smaller than ${MAX_VOICE_FILE_SIZE_MB}MB`);
+          return;
+        }
+
+        setIsUploadingVoice(true);
+        setVoiceUploadProgress(0);
+        let progress = 0;
+        const timer = window.setInterval(() => {
+          progress += 10;
+          setVoiceUploadProgress(Math.min(progress, 95));
+        }, 120);
+
         const reader = new FileReader();
         reader.onloadend = () => {
-          setNewNoteAudios(prev => [...prev, reader.result as string]);
+          window.clearInterval(timer);
+          setVoiceUploadProgress(100);
+          const voice: VoiceNoteAudio = {
+            id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `voice-${Date.now()}`,
+            fileUrl: String(reader.result || ''),
+            duration: recordingElapsedSeconds,
+            createdAt: Date.now(),
+            author: settings.managerName || 'Manager'
+          };
+          setNewNoteAudios((prev) => [...prev, voice]);
+          setTimeout(() => {
+            setIsUploadingVoice(false);
+            setVoiceUploadProgress(0);
+            const audioEl = document.getElementById(`draft-audio-${voice.id}`) as HTMLAudioElement | null;
+            audioEl?.play().catch(() => undefined);
+          }, 200);
+        };
+        reader.onerror = () => {
+          window.clearInterval(timer);
+          setIsUploadingVoice(false);
+          setRecordingError('Recording saved locally');
+          setRecordingSavedLocally(true);
         };
         reader.readAsDataURL(blob);
-        stream.getTracks().forEach(track => track.stop());
       };
 
-      recorder.start();
+      recorder.start(200);
       setIsRecording(true);
+      setIsRecordingPaused(false);
       setRecordingStartedAt(Date.now());
     } catch (e) {
       console.error('Audio recording failed', e);
-      alert('Не удалось начать запись');
+      setRecordingError('Microphone access required');
     }
+  };
+
+  const toggleRecording = async () => {
+    if (isRecording) {
+      recorderRef.current?.stop();
+      return;
+    }
+    await startRecording();
+  };
+
+  const toggleRecordingPause = () => {
+    if (!recorderRef.current) return;
+    if (recorderRef.current.state === 'recording') {
+      recorderRef.current.pause();
+      return;
+    }
+    if (recorderRef.current.state === 'paused') {
+      recorderRef.current.resume();
+    }
+  };
+
+  const requestCancelRecording = () => {
+    if (!isRecording) return;
+    setIsDiscardConfirmOpen(true);
+  };
+
+  const confirmDiscardRecording = () => {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.onstop = null;
+      recorderRef.current.stop();
+    }
+    resetVoiceRecordingState();
+    setIsDiscardConfirmOpen(false);
   };
 
   const toggleAudioPlayback = (id: string) => {
@@ -2432,61 +2627,49 @@ const OrderDetailsScreen: React.FC = () => {
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Заметки</h2>
           <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
-          <div className="flex flex-col gap-2">
-            {isRecording && (
-              <div className="rounded-2xl border border-rose-200 bg-gradient-to-r from-rose-50 via-white to-rose-50 px-3 py-2">
-                <div className="mb-2 flex items-center justify-between text-[11px] font-bold text-rose-700">
-                  <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 animate-pulse rounded-full bg-rose-500" /> Идёт запись</span>
-                  <span>{formatSeconds(recordingStartedAt ? (Date.now() - recordingStartedAt) / 1000 : 0)}</span>
-                </div>
-                <div className="flex h-12 items-end gap-1 rounded-xl border border-rose-100 bg-white px-2">
-                  {Array.from({ length: 30 }).map((_, idx) => (
-                    <span
-                      key={`record-wave-${idx}`}
-                      className="w-1 rounded-full bg-rose-400"
-                      style={{ height: `${22 + Math.abs(Math.sin((recordingTick + idx) * 0.75)) * 72}%` }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
 
-            <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            <button type="button" onClick={() => noteFileRef.current?.click()} className="h-12 rounded-xl border-2 border-dashed border-gray-200 px-3 text-gray-600 inline-flex items-center gap-2"><ImageIcon size={18} /> Фото</button>
-            <button type="button" onClick={() => noteAudioFileRef.current?.click()} className="h-12 rounded-xl border-2 border-dashed border-gray-200 px-3 text-gray-600 inline-flex items-center gap-2"><FileAudio size={18} /> Файл</button>
-            <button type="button" onClick={toggleRecording} className={`h-12 rounded-xl border-2 px-3 ${isRecording ? 'border-red-300 bg-red-50 text-red-600' : 'border-gray-200 text-gray-600'} inline-flex items-center gap-2`}>{isRecording ? <Square size={16} /> : <Mic size={16} />} Голос</button>
+          {recordingError && <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{recordingError}</p>}
+          {recordingSavedLocally && <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">Recording saved locally</p>}
+
+          <div className="flex gap-2 overflow-x-auto no-scrollbar">
+            <button type="button" onClick={() => noteFileRef.current?.click()} aria-label="Attach photo" className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-4 text-gray-700 inline-flex items-center gap-2"><ImageIcon size={18} /> Фото</button>
+            <button type="button" onClick={() => noteAudioFileRef.current?.click()} aria-label="Attach audio file" className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-4 text-gray-700 inline-flex items-center gap-2"><FileAudio size={18} /> Файл</button>
+            <button type="button" onClick={() => void toggleRecording()} aria-label="Voice" className={`h-11 rounded-xl px-4 inline-flex items-center gap-2 transition-all ${isRecording ? 'border border-red-300 bg-red-50 text-red-700' : 'border border-gray-200 bg-gray-100 text-gray-700'}`}><Mic size={16} className={isRecording ? 'scale-110' : ''} /> Voice</button>
             {newNotePhotos.map((p, i) => <img key={i} src={p} className="w-12 h-12 rounded-xl object-cover border border-gray-100" />)}
-            {newNoteAudios.map((audioSrc, i) => {
-              const audioId = `draft-audio-${i}`;
+            {newNoteAudios.map((audioItem, i) => {
+              const voice = toVoiceNoteAudio(audioItem);
+              const audioId = `draft-audio-${voice.id}`;
               const isPlaying = playingAudioId === audioId;
               const progress = audioProgress[audioId] || 0;
-              const bars = getWaveBars(audioSrc.slice(0, 120));
+              const bars = getWaveBars(voice.fileUrl.slice(0, 120));
 
               return (
-                <div key={`na-${i}`} className="flex h-12 items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-2 py-1">
-                  <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-white shrink-0">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
+                <div key={`na-${voice.id}`} className="flex h-12 items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-2 py-1 min-w-[250px]">
+                  <button type="button" onClick={() => toggleAudioPlayback(audioId)} aria-label="Play voice note" className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-white shrink-0">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
                   <div className="flex h-8 flex-1 items-end gap-[2px] rounded-md bg-white/80 px-1">
                     {bars.slice(0, 18).map((bar, barIndex) => {
                       const completion = (barIndex + 1) / 18;
                       const isActive = completion <= progress / 100;
-                      return (
-                        <span
-                          key={`${audioId}-bar-${barIndex}`}
-                          className={`w-[3px] rounded-full ${isActive ? 'bg-blue-600' : 'bg-blue-200'}`}
-                          style={{ height: `${Math.max(30, bar * 0.8)}%` }}
-                        />
-                      );
+                      return <span key={`${audioId}-bar-${barIndex}`} className={`w-[3px] rounded-full ${isActive ? 'bg-blue-600' : 'bg-blue-200'}`} style={{ height: `${Math.max(30, bar * 0.8)}%` }} />;
                     })}
                   </div>
-                  <button type="button" onClick={() => removeNewAudio(i)} className="rounded-md border border-rose-200 bg-white px-2 py-1 text-[10px] font-bold text-rose-600">Удалить</button>
-                  <audio id={audioId} src={audioSrc} preload="metadata" playsInline />
+                  <span className="text-[10px] font-bold text-slate-600">{formatSeconds(voice.duration)}</span>
+                  <button type="button" onClick={() => removeNewAudio(i)} aria-label="Delete voice note" className="rounded-md border border-rose-200 bg-white px-2 py-1 text-[10px] font-bold text-rose-600">Удалить</button>
+                  <audio id={audioId} src={voice.fileUrl} preload="metadata" playsInline />
                 </div>
               );
             })}
             <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
             <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
           </div>
-          </div>
+
+          {isUploadingVoice && (
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-slate-600">Uploading voice note...</p>
+              <div className="h-2 rounded-full bg-slate-200 overflow-hidden"><div className="h-full bg-blue-600 transition-all" style={{ width: `${voiceUploadProgress}%` }} /></div>
+            </div>
+          )}
+
           <button type="button" onClick={addNote} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-wide">Добавить заметку</button>
           {(order.notes || []).length > 0 && (
             <div className="space-y-2">
@@ -2497,31 +2680,36 @@ const OrderDetailsScreen: React.FC = () => {
                     <button type="button" onClick={() => removeNoteById(n.id)} className="shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete заметку</button>
                   </div>
                   {n.photos && n.photos.length > 0 && <div className="flex gap-2 mt-2 overflow-x-auto no-scrollbar">{n.photos.map((ph, idx) => <div key={idx} className="relative w-12 h-12 rounded-lg overflow-hidden"><button type="button" onClick={() => setGallery({ images: n.photos || [], index: idx })} className="w-full h-full"><img src={ph} className="w-full h-full object-cover" /></button><button type="button" onClick={() => removeNotePhoto(n.id, idx)} className="absolute right-0.5 top-0.5 rounded-full bg-black/60 px-1 text-[9px] text-white">✕</button></div>)}</div>}
-                  {n.audios && n.audios.length > 0 && <div className="space-y-2 mt-2">{n.audios.map((audioSrc, idx) => {
-                    const audioId = `note-${n.id}-${idx}`;
+                  {n.audios && n.audios.length > 0 && <div className="space-y-2 mt-2">{n.audios.map((audioItem, idx) => {
+                    const voice = toVoiceNoteAudio(audioItem);
+                    const audioId = `note-${n.id}-${voice.id}-${idx}`;
                     const isPlaying = playingAudioId === audioId;
                     const progress = audioProgress[audioId] || 0;
-                    const bars = getWaveBars(audioSrc.slice(0, 120));
+                    const bars = getWaveBars(voice.fileUrl.slice(0, 120));
 
                     return (
-                      <div key={audioId} className="flex items-center gap-2 bg-white border border-gray-200 rounded-2xl px-3 py-2">
-                        <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="w-7 h-7 rounded-full bg-green-600 text-white flex items-center justify-center shrink-0">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
-                        <div className="flex-1 h-8 flex items-center gap-0.5">
-                          {bars.map((height, barIndex) => {
-                            const threshold = ((barIndex + 1) / bars.length) * 100;
-                            const isPassed = progress >= threshold;
-
-                            return (
-                              <span
-                                key={`${audioId}-bar-${barIndex}`}
-                                className={`block flex-1 rounded-full transition-colors ${isPassed ? 'bg-green-500' : 'bg-gray-300'} ${isPlaying ? 'animate-pulse' : ''}`}
-                                style={{ height: `${height}%`, animationDelay: `${barIndex * 0.03}s` }}
-                              />
-                            );
-                          })}
+                      <div key={audioId} className="space-y-2 rounded-2xl border border-gray-200 bg-white px-3 py-2">
+                        <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-slate-500">
+                          <p className="inline-flex items-center gap-1"><Mic size={12} /> Voice note</p>
+                          <p>{new Date(voice.createdAt).toLocaleString()}</p>
                         </div>
-                        <audio id={audioId} src={audioSrc} preload="metadata" playsInline />
-                        <button type="button" onClick={() => removeNoteAudio(n.id, idx)} className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete</button>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => toggleAudioPlayback(audioId)} aria-label="Play" className="w-7 h-7 rounded-full bg-green-600 text-white flex items-center justify-center shrink-0">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
+                          <div className="flex-1 h-8 flex items-center gap-0.5">
+                            {bars.map((height, barIndex) => {
+                              const threshold = ((barIndex + 1) / bars.length) * 100;
+                              const isPassed = progress >= threshold;
+                              return <span key={`${audioId}-bar-${barIndex}`} className={`block flex-1 rounded-full transition-colors ${isPassed ? 'bg-green-500' : 'bg-gray-300'} ${isPlaying ? 'animate-pulse' : ''}`} style={{ height: `${height}%`, animationDelay: `${barIndex * 0.03}s` }} />;
+                            })}
+                          </div>
+                          <span className="text-xs font-semibold text-slate-600">{formatSeconds(voice.duration)}</span>
+                        </div>
+                        <audio id={audioId} src={voice.fileUrl} preload="metadata" playsInline />
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => removeNoteAudio(n.id, idx)} className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete</button>
+                          <a href={voice.fileUrl} download={`voice-note-${voice.id}.webm`} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700 inline-flex items-center gap-1"><Download size={11} />Download</a>
+                          <button type="button" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('Voice note')}`, '_blank')} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700 inline-flex items-center gap-1"><Share2 size={11} />Share</button>
+                        </div>
                       </div>
                     );
                   })}</div>}
@@ -2530,6 +2718,43 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           )}
         </div>
+
+        {isRecording && (
+          <div className="fixed inset-0 z-50 bg-slate-900/70 p-4">
+            <div className="mx-auto mt-16 w-full max-w-md rounded-2xl border border-rose-100 bg-white p-4 shadow-xl space-y-3">
+              <p className="text-sm font-bold text-slate-800">Recording...</p>
+              <div className="flex items-center justify-between text-sm font-semibold text-rose-700">
+                <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />●</span>
+                <span>{formatSeconds(recordingElapsedSeconds)}</span>
+              </div>
+              <div className="h-14 rounded-xl border border-rose-100 bg-rose-50/40 px-2">
+                <canvas id="voice-recorder-wave" className="h-full w-full" aria-label="Recording waveform" />
+                <div className="-mt-14 flex h-14 items-end gap-0.5">
+                  {recordingWaveform.map((height, index) => <span key={`live-wave-${index}`} className="block flex-1 rounded-full bg-rose-400 transition-all" style={{ height: `${height}%` }} />)}
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button type="button" onClick={toggleRecordingPause} className="h-11 rounded-xl border border-amber-200 bg-amber-50 text-xs font-bold text-amber-700">{isRecordingPaused ? 'Resume' : 'Pause'}</button>
+                <button type="button" onClick={() => void toggleRecording()} className="h-11 rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-700">Stop</button>
+                <button type="button" onClick={requestCancelRecording} className="h-11 rounded-xl border border-rose-200 bg-rose-50 text-xs font-bold text-rose-700">Cancel</button>
+              </div>
+              <p className="text-[11px] font-semibold text-slate-500">Max length: 05:00 • Max size: 10MB</p>
+            </div>
+          </div>
+        )}
+
+        {isDiscardConfirmOpen && (
+          <div className="fixed inset-0 z-[60] bg-black/50 p-4">
+            <div className="mx-auto mt-28 w-full max-w-sm rounded-2xl bg-white p-4 space-y-3">
+              <p className="text-sm font-bold text-slate-800">Discard recording?</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={confirmDiscardRecording} className="h-10 rounded-xl border border-rose-200 bg-rose-50 text-xs font-bold text-rose-700">Discard</button>
+                <button type="button" onClick={() => setIsDiscardConfirmOpen(false)} className="h-10 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700">Continue recording</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div ref={partsListRef} className="space-y-2">
           <h2 className="font-black text-gray-400 px-1 text-[10px] uppercase tracking-[0.2em] mb-1">Parts List</h2>
           <p className="px-1 text-[11px] text-slate-500">После добавления детали она появляется в этом списке и доступна для редактирования.</p>
