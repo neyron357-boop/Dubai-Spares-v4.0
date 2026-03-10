@@ -737,6 +737,40 @@ const OrderDetailsScreen: React.FC = () => {
     openWhatsappClient();
   };
 
+  const openSupplierCard = (supplierName: string) => {
+    const matched = suppliers.find((item) => item.name.trim().toLowerCase() === supplierName.trim().toLowerCase());
+    if (matched?.id) {
+      navigate(`/database?supplier=${encodeURIComponent(matched.id)}`);
+      return;
+    }
+    navigate('/database');
+  };
+
+  const openSupplierMap = (supplierName: string) => {
+    const matched = suppliers.find((item) => item.name.trim().toLowerCase() === supplierName.trim().toLowerCase());
+    const target = matched?.coordinates
+      ? `https://maps.google.com/?q=${matched.coordinates.lat},${matched.coordinates.lng}`
+      : matched?.location
+        ? `https://maps.google.com/?q=${encodeURIComponent(matched.location)}`
+        : `https://maps.google.com/?q=${encodeURIComponent(supplierName)}`;
+    window.open(target, '_blank', 'noopener,noreferrer');
+  };
+
+  const contactSupplier = (supplierName: string) => {
+    const matched = suppliers.find((item) => item.name.trim().toLowerCase() === supplierName.trim().toLowerCase());
+    const rawPhone = String(matched?.whatsapp || matched?.phone || '').replace(/[^\d]/g, '');
+    if (rawPhone.length >= 8) {
+      window.open(`https://wa.me/${rawPhone}`, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (matched?.id) {
+      navigate(`/database?supplier=${encodeURIComponent(matched.id)}`);
+      return;
+    }
+    navigate('/database');
+  };
+
+
   const contactActionLabel = sourceLabel.includes('instagram')
     ? 'Открыть Instagram'
     : sourceLabel.includes('tiktok')
@@ -2099,9 +2133,9 @@ const OrderDetailsScreen: React.FC = () => {
                   </div>
                   <p className="text-[12px] text-[#8B8F98]">Response: {supplier.responseHours ? `${supplier.responseHours}h avg` : 'No data'}</p>
                   <div className="mt-1 flex gap-2 text-[12px] font-medium">
-                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">👁 View</button>
-                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">📍 Map</button>
-                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">💬 Contact</button>
+                    <button type="button" onClick={() => openSupplierCard(supplier.name)} className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1 active:scale-[0.98]">👁 View</button>
+                    <button type="button" onClick={() => openSupplierMap(supplier.name)} className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1 active:scale-[0.98]">📍 Map</button>
+                    <button type="button" onClick={() => contactSupplier(supplier.name)} className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1 active:scale-[0.98]">💬 Contact</button>
                   </div>
                 </div>
               ))}
@@ -2142,7 +2176,7 @@ const OrderDetailsScreen: React.FC = () => {
           <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Model: {String(draftFields.model ?? order.model ?? '—')}</div>
           <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Year: {String(draftFields.year ?? order.year ?? '—')}</div>
           <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Generation: {String(draftFields.bodyType ?? order.bodyType ?? '—')}</div>
-          <div className="hidden">
+          <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Модель</label>
             <input
               type="text"
