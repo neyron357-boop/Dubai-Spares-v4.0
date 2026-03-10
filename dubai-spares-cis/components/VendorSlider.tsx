@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckSquare, ExternalLink, Filter, ImageOff, MapPin, MessageCircle, Phone, Plus, Users, X } from 'lucide-react';
+import { CheckSquare, ChevronDown, ExternalLink, Filter, ImageOff, MapPin, MessageCircle, Phone, Plus, Users, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Priority, type OrderVendorContact, type Part, type Supplier, type VendorChecklistItem } from '../types';
 import { vibrate } from '../feedback';
@@ -82,6 +82,7 @@ const VendorSliderContent: React.FC = () => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
   const [vehicleDetailsOpen, setVehicleDetailsOpen] = useState(false);
+  const [statusSlidesExpanded, setStatusSlidesExpanded] = useState(false);
   const [suppliersOpen, setSuppliersOpen] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [newChecklistTask, setNewChecklistTask] = useState('');
@@ -635,23 +636,32 @@ const VendorSliderContent: React.FC = () => {
         <p className="mb-3 text-xs text-white/65">Сначала статусные слайды, ниже отдельно марки автомобилей.</p>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-20">
           <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Статусные слайды</p>
-            <div className="grid grid-cols-2 gap-3">
-              {statusSlides.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => {
-                    setSelectedBrand(item.key);
-                    setBrandFilter(item.key);
-                  }}
-                  className={`rounded-2xl border px-4 py-4 text-left text-lg font-black ${item.className}`}
-                >
-                  <span>{item.title}</span>
-                  <span className="mt-1 block text-xs font-semibold text-white/80">{item.subtitle}</span>
-                </button>
-              ))}
-            </div>
+            <button
+              type="button"
+              onClick={() => setStatusSlidesExpanded((prev) => !prev)}
+              className="mb-2 flex w-full items-center justify-between rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/75"
+            >
+              <span>Статусные слайды</span>
+              <ChevronDown size={14} className={`transition-transform ${statusSlidesExpanded ? 'rotate-180' : ''}`} />
+            </button>
+            {statusSlidesExpanded && (
+              <div className="grid grid-cols-2 gap-2">
+                {statusSlides.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => {
+                      setSelectedBrand(item.key);
+                      setBrandFilter(item.key);
+                    }}
+                    className={`rounded-xl border px-3 py-2 text-left text-sm font-black ${item.className}`}
+                  >
+                    <span>{item.title}</span>
+                    <span className="mt-1 block text-[10px] font-semibold text-white/80">{item.subtitle}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
@@ -713,7 +723,7 @@ const VendorSliderContent: React.FC = () => {
           </div>
           {(selectedBrand || brandFilter) === LEAD_SLIDES_KEY && <p className="mt-1 text-xs font-black uppercase tracking-[0.2em] text-rose-200">Режим: ЛИД</p>}
 
-          <div className="pointer-events-auto mt-2 flex items-center gap-2">
+          <div className="pointer-events-auto mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => {
@@ -741,9 +751,9 @@ const VendorSliderContent: React.FC = () => {
             <button
               type="button"
               onClick={() => setVehicleDetailsOpen(true)}
-              className="inline-flex items-center gap-1 rounded-xl border border-amber-300/70 bg-amber-900/30 px-3 py-1 text-xs font-bold text-amber-100"
+              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-amber-300/70 bg-amber-900/30 px-2 py-1 text-[11px] font-bold text-amber-100"
             >
-              Подробнее
+              Авто
             </button>
           </div>
         </div>
@@ -1129,7 +1139,16 @@ const VendorSliderContent: React.FC = () => {
               <p><span className="text-amber-200/70">VIN:</span> {current.vin || '—'}</p>
               <p><span className="text-amber-200/70">Клиент:</span> {current.clientName || '—'}</p>
               <p><span className="text-amber-200/70">Контакт:</span> {current.customerContact || '—'}</p>
-              <p><span className="text-amber-200/70">Топливо / двигатель / цилиндры / спецификация:</span> уточняются в деталях заказа.</p>
+              <p><span className="text-amber-200/70">Тип двигателя:</span> {current.vehicleDetails?.engineType || '—'}</p>
+              <p><span className="text-amber-200/70">Топливо:</span> {current.vehicleDetails?.fuelType || '—'}</p>
+              <p><span className="text-amber-200/70">Привод:</span> {current.vehicleDetails?.drivetrain || '—'}</p>
+              <p><span className="text-amber-200/70">Коробка:</span> {current.vehicleDetails?.transmission || '—'} {current.vehicleDetails?.transmissionCode ? `(${current.vehicleDetails.transmissionCode})` : ''}</p>
+              <p><span className="text-amber-200/70">Объём / код двигателя:</span> {current.vehicleDetails?.engineDisplacement || '—'} {current.vehicleDetails?.engineCode ? `· ${current.vehicleDetails.engineCode}` : ''}</p>
+              <p><span className="text-amber-200/70">Комплектация:</span> {current.vehicleDetails?.trimLevel || '—'}</p>
+              <p><span className="text-amber-200/70">Спецификация / рынок:</span> {current.vehicleDetails?.marketRegion || '—'}</p>
+              <p><span className="text-amber-200/70">Руль:</span> {current.vehicleDetails?.steeringSide || '—'}</p>
+              <p><span className="text-amber-200/70">Дверей / цвет:</span> {current.vehicleDetails?.doors || '—'} / {current.vehicleDetails?.color || '—'}</p>
+              {current.vehicleDetails?.additionalNotes && <p><span className="text-amber-200/70">Примечания:</span> {current.vehicleDetails.additionalNotes}</p>}
             </div>
           </div>
         </div>

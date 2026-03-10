@@ -82,6 +82,36 @@ const MESSAGE_TEMPLATES_BY_LANGUAGE: Record<'ru' | 'en' | 'ar', readonly string[
 } as const;
 
 
+
+const VEHICLE_DRIVETRAIN_OPTIONS: Array<{ value: NonNullable<Order['vehicleDetails']>['drivetrain']; label: string }> = [
+  { value: 'fwd', label: 'Передний (FWD)' },
+  { value: 'rwd', label: 'Задний (RWD)' },
+  { value: 'awd', label: 'Полный (AWD)' },
+  { value: '4wd', label: '4x4 (4WD)' }
+];
+
+const VEHICLE_TRANSMISSION_OPTIONS: Array<{ value: NonNullable<Order['vehicleDetails']>['transmission']; label: string }> = [
+  { value: 'automatic', label: 'Автомат' },
+  { value: 'manual', label: 'Механика' },
+  { value: 'cvt', label: 'CVT' },
+  { value: 'dct', label: 'DCT/DSG' },
+  { value: 'other', label: 'Другое' }
+];
+
+const VEHICLE_MARKET_OPTIONS: Array<{ value: NonNullable<Order['vehicleDetails']>['marketRegion']; label: string }> = [
+  { value: 'china', label: 'Китай' },
+  { value: 'japan', label: 'Япония' },
+  { value: 'usa', label: 'США' },
+  { value: 'europe', label: 'Европа' },
+  { value: 'gcc', label: 'GCC' },
+  { value: 'other', label: 'Другое' }
+];
+
+const VEHICLE_STEERING_OPTIONS: Array<{ value: NonNullable<Order['vehicleDetails']>['steeringSide']; label: string }> = [
+  { value: 'left', label: 'Левый руль' },
+  { value: 'right', label: 'Правый руль' }
+];
+
 const toRad = (v: number) => (v * Math.PI) / 180;
 const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
   const R = 6371000;
@@ -1677,6 +1707,178 @@ const OrderDetailsScreen: React.FC = () => {
               onBlur={() => flushDeferredOrderField('bodyType')}
               placeholder="E39 / F10 / S-Class"
               className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+            />
+          </div>
+        </div>
+
+
+        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <div>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Подробные данные автомобиля</p>
+            <p className="text-[11px] text-gray-500 mt-1">Двигатель, привод, коробка, рынок/спецификация и другие важные параметры для точного подбора деталей.</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Тип двигателя</label>
+              <input
+                type="text"
+                value={String((draftFields.vehicleDetails?.engineType) ?? (order.vehicleDetails?.engineType ?? ''))}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), engineType: e.target.value })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                placeholder="V6 / Hybrid / Electric"
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Топливо</label>
+              <input
+                type="text"
+                value={String((draftFields.vehicleDetails?.fuelType) ?? (order.vehicleDetails?.fuelType ?? ''))}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), fuelType: e.target.value })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                placeholder="Бензин / Дизель"
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Привод</label>
+              <select
+                value={String((draftFields.vehicleDetails?.drivetrain) ?? (order.vehicleDetails?.drivetrain ?? ''))}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), drivetrain: (e.target.value || undefined) })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                disabled={!isEditMode}
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              >
+                <option value="">Не указано</option>
+                {VEHICLE_DRIVETRAIN_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Коробка</label>
+              <select
+                value={String((draftFields.vehicleDetails?.transmission) ?? (order.vehicleDetails?.transmission ?? ''))}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), transmission: (e.target.value || undefined) })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                disabled={!isEditMode}
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              >
+                <option value="">Не указано</option>
+                {VEHICLE_TRANSMISSION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Код коробки</label>
+              <input
+                type="text"
+                value={String((draftFields.vehicleDetails?.transmissionCode) ?? (order.vehicleDetails?.transmissionCode ?? ''))}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), transmissionCode: e.target.value })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                placeholder="ZF8HP / Aisin"
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Объём двигателя</label>
+              <input
+                type="text"
+                value={String((draftFields.vehicleDetails?.engineDisplacement) ?? (order.vehicleDetails?.engineDisplacement ?? ''))}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), engineDisplacement: e.target.value })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                placeholder="2.0 / 3.5"
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Код двигателя</label>
+              <input
+                type="text"
+                value={String((draftFields.vehicleDetails?.engineCode) ?? (order.vehicleDetails?.engineCode ?? ''))}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), engineCode: e.target.value })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                placeholder="N52 / 2GR"
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Комплектация / Trim</label>
+              <input
+                type="text"
+                value={String((draftFields.vehicleDetails?.trimLevel) ?? (order.vehicleDetails?.trimLevel ?? ''))}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), trimLevel: e.target.value })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                placeholder="SE / Limited"
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Рынок / спецификация</label>
+              <select
+                value={String((draftFields.vehicleDetails?.marketRegion) ?? (order.vehicleDetails?.marketRegion ?? ''))}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), marketRegion: (e.target.value || undefined) })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                disabled={!isEditMode}
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              >
+                <option value="">Не указано</option>
+                {VEHICLE_MARKET_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Руль</label>
+              <select
+                value={String((draftFields.vehicleDetails?.steeringSide) ?? (order.vehicleDetails?.steeringSide ?? ''))}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), steeringSide: (e.target.value || undefined) })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                disabled={!isEditMode}
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              >
+                <option value="">Не указано</option>
+                {VEHICLE_STEERING_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Дверей</label>
+              <input
+                type="text"
+                value={String((draftFields.vehicleDetails?.doors) ?? (order.vehicleDetails?.doors ?? ''))}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), doors: e.target.value })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                placeholder="2 / 4 / 5"
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Цвет</label>
+              <input
+                type="text"
+                value={String((draftFields.vehicleDetails?.color) ?? (order.vehicleDetails?.color ?? ''))}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), color: e.target.value })}
+                onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                placeholder="White / Black"
+                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Дополнительные примечания</label>
+            <textarea
+              value={String((draftFields.vehicleDetails?.additionalNotes) ?? (order.vehicleDetails?.additionalNotes ?? ''))}
+              readOnly={!isEditMode}
+              onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), additionalNotes: e.target.value })}
+              onBlur={() => flushDeferredOrderField('vehicleDetails')}
+              rows={2}
+              placeholder="Особенности по двигателю, редуктору, версии и т.п."
+              className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
             />
           </div>
         </div>
