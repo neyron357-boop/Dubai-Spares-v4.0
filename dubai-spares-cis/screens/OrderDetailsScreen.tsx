@@ -1110,7 +1110,7 @@ const OrderDetailsScreen: React.FC = () => {
     const current = order.parts.find((part) => part.id === partId)?.comment ?? '';
     if (draft !== current) {
       updatePartComment(partId, draft);
-      setToast({ message: 'Комментарий сохранён' });
+      setToast({ message: 'Описание сохранено' });
     }
     setPartCommentExpanded((prev) => ({ ...prev, [partId]: false }));
   }, [order.parts, partCommentDrafts]);
@@ -1908,7 +1908,7 @@ const OrderDetailsScreen: React.FC = () => {
             <textarea
               value={newPartComment}
               onChange={(e) => setNewPartComment(e.target.value)}
-              placeholder={newPartKind === 'group' ? 'Комментарий к группе (необязательно)' : 'Комментарий к детали (необязательно)'}
+              placeholder={newPartKind === 'group' ? 'Описание к группе (необязательно)' : 'Описание к детали (необязательно)'}
               className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm font-semibold outline-none"
               rows={2}
             />
@@ -2089,7 +2089,7 @@ const OrderDetailsScreen: React.FC = () => {
                         onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: true }))}
                         className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700"
                       >
-                        {part.comment?.trim() ? 'Изменить комментарий' : 'Добавить комментарий'}
+                        {part.comment?.trim() ? 'Изменить описание' : 'Добавить описание'}
                       </button>
                     </div>
                   ) : (
@@ -2098,7 +2098,7 @@ const OrderDetailsScreen: React.FC = () => {
                         value={partCommentDrafts[part.id] ?? part.comment ?? ''}
                         onChange={(e) => updatePartCommentDraft(part.id, e.target.value)}
                         onBlur={() => savePartComment(part.id)}
-                        placeholder={isGroupPart ? 'Комментарий к группе' : 'Комментарий к детали'}
+                        placeholder={isGroupPart ? 'Описание к группе' : 'Описание к детали'}
                         className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-[11px] font-semibold text-slate-700 outline-none"
                         rows={2}
                       />

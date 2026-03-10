@@ -81,6 +81,7 @@ const VendorSliderContent: React.FC = () => {
   const [sortBy, setSortBy] = useState<'priority' | 'year_asc' | 'year_desc'>('priority');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
+  const [vehicleDetailsOpen, setVehicleDetailsOpen] = useState(false);
   const [suppliersOpen, setSuppliersOpen] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [newChecklistTask, setNewChecklistTask] = useState('');
@@ -620,79 +621,58 @@ const VendorSliderContent: React.FC = () => {
   };
 
   if (!selectedBrand) {
+    const statusSlides = [
+      { key: LEAD_SLIDES_KEY, title: '🔥 ЛИД', subtitle: `Найти заказов: ${leadActiveNeedCount}`, className: 'border-rose-500 bg-rose-900/45 shadow-[0_0_0_1px_rgba(251,113,133,0.2)] hover:border-rose-400' },
+      { key: FOUND_SLIDES_KEY, title: '✅ Найденные', subtitle: 'Есть хотя бы 1 ценовой вариант', className: 'border-emerald-600 bg-emerald-900/35' },
+      { key: NOT_FOUND_SLIDES_KEY, title: '🟨 Ненайденные', subtitle: 'Нет ни одного ценового варианта', className: 'border-amber-500 bg-amber-900/30' },
+      { key: SUPPLIER_SEARCH_KEY, title: '🔎 Поиск поставщика', subtitle: 'Нет прикреплённых поставщиков', className: 'border-fuchsia-600 bg-fuchsia-900/35' },
+      { key: SUPPLIER_READY_KEY, title: '👥 С поставщиками', subtitle: 'Осталось отправить запросы', className: 'border-cyan-500 bg-cyan-900/35' }
+    ];
+
     return (
       <div className="fixed inset-0 z-50 flex min-h-screen flex-col overflow-hidden bg-[#0B1220] p-4 text-white">
-        <p className="mb-4 text-xl font-black">Выберите марку</p>
-        <div className="min-h-0 flex-1 grid grid-cols-2 gap-3 overflow-y-auto pb-20">
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedBrand(LEAD_SLIDES_KEY);
-              setBrandFilter(LEAD_SLIDES_KEY);
-            }}
-            className="rounded-2xl border border-rose-500 bg-rose-900/45 px-4 py-4 text-left text-lg font-black shadow-[0_0_0_1px_rgba(251,113,133,0.2)] hover:border-rose-400"
-          >
-            <span className="inline-flex items-center gap-2">🔥 ЛИД</span>
-            <span className="mt-1 block text-xs font-semibold text-rose-100/85">Найти заказов: {leadActiveNeedCount}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedBrand(FOUND_SLIDES_KEY);
-              setBrandFilter(FOUND_SLIDES_KEY);
-            }}
-            className="rounded-2xl border border-emerald-600 bg-emerald-900/35 px-4 py-4 text-left text-lg font-black"
-          >
-            <span>✅ Найденные</span>
-            <span className="mt-1 block text-xs font-semibold text-emerald-100/80">Есть хотя бы 1 ценовой вариант</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedBrand(NOT_FOUND_SLIDES_KEY);
-              setBrandFilter(NOT_FOUND_SLIDES_KEY);
-            }}
-            className="rounded-2xl border border-amber-500 bg-amber-900/30 px-4 py-4 text-left text-lg font-black"
-          >
-            <span>🟨 Ненайденные</span>
-            <span className="mt-1 block text-xs font-semibold text-amber-100/80">Нет ни одного ценового варианта</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedBrand(SUPPLIER_SEARCH_KEY);
-              setBrandFilter(SUPPLIER_SEARCH_KEY);
-            }}
-            className="rounded-2xl border border-fuchsia-600 bg-fuchsia-900/35 px-4 py-4 text-left text-lg font-black"
-          >
-            <span>🔎 Поиск поставщика</span>
-            <span className="mt-1 block text-xs font-semibold text-fuchsia-100/80">Нет прикреплённых поставщиков</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedBrand(SUPPLIER_READY_KEY);
-              setBrandFilter(SUPPLIER_READY_KEY);
-            }}
-            className="rounded-2xl border border-cyan-500 bg-cyan-900/35 px-4 py-4 text-left text-lg font-black"
-          >
-            <span>👥 С поставщиками</span>
-            <span className="mt-1 block text-xs font-semibold text-cyan-100/80">Осталось отправить запросы</span>
-          </button>
-          {brandOptions.map((brand) => (
-            <button
-              key={brand}
-              type="button"
-              onClick={() => {
-                setSelectedBrand(brand);
-                setBrandFilter(brand);
-              }}
-              className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-4 text-left text-lg font-black hover:border-[#2563EB]"
-            >
-              <span>{brand}</span>
-              <span className="mt-1 block text-xs font-semibold text-white/65">Найти заказов: {brandActiveNeedCounts.get(brand) || 0}</span>
-            </button>
-          ))}
+        <p className="text-xl font-black">Vendor Slides</p>
+        <p className="mb-3 text-xs text-white/65">Сначала статусные слайды, ниже отдельно марки автомобилей.</p>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-20">
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Статусные слайды</p>
+            <div className="grid grid-cols-2 gap-3">
+              {statusSlides.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => {
+                    setSelectedBrand(item.key);
+                    setBrandFilter(item.key);
+                  }}
+                  className={`rounded-2xl border px-4 py-4 text-left text-lg font-black ${item.className}`}
+                >
+                  <span>{item.title}</span>
+                  <span className="mt-1 block text-xs font-semibold text-white/80">{item.subtitle}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Марки автомобилей</p>
+            <div className="grid grid-cols-2 gap-3">
+              {brandOptions.map((brand) => (
+                <button
+                  key={brand}
+                  type="button"
+                  onClick={() => {
+                    setSelectedBrand(brand);
+                    setBrandFilter(brand);
+                  }}
+                  className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-4 text-left text-lg font-black hover:border-[#2563EB]"
+                >
+                  <span>{brand}</span>
+                  <span className="mt-1 block text-xs font-semibold text-white/65">Найти заказов: {brandActiveNeedCounts.get(brand) || 0}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -727,10 +707,11 @@ const VendorSliderContent: React.FC = () => {
         )}
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pb-3 pt-8">
-          <p className="truncate text-xl font-black leading-tight">{current.brand} {current.model}</p>
+          <div className="inline-block rounded-xl bg-black/45 px-3 py-2 backdrop-blur-[2px]">
+            <p className="truncate text-2xl font-black leading-tight">{current.brand} {current.model}</p>
+            <p className="mt-1 text-lg font-black text-amber-200">{current.year} · {current.bodyType || '—'}</p>
+          </div>
           {(selectedBrand || brandFilter) === LEAD_SLIDES_KEY && <p className="mt-1 text-xs font-black uppercase tracking-[0.2em] text-rose-200">Режим: ЛИД</p>}
-          <p className="mt-1 text-base font-black text-amber-200">{current.year} · {current.bodyType || '—'} · {current.visibleParts.length} деталей</p>
-          <p className="mt-1 truncate text-sm font-black tracking-[0.16em] text-amber-200">VIN: {current.vin || '—'}</p>
 
           <div className="pointer-events-auto mt-2 flex items-center gap-2">
             <button
@@ -757,13 +738,20 @@ const VendorSliderContent: React.FC = () => {
             >
               <CheckSquare size={13} /> Чек лист
             </button>
+            <button
+              type="button"
+              onClick={() => setVehicleDetailsOpen(true)}
+              className="inline-flex items-center gap-1 rounded-xl border border-amber-300/70 bg-amber-900/30 px-3 py-1 text-xs font-bold text-amber-100"
+            >
+              Подробнее
+            </button>
           </div>
         </div>
 
         <div className="absolute right-3 top-3 z-10 flex gap-2">
           <button type="button" onClick={() => setFiltersOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Filter size={18} /></button>
           <button type="button" onClick={() => setSelectedBrand(null)} className="rounded-full bg-black/45 px-3 text-[11px] font-bold">Марки</button>
-          <button type="button" onClick={() => { clearPendingUrlSync(); navigate(-1); }} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><X size={20} /></button>
+          <button type="button" onClick={() => setSelectedBrand(null)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><X size={20} /></button>
         </div>
       </div>
 
@@ -790,9 +778,9 @@ const VendorSliderContent: React.FC = () => {
           return (
             <div
               key={part.id}
-              className={`flex items-center gap-3 rounded-2xl border p-2 transition ${isFound ? 'border-emerald-700/80 bg-emerald-900/15 opacity-65' : 'border-slate-700 bg-[#111a2d]'}`}
+              className={`flex items-center gap-2 rounded-2xl border p-1.5 transition ${isFound ? 'border-emerald-700/80 bg-emerald-900/15 opacity-65' : 'border-slate-700 bg-[#111a2d]'}`}
             >
-              <button type="button" className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-900" onClick={() => availableImages[0] && setGallery({ images: availableImages, index: 0 })}>
+              <button type="button" className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-900" onClick={() => availableImages[0] && setGallery({ images: availableImages, index: 0 })}>
                 {availableImages[0] ? (
                   <SafeImage
                     src={availableImages[0]}
@@ -806,19 +794,21 @@ const VendorSliderContent: React.FC = () => {
               </button>
 
               <div className="min-w-0 flex-1">
-                <p className="truncate text-base font-black">{part.name}</p>
-                <p className="text-xs text-white/60">Статус: {part.status || 'searching'} • Вариантов: {part.variants.length}</p>
+                <p className="truncate text-sm font-black">{part.name}</p>
+                <p className="text-[11px] text-white/70">Вариантов: {part.variants.length}</p>
+                {part.comment?.trim() && <p className="mt-0.5 line-clamp-2 text-[10px] text-white/55">Описание: {part.comment.trim()}</p>}
               </div>
 
               <button
                 type="button"
                 onClick={() => {
                   clearPendingUrlSync();
-                  navigate(`/order/${current.id}/part/${part.id}`, { replace: false, state: { backTo: `/vendor?brand=${encodeURIComponent(selectedBrand || '')}&slide=${current.id}` } });
+                  navigate(`/order/${current.id}/part/${part.id}`, { replace: false, state: { backTo: '/vendor' } });
                 }}
-                className="inline-flex items-center gap-1 rounded-xl border border-slate-600 px-2 py-1.5 text-xs font-semibold text-white/90"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-600 text-white/90"
+                title="Открыть карточку детали"
               >
-                Карточка детали <ExternalLink size={12} />
+                <ExternalLink size={12} />
               </button>
             </div>
           );
@@ -948,7 +938,7 @@ const VendorSliderContent: React.FC = () => {
                   <input value={supplierForm.whatsapp} onChange={(e) => setSupplierForm((prev) => ({ ...prev, whatsapp: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="WhatsApp" />
                 </div>
                 <input value={supplierForm.mapUrl} onChange={(e) => setSupplierForm((prev) => ({ ...prev, mapUrl: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Ссылка карты" />
-                <input value={supplierForm.note} onChange={(e) => setSupplierForm((prev) => ({ ...prev, note: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Комментарий" />
+                <input value={supplierForm.note} onChange={(e) => setSupplierForm((prev) => ({ ...prev, note: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Описание" />
                 <button type="button" onClick={() => void saveSupplier()} className="h-10 w-full rounded-lg bg-cyan-700 text-xs font-bold">Сохранить поставщика</button>
 
                 <div className="space-y-2 border-t border-slate-700 pt-2">
@@ -1123,6 +1113,23 @@ const VendorSliderContent: React.FC = () => {
                 className="h-10 flex-1 rounded-lg bg-slate-800 px-3 text-xs"
               />
               <button type="button" onClick={() => void addOrderChecklistTask()} className="rounded-lg bg-violet-700 px-3 text-xs font-bold">Добавить</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {vehicleDetailsOpen && (
+        <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setVehicleDetailsOpen(false)}>
+          <div className="mt-12 rounded-3xl border border-amber-700/40 bg-[#1f1a12] p-4" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-bold uppercase tracking-[0.2em] text-amber-100">Подробности автомобиля</p>
+            <div className="mt-3 space-y-2 text-sm text-amber-50/90">
+              <p><span className="text-amber-200/70">Марка/модель:</span> {current.brand} {current.model}</p>
+              <p><span className="text-amber-200/70">Год:</span> {current.year || '—'}</p>
+              <p><span className="text-amber-200/70">Тип кузова:</span> {current.bodyType || '—'}</p>
+              <p><span className="text-amber-200/70">VIN:</span> {current.vin || '—'}</p>
+              <p><span className="text-amber-200/70">Клиент:</span> {current.clientName || '—'}</p>
+              <p><span className="text-amber-200/70">Контакт:</span> {current.customerContact || '—'}</p>
+              <p><span className="text-amber-200/70">Топливо / двигатель / цилиндры / спецификация:</span> уточняются в деталях заказа.</p>
             </div>
           </div>
         </div>
