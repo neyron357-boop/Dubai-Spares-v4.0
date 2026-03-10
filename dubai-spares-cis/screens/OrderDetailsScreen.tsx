@@ -269,6 +269,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [newPartPhotos, setNewPartPhotos] = useState<string[]>([]);
   const partFileRef = useRef<HTMLInputElement>(null);
   const partInputRef = useRef<HTMLInputElement>(null);
+  const partsListRef = useRef<HTMLDivElement>(null);
 
   // Exchange Rate Input State (Controlled)
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
@@ -573,7 +574,13 @@ const OrderDetailsScreen: React.FC = () => {
   }
 
 
-  const selectedOfferTotal = useMemo(() => order.parts.reduce((sum, p) => sum + (p.variants[0]?.priceAed || 0), 0), [order.parts]);
+  const selectedOfferTotal = useMemo(() => order.parts.reduce((sum, part) => {
+    const pricedVariants = (part.variants || []).filter((variant) => Number(variant.priceAed) > 0);
+    const bestPrice = pricedVariants.length > 0
+      ? Math.min(...pricedVariants.map((variant) => Number(variant.priceAed) || 0))
+      : 0;
+    return sum + bestPrice;
+  }, 0), [order.parts]);
   const logistics = useMemo(() => ({
     deliveryType: order.logistics?.deliveryType || 'uae',
     deliveryAed: Number(order.logistics?.deliveryAed || 0),
@@ -600,7 +607,7 @@ const OrderDetailsScreen: React.FC = () => {
     RUB: 0.04,
     TJS: 0.34
   };
-  const clientCurrency = order.clientCurrency || 'USD';
+  const clientCurrency = order.clientCurrency || 'AED';
   const clientRate = rateByCurrency[clientCurrency] || order.exchangeRate || 3.67;
   const formatMoney = (value: number, currency = 'AED') => {
     const amount = currency === 'AED' ? value : value / clientRate;
@@ -1228,6 +1235,7 @@ const OrderDetailsScreen: React.FC = () => {
     setNewPartComment('');
     setNewPartPhotos([]);
     partInputRef.current?.focus();
+    window.setTimeout(() => partsListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
   };
 
   const handleSellClick = (e: React.MouseEvent) => {
@@ -2250,8 +2258,9 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           )}
         </div>
-        <div className="space-y-2">
+        <div ref={partsListRef} className="space-y-2">
           <h2 className="font-black text-gray-400 px-1 text-[10px] uppercase tracking-[0.2em] mb-1">Список запчастей</h2>
+          <p className="px-1 text-[11px] text-slate-500">После добавления детали она появляется в этом списке и доступна для редактирования.</p>
           {order.parts.length === 0 && (
             <div className="bg-white border border-dashed border-gray-200 rounded-2xl p-4 text-center">
               <p className="text-sm font-bold text-gray-500">Добавьте детали, чтобы начать поиск</p>
