@@ -707,6 +707,10 @@ const PartDetailsScreen: React.FC = () => {
       <div className="p-4 space-y-4">
         {!isAdding ? (
           <div className="space-y-3">
+            <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-3">
+              <p className="text-[10px] font-black uppercase tracking-wide text-blue-700">Описание детали</p>
+              <p className="mt-1 text-xs font-semibold text-blue-900">{String(part.comment || part.name || 'Описание пока не добавлено')}</p>
+            </div>
             <div className="rounded-2xl border border-gray-200 bg-white p-3">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Пример фото деталей</p>

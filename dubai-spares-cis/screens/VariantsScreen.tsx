@@ -20,6 +20,7 @@ import { createUuid } from '../id';
 import { PriceVariant } from '../types';
 import { VariantLibraryItem } from '../variantLibraryStore';
 import { optimizeImageForUpload } from '../storage/photos';
+import { useNavigate } from 'react-router-dom';
 
 const priceTemplates = [150, 250, 450, 750, 1200, 1800];
 const supplierNamePrefixes = ['Desert', 'Falcon', 'Turbo', 'Prime', 'Royal', 'Emirates', 'Golden', 'Rapid', 'Metro', 'Pearl'];
@@ -43,8 +44,14 @@ const formatPrice = (price: number) => `${new Intl.NumberFormat('ru-RU').format(
 const formatDate = (value?: number) => new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(value || Date.now()));
 const normalizePhone = (value: string) => value.replace(/\s+/g, '');
 const trimVin = (value: string) => (value.length > 13 ? `${value.slice(0, 13)}…` : value);
+const resolveVariantMapUrl = (variant: VariantLibraryItem) => {
+  if (variant.mapsUrl) return variant.mapsUrl;
+  const source = variant.locationText || variant.location || variant.shopName || '';
+  return source ? `https://maps.google.com/?q=${encodeURIComponent(source)}` : '';
+};
 
 const VariantsScreen: React.FC = () => {
+  const navigate = useNavigate();
   const { variantLibrary, saveStandaloneVariant, removeStandaloneVariant, suppliers, updatePriceVariant, orders, updateOrder } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const randomSupplierCounterRef = useRef(1);
@@ -453,7 +460,7 @@ const VariantsScreen: React.FC = () => {
 
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40">
-          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3">
+          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-3">
             <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
             <div className="mt-3 flex items-center justify-between">
               <h2 className="text-lg font-bold">Новый вариант</h2>
@@ -518,7 +525,7 @@ const VariantsScreen: React.FC = () => {
 
       {selectedVariant && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/55">
-          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3">
+          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-3">
             <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
             <div className="mt-3 flex items-start justify-between gap-2">
               <div>
@@ -532,10 +539,10 @@ const VariantsScreen: React.FC = () => {
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <button type="button" disabled={!selectedVariant.phone} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold disabled:opacity-40" onClick={() => window.open(`tel:${selectedVariant.phone}`, '_self')}><span className="inline-flex items-center gap-1"><Phone size={14} />Позвонить</span></button>
-              <button type="button" disabled={!selectedVariant.phone} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold disabled:opacity-40" onClick={() => window.open(`https://wa.me/${selectedVariant.phone.replace(/\D/g, '')}`, '_blank')}><span className="inline-flex items-center gap-1"><MessageCircle size={14} />WhatsApp</span></button>
-              <button type="button" disabled={!selectedVariant.mapsUrl} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold disabled:opacity-40" onClick={() => selectedVariant.mapsUrl && window.open(selectedVariant.mapsUrl, '_blank')}><span className="inline-flex items-center gap-1"><MapPin size={14} />Маршрут</span></button>
-              <button type="button" disabled={!selectedVariant.sourceOrderId} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold disabled:opacity-40"><span className="inline-flex items-center gap-1"><Link2 size={14} />Открыть заказ</span></button>
+              <button type="button" disabled={!selectedVariant.phone} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold active:scale-[0.98] disabled:opacity-40" onClick={() => window.open(`tel:${selectedVariant.phone}`, '_self')}><span className="inline-flex items-center gap-1"><Phone size={14} />Позвонить</span></button>
+              <button type="button" disabled={!selectedVariant.phone} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold active:scale-[0.98] disabled:opacity-40" onClick={() => window.open(`https://wa.me/${selectedVariant.phone.replace(/\D/g, '')}`, '_blank')}><span className="inline-flex items-center gap-1"><MessageCircle size={14} />WhatsApp</span></button>
+              <button type="button" disabled={!resolveVariantMapUrl(selectedVariant)} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold active:scale-[0.98] disabled:opacity-40" onClick={() => { const url = resolveVariantMapUrl(selectedVariant); if (url) window.open(url, '_blank', 'noopener,noreferrer'); }}><span className="inline-flex items-center gap-1"><MapPin size={14} />Маршрут</span></button>
+              <button type="button" disabled={!selectedVariant.sourceOrderId} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold active:scale-[0.98] disabled:opacity-40" onClick={() => selectedVariant.sourceOrderId && navigate(`/order/${selectedVariant.sourceOrderId}`)}><span className="inline-flex items-center gap-1"><Link2 size={14} />Открыть заказ</span></button>
             </div>
 
             {isEditMode ? (
@@ -582,8 +589,8 @@ const VariantsScreen: React.FC = () => {
             )}
 
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => quickToggle('isFavorite')} className={`h-11 rounded-xl border text-xs font-bold ${selectedVariant.isFavorite ? 'border-pink-300 bg-pink-50 text-pink-700' : 'border-[#E7EAF0] text-[#475467]'}`}><span className="inline-flex items-center gap-1"><Heart size={14} />Избранное</span></button>
-              <button type="button" onClick={() => quickToggle('isPinned')} className={`h-11 rounded-xl border text-xs font-bold ${selectedVariant.isPinned ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-[#E7EAF0] text-[#475467]'}`}><span className="inline-flex items-center gap-1"><Pin size={14} />Закрепить</span></button>
+              <button type="button" onClick={() => quickToggle('isFavorite')} className={`h-11 rounded-xl border text-xs font-bold active:scale-[0.98] ${selectedVariant.isFavorite ? 'border-pink-300 bg-pink-50 text-pink-700' : 'border-[#E7EAF0] text-[#475467]'}`}><span className="inline-flex items-center gap-1"><Heart size={14} />Избранное</span></button>
+              <button type="button" onClick={() => quickToggle('isPinned')} className={`h-11 rounded-xl border text-xs font-bold active:scale-[0.98] ${selectedVariant.isPinned ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-[#E7EAF0] text-[#475467]'}`}><span className="inline-flex items-center gap-1"><Pin size={14} />Закрепить</span></button>
             </div>
 
             {isEditMode && (

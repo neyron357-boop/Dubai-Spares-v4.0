@@ -688,8 +688,8 @@ export const runStorageImageMaintenance = async (options: {
         });
 
         const canonical = sortedByPreferredCanonical[0];
-        const heavierDuplicates = sortedByPreferredCanonical.filter((entry) => entry.path !== canonical.path && entry.size > canonical.size);
-        heavierDuplicates.forEach((entry) => {
+        const duplicatesToRemove = sortedByPreferredCanonical.filter((entry) => entry.path !== canonical.path);
+        duplicatesToRemove.forEach((entry) => {
           result.dedupMappings.push({
             bucket,
             canonicalPath: canonical.path,
