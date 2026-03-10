@@ -1876,6 +1876,12 @@ const OrderDetailsScreen: React.FC = () => {
     return value > 0 ? value : null;
   }, [order.parts]);
 
+  const partsCount = order.parts.length;
+  const foundPartsCount = useMemo(
+    () => order.parts.filter((part) => part.isFound || (part.variants || []).length > 0).length,
+    [order.parts]
+  );
+
   return (
     <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] text-[#1E1F23]">
       <div className="p-4 sticky top-0 z-20 backdrop-blur bg-white/95 border-b border-gray-100 space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
