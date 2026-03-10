@@ -21,8 +21,9 @@ import { PriceVariant } from '../types';
 import { VariantLibraryItem } from '../variantLibraryStore';
 import { optimizeImageForUpload } from '../storage/photos';
 
-const supplierNameTemplates = ['Desert Auto', 'Falcon Parts', 'Turbo Motors', 'Prime Garage', 'Royal Trading'];
 const priceTemplates = [150, 250, 450, 750, 1200, 1800];
+const supplierNamePrefixes = ['Desert', 'Falcon', 'Turbo', 'Prime', 'Royal', 'Emirates', 'Golden', 'Rapid', 'Metro', 'Pearl'];
+const supplierNameSuffixes = ['Auto', 'Motors', 'Parts', 'Garage', 'Trading', 'Workshop', 'Hub', 'Center', 'Solutions'];
 
 type SortKey = 'updated' | 'created' | 'supplier' | 'price_asc' | 'price_desc' | 'pinned';
 type FilterKey = 'all' | 'standalone' | 'order' | 'pinned' | 'favorite' | 'with_photo';
@@ -44,8 +45,10 @@ const normalizePhone = (value: string) => value.replace(/\s+/g, '');
 const trimVin = (value: string) => (value.length > 13 ? `${value.slice(0, 13)}…` : value);
 
 const VariantsScreen: React.FC = () => {
-  const { variantLibrary, saveStandaloneVariant, removeStandaloneVariant, suppliers, updatePriceVariant } = useStore();
+  const { variantLibrary, saveStandaloneVariant, removeStandaloneVariant, suppliers, updatePriceVariant, orders, updateOrder } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const randomSupplierCounterRef = useRef(1);
+  const longPressTimerRef = useRef<number | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [priceAed, setPriceAed] = useState('');
@@ -64,6 +67,8 @@ const VariantsScreen: React.FC = () => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [isResolvingLocation, setIsResolvingLocation] = useState(false);
+  const [deleteCandidate, setDeleteCandidate] = useState<VariantLibraryItem | null>(null);
 
   useEffect(() => {
     const onOnline = () => setIsOnline(true);
@@ -108,6 +113,11 @@ const VariantsScreen: React.FC = () => {
     offline: 'Локально, отправим позже',
     error: 'Есть ошибки синхронизации'
   }[syncState];
+
+  const miniPhotos = (variant: PriceVariant) => {
+    const merged = [variant.photoUrl, ...(variant.photos || [])].filter((item): item is string => !!item);
+    return Array.from(new Set(merged));
+  };
 
   const filteredAndSorted = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -210,9 +220,65 @@ const VariantsScreen: React.FC = () => {
     }, 350);
   };
 
-  const miniPhotos = (variant: PriceVariant) => {
-    const merged = [variant.photoUrl, ...(variant.photos || [])].filter((item): item is string => !!item);
-    return Array.from(new Set(merged));
+  const generateUniqueSupplierName = () => {
+    const existingNames = new Set(variantLibrary.map((item) => (item.shopName || '').trim().toLowerCase()).filter(Boolean));
+
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const prefix = supplierNamePrefixes[Math.floor(Math.random() * supplierNamePrefixes.length)];
+      const suffix = supplierNameSuffixes[Math.floor(Math.random() * supplierNameSuffixes.length)];
+      const serial = randomSupplierCounterRef.current;
+      randomSupplierCounterRef.current += 1;
+      const candidate = `${prefix} ${suffix} ${serial}`;
+      if (!existingNames.has(candidate.toLowerCase())) return candidate;
+    }
+
+    return `Supplier ${Date.now()}`;
+  };
+
+  const resolveCurrentLocation = async () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      window.alert('GPS недоступен в этом браузере.');
+      return null;
+    }
+
+    setIsResolvingLocation(true);
+    const result = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+    setIsResolvingLocation(false);
+
+    if (!result) {
+      window.alert('Не удалось получить GPS-координаты. Проверьте разрешения геолокации.');
+      return null;
+    }
+    return result;
+  };
+
+  const applyCurrentLocationToCreateForm = async () => {
+    const current = await resolveCurrentLocation();
+    if (!current) return;
+    const coordsText = `${current.lat.toFixed(6)}, ${current.lng.toFixed(6)}`;
+    setLocation(coordsText);
+    setMapsUrl(`https://maps.google.com/?q=${current.lat},${current.lng}`);
+  };
+
+  const applyCurrentLocationToSelected = async () => {
+    if (!selectedVariant) return;
+    const current = await resolveCurrentLocation();
+    if (!current) return;
+    const coordsText = `${current.lat.toFixed(6)}, ${current.lng.toFixed(6)}`;
+    setSelectedVariant((prev) => prev
+      ? {
+        ...prev,
+        location: coordsText,
+        locationText: coordsText,
+        mapsUrl: `https://maps.google.com/?q=${current.lat},${current.lng}`
+      }
+      : prev);
   };
 
   const persistVariant = (variant: VariantLibraryItem) => {
@@ -229,6 +295,43 @@ const VariantsScreen: React.FC = () => {
     const next = { ...selectedVariant, [key]: !selectedVariant[key] };
     setSelectedVariant(next);
     persistVariant(next);
+  };
+
+  const removeVariantCompletely = async (variant: VariantLibraryItem) => {
+    if (variant.origin === 'standalone') {
+      removeStandaloneVariant(variant.id);
+      if (selectedVariant?.id === variant.id) setSelectedVariant(null);
+      return;
+    }
+    if (!variant.sourceOrderId || !variant.sourcePartId) return;
+    const sourceOrder = orders.find((order) => order.id === variant.sourceOrderId);
+    if (!sourceOrder) return;
+    const parts = sourceOrder.parts.map((part) => {
+      if (part.id !== variant.sourcePartId) return part;
+      return { ...part, variants: (part.variants || []).filter((item) => item.id !== variant.id) };
+    });
+    await updateOrder({ ...sourceOrder, parts });
+    if (selectedVariant?.id === variant.id) setSelectedVariant(null);
+  };
+
+  const getDeleteWarning = (variant: VariantLibraryItem) => {
+    if (variant.origin === 'standalone') {
+      return 'Вариант будет удалён из списка «Варианты».';
+    }
+    return `Этот вариант добавлен в детали заказа ${variant.sourceOrderLabel || ''} (${variant.sourcePartName || 'Деталь'}). При удалении он исчезнет из деталей заказа и всех связанных цепочек.`;
+  };
+
+  const startLongPressDelete = (variant: VariantLibraryItem) => {
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = window.setTimeout(() => {
+      setDeleteCandidate(variant);
+    }, 650);
+  };
+
+  const cancelLongPressDelete = () => {
+    if (!longPressTimerRef.current) return;
+    window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
   };
 
   return (
@@ -299,6 +402,13 @@ const VariantsScreen: React.FC = () => {
                     setSelectedVariant(variant);
                     setIsEditMode(false);
                   }}
+                  onPointerDown={() => startLongPressDelete(variant)}
+                  onPointerUp={cancelLongPressDelete}
+                  onPointerLeave={cancelLongPressDelete}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setDeleteCandidate(variant);
+                  }}
                   className="w-full rounded-[20px] border border-[#E7EAF0] bg-white p-4 text-left shadow-[0_2px_10px_rgba(15,23,40,0.04)]"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -343,7 +453,7 @@ const VariantsScreen: React.FC = () => {
 
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40">
-          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-6 pt-3">
+          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3">
             <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
             <div className="mt-3 flex items-center justify-between">
               <h2 className="text-lg font-bold">Новый вариант</h2>
@@ -369,16 +479,17 @@ const VariantsScreen: React.FC = () => {
                 </div>
                 <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Комментарий" className="min-h-[120px] w-full rounded-2xl border border-[#E7EAF0] px-3 py-2 text-sm outline-none" />
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => setShopName(supplierNameTemplates[Math.floor(Math.random() * supplierNameTemplates.length)])} className="rounded-xl bg-[#F2F4F7] px-3 py-1.5 text-xs font-semibold text-[#475467]">Подставить данные</button>
+                  <button type="button" onClick={() => setShopName(generateUniqueSupplierName())} className="rounded-xl bg-[#F2F4F7] px-3 py-1.5 text-xs font-semibold text-[#475467]">Случайное имя</button>
                   <button type="button" onClick={() => setPriceAed(String(priceTemplates[Math.floor(Math.random() * priceTemplates.length)]))} className="rounded-xl bg-[#F2F4F7] px-3 py-1.5 text-xs font-semibold text-[#475467]">Быстрая цена</button>
                 </div>
               </section>
 
               <section className="space-y-2 rounded-2xl border border-[#E7EAF0] p-3">
                 <p className="text-xs font-semibold text-[#667085]">Контакты и локация</p>
-                <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Телефон" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+                <input value={phone} onChange={(event) => setPhone(event.target.value.replace(/[^\d+]/g, ''))} inputMode="numeric" type="tel" placeholder="Телефон" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
                 <input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Адрес / район" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
                 <input value={mapsUrl} onChange={(event) => setMapsUrl(event.target.value)} placeholder="Google Maps URL" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+                <button type="button" onClick={() => void applyCurrentLocationToCreateForm()} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-[#D0D5DD] px-3 text-sm font-semibold text-[#475467] disabled:opacity-50" disabled={isResolvingLocation}>{isResolvingLocation ? 'Определяем GPS...' : '📍 Текущее местоположение'}</button>
               </section>
 
               <section className="space-y-2 rounded-2xl border border-[#E7EAF0] p-3">
@@ -407,7 +518,7 @@ const VariantsScreen: React.FC = () => {
 
       {selectedVariant && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/55">
-          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-6 pt-3">
+          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3">
             <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
             <div className="mt-3 flex items-start justify-between gap-2">
               <div>
@@ -415,7 +526,7 @@ const VariantsScreen: React.FC = () => {
                 <p className="text-xs text-[#667085]">{selectedVariant.sourcePartName || 'Деталь не указана'}</p>
               </div>
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => setIsEditMode((prev) => !prev)} className="rounded-xl border border-[#E7EAF0] px-3 py-1.5 text-xs font-semibold">{isEditMode ? 'View' : 'Edit'}</button>
+                <button type="button" onClick={() => setIsEditMode((prev) => !prev)} className="rounded-xl border border-[#E7EAF0] px-3 py-1.5 text-xs font-semibold">{isEditMode ? 'Просмотр' : 'Редактировать'}</button>
                 <button type="button" onClick={() => setSelectedVariant(null)} className="rounded-full p-2 text-[#667085]"><X size={18} /></button>
               </div>
             </div>
@@ -431,8 +542,9 @@ const VariantsScreen: React.FC = () => {
               <div className="mt-4 space-y-2">
                 <input value={selectedVariant.shopName || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, shopName: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Поставщик" />
                 <input value={String(selectedVariant.priceAed || '')} type="number" onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, priceAed: Number(event.target.value || 0) } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Цена" />
-                <input value={selectedVariant.phone || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, phone: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Телефон" />
+                <input value={selectedVariant.phone || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, phone: event.target.value.replace(/[^\d+]/g, '') } : prev)} inputMode="numeric" type="tel" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Телефон" />
                 <input value={selectedVariant.locationText || selectedVariant.location || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, locationText: event.target.value, location: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Локация" />
+                <button type="button" onClick={() => void applyCurrentLocationToSelected()} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-[#D0D5DD] px-3 text-sm font-semibold text-[#475467] disabled:opacity-50" disabled={isResolvingLocation}>{isResolvingLocation ? 'Определяем GPS...' : '📍 Текущее местоположение'}</button>
                 <textarea value={selectedVariant.note || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, note: event.target.value } : prev)} className="min-h-[120px] w-full rounded-2xl border border-[#E7EAF0] px-3 py-2 text-sm" placeholder="Комментарий" />
               </div>
             ) : (
@@ -482,6 +594,19 @@ const VariantsScreen: React.FC = () => {
                 ) : <div />}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {deleteCandidate && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl">
+            <h3 className="text-base font-bold text-[#0F1728]">Удалить вариант?</h3>
+            <p className="mt-2 text-sm text-[#475467]">{getDeleteWarning(deleteCandidate)}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setDeleteCandidate(null)} className="h-11 rounded-xl border border-[#D0D5DD] text-sm font-semibold text-[#475467]">Отмена</button>
+              <button type="button" onClick={() => { void removeVariantCompletely(deleteCandidate); setDeleteCandidate(null); }} className="h-11 rounded-xl bg-rose-600 text-sm font-bold text-white">Удалить</button>
+            </div>
           </div>
         </div>
       )}
