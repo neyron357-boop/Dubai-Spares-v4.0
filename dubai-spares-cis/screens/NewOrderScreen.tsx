@@ -516,6 +516,13 @@ const NewOrderScreen: React.FC = () => {
       return;
     }
 
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop();
+      recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+      recorderStreamRef.current = null;
+      setRecordingNoteId(null);
+    }
+
     if (!navigator.mediaDevices?.getUserMedia) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -539,8 +546,10 @@ const NewOrderScreen: React.FC = () => {
           )));
         };
         reader.readAsDataURL(blob);
+        recorderRef.current = null;
         recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
         recorderStreamRef.current = null;
+        setRecordingNoteId((current) => (current === noteId ? null : current));
       };
 
       recorder.start();
@@ -715,6 +724,13 @@ const NewOrderScreen: React.FC = () => {
 
     if ('vibrate' in navigator) {
       navigator.vibrate(20);
+    }
+
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop();
+      recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+      recorderStreamRef.current = null;
+      setRecordingNoteId(null);
     }
 
     const now = Date.now();
