@@ -156,6 +156,23 @@ export interface Order {
   pricingEvents?: OrderPricingEvent[];
   vendorContacts?: OrderVendorContact[];
   vendorChecklist?: VendorChecklistItem[];
+  vehicleDetails?: VehicleDetails;
+}
+
+export interface VehicleDetails {
+  engineType?: string;
+  fuelType?: string;
+  drivetrain?: 'fwd' | 'rwd' | 'awd' | '4wd';
+  transmission?: 'automatic' | 'manual' | 'cvt' | 'dct' | 'other';
+  transmissionCode?: string;
+  engineDisplacement?: string;
+  engineCode?: string;
+  trimLevel?: string;
+  marketRegion?: 'china' | 'japan' | 'usa' | 'europe' | 'gcc' | 'other';
+  steeringSide?: 'left' | 'right';
+  doors?: string;
+  color?: string;
+  additionalNotes?: string;
 }
 
 export interface OrderVendorContact {
@@ -394,6 +411,7 @@ export interface DbOrderRow {
   pricing_events?: OrderPricingEvent[];
   vendor_contacts?: OrderVendorContact[];
   vendor_checklist?: VendorChecklistItem[];
+  vehicle_details?: VehicleDetails;
   exchange_rate: number;
   created_at: number | string;
   is_archived: boolean;

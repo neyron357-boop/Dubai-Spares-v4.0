@@ -281,7 +281,44 @@ const normalizeOrder = (order: Order): Order => {
           updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : Date.now()
         }))
         .filter((item) => item.text.length > 0)
-      : []
+      : [],
+    vehicleDetails: order.vehicleDetails && typeof order.vehicleDetails === 'object'
+      ? {
+          engineType: typeof order.vehicleDetails.engineType === 'string' ? order.vehicleDetails.engineType.trim() : '',
+          fuelType: typeof order.vehicleDetails.fuelType === 'string' ? order.vehicleDetails.fuelType.trim() : '',
+          drivetrain: order.vehicleDetails.drivetrain === 'fwd'
+            || order.vehicleDetails.drivetrain === 'rwd'
+            || order.vehicleDetails.drivetrain === 'awd'
+            || order.vehicleDetails.drivetrain === '4wd'
+            ? order.vehicleDetails.drivetrain
+            : undefined,
+          transmission: order.vehicleDetails.transmission === 'automatic'
+            || order.vehicleDetails.transmission === 'manual'
+            || order.vehicleDetails.transmission === 'cvt'
+            || order.vehicleDetails.transmission === 'dct'
+            || order.vehicleDetails.transmission === 'other'
+            ? order.vehicleDetails.transmission
+            : undefined,
+          transmissionCode: typeof order.vehicleDetails.transmissionCode === 'string' ? order.vehicleDetails.transmissionCode.trim() : '',
+          engineDisplacement: typeof order.vehicleDetails.engineDisplacement === 'string' ? order.vehicleDetails.engineDisplacement.trim() : '',
+          engineCode: typeof order.vehicleDetails.engineCode === 'string' ? order.vehicleDetails.engineCode.trim() : '',
+          trimLevel: typeof order.vehicleDetails.trimLevel === 'string' ? order.vehicleDetails.trimLevel.trim() : '',
+          marketRegion: order.vehicleDetails.marketRegion === 'china'
+            || order.vehicleDetails.marketRegion === 'japan'
+            || order.vehicleDetails.marketRegion === 'usa'
+            || order.vehicleDetails.marketRegion === 'europe'
+            || order.vehicleDetails.marketRegion === 'gcc'
+            || order.vehicleDetails.marketRegion === 'other'
+            ? order.vehicleDetails.marketRegion
+            : undefined,
+          steeringSide: order.vehicleDetails.steeringSide === 'left' || order.vehicleDetails.steeringSide === 'right'
+            ? order.vehicleDetails.steeringSide
+            : undefined,
+          doors: typeof order.vehicleDetails.doors === 'string' ? order.vehicleDetails.doors.trim() : '',
+          color: typeof order.vehicleDetails.color === 'string' ? order.vehicleDetails.color.trim() : '',
+          additionalNotes: typeof order.vehicleDetails.additionalNotes === 'string' ? order.vehicleDetails.additionalNotes.trim() : ''
+        }
+      : undefined
   };
 };
 
@@ -953,7 +990,10 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     leadReadAt: Number.isFinite(Number((row as any).lead_read_at)) ? Number((row as any).lead_read_at) : undefined,
     pricingEvents: Array.isArray((row as any).pricing_events) ? (row as any).pricing_events : [],
     vendorContacts: Array.isArray((row as any).vendor_contacts) ? (row as any).vendor_contacts : [],
-    vendorChecklist: Array.isArray((row as any).vendor_checklist) ? (row as any).vendor_checklist : []
+    vendorChecklist: Array.isArray((row as any).vendor_checklist) ? (row as any).vendor_checklist : [],
+    vehicleDetails: (row as any).vehicle_details && typeof (row as any).vehicle_details === 'object'
+      ? (row as any).vehicle_details
+      : undefined
   })
 });
 
@@ -1078,7 +1118,8 @@ const persistOrderGraph = async (order: Order) => {
     lead_read_at: uploadedOrder.leadReadAt ? toIsoTimestamp(uploadedOrder.leadReadAt) : null,
     pricing_events: uploadedOrder.pricingEvents || [],
     vendor_contacts: uploadedOrder.vendorContacts || [],
-    vendor_checklist: uploadedOrder.vendorChecklist || []
+    vendor_checklist: uploadedOrder.vendorChecklist || [],
+    vehicle_details: uploadedOrder.vehicleDetails || null
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -1111,7 +1152,8 @@ const persistOrderGraph = async (order: Order) => {
       'logistics',
       'pricing_events',
       'vendor_contacts',
-      'vendor_checklist'
+      'vendor_checklist',
+      'vehicle_details'
     ]);
 
     let payload: Record<string, unknown> = { ...fallbackOrderPayload };
@@ -1289,7 +1331,8 @@ const hasStructuralDiff = (previous: Order | undefined, next: Order) => {
     || JSON.stringify(previous.pricingEvents || []) !== JSON.stringify(next.pricingEvents || [])
     || JSON.stringify(previous.carPhotos || []) !== JSON.stringify(next.carPhotos || [])
     || JSON.stringify(previous.vendorContacts || []) !== JSON.stringify(next.vendorContacts || [])
-    || JSON.stringify(previous.vendorChecklist || []) !== JSON.stringify(next.vendorChecklist || []);
+    || JSON.stringify(previous.vendorChecklist || []) !== JSON.stringify(next.vendorChecklist || [])
+    || JSON.stringify(previous.vehicleDetails || {}) !== JSON.stringify(next.vehicleDetails || {});
 };
 
 const pickHotFieldPatch = (previous: Order | undefined, next: Order): Partial<Order> => {
@@ -1365,6 +1408,7 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   pricing_events: patch.pricingEvents,
   vendor_contacts: patch.vendorContacts,
   vendor_checklist: patch.vendorChecklist,
+  vehicle_details: patch.vehicleDetails,
   is_vip: typeof patch.isVip === 'boolean' ? patch.isVip : undefined,
   is_lead: typeof patch.isLead === 'boolean' ? patch.isLead : undefined,
   is_pinned: typeof patch.isPinned === 'boolean' ? patch.isPinned : undefined,
