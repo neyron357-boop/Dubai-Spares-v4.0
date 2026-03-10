@@ -2485,7 +2485,7 @@ const SuppliersScreen: React.FC = () => {
       <button
         type="button"
         onClick={() => setIsAdding(true)}
-        className="fixed bottom-7 right-6 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-[0_10px_24px_rgba(37,99,235,0.45)] transition active:scale-95"
+        className="fixed right-6 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-[0_10px_24px_rgba(37,99,235,0.45)] transition active:scale-95 bottom-[calc(env(safe-area-inset-bottom,0px)+5.5rem)]"
         aria-label="Add supplier"
       >
         <UserPlus size={20} />

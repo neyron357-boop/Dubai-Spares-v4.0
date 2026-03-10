@@ -47,7 +47,8 @@ export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTar
     const qty = Number(part.quantity || 1);
     const realWeight = Number((part as any).weightKg || 0) * qty;
     const chargeableWeight = realWeight;
-    const places = Math.max(1, Number((part as any).places || 1)) * qty;
+    const rawPlaces = Number((part as any).places || 0);
+    const places = rawPlaces > 0 ? rawPlaces * qty : 0;
     const oversized = Boolean((part as any).isOversized);
     acc.realWeight += realWeight;
     acc.chargeableWeight += chargeableWeight;
@@ -63,21 +64,25 @@ export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTar
   const additional = logistics.additionalCostsUsd || {};
   const additionalTotal = Number(additional.packagingUsd || 0) + Number(additional.customsUsd || 0) + Number(additional.cityDeliveryUsd || 0) + Number(additional.insuranceUsd || 0);
 
+  const hasCargoInputs = totals.chargeableWeight > 0 || totals.totalPlaces > 0;
+
   let baseCost = 0;
   let eta = tariff.airEtaDays;
-  if (deliveryType === 'container') {
-    const billableWeight = Math.max(totals.realWeight, Number(tariff.minContainerKg || 0));
-    baseCost = billableWeight * Number(tariff.containerUsdPerKg || 0);
-    eta = tariff.containerEtaDays;
-  } else {
-    const minWeight = Math.max(totals.chargeableWeight, Number(tariff.minAirKg || 0));
-    const regularRate = Number(tariff.airRegularUsdPerKg || 0);
-    const oversizedRate = Number(tariff.airOversizedUsdPerKg || tariff.airRegularUsdPerKg || 0);
-    baseCost = (totals.regularWeight * Number(tariff.airRegularUsdPerKg || 0))
-      + (totals.oversizedWeight * oversizedRate);
-    const minBaseCost = minWeight * regularRate;
-    if (baseCost < minBaseCost) baseCost = minBaseCost;
-    baseCost += totals.totalPlaces * Number(tariff.airSeatUsd || 0);
+  if (hasCargoInputs) {
+    if (deliveryType === 'container') {
+      const billableWeight = Math.max(totals.realWeight, Number(tariff.minContainerKg || 0));
+      baseCost = billableWeight * Number(tariff.containerUsdPerKg || 0);
+      eta = tariff.containerEtaDays;
+    } else {
+      const minWeight = Math.max(totals.chargeableWeight, Number(tariff.minAirKg || 0));
+      const regularRate = Number(tariff.airRegularUsdPerKg || 0);
+      const oversizedRate = Number(tariff.airOversizedUsdPerKg || tariff.airRegularUsdPerKg || 0);
+      baseCost = (totals.regularWeight * Number(tariff.airRegularUsdPerKg || 0))
+        + (totals.oversizedWeight * oversizedRate);
+      const minBaseCost = minWeight * regularRate;
+      if (baseCost < minBaseCost) baseCost = minBaseCost;
+      baseCost += totals.totalPlaces * Number(tariff.airSeatUsd || 0);
+    }
   }
 
   const totalCost = baseCost + additionalTotal;
