@@ -2344,7 +2344,7 @@ const SuppliersScreen: React.FC = () => {
               <p className="text-xs font-semibold text-white/80">{((fullscreenSupplier.models || []).join(' • ') || '—')}</p>
             </div>
           </div>
-          <div className="space-y-4 p-5">
+          <div className="space-y-4 p-5 pb-24">
             <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 space-y-2">
               <button type="button" onClick={() => openWhatsApp(fullscreenSupplier)} className="w-full rounded-xl bg-emerald-500 px-3 py-3 text-sm font-black text-white shadow-sm">🟢 WhatsApp</button>
               <div className="grid grid-cols-2 gap-2">
