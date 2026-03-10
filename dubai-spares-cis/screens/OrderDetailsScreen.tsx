@@ -627,7 +627,7 @@ const OrderDetailsScreen: React.FC = () => {
   }), [order.logistics?.deliveryType, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed]);
   const logisticsTotal = useMemo(() => logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed, [logistics.deliveryAed, logistics.packingAed, logistics.serviceFeeAed]);
   const cargoCalc = useMemo(() => calculateCargo(order, settings), [order, settings]);
-  const cargoTotalUsd = Number(order.logistics?.cargoTotalCostUsd || cargoCalc.totalCostUsd || 0);
+  const cargoTotalUsd = Number(order.logistics?.cargoTotalCostUsd ?? 0);
   const cargoTotalAed = cargoTotalUsd * (order.exchangeRate || 3.67);
   const logisticsWithCargoTotal = logisticsTotal + cargoTotalAed;
   const cargoEstimates = useMemo(() => calculateCargoEstimates(order, settings), [order, settings]);

@@ -672,6 +672,17 @@ const SettingsScreen: React.FC = () => {
     }));
   });
 
+
+  const handleRestoreBrokenPhotos = () => void withBusy('restore-broken-photos', async () => {
+    clearBrokenImageBlacklist();
+    window.dispatchEvent(new CustomEvent('app-toast', {
+      detail: {
+        tone: 'success',
+        message: 'Кэш битых фото очищен. Приложение повторно попробует загрузить фотографии.'
+      }
+    }));
+  });
+
   const handleCheckAndCleanBrokenPhotos = () => void withBusy('check-clean-broken-photos', async () => {
     const input = window.prompt('Сколько последних заказов проверить?', '50');
     const limit = Math.max(1, Math.min(300, Number(input) || 50));
@@ -1692,6 +1703,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         <div className="text-xs text-rose-700">Изменения ниже могут удалить локальные данные и требуют подтверждения.</div>
         <div className="flex flex-col gap-2 text-sm">
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCheckAndCleanBrokenPhotos}>{busyLabel('check-clean-broken-photos', 'Проверить и очистить битые фото', 'Проверяем битые фото…')}</button>
+          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRestoreBrokenPhotos}>{busyLabel('restore-broken-photos', 'Восстановить битые фото', 'Восстанавливаем фото…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleClearBrokenLinks}>{busyLabel('clear-broken-links', 'Очистить битые ссылки', 'Очищаем битые ссылки…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => { clearBrokenImageBlacklist(); window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Локальный blacklist битых фото очищен', tone: 'success' } })); }}>Очистить blacklist битых фото</button>
           <button className="w-full rounded-xl border border-rose-300 bg-rose-600 text-white px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy || isHardResetting} onClick={() => void withBusy('hard-reset', clearAllLocalDataAndRestart)}>{busyLabel('hard-reset', 'Очистить кэш и все локальные данные', 'Очищаем и перезапускаем…')}</button>
