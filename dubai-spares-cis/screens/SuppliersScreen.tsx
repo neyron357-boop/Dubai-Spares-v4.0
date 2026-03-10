@@ -116,6 +116,13 @@ const toTitle = (value: string) => value
   .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
   .join(' ');
 
+const supplierInitials = (name: string) => name
+  .split(/\s+/)
+  .filter(Boolean)
+  .slice(0, 2)
+  .map((chunk) => chunk[0]?.toUpperCase() || '')
+  .join('') || 'SP';
+
 const mergeUniqueStrings = (current: string[] = [], incoming: string[] = []) => {
   const seen = new Set(current.map((item) => item.trim().toLowerCase()).filter(Boolean));
   const next = [...current];
@@ -336,6 +343,7 @@ const SuppliersScreen: React.FC = () => {
   const [fullscreenOrderSearch, setFullscreenOrderSearch] = useState('');
   const [pendingOrderRemoval, setPendingOrderRemoval] = useState<{ supplierId: string; orderId: string } | null>(null);
   const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
+  const [isInitialSuppliersLoading, setIsInitialSuppliersLoading] = useState(true);
 
   const [contactEditorSupplierId, setContactEditorSupplierId] = useState<string | null>(null);
   const [contactPhone, setContactPhone] = useState('');
@@ -1488,6 +1496,15 @@ const SuppliersScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (suppliers.length > 0) {
+      setIsInitialSuppliersLoading(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setIsInitialSuppliersLoading(false), 1200);
+    return () => window.clearTimeout(timer);
+  }, [suppliers.length]);
+
+  useEffect(() => {
     refreshManualSelections();
     const onManualUpdated = () => refreshManualSelections();
     window.addEventListener('focus', onManualUpdated);
@@ -1573,7 +1590,7 @@ const SuppliersScreen: React.FC = () => {
   }, [selectedBrandView, selectedModelView]);
 
   return (
-    <div className="p-4 space-y-4 pb-20 overflow-x-hidden">
+    <div className="p-4 space-y-4 pb-32 overflow-x-hidden">
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h1 className="text-xl font-bold">База Поставщиков</h1>
@@ -1847,41 +1864,65 @@ const SuppliersScreen: React.FC = () => {
             placeholder="Search supplier..."
             className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold"
           />
-          {displayedSuppliersForSelectedModel.map((supplier) => {
+          {isInitialSuppliersLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={`skeleton-supplier-${index}`} className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_6px_24px_rgba(15,23,42,0.08)]">
+                  <div className="h-24 rounded-2xl bg-slate-100/80" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+                  <div className="mt-3 h-4 w-2/3 rounded bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+                  <div className="mt-2 h-3 w-1/2 rounded bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+                </div>
+              ))}
+            </div>
+          ) : displayedSuppliersForSelectedModel.map((supplier) => {
             const isContacted = (supplier.interactions || []).some((item) => item.type === 'whatsapp');
             const isReplied = (supplier.interactions || []).some((item) => item.type === 'whatsapp_reply');
             const distanceKm = calcDistanceKm(supplier, sortByDistanceRef);
+            const brands = pickSupplierBrands(supplier);
             return (
-            <div key={supplier.id} role="button" tabIndex={0} onClick={() => setFullscreenSupplierId(supplier.id)} onKeyDown={(e) => { if (e.key === 'Enter') setFullscreenSupplierId(supplier.id); }} className="w-full rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm space-y-3">
-              <div className="flex items-center gap-3">
+            <div key={supplier.id} role="button" tabIndex={0} onClick={() => setFullscreenSupplierId(supplier.id)} onKeyDown={(e) => { if (e.key === 'Enter') setFullscreenSupplierId(supplier.id); }} className="w-full rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-[0_8px_28px_rgba(15,23,42,0.08)] space-y-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(15,23,42,0.12)] active:scale-[0.99]">
+              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 via-blue-600 to-indigo-900 p-3 text-white shadow-inner">
+                <div className="pointer-events-none absolute inset-0 bg-white/10 mix-blend-overlay" />
+                <div className="pointer-events-none absolute -right-7 -top-8 h-20 w-20 rounded-full bg-white/20 blur-2xl" />
+                <div className="flex items-center gap-3">
                 {((supplier.photos && supplier.photos.length > 0) || supplier.photoUrl) ? (
                   <img src={((supplier.photos && supplier.photos[0]) || supplier.photoUrl) as string} alt={supplier.name} className="h-12 w-12 rounded-2xl border border-slate-200 object-cover" />
                 ) : (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openQuickPhotoPicker(supplier.id);
-                    }}
-                    className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-dashed border-slate-300 text-[10px] font-black text-slate-500"
-                    title="Добавить фото"
-                  >
-                    📷
-                  </button>
+                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/20 text-sm font-black text-white backdrop-blur-sm">{supplierInitials(supplier.name)}</div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-base font-black uppercase text-slate-900">{supplier.name}</p>
-                  <p className="truncate text-xs font-semibold text-slate-500">{supplier.location || 'Location not set'}</p>
-                  <p className="truncate text-[11px] font-semibold text-slate-600">{(pickSupplierBrands(supplier).join(' • ') || '—')}</p>
-                  <p className="truncate text-[11px] font-semibold text-slate-500">{((supplier.models || []).join(' • ') || '—')}</p>
+                  <p className="truncate text-base font-black uppercase">{supplier.name}</p>
+                  <p className="truncate text-xs font-semibold text-blue-100">{supplier.location || 'Location not set'}</p>
+                  <p className="mt-1 truncate text-[11px] font-semibold text-white/90">{Number.isFinite(distanceKm) ? `📍 ${distanceKm.toFixed(1)} km away` : '📍 Distance unavailable'}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openQuickPhotoPicker(supplier.id);
+                  }}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-white/15 text-sm backdrop-blur-sm"
+                  title="Добавить фото"
+                >
+                  📷
+                </button>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-[10px] font-black uppercase">
                 <span className={`rounded-full px-2 py-1 ${isContacted ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>✓ Contacted</span>
                 <span className={`rounded-full px-2 py-1 ${isReplied ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>✓ Replied</span>
-                {Number.isFinite(distanceKm) ? <span className="rounded-full bg-violet-50 px-2 py-1 text-violet-700">📍 {distanceKm.toFixed(1)} km away</span> : null}
               </div>
               <div className="space-y-2">
+                <p className="text-[11px] font-black uppercase text-slate-500">Brands</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {(brands.length > 0 ? brands : ['N/A']).slice(0, 4).map((brand) => <span key={`${supplier.id}-brand-${brand}`} className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-black text-indigo-700">{brand.toUpperCase()}</span>)}
+                </div>
+                <p className="pt-1 text-[11px] font-black uppercase text-slate-500">Models</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {((supplier.models || []).length > 0 ? (supplier.models || []) : ['N/A']).slice(0, 4).map((model) => <span key={`${supplier.id}-model-${model}`} className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-700">{model}</span>)}
+                </div>
+              </div>
+              <div className="sticky bottom-2 z-10 rounded-2xl border border-slate-200/90 bg-white/95 p-2 shadow-sm backdrop-blur">
                 <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsApp(supplier); }} className="w-full rounded-xl bg-emerald-500 px-2 py-2 text-xs font-black text-white">🟢 WhatsApp</button>
                 <div className="grid grid-cols-2 gap-2">
                   <button type="button" onClick={(e) => { e.stopPropagation(); openPhone(supplier); }} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-center text-xs font-black text-slate-700">📞 Call</button>
@@ -2444,9 +2485,10 @@ const SuppliersScreen: React.FC = () => {
       <button
         type="button"
         onClick={() => setIsAdding(true)}
-        className="fixed bottom-6 right-5 z-40 inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-300 transition active:scale-[0.98]"
+        className="fixed bottom-7 right-6 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-[0_10px_24px_rgba(37,99,235,0.45)] transition active:scale-95"
+        aria-label="Add supplier"
       >
-        <UserPlus size={16} /> + Add supplier
+        <UserPlus size={20} />
       </button>
 
       <ConfirmModal
