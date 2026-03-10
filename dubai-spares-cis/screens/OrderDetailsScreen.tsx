@@ -579,14 +579,15 @@ const OrderDetailsScreen: React.FC = () => {
     const bestPrice = pricedVariants.length > 0
       ? Math.min(...pricedVariants.map((variant) => Number(variant.priceAed) || 0))
       : 0;
-    return sum + bestPrice;
+    const quantity = Math.max(1, Number(part.quantity || 1));
+    return sum + (bestPrice * quantity);
   }, 0), [order.parts]);
   const logistics = useMemo(() => ({
     deliveryType: order.logistics?.deliveryType || 'uae',
-    deliveryAed: Number(order.logistics?.deliveryAed || 0),
-    packingAed: Number(order.logistics?.packingAed || 0),
-    serviceFeeAed: Number(order.logistics?.serviceFeeAed || 0)
-  }), [order.logistics?.deliveryType, order.logistics?.deliveryAed, order.logistics?.packingAed, order.logistics?.serviceFeeAed]);
+    deliveryAed: Number(logisticsDraft.deliveryAed || 0),
+    packingAed: Number(logisticsDraft.packingAed || 0),
+    serviceFeeAed: Number(logisticsDraft.serviceFeeAed || 0)
+  }), [order.logistics?.deliveryType, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed]);
   const logisticsTotal = useMemo(() => logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed, [logistics.deliveryAed, logistics.packingAed, logistics.serviceFeeAed]);
   const cargoCalc = useMemo(() => calculateCargo(order, settings), [order, settings]);
   const cargoEstimates = useMemo(() => calculateCargoEstimates(order, settings), [order, settings]);
@@ -598,7 +599,8 @@ const OrderDetailsScreen: React.FC = () => {
   const sellTotalAed = selectedOfferTotal + logisticsTotal + markupAed;
   const canComputeProfit = selectedOfferTotal > 0;
   const netProfitAed = canComputeProfit ? sellTotalAed - selectedOfferTotal - logisticsTotal : null;
-  const lowMargin = canComputeProfit && selectedOfferTotal > 0 && markupAed / selectedOfferTotal < 0.03;
+  const isMarkupMissing = canComputeProfit && markupAed <= 0;
+  const lowMargin = canComputeProfit && selectedOfferTotal > 0 && markupAed > 0 && markupAed / selectedOfferTotal < 0.03;
   const isLoss = canComputeProfit && sellTotalAed < selectedOfferTotal + logisticsTotal;
 
   const rateByCurrency: Record<string, number> = {
@@ -612,6 +614,10 @@ const OrderDetailsScreen: React.FC = () => {
   const formatMoney = (value: number, currency = 'AED') => {
     const amount = currency === 'AED' ? value : value / clientRate;
     return `${amount.toFixed(currency === 'AED' ? 0 : 2)} ${currency}`;
+  };
+  const formatDualMoney = (value: number) => {
+    if (clientCurrency === 'AED') return formatMoney(value);
+    return `${formatMoney(value)} / ${formatMoney(value, clientCurrency)}`;
   };
 
   const calculateCurrentProfit = () => {
@@ -2044,14 +2050,15 @@ const OrderDetailsScreen: React.FC = () => {
 <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-2">
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Закупка</p><p className="font-black text-gray-800">{formatMoney(selectedOfferTotal)}</p></div>
-              <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Логистика</p><p className="font-black text-gray-800">{formatMoney(logisticsTotal)}</p></div>
-              <div className="rounded-xl bg-blue-50 px-3 py-2"><p className="text-blue-500">Наценка</p><p className="font-black text-blue-700">{formatMoney(markupAed)}</p></div>
+              <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Логистика</p><p className="font-black text-gray-800">{formatDualMoney(logisticsTotal)}</p></div>
+              <div className="rounded-xl bg-blue-50 px-3 py-2"><p className="text-blue-500">Наценка</p><p className="font-black text-blue-700">{formatDualMoney(markupAed)}</p></div>
               <div className="rounded-xl bg-emerald-50 px-3 py-2"><p className="text-emerald-500">Итого клиенту</p><p className="font-black text-emerald-700">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
             </div>
-            <div className="rounded-xl bg-emerald-100 px-3 py-2 text-sm font-black text-emerald-800">Чистая прибыль: {canComputeProfit && netProfitAed !== null ? `${formatMoney(netProfitAed)} / ${formatMoney(netProfitAed, clientCurrency)}` : '—'}</div>
+            <div className="rounded-xl bg-emerald-100 px-3 py-2 text-sm font-black text-emerald-800">Чистая прибыль: {canComputeProfit && netProfitAed !== null ? formatDualMoney(netProfitAed) : '—'}</div>
             {!canComputeProfit && <div className="text-xs font-semibold text-gray-500">Добавьте варианты цен.</div>}
             {isLoss && <div className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">Вы уходите в минус ⚠️</div>}
-            {lowMargin && <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Маржа низкая — проверьте</div>}
+            {isMarkupMissing && <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Наценка отсутствует. Прибыль = 0.</div>}
+            {lowMargin && <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Рекомендуемая маржа: 10-20%</div>}
           </div>
 
           <div className="grid grid-cols-1 gap-2">
@@ -2391,10 +2398,10 @@ const OrderDetailsScreen: React.FC = () => {
       <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-3 space-y-2">
         <div className="grid grid-cols-5 gap-1 text-[10px] font-bold">
           <div><p className="text-gray-400">Закупка</p><p>{formatMoney(selectedOfferTotal)}</p></div>
-          <div><p className="text-gray-400">Наценка</p><p>{formatMoney(markupAed)}</p></div>
-          <div><p className="text-gray-400">Логистика</p><p>{formatMoney(logisticsTotal)}</p></div>
+          <div><p className="text-gray-400">Наценка</p><p>{formatDualMoney(markupAed)}</p></div>
+          <div><p className="text-gray-400">Логистика</p><p>{formatDualMoney(logisticsTotal)}</p></div>
           <div><p className="text-gray-400">Итого</p><p>{formatMoney(sellTotalAed, clientCurrency)}</p></div>
-          <div><p className="text-gray-400">Профит</p><p>{netProfitAed === null ? '—' : formatMoney(netProfitAed)}</p></div>
+          <div><p className="text-gray-400">Профит</p><p>{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
         </div>
         <div className="grid gap-2 grid-cols-4">
           <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">{contactActionLabel}</button>
