@@ -7,7 +7,6 @@ import { SOURCES } from '../constants';
 import { 
   ArrowLeft, 
   FileText, 
-  Share2,
   ChevronRight, 
   ChevronDown,
   ChevronUp,
@@ -38,7 +37,7 @@ import {
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
-import { QuoteCurrency, QuoteRates, buildPartShareText, shareMessage, shareQuoteLink } from '../shareUtils';
+import { QuoteCurrency, QuoteRates, shareQuoteLink } from '../shareUtils';
 import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
 import { logger } from '../logging';
@@ -270,6 +269,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [sellError, setSellError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTick, setRecordingTick] = useState(0);
+  const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({});
   const [shops, setShops] = useState<Shop[]>([]);
@@ -1417,6 +1417,15 @@ const OrderDetailsScreen: React.FC = () => {
     });
   };
 
+  const formatSeconds = (seconds: number) => {
+    const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
+    const min = Math.floor(safeSeconds / 60)
+      .toString()
+      .padStart(2, '0');
+    const sec = (safeSeconds % 60).toString().padStart(2, '0');
+    return `${min}:${sec}`;
+  };
+
   useEffect(() => {
     if (!isRecording) return;
     const timer = window.setInterval(() => setRecordingTick((prev) => prev + 1), 260);
@@ -1427,6 +1436,7 @@ const OrderDetailsScreen: React.FC = () => {
     if (isRecording) {
       recorderRef.current?.stop();
       setIsRecording(false);
+      setRecordingStartedAt(null);
       return;
     }
 
@@ -1437,7 +1447,9 @@ const OrderDetailsScreen: React.FC = () => {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+      const supportedMimeType = mimeTypes.find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
+      const recorder = new MediaRecorder(stream, supportedMimeType ? { mimeType: supportedMimeType } : undefined);
       recorderRef.current = recorder;
       audioChunksRef.current = [];
 
@@ -1447,6 +1459,7 @@ const OrderDetailsScreen: React.FC = () => {
 
       recorder.onstop = () => {
         setIsRecording(false);
+        setRecordingStartedAt(null);
         recorderRef.current = null;
         const mimeType = recorder.mimeType || 'audio/webm';
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
@@ -1460,6 +1473,7 @@ const OrderDetailsScreen: React.FC = () => {
 
       recorder.start();
       setIsRecording(true);
+      setRecordingStartedAt(Date.now());
     } catch (e) {
       console.error('Audio recording failed', e);
       alert('Не удалось начать запись');
@@ -1511,6 +1525,10 @@ const OrderDetailsScreen: React.FC = () => {
     setNewNoteText('');
     setNewNotePhotos([]);
     setNewNoteAudios([]);
+  };
+
+  const removeNewAudio = (index: number) => {
+    setNewNoteAudios((prev) => prev.filter((_, audioIndex) => audioIndex !== index));
   };
 
 
@@ -2414,15 +2432,60 @@ const OrderDetailsScreen: React.FC = () => {
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Заметки</h2>
           <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
-          <div className="flex gap-2 overflow-x-auto no-scrollbar">
+          <div className="flex flex-col gap-2">
+            {isRecording && (
+              <div className="rounded-2xl border border-rose-200 bg-gradient-to-r from-rose-50 via-white to-rose-50 px-3 py-2">
+                <div className="mb-2 flex items-center justify-between text-[11px] font-bold text-rose-700">
+                  <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 animate-pulse rounded-full bg-rose-500" /> Идёт запись</span>
+                  <span>{formatSeconds(recordingStartedAt ? (Date.now() - recordingStartedAt) / 1000 : 0)}</span>
+                </div>
+                <div className="flex h-12 items-end gap-1 rounded-xl border border-rose-100 bg-white px-2">
+                  {Array.from({ length: 30 }).map((_, idx) => (
+                    <span
+                      key={`record-wave-${idx}`}
+                      className="w-1 rounded-full bg-rose-400"
+                      style={{ height: `${22 + Math.abs(Math.sin((recordingTick + idx) * 0.75)) * 72}%` }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
             <button type="button" onClick={() => noteFileRef.current?.click()} className="h-12 rounded-xl border-2 border-dashed border-gray-200 px-3 text-gray-600 inline-flex items-center gap-2"><ImageIcon size={18} /> Фото</button>
             <button type="button" onClick={() => noteAudioFileRef.current?.click()} className="h-12 rounded-xl border-2 border-dashed border-gray-200 px-3 text-gray-600 inline-flex items-center gap-2"><FileAudio size={18} /> Файл</button>
             <button type="button" onClick={toggleRecording} className={`h-12 rounded-xl border-2 px-3 ${isRecording ? 'border-red-300 bg-red-50 text-red-600' : 'border-gray-200 text-gray-600'} inline-flex items-center gap-2`}>{isRecording ? <Square size={16} /> : <Mic size={16} />} Голос</button>
-            {isRecording && <div className="h-12 px-2 rounded-xl border border-rose-200 bg-rose-50 flex items-end gap-1">{Array.from({ length: 16 }).map((_, idx) => <span key={`record-wave-${idx}`} className="w-1 rounded-full bg-rose-400" style={{ height: `${30 + Math.abs(Math.sin((recordingTick + idx) * 0.9)) * 70}%` }} />)}</div>}
             {newNotePhotos.map((p, i) => <img key={i} src={p} className="w-12 h-12 rounded-xl object-cover border border-gray-100" />)}
-            {newNoteAudios.map((_, i) => <div key={`na-${i}`} className="px-3 h-12 rounded-xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-600 flex items-center">Audio {i + 1}</div>)}
+            {newNoteAudios.map((audioSrc, i) => {
+              const audioId = `draft-audio-${i}`;
+              const isPlaying = playingAudioId === audioId;
+              const progress = audioProgress[audioId] || 0;
+              const bars = getWaveBars(audioSrc.slice(0, 120));
+
+              return (
+                <div key={`na-${i}`} className="flex h-12 items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-2 py-1">
+                  <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-white shrink-0">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
+                  <div className="flex h-8 flex-1 items-end gap-[2px] rounded-md bg-white/80 px-1">
+                    {bars.slice(0, 18).map((bar, barIndex) => {
+                      const completion = (barIndex + 1) / 18;
+                      const isActive = completion <= progress / 100;
+                      return (
+                        <span
+                          key={`${audioId}-bar-${barIndex}`}
+                          className={`w-[3px] rounded-full ${isActive ? 'bg-blue-600' : 'bg-blue-200'}`}
+                          style={{ height: `${Math.max(30, bar * 0.8)}%` }}
+                        />
+                      );
+                    })}
+                  </div>
+                  <button type="button" onClick={() => removeNewAudio(i)} className="rounded-md border border-rose-200 bg-white px-2 py-1 text-[10px] font-bold text-rose-600">Удалить</button>
+                  <audio id={audioId} src={audioSrc} preload="metadata" playsInline />
+                </div>
+              );
+            })}
             <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
             <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
+          </div>
           </div>
           <button type="button" onClick={addNote} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-wide">Добавить заметку</button>
           {(order.notes || []).length > 0 && (
@@ -2513,27 +2576,13 @@ const OrderDetailsScreen: React.FC = () => {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-black text-sm text-gray-800 truncate leading-none mb-1">{part.name}</h4>
-                    <p className="text-[11px] font-semibold text-slate-600">Qty: {partQuantity}</p>
+                    <h4 className="font-black text-[14px] text-gray-900 leading-tight mb-1 break-words whitespace-normal">{part.name}</h4>
+                    <p className="text-[12px] font-semibold text-slate-700">Qty: {partQuantity}</p>
                     <p className="text-[11px] font-semibold text-slate-600">Best supplier: {part.variants[0]?.shopName || 'не выбран'}</p>
                     <p className="text-[11px] font-black text-emerald-700">Price: {part.variants[0] ? `${part.variants[0].priceAed} AED` : '—'}</p>
                     <p className="text-[11px] font-semibold text-[#8B8F98]">Margin: —</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); navigate(`/order/${order.id}/part/${part.id}`); }}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700"
-                    >
-                      Open
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); void shareMessage(buildPartShareText(order, part)); }}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700"
-                    >
-                      <Share2 size={14} /> Send
-                    </button>
                     <button 
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setDeletePartId(part.id); }}
