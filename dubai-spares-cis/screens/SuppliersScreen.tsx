@@ -1562,7 +1562,7 @@ const SuppliersScreen: React.FC = () => {
       {showSuccess && <div className="bg-green-50 text-green-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-green-100"><CheckCircle2 size={16} />Данные успешно восстановлены!</div>}
 
       {isAdding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm" onClick={() => { setIsAdding(false); resetAddForm(); }}>
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm" onClick={() => { setIsAdding(false); resetAddForm(); }}>
           <form onSubmit={(e) => { e.preventDefault(); void handleSave(); }} className="bg-white w-full max-w-md rounded-3xl p-4 sm:p-5 shadow-2xl space-y-4 max-h-[85vh] sm:max-h-[90vh] overflow-y-auto overflow-x-hidden pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between">
               <div>
@@ -2155,7 +2155,7 @@ const SuppliersScreen: React.FC = () => {
       {fullscreenSupplier && (
         <div className="fixed inset-0 z-[80] bg-black/40 p-0 sm:p-4" onClick={(event) => { if (event.target === event.currentTarget) setFullscreenSupplierId(null); }}>
           <div className="h-screen w-full overflow-hidden bg-white shadow-2xl sm:mx-auto sm:h-[92vh] sm:max-w-2xl sm:rounded-3xl">
-            <div className="h-full overflow-y-auto overscroll-contain">
+            <div className="h-full overflow-y-auto overscroll-contain touch-pan-y [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch]">
               <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
                 <button type="button" onClick={() => setFullscreenSupplierId(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700">Закрыть</button>
                 <p className="truncate px-2 text-sm font-black text-slate-800">{fullscreenSupplier.name}</p>
@@ -2172,7 +2172,11 @@ const SuppliersScreen: React.FC = () => {
                     <div className="absolute right-0 top-9 w-36 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
                       <button
                         type="button"
-                        onClick={() => { startEditSupplier(fullscreenSupplier); setIsFullscreenMenuOpen(false); }}
+                        onClick={() => {
+                          setFullscreenSupplierId(null);
+                          startEditSupplier(fullscreenSupplier);
+                          setIsFullscreenMenuOpen(false);
+                        }}
                         className="inline-flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
                       ><Pencil size={12} />Edit</button>
                       <button
