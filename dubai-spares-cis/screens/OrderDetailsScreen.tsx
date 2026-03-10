@@ -610,18 +610,21 @@ const OrderDetailsScreen: React.FC = () => {
   }), [order.logistics?.deliveryType, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed]);
   const logisticsTotal = useMemo(() => logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed, [logistics.deliveryAed, logistics.packingAed, logistics.serviceFeeAed]);
   const cargoCalc = useMemo(() => calculateCargo(order, settings), [order, settings]);
+  const cargoTotalUsd = Number(order.logistics?.cargoTotalCostUsd || cargoCalc.totalCostUsd || 0);
+  const cargoTotalAed = cargoTotalUsd * (order.exchangeRate || 3.67);
+  const logisticsWithCargoTotal = logisticsTotal + cargoTotalAed;
   const cargoEstimates = useMemo(() => calculateCargoEstimates(order, settings), [order, settings]);
   const cargoTariffOptions = (settings.cargoTariffs?.length ? settings.cargoTariffs : DEFAULT_CARGO_TARIFFS);
   const markupType = order.markupType || 'percent';
   const markupAed = useMemo(() => (markupType === 'fixed'
     ? Number(markupFixedInput || 0)
     : selectedOfferTotal * (order.markupPercent / 100)), [markupType, markupFixedInput, selectedOfferTotal, order.markupPercent]);
-  const sellTotalAed = selectedOfferTotal + logisticsTotal + markupAed;
+  const sellTotalAed = selectedOfferTotal + logisticsWithCargoTotal + markupAed;
   const canComputeProfit = selectedOfferTotal > 0;
-  const netProfitAed = canComputeProfit ? sellTotalAed - selectedOfferTotal - logisticsTotal : null;
+  const netProfitAed = canComputeProfit ? sellTotalAed - selectedOfferTotal - logisticsWithCargoTotal : null;
   const isMarkupMissing = canComputeProfit && markupAed <= 0;
   const lowMargin = canComputeProfit && selectedOfferTotal > 0 && markupAed > 0 && markupAed / selectedOfferTotal < 0.03;
-  const isLoss = canComputeProfit && sellTotalAed < selectedOfferTotal + logisticsTotal;
+  const isLoss = canComputeProfit && sellTotalAed < selectedOfferTotal + logisticsWithCargoTotal;
 
   const rateByCurrency: Record<string, number> = {
     AED: 1,
@@ -1880,7 +1883,7 @@ const OrderDetailsScreen: React.FC = () => {
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                 <p>Purchase</p><p className="text-right text-[16px] font-medium">{formatMoney(selectedOfferTotal)}</p>
                 <p>Margin</p><p className="text-right text-[16px] font-medium">{formatMoney(markupAed)}</p>
-                <p>Logistics</p><p className="text-right text-[16px] font-medium">{formatMoney(logisticsTotal)}</p>
+                <p>Logistics</p><p className="text-right text-[16px] font-medium">{formatMoney(logisticsWithCargoTotal)}</p>
               </div>
                 <p className="flex items-center justify-between border-t border-white/30 pt-2"><span>Client price</span><span className="text-[20px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</span></p>
               </div>
@@ -2248,7 +2251,7 @@ const OrderDetailsScreen: React.FC = () => {
 <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-2">
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Purchase</p><p className="font-black text-gray-800">{formatMoney(selectedOfferTotal)}</p></div>
-              <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Cargo</p><p className="font-black text-gray-800">{formatDualMoney(logisticsTotal)}</p></div>
+              <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Cargo</p><p className="font-black text-gray-800">{formatDualMoney(cargoTotalAed)}</p></div>
               <div className="rounded-xl bg-blue-50 px-3 py-2"><p className="text-blue-500">Margin</p><p className="font-black text-blue-700">{formatDualMoney(markupAed)}</p></div>
               <div className="rounded-xl bg-emerald-50 px-3 py-2"><p className="text-emerald-500">Client price</p><p className="font-black text-emerald-700">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
             </div>
@@ -2260,13 +2263,6 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 gap-2">
-            <button
-              type="button"
-              onClick={() => setIsEstimateOpen(true)}
-              className="h-12 rounded-2xl bg-gray-900 text-white text-xs font-black uppercase tracking-wide"
-            >
-              {order.parts.some((p) => p.variants.length > 0) ? 'Обновить и отправить смету' : 'Сформировать смету'}
-            </button>
             <div className="grid grid-cols-3 gap-2">
               <button type="button" onClick={openClientChannel} className="h-11 rounded-2xl bg-emerald-50 text-emerald-700 text-[11px] font-black uppercase">{contactActionLabel}</button>
               <button type="button" onClick={() => partInputRef.current?.focus()} className="h-11 rounded-2xl bg-blue-50 px-2 text-blue-700 text-[11px] font-black">Добавить деталь</button>
@@ -2293,7 +2289,7 @@ const OrderDetailsScreen: React.FC = () => {
             onSubmit={(e) => { e.preventDefault(); addNewPart(); }}
             className="flex flex-col gap-3"
           >
-            <div className="flex gap-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_118px] gap-2">
               <div className="flex-1 flex gap-2 items-center bg-[#F6F7FB] border border-[#E7EAF3] px-3 rounded-[12px] h-12">
                 <input 
                   type="text" 
@@ -2303,17 +2299,17 @@ const OrderDetailsScreen: React.FC = () => {
                   className="flex-1 bg-transparent outline-none p-1 text-[16px] font-medium text-[#1E1F23]"
                 />
               </div>
-              <div className="flex items-center rounded-[12px] border border-[#E7EAF3] bg-white h-12">
-                <button type="button" className="h-12 w-10 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) - 1)))}>-</button>
+              <div className="flex w-[118px] shrink-0 items-center rounded-[12px] border border-[#E7EAF3] bg-white h-12 overflow-hidden">
+                <button type="button" className="h-12 w-9 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) - 1)))}>-</button>
                 <input
                   type="number"
                   min={1}
                   value={newPartQuantity}
                   onChange={(e) => setNewPartQuantity(e.target.value)}
-                  className="w-12 bg-transparent text-center text-[16px] font-medium outline-none"
+                  className="w-full min-w-0 bg-transparent text-center text-[16px] font-medium outline-none"
                   placeholder="1"
                 />
-                <button type="button" className="h-12 w-10 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) + 1)))}>+</button>
+                <button type="button" className="h-12 w-9 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) + 1)))}>+</button>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -2594,13 +2590,13 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-4 space-y-3 shadow-[0_-8px_20px_rgba(0,0,0,0.08)]">
-        <div className="grid grid-cols-5 gap-2">
-          <div><p className="text-[12px] text-gray-400">Purchase</p><p className="text-[16px] font-bold">{formatMoney(selectedOfferTotal)}</p></div>
-          <div><p className="text-[12px] text-gray-400">Margin</p><p className="text-[16px] font-bold">{formatDualMoney(markupAed)}</p></div>
-          <div><p className="text-[12px] text-gray-400">Cargo</p><p className="text-[16px] font-bold">{formatDualMoney(logisticsTotal)}</p></div>
-          <div><p className="text-[12px] text-gray-400">Client price</p><p className="text-[16px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
-          <div><p className="text-[12px] text-gray-400">Profit</p><p className="text-[16px] font-bold text-emerald-600">{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-2.5 space-y-2 shadow-[0_-6px_16px_rgba(0,0,0,0.08)]">
+        <div className="grid grid-cols-3 gap-1.5">
+          <div><p className="text-[10px] text-gray-400">Purchase</p><p className="text-[13px] font-bold">{formatMoney(selectedOfferTotal)}</p></div>
+          <div><p className="text-[10px] text-gray-400">Margin</p><p className="text-[13px] font-bold">{formatDualMoney(markupAed)}</p></div>
+          <div><p className="text-[10px] text-gray-400">Cargo</p><p className="text-[13px] font-bold">{formatDualMoney(cargoTotalAed)}</p></div>
+          <div><p className="text-[10px] text-gray-400">Client price</p><p className="text-[13px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
+          <div><p className="text-[10px] text-gray-400">Profit</p><p className="text-[13px] font-bold text-emerald-600">{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
         </div>
         <div className="grid gap-2 grid-cols-4">
           <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">{contactActionLabel}</button>
