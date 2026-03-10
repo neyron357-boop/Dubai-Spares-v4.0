@@ -54,9 +54,9 @@ const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Co
 
 const CUSTOMER_STATUSES = ['Lead', 'VIP', 'Inquiry'] as const;
 const PIPELINE_STYLES: Record<(typeof CUSTOMER_STATUSES)[number], string> = {
-  Lead: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.28)]',
-  VIP: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.28)]',
-  Inquiry: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.28)]'
+  Lead: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.24)]',
+  VIP: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.24)]',
+  Inquiry: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.24)]'
 };
 const SALES_STATUS_STYLES: Record<(typeof SALES_STATUSES)[number], string> = {
   Inquiry: 'text-[#3B6AF7] border-blue-100 bg-blue-50',
@@ -254,6 +254,14 @@ const OrderDetailsScreen: React.FC = () => {
   const noteFileRef = useRef<HTMLInputElement>(null);
   const carFileRef = useRef<HTMLInputElement>(null);
   const noteAudioFileRef = useRef<HTMLInputElement>(null);
+
+  const resolvedCustomerStatus = order?.customerStatus === 'VIP'
+    ? 'VIP'
+    : order?.customerStatus === 'LEAD'
+      ? 'Lead'
+      : order?.customerStatus === 'INQUIRY'
+        ? 'Inquiry'
+        : (order?.isVip ? 'VIP' : order?.isLead ? 'Lead' : 'Inquiry');
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   
@@ -730,13 +738,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   const updateCustomerStatus = (nextStatus: 'Lead' | 'VIP' | 'Inquiry') => {
     if (!isEditMode) return;
-    const prevStatus = order.customerStatus === 'VIP'
-      ? 'VIP'
-      : order.customerStatus === 'LEAD'
-        ? 'Lead'
-        : order.customerStatus === 'INQUIRY'
-          ? 'Inquiry'
-          : (order.isVip ? 'VIP' : order.isLead ? 'Lead' : 'Inquiry');
+    const prevStatus = resolvedCustomerStatus;
     if (prevStatus === nextStatus) return;
     updateOrder({
       ...order,
@@ -1661,9 +1663,12 @@ const OrderDetailsScreen: React.FC = () => {
           <div className="text-left flex-1 mx-2 min-w-0">
             <h1 className="text-[20px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model} {order.year}</h1>
             <p className="mt-1 text-[12px] text-[#8B8F98] font-normal">VIN: <span className="font-mono uppercase text-gray-700">{order.vin || 'VIN not added'}</span></p>
-            <p className="text-[12px] text-[#8B8F98] font-normal">Order ID: <span className="font-mono text-gray-700">#{order.id}</span></p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <p className="text-[12px] text-[#8B8F98] font-normal">Order <span className="font-mono font-bold text-gray-700">#{order.id.slice(0, 8).toUpperCase()}</span></p>
+              <button type="button" onClick={() => void copyText(order.id, 'Copied')} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600"><Copy size={12} /> copy</button>
+            </div>
+            {vinIsIncomplete && <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-[10px] font-bold text-orange-700">⚠ VIN incomplete</span>}
             {!!order.vin && <button type="button" onClick={() => void copyText(order.vin, 'VIN скопирован')} className="mt-1 inline-flex text-blue-600"><Copy size={12} /></button>}
-            {vinIsIncomplete && <p className="text-[10px] mt-1 text-amber-600 font-bold">VIN неполный</p>}
           </div>
           <div className="relative">
             <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-3 rounded-full text-gray-600 active:bg-gray-100">
@@ -1674,8 +1679,8 @@ const OrderDetailsScreen: React.FC = () => {
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEditMode((prev) => !prev)}>Edit order</button>
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrder({ ...order, id: `${order.id}-copy-${Date.now()}` })}>Duplicate order</button>
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrderField('isArchived', !order.isArchived)}>{order.isArchived ? 'Unarchive' : 'Archive'}</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEstimateOpen(true)}>Export PDF</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => void shareQuote()}>Share link</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => void copyText('Cloud sync started', 'Cloud sync')}>Cloud sync</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEstimateOpen(true)}>Export</button>
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-red-600" onClick={() => setShowActionsMenu(false)}>Delete</button>
               </div>
             )}
@@ -1690,13 +1695,7 @@ const OrderDetailsScreen: React.FC = () => {
                 key={status}
                 type="button"
                 onClick={() => updateCustomerStatus(status)}
-                className={`h-10 min-w-[84px] px-3 rounded-[10px] text-[13px] font-medium transition-all duration-200 active:scale-[0.97] ${((order.customerStatus === 'VIP'
-                  ? 'VIP'
-                  : order.customerStatus === 'LEAD'
-                    ? 'Lead'
-                    : order.customerStatus === 'INQUIRY'
-                      ? 'Inquiry'
-                      : (order.isVip ? 'VIP' : order.isLead ? 'Lead' : 'Inquiry')) === status) ? PIPELINE_STYLES[status] : 'text-gray-500'}`}
+                className={`h-10 min-w-[84px] px-3 rounded-[10px] text-[13px] font-medium transition-all duration-150 active:scale-[0.97] ${resolvedCustomerStatus === status ? PIPELINE_STYLES[status] : 'text-gray-500'}`}
               >
                 {status}
               </button>
@@ -1708,13 +1707,13 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
         </div>
         <div className="flex gap-2 items-center overflow-x-auto no-scrollbar">
-          <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[12px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white')}`}>
-            <span className="uppercase tracking-[0.04em]">Status</span>
+          <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white')}`}>
+            <span className="tracking-[0.04em]">Status</span>
             <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="bg-transparent text-[12px] font-medium text-current outline-none">
             {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </div>
-          <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} disabled={!isEditMode} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
+          <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} disabled={!isEditMode} className="text-[11px] font-bold px-3 py-1.5 rounded-full bg-red-50 border border-red-200 text-red-700 shrink-0">
             <option value={Priority.HIGH}>HIGH</option>
             <option value={Priority.MEDIUM}>MEDIUM</option>
             <option value={Priority.LOW}>LOW</option>
@@ -1849,7 +1848,7 @@ const OrderDetailsScreen: React.FC = () => {
             <div className="rounded-[14px] border border-[#E7EAF3] bg-white p-4 space-y-2">
               <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Main</p>
               <p className="text-[20px] font-semibold text-[#1E1F23]">{order.brand} {order.model} {order.year}</p>
-              <p className="text-[16px] font-medium text-[#1E1F23]">Price: {formatMoney(sellTotalAed, clientCurrency)}</p>
+              <p className="text-[20px] font-bold text-[#1E1F23]">{formatMoney(sellTotalAed, clientCurrency)}</p>
               <p className="text-[13px] font-normal text-[#8B8F98]">Supplier: {orderWorkspaceSuppliers[0]?.name || 'Not selected'}</p>
               <p className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-[12px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white border')}`}>
                 {order.salesStatus || 'Inquiry'}
@@ -1860,16 +1859,16 @@ const OrderDetailsScreen: React.FC = () => {
               {orderWorkspaceSuppliers.slice(0, 3).map((supplier) => (
                 <div key={supplier.name} className="rounded-[12px] bg-[#F6F7FB] p-3 space-y-2">
                   <p className="text-[16px] font-medium text-[#1E1F23]">{supplier.name}</p>
-                  <div className="grid grid-cols-3 gap-2 text-[13px] font-normal text-[#8B8F98]">
-                    <p>⭐ Score {supplier.score || 0}</p>
-                    <p>Deals {supplier.dealsCompleted || 0}</p>
-                    <p>Avg {supplier.avgPrice ? `${supplier.avgPrice} AED` : '—'}</p>
+                  <div className="grid grid-cols-3 gap-3 text-[#8B8F98]">
+                    <div className="flex flex-col"><span className="text-[11px] uppercase">Score</span><span className="text-[15px] font-bold text-[#1E1F23]">{supplier.score || 0}</span></div>
+                    <div className="flex flex-col"><span className="text-[11px] uppercase">Deals</span><span className="text-[15px] font-bold text-[#1E1F23]">{supplier.dealsCompleted || 0}</span></div>
+                    <div className="flex flex-col"><span className="text-[11px] uppercase">Avg price</span><span className="text-[15px] font-bold text-[#1E1F23]">{supplier.avgPrice ? `${supplier.avgPrice} AED` : '—'}</span></div>
                   </div>
                   <p className="text-[12px] text-[#8B8F98]">Response: {supplier.responseHours ? `${supplier.responseHours}h avg` : 'No data'}</p>
                   <div className="mt-1 flex gap-2 text-[12px] font-medium">
-                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">View</button>
-                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">Map</button>
-                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">Contact</button>
+                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">👁 View</button>
+                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">📍 Map</button>
+                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">💬 Contact</button>
                   </div>
                 </div>
               ))}
@@ -1877,11 +1876,13 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
             <div className="rounded-[16px] bg-gradient-to-r from-[#5A6CF8] to-[#6C7CFF] p-4 text-white space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.12)]">
               <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-white/90">Client quote</p>
-              <div className="space-y-1 text-[13px]">
-                <p className="flex items-center justify-between"><span>Purchase</span><span className="text-[16px] font-medium">{formatMoney(selectedOfferTotal)}</span></p>
-                <p className="flex items-center justify-between"><span>Margin</span><span className="text-[16px] font-medium">{formatMoney(markupAed)}</span></p>
-                <p className="flex items-center justify-between"><span>Logistics</span><span className="text-[16px] font-medium">{formatMoney(logisticsTotal)}</span></p>
-                <p className="flex items-center justify-between border-t border-white/30 pt-2"><span>Client price</span><span className="text-[16px] font-semibold">{formatMoney(sellTotalAed, clientCurrency)}</span></p>
+              <div className="space-y-1 text-[13px] leading-[20px]">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                <p>Purchase</p><p className="text-right text-[16px] font-medium">{formatMoney(selectedOfferTotal)}</p>
+                <p>Margin</p><p className="text-right text-[16px] font-medium">{formatMoney(markupAed)}</p>
+                <p>Logistics</p><p className="text-right text-[16px] font-medium">{formatMoney(logisticsTotal)}</p>
+              </div>
+                <p className="flex items-center justify-between border-t border-white/30 pt-2"><span>Client price</span><span className="text-[20px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</span></p>
               </div>
               <button type="button" onClick={() => setIsEstimateOpen(true)} className="mt-2 h-12 w-full rounded-[12px] bg-white text-[#3B6AF7] text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Send to client</button>
             </div>
@@ -2181,7 +2182,7 @@ const OrderDetailsScreen: React.FC = () => {
             )}
             <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-gray-500">
               <input type="checkbox" checked={!!order.useMarkupAsDefaultForNewParts} onChange={(e) => updateOrderField('useMarkupAsDefaultForNewParts', e.target.checked)} />
-              По умолчанию для новых деталей
+              Apply margin to new parts
             </label>
           </div>
 
@@ -2594,16 +2595,16 @@ const OrderDetailsScreen: React.FC = () => {
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-4 space-y-3 shadow-[0_-8px_20px_rgba(0,0,0,0.08)]">
-        <div className="grid grid-cols-5 gap-2 text-[12px] font-medium">
-          <div><p className="text-gray-400">Purchase</p><p>{formatMoney(selectedOfferTotal)}</p></div>
-          <div><p className="text-gray-400">Margin</p><p>{formatDualMoney(markupAed)}</p></div>
-          <div><p className="text-gray-400">Cargo</p><p>{formatDualMoney(logisticsTotal)}</p></div>
-          <div><p className="text-gray-400">Client price</p><p>{formatMoney(sellTotalAed, clientCurrency)}</p></div>
-          <div><p className="text-gray-400">Profit</p><p className="text-emerald-600">{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
+        <div className="grid grid-cols-5 gap-2">
+          <div><p className="text-[12px] text-gray-400">Purchase</p><p className="text-[16px] font-bold">{formatMoney(selectedOfferTotal)}</p></div>
+          <div><p className="text-[12px] text-gray-400">Margin</p><p className="text-[16px] font-bold">{formatDualMoney(markupAed)}</p></div>
+          <div><p className="text-[12px] text-gray-400">Cargo</p><p className="text-[16px] font-bold">{formatDualMoney(logisticsTotal)}</p></div>
+          <div><p className="text-[12px] text-gray-400">Client price</p><p className="text-[16px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
+          <div><p className="text-[12px] text-gray-400">Profit</p><p className="text-[16px] font-bold text-emerald-600">{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
         </div>
         <div className="grid gap-2 grid-cols-4">
           <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">{contactActionLabel}</button>
-          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-600 text-white text-[10px] font-black">Add Part</button>
+          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-600 text-white text-[10px] font-black">Add part</button>
           <button type="button" onClick={handleSellClick} className={`h-10 rounded-xl text-[10px] font-black uppercase ${order.isSold ? 'bg-white border border-green-600 text-green-700' : 'bg-green-600 text-white'}`}>{order.isSold ? 'Продано' : 'Продать'}</button>
           <button type="button" onClick={() => setIsEstimateOpen(true)} className="h-10 rounded-xl bg-gray-900 text-white text-[10px] font-black uppercase">Смета</button>
         </div>
