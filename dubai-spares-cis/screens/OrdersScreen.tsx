@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, Clock3, Filter, MessageCircle, PenSquare, Pin, Smartphone, Star, X } from 'lucide-react';
+import { Activity, Archive, BarChart3, Clock3, Cloud, Filter, MessageCircle, PenSquare, Pin, Search, Star, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
@@ -307,9 +307,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
       >
         <div className="pointer-events-none absolute inset-0 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)]" />
         <div className="relative z-10">{children}</div>
-        {!hasSwiped && (
-          <p className="mt-3 text-[10px] text-slate-400">Свайп → чат • Свайп ← Archive • Long press → Delete</p>
-        )}
+        {!hasSwiped && null}
       </article>
     </div>
   );
@@ -453,7 +451,11 @@ const OrdersScreen: React.FC = () => {
     });
 
     if (debouncedSearch) {
-      list = list.filter((order) => `${order.brand} ${order.model} ${order.clientName} ${order.customerContact || ''}`.toLowerCase().includes(debouncedSearch));
+      list = list.filter((order) => {
+        const notesText = (order.notes || []).map((note) => note.text || '').join(' ');
+        const suppliersText = (order.parts || []).flatMap((part) => (part.variants || []).map((variant) => variant.shopName || variant.supplierName || '')).join(' ');
+        return `${order.brand} ${order.model} ${order.vin || ''} ${order.id} ${order.clientName || ''} ${order.customerContact || ''} ${notesText} ${suppliersText}`.toLowerCase().includes(debouncedSearch);
+      });
     }
 
     if (brandFilters.length > 0) {
@@ -522,53 +524,69 @@ const OrdersScreen: React.FC = () => {
     setIsDeleting(false);
   };
 
+  const activeFiltersCount = brandFilters.length + statusFilters.length + (priorityFilter !== 'all' ? 1 : 0) + (noResponseHours > 0 ? 1 : 0) + (issueFilter !== 'all' ? 1 : 0) + (yearFrom ? 1 : 0) + (yearTo ? 1 : 0);
+
   return (
     <div className="space-y-4 px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))] overflow-x-hidden">
 
       <header className="sticky top-0 z-20 space-y-3 bg-[#f7f8fc] pt-1 pb-2">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">Заказы</h1>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-[30px] leading-[34px] font-black tracking-tight text-slate-900">Заказы</h1>
+            <p className="mt-0.5 text-xs text-slate-500">{tabCounts.active} активных · {tabCounts.lead} лидов · {tabCounts.found} найдено</p>
+          </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setIsIncomeOpen(true)} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Статистика"><BarChart3 size={18} /></button>
-            <button type="button" onClick={() => navigate('/vendor')} className="h-11 px-3 rounded-xl border border-slate-200 bg-white text-[11px] font-black uppercase">Склад</button>
+            <button type="button" onClick={() => navigate('/vendor')} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Склад"><Archive size={16} /></button>
+            <button type="button" onClick={() => navigate('/notifications')} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Активность"><Activity size={16} /></button>
             <button type="button" disabled={isRefreshing} onClick={() => void refreshOrders()} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center disabled:opacity-50" aria-label="Обновить">
               <Clock3 size={18} className={isRefreshing ? 'animate-spin text-slate-500' : 'text-slate-700'} />
             </button>
           </div>
         </div>
 
+        <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs">
+          <span className="inline-flex items-center gap-2 font-semibold text-emerald-700"><Cloud size={14} /> Синхронизировано</span>
+          <span className="text-slate-500">Обновлено только что</span>
+        </div>
+
         <div className="flex items-center gap-2">
           <label className="flex h-11 flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3">
-            <Smartphone size={14} className="text-slate-400" />
-            <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Поиск заказа" className="w-full bg-transparent text-sm outline-none" />
+            <Search size={14} className="text-slate-400" />
+            <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Марка, VIN, ID, клиент, заметка" className="w-full bg-transparent text-sm outline-none" />
             {searchText && <button type="button" onClick={() => { setSearchText(''); setDebouncedSearch(''); void refreshOrders(); }} className="text-xs text-slate-500">Очистить</button>}
           </label>
-          <button type="button" onClick={() => setIsFilterOpen(true)} className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black uppercase inline-flex items-center gap-1"><Filter size={14} />Фильтр</button>
+          <button type="button" onClick={() => setIsFilterOpen(true)} className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black inline-flex items-center gap-1"><Filter size={14} />Фильтр{activeFiltersCount > 0 ? ` (${activeFiltersCount})` : ''}</button>
         </div>
+
+        {activeFiltersCount > 0 && (
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+            {priorityFilter !== 'all' && <span className="rounded-xl bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">Приоритет: {priorityFilter}</span>}
+            {brandFilters.length > 0 && <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Марки: {brandFilters.length}</span>}
+            {statusFilters.length > 0 && <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Статусы: {statusFilters.length}</span>}
+          </div>
+        )}
 
         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
           {([
-            ['active', 'Актив'],
+            ['active', 'Активные'],
             ['vip', 'VIP'],
-            ['lead', 'Лид'],
+            ['lead', 'Лиды'],
             ['found', 'Найденные'],
-            ['urgent', 'Срочно'],
-            ['medium', 'Средняя'],
-            ['low', 'Низкая'],
-            ['sold', 'Продано'],
+            ['sold', 'Проданные'],
             ['archive', 'Архив']
           ] as [TabType, string][]).map(([tab, label]) => (
             <button
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`whitespace-nowrap rounded-xl border px-3 py-2 text-[11px] font-black transition ${
+              className={`whitespace-nowrap rounded-2xl border px-3 py-2 text-[11px] font-black transition ${
                 activeTab === tab
                   ? 'border-blue-600 bg-blue-600 text-white'
                   : 'border-slate-200 bg-white text-slate-600'
               }`}
             >
-              {label} ({tabCounts[tab]})
+              {label} <span className="opacity-80">{tabCounts[tab]}</span>
             </button>
           ))}
         </div>
@@ -617,11 +635,11 @@ const OrdersScreen: React.FC = () => {
                 onCardTap={() => openOrderPreview(order)}
                 disableCardTap={!!deleteId || isDeleting}
               >
-                <div className={`rounded-2xl p-2.5 -m-2.5 ${isVipOrder ? 'bg-gradient-to-br from-amber-50 via-yellow-100 to-amber-200 border border-amber-300/80 shadow-[0_10px_26px_rgba(217,119,6,0.25)]' : isUnreadLeadOrder ? 'bg-amber-50/70 border border-amber-300/70 shadow-[0_8px_24px_rgba(251,191,36,0.25)]' : ''}`}>
+                <div className={`rounded-2xl p-1 -m-1 ${isVipOrder ? 'bg-amber-50/70 border border-amber-200' : isUnreadLeadOrder ? 'bg-amber-50/60 border border-amber-200/70' : ''}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-start gap-2">
                     {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) && (
-                      <img src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl} alt={`${order.brand} ${order.model}`} className="h-12 w-12 shrink-0 rounded-xl object-cover border border-slate-200" />
+                      <img src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl} alt={`${order.brand} ${order.model}`} className="h-14 w-14 shrink-0 rounded-2xl object-cover border border-slate-200" />
                     )}
                   <div className="min-w-0">
                     <h3 className="truncate text-base font-black text-slate-900">{order.brand} {order.model} <span className="text-sm font-semibold text-slate-500">{order.year}</span></h3>
@@ -633,7 +651,7 @@ const OrdersScreen: React.FC = () => {
                     <p className="mt-0.5 truncate text-sm text-slate-600 inline-flex items-center gap-1">{contactLabel}{order.isVip && <Star size={12} className="text-amber-500" />} • {order.source || 'Источник —'}</p>
                   </div>
                   </div>
-                  <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-700 inline-flex items-center gap-1"><Clock3 size={11} /> {ageLabel}</span>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-700 inline-flex items-center gap-1"><Clock3 size={11} /> SLA {ageLabel}</span>
                 </div>
 
                 {isVipOrder && (
@@ -642,9 +660,10 @@ const OrdersScreen: React.FC = () => {
                   </div>
                 )}
 
-                <div className="mt-2 flex items-center gap-2">
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">{statusLabelMap[status]}</span>
                   {order.priority === Priority.HIGH && <span className="text-[10px] font-black text-rose-600 uppercase">Срочно</span>}
+                  {order.salesStatus === 'Price Sent' && <span className="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">Оффер отправлен</span>}
                   {activeTab === 'active' && (
                     <button
                       type="button"
@@ -659,16 +678,21 @@ const OrdersScreen: React.FC = () => {
                   )}
                 </div>
 
-                <p className="mt-3 text-xs text-slate-500">Детали: {totalParts} • Найдено: {foundParts} ({progress}%)</p>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-xl bg-slate-50 px-2 py-1.5"><p className="text-slate-400">Детали</p><p className="font-bold text-slate-800">{totalParts}</p></div>
+                  <div className="rounded-xl bg-slate-50 px-2 py-1.5"><p className="text-slate-400">Найдено</p><p className="font-bold text-slate-800">{foundParts} · {progress}%</p></div>
+                  <div className="rounded-xl bg-slate-50 px-2 py-1.5"><p className="text-slate-400">Поставщ.</p><p className="font-bold text-slate-800">{new Set(order.parts.flatMap((part) => part.variants?.map((variant) => variant.shopName || variant.supplierName) || []).filter(Boolean)).size}</p></div>
+                </div>
 
-                <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold">
-                  {profitAed === null ? (
-                    <span className="text-slate-600">Маржа: не рассчитано</span>
-                  ) : profitAed >= 0 ? (
-                    <span className="text-emerald-700">Прибыль: +{profitAed} AED</span>
-                  ) : (
-                    <span className="text-rose-700">Убыток: {profitAed} AED</span>
-                  )}
+                <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-semibold">
+                  <span className="text-slate-500">Purchase: {Math.round(order.parts.reduce((acc, part) => acc + ((part.variants || []).reduce((min, variant) => {
+                    const p = Number(variant.priceAed || 0);
+                    if (!p) return min;
+                    return min === 0 ? p : Math.min(min, p);
+                  }, 0)), 0))} AED</span>
+                  <span className="text-right text-slate-500">Client: {order.clientPriceAed ? `${Math.round(order.clientPriceAed)} AED` : '—'}</span>
+                  <span className="text-slate-500">Margin: {order.markupPercent ? `${order.markupPercent}%` : '—'}</span>
+                  <span className={`text-right ${profitAed === null ? 'text-slate-500' : profitAed >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>Profit: {profitAed === null ? 'Нет расчёта' : `${profitAed} AED`}</span>
                 </div>
 
                 </div>
