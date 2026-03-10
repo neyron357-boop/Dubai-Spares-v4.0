@@ -1374,6 +1374,22 @@ const mergeChecklistFromLocal = (cloudOrder: Order, localOrder?: Order): Order =
   };
 };
 
+const LOCAL_MISSING_IN_CLOUD_GRACE_MS = 1000 * 60 * 60 * 24 * 14;
+
+const shouldRetainLocalOrderWhenMissingInCloud = (order: Order) => {
+  const updatedAt = Number(order.updatedAt || order.createdAt || 0);
+  const isRecentlyChanged = updatedAt > 0 && Date.now() - updatedAt <= LOCAL_MISSING_IN_CLOUD_GRACE_MS;
+  const hasBusinessData = Boolean(
+    (order.parts || []).length
+    || (order.notes || []).length
+    || (order.carPhotos || []).length
+    || (order.pricingEvents || []).length
+    || (order.customerContact && order.customerContact.trim().length > 0)
+    || (order.vin && order.vin.trim().length > 0)
+  );
+  return isRecentlyChanged || hasBusinessData;
+};
+
 const scheduleBackgroundFlush = () => {
   const timerKey = '__network_flush__';
   const existing = mutationTimers.get(timerKey);
@@ -1789,12 +1805,28 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
       return mergeChecklistFromLocal(cloudOrder, localOrder);
     });
 
+  const recoveredLocalOrders: Order[] = [];
   localById.forEach((localOrder, localId) => {
-    if (!pendingUpsertIds.has(localId)) return;
     if (pendingDeleteIds.has(localId)) return;
     if (mergedOrders.some((order) => order.id === localId)) return;
+
+    if (!pendingUpsertIds.has(localId) && !shouldRetainLocalOrderWhenMissingInCloud(localOrder)) return;
+
+    if (!pendingUpsertIds.has(localId)) {
+      recoveredLocalOrders.push(localOrder);
+      void logger.warn('sync:fetch', 'Recovering local order missing in cloud snapshot', {
+        orderId: localId,
+        updatedAt: localOrder.updatedAt || localOrder.createdAt || null,
+        parts: (localOrder.parts || []).length
+      });
+    }
+
     mergedOrders.push(localOrder);
   });
+
+  for (const recoveredOrder of recoveredLocalOrders) {
+    await queueMutation('upsert', recoveredOrder, recoveredOrder.id);
+  }
 
   await offlineDb.saveOrders(mergedOrders);
   setSyncStatus('online');
