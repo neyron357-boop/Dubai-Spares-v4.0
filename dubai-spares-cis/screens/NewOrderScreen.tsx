@@ -692,7 +692,9 @@ const NewOrderScreen: React.FC = () => {
       draftIds.forEach((id) => updated.delete(id));
       return updated;
     });
+    localStorage.removeItem(DRAFTS_LIST_KEY);
     localStorage.setItem(DRAFTS_LIST_KEY, JSON.stringify(next));
+    window.dispatchEvent(new StorageEvent('storage', { key: DRAFTS_LIST_KEY, newValue: JSON.stringify(next) }));
     toast(`Удалено черновиков: ${draftIds.length}`, 'success');
   };
 
