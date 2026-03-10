@@ -52,7 +52,7 @@ import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
-const CUSTOMER_STATUSES = ['VIP', 'LEAD', 'INQUIRY'] as const;
+const CUSTOMER_STATUSES = ['Lead', 'VIP', 'Inquiry'] as const;
 const PRIORITY_HINT: Record<Priority, string> = {
   [Priority.LOW]: 'можно отвечать позже',
   [Priority.MEDIUM]: 'обычная срочность',
@@ -631,6 +631,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   const dismissedShopIds = new Set(order.dismissedShopIds || []);
   const orderAgeHours = Math.floor((Date.now() - order.createdAt) / (1000 * 60 * 60));
+  const orderAgeDays = Math.max(1, Math.floor(orderAgeHours / 24));
   const isSlaBreached = orderAgeHours >= SLA_HOURS;
   const vinIsValid = /^[A-HJ-NPR-Z0-9]{17}$/.test((order.vin || '').toUpperCase());
   const vinIsIncomplete = !!order.vin && !vinIsValid;
@@ -715,15 +716,21 @@ const OrderDetailsScreen: React.FC = () => {
     flushDeferredOrderField('socialNickname');
   };
 
-  const updateCustomerStatus = (nextStatus: 'VIP' | 'LEAD' | 'INQUIRY') => {
+  const updateCustomerStatus = (nextStatus: 'Lead' | 'VIP' | 'Inquiry') => {
     if (!isEditMode) return;
-    const prevStatus = order.customerStatus || (order.isVip ? 'VIP' : order.isLead ? 'LEAD' : 'INQUIRY');
+    const prevStatus = order.customerStatus === 'VIP'
+      ? 'VIP'
+      : order.customerStatus === 'LEAD'
+        ? 'Lead'
+        : order.customerStatus === 'INQUIRY'
+          ? 'Inquiry'
+          : (order.isVip ? 'VIP' : order.isLead ? 'Lead' : 'Inquiry');
     if (prevStatus === nextStatus) return;
     updateOrder({
       ...order,
-      customerStatus: nextStatus,
+      customerStatus: nextStatus === 'Lead' ? 'LEAD' : nextStatus === 'Inquiry' ? 'INQUIRY' : 'VIP',
       isVip: nextStatus === 'VIP',
-      isLead: nextStatus === 'LEAD',
+      isLead: nextStatus === 'Lead',
       statusChangedAt: Date.now(),
       statusChangedBy: 'current-user'
     });
@@ -731,9 +738,9 @@ const OrderDetailsScreen: React.FC = () => {
       message: 'Статус обновлён ✅',
       undo: () => updateOrder({
         ...order,
-        customerStatus: prevStatus,
+        customerStatus: prevStatus === 'Lead' ? 'LEAD' : prevStatus === 'Inquiry' ? 'INQUIRY' : 'VIP',
         isVip: prevStatus === 'VIP',
-        isLead: prevStatus === 'LEAD'
+        isLead: prevStatus === 'Lead'
       })
     });
   };
@@ -1562,20 +1569,29 @@ const OrderDetailsScreen: React.FC = () => {
                 key={status}
                 type="button"
                 onClick={() => updateCustomerStatus(status)}
-                className={`h-8 min-w-[72px] px-3 rounded-lg text-[11px] font-black ${((order.customerStatus || (order.isVip ? 'VIP' : order.isLead ? 'LEAD' : 'INQUIRY')) === status) ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+                className={`h-8 min-w-[72px] px-3 rounded-lg text-[11px] font-black ${((order.customerStatus === 'VIP'
+                  ? 'VIP'
+                  : order.customerStatus === 'LEAD'
+                    ? 'Lead'
+                    : order.customerStatus === 'INQUIRY'
+                      ? 'Inquiry'
+                      : (order.isVip ? 'VIP' : order.isLead ? 'Lead' : 'Inquiry')) === status) ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
               >
                 {status}
               </button>
             ))}
           </div>
           <div className={`inline-flex items-center gap-1 text-xs font-bold ${isSlaBreached ? 'text-amber-700' : 'text-gray-500'}`}>
-            <Clock3 size={14} /> В работе: {orderAgeHours}ч
+            <Clock3 size={14} /> {orderAgeDays} дней
           </div>
         </div>
         <div className="flex gap-2 items-center overflow-x-auto no-scrollbar">
-          <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
+          <div className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[10px] font-black text-gray-500">
+            <span className="uppercase tracking-[0.18em]">Status</span>
+            <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="bg-transparent text-[10px] font-black text-gray-700 outline-none">
             {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
+            </select>
+          </div>
           <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} disabled={!isEditMode} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">
             <option value={Priority.HIGH}>HIGH</option>
             <option value={Priority.MEDIUM}>MEDIUM</option>
@@ -2012,7 +2028,10 @@ const OrderDetailsScreen: React.FC = () => {
                       <div key={part.id} className="rounded-xl border border-gray-200 bg-white p-2">
                         <p className="mb-2 text-xs font-bold text-gray-700">{part.name}</p>
                         <div className="grid grid-cols-2 gap-2">
-                          <input type="number" min={0} step="0.1" value={cargoDraft.weightKg} onChange={(e) => onPartCargoDraftChange(part.id, 'weightKg', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Вес, кг" />
+                          <label className="flex flex-col gap-1">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Вес, кг</span>
+                            <input type="number" min={0} step="0.1" value={cargoDraft.weightKg} onChange={(e) => onPartCargoDraftChange(part.id, 'weightKg', e.target.value)} className="rounded-lg border-2 border-gray-300 bg-white px-2 py-2 text-xs font-semibold text-gray-800" />
+                          </label>
                           <input type="number" min={1} step="1" value={cargoDraft.places} onChange={(e) => onPartCargoDraftChange(part.id, 'places', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Мест" />
                           <label className="col-span-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold text-gray-600"><input type="checkbox" checked={cargoDraft.isOversized} onChange={(e) => onPartCargoDraftChange(part.id, 'isOversized', e.target.checked)} /> Крупногабарит</label>
                         </div>
@@ -2071,8 +2090,8 @@ const OrderDetailsScreen: React.FC = () => {
             </button>
             <div className="grid grid-cols-3 gap-2">
               <button type="button" onClick={openClientChannel} className="h-11 rounded-2xl bg-emerald-50 text-emerald-700 text-[11px] font-black uppercase">{contactActionLabel}</button>
-              <button type="button" onClick={() => partInputRef.current?.focus()} className="h-11 rounded-2xl bg-blue-50 text-blue-700 text-[11px] font-black uppercase">Деталь +</button>
-              <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-2xl bg-slate-100 text-slate-700 text-[11px] font-black uppercase">Магазин +</button>
+              <button type="button" onClick={() => partInputRef.current?.focus()} className="h-11 rounded-2xl bg-blue-50 px-2 text-blue-700 text-[11px] font-black">Добавить деталь</button>
+              <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-2xl bg-slate-100 px-2 text-slate-700 text-[11px] font-black">Добавить магазин</button>
             </div>
           </div>
         </div>
@@ -2217,9 +2236,9 @@ const OrderDetailsScreen: React.FC = () => {
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Заметки</h2>
           <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            <button type="button" onClick={() => noteFileRef.current?.click()} className="w-12 h-12 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 flex items-center justify-center"><ImageIcon size={18} /></button>
-            <button type="button" onClick={() => noteAudioFileRef.current?.click()} className="w-12 h-12 rounded-xl border-2 border-dashed border-gray-200 text-gray-500 flex items-center justify-center"><FileAudio size={18} /></button>
-            <button type="button" onClick={toggleRecording} className={`w-12 h-12 rounded-xl border-2 ${isRecording ? 'border-red-300 bg-red-50 text-red-600' : 'border-gray-200 text-gray-500'} flex items-center justify-center`}>{isRecording ? <Square size={16} /> : <Mic size={16} />}</button>
+            <button type="button" onClick={() => noteFileRef.current?.click()} className="h-12 rounded-xl border-2 border-dashed border-gray-200 px-3 text-gray-600 inline-flex items-center gap-2"><ImageIcon size={18} /> Фото</button>
+            <button type="button" onClick={() => noteAudioFileRef.current?.click()} className="h-12 rounded-xl border-2 border-dashed border-gray-200 px-3 text-gray-600 inline-flex items-center gap-2"><FileAudio size={18} /> Файл</button>
+            <button type="button" onClick={toggleRecording} className={`h-12 rounded-xl border-2 px-3 ${isRecording ? 'border-red-300 bg-red-50 text-red-600' : 'border-gray-200 text-gray-600'} inline-flex items-center gap-2`}>{isRecording ? <Square size={16} /> : <Mic size={16} />} Голос</button>
             {isRecording && <div className="h-12 px-2 rounded-xl border border-rose-200 bg-rose-50 flex items-end gap-1">{Array.from({ length: 16 }).map((_, idx) => <span key={`record-wave-${idx}`} className="w-1 rounded-full bg-rose-400" style={{ height: `${30 + Math.abs(Math.sin((recordingTick + idx) * 0.9)) * 70}%` }} />)}</div>}
             {newNotePhotos.map((p, i) => <img key={i} src={p} className="w-12 h-12 rounded-xl object-cover border border-gray-100" />)}
             {newNoteAudios.map((_, i) => <div key={`na-${i}`} className="px-3 h-12 rounded-xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-600 flex items-center">Audio {i + 1}</div>)}
@@ -2315,29 +2334,18 @@ const OrderDetailsScreen: React.FC = () => {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-black text-sm text-gray-800 truncate leading-none mb-1 uppercase tracking-tight">{part.name} <span className="text-xs text-gray-500">×{partQuantity}</span></h4>
-                    {isGroupPart && <p className="text-[10px] font-black uppercase tracking-wide text-violet-600">Группа деталей · {groupItems.length} позиций</p>}
-                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">{part.variants.length} вариантов · {part.priority === 'urgent' ? 'urgent' : 'normal'}</p>
-                    {isGroupPart && groupItems.length > 0 && (
-                      <div className="mt-1 rounded-lg bg-violet-50 px-2 py-1 text-[10px] text-violet-700">
-                        {groupItems.slice(0, 3).map((item, idx) => <p key={`${part.id}-item-${idx}`} className="truncate">• {item.name} ×{item.quantity}</p>)}
-                        {groupItems.length > 3 && <p>и ещё {groupItems.length - 3}…</p>}
-                      </div>
-                    )}
-                    {!isCommentExpanded && part.comment?.trim() && (
-                      <p className="mt-1 text-[11px] font-semibold text-slate-600">📝 {part.comment}</p>
-                    )}
-                    {part.variants[0] && (
-                      <p className="text-[10px] text-emerald-700 font-bold">Лучший: {part.variants[0].priceAed} AED · {part.variants[0].shopName || 'магазин не указан'}</p>
-                    )}
+                    <h4 className="font-black text-sm text-gray-800 truncate leading-none mb-1">{part.name}</h4>
+                    <p className="text-[11px] font-semibold text-slate-600">Количество деталей: {partQuantity}</p>
+                    <p className="text-[11px] font-semibold text-slate-600">Лучший вариант: {part.variants[0]?.shopName || 'не выбран'}</p>
+                    <p className="text-[11px] font-black text-emerald-700">Цена: {part.variants[0] ? `${part.variants[0].priceAed} AED` : '—'}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); void shareMessage(buildPartShareText(order, part)); }}
-                      className="p-4 -m-2 text-gray-200 hover:text-emerald-600 transition-all"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700"
                     >
-                      <Share2 size={18} />
+                      <Share2 size={14} /> Отправить
                     </button>
                     <button 
                       type="button"
@@ -2405,9 +2413,9 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
         <div className="grid gap-2 grid-cols-4">
           <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">{contactActionLabel}</button>
-          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-50 text-blue-700 text-[10px] font-black uppercase">Деталь +</button>
-          <button type="button" onClick={() => setIsEstimateOpen(true)} className="h-10 rounded-xl bg-gray-900 text-white text-[10px] font-black uppercase">Смета</button>
+          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-50 text-blue-700 text-[10px] font-black">Добавить деталь</button>
           <button type="button" onClick={handleSellClick} className={`h-10 rounded-xl text-[10px] font-black uppercase ${order.isSold ? 'bg-white border border-green-600 text-green-700' : 'bg-green-600 text-white'}`}>{order.isSold ? 'Продано' : 'Продать'}</button>
+          <button type="button" onClick={() => setIsEstimateOpen(true)} className="h-10 rounded-xl bg-gray-900 text-white text-[10px] font-black uppercase">Смета</button>
         </div>
       </div>
 
