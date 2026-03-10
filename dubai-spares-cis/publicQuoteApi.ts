@@ -47,6 +47,7 @@ export type PublicQuotePayloadV1 = {
     photo_urls: string[];
     weight_kg?: number;
     places?: number;
+    cargo_place_group?: string;
     is_oversized?: boolean;
   }>;
   owner: {
@@ -667,7 +668,8 @@ const buildSnapshotPayload = (
         client_price_aed: round2(clientAed),
         photo_urls: dedupePhotoUrls([part.photoUrl || '', ...(part.photos || []), variant?.photoUrl || '', ...(variant?.photos || [])]),
         weight_kg: parseMoney((part as any).weightKg),
-        places: parseMoney((part as any).places) || 1,
+        places: parseMoney((part as any).places),
+        cargo_place_group: String((part as any).cargoPlaceGroup || '').trim() || undefined,
         is_oversized: !!(part as any).isOversized
       };
     });

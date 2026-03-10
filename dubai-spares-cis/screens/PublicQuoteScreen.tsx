@@ -491,7 +491,7 @@ const normalizeLogistics = (raw: any) => {
   const cargoContainerEtaDays = String(raw.cargoContainerEtaDays || raw.cargo_container_eta_days || '').trim();
 
   const hasAedFees = deliveryAed > 0 || packingAed > 0 || serviceFeeAed > 0;
-  const hasCargo = Boolean(cargoCountry) || cargoTotalWeightKg > 0 || cargoChargeableWeightKg > 0 || cargoAirCostUsd > 0 || cargoContainerCostUsd > 0;
+  const hasCargo = Boolean(cargoCountry) || cargoTotalWeightKg > 0 || cargoChargeableWeightKg > 0 || cargoTotalPlaces > 0 || cargoAirCostUsd > 0 || cargoContainerCostUsd > 0;
   if (!hasAedFees && !hasCargo) return undefined;
 
   return {
@@ -660,7 +660,8 @@ const mapSnapshotOrder = (row: any): Order => {
     photos,
     isFound: !!part?.isFound || !!part?.is_found,
     weightKg: Number(part?.weightKg ?? part?.weight_kg ?? 0),
-    places: Number(part?.places ?? 1),
+    places: Number(part?.places ?? 0),
+    cargoPlaceGroup: String(part?.cargoPlaceGroup ?? part?.cargo_place_group ?? ''),
     isOversized: !!(part?.isOversized ?? part?.is_oversized),
     variants: (part?.variants || part?.price_variants || [{ id: `${part?.id || 'variant'}-public`, priceAed: variantPrice, price_aed: variantPrice }]).map((variant: any): PriceVariant => ({
       id: String(variant?.id || ''),
@@ -1506,11 +1507,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       airSeatUsd: 0,
       air: {
         eta: String(order.logistics?.cargoAirEtaDays || computed.air.eta || '—'),
-        costUsd: Number(order.logistics?.cargoAirCostUsd || computed.air.totalCostUsd || 0)
+        costUsd: Number(order.logistics?.cargoAirCostUsd ?? computed.air.totalCostUsd ?? 0)
       },
       container: {
         eta: String(order.logistics?.cargoContainerEtaDays || computed.container.eta || '—'),
-        costUsd: Number(order.logistics?.cargoContainerCostUsd || computed.container.totalCostUsd || 0)
+        costUsd: Number(order.logistics?.cargoContainerCostUsd ?? computed.container.totalCostUsd ?? 0)
       }
     };
   }, [order]);

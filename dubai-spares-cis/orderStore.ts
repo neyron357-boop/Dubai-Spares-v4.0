@@ -941,7 +941,8 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
       lengthCm: Number((part as any).length_cm || 0),
       widthCm: Number((part as any).width_cm || 0),
       heightCm: Number((part as any).height_cm || 0),
-      places: Number((part as any).places || 1),
+      places: Number((part as any).places || 0),
+      cargoPlaceGroup: String((part as any).cargo_place_group || ''),
       isOversized: Boolean((part as any).is_oversized),
       variants: (part.price_variants || []).map((v): PriceVariant => ({
         id: String(v.id),
@@ -1250,7 +1251,8 @@ const persistOrderGraph = async (order: Order) => {
     length_cm: Number((part as any).lengthCm || 0),
     width_cm: Number((part as any).widthCm || 0),
     height_cm: Number((part as any).heightCm || 0),
-    places: Number((part as any).places || 1),
+    places: Number((part as any).places || 0),
+    cargo_place_group: String((part as any).cargoPlaceGroup || '').trim(),
     is_oversized: !!(part as any).isOversized
   }));
 
