@@ -61,7 +61,7 @@ const i18n = {
     quoteTotal: 'Quote total',
     finalClientPrice: 'Final client price',
     confirmWhatsApp: 'Confirm & WhatsApp',
-    viewParts: 'View Parts & Photos',
+    viewParts: 'Go to Parts Gallery',
     whatIncluded: "What's included",
     partsGallery: 'Parts gallery',
     status: 'Status',
@@ -89,6 +89,19 @@ const i18n = {
     downloadPdf: 'Download PDF Quote',
     noPositions: 'No positions',
     contactNotConfigured: 'Contact not configured'
+    ,
+    noPhotos: 'No photos available for this part yet.',
+    clientLabel: 'Client',
+    trustedSupplierBadge: 'Verified UAE supplier',
+    fastResponseBadge: 'Reply in 5–15 min',
+    partGroupLabel: 'Part group',
+    partGroupItems: 'items',
+    workTermsTitle: 'Terms and documents',
+    downloadTerms: 'Download file (PDF)',
+    signature: 'Signature',
+    commercialOffer: 'Commercial offer',
+    contactManager: 'Contact the manager',
+    expiredQuoteWhatsappMessage: 'Hello! I need a new public quote link.'
   },
   ru: {
     quoteUnavailable: 'Предложение недоступно.',
@@ -118,7 +131,7 @@ const i18n = {
     quoteTotal: 'Итоговая цена',
     finalClientPrice: 'Финальная цена для клиента',
     confirmWhatsApp: 'Подтвердить в WhatsApp',
-    viewParts: 'Смотреть детали и фото',
+    viewParts: 'Перейти к галерее деталей',
     whatIncluded: 'Что входит в цену',
     partsGallery: 'Галерея деталей',
     status: 'Статус',
@@ -145,7 +158,19 @@ const i18n = {
     companyProfile: 'Профиль компании',
     downloadPdf: 'Скачать PDF смету',
     noPositions: 'Нет позиций',
-    contactNotConfigured: 'Контакт не настроен'
+    contactNotConfigured: 'Контакт не настроен',
+    noPhotos: 'Фотографии для этой детали пока недоступны.',
+    clientLabel: 'Клиент',
+    trustedSupplierBadge: 'Проверенный поставщик UAE',
+    fastResponseBadge: 'Ответ 5–15 мин',
+    partGroupLabel: 'Группа деталей',
+    partGroupItems: 'поз.',
+    workTermsTitle: 'Условия и документы',
+    downloadTerms: 'Скачать файл (PDF)',
+    signature: 'Подпись',
+    commercialOffer: 'Коммерческое предложение',
+    contactManager: 'Свяжитесь с менеджером',
+    expiredQuoteWhatsappMessage: 'Здравствуйте! Нужна новая ссылка на смету.'
   }
 } as const;
 
@@ -697,6 +722,17 @@ const isDisplayablePhotoUrl = (value: string) => (
   || value.startsWith('data:image')
 );
 
+const isUnavailablePhotoPlaceholder = (value: string) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return true;
+  return normalized.includes('photo-unavailable')
+    || normalized.includes('no-photo')
+    || normalized.includes('no_image')
+    || normalized.includes('placeholder')
+    || normalized.includes('%d1%84%d0%be%d1%82%d0%be%20%d0%bd%d0%b5%d0%b4%d0%be%d1%81%d1%82%d1%83%d0%bf%d0%bd%d0%be')
+    || normalized.includes('фото недоступно');
+};
+
 const normalizePhotoKey = (url: string) => {
   try {
     const parsed = new URL(url);
@@ -716,7 +752,7 @@ const sanitizePhotoList = (photos: string[]) => {
   const next: string[] = [];
   photos
     .map((photo) => String(photo || '').trim())
-    .filter((photo) => !!photo && !photo.startsWith('local://') && !photo.startsWith('blob:') && isDisplayablePhotoUrl(photo))
+    .filter((photo) => !!photo && !photo.startsWith('local://') && !photo.startsWith('blob:') && isDisplayablePhotoUrl(photo) && !isUnavailablePhotoPlaceholder(photo))
     .forEach((photo) => {
       const key = normalizePhotoKey(photo);
       if (seen.has(key)) return;
@@ -1627,7 +1663,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 <button
                   type="button"
                   onClick={() => {
-                    const url = `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent('Здравствуйте! Нужна новая ссылка на смету.')}`;
+                    const url = `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(t.expiredQuoteWhatsappMessage)}`;
                     window.location.href = url;
                   }}
                   className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white"
@@ -1635,7 +1671,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                   <MessageCircle size={15} /> {t.contactUs}
                 </button>
               ) : (
-                <div className="text-sm text-slate-500">Свяжитесь с менеджером</div>
+                <div className="text-sm text-slate-500">{t.contactManager}</div>
               )
             )}
           </div>
@@ -1675,7 +1711,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <p className="mt-1 text-xs font-medium uppercase tracking-[0.14em] text-slate-400">VIN: {maskVin(order.vin)}</p>
               {clientDisplayName && (
                 <p className="mt-2 text-sm font-semibold text-slate-700">
-                  Клиент: {clientDisplayName}{clientNickname ? ` (${clientNickname})` : ''}
+                  {t.clientLabel}: {clientDisplayName}{clientNickname ? ` (${clientNickname})` : ''}
                 </p>
               )}
             </div>
@@ -1694,8 +1730,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               </div>
             </div>
             <div className="flex flex-wrap gap-2 text-[11px] font-semibold text-slate-500">
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">Проверенный поставщик UAE</span>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">Ответ 5–15 мин</span>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">{t.trustedSupplierBadge}</span>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">{t.fastResponseBadge}</span>
               {expiresAtIso && <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">{t.validUntil}: {new Date(expiresAtIso).toLocaleDateString()}</span>}
             </div>
           </div>
@@ -1706,7 +1742,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
         <section ref={detailRef} className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{t.partsGallery} — {partCards.length} {lang === 'ru' ? 'позиц.' : 'items'}</h2>
+          <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{t.partsGallery} — {partCards.length} {lang === 'ru' ? 'позиц.' : 'items'}</h2>
           </div>
           {partCards.map(({ part, quantity, best, converted, previewPhotos, galleryPhotos, availability }) => {
             const partMessage = `Hello! I confirm ${part.name} for ${order.brand} ${order.model} ${order.year}.\nVIN: ${maskVin(order.vin || '')}.\nPrice: ${converted.toFixed(2)} ${currency}.`;
@@ -1721,13 +1757,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 <button
                   type="button"
                   onClick={() => {
-                    if (galleryPhotos.length === 0) return;
+                    if (galleryPhotos.length === 0) {
+                      window.alert(t.noPhotos);
+                      return;
+                    }
                     setGallery({ images: galleryPhotos, index: 0 });
                     logEvent('gallery_open', { partId: part.id });
                   }}
                   className="relative shrink-0 inline-flex h-[72px] w-[72px] items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-slate-400"
-                  disabled={galleryPhotos.length === 0}
-                  title={galleryPhotos.length > 1 ? `Фото: ${galleryPhotos.length}` : 'Фото детали'}
+                  title={galleryPhotos.length > 1 ? `Фото: ${galleryPhotos.length}` : t.noPhotos}
                 >
                   {previewPhotos[0] ? <img src={previewPhotos[0]} alt={part.name} className="h-full w-full object-cover" /> : <Images size={22} />}
                   {galleryPhotos.length > 1 && (
@@ -1739,7 +1777,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 <div className="flex-1 min-w-0">
                   <h3 className="font-bold leading-snug text-slate-900 text-sm sm:text-base">{part.name}{quantity > 1 ? ` ×${quantity}` : ''}</h3>
                   {isGroupPart && (
-                    <p className="mt-1 text-[11px] font-semibold text-violet-700">Группа деталей · {groupItems.length} поз.</p>
+                    <p className="mt-1 text-[11px] font-semibold text-violet-700">{t.partGroupLabel} · {groupItems.length} {t.partGroupItems}</p>
                   )}
                   {isGroupPart && groupItems.length > 0 && (
                     <div className="mt-1 space-y-0.5 text-[11px] text-slate-500">
@@ -1784,7 +1822,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
         {termsFileUrl && (
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Условия и документы</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.workTermsTitle}</p>
             <a
               href={termsFileUrl}
               target="_blank"
@@ -1792,7 +1830,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               download={termsFileName || 'terms.pdf'}
               className="mt-3 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-sm"
             >
-              <Download size={15} /> Скачать файл (PDF)
+              <Download size={15} /> {t.downloadTerms}
             </a>
           </section>
         )}
@@ -1897,7 +1935,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
         {signatureUrl && (
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Подпись</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.signature}</p>
             <div className="mt-2 border-t border-slate-100 pt-3">
               <img src={signatureUrl} alt="Owner signature" className="h-20 w-auto object-contain" />
             </div>
@@ -1906,7 +1944,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
         {/* Footer branding */}
         <div className="py-4 text-center">
-          <p className="text-[10px] text-slate-400">Dubai Spares UAE · Коммерческое предложение</p>
+          <p className="text-[10px] text-slate-400">Dubai Spares UAE · {t.commercialOffer}</p>
           <p className="text-[9px] text-slate-300 mt-0.5">ID: {orderId}</p>
         </div>
       </main>

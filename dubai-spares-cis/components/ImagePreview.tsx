@@ -14,6 +14,17 @@ interface Props {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const isUnavailablePlaceholder = (value: string) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return true;
+  return normalized.includes('photo-unavailable')
+    || normalized.includes('no-photo')
+    || normalized.includes('no_image')
+    || normalized.includes('placeholder')
+    || normalized.includes('%d1%84%d0%be%d1%82%d0%be%20%d0%bd%d0%b5%d0%b4%d0%be%d1%81%d1%82%d1%83%d0%bf%d0%bd%d0%be')
+    || normalized.includes('фото недоступно');
+};
+
 const ImagePreview: React.FC<Props> = ({
   images,
   initialIndex = 0,
@@ -82,6 +93,8 @@ const ImagePreview: React.FC<Props> = ({
   };
 
   const currentImageUrl = images[currentIndex];
+  const actionableImages = images.filter((image) => !isUnavailablePlaceholder(image));
+  const canShareOrSave = actionableImages.length > 0;
 
   const toImageFile = async (url: string, index: number) => {
     const response = await fetch(url, { mode: 'cors' });
@@ -92,9 +105,9 @@ const ImagePreview: React.FC<Props> = ({
 
   const handleShare = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (!images.length || !navigator.share) return;
+    if (!canShareOrSave || !navigator.share) return;
     try {
-      const preparedFiles = await Promise.allSettled(images.map((image, index) => toImageFile(image, index)));
+      const preparedFiles = await Promise.allSettled(actionableImages.map((image, index) => toImageFile(image, index)));
       const files = preparedFiles
         .filter((item): item is PromiseFulfilledResult<File> => item.status === 'fulfilled')
         .map((item) => item.value);
@@ -106,7 +119,7 @@ const ImagePreview: React.FC<Props> = ({
 
       await navigator.share({
         title: shareTitle,
-        text: `${shareText}\n${images.join('\n')}`.trim()
+        text: `${shareText}\n${actionableImages.join('\n')}`.trim()
       });
     } catch {
       // user cancelled share sheet
@@ -115,8 +128,8 @@ const ImagePreview: React.FC<Props> = ({
 
   const handleSave = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (!images.length) return;
-    images.forEach((url, index) => {
+    if (!canShareOrSave) return;
+    actionableImages.forEach((url, index) => {
       const link = document.createElement('a');
       link.href = url;
       link.download = `image-${index + 1}.jpg`;
@@ -169,24 +182,26 @@ const ImagePreview: React.FC<Props> = ({
         </button>
       )}
 
-      <div className="absolute top-20 right-6 z-50 flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={handleShare}
-          className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-black/50 px-3 py-1.5 text-xs font-bold text-white"
-        >
-          <Share2 size={14} />
-          Поделиться
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-black/50 px-3 py-1.5 text-xs font-bold text-white"
-        >
-          <Download size={14} />
-          Сохранить
-        </button>
-      </div>
+      {canShareOrSave && (
+        <div className="absolute top-20 right-6 z-50 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={handleShare}
+            className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-black/50 px-3 py-1.5 text-xs font-bold text-white"
+          >
+            <Share2 size={14} />
+            Поделиться
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-black/50 px-3 py-1.5 text-xs font-bold text-white"
+          >
+            <Download size={14} />
+            Сохранить
+          </button>
+        </div>
+      )}
 
       {images.length > 1 && (
         <>
