@@ -1,5 +1,20 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { Camera, ChevronDown, Heart, Link2, MapPin, Pin, Plus, Store, Trash2, WandSparkles } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Camera,
+  Check,
+  ChevronDown,
+  Heart,
+  Link2,
+  MapPin,
+  MessageCircle,
+  Phone,
+  Pin,
+  Plus,
+  Search,
+  Sparkles,
+  StickyNote,
+  X
+} from 'lucide-react';
 import { useStore } from '../store';
 import { createUuid } from '../id';
 import { PriceVariant } from '../types';
@@ -9,44 +24,63 @@ import { optimizeImageForUpload } from '../storage/photos';
 const supplierNameTemplates = ['Desert Auto', 'Falcon Parts', 'Turbo Motors', 'Prime Garage', 'Royal Trading'];
 const priceTemplates = [150, 250, 450, 750, 1200, 1800];
 
-type SortKey = 'updated' | 'supplier' | 'price_asc' | 'price_desc';
+type SortKey = 'updated' | 'created' | 'supplier' | 'price_asc' | 'price_desc' | 'pinned';
+type FilterKey = 'all' | 'standalone' | 'order' | 'pinned' | 'favorite' | 'with_photo';
+type SyncVisualStatus = 'synced' | 'pending' | 'offline' | 'error';
+
+const filterOptions: Array<{ key: FilterKey; label: string }> = [
+  { key: 'all', label: 'Все' },
+  { key: 'standalone', label: 'Без заказа' },
+  { key: 'order', label: 'Из заказов' },
+  { key: 'pinned', label: 'Закреплённые' },
+  { key: 'favorite', label: 'Избранное' },
+  { key: 'with_photo', label: 'С фото' }
+];
+
+
+const formatPrice = (price: number) => `${new Intl.NumberFormat('ru-RU').format(Number(price || 0))} AED`;
+const formatDate = (value?: number) => new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(value || Date.now()));
+const normalizePhone = (value: string) => value.replace(/\s+/g, '');
+const trimVin = (value: string) => (value.length > 13 ? `${value.slice(0, 13)}…` : value);
 
 const VariantsScreen: React.FC = () => {
   const { variantLibrary, saveStandaloneVariant, removeStandaloneVariant, suppliers, updatePriceVariant } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isCreating, setIsCreating] = useState(false);
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [priceAed, setPriceAed] = useState('');
   const [shopName, setShopName] = useState('');
-  const [phone, setPhone] = useState('+971');
+  const [partName, setPartName] = useState('');
+  const [phone, setPhone] = useState('');
   const [location, setLocation] = useState('');
   const [mapsUrl, setMapsUrl] = useState('');
   const [note, setNote] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [supplierId, setSupplierId] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('updated');
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+  const [searchTerm, setSearchTerm] = useState('');
   const [selectedVariant, setSelectedVariant] = useState<VariantLibraryItem | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
-  const hasData = useMemo(() => variantLibrary.length > 0, [variantLibrary]);
-
-  const sortedVariants = useMemo(() => {
-    const list = [...variantLibrary];
-    if (sortKey === 'supplier') {
-      return list.sort((a, b) => (a.shopName || '').localeCompare(b.shopName || '', 'ru'));
-    }
-    if (sortKey === 'price_asc') {
-      return list.sort((a, b) => Number(a.priceAed || 0) - Number(b.priceAed || 0));
-    }
-    if (sortKey === 'price_desc') {
-      return list.sort((a, b) => Number(b.priceAed || 0) - Number(a.priceAed || 0));
-    }
-    return list.sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
-  }, [variantLibrary, sortKey]);
+  useEffect(() => {
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
 
   const resetForm = () => {
-    setIsCreating(false);
     setPriceAed('');
     setShopName('');
-    setPhone('+971');
+    setPartName('');
+    setPhone('');
     setLocation('');
     setMapsUrl('');
     setNote('');
@@ -54,19 +88,66 @@ const VariantsScreen: React.FC = () => {
     setSupplierId('');
   };
 
-  const fillCurrentLocation = () => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition((pos) => {
-      setLocation((prev) => prev || `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
-    }, () => undefined, { enableHighAccuracy: true, timeout: 5000 });
-  };
+  const syncState = useMemo<SyncVisualStatus>(() => {
+    if (!isOnline) return 'offline';
+    if (variantLibrary.some((item) => item.syncStatus === 'error')) return 'error';
+    if (variantLibrary.some((item) => item.syncStatus === 'pending')) return 'pending';
+    return 'synced';
+  }, [variantLibrary, isOnline]);
+
+  const syncStateUi = {
+    synced: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    pending: 'bg-amber-50 text-amber-700 border-amber-200',
+    offline: 'bg-slate-100 text-slate-700 border-slate-300',
+    error: 'bg-rose-50 text-rose-700 border-rose-200'
+  }[syncState];
+
+  const syncLabel = {
+    synced: 'Синхронизировано',
+    pending: 'Сохраняется...',
+    offline: 'Локально, отправим позже',
+    error: 'Есть ошибки синхронизации'
+  }[syncState];
+
+  const filteredAndSorted = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    const list = [...variantLibrary].filter((variant) => {
+      if (activeFilter === 'standalone' && variant.origin !== 'standalone') return false;
+      if (activeFilter === 'order' && variant.origin !== 'order') return false;
+      if (activeFilter === 'pinned' && !variant.isPinned) return false;
+      if (activeFilter === 'favorite' && !variant.isFavorite) return false;
+      if (activeFilter === 'with_photo' && miniPhotos(variant).length === 0) return false;
+
+      if (!query) return true;
+      const haystack = [
+        variant.shopName,
+        variant.sourcePartName,
+        variant.sourceOrderLabel,
+        variant.phone,
+        variant.note,
+        variant.mapsUrl,
+        variant.location,
+        variant.locationText
+      ].join(' ').toLowerCase();
+      return haystack.includes(query);
+    });
+
+    return list.sort((a, b) => {
+      if (sortKey === 'supplier') return (a.shopName || '').localeCompare(b.shopName || '', 'ru');
+      if (sortKey === 'created') return Number(b.createdAt || 0) - Number(a.createdAt || 0);
+      if (sortKey === 'price_asc') return Number(a.priceAed || 0) - Number(b.priceAed || 0);
+      if (sortKey === 'price_desc') return Number(b.priceAed || 0) - Number(a.priceAed || 0);
+      if (sortKey === 'pinned') return Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+      return Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0);
+    });
+  }, [variantLibrary, activeFilter, searchTerm, sortKey]);
 
   const handleSupplierChange = (value: string) => {
     setSupplierId(value);
     const supplier = suppliers.find((item) => item.id === value);
     if (!supplier) return;
     setShopName(supplier.name || '');
-    setPhone(supplier.phone || '+971');
+    setPhone(supplier.phone || '');
     setLocation(supplier.location || '');
   };
 
@@ -89,11 +170,10 @@ const VariantsScreen: React.FC = () => {
     event.target.value = '';
   };
 
+  const isCreateValid = shopName.trim() && partName.trim() && Number(priceAed) > 0;
+
   const handleCreateVariant = () => {
-    if (!shopName.trim() || !Number(priceAed)) {
-      alert('Укажите магазин и цену');
-      return;
-    }
+    if (!isCreateValid) return;
 
     const created: VariantLibraryItem = {
       id: createUuid(),
@@ -104,7 +184,7 @@ const VariantsScreen: React.FC = () => {
       shopName: shopName.trim(),
       shopNameManual: shopName.trim(),
       shopId: supplierId || undefined,
-      phone: phone.trim(),
+      phone: normalizePhone(phone.trim()),
       location: location.trim(),
       locationText: location.trim(),
       mapsUrl: mapsUrl.trim(),
@@ -116,12 +196,18 @@ const VariantsScreen: React.FC = () => {
       deliveryEta: 'today',
       isFavorite: false,
       isPinned: false,
+      sourcePartName: partName.trim(),
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
 
-    saveStandaloneVariant(created);
-    resetForm();
+    setIsSaving(true);
+    setTimeout(() => {
+      saveStandaloneVariant(created);
+      setIsSaving(false);
+      setShowCreateModal(false);
+      resetForm();
+    }, 350);
   };
 
   const miniPhotos = (variant: PriceVariant) => {
@@ -138,146 +224,264 @@ const VariantsScreen: React.FC = () => {
     void updatePriceVariant(variant.sourcePartId, { ...variant, updatedAt: Date.now() });
   };
 
+  const quickToggle = (key: 'isPinned' | 'isFavorite') => {
+    if (!selectedVariant) return;
+    const next = { ...selectedVariant, [key]: !selectedVariant[key] };
+    setSelectedVariant(next);
+    persistVariant(next);
+  };
+
   return (
-    <div className="p-4 pb-24 space-y-4 bg-gray-50 min-h-full">
-      <div className="rounded-2xl bg-white border border-gray-200 p-4">
-        <h1 className="text-lg font-black text-gray-900">Варианты</h1>
-        <p className="text-xs text-gray-500 mt-1">Здесь собраны варианты из заказов и отдельно созданные варианты.</p>
-        <button
-          type="button"
-          onClick={() => setIsCreating((prev) => !prev)}
-          className="mt-3 w-full h-11 rounded-xl bg-blue-600 text-white text-sm font-black flex items-center justify-center gap-2"
-        >
-          <Plus size={18} />
-          {isCreating ? 'Скрыть форму' : 'Создать вариант без заказа'}
-        </button>
-      </div>
-
-      {isCreating && (
-        <div className="rounded-2xl bg-white border border-gray-200 p-4 space-y-3">
-          <div className="grid grid-cols-1 gap-2">
-            <label className="text-[11px] font-bold text-gray-500">Поставщик из базы</label>
-            <select value={supplierId} onChange={(event) => handleSupplierChange(event.target.value)} className="w-full h-11 rounded-xl border border-gray-200 px-3 text-sm">
-              <option value="">Выбрать существующего поставщика</option>
-              {suppliers.map((supplier) => (
-                <option key={supplier.id} value={supplier.id}>{supplier.name} · {supplier.phone || 'без телефона'}</option>
-              ))}
-            </select>
+    <div className="min-h-full bg-[#F7F8FA] px-4 pb-24 pt-3 text-[#0F1728]">
+      <div className="space-y-4">
+        <div className="rounded-[20px] border border-[#E7EAF0] bg-white p-4 shadow-[0_2px_12px_rgba(15,23,40,0.04)]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-[32px] font-bold leading-[38px]">Варианты</h1>
+              <p className="mt-1 max-w-[280px] text-sm text-[#667085]">Все сохранённые варианты из заказов и отдельно созданные позиции.</p>
+            </div>
+            <div className={`rounded-xl border px-3 py-1.5 text-[11px] font-semibold ${syncStateUi}`}>{syncLabel}</div>
           </div>
-          <div className="flex gap-2">
-            <input value={shopName} onChange={(event) => setShopName(event.target.value)} placeholder="Поставщик / магазин" className="w-full h-11 rounded-xl border border-gray-200 px-3 text-sm" />
-            <button type="button" onClick={() => setShopName(supplierNameTemplates[Math.floor(Math.random() * supplierNameTemplates.length)])} className="h-11 px-3 rounded-xl border border-violet-200 text-violet-700 text-xs font-black inline-flex items-center gap-1"><WandSparkles size={14} />Имя</button>
+          <button type="button" onClick={() => setShowCreateModal(true)} className="mt-4 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-[#2563EB] text-sm font-bold text-white">
+            <Plus size={18} />
+            Новый вариант
+          </button>
+          <div className="mt-4 flex h-12 items-center rounded-2xl border border-[#E7EAF0] bg-[#F7F8FA] px-3">
+            <Search size={16} className="text-[#667085]" />
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Поставщик, деталь, VIN, телефон"
+              className="h-full flex-1 bg-transparent px-2 text-sm outline-none"
+            />
+            {searchTerm && <button type="button" onClick={() => setSearchTerm('')} className="rounded-full p-1 text-[#667085]"><X size={14} /></button>}
           </div>
-          <div className="flex gap-2">
-            <input value={priceAed} onChange={(event) => setPriceAed(event.target.value)} placeholder="Цена AED" type="number" className="w-full h-11 rounded-xl border border-gray-200 px-3 text-sm" />
-            <button type="button" onClick={() => setPriceAed(String(priceTemplates[Math.floor(Math.random() * priceTemplates.length)]))} className="h-11 px-3 rounded-xl border border-emerald-200 text-emerald-700 text-xs font-black">Шаблон цены</button>
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+            {filterOptions.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => setActiveFilter(option.key)}
+                className={`h-9 whitespace-nowrap rounded-xl border px-3 text-xs font-semibold ${activeFilter === option.key ? 'border-[#2563EB] bg-[#EFF4FF] text-[#2563EB]' : 'border-[#E7EAF0] bg-white text-[#667085]'}`}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
-          <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Телефон" className="w-full h-11 rounded-xl border border-gray-200 px-3 text-sm" />
-          <div className="flex gap-2">
-            <input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Локация" className="w-full h-11 rounded-xl border border-gray-200 px-3 text-sm" />
-            <button type="button" onClick={fillCurrentLocation} className="h-11 px-3 rounded-xl border border-gray-200 text-xs font-black inline-flex items-center gap-1"><MapPin size={14} />Текущая</button>
-          </div>
-          <input value={mapsUrl} onChange={(event) => setMapsUrl(event.target.value)} placeholder="Google Maps URL" className="w-full h-11 rounded-xl border border-gray-200 px-3 text-sm" />
-          <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Комментарий" className="w-full min-h-[88px] rounded-xl border border-gray-200 px-3 py-2 text-sm" />
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={() => fileInputRef.current?.click()} className="h-10 px-3 rounded-xl border border-gray-200 text-xs font-bold flex items-center gap-2"><Camera size={16} /> Фото</button>
-            <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={onPhotosChange} />
-            <button type="button" onClick={handleCreateVariant} className="h-10 px-4 rounded-xl bg-emerald-600 text-white text-xs font-black">Сохранить вариант</button>
+          <div className="mt-3 flex items-center justify-between">
+            <p className="text-xs font-semibold text-[#667085]">{filteredAndSorted.length} вариантов</p>
+            <div className="relative">
+              <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)} className="h-9 appearance-none rounded-xl border border-[#E7EAF0] bg-white pl-3 pr-8 text-xs font-semibold text-[#0F1728] outline-none">
+                <option value="updated">По дате обновления</option>
+                <option value="created">По дате создания</option>
+                <option value="price_asc">По цене ↑</option>
+                <option value="price_desc">По цене ↓</option>
+                <option value="supplier">По поставщику А–Я</option>
+                <option value="pinned">Сначала закреплённые</option>
+              </select>
+              <ChevronDown size={14} className="pointer-events-none absolute right-2 top-2.5 text-[#667085]" />
+            </div>
           </div>
         </div>
-      )}
 
-      <div className="rounded-2xl bg-white border border-gray-200 p-3">
-        <label className="text-[11px] font-bold text-gray-500">Сортировка</label>
-        <div className="relative mt-1">
-          <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)} className="w-full h-10 rounded-xl border border-gray-200 px-3 text-sm appearance-none">
-            <option value="updated">По дате обновления</option>
-            <option value="supplier">По поставщику</option>
-            <option value="price_asc">По цене ↑</option>
-            <option value="price_desc">По цене ↓</option>
-          </select>
-          <ChevronDown size={16} className="absolute right-3 top-3 text-gray-400" />
-        </div>
-      </div>
+        {filteredAndSorted.length > 0 ? (
+          <div className="space-y-3">
+            {filteredAndSorted.map((variant) => {
+              const photosForCard = miniPhotos(variant);
+              const orderHint = variant.sourceOrderLabel || '';
+              const vinCandidate = orderHint.split('•').at(-1)?.trim() || '';
+              const phoneValue = variant.phone && variant.phone !== '+971' ? variant.phone : '';
+              return (
+                <button
+                  key={`${variant.origin}-${variant.id}-${variant.sourceOrderId || 'none'}`}
+                  type="button"
+                  onClick={() => {
+                    setSelectedVariant(variant);
+                    setIsEditMode(false);
+                  }}
+                  className="w-full rounded-[20px] border border-[#E7EAF0] bg-white p-4 text-left shadow-[0_2px_10px_rgba(15,23,40,0.04)]"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="line-clamp-2 text-base font-bold leading-6 text-[#0F1728]">{variant.shopName || 'Без поставщика'}</p>
+                      <p className="mt-1 line-clamp-2 text-sm text-[#667085]">{variant.sourcePartName || 'Деталь не указана'}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-[21px] font-bold leading-6 text-[#0F1728]">{formatPrice(Number(variant.priceAed || 0))}</p>
+                      <p className="mt-1 text-xs text-[#667085]">{formatDate(variant.updatedAt || variant.createdAt)}</p>
+                    </div>
+                  </div>
 
-      <div className="space-y-3">
-        {hasData ? sortedVariants.map((variant: VariantLibraryItem) => {
-          const photosForCard = miniPhotos(variant);
-          return (
-            <button key={`${variant.origin}-${variant.id}-${variant.sourceOrderId || 'none'}`} type="button" onClick={() => setSelectedVariant(variant)} className="w-full text-left rounded-2xl bg-white border border-gray-200 p-3 space-y-2">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-black text-gray-900">{variant.shopName || 'Без названия'}</p>
-                  <p className="text-xs text-gray-500">{variant.sourcePartName || 'Деталь не выбрана'} · {variant.origin === 'standalone' ? 'Отдельный вариант' : `Заказ: ${variant.sourceOrderLabel || '—'}`}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-black text-emerald-700">{Number(variant.priceAed || 0)} AED</p>
-                  <p className="text-[11px] text-gray-500">{new Date(variant.updatedAt || variant.createdAt).toLocaleDateString()}</p>
-                </div>
-              </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-xl bg-[#F2F4F7] px-2 py-1 text-[11px] font-semibold text-[#475467]">{variant.origin === 'order' ? 'Из заказа' : 'Без заказа'}</span>
+                    {variant.isPinned && <span className="rounded-xl bg-[#FEF3C7] px-2 py-1 text-[11px] font-semibold text-[#92400E]">Закреплён</span>}
+                    {variant.isFavorite && <span className="rounded-xl bg-[#FCE7F3] px-2 py-1 text-[11px] font-semibold text-[#9D174D]">Избранное</span>}
+                  </div>
 
-              <div className="flex items-center gap-2 text-xs text-gray-600">
-                <Store size={14} />
-                <span>{variant.phone || 'Телефон не указан'}</span>
-              </div>
-              {variant.mapsUrl && (
-                <span className="flex items-center gap-2 text-xs text-blue-600 font-semibold">
-                  <Link2 size={14} /> Открыть карту
-                </span>
-              )}
-              {photosForCard.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                  {photosForCard.slice(0, 4).map((photo) => (
-                    <img key={photo} src={photo} className="w-14 h-14 rounded-lg object-cover border border-gray-200" />
-                  ))}
-                </div>
-              )}
-              {variant.note && <p className="text-xs text-gray-600">{variant.note}</p>}
-            </button>
-          );
-        }) : (
-          <div className="rounded-2xl bg-white border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400">
-            Пока нет вариантов. Создайте первый вариант без заказа.
+                  <div className="mt-3 flex items-center justify-between gap-2 text-xs text-[#667085]">
+                    <p className="truncate">{orderHint ? `${orderHint.split('•')[0]?.trim()} · VIN ${trimVin(vinCandidate)}` : 'Без привязки к заказу'}</p>
+                    <div className="flex items-center gap-2 text-[#475467]">
+                      {phoneValue && <Phone size={14} />}
+                      {photosForCard.length > 0 && <span className="inline-flex items-center gap-1"><Camera size={14} /> {photosForCard.length}</span>}
+                      {(variant.location || variant.locationText || variant.mapsUrl) && <MapPin size={14} />}
+                      {variant.note && <StickyNote size={14} />}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-[20px] border border-dashed border-[#D0D5DD] bg-white p-8 text-center">
+            <Sparkles className="mx-auto text-[#98A2B3]" size={24} />
+            <p className="mt-3 text-sm font-semibold text-[#0F1728]">Пока нет вариантов</p>
+            <p className="mt-1 text-xs text-[#667085]">Создайте первый вариант вручную или добавьте его из заказа.</p>
+            <button type="button" onClick={() => setShowCreateModal(true)} className="mt-4 h-11 rounded-2xl bg-[#2563EB] px-4 text-sm font-bold text-white">Новый вариант</button>
           </div>
         )}
       </div>
 
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/40">
+          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-6 pt-3">
+            <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
+            <div className="mt-3 flex items-center justify-between">
+              <h2 className="text-lg font-bold">Новый вариант</h2>
+              <button type="button" onClick={() => setShowCreateModal(false)} className="rounded-full p-2 text-[#667085]"><X size={18} /></button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <section className="space-y-2 rounded-2xl border border-[#E7EAF0] p-3">
+                <p className="text-xs font-semibold text-[#667085]">Источник поставщика</p>
+                <select value={supplierId} onChange={(event) => handleSupplierChange(event.target.value)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none">
+                  <option value="">Ввести вручную</option>
+                  {suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </section>
+
+              <section className="space-y-2 rounded-2xl border border-[#E7EAF0] p-3">
+                <p className="text-xs font-semibold text-[#667085]">Основные данные</p>
+                <input value={shopName} onChange={(event) => setShopName(event.target.value)} placeholder="Поставщик" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+                <input value={partName} onChange={(event) => setPartName(event.target.value)} placeholder="Деталь / название варианта" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input value={priceAed} type="number" onChange={(event) => setPriceAed(event.target.value)} placeholder="Цена" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+                  <div className="flex h-[52px] items-center rounded-2xl border border-[#E7EAF0] px-3 text-sm text-[#667085]">AED</div>
+                </div>
+                <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Комментарий" className="min-h-[120px] w-full rounded-2xl border border-[#E7EAF0] px-3 py-2 text-sm outline-none" />
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => setShopName(supplierNameTemplates[Math.floor(Math.random() * supplierNameTemplates.length)])} className="rounded-xl bg-[#F2F4F7] px-3 py-1.5 text-xs font-semibold text-[#475467]">Подставить данные</button>
+                  <button type="button" onClick={() => setPriceAed(String(priceTemplates[Math.floor(Math.random() * priceTemplates.length)]))} className="rounded-xl bg-[#F2F4F7] px-3 py-1.5 text-xs font-semibold text-[#475467]">Быстрая цена</button>
+                </div>
+              </section>
+
+              <section className="space-y-2 rounded-2xl border border-[#E7EAF0] p-3">
+                <p className="text-xs font-semibold text-[#667085]">Контакты и локация</p>
+                <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Телефон" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+                <input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Адрес / район" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+                <input value={mapsUrl} onChange={(event) => setMapsUrl(event.target.value)} placeholder="Google Maps URL" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+              </section>
+
+              <section className="space-y-2 rounded-2xl border border-[#E7EAF0] p-3">
+                <p className="text-xs font-semibold text-[#667085]">Фото</p>
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-[#D0D5DD] px-3 text-sm font-semibold text-[#475467]">
+                  <Camera size={16} /> Добавить фото
+                </button>
+                <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onPhotosChange} />
+                {photos.length > 0 && (
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                    {photos.map((photo) => (
+                      <img key={photo} src={photo} className="h-16 w-16 rounded-xl border border-[#E7EAF0] object-cover" />
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setShowCreateModal(false)} className="h-12 rounded-2xl border border-[#D0D5DD] text-sm font-semibold text-[#475467]">Отмена</button>
+              <button type="button" disabled={!isCreateValid || isSaving} onClick={handleCreateVariant} className="h-12 rounded-2xl bg-[#2563EB] text-sm font-bold text-white disabled:bg-[#98A2B3]">{isSaving ? 'Сохраняем...' : 'Сохранить вариант'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedVariant && (
-        <div className="fixed inset-0 z-40 bg-black/40 flex items-end">
-          <div className="w-full max-h-[86vh] overflow-y-auto rounded-t-3xl bg-white p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-black text-gray-900">{selectedVariant.shopName || 'Вариант'}</h2>
-              <button type="button" onClick={() => setSelectedVariant(null)} className="h-8 px-3 rounded-lg border border-gray-200 text-xs font-bold">Закрыть</button>
-            </div>
-            <p className="text-xs text-gray-500">{selectedVariant.sourcePartName || 'Без детали'} · {Number(selectedVariant.priceAed || 0)} AED</p>
-            <input value={selectedVariant.shopName || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, shopName: event.target.value } : prev)} className="w-full h-11 rounded-xl border border-gray-200 px-3 text-sm" placeholder="Поставщик" />
-            <input value={String(selectedVariant.priceAed || '')} type="number" onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, priceAed: Number(event.target.value || 0) } : prev)} className="w-full h-11 rounded-xl border border-gray-200 px-3 text-sm" placeholder="Цена" />
-            <input value={selectedVariant.phone || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, phone: event.target.value } : prev)} className="w-full h-11 rounded-xl border border-gray-200 px-3 text-sm" placeholder="Телефон" />
-            <input value={selectedVariant.locationText || selectedVariant.location || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, locationText: event.target.value, location: event.target.value } : prev)} className="w-full h-11 rounded-xl border border-gray-200 px-3 text-sm" placeholder="Локация" />
-            <textarea value={selectedVariant.note || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, note: event.target.value } : prev)} className="w-full min-h-[90px] rounded-xl border border-gray-200 px-3 py-2 text-sm" placeholder="Комментарий" />
-
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setSelectedVariant((prev) => prev ? { ...prev, isFavorite: !prev.isFavorite } : prev)} className={`h-10 rounded-xl border text-xs font-black inline-flex items-center justify-center gap-1 ${selectedVariant.isFavorite ? 'border-pink-300 bg-pink-50 text-pink-700' : 'border-gray-200 text-gray-700'}`}><Heart size={14} /> Избранное</button>
-              <button type="button" onClick={() => setSelectedVariant((prev) => prev ? { ...prev, isPinned: !prev.isPinned } : prev)} className={`h-10 rounded-xl border text-xs font-black inline-flex items-center justify-center gap-1 ${selectedVariant.isPinned ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-700'}`}><Pin size={14} /> Закрепить</button>
+        <div className="fixed inset-0 z-50 flex items-end bg-black/55">
+          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-6 pt-3">
+            <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
+            <div className="mt-3 flex items-start justify-between gap-2">
+              <div>
+                <p className="text-base font-bold">{selectedVariant.shopName || 'Вариант'}</p>
+                <p className="text-xs text-[#667085]">{selectedVariant.sourcePartName || 'Деталь не указана'}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => setIsEditMode((prev) => !prev)} className="rounded-xl border border-[#E7EAF0] px-3 py-1.5 text-xs font-semibold">{isEditMode ? 'View' : 'Edit'}</button>
+                <button type="button" onClick={() => setSelectedVariant(null)} className="rounded-full p-2 text-[#667085]"><X size={18} /></button>
+              </div>
             </div>
 
-            {selectedVariant.mapsUrl && (
-              <a href={selectedVariant.mapsUrl} target="_blank" rel="noreferrer" className="inline-flex text-xs font-bold text-blue-700">Открыть карту</a>
-            )}
-            {(miniPhotos(selectedVariant).length > 0) && (
-              <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                {miniPhotos(selectedVariant).map((photo) => (
-                  <img key={photo} src={photo} className="w-20 h-20 rounded-lg object-cover border border-gray-200" />
-                ))}
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button type="button" disabled={!selectedVariant.phone} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold disabled:opacity-40" onClick={() => window.open(`tel:${selectedVariant.phone}`, '_self')}><span className="inline-flex items-center gap-1"><Phone size={14} />Позвонить</span></button>
+              <button type="button" disabled={!selectedVariant.phone} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold disabled:opacity-40" onClick={() => window.open(`https://wa.me/${selectedVariant.phone.replace(/\D/g, '')}`, '_blank')}><span className="inline-flex items-center gap-1"><MessageCircle size={14} />WhatsApp</span></button>
+              <button type="button" disabled={!selectedVariant.mapsUrl} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold disabled:opacity-40" onClick={() => selectedVariant.mapsUrl && window.open(selectedVariant.mapsUrl, '_blank')}><span className="inline-flex items-center gap-1"><MapPin size={14} />Маршрут</span></button>
+              <button type="button" disabled={!selectedVariant.sourceOrderId} className="h-11 rounded-xl border border-[#E7EAF0] text-xs font-semibold disabled:opacity-40"><span className="inline-flex items-center gap-1"><Link2 size={14} />Открыть заказ</span></button>
+            </div>
+
+            {isEditMode ? (
+              <div className="mt-4 space-y-2">
+                <input value={selectedVariant.shopName || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, shopName: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Поставщик" />
+                <input value={String(selectedVariant.priceAed || '')} type="number" onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, priceAed: Number(event.target.value || 0) } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Цена" />
+                <input value={selectedVariant.phone || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, phone: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Телефон" />
+                <input value={selectedVariant.locationText || selectedVariant.location || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, locationText: event.target.value, location: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Локация" />
+                <textarea value={selectedVariant.note || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, note: event.target.value } : prev)} className="min-h-[120px] w-full rounded-2xl border border-[#E7EAF0] px-3 py-2 text-sm" placeholder="Комментарий" />
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-[#E7EAF0] p-3">
+                  <p className="text-xs text-[#667085]">Главная информация</p>
+                  <p className="mt-1 text-sm font-semibold">{selectedVariant.sourcePartName || 'Деталь не указана'}</p>
+                  <p className="mt-1 text-[22px] font-bold">{formatPrice(selectedVariant.priceAed)}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="rounded-xl bg-[#F2F4F7] px-2 py-1 text-[11px] font-semibold">{selectedVariant.origin === 'order' ? 'Из заказа' : 'Без заказа'}</span>
+                    {selectedVariant.isPinned && <span className="rounded-xl bg-[#FEF3C7] px-2 py-1 text-[11px] font-semibold">Закреплён</span>}
+                    {selectedVariant.isFavorite && <span className="rounded-xl bg-[#FCE7F3] px-2 py-1 text-[11px] font-semibold">Избранное</span>}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[#E7EAF0] p-3 text-sm">
+                  <p><span className="text-[#667085]">Телефон:</span> {selectedVariant.phone || 'Не указан'}</p>
+                  <p className="mt-1"><span className="text-[#667085]">Локация:</span> {selectedVariant.locationText || selectedVariant.location || 'Не указана'}</p>
+                  <p className="mt-1"><span className="text-[#667085]">Комментарий:</span> {selectedVariant.note || 'Комментарий не добавлен'}</p>
+                </div>
+                {miniPhotos(selectedVariant).length > 0 && (
+                  <div className="rounded-2xl border border-[#E7EAF0] p-3">
+                    <p className="text-xs text-[#667085]">Фото</p>
+                    <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar">
+                      {miniPhotos(selectedVariant).map((photo) => (
+                        <img key={photo} src={photo} className="h-20 w-20 rounded-xl border border-[#E7EAF0] object-cover" />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="rounded-2xl border border-[#E7EAF0] p-3 text-xs text-[#667085]">
+                  <p>Создано: {formatDate(selectedVariant.createdAt)}</p>
+                  <p className="mt-1">Обновлено: {formatDate(selectedVariant.updatedAt || selectedVariant.createdAt)}</p>
+                </div>
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => { persistVariant(selectedVariant); setSelectedVariant(null); }} className="h-10 rounded-xl bg-emerald-600 text-white text-xs font-black">Сохранить</button>
-              {selectedVariant.origin === 'standalone'
-                ? <button type="button" onClick={() => { removeStandaloneVariant(selectedVariant.id); setSelectedVariant(null); }} className="h-10 rounded-xl border border-rose-200 text-rose-600 text-xs font-black inline-flex items-center justify-center gap-1"><Trash2 size={14} />Удалить</button>
-                : <div />}
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => quickToggle('isFavorite')} className={`h-11 rounded-xl border text-xs font-bold ${selectedVariant.isFavorite ? 'border-pink-300 bg-pink-50 text-pink-700' : 'border-[#E7EAF0] text-[#475467]'}`}><span className="inline-flex items-center gap-1"><Heart size={14} />Избранное</span></button>
+              <button type="button" onClick={() => quickToggle('isPinned')} className={`h-11 rounded-xl border text-xs font-bold ${selectedVariant.isPinned ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-[#E7EAF0] text-[#475467]'}`}><span className="inline-flex items-center gap-1"><Pin size={14} />Закрепить</span></button>
             </div>
+
+            {isEditMode && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => { persistVariant(selectedVariant); setIsEditMode(false); }} className="h-11 rounded-xl bg-emerald-600 text-xs font-bold text-white"><span className="inline-flex items-center gap-1"><Check size={14} />Сохранить</span></button>
+                {selectedVariant.origin === 'standalone' ? (
+                  <button type="button" onClick={() => { removeStandaloneVariant(selectedVariant.id); setSelectedVariant(null); }} className="h-11 rounded-xl border border-rose-200 text-xs font-bold text-rose-600">Удалить</button>
+                ) : <div />}
+              </div>
+            )}
           </div>
         </div>
       )}
