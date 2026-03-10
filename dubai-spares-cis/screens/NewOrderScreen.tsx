@@ -323,7 +323,6 @@ const NewOrderScreen: React.FC = () => {
   const [brandLoading, setBrandLoading] = useState(true);
   const [modelLoading, setModelLoading] = useState(false);
   const [manualModelMode, setManualModelMode] = useState(false);
-  const [manualBodyTypeMode, setManualBodyTypeMode] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [recordingNoteId, setRecordingNoteId] = useState<string | null>(null);
   const [recordingTick, setRecordingTick] = useState(0);
@@ -660,7 +659,6 @@ const NewOrderScreen: React.FC = () => {
     setCity('');
     setCarPhotos([]);
     setErrors({});
-    setManualBodyTypeMode(false);
   };
 
   const saveDraft = () => {
@@ -700,12 +698,16 @@ const NewOrderScreen: React.FC = () => {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    void logger.info('create-order', 'create_order_start', { source: 'manual', mode });
     if (isSubmitting || submitLockRef.current) return;
+
+    submitLockRef.current = true;
+    void logger.info('create-order', 'create_order_start', { source: 'manual', mode });
+
     const validationErrors = validate();
     if (Object.keys(validationErrors).length > 0) {
       const missing = Object.values(validationErrors).slice(0, 3).join('; ');
       toast(missing || 'Заполните обязательные поля', 'error');
+      submitLockRef.current = false;
       return;
     }
 
@@ -774,10 +776,13 @@ const NewOrderScreen: React.FC = () => {
     };
 
     setIsSubmitting(true);
-    submitLockRef.current = true;
     try {
       const ok = await addOrder(order);
-      if (!ok) return;
+      if (!ok) {
+        await logger.warn('create-order', 'create_order_store_rejected', { orderId: order.id, mode });
+        toast('Не удалось создать заказ. Проверьте соединение и попробуйте снова.', 'error');
+        return;
+      }
 
       localStorage.removeItem('new-order-draft-v2');
       void logger.info('create-order', 'create_order_success', { orderId: order.id });
@@ -929,20 +934,17 @@ const NewOrderScreen: React.FC = () => {
 
           <label className="space-y-1">
             <span className="text-xs font-semibold text-slate-500">Тип кузова (необязательно)</span>
-            {!manualBodyTypeMode ? (
-              <SearchableDropdown
-                value={bodyType}
-                placeholder="Выберите тип кузова"
-                options={bodyTypeOptions}
-                onChange={setBodyType}
-                noOptionsText="Тип кузова не найден"
-              />
-            ) : (
-              <input value={bodyType} onChange={(e) => setBodyType(e.target.value)} placeholder="Введите тип кузова вручную" className={inputClass} />
+            <input
+              value={bodyType}
+              onChange={(e) => setBodyType(e.target.value)}
+              placeholder="Введите тип кузова"
+              className={inputClass}
+            />
+            {!!bodyTypeOptions.length && (
+              <p className="text-xs text-slate-500">
+                Часто используют: {bodyTypeOptions.slice(0, 6).map((item) => item.value).join(', ')}
+              </p>
             )}
-            <button type="button" onClick={() => setManualBodyTypeMode((prev) => !prev)} className="text-xs font-semibold text-slate-600 underline underline-offset-2">
-              {manualBodyTypeMode ? 'Выбрать из списка' : 'Нет в списке? Ввести вручную'}
-            </button>
           </label>
         </div>
 
