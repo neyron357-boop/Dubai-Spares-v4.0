@@ -342,6 +342,9 @@ export const uploadImageToStorage = async (
     fileName,
     error: String(lastError)
   });
+  if (typeof source === 'string' && source.startsWith('data:image')) {
+    return source;
+  }
   return `local://${path}`;
 };
 

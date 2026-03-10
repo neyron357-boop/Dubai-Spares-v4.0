@@ -43,16 +43,22 @@ export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTar
   const tariffs = settings.cargoTariffs?.length ? settings.cargoTariffs : DEFAULT_CARGO_TARIFFS;
   const tariff = tariffs.find((item) => item.country === country) || tariffs[0] || DEFAULT_CARGO_TARIFFS[0];
 
+  const groupedPlaces = new Set<string>();
   const totals = (order.parts || []).reduce((acc, part) => {
     const qty = Number(part.quantity || 1);
     const realWeight = Number((part as any).weightKg || 0) * qty;
     const chargeableWeight = realWeight;
     const rawPlaces = Number((part as any).places || 0);
+    const placeGroup = String((part as any).cargoPlaceGroup || '').trim();
     const places = rawPlaces > 0 ? rawPlaces * qty : 0;
     const oversized = Boolean((part as any).isOversized);
     acc.realWeight += realWeight;
     acc.chargeableWeight += chargeableWeight;
-    acc.totalPlaces += places;
+    if (placeGroup) {
+      groupedPlaces.add(placeGroup);
+    } else {
+      acc.totalPlaces += places;
+    }
     if (oversized) {
       acc.oversizedWeight += chargeableWeight;
     } else {
@@ -60,6 +66,8 @@ export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTar
     }
     return acc;
   }, { realWeight: 0, chargeableWeight: 0, totalPlaces: 0, oversizedWeight: 0, regularWeight: 0 });
+
+  totals.totalPlaces += groupedPlaces.size;
 
   const additional = logistics.additionalCostsUsd || {};
   const additionalTotal = Number(additional.packagingUsd || 0) + Number(additional.customsUsd || 0) + Number(additional.cityDeliveryUsd || 0) + Number(additional.insuranceUsd || 0);
@@ -85,7 +93,7 @@ export const calculateCargo = (order: Order, settings: { cargoTariffs?: CargoTar
     }
   }
 
-  const totalCost = baseCost + additionalTotal;
+  const totalCost = hasCargoInputs ? (baseCost + additionalTotal) : 0;
   return {
     country,
     deliveryType,

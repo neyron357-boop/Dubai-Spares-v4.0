@@ -157,6 +157,7 @@ const parseCargoNumber = (value: unknown) => {
 type PartCargoDraft = {
   weightKg: string;
   places: string;
+  cargoPlaceGroup: string;
   isOversized: boolean;
 };
 
@@ -367,6 +368,7 @@ const OrderDetailsScreen: React.FC = () => {
       acc[part.id] = {
         weightKg: Number((part as any).weightKg || 0) > 0 ? String(Number((part as any).weightKg || 0)) : '',
         places: Number((part as any).places || 0) > 0 ? String(Number((part as any).places || 0)) : '',
+        cargoPlaceGroup: String((part as any).cargoPlaceGroup || ''),
         isOversized: Boolean((part as any).isOversized)
       };
       return acc;
@@ -978,6 +980,7 @@ const OrderDetailsScreen: React.FC = () => {
         ...part,
         weightKg: parseCargoNumber(draft.weightKg),
         places: parseCargoNumber(draft.places),
+        cargoPlaceGroup: String(draft.cargoPlaceGroup || '').trim(),
         isOversized: !!draft.isOversized
       } as Part;
     });
@@ -988,6 +991,7 @@ const OrderDetailsScreen: React.FC = () => {
       const current = prev[partId] || {
         weightKg: '',
         places: '',
+        cargoPlaceGroup: '',
         isOversized: false
       };
       return {
@@ -1007,6 +1011,7 @@ const OrderDetailsScreen: React.FC = () => {
       return (
         Number((part as any).weightKg || 0) !== parseCargoNumber(draft.weightKg)
         || Number((part as any).places || 0) !== parseCargoNumber(draft.places)
+        || String((part as any).cargoPlaceGroup || '').trim() !== String(draft.cargoPlaceGroup || '').trim()
         || Boolean((part as any).isOversized) !== Boolean(draft.isOversized)
       );
     });
@@ -2417,6 +2422,7 @@ const OrderDetailsScreen: React.FC = () => {
                     const cargoDraft = partCargoDrafts[part.id] || {
                       weightKg: Number((part as any).weightKg || 0) > 0 ? String(Number((part as any).weightKg || 0)) : '',
                       places: Number((part as any).places || 0) > 0 ? String(Number((part as any).places || 0)) : '',
+                      cargoPlaceGroup: String((part as any).cargoPlaceGroup || ''),
                       isOversized: Boolean((part as any).isOversized)
                     };
                     return (
@@ -2428,6 +2434,10 @@ const OrderDetailsScreen: React.FC = () => {
                             <input type="number" min={0} step="0.1" value={cargoDraft.weightKg} onChange={(e) => onPartCargoDraftChange(part.id, 'weightKg', e.target.value)} className="rounded-lg border-2 border-gray-300 bg-white px-2 py-2 text-xs font-semibold text-gray-800" />
                           </label>
                           <input type="number" min={1} step="1" value={cargoDraft.places} onChange={(e) => onPartCargoDraftChange(part.id, 'places', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Мест" />
+                          <label className="col-span-2 flex flex-col gap-1">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Группа места (опц.)</span>
+                            <input type="text" value={cargoDraft.cargoPlaceGroup} onChange={(e) => onPartCargoDraftChange(part.id, 'cargoPlaceGroup', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Например: BOX-1" />
+                          </label>
                           <label className="col-span-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold text-gray-600"><input type="checkbox" checked={cargoDraft.isOversized} onChange={(e) => onPartCargoDraftChange(part.id, 'isOversized', e.target.checked)} /> Крупногабарит</label>
                         </div>
                       </div>

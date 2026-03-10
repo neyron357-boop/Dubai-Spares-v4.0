@@ -73,6 +73,7 @@ export interface Part {
   widthCm?: number;
   heightCm?: number;
   places?: number;
+  cargoPlaceGroup?: string;
   isOversized?: boolean;
 }
 
