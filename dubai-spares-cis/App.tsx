@@ -7,11 +7,12 @@ import PartDetailsScreen from './screens/PartDetailsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import VariantsScreen from './screens/VariantsScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
-import { CarFront, PlusCircle, Database, Bell, Settings } from 'lucide-react';
+import { CarFront, PlusCircle, Database, Bell, Settings, Layers } from 'lucide-react';
 import { getUnreadNotificationsCount } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
@@ -24,12 +25,13 @@ const HashPublicQuoteRoute: React.FC = () => {
   return <PublicQuoteScreen orderId={orderId} />;
 };
 
-type BottomTab = 'orders' | 'new' | 'database' | 'notifications' | 'settings' | null;
+type BottomTab = 'orders' | 'new' | 'database' | 'variants' | 'notifications' | 'settings' | null;
 
 const resolveBottomTab = (pathname: string): BottomTab => {
   if (pathname === '/' || pathname.startsWith('/order/') || pathname.startsWith('/vendor')) return 'orders';
   if (pathname.startsWith('/new')) return 'new';
   if (pathname.startsWith('/database')) return 'database';
+  if (pathname.startsWith('/variants')) return 'variants';
   if (pathname.startsWith('/notifications')) return 'notifications';
   if (pathname.startsWith('/settings')) return 'settings';
   return null;
@@ -48,6 +50,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     orders: '/',
     new: '/new',
     database: '/database',
+    variants: '/variants',
     notifications: '/notifications',
     settings: '/settings'
   });
@@ -80,6 +83,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       orders: '/',
       new: '/new',
       database: '/database',
+      variants: '/variants',
       notifications: '/notifications',
       settings: '/settings'
     };
@@ -107,6 +111,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <NavLink to={tabPaths.orders} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('orders'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'orders' ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Orders</span></NavLink>
           <NavLink to={tabPaths.new} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('new'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'new' ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">New Order</span></NavLink>
           <NavLink to={tabPaths.database} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('database'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'database' ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">Suppliers</span></NavLink>
+          <NavLink to={tabPaths.variants} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('variants'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'variants' ? 'text-blue-600' : 'text-gray-400'}`}><Layers size={22} /><span className="text-[10px] font-medium">Variants</span></NavLink>
           <NavLink to={tabPaths.notifications} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('notifications'); }} className={() => `relative flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'notifications' ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />
             {unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{badgeLabel}</span>}
             <span className="text-[10px] font-medium">Notifications</span>
@@ -144,6 +149,7 @@ const CachedRoutes: React.FC = () => {
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
               <Route path="/database" element={<SuppliersScreen />} />
+              <Route path="/variants" element={<VariantsScreen />} />
               <Route path="/notifications" element={<NotificationsScreen />} />
               <Route
                 path="/debug"

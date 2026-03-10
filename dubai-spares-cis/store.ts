@@ -4,6 +4,14 @@ import { useOrderStore, subscribeOrderStore, getOrderState, restoreOrdersExterna
 import { ensureUuid } from './id';
 import { deleteSupplierFromShops, fetchSuppliersFromShops } from './radarShops';
 import { pushActivityNotification } from './notificationCenter';
+import {
+  deleteStandaloneVariant,
+  getVariantLibraryItems,
+  loadStandaloneVariants,
+  subscribeStandaloneVariants,
+  upsertStandaloneVariant,
+  VariantLibraryItem
+} from './variantLibraryStore';
 
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
@@ -527,6 +535,11 @@ export const useStore = () => {
   }, []);
 
   useEffect(() => {
+    loadStandaloneVariants();
+    return subscribeStandaloneVariants(() => setVersion((v) => v + 1));
+  }, []);
+
+  useEffect(() => {
     void syncSuppliersFromServer();
   }, []);
 
@@ -612,6 +625,13 @@ export const useStore = () => {
 
   const getBackupData = useCallback(() => exportData(), []);
   const restoreData = useCallback((data: any) => restoreDataExternal(data), []);
+  const variantLibrary = useMemo(() => getVariantLibraryItems(orders), [orders, version]);
+  const saveStandaloneVariant = useCallback((variant: VariantLibraryItem) => {
+    upsertStandaloneVariant(variant);
+  }, []);
+  const removeStandaloneVariant = useCallback((variantId: string) => {
+    deleteStandaloneVariant(variantId);
+  }, []);
 
   return useMemo(() => ({
     orders,
@@ -635,5 +655,9 @@ export const useStore = () => {
     syncOrders: fetchOrders,
     fetchOrderDetails,
     lastSuppliersSyncError
-  }), [version, orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, updatePart, removePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders, fetchOrderDetails]);
+    ,
+    variantLibrary,
+    saveStandaloneVariant,
+    removeStandaloneVariant
+  }), [version, orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, updatePart, removePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders, fetchOrderDetails, variantLibrary, saveStandaloneVariant, removeStandaloneVariant]);
 };
