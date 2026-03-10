@@ -25,6 +25,7 @@ import {
   MoreVertical,
   RefreshCw,
   Clock3,
+  Cloud,
   Undo2,
   Check,
   Mic,
@@ -256,6 +257,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [newNoteText, setNewNoteText] = useState('');
   const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
   const [newNoteAudios, setNewNoteAudios] = useState<Array<string | VoiceNoteAudio>>([]);
+  const [isBottomSummaryExpanded, setIsBottomSummaryExpanded] = useState(false);
   const noteFileRef = useRef<HTMLInputElement>(null);
   const carFileRef = useRef<HTMLInputElement>(null);
   const noteAudioFileRef = useRef<HTMLInputElement>(null);
@@ -1875,21 +1877,25 @@ const OrderDetailsScreen: React.FC = () => {
   }, [order.parts]);
 
   return (
-    <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-24 text-[#1E1F23]">
-      <div className="p-4 sticky top-0 z-20 backdrop-blur bg-white/95 border-b border-gray-100 space-y-3 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+    <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] text-[#1E1F23]">
+      <div className="p-4 sticky top-0 z-20 backdrop-blur bg-white/95 border-b border-gray-100 space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
         <div className="flex items-center justify-between gap-2">
           <button type="button" onClick={() => navigate('/')} className="p-3 -ml-2 rounded-full transition-colors text-gray-600 active:bg-gray-100">
-            <ArrowLeft size={24} />
+            <ArrowLeft size={22} />
           </button>
           <div className="text-left flex-1 mx-2 min-w-0">
-            <h1 className="text-[20px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model} {order.year}</h1>
-            <p className="mt-1 text-[12px] text-[#8B8F98] font-normal">VIN: <span className="font-mono uppercase text-gray-700">{order.vin || 'VIN not added'}</span></p>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <p className="text-[12px] text-[#8B8F98] font-normal">Order <span className="font-mono font-bold text-gray-700">#{order.id.slice(0, 8).toUpperCase()}</span></p>
-              <button type="button" onClick={() => void copyText(order.id, 'Copied')} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600"><Copy size={12} /> copy</button>
+            <h1 className="text-[18px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model} <span className="text-slate-500">{order.year}</span></h1>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="text-[#667085]">ID <span className="font-mono font-bold text-gray-700">#{order.id.slice(0, 8).toUpperCase()}</span></span>
+              <button type="button" onClick={() => void copyText(order.id, 'ID скопирован')} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-gray-600"><Copy size={11} />Копировать</button>
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700"><Cloud size={11} />Синхронизировано</span>
             </div>
-            {vinIsIncomplete && <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-[10px] font-bold text-orange-700">⚠ VIN incomplete</span>}
-            {!!order.vin && <button type="button" onClick={() => void copyText(order.vin, 'VIN скопирован')} className="mt-1 inline-flex text-blue-600"><Copy size={12} /></button>}
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="text-[#667085]">VIN: <span className="font-mono uppercase text-gray-700">{order.vin || 'Не добавлен'}</span></span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Возраст: {orderAgeDays} дн</span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Найдено: {foundPartsCount}/{partsCount}</span>
+            </div>
+            {vinIsIncomplete && <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-[10px] font-bold text-orange-700">⚠ VIN неполный</span>}
           </div>
           <div className="relative">
             <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-3 rounded-full text-gray-600 active:bg-gray-100">
@@ -1900,7 +1906,7 @@ const OrderDetailsScreen: React.FC = () => {
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEditMode((prev) => !prev)}>Edit order</button>
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrder({ ...order, id: `${order.id}-copy-${Date.now()}` })}>Duplicate order</button>
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrderField('isArchived', !order.isArchived)}>{order.isArchived ? 'Unarchive' : 'Archive'}</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => void copyText('Cloud sync started', 'Cloud sync')}>Cloud sync</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => void copyText('Синхронизация активна', 'Синхронизация')}>Состояние синхронизации</button>
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEstimateOpen(true)}>Export</button>
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-red-600" onClick={() => setShowActionsMenu(false)}>Delete</button>
               </div>
@@ -2096,7 +2102,7 @@ const OrderDetailsScreen: React.FC = () => {
               {!orderWorkspaceSuppliers.length && <p className="text-[12px] text-[#8B8F98]">Добавьте офферы, чтобы увидеть аналитику поставщиков.</p>}
             </div>
             <div className="rounded-[16px] bg-gradient-to-r from-[#5A6CF8] to-[#6C7CFF] p-4 text-white space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.12)]">
-              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-white/90">Client quote</p>
+              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-white/90">Quote клиенту</p>
               <div className="space-y-1 text-[13px] leading-[20px]">
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                 <p>Purchase</p><p className="text-right text-[16px] font-medium">{formatMoney(selectedOfferTotal)}</p>
@@ -2105,13 +2111,13 @@ const OrderDetailsScreen: React.FC = () => {
               </div>
                 <p className="flex items-center justify-between border-t border-white/30 pt-2"><span>Client price</span><span className="text-[20px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</span></p>
               </div>
-              <button type="button" onClick={() => setIsEstimateOpen(true)} className="mt-2 h-12 w-full rounded-[12px] bg-white text-[#3B6AF7] text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Send to client</button>
+              <button type="button" onClick={() => setIsEstimateOpen(true)} className="mt-2 h-12 w-full rounded-[12px] bg-white text-[#3B6AF7] text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Отправить клиенту</button>
             </div>
             <div className="rounded-[14px] border border-[#E7EAF3] bg-white p-4 space-y-2">
-              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Parts dashboard</p>
+              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Панель деталей</p>
               {partsGraphInsights.map((insight) => (
                 <p key={insight.partId} className="text-[13px] text-[#8B8F98]">
-                  <span className="font-medium text-[#1E1F23]">{insight.partName}:</span> {insight.suppliersForPart.join(', ') || 'нет истории'} {insight.lastPrice ? `· last ${insight.lastPrice} AED` : ''}
+                  <span className="font-medium text-[#1E1F23]">{insight.partName}:</span> {insight.suppliersForPart.join(', ') || 'без истории'} {insight.lastPrice ? `· last ${insight.lastPrice} AED` : ''}
                 </p>
               ))}
             </div>
@@ -2121,7 +2127,7 @@ const OrderDetailsScreen: React.FC = () => {
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsVehicleBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
-              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Vehicle details</p>
+              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Данные автомобиля</p>
               <p className="text-sm font-bold text-gray-800">{String(draftFields.model ?? order.model ?? '—')} · {String(draftFields.year ?? order.year ?? '—')} · {String(draftFields.bodyType ?? order.bodyType ?? '—')}</p>
             </div>
             {isVehicleBlockExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
@@ -2348,7 +2354,7 @@ const OrderDetailsScreen: React.FC = () => {
 
         <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Vehicle photo</div>
+            <div className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Фото автомобиля</div>
             <>
               <input type="file" ref={carFileRef} onChange={handleCarPhotoChange} className="hidden" accept="image/*" multiple />
               <button type="button" onClick={() => carFileRef.current?.click()} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Добавить фото</button>
@@ -2489,7 +2495,7 @@ const OrderDetailsScreen: React.FC = () => {
             <div className="grid grid-cols-3 gap-2">
               <button type="button" onClick={openClientChannel} className="h-11 rounded-2xl bg-emerald-50 text-emerald-700 text-[11px] font-black uppercase">{contactActionLabel}</button>
               <button type="button" onClick={() => partInputRef.current?.focus()} className="h-11 rounded-2xl bg-blue-50 px-2 text-blue-700 text-[11px] font-black">Добавить деталь</button>
-              <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-2xl bg-slate-100 px-2 text-slate-700 text-[11px] font-black">Добавить магазин</button>
+              <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-2xl bg-slate-100 px-2 text-slate-700 text-[11px] font-black">Добавить поставщика</button>
             </div>
           </div>
         </div>
@@ -2874,19 +2880,23 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-2.5 space-y-2 shadow-[0_-6px_16px_rgba(0,0,0,0.08)]">
-        <div className="grid grid-cols-3 gap-1.5">
-          <div><p className="text-[10px] text-gray-400">Purchase</p><p className="text-[13px] font-bold">{formatMoney(selectedOfferTotal)}</p></div>
-          <div><p className="text-[10px] text-gray-400">Margin</p><p className="text-[13px] font-bold">{formatDualMoney(markupAed)}</p></div>
-          <div><p className="text-[10px] text-gray-400">Cargo</p><p className="text-[13px] font-bold">{formatDualMoney(cargoTotalAed)}</p></div>
-          <div><p className="text-[10px] text-gray-400">Client price</p><p className="text-[13px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
-          <div><p className="text-[10px] text-gray-400">Profit</p><p className="text-[13px] font-bold text-emerald-600">{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
-        </div>
-        <div className="grid gap-2 grid-cols-4">
-          <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">{contactActionLabel}</button>
-          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-600 text-white text-[10px] font-black">Add part</button>
-          <button type="button" onClick={handleSellClick} className={`h-10 rounded-xl text-[10px] font-black uppercase ${order.isSold ? 'bg-white border border-green-600 text-green-700' : 'bg-green-600 text-white'}`}>{order.isSold ? 'Продано' : 'Продать'}</button>
-          <button type="button" onClick={() => setIsEstimateOpen(true)} className="h-10 rounded-xl bg-gray-900 text-white text-[10px] font-black uppercase">Смета</button>
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-2.5 shadow-[0_-6px_16px_rgba(0,0,0,0.08)]">
+        <button type="button" onClick={() => setIsBottomSummaryExpanded((prev) => !prev)} className="w-full rounded-xl bg-slate-50 px-3 py-2 text-left">
+          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700">
+            <span>Purchase {formatMoney(selectedOfferTotal)} · Margin {formatDualMoney(markupAed)} · Cargo {formatDualMoney(cargoTotalAed)} · Profit {netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</span>
+            <ChevronUp size={14} className={`transition-transform ${isBottomSummaryExpanded ? '' : 'rotate-180'}`} />
+          </div>
+        </button>
+        {isBottomSummaryExpanded && (
+          <div className="mt-2 grid grid-cols-2 gap-1.5">
+            <div><p className="text-[10px] text-gray-400">Client price</p><p className="text-[13px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
+            <div><p className="text-[10px] text-gray-400">Profit</p><p className="text-[13px] font-bold text-emerald-600">{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
+          </div>
+        )}
+        <div className="mt-2 grid gap-2 grid-cols-3">
+          <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black">{contactActionLabel}</button>
+          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-600 text-white text-[10px] font-black">Добавить деталь</button>
+          <button type="button" onClick={() => setIsEstimateOpen(true)} className="h-10 rounded-xl bg-gray-900 text-white text-[10px] font-black">Сформировать quote</button>
         </div>
       </div>
 
