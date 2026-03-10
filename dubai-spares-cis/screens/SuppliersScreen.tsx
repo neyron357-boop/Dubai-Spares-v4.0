@@ -2178,9 +2178,9 @@ const SuppliersScreen: React.FC = () => {
 
 
       {fullscreenSupplier && (
-        <div className="fixed inset-0 z-[80] overflow-y-auto bg-black/40 p-0 sm:p-4" onClick={(event) => { if (event.target === event.currentTarget) setFullscreenSupplierId(null); }}>
-          <div className="min-h-[100dvh] w-full overflow-hidden bg-white shadow-2xl sm:mx-auto sm:min-h-0 sm:h-[92vh] sm:max-w-2xl sm:rounded-3xl">
-            <div className="h-full overflow-y-auto overscroll-contain touch-pan-y [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch]">
+        <div className="fixed inset-0 z-[80] bg-black/40 p-0 sm:flex sm:items-center sm:justify-center sm:p-4" onClick={(event) => { if (event.target === event.currentTarget) setFullscreenSupplierId(null); }}>
+          <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl sm:h-[92vh] sm:max-w-2xl sm:rounded-3xl">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch]">
               <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
                 <button type="button" onClick={() => setFullscreenSupplierId(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700">Закрыть</button>
                 <p className="truncate px-2 text-sm font-black text-slate-800">{fullscreenSupplier.name}</p>
