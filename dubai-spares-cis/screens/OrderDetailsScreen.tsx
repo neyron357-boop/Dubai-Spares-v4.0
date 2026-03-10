@@ -2200,6 +2200,10 @@ const OrderDetailsScreen: React.FC = () => {
               </button>
             </div>
           </form>
+          <p className="mt-3 text-xs font-semibold text-gray-600">
+            Добавлено деталей: <span className="font-black text-gray-800">{order.parts.length}</span>
+            {order.parts.length > 0 ? <span className="text-gray-500"> · Последняя: {order.parts[order.parts.length - 1]?.name || '—'}</span> : null}
+          </p>
         </div>
 
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">

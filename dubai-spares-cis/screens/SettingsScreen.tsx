@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
@@ -155,12 +155,21 @@ const removeBrokenPhotosFromOrder = (order: Order): { next: Order; removed: numb
 
 const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger' }> = ({ title, children, tone = 'default' }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const sectionRef = useRef<HTMLElement | null>(null);
 
   return (
-    <section className={`rounded-2xl border p-4 ${tone === 'danger' ? 'border-rose-200 bg-rose-50' : 'border-gray-200 bg-white'}`}>
+    <section ref={sectionRef} className={`rounded-2xl border p-4 ${tone === 'danger' ? 'border-rose-200 bg-rose-50' : 'border-gray-200 bg-white'}`}>
       <button
         type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
+        onClick={() => {
+          setIsOpen((prev) => {
+            const next = !prev;
+            if (!prev && next) {
+              window.setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+            }
+            return next;
+          });
+        }}
         className="w-full flex items-center justify-between gap-3"
       >
         <h2 className={`text-left text-sm font-black ${tone === 'danger' ? 'text-rose-700' : 'text-gray-900'}`}>{title}</h2>
@@ -240,6 +249,19 @@ const parseDecimalInput = (value: string, fallback = 0) => {
   if (!normalized) return fallback;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const openExternalPage = (url: string) => {
+  const normalized = String(url || '').trim();
+  if (!normalized) return false;
+  try {
+    const parsed = new URL(normalized);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+    const opened = window.open(parsed.toString(), '_blank');
+    return !!opened;
+  } catch {
+    return false;
+  }
 };
 
 const normalizeTariff = (tariff: Partial<CargoTariff>): CargoTariff => ({
@@ -1268,7 +1290,12 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           </button>
           <button
             type="button"
-            onClick={() => window.open(publicRequestFormUrl, '_blank', 'noopener,noreferrer')}
+            onClick={() => {
+              const opened = openExternalPage(publicRequestFormUrl);
+              if (!opened) {
+                window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Не удалось открыть форму. Проверьте блокировку всплывающих окон.', tone: 'error' } }));
+              }
+            }}
             className="shrink-0 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 px-3 py-2 text-sm font-bold"
           >
             Открыть
