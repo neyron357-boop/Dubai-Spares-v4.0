@@ -749,6 +749,19 @@ const SuppliersScreen: React.FC = () => {
     toast('Статус "Посетил" сохранён', 'success');
   };
 
+  const openExternalLink = (url: string) => {
+    const normalized = String(url || '').trim();
+    if (!normalized) return false;
+    try {
+      const parsed = new URL(normalized);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+      const opened = window.open(parsed.toString(), '_blank');
+      return !!opened;
+    } catch {
+      return false;
+    }
+  };
+
   const openWhatsAppAndTrack = (supplier: Supplier, message?: string) => {
     const phone = (supplier.whatsapp || supplier.phone || '').replace(/[^\d]/g, '');
     if (!phone) {
@@ -758,7 +771,11 @@ const SuppliersScreen: React.FC = () => {
     const targetUrl = message
       ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
       : `https://wa.me/${phone}`;
-    window.open(targetUrl, '_blank');
+    const opened = openExternalLink(targetUrl);
+    if (!opened) {
+      toast('Не удалось открыть WhatsApp. Проверьте блокировку всплывающих окон.', 'error');
+      return;
+    }
     markContacted(supplier);
   };
 
@@ -1151,11 +1168,11 @@ const SuppliersScreen: React.FC = () => {
 
   const openMap = (loc: string) => {
     if (!loc) return;
-    if (loc.startsWith('http')) {
-      window.open(loc, '_blank');
-    } else {
-      window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc)}`, '_blank');
-    }
+    const targetUrl = loc.startsWith('http')
+      ? loc
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc)}`;
+    const opened = openExternalLink(targetUrl);
+    if (!opened) toast('Не удалось открыть карту. Проверьте ссылку и блокировку всплывающих окон.', 'error');
   };
 
   const confirmDeleteSupplier = async () => {
@@ -1183,6 +1200,14 @@ const SuppliersScreen: React.FC = () => {
     if (!order) return;
 
     const linkedSupplier = suppliers.find((item) => item.id === shopId);
+    const isAlreadyLinked = (order.recommendedShopIds || []).includes(shopId)
+      || !!linkedSupplier?.activeOrderIds?.includes(orderId)
+      || !!linkedSupplier?.linkedParts?.some((entry) => entry.orderId === orderId);
+    if (isAlreadyLinked) {
+      toast('Поставщик уже добавлен в этот заказ', 'error');
+      setActiveOrderLinkShopId(null);
+      return;
+    }
     const normalizedSupplierPhone = (linkedSupplier?.whatsapp || linkedSupplier?.phone || '').replace(/\D/g, '');
     const hasVendorContact = (order.vendorContacts || []).some((contact) => {
       const contactPhone = (contact.whatsapp || contact.phone || '').replace(/\D/g, '');
