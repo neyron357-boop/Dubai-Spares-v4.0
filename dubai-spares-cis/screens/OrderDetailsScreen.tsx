@@ -54,15 +54,15 @@ const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Co
 
 const CUSTOMER_STATUSES = ['Lead', 'VIP', 'Inquiry'] as const;
 const PIPELINE_STYLES: Record<(typeof CUSTOMER_STATUSES)[number], string> = {
-  Lead: 'bg-amber-600 text-white',
-  VIP: 'bg-violet-600 text-white',
-  Inquiry: 'bg-blue-600 text-white'
+  Lead: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.28)]',
+  VIP: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.28)]',
+  Inquiry: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.28)]'
 };
 const SALES_STATUS_STYLES: Record<(typeof SALES_STATUSES)[number], string> = {
-  Inquiry: 'text-blue-700 border-blue-200 bg-blue-50',
-  'Price Sent': 'text-indigo-700 border-indigo-200 bg-indigo-50',
-  'Pending Approval': 'text-orange-700 border-orange-200 bg-orange-50',
-  Paid: 'text-blue-700 border-blue-200 bg-blue-50',
+  Inquiry: 'text-[#3B6AF7] border-blue-100 bg-blue-50',
+  'Price Sent': 'text-[#3B6AF7] border-blue-100 bg-blue-50',
+  'Pending Approval': 'text-amber-700 border-amber-200 bg-amber-50',
+  Paid: 'text-[#3B6AF7] border-blue-100 bg-blue-50',
   Completed: 'text-emerald-700 border-emerald-200 bg-emerald-50'
 };
 const PRIORITY_HINT: Record<Priority, string> = {
@@ -1652,16 +1652,16 @@ const OrderDetailsScreen: React.FC = () => {
   }, [order.parts]);
 
   return (
-    <div className="flex flex-col min-h-full overflow-x-hidden bg-gray-50 pb-20">
-      <div className="p-4 sticky top-0 z-20 shadow-sm backdrop-blur bg-white/95 border-b border-gray-100 space-y-3">
+    <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-24 text-[#1E1F23]">
+      <div className="p-4 sticky top-0 z-20 backdrop-blur bg-white/95 border-b border-gray-100 space-y-3 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
         <div className="flex items-center justify-between gap-2">
           <button type="button" onClick={() => navigate('/')} className="p-3 -ml-2 rounded-full transition-colors text-gray-600 active:bg-gray-100">
             <ArrowLeft size={24} />
           </button>
           <div className="text-left flex-1 mx-2 min-w-0">
-            <h1 className="font-black text-lg leading-tight truncate">{order.brand} {order.model} {order.year}</h1>
-            <p className="mt-1 text-[11px] text-gray-500 font-semibold">VIN: <span className="font-mono uppercase text-gray-700">{order.vin || 'VIN not added'}</span></p>
-            <p className="text-[11px] text-gray-500 font-semibold">Order ID: <span className="font-mono text-gray-700">#{order.id}</span></p>
+            <h1 className="text-[20px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model} {order.year}</h1>
+            <p className="mt-1 text-[12px] text-[#8B8F98] font-normal">VIN: <span className="font-mono uppercase text-gray-700">{order.vin || 'VIN not added'}</span></p>
+            <p className="text-[12px] text-[#8B8F98] font-normal">Order ID: <span className="font-mono text-gray-700">#{order.id}</span></p>
             {!!order.vin && <button type="button" onClick={() => void copyText(order.vin, 'VIN скопирован')} className="mt-1 inline-flex text-blue-600"><Copy size={12} /></button>}
             {vinIsIncomplete && <p className="text-[10px] mt-1 text-amber-600 font-bold">VIN неполный</p>}
           </div>
@@ -1681,16 +1681,16 @@ const OrderDetailsScreen: React.FC = () => {
             )}
           </div>
         </div>
-        <div className="space-y-2 rounded-2xl bg-gray-50 px-3 py-2">
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">Pipeline</p>
-          <div className="flex items-center justify-between">
-          <div className="inline-flex rounded-xl bg-white border border-gray-200 p-1">
+        <div className="space-y-2 rounded-[14px] bg-white px-4 py-4 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+          <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Pipeline</p>
+          <div className="flex items-center justify-between gap-3">
+          <div className="inline-flex rounded-[12px] bg-[#F6F7FB] border border-[#E7EAF3] p-1">
             {CUSTOMER_STATUSES.map(status => (
               <button
                 key={status}
                 type="button"
                 onClick={() => updateCustomerStatus(status)}
-                className={`h-9 min-w-[80px] px-3 rounded-lg text-[11px] font-black ${((order.customerStatus === 'VIP'
+                className={`h-10 min-w-[84px] px-3 rounded-[10px] text-[13px] font-medium transition-all duration-200 active:scale-[0.97] ${((order.customerStatus === 'VIP'
                   ? 'VIP'
                   : order.customerStatus === 'LEAD'
                     ? 'Lead'
@@ -1708,9 +1708,9 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
         </div>
         <div className="flex gap-2 items-center overflow-x-auto no-scrollbar">
-          <div className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-[10px] font-black ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-gray-700 border-gray-200 bg-white')}`}>
-            <span className="uppercase tracking-[0.18em]">Status</span>
-            <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="bg-transparent text-[10px] font-black text-gray-700 outline-none">
+          <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[12px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white')}`}>
+            <span className="uppercase tracking-[0.04em]">Status</span>
+            <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="bg-transparent text-[12px] font-medium text-current outline-none">
             {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </div>
@@ -1843,54 +1843,55 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Order Workspace</p>
-          <div className="grid grid-cols-1 gap-2 text-xs">
-            <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
-              <p className="text-[10px] font-bold text-gray-400 uppercase">Car</p>
-              <p className="font-black text-gray-800">{order.brand} {order.model} {order.year}</p>
-              <p className="font-mono text-[11px] text-gray-500">VIN: {order.vin || '—'}</p>
+        <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-5 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
+          <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Order Workspace</p>
+          <div className="grid grid-cols-1 gap-5 text-xs">
+            <div className="rounded-[14px] border border-[#E7EAF3] bg-white p-4 space-y-2">
+              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Main</p>
+              <p className="text-[20px] font-semibold text-[#1E1F23]">{order.brand} {order.model} {order.year}</p>
+              <p className="text-[16px] font-medium text-[#1E1F23]">Price: {formatMoney(sellTotalAed, clientCurrency)}</p>
+              <p className="text-[13px] font-normal text-[#8B8F98]">Supplier: {orderWorkspaceSuppliers[0]?.name || 'Not selected'}</p>
+              <p className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-[12px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white border')}`}>
+                {order.salesStatus || 'Inquiry'}
+              </p>
             </div>
-            <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
-              <p className="text-[10px] font-bold text-gray-400 uppercase">Parts</p>
-              <p className="font-semibold text-gray-700">{(order.parts || []).map((part) => part.name).join(' • ') || 'Добавьте детали'}</p>
-            </div>
-            <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-1">
-              <p className="text-[10px] font-bold text-gray-400 uppercase">Supplier intelligence</p>
+            <div className="rounded-[14px] border border-[#E7EAF3] bg-white p-4 space-y-3">
+              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Supplier intelligence</p>
               {orderWorkspaceSuppliers.slice(0, 3).map((supplier) => (
-                <div key={supplier.name} className="rounded-lg bg-white border border-gray-100 p-2">
-                  <p className="font-black text-gray-800">{supplier.name}</p>
-                  <p className="text-[11px] text-gray-500">⭐ Score: {supplier.score || 0}</p>
-                  <p className="text-[11px] text-gray-500">Deals: {supplier.dealsCompleted || 0} · Avg price: {supplier.avgPrice ? `${supplier.avgPrice} AED` : '—'}</p>
-                  <p className="text-[11px] text-gray-500">Response: {supplier.responseHours ? `${supplier.responseHours}h avg` : 'No data'}</p>
-                  <div className="mt-2 flex gap-1 text-[10px] font-bold">
-                    <button type="button" className="rounded-lg border border-slate-200 bg-white px-2 py-1">View supplier</button>
-                    <button type="button" className="rounded-lg border border-slate-200 bg-white px-2 py-1">Open map</button>
-                    <button type="button" className="rounded-lg border border-slate-200 bg-white px-2 py-1">Contact</button>
+                <div key={supplier.name} className="rounded-[12px] bg-[#F6F7FB] p-3 space-y-2">
+                  <p className="text-[16px] font-medium text-[#1E1F23]">{supplier.name}</p>
+                  <div className="grid grid-cols-3 gap-2 text-[13px] font-normal text-[#8B8F98]">
+                    <p>⭐ Score {supplier.score || 0}</p>
+                    <p>Deals {supplier.dealsCompleted || 0}</p>
+                    <p>Avg {supplier.avgPrice ? `${supplier.avgPrice} AED` : '—'}</p>
+                  </div>
+                  <p className="text-[12px] text-[#8B8F98]">Response: {supplier.responseHours ? `${supplier.responseHours}h avg` : 'No data'}</p>
+                  <div className="mt-1 flex gap-2 text-[12px] font-medium">
+                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">View</button>
+                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">Map</button>
+                    <button type="button" className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1">Contact</button>
                   </div>
                 </div>
               ))}
-              {!orderWorkspaceSuppliers.length && <p className="text-[11px] text-gray-500">Добавьте офферы, чтобы увидеть аналитику поставщиков.</p>}
+              {!orderWorkspaceSuppliers.length && <p className="text-[12px] text-[#8B8F98]">Добавьте офферы, чтобы увидеть аналитику поставщиков.</p>}
             </div>
-            <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-1">
-              <p className="text-[10px] font-bold text-gray-400 uppercase">Parts graph</p>
+            <div className="rounded-[16px] bg-gradient-to-r from-[#5A6CF8] to-[#6C7CFF] p-4 text-white space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.12)]">
+              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-white/90">Client quote</p>
+              <div className="space-y-1 text-[13px]">
+                <p className="flex items-center justify-between"><span>Purchase</span><span className="text-[16px] font-medium">{formatMoney(selectedOfferTotal)}</span></p>
+                <p className="flex items-center justify-between"><span>Margin</span><span className="text-[16px] font-medium">{formatMoney(markupAed)}</span></p>
+                <p className="flex items-center justify-between"><span>Logistics</span><span className="text-[16px] font-medium">{formatMoney(logisticsTotal)}</span></p>
+                <p className="flex items-center justify-between border-t border-white/30 pt-2"><span>Client price</span><span className="text-[16px] font-semibold">{formatMoney(sellTotalAed, clientCurrency)}</span></p>
+              </div>
+              <button type="button" onClick={() => setIsEstimateOpen(true)} className="mt-2 h-12 w-full rounded-[12px] bg-white text-[#3B6AF7] text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Send to client</button>
+            </div>
+            <div className="rounded-[14px] border border-[#E7EAF3] bg-white p-4 space-y-2">
+              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Parts dashboard</p>
               {partsGraphInsights.map((insight) => (
-                <p key={insight.partId} className="text-[11px] text-gray-600">
-                  <span className="font-bold">{insight.partName}:</span> {insight.suppliersForPart.join(', ') || 'нет истории'} {insight.lastPrice ? `· last ${insight.lastPrice} AED` : ''}
+                <p key={insight.partId} className="text-[13px] text-[#8B8F98]">
+                  <span className="font-medium text-[#1E1F23]">{insight.partName}:</span> {insight.suppliersForPart.join(', ') || 'нет истории'} {insight.lastPrice ? `· last ${insight.lastPrice} AED` : ''}
                 </p>
               ))}
-            </div>
-            <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-2">
-              <p className="text-[10px] font-bold text-indigo-500 uppercase">Client quote</p>
-              <div className="space-y-1 text-[11px] text-indigo-700">
-                <p className="flex items-center justify-between"><span>Purchase price</span><span className="font-black">{formatMoney(selectedOfferTotal)}</span></p>
-                <p className="flex items-center justify-between"><span>Margin</span><span className="font-black">{formatMoney(markupAed)}</span></p>
-                <p className="flex items-center justify-between"><span>Logistics</span><span className="font-black">{formatMoney(logisticsTotal)}</span></p>
-                <p className="flex items-center justify-between border-t border-indigo-200 pt-1"><span>Client price</span><span className="font-black">{formatMoney(sellTotalAed, clientCurrency)}</span></p>
-              </div>
-              {!!bestSuppliersForBrand.length && <p className="text-[11px] text-indigo-600">Best for {order.brand}: {bestSuppliersForBrand.map((item) => item.name).join(', ')}</p>}
-              <button type="button" onClick={() => setIsEstimateOpen(true)} className="mt-2 h-9 w-full rounded-xl bg-indigo-600 text-white text-[11px] font-black uppercase">Send to client</button>
-              <div className="grid grid-cols-2 gap-1 text-[10px] font-bold text-indigo-700"><button type="button" className="h-8 rounded-lg border border-indigo-200 bg-white">WhatsApp</button><button type="button" className="h-8 rounded-lg border border-indigo-200 bg-white">Telegram</button><button type="button" className="h-8 rounded-lg border border-indigo-200 bg-white" onClick={() => void shareQuote()}>Copy link</button><button type="button" className="h-8 rounded-lg border border-indigo-200 bg-white" onClick={() => setIsEstimateOpen(true)}>PDF</button></div>
             </div>
           </div>
         </div>
@@ -1898,12 +1899,12 @@ const OrderDetailsScreen: React.FC = () => {
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsVehicleBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Информация про автомобиль</p>
+              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Vehicle details</p>
               <p className="text-sm font-bold text-gray-800">{String(draftFields.model ?? order.model ?? '—')} · {String(draftFields.year ?? order.year ?? '—')} · {String(draftFields.bodyType ?? order.bodyType ?? '—')}</p>
             </div>
             {isVehicleBlockExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
           </button>
-          {isVehicleBlockExpanded && <div className="flex flex-wrap gap-2">
+          {isVehicleBlockExpanded && <div className="grid grid-cols-2 gap-3">
           <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Model: {String(draftFields.model ?? order.model ?? '—')}</div>
           <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Year: {String(draftFields.year ?? order.year ?? '—')}</div>
           <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Generation: {String(draftFields.bodyType ?? order.bodyType ?? '—')}</div>
@@ -2123,9 +2124,9 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
+        <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Фото авто</div>
+            <div className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Vehicle photo</div>
             <>
               <input type="file" ref={carFileRef} onChange={handleCarPhotoChange} className="hidden" accept="image/*" multiple />
               <button type="button" onClick={() => carFileRef.current?.click()} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Добавить фото</button>
@@ -2134,7 +2135,7 @@ const OrderDetailsScreen: React.FC = () => {
           {getCarPhotos().length > 0 ? (
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
               {getCarPhotos().map((ph, i) => (
-                <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-gray-100 shrink-0">
+                <div key={i} className="relative w-[180px] h-[120px] rounded-[12px] overflow-hidden border border-gray-100 shrink-0">
                   <button type="button" className="w-full h-full" onClick={(e) => { e.stopPropagation(); setGallery({ images: getCarPhotos(), index: i }); }}>
                     <img src={ph} className="w-full h-full object-cover" />
                   </button>
@@ -2285,33 +2286,33 @@ const OrderDetailsScreen: React.FC = () => {
         )}
 
 
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-          <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em] mb-3">Добавить деталь</h2>
+        <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-4 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
+          <h2 className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Add part</h2>
           <form 
             onSubmit={(e) => { e.preventDefault(); addNewPart(); }}
             className="flex flex-col gap-3"
           >
             <div className="flex gap-2">
-              <div className="flex-1 flex gap-2 items-center bg-gray-50 border border-gray-100 p-2 rounded-xl">
+              <div className="flex-1 flex gap-2 items-center bg-[#F6F7FB] border border-[#E7EAF3] px-3 rounded-[12px] h-12">
                 <input 
                   type="text" 
                   ref={partInputRef} value={newPartName} 
                   onChange={(e) => setNewPartName(e.target.value)}
-                  placeholder="What part are we looking for?"
-                  className="flex-1 bg-transparent outline-none p-1 text-base font-bold"
+                  placeholder="Search part..."
+                  className="flex-1 bg-transparent outline-none p-1 text-[16px] font-medium text-[#1E1F23]"
                 />
               </div>
-              <div className="flex items-center rounded-xl border border-gray-200 bg-white">
-                <button type="button" className="h-10 w-10 text-lg font-black text-gray-600" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) - 1)))}>-</button>
+              <div className="flex items-center rounded-[12px] border border-[#E7EAF3] bg-white h-12">
+                <button type="button" className="h-12 w-10 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) - 1)))}>-</button>
                 <input
                   type="number"
                   min={1}
                   value={newPartQuantity}
                   onChange={(e) => setNewPartQuantity(e.target.value)}
-                  className="w-12 bg-transparent text-center text-sm font-bold outline-none"
+                  className="w-12 bg-transparent text-center text-[16px] font-medium outline-none"
                   placeholder="1"
                 />
-                <button type="button" className="h-10 w-10 text-lg font-black text-gray-600" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) + 1)))}>+</button>
+                <button type="button" className="h-12 w-10 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) + 1)))}>+</button>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -2401,9 +2402,9 @@ const OrderDetailsScreen: React.FC = () => {
               </div>
               <button
                 type="submit"
-                className="h-12 shrink-0 rounded-xl bg-blue-600 px-4 text-xs font-black uppercase tracking-wide text-white shadow-md active:bg-blue-700"
+                className="h-12 w-full sm:w-auto shrink-0 rounded-[12px] bg-[#3B6AF7] px-6 text-[13px] font-semibold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(59,106,247,0.35)] active:scale-[0.97] transition-transform duration-200"
               >
-                Добавить
+                ADD
               </button>
             </div>
           </form>
@@ -2474,8 +2475,8 @@ const OrderDetailsScreen: React.FC = () => {
           <p className="px-1 text-[11px] text-slate-500">После добавления детали она появляется в этом списке и доступна для редактирования.</p>
           {order.parts.length === 0 && (
             <div className="bg-white border border-dashed border-gray-200 rounded-2xl p-4 text-center">
-              <p className="text-sm font-bold text-gray-500">Добавьте детали, чтобы начать поиск</p>
-              <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold">Add Part</button>
+              <p className="text-[16px] font-medium text-[#1E1F23]">No parts yet</p>
+              <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 px-3 py-2 rounded-[12px] bg-[#3B6AF7] text-white text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Add first part</button>
             </div>
           )}
           {order.parts.map(part => {
@@ -2485,7 +2486,7 @@ const OrderDetailsScreen: React.FC = () => {
              const partQuantity = normalizePartQuantity(part.quantity);
              const isCommentExpanded = !!partCommentExpanded[part.id];
              return (
-              <div key={part.id} onClick={() => navigate(`/order/${order.id}/part/${part.id}`)} className="bg-white p-3.5 rounded-2xl shadow-sm active:bg-gray-50 transition-colors border border-gray-50 space-y-2">
+              <div key={part.id} onClick={() => navigate(`/order/${order.id}/part/${part.id}`)} className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-2 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01] active:scale-[0.99]">
                 <div className="flex items-center gap-3">
                   <button 
                     type="button"
@@ -2519,6 +2520,7 @@ const OrderDetailsScreen: React.FC = () => {
                     <p className="text-[11px] font-semibold text-slate-600">Qty: {partQuantity}</p>
                     <p className="text-[11px] font-semibold text-slate-600">Best supplier: {part.variants[0]?.shopName || 'не выбран'}</p>
                     <p className="text-[11px] font-black text-emerald-700">Price: {part.variants[0] ? `${part.variants[0].priceAed} AED` : '—'}</p>
+                    <p className="text-[11px] font-semibold text-[#8B8F98]">Margin: —</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
@@ -2591,13 +2593,13 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-3 space-y-2">
-        <div className="grid grid-cols-5 gap-1 text-[10px] font-bold">
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-4 space-y-3 shadow-[0_-8px_20px_rgba(0,0,0,0.08)]">
+        <div className="grid grid-cols-5 gap-2 text-[12px] font-medium">
           <div><p className="text-gray-400">Purchase</p><p>{formatMoney(selectedOfferTotal)}</p></div>
           <div><p className="text-gray-400">Margin</p><p>{formatDualMoney(markupAed)}</p></div>
           <div><p className="text-gray-400">Cargo</p><p>{formatDualMoney(logisticsTotal)}</p></div>
           <div><p className="text-gray-400">Client price</p><p>{formatMoney(sellTotalAed, clientCurrency)}</p></div>
-          <div><p className="text-gray-400">Profit</p><p>{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
+          <div><p className="text-gray-400">Profit</p><p className="text-emerald-600">{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
         </div>
         <div className="grid gap-2 grid-cols-4">
           <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">{contactActionLabel}</button>
