@@ -9,6 +9,8 @@ import {
   FileText, 
   Share2,
   ChevronRight, 
+  ChevronDown,
+  ChevronUp,
   Package, 
   CheckCircle2,
   Circle,
@@ -273,6 +275,10 @@ const OrderDetailsScreen: React.FC = () => {
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [isLaunchingRadar, setIsLaunchingRadar] = useState(false);
   const [isEditMode] = useState(true);
+  const [isClientBlockExpanded, setIsClientBlockExpanded] = useState(false);
+  const [isVehicleBlockExpanded, setIsVehicleBlockExpanded] = useState(false);
+  const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
+  const [isPricingCargoExpanded, setIsPricingCargoExpanded] = useState(false);
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
@@ -1580,6 +1586,15 @@ const OrderDetailsScreen: React.FC = () => {
         
         {/* Client & Source Block */}
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <button type="button" onClick={() => setIsClientBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Клиент</p>
+              <p className="text-sm font-bold text-gray-800">{String(draftFields.clientName ?? order.clientName ?? 'Без имени')}</p>
+            </div>
+            {isClientBlockExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+          </button>
+          {isClientBlockExpanded && (
+            <>
           <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1 mb-1"><User size={10} /> Клиент</label>
@@ -1672,9 +1687,19 @@ const OrderDetailsScreen: React.FC = () => {
           >
             {contactActionLabel}: открыть чат
           </button>
+            </>
+          )}
         </div>
 
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-3 gap-3">
+        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <button type="button" onClick={() => setIsVehicleBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Информация про автомобиль</p>
+              <p className="text-sm font-bold text-gray-800">{String(draftFields.model ?? order.model ?? '—')} · {String(draftFields.year ?? order.year ?? '—')} · {String(draftFields.bodyType ?? order.bodyType ?? '—')}</p>
+            </div>
+            {isVehicleBlockExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+          </button>
+          {isVehicleBlockExpanded && <div className="grid grid-cols-3 gap-3">
           <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Модель</label>
             <input
@@ -1709,15 +1734,21 @@ const OrderDetailsScreen: React.FC = () => {
               className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
             />
           </div>
+          </div>}
         </div>
 
 
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <div>
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Подробные данные автомобиля</p>
-            <p className="text-[11px] text-gray-500 mt-1">Двигатель, привод, коробка, рынок/спецификация и другие важные параметры для точного подбора деталей.</p>
-          </div>
+          <button type="button" onClick={() => setIsVehicleDetailsExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
+            <div>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Подробные данные автомобиля</p>
+              <p className="text-[11px] text-gray-500 mt-1">Двигатель, привод, коробка, рынок/спецификация и другие важные параметры для точного подбора деталей.</p>
+            </div>
+            {isVehicleDetailsExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+          </button>
 
+          {isVehicleDetailsExpanded && (
+            <>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Тип двигателя</label>
@@ -1881,6 +1912,8 @@ const OrderDetailsScreen: React.FC = () => {
               className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
             />
           </div>
+            </>
+          )}
         </div>
 
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
@@ -1907,6 +1940,16 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
+        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <button type="button" onClick={() => setIsPricingCargoExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
+            <div>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Наценка и карго</p>
+              <p className="text-xs font-semibold text-gray-600">{formatMoney(markupAed)} · {order.logistics?.cargoCountry || cargoCalc.country}</p>
+            </div>
+            {isPricingCargoExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+          </button>
+          {isPricingCargoExpanded && (
+            <>
         <div className="grid grid-cols-1 gap-3">
           <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
             <div className="flex items-center justify-between mb-2">
@@ -2017,6 +2060,9 @@ const OrderDetailsScreen: React.FC = () => {
               <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-2xl bg-slate-100 text-slate-700 text-[11px] font-black uppercase">Магазин +</button>
             </div>
           </div>
+        </div>
+            </>
+          )}
         </div>
 
 
