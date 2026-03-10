@@ -293,6 +293,7 @@ const OrderDetailsScreen: React.FC = () => {
   const recordingTimerRef = useRef<number | null>(null);
   const voiceWaveformSamplesRef = useRef<number[]>([]);
   const voiceAnimationFrameRef = useRef<number | null>(null);
+  const voiceAudioContextRef = useRef<AudioContext | null>(null);
 
   // Sell Flow State
   const [showSellConfirm, setShowSellConfirm] = useState(false);
@@ -305,6 +306,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [showDiscardRecordingConfirm, setShowDiscardRecordingConfirm] = useState(false);
   const [voiceRecorderError, setVoiceRecorderError] = useState<string | null>(null);
   const [voiceUploadState, setVoiceUploadState] = useState<{ uploading: boolean; progress: number } | null>(null);
+  const [autoPlayVoiceId, setAutoPlayVoiceId] = useState<string | null>(null);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({});
   const [shops, setShops] = useState<Shop[]>([]);
@@ -438,6 +440,23 @@ const OrderDetailsScreen: React.FC = () => {
   useEffect(() => () => {
     stopRecordingSession();
   }, []);
+
+  useEffect(() => {
+    if (!showVoiceRecorderOverlay) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showVoiceRecorderOverlay]);
+
+  useEffect(() => {
+    if (!autoPlayVoiceId) return;
+    const audioEl = document.getElementById(autoPlayVoiceId) as HTMLAudioElement | null;
+    if (!audioEl) return;
+    void audioEl.play().then(() => setPlayingAudioId(autoPlayVoiceId)).catch(() => setPlayingAudioId(null));
+    setAutoPlayVoiceId(null);
+  }, [autoPlayVoiceId]);
 
   useEffect(() => {
 
@@ -1477,8 +1496,12 @@ const OrderDetailsScreen: React.FC = () => {
       recordingTimerRef.current = null;
     }
     if (voiceAnimationFrameRef.current) {
-      window.cancelAnimationFrame(voiceAnimationFrameRef.current);
+      window.clearInterval(voiceAnimationFrameRef.current);
       voiceAnimationFrameRef.current = null;
+    }
+    if (voiceAudioContextRef.current) {
+      void voiceAudioContextRef.current.close();
+      voiceAudioContextRef.current = null;
     }
     recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
     recordingStreamRef.current = null;
@@ -1487,6 +1510,7 @@ const OrderDetailsScreen: React.FC = () => {
   const startWaveformSampling = (stream: MediaStream) => {
     try {
       const audioContext = new AudioContext();
+      voiceAudioContextRef.current = audioContext;
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
@@ -1501,10 +1525,10 @@ const OrderDetailsScreen: React.FC = () => {
           voiceWaveformSamplesRef.current = voiceWaveformSamplesRef.current.slice(-300);
         }
         setRecordingWaveform(normalizeVoiceWaveform(voiceWaveformSamplesRef.current));
-        voiceAnimationFrameRef.current = window.requestAnimationFrame(tick);
       };
 
       tick();
+      voiceAnimationFrameRef.current = window.setInterval(tick, 50) as unknown as number;
     } catch (error) {
       console.warn('Waveform sampling failed', error);
     }
@@ -1520,10 +1544,11 @@ const OrderDetailsScreen: React.FC = () => {
     const reader = new FileReader();
     reader.onloadend = () => {
       const duration = recordingDurationSec;
+      const voiceNoteId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `voice-${Date.now()}`;
       const voiceNote: VoiceNoteAttachment = {
-        id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `voice-${Date.now()}`,
+        id: voiceNoteId,
         fileUrl: String(reader.result || ''),
         duration,
         createdAt: Date.now(),
@@ -1538,8 +1563,9 @@ const OrderDetailsScreen: React.FC = () => {
         setNewNoteAudios((prev) => [...prev, voiceNote.fileUrl]);
         setNewNoteVoiceNotes((prev) => [...prev, voiceNote]);
       }, 280);
-      setShowVoiceRecorderOverlay(false);
+      closeVoiceRecorderOverlay();
       setRecordingWaveform(Array.from({ length: 40 }, () => 20));
+      setAutoPlayVoiceId(`note-preview-${voiceNote.id}`);
     };
     reader.readAsDataURL(blob);
   };
@@ -1556,7 +1582,7 @@ const OrderDetailsScreen: React.FC = () => {
       if (discard) {
         setRecordingDurationSec(0);
         voiceWaveformSamplesRef.current = [];
-        setShowVoiceRecorderOverlay(false);
+        closeVoiceRecorderOverlay();
         return;
       }
       const mimeType = recorder.mimeType || 'audio/webm';
@@ -1564,10 +1590,11 @@ const OrderDetailsScreen: React.FC = () => {
       void finalizeRecordedAudio(blob);
     };
 
-    recorder.stop();
+    if (recorder.state !== 'inactive') recorder.stop();
   };
 
   const startRecording = async () => {
+    if (isRecording) return;
     if (!navigator.mediaDevices?.getUserMedia) {
       setVoiceRecorderError('Voice recording not supported');
       return;
@@ -1609,6 +1636,11 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
+  const closeVoiceRecorderOverlay = () => {
+    setShowVoiceRecorderOverlay(false);
+    setShowDiscardRecordingConfirm(false);
+  };
+
   const pauseRecording = () => {
     const recorder = recorderRef.current;
     if (!recorder) return;
@@ -1623,7 +1655,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   const cancelRecording = () => {
     if (!isRecording) {
-      setShowVoiceRecorderOverlay(false);
+      closeVoiceRecorderOverlay();
       return;
     }
     setShowDiscardRecordingConfirm(true);
@@ -2612,7 +2644,7 @@ const OrderDetailsScreen: React.FC = () => {
             <button type="button" aria-label="Attach audio file" onClick={() => noteAudioFileRef.current?.click()} className="h-11 rounded-[12px] border border-gray-200 px-4 text-gray-700 inline-flex items-center gap-2 bg-white"><FileAudio size={18} /> Файл</button>
             <button type="button" aria-label="Record voice note" onClick={() => void startRecording()} className="h-11 rounded-[12px] bg-[#3B6AF7] px-4 text-white inline-flex items-center gap-2 font-semibold shadow-sm transition-transform hover:scale-[1.02]"><Mic size={18} /> Voice</button>
             {newNotePhotos.map((p, i) => <img key={i} src={p} className="w-12 h-12 rounded-xl object-cover border border-gray-100" />)}
-            {newNoteVoiceNotes.map((voice) => <div key={voice.id} className="px-3 h-11 rounded-xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-700 flex items-center">🎤 {formatVoiceDuration(voice.duration)}</div>)}
+            {newNoteVoiceNotes.map((voice) => <div key={voice.id} className="px-3 h-11 rounded-xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-700 flex items-center gap-2">🎤 {formatVoiceDuration(voice.duration)}<audio id={`note-preview-${voice.id}`} src={voice.fileUrl} preload="metadata" /></div>)}
             <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
             <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
           </div>
@@ -2689,9 +2721,10 @@ const OrderDetailsScreen: React.FC = () => {
                           <audio id={audioId} src={audioSrc} preload="metadata" playsInline />
                           <button type="button" aria-label="Delete voice note" onClick={() => removeNoteAudio(n.id, idx)} className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700"><Trash2 size={12} /></button>
                         </div>
-                        <div className="flex gap-1">
+                        <div className="flex flex-wrap gap-1">
                           <a href={audioSrc} download={`voice-note-${n.id}-${idx}.webm`} className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700"><Download size={11} /> Download</a>
-                          <button type="button" onClick={() => void shareMessage(`Voice note for order ${order.id}: ${audioSrc}`)} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700"><Send size={11} /> Share</button>
+                          <button type="button" onClick={() => void shareMessage(`WhatsApp voice note for order ${order.id}: ${audioSrc}`)} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700"><Send size={11} /> WhatsApp</button>
+                          <button type="button" onClick={() => void shareMessage(`Telegram voice note for order ${order.id}: ${audioSrc}`)} className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-bold text-sky-700"><Send size={11} /> Telegram</button>
                         </div>
                       </div>
                     );
