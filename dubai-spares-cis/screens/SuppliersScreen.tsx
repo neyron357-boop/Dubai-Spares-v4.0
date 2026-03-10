@@ -7,7 +7,6 @@ import {
   MapPin,
   Store,
   UserPlus,
-  Upload,
   Trash2,
   Tag,
   CheckCircle2,
@@ -278,7 +277,10 @@ const SuppliersScreen: React.FC = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const quickPhotoInputRef = useRef<HTMLInputElement>(null);
   const [deleteSupplierId, setDeleteSupplierId] = useState<string | null>(null);
+  const [quickPhotoSupplierId, setQuickPhotoSupplierId] = useState<string | null>(null);
+  const [isFullscreenMenuOpen, setIsFullscreenMenuOpen] = useState(false);
 
   const [importFile, setImportFile] = useState<any>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -334,7 +336,6 @@ const SuppliersScreen: React.FC = () => {
   const [favoriteFilter, setFavoriteFilter] = useState<'all' | 'favorites'>('all');
   const [fastWhatsappFilter, setFastWhatsappFilter] = useState<'all' | 'fast'>('all');
   const [visitTodayFilter, setVisitTodayFilter] = useState<'all' | 'visit_today'>('all');
-  const [fieldMode, setFieldMode] = useState(false);
   const [visitFormSupplierId, setVisitFormSupplierId] = useState<string | null>(null);
   const [visitOwnerName, setVisitOwnerName] = useState('');
   const [visitPartsCount, setVisitPartsCount] = useState('');
@@ -348,7 +349,6 @@ const SuppliersScreen: React.FC = () => {
   const [fullHistorySupplierIds, setFullHistorySupplierIds] = useState<Set<string>>(new Set());
   const [manualRadarCounts, setManualRadarCounts] = useState<Record<string, number>>({});
   const [manualSelections, setManualSelections] = useState(() => getRadarManualSelections());
-  const [isForceSyncingSuppliers, setIsForceSyncingSuppliers] = useState(false);
   const [topRequest, setTopRequest] = useState<{ orderId: string; partId: string } | null>(null);
   const [bulkSendQueueSupplierIds, setBulkSendQueueSupplierIds] = useState<string[]>([]);
   const [bulkSendIndex, setBulkSendIndex] = useState(0);
@@ -558,18 +558,6 @@ const SuppliersScreen: React.FC = () => {
   }, [brandFilter, fastWhatsappFilter, favoriteFilter, modelFilter, partCategoryFilter, rawSuppliers, sortByExtended, sortByDistanceRef, visitTodayFilter, yearFilter]);
 
 
-  const supplierAnalytics = useMemo(() => {
-    const initial = { total: rawSuppliers.length, contacted: 0, responded: 0, visited: 0, trusted: 0 };
-    rawSuppliers.forEach((supplier) => {
-      if (supplier.supplierStatus === 'contacted') initial.contacted += 1;
-      if (supplier.supplierStatus === 'responded') initial.responded += 1;
-      if (supplier.supplierStatus === 'visited' || supplier.supplierStatus === 'verified' || supplier.supplierStatus === 'trusted') initial.visited += 1;
-      if (supplier.supplierStatus === 'trusted') initial.trusted += 1;
-    });
-    return initial;
-  }, [rawSuppliers]);
-
-  const followUpSuppliers = useMemo(() => rawSuppliers.filter((supplier) => supplier.supplierStatus === 'contacted' && Number(supplier.lastContactAt || 0) > 0 && Date.now() - Number(supplier.lastContactAt || 0) >= 24 * 60 * 60 * 1000), [rawSuppliers]);
 
   const activeOrderForTop = useMemo(() => {
     if (!topRequest?.orderId) return null;
@@ -811,6 +799,39 @@ const SuppliersScreen: React.FC = () => {
     setWhatsappFast(!!supplier.whatsappFast);
     setComment(supplier.comment || '');
     setWebsite(supplier.website || '');
+  };
+
+  const openQuickPhotoPicker = (supplierId: string) => {
+    setQuickPhotoSupplierId(supplierId);
+    quickPhotoInputRef.current?.click();
+  };
+
+  const handleQuickPhotoChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    const targetSupplierId = quickPhotoSupplierId;
+    event.target.value = '';
+    if (!targetSupplierId || files.length === 0) return;
+    const targetSupplier = suppliers.find((supplier) => supplier.id === targetSupplierId);
+    if (!targetSupplier) {
+      setQuickPhotoSupplierId(null);
+      return;
+    }
+    try {
+      const optimized = await Promise.all(files.slice(0, 4).map(async (file) => optimizeImageForUpload(file, `suppliers:quick-photo:${file.name}`)));
+      const nextPhotos = [...(targetSupplier.photos || []), ...optimized].filter(Boolean);
+      updateSupplier({
+        ...targetSupplier,
+        photos: nextPhotos,
+        photoUrl: nextPhotos[0] || targetSupplier.photoUrl,
+        updatedAt: Date.now()
+      });
+      toast('Фото поставщика сохранено', 'success');
+    } catch (error) {
+      console.error('quick_photo_upload_failed', error);
+      toast('Не удалось добавить фото', 'error');
+    } finally {
+      setQuickPhotoSupplierId(null);
+    }
   };
 
   const startBulkSend = (mode: 3 | 5) => {
@@ -1416,22 +1437,6 @@ const SuppliersScreen: React.FC = () => {
     }
   };
 
-  const forceRefreshSuppliers = async () => {
-    setIsForceSyncingSuppliers(true);
-    try {
-      const result = await syncSuppliersFromServer(true);
-      const fetchedCount = Number(result?.fetchedCount || 0);
-      if (fetchedCount === 0) {
-        toast('Сервер вернул 0 поставщиков. Проверьте источник данных.', 'info');
-        return;
-      }
-      toast(`Загружено поставщиков: ${fetchedCount}`, 'success');
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setIsForceSyncingSuppliers(false);
-    }
-  };
 
   const requiredReady = !!toTitle(name.trim()) && isValidE164(currentPhone) && !!location.trim();
 
@@ -1442,6 +1447,10 @@ const SuppliersScreen: React.FC = () => {
     return () => {
       document.body.style.overflow = originalOverflow;
     };
+  }, [fullscreenSupplierId]);
+
+  useEffect(() => {
+    setIsFullscreenMenuOpen(false);
   }, [fullscreenSupplierId]);
 
   useEffect(() => {
@@ -1473,16 +1482,6 @@ const SuppliersScreen: React.FC = () => {
           <button type="button" onClick={() => setIsAdding(true)} className="p-2.5 bg-blue-600 text-white rounded-xl" title="Добавить"><UserPlus size={20} /></button>
         </div>
       </div>
-
-      {selectedModelView && <button
-        type="button"
-        onClick={() => void forceRefreshSuppliers()}
-        disabled={isForceSyncingSuppliers}
-        className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm font-bold text-blue-700 inline-flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {isForceSyncingSuppliers ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-        {isForceSyncingSuppliers ? 'Загружаю…' : 'Загрузить из сервера поставщиков'}
-      </button>}
 
       {selectedModelView && <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm">
         <div className="mb-2 flex items-center justify-between gap-2">
@@ -1558,20 +1557,6 @@ const SuppliersScreen: React.FC = () => {
       </div>}
 
 
-      <section className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-black text-indigo-800">SUPPLIER ANALYTICS</p>
-          <p className="text-[11px] font-semibold text-indigo-600">FIELD MODE: {fieldMode ? 'ON' : 'OFF'} • MAP MODE (soon)</p>
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-black sm:grid-cols-5">
-          <span className="rounded-lg bg-white px-2 py-1 text-slate-700">Total: {supplierAnalytics.total}</span>
-          <span className="rounded-lg bg-white px-2 py-1 text-amber-700">Contacted: {supplierAnalytics.contacted}</span>
-          <span className="rounded-lg bg-white px-2 py-1 text-cyan-700">Responded: {supplierAnalytics.responded}</span>
-          <span className="rounded-lg bg-white px-2 py-1 text-violet-700">Visited: {supplierAnalytics.visited}</span>
-          <span className="rounded-lg bg-white px-2 py-1 text-emerald-700">Trusted: {supplierAnalytics.trusted}</span>
-        </div>
-        {followUpSuppliers.length > 0 ? <p className="mt-2 text-xs font-bold text-rose-700">🔔 Follow up supplier: {followUpSuppliers.map((item) => item.name).join(', ')}</p> : null}
-      </section>
 
       {importError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-red-100"><AlertTriangle size={16} />{importError}</div>}
       {showSuccess && <div className="bg-green-50 text-green-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-green-100"><CheckCircle2 size={16} />Данные успешно восстановлены!</div>}
@@ -1756,8 +1741,22 @@ const SuppliersScreen: React.FC = () => {
           {suppliersForSelectedModel.map((supplier) => (
             <div key={supplier.id} role="button" tabIndex={0} onClick={() => setFullscreenSupplierId(supplier.id)} onKeyDown={(e) => { if (e.key === 'Enter') setFullscreenSupplierId(supplier.id); }} className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm">
               <div className="flex items-center gap-2">
-                <Store size={16} className="text-slate-500" />
-                <span className="flex-1 text-center text-sm font-black text-slate-800">{supplier.name}</span>
+                {((supplier.photos && supplier.photos.length > 0) || supplier.photoUrl) ? (
+                  <img src={((supplier.photos && supplier.photos[0]) || supplier.photoUrl) as string} alt={supplier.name} className="h-10 w-10 rounded-xl border border-slate-200 object-cover" />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openQuickPhotoPicker(supplier.id);
+                    }}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-dashed border-slate-300 text-[10px] font-black text-slate-500"
+                    title="Добавить фото"
+                  >
+                    + Фото
+                  </button>
+                )}
+                <span className="flex-1 text-sm font-black text-slate-800">{supplier.name}</span>
                 <button
                   type="button"
                   onClick={(event) => {
@@ -2143,13 +2142,48 @@ const SuppliersScreen: React.FC = () => {
       </div>
 
 
+      <input
+        ref={quickPhotoInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(event) => { void handleQuickPhotoChange(event); }}
+      />
+
+
       {fullscreenSupplier && (
-        <div className="fixed inset-0 z-[80] h-screen overflow-y-auto overscroll-contain bg-white" onClick={(event) => { if (event.target === event.currentTarget) setFullscreenSupplierId(null); }}>
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
-            <button type="button" onClick={() => setFullscreenSupplierId(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700">Закрыть</button>
-            <p className="text-sm font-black text-slate-800">{fullscreenSupplier.name}</p>
-            <div className="w-14" />
-          </div>
+        <div className="fixed inset-0 z-[80] bg-black/40 p-0 sm:p-4" onClick={(event) => { if (event.target === event.currentTarget) setFullscreenSupplierId(null); }}>
+          <div className="h-screen w-full overflow-hidden bg-white shadow-2xl sm:mx-auto sm:h-[92vh] sm:max-w-2xl sm:rounded-3xl">
+            <div className="h-full overflow-y-auto overscroll-contain">
+              <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+                <button type="button" onClick={() => setFullscreenSupplierId(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700">Закрыть</button>
+                <p className="truncate px-2 text-sm font-black text-slate-800">{fullscreenSupplier.name}</p>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsFullscreenMenuOpen((prev) => !prev)}
+                    className="rounded-lg border border-slate-200 px-2 py-1 text-slate-500"
+                    aria-label="Открыть меню поставщика"
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                  {isFullscreenMenuOpen && (
+                    <div className="absolute right-0 top-9 w-36 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                      <button
+                        type="button"
+                        onClick={() => { startEditSupplier(fullscreenSupplier); setIsFullscreenMenuOpen(false); }}
+                        className="inline-flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                      ><Pencil size={12} />Edit</button>
+                      <button
+                        type="button"
+                        onClick={() => { setDeleteSupplierId(fullscreenSupplier.id); setIsFullscreenMenuOpen(false); }}
+                        className="inline-flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
+                      ><Trash2 size={12} />Delete</button>
+                    </div>
+                  )}
+                </div>
+              </div>
           <div className="relative">
             {fullscreenSupplier.photos?.[0] ? (
               <img src={fullscreenSupplier.photos[0]} alt={fullscreenSupplier.name} className="h-64 w-full object-cover" />
@@ -2237,6 +2271,8 @@ const SuppliersScreen: React.FC = () => {
             </div>
           </div>
         </div>
+      </div>
+    </div>
       )}
 
       {visitFormSupplierId && (
