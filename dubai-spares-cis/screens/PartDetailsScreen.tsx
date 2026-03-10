@@ -31,6 +31,7 @@ import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
 import { optimizeImageForUpload } from '../storage/photos';
+import { cloneVariantForPart, VariantLibraryItem } from '../variantLibraryStore';
 
 interface OfferFormState {
   priceAed: string;
@@ -138,7 +139,7 @@ const PartDetailsScreen: React.FC = () => {
   const { orderId, partId } = useParams<{ orderId: string; partId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { orders, updateOrder, suppliers, addSupplier, updateSupplier } = useStore();
+  const { orders, updateOrder, suppliers, addSupplier, updateSupplier, variantLibrary } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sampleFileInputRef = useRef<HTMLInputElement>(null);
   const variantsListRef = useRef<HTMLDivElement>(null);
@@ -161,6 +162,7 @@ const PartDetailsScreen: React.FC = () => {
   const [brokenPhotoUrls, setBrokenPhotoUrls] = useState<Record<string, true>>({});
   const [isEditingPartName, setIsEditingPartName] = useState(false);
   const [partNameDraft, setPartNameDraft] = useState('');
+  const [showLibraryPicker, setShowLibraryPicker] = useState(false);
 
   const [form, setForm] = useState<OfferFormState>(DEFAULT_FORM);
   const [isLocating, setIsLocating] = useState(false);
@@ -338,6 +340,20 @@ const PartDetailsScreen: React.FC = () => {
     setEditingVariantId(null);
     setForm(DEFAULT_FORM);
     setLocationParseNotice(null);
+  };
+
+  const attachVariantFromLibrary = (item: VariantLibraryItem) => {
+    const variant = cloneVariantForPart(item, part.id);
+    const updatedParts = order.parts.map((p) => {
+      if (p.id !== part.id) return p;
+      return {
+        ...p,
+        isFound: true,
+        variants: [variant, ...p.variants]
+      };
+    });
+    updateOrder({ ...order, parts: updatedParts });
+    setShowLibraryPicker(false);
   };
 
   const saveVariant = async () => {
@@ -716,6 +732,7 @@ const PartDetailsScreen: React.FC = () => {
             </div>
 
             <button type="button" onClick={() => { setIsAdding(true); setEditingVariantId(null); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg uppercase text-xs"><Plus size={20} /> Добавить вариант</button>
+            <button type="button" onClick={() => setShowLibraryPicker(true)} className="w-full py-3 bg-white border border-gray-200 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-2 text-xs"><ClipboardPaste size={16} /> Прикрепить из Вариантов</button>
             {latestOrderVariant && (
               <button type="button" onClick={() => setForm((prev) => ({ ...prev, shopName: latestOrderVariant.shopName || '', phone: latestOrderVariant.phone || prev.phone, locationText: latestOrderVariant.locationText || latestOrderVariant.location || '' }))} className="w-full px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-black">Последний магазин: {latestOrderVariant.shopName}</button>
             )}
@@ -937,6 +954,23 @@ const PartDetailsScreen: React.FC = () => {
         onCancel={() => setDeleteVariantId(null)}
       />
 
+
+      {showLibraryPicker && (
+        <div className="fixed inset-0 z-[130] bg-black/30 flex items-end">
+          <div className="w-full max-w-md mx-auto bg-white rounded-t-3xl p-4 max-h-[70vh] overflow-y-auto space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black">Выбрать вариант</h3>
+              <button type="button" onClick={() => setShowLibraryPicker(false)} className="p-2 rounded-lg hover:bg-gray-100"><X size={16} /></button>
+            </div>
+            {(variantLibrary as VariantLibraryItem[]).filter((item) => item.sourcePartId !== part.id).slice(0, 60).map((item) => (
+              <button type="button" key={`${item.origin}-${item.id}-${item.sourceOrderId || 'n'}`} onClick={() => attachVariantFromLibrary(item)} className="w-full text-left p-3 rounded-xl border border-gray-200">
+                <p className="text-sm font-bold text-gray-900">{item.shopName || 'Без названия'} · {Number(item.priceAed || 0)} AED</p>
+                <p className="text-xs text-gray-500">{item.origin === 'standalone' ? 'Отдельный вариант' : `Из заказа: ${item.sourceOrderLabel || '—'}`}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {gallery && (
         <ImagePreview
           images={gallery.images}
