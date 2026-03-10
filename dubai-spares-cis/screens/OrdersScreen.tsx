@@ -541,7 +541,7 @@ const OrdersScreen: React.FC = () => {
           <label className="flex h-11 flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3">
             <Smartphone size={14} className="text-slate-400" />
             <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Поиск заказа" className="w-full bg-transparent text-sm outline-none" />
-            {searchText && <button type="button" onClick={() => setSearchText('')} className="text-xs text-slate-500">Очистить</button>}
+            {searchText && <button type="button" onClick={() => { setSearchText(''); setDebouncedSearch(''); }} className="text-xs text-slate-500">Очистить</button>}
           </label>
           <button type="button" onClick={() => setIsFilterOpen(true)} className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black uppercase inline-flex items-center gap-1"><Filter size={14} />Фильтр</button>
         </div>

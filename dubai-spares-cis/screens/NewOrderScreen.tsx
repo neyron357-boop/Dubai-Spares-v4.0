@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Camera, ChevronDown, Mic, Square, Play, Pause, UserRound, Wrench, CarFront, ImagePlus, NotebookPen, Save, Trash2 } from 'lucide-react';
-import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE, YEARS } from '../constants';
+import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE } from '../constants';
 import { CHASSIS_BODY_TYPES_BY_BRAND } from '../carDatabase';
 import { useStore } from '../store';
 import { Order, Priority, Source } from '../types';
@@ -37,6 +37,7 @@ type DraftNote = {
 };
 
 const POPULAR_BRANDS = ['BMW', 'Mercedes-Benz', 'Toyota', 'Lexus', 'Nissan', 'Hyundai', 'Kia', 'Audi', 'Volkswagen'];
+const BODY_TYPE_OPTIONS = ['Седан', 'Кроссовер', 'Купе', 'Хэтчбек', 'Универсал', 'SUV', 'Пикап', 'Минивэн', 'Кабриолет', 'Фургон'];
 
 const VIN_BRAND_MAP: Record<string, string> = {
   JT: 'Toyota',
@@ -105,6 +106,43 @@ const createDraftNote = (): DraftNote => ({
   photos: [],
   voices: []
 });
+
+
+const DRAFTS_LIST_KEY = 'new-order-drafts-list-v1';
+
+const normalizeDraftList = (items: unknown): Array<{ id: string; createdAt: number; title: string; data: ReturnType<typeof toPersistableDraft> }> => {
+  if (!Array.isArray(items)) return [];
+  const seen = new Set<string>();
+  return items
+    .filter((item): item is { id?: string; createdAt?: number; title?: string; data?: ReturnType<typeof toPersistableDraft> } => !!item && typeof item === 'object')
+    .map((item) => {
+      const id = String(item.id || createId());
+      const createdAt = Number(item.createdAt || Date.now());
+      const title = String(item.title || 'Черновик без названия');
+      const data = toPersistableDraft({
+        mode: item.data?.mode || 'quick',
+        vin: item.data?.vin || '',
+        brand: item.data?.brand || '',
+        model: item.data?.model || '',
+        year: item.data?.year || '',
+        bodyType: item.data?.bodyType || '',
+        seriesCode: item.data?.seriesCode || '',
+        parts: Array.isArray(item.data?.parts) && item.data?.parts.length ? item.data.parts : [createDraftPart()],
+        notes: Array.isArray(item.data?.notes) && item.data?.notes.length ? item.data.notes : [createDraftNote()],
+        clientName: item.data?.clientName || '',
+        customerContact: item.data?.customerContact || '',
+        country: item.data?.country || '',
+        city: item.data?.city || ''
+      });
+      return { id, createdAt, title, data };
+    })
+    .filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    })
+    .slice(0, 8);
+};
 
 const toPersistableDraft = (payload: {
   mode: Mode;
@@ -285,10 +323,12 @@ const NewOrderScreen: React.FC = () => {
   const [brandLoading, setBrandLoading] = useState(true);
   const [modelLoading, setModelLoading] = useState(false);
   const [manualModelMode, setManualModelMode] = useState(false);
+  const [manualBodyTypeMode, setManualBodyTypeMode] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [recordingNoteId, setRecordingNoteId] = useState<string | null>(null);
   const [recordingTick, setRecordingTick] = useState(0);
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+  const submitLockRef = useRef(false);
 
   const partPhotoRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const notePhotoRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -316,6 +356,17 @@ const NewOrderScreen: React.FC = () => {
     () => (brand ? (CHASSIS_BODY_TYPES_BY_BRAND[brand] || []).map((item) => ({ label: item, value: item })) : []),
     [brand]
   );
+
+  const bodyTypeOptions = useMemo(() => {
+    const fromDb = (CHASSIS_BODY_TYPES_BY_BRAND[brand] || []).map((item) => ({ label: item, value: item }));
+    const fallback = BODY_TYPE_OPTIONS.map((item) => ({ label: item, value: item }));
+    return Array.from(new Map([...fromDb, ...fallback].map((item) => [item.value, item])).values());
+  }, [brand]);
+
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: currentYear - 1979 }, (_, index) => String(currentYear - index));
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setBrandLoading(false), 220);
@@ -372,10 +423,10 @@ const NewOrderScreen: React.FC = () => {
 
   useEffect(() => {
     const saved = localStorage.getItem('new-order-draft-v2');
-    const savedList = localStorage.getItem('new-order-drafts-list-v1');
+    const savedList = localStorage.getItem(DRAFTS_LIST_KEY);
     if (savedList) {
       try {
-        setSavedDrafts(JSON.parse(savedList));
+        setSavedDrafts(normalizeDraftList(JSON.parse(savedList)));
       } catch {
         setSavedDrafts([]);
       }
@@ -386,6 +437,20 @@ const NewOrderScreen: React.FC = () => {
     } catch {
       // noop
     }
+  }, []);
+
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== DRAFTS_LIST_KEY) return;
+      try {
+        setSavedDrafts(normalizeDraftList(JSON.parse(event.newValue || '[]')));
+      } catch {
+        setSavedDrafts([]);
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   useEffect(() => {
@@ -420,7 +485,7 @@ const NewOrderScreen: React.FC = () => {
     if (Object.keys(next).length > 0) {
       void logger.warn('create-order', 'create_order_validation_error', { errors: next });
     }
-    return Object.keys(next).length === 0;
+    return next;
   };
 
   const canCreate = useMemo(() => {
@@ -595,6 +660,7 @@ const NewOrderScreen: React.FC = () => {
     setCity('');
     setCarPhotos([]);
     setErrors({});
+    setManualBodyTypeMode(false);
   };
 
   const saveDraft = () => {
@@ -606,7 +672,7 @@ const NewOrderScreen: React.FC = () => {
       data
     }, ...savedDrafts].slice(0, 8);
     setSavedDrafts(next);
-    localStorage.setItem('new-order-drafts-list-v1', JSON.stringify(next));
+    localStorage.setItem(DRAFTS_LIST_KEY, JSON.stringify(next));
     toast('Черновик сохранен', 'success');
   };
 
@@ -628,16 +694,17 @@ const NewOrderScreen: React.FC = () => {
       draftIds.forEach((id) => updated.delete(id));
       return updated;
     });
-    localStorage.setItem('new-order-drafts-list-v1', JSON.stringify(next));
+    localStorage.setItem(DRAFTS_LIST_KEY, JSON.stringify(next));
     toast(`Удалено черновиков: ${draftIds.length}`, 'success');
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     void logger.info('create-order', 'create_order_start', { source: 'manual', mode });
-    if (isSubmitting) return;
-    if (!validate()) {
-      const missing = Object.values(errors).slice(0, 3).join('; ');
+    if (isSubmitting || submitLockRef.current) return;
+    const validationErrors = validate();
+    if (Object.keys(validationErrors).length > 0) {
+      const missing = Object.values(validationErrors).slice(0, 3).join('; ');
       toast(missing || 'Заполните обязательные поля', 'error');
       return;
     }
@@ -679,6 +746,7 @@ const NewOrderScreen: React.FC = () => {
       })),
       markupPercent: DEFAULT_MARKUP,
       exchangeRate: DEFAULT_RATE,
+      clientCurrency: 'AED',
       createdAt: now,
       isArchived: false,
       isSold: false,
@@ -706,18 +774,23 @@ const NewOrderScreen: React.FC = () => {
     };
 
     setIsSubmitting(true);
-    const ok = await addOrder(order);
-    if (!ok) {
-      setIsSubmitting(false);
-      return;
-    }
+    submitLockRef.current = true;
+    try {
+      const ok = await addOrder(order);
+      if (!ok) return;
 
-    localStorage.removeItem('new-order-draft-v2');
-    void logger.info('create-order', 'create_order_success', { orderId: order.id });
-    toast(`Заказ создан: #${order.id.slice(0, 8)}`, 'success');
-    resetForm();
-    setIsSubmitting(false);
-    navigate(`/order/${order.id}`);
+      localStorage.removeItem('new-order-draft-v2');
+      void logger.info('create-order', 'create_order_success', { orderId: order.id });
+      toast(`Заказ создан: #${order.id.slice(0, 8)}`, 'success');
+      resetForm();
+      navigate(`/order/${order.id}`);
+    } catch (error) {
+      await logger.error('create-order', 'create_order_unexpected_failure', { error: serializeError(error) });
+      toast('Не удалось создать заказ. Попробуйте ещё раз.', 'error');
+    } finally {
+      setIsSubmitting(false);
+      submitLockRef.current = false;
+    }
   };
 
   return (
@@ -773,7 +846,7 @@ const NewOrderScreen: React.FC = () => {
 
       <section className={cardClass}>
         <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><CarFront size={16} /> Автомобиль</h2>
-        <p className="text-xs text-slate-500">Сначала марка и модель, затем всё остальное.</p>
+        <p className="text-xs text-slate-500">Поля со звёздочкой (*) обязательны. Сначала марка и модель, затем всё остальное.</p>
 
         {mode === 'full' && (
           <div className="space-y-1 transition-all duration-200">
@@ -844,7 +917,7 @@ const NewOrderScreen: React.FC = () => {
             <SearchableDropdown
               value={year}
               placeholder="Выберите год"
-              options={YEARS.filter((item) => item >= 1980 && item <= new Date().getFullYear()).map((item) => ({ label: String(item), value: String(item) }))}
+              options={yearOptions.map((item) => ({ label: item, value: item }))}
               onChange={(value) => {
                 touched.current.year = true;
                 setYear(value);
@@ -856,7 +929,20 @@ const NewOrderScreen: React.FC = () => {
 
           <label className="space-y-1">
             <span className="text-xs font-semibold text-slate-500">Тип кузова (необязательно)</span>
-            <input value={bodyType} onChange={(e) => setBodyType(e.target.value)} placeholder="Тип кузова (необязательно)" className={inputClass} />
+            {!manualBodyTypeMode ? (
+              <SearchableDropdown
+                value={bodyType}
+                placeholder="Выберите тип кузова"
+                options={bodyTypeOptions}
+                onChange={setBodyType}
+                noOptionsText="Тип кузова не найден"
+              />
+            ) : (
+              <input value={bodyType} onChange={(e) => setBodyType(e.target.value)} placeholder="Введите тип кузова вручную" className={inputClass} />
+            )}
+            <button type="button" onClick={() => setManualBodyTypeMode((prev) => !prev)} className="text-xs font-semibold text-slate-600 underline underline-offset-2">
+              {manualBodyTypeMode ? 'Выбрать из списка' : 'Нет в списке? Ввести вручную'}
+            </button>
           </label>
         </div>
 
