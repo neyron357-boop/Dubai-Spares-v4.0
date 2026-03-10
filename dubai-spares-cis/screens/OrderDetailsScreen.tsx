@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { Order, OrderPricingEvent, Part, Priority, OrderNote, Shop } from '../types';
+import { Order, OrderPricingEvent, Part, Priority, OrderNote, Shop, VoiceNoteAttachment } from '../types';
 import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationDiagnostics, getShopRecommendationLevel, isBrandMatch, isShopCompatibleWithOrder } from '../shopMatching';
 import { SOURCES } from '../constants';
 import { 
@@ -29,10 +29,12 @@ import {
   Undo2,
   Check,
   Mic,
-  Square,
   Play,
   Pause,
   FileAudio,
+  Download,
+  Send,
+  Trash2,
   Rocket
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
@@ -221,6 +223,28 @@ const createPricingEvent = (field: OrderPricingEvent['field'], label: string, pr
 };
 
 const MAX_RETRY_ATTEMPTS = 3;
+const VOICE_RECORDER_MAX_MS = 5 * 60 * 1000;
+const VOICE_NOTE_MAX_SIZE = 10 * 1024 * 1024;
+
+const formatVoiceDuration = (seconds: number) => {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainder = safeSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+};
+
+const normalizeVoiceWaveform = (samples: number[]) => {
+  if (!samples.length) return Array.from({ length: 40 }, () => 20);
+  const max = Math.max(...samples, 1);
+  const step = Math.max(1, Math.floor(samples.length / 40));
+  const bars: number[] = [];
+  for (let i = 0; i < samples.length && bars.length < 40; i += step) {
+    const value = samples[i] || 0;
+    bars.push(15 + Math.round((value / max) * 85));
+  }
+  while (bars.length < 40) bars.push(20);
+  return bars.slice(0, 40);
+};
 
 type GroupItemDraft = {
   id: string;
@@ -251,6 +275,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [newNoteText, setNewNoteText] = useState('');
   const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
   const [newNoteAudios, setNewNoteAudios] = useState<string[]>([]);
+  const [newNoteVoiceNotes, setNewNoteVoiceNotes] = useState<VoiceNoteAttachment[]>([]);
   const noteFileRef = useRef<HTMLInputElement>(null);
   const carFileRef = useRef<HTMLInputElement>(null);
   const noteAudioFileRef = useRef<HTMLInputElement>(null);
@@ -264,12 +289,22 @@ const OrderDetailsScreen: React.FC = () => {
         : (order?.isVip ? 'VIP' : order?.isLead ? 'Lead' : 'Inquiry');
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingTimerRef = useRef<number | null>(null);
+  const voiceWaveformSamplesRef = useRef<number[]>([]);
+  const voiceAnimationFrameRef = useRef<number | null>(null);
+
   // Sell Flow State
   const [showSellConfirm, setShowSellConfirm] = useState(false);
   const [sellError, setSellError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [recordingTick, setRecordingTick] = useState(0);
+  const [isRecordingPaused, setIsRecordingPaused] = useState(false);
+  const [recordingDurationSec, setRecordingDurationSec] = useState(0);
+  const [recordingWaveform, setRecordingWaveform] = useState<number[]>(Array.from({ length: 40 }, () => 20));
+  const [showVoiceRecorderOverlay, setShowVoiceRecorderOverlay] = useState(false);
+  const [showDiscardRecordingConfirm, setShowDiscardRecordingConfirm] = useState(false);
+  const [voiceRecorderError, setVoiceRecorderError] = useState<string | null>(null);
+  const [voiceUploadState, setVoiceUploadState] = useState<{ uploading: boolean; progress: number } | null>(null);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({});
   const [shops, setShops] = useState<Shop[]>([]);
@@ -400,8 +435,12 @@ const OrderDetailsScreen: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => () => {
+    stopRecordingSession();
+  }, []);
 
   useEffect(() => {
+
     if (!id) return;
     const currentOrder = orders.find((item) => item.id === id);
     if (currentOrder && (currentOrder.isLead || (currentOrder.parts && currentOrder.parts.length > 0))) return;
@@ -1395,9 +1434,24 @@ const OrderDetailsScreen: React.FC = () => {
     const files = Array.from(e.target.files);
     files.forEach((file) => {
       if (!file.type.startsWith('audio/')) return;
+      if (file.size > VOICE_NOTE_MAX_SIZE) {
+        setVoiceRecorderError('Voice note exceeds 10MB limit');
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => {
-        setNewNoteAudios((prev) => [...prev, reader.result as string]);
+        const fileUrl = String(reader.result || '');
+        setNewNoteAudios((prev) => [...prev, fileUrl]);
+        setNewNoteVoiceNotes((prev) => [...prev, {
+          id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `voice-file-${Date.now()}`,
+          fileUrl,
+          duration: 0,
+          createdAt: Date.now(),
+          author: order.manager || 'Manager',
+          fileSize: file.size,
+          mimeType: file.type,
+          waveform: getWaveBars(file.name)
+        }]);
       };
       reader.readAsDataURL(file);
     });
@@ -1417,54 +1471,187 @@ const OrderDetailsScreen: React.FC = () => {
     });
   };
 
-  useEffect(() => {
-    if (!isRecording) return;
-    const timer = window.setInterval(() => setRecordingTick((prev) => prev + 1), 260);
-    return () => window.clearInterval(timer);
-  }, [isRecording]);
+  const stopRecordingSession = () => {
+    if (recordingTimerRef.current) {
+      window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (voiceAnimationFrameRef.current) {
+      window.cancelAnimationFrame(voiceAnimationFrameRef.current);
+      voiceAnimationFrameRef.current = null;
+    }
+    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    recordingStreamRef.current = null;
+  };
 
-  const toggleRecording = async () => {
-    if (isRecording) {
-      recorderRef.current?.stop();
+  const startWaveformSampling = (stream: MediaStream) => {
+    try {
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      const tick = () => {
+        analyser.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+        voiceWaveformSamplesRef.current.push(average);
+        if (voiceWaveformSamplesRef.current.length > 300) {
+          voiceWaveformSamplesRef.current = voiceWaveformSamplesRef.current.slice(-300);
+        }
+        setRecordingWaveform(normalizeVoiceWaveform(voiceWaveformSamplesRef.current));
+        voiceAnimationFrameRef.current = window.requestAnimationFrame(tick);
+      };
+
+      tick();
+    } catch (error) {
+      console.warn('Waveform sampling failed', error);
+    }
+  };
+
+  const finalizeRecordedAudio = async (blob: Blob) => {
+    if (blob.size > VOICE_NOTE_MAX_SIZE) {
+      setVoiceRecorderError('Voice note exceeds 10MB limit');
+      return;
+    }
+
+    setVoiceUploadState({ uploading: true, progress: 0 });
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const duration = recordingDurationSec;
+      const voiceNote: VoiceNoteAttachment = {
+        id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `voice-${Date.now()}`,
+        fileUrl: String(reader.result || ''),
+        duration,
+        createdAt: Date.now(),
+        author: order.manager || 'Manager',
+        mimeType: blob.type || 'audio/webm',
+        fileSize: blob.size,
+        waveform: normalizeVoiceWaveform(voiceWaveformSamplesRef.current)
+      };
+      setVoiceUploadState({ uploading: true, progress: 100 });
+      window.setTimeout(() => {
+        setVoiceUploadState(null);
+        setNewNoteAudios((prev) => [...prev, voiceNote.fileUrl]);
+        setNewNoteVoiceNotes((prev) => [...prev, voiceNote]);
+      }, 280);
+      setShowVoiceRecorderOverlay(false);
+      setRecordingWaveform(Array.from({ length: 40 }, () => 20));
+    };
+    reader.readAsDataURL(blob);
+  };
+
+  const stopRecording = (discard = false) => {
+    const recorder = recorderRef.current;
+    if (!recorder) return;
+
+    recorder.onstop = () => {
       setIsRecording(false);
-      return;
-    }
+      setIsRecordingPaused(false);
+      recorderRef.current = null;
+      stopRecordingSession();
+      if (discard) {
+        setRecordingDurationSec(0);
+        voiceWaveformSamplesRef.current = [];
+        setShowVoiceRecorderOverlay(false);
+        return;
+      }
+      const mimeType = recorder.mimeType || 'audio/webm';
+      const blob = new Blob(audioChunksRef.current, { type: mimeType });
+      void finalizeRecordedAudio(blob);
+    };
 
+    recorder.stop();
+  };
+
+  const startRecording = async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert('Запись аудио не поддерживается на этом устройстве');
+      setVoiceRecorderError('Voice recording not supported');
       return;
     }
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const preferredMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : undefined;
+      const recorder = preferredMime ? new MediaRecorder(stream, { mimeType: preferredMime }) : new MediaRecorder(stream);
       recorderRef.current = recorder;
+      recordingStreamRef.current = stream;
       audioChunksRef.current = [];
+      voiceWaveformSamplesRef.current = [];
+      setRecordingDurationSec(0);
+      setVoiceRecorderError(null);
+      setShowVoiceRecorderOverlay(true);
+      setIsRecordingPaused(false);
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
-      recorder.onstop = () => {
-        setIsRecording(false);
-        recorderRef.current = null;
-        const mimeType = recorder.mimeType || 'audio/webm';
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setNewNoteAudios(prev => [...prev, reader.result as string]);
-        };
-        reader.readAsDataURL(blob);
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      recorder.start();
+      recorder.start(250);
       setIsRecording(true);
-    } catch (e) {
-      console.error('Audio recording failed', e);
-      alert('Не удалось начать запись');
+      recordingTimerRef.current = window.setInterval(() => {
+        setRecordingDurationSec((prev) => {
+          const next = prev + 1;
+          if (next >= VOICE_RECORDER_MAX_MS / 1000) {
+            setVoiceRecorderError('Recording limit reached');
+            stopRecording(false);
+            return VOICE_RECORDER_MAX_MS / 1000;
+          }
+          return next;
+        });
+      }, 1000);
+      startWaveformSampling(stream);
+    } catch (error) {
+      console.error('Audio recording failed', error);
+      setVoiceRecorderError('Microphone access required');
     }
   };
+
+  const pauseRecording = () => {
+    const recorder = recorderRef.current;
+    if (!recorder) return;
+    if (isRecordingPaused) {
+      recorder.resume();
+      setIsRecordingPaused(false);
+      return;
+    }
+    recorder.pause();
+    setIsRecordingPaused(true);
+  };
+
+  const cancelRecording = () => {
+    if (!isRecording) {
+      setShowVoiceRecorderOverlay(false);
+      return;
+    }
+    setShowDiscardRecordingConfirm(true);
+  };
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isRecording) return;
+      event.preventDefault();
+      event.returnValue = 'Discard recording?';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isRecording]);
+
+  useEffect(() => {
+    const handleOffline = () => {
+      if (!isRecording) return;
+      localStorage.setItem(`voice-recording-${order.id}`, JSON.stringify({
+        createdAt: Date.now(),
+        duration: recordingDurationSec,
+        waveform: recordingWaveform
+      }));
+      setVoiceRecorderError('Recording saved locally');
+    };
+    window.addEventListener('offline', handleOffline);
+    return () => window.removeEventListener('offline', handleOffline);
+  }, [isRecording, order.id, recordingDurationSec, recordingWaveform]);
 
   const toggleAudioPlayback = (id: string) => {
     const audioEl = document.getElementById(id) as HTMLAudioElement | null;
@@ -1505,12 +1692,14 @@ const OrderDetailsScreen: React.FC = () => {
       text: newNoteText.trim(),
       photos: newNotePhotos,
       audios: newNoteAudios,
+      voiceNotes: newNoteVoiceNotes,
       createdAt: Date.now()
     };
     updateOrder({ ...order, notes: [note, ...(order.notes || [])] });
     setNewNoteText('');
     setNewNotePhotos([]);
     setNewNoteAudios([]);
+    setNewNoteVoiceNotes([]);
   };
 
 
@@ -1528,7 +1717,11 @@ const OrderDetailsScreen: React.FC = () => {
   const removeNoteAudio = (noteId: string, audioIndex: number) => {
     updateOrder({
       ...order,
-      notes: (order.notes || []).map((note) => note.id === noteId ? { ...note, audios: (note.audios || []).filter((_, idx) => idx !== audioIndex) } : note)
+      notes: (order.notes || []).map((note) => note.id === noteId ? {
+        ...note,
+        audios: (note.audios || []).filter((_, idx) => idx !== audioIndex),
+        voiceNotes: (note.voiceNotes || []).filter((_, idx) => idx !== audioIndex)
+      } : note)
     });
   };
 
@@ -2415,16 +2608,47 @@ const OrderDetailsScreen: React.FC = () => {
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Заметки</h2>
           <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            <button type="button" onClick={() => noteFileRef.current?.click()} className="h-12 rounded-xl border-2 border-dashed border-gray-200 px-3 text-gray-600 inline-flex items-center gap-2"><ImageIcon size={18} /> Фото</button>
-            <button type="button" onClick={() => noteAudioFileRef.current?.click()} className="h-12 rounded-xl border-2 border-dashed border-gray-200 px-3 text-gray-600 inline-flex items-center gap-2"><FileAudio size={18} /> Файл</button>
-            <button type="button" onClick={toggleRecording} className={`h-12 rounded-xl border-2 px-3 ${isRecording ? 'border-red-300 bg-red-50 text-red-600' : 'border-gray-200 text-gray-600'} inline-flex items-center gap-2`}>{isRecording ? <Square size={16} /> : <Mic size={16} />} Голос</button>
-            {isRecording && <div className="h-12 px-2 rounded-xl border border-rose-200 bg-rose-50 flex items-end gap-1">{Array.from({ length: 16 }).map((_, idx) => <span key={`record-wave-${idx}`} className="w-1 rounded-full bg-rose-400" style={{ height: `${30 + Math.abs(Math.sin((recordingTick + idx) * 0.9)) * 70}%` }} />)}</div>}
+            <button type="button" aria-label="Attach photo" onClick={() => noteFileRef.current?.click()} className="h-11 rounded-[12px] border border-gray-200 px-4 text-gray-700 inline-flex items-center gap-2 bg-white"><ImageIcon size={18} /> Фото</button>
+            <button type="button" aria-label="Attach audio file" onClick={() => noteAudioFileRef.current?.click()} className="h-11 rounded-[12px] border border-gray-200 px-4 text-gray-700 inline-flex items-center gap-2 bg-white"><FileAudio size={18} /> Файл</button>
+            <button type="button" aria-label="Record voice note" onClick={() => void startRecording()} className="h-11 rounded-[12px] bg-[#3B6AF7] px-4 text-white inline-flex items-center gap-2 font-semibold shadow-sm transition-transform hover:scale-[1.02]"><Mic size={18} /> Voice</button>
             {newNotePhotos.map((p, i) => <img key={i} src={p} className="w-12 h-12 rounded-xl object-cover border border-gray-100" />)}
-            {newNoteAudios.map((_, i) => <div key={`na-${i}`} className="px-3 h-12 rounded-xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-600 flex items-center">Audio {i + 1}</div>)}
+            {newNoteVoiceNotes.map((voice) => <div key={voice.id} className="px-3 h-11 rounded-xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-700 flex items-center">🎤 {formatVoiceDuration(voice.duration)}</div>)}
             <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
             <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
           </div>
+          {voiceUploadState?.uploading && (
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-blue-600">Uploading voice note...</p>
+              <div className="h-2 rounded-full bg-blue-100 overflow-hidden"><div className="h-full bg-blue-500 transition-all" style={{ width: `${voiceUploadState.progress}%` }} /></div>
+            </div>
+          )}
+          {voiceRecorderError && <p className="text-xs font-semibold text-rose-600">{voiceRecorderError}</p>}
           <button type="button" onClick={addNote} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-wide">Добавить заметку</button>
+          {showVoiceRecorderOverlay && (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 space-y-3" onTouchMove={(e) => e.preventDefault()}>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-rose-700">Recording...</p>
+                <div className="inline-flex items-center gap-2 text-sm font-black text-rose-600"><span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" /> {formatVoiceDuration(recordingDurationSec)}</div>
+              </div>
+              <div className="flex h-10 items-end gap-1 rounded-xl bg-white/80 px-2">
+                {recordingWaveform.map((height, idx) => <span key={`live-wave-${idx}`} className={`block flex-1 rounded-full ${isRecording && !isRecordingPaused ? 'bg-rose-400' : 'bg-rose-200'}`} style={{ height: `${height}%` }} />)}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button type="button" onClick={pauseRecording} className="h-10 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-xs font-bold">{isRecordingPaused ? 'Resume' : 'Pause'}</button>
+                <button type="button" onClick={() => stopRecording(false)} className="h-10 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-bold">Stop</button>
+                <button type="button" onClick={cancelRecording} className="h-10 rounded-xl border border-rose-200 bg-white text-rose-700 text-xs font-bold">Cancel</button>
+              </div>
+            </div>
+          )}
+          {showDiscardRecordingConfirm && (
+            <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-2">
+              <p className="text-sm font-semibold text-gray-700">Discard recording?</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { setShowDiscardRecordingConfirm(false); stopRecording(true); }} className="h-9 px-3 rounded-lg bg-rose-600 text-white text-xs font-bold">Discard</button>
+                <button type="button" onClick={() => setShowDiscardRecordingConfirm(false)} className="h-9 px-3 rounded-lg border border-gray-200 text-xs font-bold text-gray-700">Continue recording</button>
+              </div>
+            </div>
+          )}
           {(order.notes || []).length > 0 && (
             <div className="space-y-2">
               {(order.notes || []).map(n => (
@@ -2434,35 +2658,44 @@ const OrderDetailsScreen: React.FC = () => {
                     <button type="button" onClick={() => removeNoteById(n.id)} className="shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete заметку</button>
                   </div>
                   {n.photos && n.photos.length > 0 && <div className="flex gap-2 mt-2 overflow-x-auto no-scrollbar">{n.photos.map((ph, idx) => <div key={idx} className="relative w-12 h-12 rounded-lg overflow-hidden"><button type="button" onClick={() => setGallery({ images: n.photos || [], index: idx })} className="w-full h-full"><img src={ph} className="w-full h-full object-cover" /></button><button type="button" onClick={() => removeNotePhoto(n.id, idx)} className="absolute right-0.5 top-0.5 rounded-full bg-black/60 px-1 text-[9px] text-white">✕</button></div>)}</div>}
-                  {n.audios && n.audios.length > 0 && <div className="space-y-2 mt-2">{n.audios.map((audioSrc, idx) => {
+                  {((n.voiceNotes && n.voiceNotes.length > 0) || (n.audios && n.audios.length > 0)) && <div className="space-y-2 mt-2">{(n.voiceNotes && n.voiceNotes.length > 0 ? n.voiceNotes.map((voice, idx) => ({ voice, src: voice.fileUrl, idx })) : (n.audios || []).map((src, idx) => ({ voice: null, src, idx }))).map(({ voice, src: audioSrc, idx }) => {
                     const audioId = `note-${n.id}-${idx}`;
                     const isPlaying = playingAudioId === audioId;
                     const progress = audioProgress[audioId] || 0;
-                    const bars = getWaveBars(audioSrc.slice(0, 120));
+                    const bars = voice?.waveform || getWaveBars(audioSrc.slice(0, 120));
 
                     return (
-                      <div key={audioId} className="flex items-center gap-2 bg-white border border-gray-200 rounded-2xl px-3 py-2">
-                        <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="w-7 h-7 rounded-full bg-green-600 text-white flex items-center justify-center shrink-0">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
-                        <div className="flex-1 h-8 flex items-center gap-0.5">
-                          {bars.map((height, barIndex) => {
-                            const threshold = ((barIndex + 1) / bars.length) * 100;
-                            const isPassed = progress >= threshold;
-
-                            return (
-                              <span
-                                key={`${audioId}-bar-${barIndex}`}
-                                className={`block flex-1 rounded-full transition-colors ${isPassed ? 'bg-green-500' : 'bg-gray-300'} ${isPlaying ? 'animate-pulse' : ''}`}
-                                style={{ height: `${height}%`, animationDelay: `${barIndex * 0.03}s` }}
-                              />
-                            );
-                          })}
+                      <div key={audioId} className="space-y-2 bg-white border border-gray-200 rounded-2xl px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-bold text-slate-700">🎤 Voice note {voice ? formatVoiceDuration(voice.duration) : ''}</p>
+                          <p className="text-[10px] text-slate-500">{voice ? `${new Date(voice.createdAt).toLocaleString()} · ${voice.author}` : ''}</p>
                         </div>
-                        <audio id={audioId} src={audioSrc} preload="metadata" playsInline />
-                        <button type="button" onClick={() => removeNoteAudio(n.id, idx)} className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete</button>
+                        <div className="flex items-center gap-2">
+                          <button type="button" aria-label="Play voice note" onClick={() => toggleAudioPlayback(audioId)} className="w-7 h-7 rounded-full bg-green-600 text-white flex items-center justify-center shrink-0">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
+                          <div className="flex-1 h-8 flex items-center gap-0.5" role="img" aria-label="Audio waveform preview">
+                            {bars.map((height, barIndex) => {
+                              const threshold = ((barIndex + 1) / bars.length) * 100;
+                              const isPassed = progress >= threshold;
+
+                              return (
+                                <span
+                                  key={`${audioId}-bar-${barIndex}`}
+                                  className={`block flex-1 rounded-full transition-colors ${isPassed ? 'bg-green-500' : 'bg-gray-300'} ${isPlaying ? 'animate-pulse' : ''}`}
+                                  style={{ height: `${height}%`, animationDelay: `${barIndex * 0.03}s` }}
+                                />
+                              );
+                            })}
+                          </div>
+                          <audio id={audioId} src={audioSrc} preload="metadata" playsInline />
+                          <button type="button" aria-label="Delete voice note" onClick={() => removeNoteAudio(n.id, idx)} className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700"><Trash2 size={12} /></button>
+                        </div>
+                        <div className="flex gap-1">
+                          <a href={audioSrc} download={`voice-note-${n.id}-${idx}.webm`} className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700"><Download size={11} /> Download</a>
+                          <button type="button" onClick={() => void shareMessage(`Voice note for order ${order.id}: ${audioSrc}`)} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700"><Send size={11} /> Share</button>
+                        </div>
                       </div>
                     );
-                  })}</div>}
-                </div>
+                  })}</div>}                </div>
               ))}
             </div>
           )}

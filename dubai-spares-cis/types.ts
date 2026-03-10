@@ -227,7 +227,19 @@ export interface OrderNote {
   text: string;
   photos?: string[];
   audios?: string[];
+  voiceNotes?: VoiceNoteAttachment[];
   createdAt: number;
+}
+
+export interface VoiceNoteAttachment {
+  id: string;
+  fileUrl: string;
+  duration: number;
+  createdAt: number;
+  author: string;
+  mimeType?: string;
+  fileSize?: number;
+  waveform?: number[];
 }
 
 export type SupplierType = 'new_parts' | 'scrapyard' | 'engine_specialist' | 'body_parts' | 'electrical' | 'mixed' | 'dealer' | 'warehouse';
