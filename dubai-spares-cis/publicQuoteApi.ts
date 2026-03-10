@@ -626,6 +626,14 @@ const buildSnapshotPayload = (
   const deliveryAed = parseMoney(order.logistics?.deliveryAed, (order as any).logistics?.delivery, (order as any).deliveryAed, (order as any).delivery);
   const packingAed = parseMoney(order.logistics?.packingAed, (order as any).logistics?.packing, (order as any).packingAed, (order as any).packing);
   const commissionAed = parseMoney(order.logistics?.serviceFeeAed, (order as any).logistics?.commission, (order as any).commissionAed, (order as any).commission);
+  const cargoCountry = String(order.logistics?.cargoCountry || '').trim();
+  const cargoTotalWeightKg = parseMoney(order.logistics?.cargoTotalWeightKg);
+  const cargoChargeableWeightKg = parseMoney(order.logistics?.cargoChargeableWeightKg);
+  const cargoTotalPlaces = parseMoney(order.logistics?.cargoTotalPlaces);
+  const cargoAirCostUsd = parseMoney(order.logistics?.cargoAirCostUsd);
+  const cargoContainerCostUsd = parseMoney(order.logistics?.cargoContainerCostUsd);
+  const cargoAirEtaDays = String(order.logistics?.cargoAirEtaDays || '').trim();
+  const cargoContainerEtaDays = String(order.logistics?.cargoContainerEtaDays || '').trim();
 
   const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
   const fixedMarkupTotal = parseMoney(order.markupFixedAed) || 0;
@@ -737,7 +745,15 @@ const buildSnapshotPayload = (
     logistics: {
       deliveryAed,
       packingAed,
-      serviceFeeAed: commissionAed
+      serviceFeeAed: commissionAed,
+      cargoCountry: cargoCountry || undefined,
+      cargoTotalWeightKg,
+      cargoChargeableWeightKg,
+      cargoTotalPlaces,
+      cargoAirCostUsd,
+      cargoContainerCostUsd,
+      cargoAirEtaDays: cargoAirEtaDays || undefined,
+      cargoContainerEtaDays: cargoContainerEtaDays || undefined
     },
     items: snapshotItems,
     fees: {
