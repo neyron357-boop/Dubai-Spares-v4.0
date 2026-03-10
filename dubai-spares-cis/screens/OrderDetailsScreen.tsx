@@ -1532,6 +1532,113 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
+  const orderWorkspaceSuppliers = useMemo(() => {
+    const byName = new Map<string, {
+      name: string;
+      offers: number[];
+      lastOfferAt: number;
+      supplier?: typeof suppliers[number];
+    }>();
+
+    (order.parts || []).forEach((part) => {
+      (part.variants || []).forEach((variant) => {
+        const name = (variant.shopName || 'Unknown supplier').trim();
+        const key = name.toLowerCase();
+        if (!byName.has(key)) {
+          const matchedSupplier = suppliers.find((supplier) => supplier.name.trim().toLowerCase() === key);
+          byName.set(key, {
+            name,
+            offers: [],
+            lastOfferAt: 0,
+            supplier: matchedSupplier
+          });
+        }
+        const current = byName.get(key);
+        if (!current) return;
+        if (Number.isFinite(Number(variant.priceAed)) && Number(variant.priceAed) > 0) {
+          current.offers.push(Number(variant.priceAed));
+        }
+        current.lastOfferAt = Math.max(current.lastOfferAt, Number(variant.updatedAt || variant.createdAt || 0));
+      });
+    });
+
+    return Array.from(byName.values())
+      .map((entry) => {
+        const avgPrice = entry.offers.length
+          ? Math.round(entry.offers.reduce((sum, item) => sum + item, 0) / entry.offers.length)
+          : null;
+        const score = Number(entry.supplier?.supplierScore ?? entry.supplier?.successRate ?? entry.supplier?.trustLevel ?? 0);
+        const dealsCompleted = Number(entry.supplier?.ordersCompleted ?? entry.supplier?.foundCount ?? 0);
+        const responseWindowMs = Number(entry.supplier?.lastRespondedAt || 0) - Number(entry.supplier?.lastContactAt || 0);
+        const responseHours = responseWindowMs > 0 ? Math.round(responseWindowMs / (1000 * 60 * 60)) : null;
+        return {
+          ...entry,
+          avgPrice,
+          score,
+          dealsCompleted,
+          responseHours
+        };
+      })
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if ((a.avgPrice ?? Number.MAX_SAFE_INTEGER) !== (b.avgPrice ?? Number.MAX_SAFE_INTEGER)) {
+          return (a.avgPrice ?? Number.MAX_SAFE_INTEGER) - (b.avgPrice ?? Number.MAX_SAFE_INTEGER);
+        }
+        return b.lastOfferAt - a.lastOfferAt;
+      });
+  }, [order.parts, suppliers]);
+
+  const bestSuppliersForBrand = useMemo(() => {
+    const normalizedBrand = order.brand.trim().toLowerCase();
+    if (!normalizedBrand) return [] as typeof suppliers;
+
+    return suppliers
+      .filter((supplier) => (supplier.mainBrands || supplier.brands || []).some((brand) => brand.trim().toLowerCase() === normalizedBrand))
+      .sort((a, b) => Number(b.supplierScore ?? b.successRate ?? 0) - Number(a.supplierScore ?? a.successRate ?? 0))
+      .slice(0, 3);
+  }, [order.brand, suppliers]);
+
+  const partsGraphInsights = useMemo(() => {
+    const allVariants = orders.flatMap((item) =>
+      (item.parts || []).flatMap((part) =>
+        (part.variants || []).map((variant) => ({
+          partName: part.name,
+          priceAed: Number(variant.priceAed),
+          shopName: variant.shopName,
+          createdAt: Number(variant.updatedAt || variant.createdAt || 0)
+        }))
+      )
+    );
+
+    return (order.parts || []).map((part) => {
+      const partKey = part.name.trim().toLowerCase();
+      const history = allVariants
+        .filter((variant) => variant.partName.trim().toLowerCase() === partKey && Number.isFinite(variant.priceAed) && variant.priceAed > 0)
+        .sort((a, b) => b.createdAt - a.createdAt);
+
+      const lastPrice = history[0]?.priceAed ?? null;
+      const suppliersForPart = Array.from(new Set(history.map((item) => item.shopName).filter(Boolean))).slice(0, 2);
+
+      return {
+        partId: part.id,
+        partName: part.name,
+        lastPrice,
+        suppliersForPart
+      };
+    });
+  }, [order.parts, orders]);
+
+  const bestOfferTotal = useMemo(() => {
+    const value = (order.parts || []).reduce((sum, part) => {
+      const prices = (part.variants || [])
+        .map((variant) => Number(variant.priceAed))
+        .filter((price) => Number.isFinite(price) && price > 0);
+      if (!prices.length) return sum;
+      return sum + Math.min(...prices);
+    }, 0);
+    return value > 0 ? value : null;
+  }, [order.parts]);
+
   return (
     <div className="flex flex-col min-h-full overflow-x-hidden bg-gray-50 pb-20">
       <div className="p-4 sticky top-0 z-20 shadow-sm backdrop-blur bg-white/95 border-b border-gray-100 space-y-3">
@@ -1719,6 +1826,45 @@ const OrderDetailsScreen: React.FC = () => {
           </button>
             </>
           )}
+        </div>
+
+        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Order Workspace</p>
+          <div className="grid grid-cols-1 gap-2 text-xs">
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
+              <p className="text-[10px] font-bold text-gray-400 uppercase">Car</p>
+              <p className="font-black text-gray-800">{order.brand} {order.model} {order.year}</p>
+              <p className="font-mono text-[11px] text-gray-500">VIN: {order.vin || '—'}</p>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
+              <p className="text-[10px] font-bold text-gray-400 uppercase">Parts</p>
+              <p className="font-semibold text-gray-700">{(order.parts || []).map((part) => part.name).join(' • ') || 'Добавьте детали'}</p>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-1">
+              <p className="text-[10px] font-bold text-gray-400 uppercase">Supplier intelligence</p>
+              {orderWorkspaceSuppliers.slice(0, 3).map((supplier) => (
+                <div key={supplier.name} className="rounded-lg bg-white border border-gray-100 p-2">
+                  <p className="font-black text-gray-800">{supplier.name} · score {supplier.score || 0}</p>
+                  <p className="text-[11px] text-gray-500">Response: {supplier.responseHours ? `${supplier.responseHours}h avg` : 'нет данных'} · Deals: {supplier.dealsCompleted || 0} · Avg price: {supplier.avgPrice ? `${supplier.avgPrice} AED` : '—'}</p>
+                </div>
+              ))}
+              {!orderWorkspaceSuppliers.length && <p className="text-[11px] text-gray-500">Добавьте офферы, чтобы увидеть аналитику поставщиков.</p>}
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-1">
+              <p className="text-[10px] font-bold text-gray-400 uppercase">Parts graph</p>
+              {partsGraphInsights.map((insight) => (
+                <p key={insight.partId} className="text-[11px] text-gray-600">
+                  <span className="font-bold">{insight.partName}:</span> {insight.suppliersForPart.join(', ') || 'нет истории'} {insight.lastPrice ? `· last ${insight.lastPrice} AED` : ''}
+                </p>
+              ))}
+            </div>
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-2">
+              <p className="text-[10px] font-bold text-indigo-500 uppercase">Client quote</p>
+              <p className="font-black text-indigo-700">{bestOfferTotal ? `${bestOfferTotal} AED` : 'Пока нет финальной цены'}</p>
+              {!!bestSuppliersForBrand.length && <p className="text-[11px] text-indigo-600">Best for {order.brand}: {bestSuppliersForBrand.map((item) => item.name).join(', ')}</p>}
+              <button type="button" onClick={() => setIsEstimateOpen(true)} className="mt-2 h-9 w-full rounded-xl bg-indigo-600 text-white text-[11px] font-black uppercase">Send to client</button>
+            </div>
+          </div>
         </div>
 
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
