@@ -1119,7 +1119,9 @@ const persistOrderGraph = async (order: Order) => {
     pricing_events: uploadedOrder.pricingEvents || [],
     vendor_contacts: uploadedOrder.vendorContacts || [],
     vendor_checklist: uploadedOrder.vendorChecklist || [],
-    vehicle_details: uploadedOrder.vehicleDetails || null
+    vehicle_details: uploadedOrder.vehicleDetails && typeof uploadedOrder.vehicleDetails === 'object'
+      ? uploadedOrder.vehicleDetails
+      : {}
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
