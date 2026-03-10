@@ -369,10 +369,11 @@ const PartDetailsScreen: React.FC = () => {
       const existingSupplierByPhone = normalizedFormPhone
         ? suppliers.find((supplier) => normalizePhone(supplier.phone || '') === normalizedFormPhone)
         : undefined;
-      const existingSupplier = existingSupplierByPhone || suppliers.find((s) => {
+      const existingSupplierByNameOrId = suppliers.find((s) => {
         if (form.supplierId && s.id === form.supplierId) return true;
         return s.name.trim().toLowerCase() === normalizedShopName;
       });
+      const existingSupplier = existingSupplierByNameOrId || existingSupplierByPhone;
       const locationSource = form.mapsUrl || form.locationText;
       const resolvedCoordinates = await resolveCoordinatesFromLocation(locationSource, {
         fallbackQueries: buildShopFallbackQueries(),
@@ -455,7 +456,7 @@ const PartDetailsScreen: React.FC = () => {
       }
 
       const variantId = editingVariantId || createUuid();
-      const resolvedShopName = existingSupplierByPhone ? existingSupplierByPhone.name : form.shopName.trim();
+      const resolvedShopName = form.shopName.trim() || existingSupplier?.name || '';
       const newVariant: PriceVariant = {
         id: variantId,
         partId: part.id,
