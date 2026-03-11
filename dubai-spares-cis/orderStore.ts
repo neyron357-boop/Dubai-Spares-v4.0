@@ -88,12 +88,10 @@ const normalizeSupabaseStorageUrl = (url: string) => {
 
   try {
     const parsed = new URL(trimmed);
-    const signMarker = '/storage/v1/object/sign/';
     const publicMarker = '/storage/v1/object/public/';
 
-    if (parsed.pathname.includes(signMarker)) {
-      parsed.pathname = parsed.pathname.replace(signMarker, publicMarker);
-      parsed.search = '';
+    if (parsed.pathname.includes('/storage/v1/object/sign/')) {
+      // Signed URLs may point to private buckets; never strip token or convert to public path.
       return parsed.toString();
     }
 
