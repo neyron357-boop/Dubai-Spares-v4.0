@@ -842,6 +842,7 @@ const RadarScreen: React.FC = () => {
     .filter((item): item is { key: string; order: Order; shop: Shop } => !!item);
 
   return (
+    <>
     <div className="p-4 pb-20 space-y-3 bg-slate-950 min-h-full text-white">
       <section className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-3 space-y-3">
         <div className="flex items-center justify-between gap-2">
@@ -1079,6 +1080,7 @@ const RadarScreen: React.FC = () => {
         📸 Send car photo · {photoActionEntry.shopName}
       </button>
     )}
+    </>
   );
 };
 

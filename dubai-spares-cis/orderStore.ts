@@ -1025,11 +1025,23 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
 const withUploadedPhotos = async (order: Order): Promise<Order> => {
   const orderId = ensureUuid(order.id);
   const skipUpload = !!order.localOnlyPhotos;
-  const carSource = (order.carPhotos || []).slice(0, 1);
-  const carPhotos = await ensurePublicImageUrls(carSource, `orders/${orderId}`, {
+  // Use a dedicated car/ subfolder so that cleanupExtraFiles does NOT recursively
+  // delete part-example, variant, and note photos which live in sibling subfolders.
+  // All car photos are preserved (no more slice(0,1) truncation).
+  const carSource = order.carPhotos || [];
+  const carPhotos = await ensurePublicImageUrls(carSource, `orders/${orderId}/car`, {
     skipUpload,
-    fileNames: ['car.jpg'],
+    fileNames: carSource.map((_, i) => `${i}.jpg`),
     cleanupExtraFiles: true
+  });
+
+  await logger.info('photo:upload', `[car] order=${orderId} count=${carPhotos.length} skip=${skipUpload}`, {
+    orderId,
+    photoType: 'car',
+    inputCount: carSource.length,
+    outputCount: carPhotos.length,
+    dataUrlCount: carSource.filter((p) => p.startsWith('data:image')).length,
+    httpCount: carSource.filter((p) => p.startsWith('http')).length
   });
 
   const notes = await Promise.all(
@@ -1049,6 +1061,14 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
         cleanupExtraFiles: true
       });
 
+      await logger.info('photo:upload', `[part-example] order=${orderId} part=${partId} count=${partPhotos.length}`, {
+        orderId,
+        partId,
+        photoType: 'part-example',
+        inputCount: (part.photos || []).length,
+        outputCount: partPhotos.length
+      });
+
       const variants = await Promise.all(
         (part.variants || []).map(async (variant) => {
           const variantId = ensureUuid(variant.id);
@@ -1061,6 +1081,15 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
               cleanupExtraFiles: true
             }
           );
+
+          await logger.info('photo:upload', `[variant] order=${orderId} part=${partId} variant=${variantId} count=${variantPhotos.length}`, {
+            orderId,
+            partId,
+            variantId,
+            photoType: 'variant',
+            inputCount: (variant.photos || []).length,
+            outputCount: variantPhotos.length
+          });
 
           return { ...variant, id: variantId, partId, photos: variantPhotos, photoUrl: variantPhotos[0] };
         })

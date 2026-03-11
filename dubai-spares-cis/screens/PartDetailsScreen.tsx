@@ -461,8 +461,14 @@ const PartDetailsScreen: React.FC = () => {
         const raw = String(photo || '').trim();
         if (!raw) return '';
         if (!raw.startsWith('data:image')) return raw;
-        const fileName = `${variantId}-${Date.now()}-${index}.webp`;
-        const uploaded = await uploadImageToStorage(raw, `orders/${order.id}/parts/${part.id}/variants`, fileName);
+        // Use the same per-variant subfolder that withUploadedPhotos expects,
+        // so that cleanupExtraFiles logic stays consistent.
+        // The filename pattern (0.jpg, 1.jpg…) must match what withUploadedPhotos generates
+        // so that x-upsert overwrites the correct file when re-syncing.
+        // uploadImageToStorage compresses internally and stores the result regardless of the
+        // .jpg extension label (the actual format depends on browser canvas support).
+        const fileName = `${index}.jpg`;
+        const uploaded = await uploadImageToStorage(raw, `orders/${order.id}/parts/${part.id}/variants/${variantId}`, fileName);
         await logger.info('part-details:variant-photo-persisted', 'Variant photo persisted', {
           orderId: order.id,
           partId: part.id,
