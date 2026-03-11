@@ -1049,14 +1049,14 @@ const openInvoicePrintWindow = ({
 
   const rows = lineItems.map((item, idx) => `
     <tr>
-      <td>${idx + 1}</td>
-      <td>
-        <div>${escapeHtml(item.name)}</div>
-        ${item.description ? `<div style="margin-top:4px;font-size:11px;color:#64748b;white-space:pre-line">${escapeHtml(item.description)}</div>` : ''}
+      <td data-label="#">${idx + 1}</td>
+      <td data-label="Part name">
+        <div class="item-name">${escapeHtml(item.name)}</div>
+        ${item.description ? `<div class="item-description">${escapeHtml(item.description)}</div>` : ''}
       </td>
-      <td style="text-align:center">1</td>
-      <td style="text-align:right">${moneyLabel(item.price)}</td>
-      <td style="text-align:right">${moneyLabel(item.price)}</td>
+      <td data-label="Qty" style="text-align:center">1</td>
+      <td data-label="Unit price" style="text-align:right">${moneyLabel(item.price)}</td>
+      <td data-label="Line total" style="text-align:right"><strong>${moneyLabel(item.price)}</strong></td>
     </tr>
   `).join('');
 
@@ -1104,29 +1104,63 @@ const openInvoicePrintWindow = ({
   <title>Invoice ${order.id.slice(0, 8).toUpperCase()}</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: Inter, Arial, sans-serif; margin: 0; padding: 20px; color: #0f172a; background: #edf1f7; }
-    .card { position: relative; max-width: 940px; margin: 0 auto; border: 1px solid #d8e0ec; border-radius: 24px; padding: 26px; background: linear-gradient(180deg,#ffffff,#fdfefe); box-shadow: 0 24px 60px rgba(15,23,42,0.12); }
-    .header { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 20px; margin-bottom: 16px; }
-    .logo { max-height: 78px; max-width: 280px; object-fit: contain; }
+    body { font-family: Inter, Arial, sans-serif; margin: 0; padding: 20px 16px; color: #0f172a; background: #edf2f8; }
+    .card { position: relative; max-width: 1140px; margin: 0 auto; border: 1px solid #d7dee9; border-radius: 22px; padding: 30px; background: #fff; box-shadow: 0 10px 34px rgba(15,23,42,0.08); }
+    .header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 20px; margin-bottom: 18px; }
+    .logo { max-height: 78px; max-width: 300px; object-fit: contain; }
+    .subtitle { margin: 10px 0 0; font-size: 17px; color: #334155; }
+    .invoice-title { margin: 0; font-size: 38px; font-weight: 800; letter-spacing: .08em; color: #0f1f3d; }
     .muted { color: #64748b; font-size: 12px; }
-    .line { height: 1px; background: #e2e8f0; margin: 14px 0; }
-    .meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; font-size: 13px; }
-    .meta-grid p { margin: 0; }
-    table { width: 100%; border-collapse: collapse; margin: 16px 0; border: 1px solid #dbe2ea; }
-    th, td { border-bottom: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb; padding: 10px 8px; font-size: 13px; vertical-align: top; }
-    th:last-child, td:last-child { border-right: none; }
+    .line { height: 1px; background: #dce4f0; margin: 18px 0; }
+    .section-title { margin: 24px 0 12px; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #1e293b; }
+    .meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 16px; }
+    .meta-item { margin: 0; }
+    .meta-label { display: block; margin-bottom: 5px; font-size: 13px; font-weight: 600; color: #64748b; }
+    .meta-value { display: block; font-size: 15px; font-weight: 600; color: #0f172a; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 0; border: 1px solid #dde4ee; border-radius: 14px; overflow: hidden; }
+    th, td { border-bottom: 1px solid #e8edf4; padding: 12px 10px; font-size: 14px; vertical-align: top; }
     tr:last-child td { border-bottom: none; }
-    th { text-align: left; background: #f1f5f9; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #475569; }
-    .totals { margin-top: 14px; margin-left: auto; width: 100%; max-width: 360px; border: 1px solid #dbe2ea; border-radius: 12px; overflow: hidden; }
-    .totals p { display: flex; justify-content: space-between; margin: 0; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0; }
+    th { text-align: left; background: #f1f5fb; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #475569; }
+    .item-name { font-size: 15px; font-weight: 600; color: #0f172a; }
+    .item-description { margin-top: 4px; font-size: 12px; color: #64748b; white-space: pre-line; }
+    .totals { margin-top: 18px; margin-left: auto; width: 100%; max-width: 400px; border: 1px solid #d7e0eb; border-radius: 16px; background: #f8fafc; overflow: hidden; }
+    .totals p { display: flex; justify-content: space-between; margin: 0; padding: 11px 14px; font-size: 13px; border-bottom: 1px solid #e2e8f0; }
     .totals p:last-child { border-bottom: none; }
-    .total { font-size: 18px !important; font-weight: 800; background: #f8fafc; }
-    .signature { margin-top: 26px; border-top: 1px solid #d6deea; padding-top: 18px; }
-    .signature-row { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; min-height:94px; }
+    .total { font-size: 26px !important; font-weight: 800; background: #f0f5fd; color: #0f1f3d; }
+    .total span:last-child { text-align: right; }
+    .signature { margin-top: 28px; border-top: 1px solid #dce4f0; padding-top: 20px; }
+    .signature-row { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; min-height:104px; }
     .signature-owner { flex:1; }
-    .signature-sign { min-width:220px; text-align:right; }
-    .signature-name { margin:0; font-weight:700; font-size:16px; color:#0f1f3d; }
-    @media (max-width: 760px) { body { padding: 16px; } .card { padding: 20px; border-radius: 22px; } .header { grid-template-columns: 1fr; gap: 10px; } h1 { font-size: 32px !important; } .meta-grid { grid-template-columns: 1fr; gap: 12px; } table { border: none; margin: 14px 0; } table thead { display: none; } table tbody tr { display: block; border: 1px solid #dbe2ea; border-radius: 14px; margin-bottom: 10px; overflow: hidden; } table tbody td { display: flex; justify-content: space-between; gap: 12px; border-right: none; border-bottom: 1px solid #e8edf4; padding: 10px 12px; font-size: 13px; } table tbody td:last-child { border-bottom: none; } .signature-row { flex-direction: column; align-items:flex-start; } .signature-sign { text-align:left; min-width:0; } } @media print { body { padding: 0; background: #fff; } .card { border: none; border-radius: 0; box-shadow:none; } table thead { display: table-header-group; } table tbody tr { display: table-row; border: none; } table tbody td { display: table-cell; } }
+    .signature-sign { min-width:240px; text-align:right; }
+    .signature-name { margin:0; font-weight:700; font-size:17px; color:#0f1f3d; }
+    @media (max-width: 760px) {
+      body { padding: 16px; }
+      .card { padding: 20px; border-radius: 20px; }
+      .header { grid-template-columns: 1fr; gap: 14px; }
+      .invoice-title { font-size: 34px; }
+      .subtitle { font-size: 16px; }
+      .meta-grid { grid-template-columns: 1fr; gap: 10px; }
+      table { border: none; border-radius: 0; margin-top: 4px; }
+      table thead { display: none; }
+      table tbody tr { display: block; border: 1px solid #dde4ee; border-radius: 14px; margin-bottom: 10px; overflow: hidden; background: #fff; }
+      table tbody td { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e8edf4; padding: 10px 12px; font-size: 14px; text-align: right !important; }
+      table tbody td::before { content: attr(data-label); font-size: 12px; font-weight: 600; color: #64748b; text-align: left; }
+      table tbody td[data-label="Part name"] { display: block; text-align: left !important; }
+      table tbody td[data-label="Part name"]::before { display: block; margin-bottom: 4px; }
+      table tbody td:last-child { border-bottom: none; }
+      .totals { max-width: none; }
+      .total { font-size: 23px !important; }
+      .signature-row { flex-direction: column; align-items:flex-start; }
+      .signature-sign { text-align:left; min-width:0; }
+    }
+    @media print {
+      body { padding: 0; background: #fff; }
+      .card { border: none; border-radius: 0; box-shadow:none; padding: 22px 18px; max-width: none; }
+      table thead { display: table-header-group; }
+      table tbody tr { display: table-row; border: none; }
+      table tbody td { display: table-cell; }
+      table tbody td::before { content: none; }
+    }
   </style>
 </head>
 <body>
@@ -1134,10 +1168,10 @@ const openInvoicePrintWindow = ({
     <div class="header">
       <div>
         ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" class="logo" alt="Company logo" />` : '<h2 style="margin:0">DUBAI SPARES UAE</h2>'}
-        <p class="muted" style="margin:8px 0 0">Professional Automotive Parts Invoice</p>
+        <p class="subtitle">Professional automotive parts invoice</p>
       </div>
       <div style="text-align:right">
-        <h1 style="margin:0;font-size:34px;letter-spacing:.08em">INVOICE</h1>
+        <h1 class="invoice-title">INVOICE</h1>
         <p class="muted" style="margin:8px 0 0">Invoice ID: ${invoiceId}</p>
         <p class="muted" style="margin:4px 0 0">Issue date: ${issueDate.toLocaleDateString()}</p>
       </div>
@@ -1145,12 +1179,13 @@ const openInvoicePrintWindow = ({
     <div class="line"></div>
 
     <div class="meta-grid">
-      <p><strong>Bill to:</strong> ${escapeHtml(billToName)}</p>
-      <p><strong>Contact:</strong> ${escapeHtml(contactDetails || 'N/A')}</p>
-      <p><strong>Vehicle:</strong> ${escapeHtml(`${order.brand} ${order.model} ${order.year || ''}`.trim())}</p>
-      <p><strong>VIN:</strong> ${escapeHtml(order.vin || '-')}</p>
+      <p class="meta-item"><span class="meta-label">Bill to</span><span class="meta-value">${escapeHtml(billToName)}</span></p>
+      <p class="meta-item"><span class="meta-label">Contact</span><span class="meta-value">${escapeHtml(contactDetails || '—')}</span></p>
+      <p class="meta-item"><span class="meta-label">Vehicle</span><span class="meta-value">${escapeHtml(`${order.brand} ${order.model} ${order.year || ''}`.trim())}</span></p>
+      <p class="meta-item"><span class="meta-label">VIN</span><span class="meta-value">${escapeHtml(order.vin || '—')}</span></p>
     </div>
 
+    <p class="section-title">Parts details</p>
     <table>
       <thead>
         <tr>
@@ -1183,7 +1218,7 @@ const openInvoicePrintWindow = ({
           <th colspan="4">Cargo / Logistics</th>
         </tr>
         <tr>
-          <th>Country</th>
+          <th>Route / Country</th>
           <th style="width:240px">Weight / places</th>
           <th style="width:210px">AIR</th>
           <th style="width:210px">CONTAINER</th>
@@ -1191,10 +1226,10 @@ const openInvoicePrintWindow = ({
       </thead>
       <tbody>
         <tr>
-          <td>${escapeHtml(cargoCountry)}</td>
-          <td>${cargoRealWeight.toFixed(1)} kg (CW ${cargoChargeableWeight.toFixed(1)}) · ${cargoPlaces.toFixed(0)} places</td>
-          <td>${escapeHtml(cargoAirEta)} days · ${cargoCostLabel(cargoAirCostUsd)}</td>
-          <td>${escapeHtml(cargoContainerEta)} days · ${cargoCostLabel(cargoContainerCostUsd)}</td>
+          <td data-label="Route">${escapeHtml(cargoCountry)}</td>
+          <td data-label="Weight / places">${cargoRealWeight.toFixed(1)} kg (CW ${cargoChargeableWeight.toFixed(1)}) · ${cargoPlaces.toFixed(0)} places</td>
+          <td data-label="AIR">${escapeHtml(cargoAirEta)} days · ${cargoCostLabel(cargoAirCostUsd)}</td>
+          <td data-label="CONTAINER">${escapeHtml(cargoContainerEta)} days · ${cargoCostLabel(cargoContainerCostUsd)}</td>
         </tr>
       </tbody>
     </table>
@@ -1216,12 +1251,12 @@ const openInvoicePrintWindow = ({
       <tbody>
         ${cargoAllocatedRows.length > 0
           ? cargoAllocatedRows.map((row) => `<tr>
-            <td>${escapeHtml(row.name)}${row.cargoPlaceGroup ? `<div style="margin-top:4px;font-size:11px;color:#64748b">Group: ${escapeHtml(row.cargoPlaceGroup)}</div>` : ''}</td>
-            <td style="text-align:center">${row.qty}</td>
-            <td>${row.partTotalWeight.toFixed(1)} kg${row.weightKg > 0 && row.qty > 1 ? ` <span style="color:#64748b">(${row.weightKg.toFixed(1)} × ${row.qty})</span>` : ''}</td>
-            <td>${row.places.toFixed(0)}</td>
-            <td style="text-align:right">${cargoCostLabel(row.allocatedAirUsd)}</td>
-            <td style="text-align:right">${cargoCostLabel(row.allocatedContainerUsd)}</td>
+            <td data-label="Part"><span class="item-name">${escapeHtml(row.name)}</span>${row.cargoPlaceGroup ? `<div class="item-description">Group: ${escapeHtml(row.cargoPlaceGroup)}</div>` : ''}</td>
+            <td data-label="Qty" style="text-align:center">${row.qty}</td>
+            <td data-label="Weight">${row.partTotalWeight.toFixed(1)} kg${row.weightKg > 0 && row.qty > 1 ? ` <span class="item-description">(${row.weightKg.toFixed(1)} × ${row.qty})</span>` : ''}</td>
+            <td data-label="Places">${row.places.toFixed(0)}</td>
+            <td data-label="AIR allocation" style="text-align:right">${cargoCostLabel(row.allocatedAirUsd)}</td>
+            <td data-label="CONTAINER allocation" style="text-align:right">${cargoCostLabel(row.allocatedContainerUsd)}</td>
           </tr>`).join('')
           : '<tr><td colspan="6" style="text-align:center;color:#94a3b8">No part-level cargo details available</td></tr>'}
       </tbody>
@@ -1849,7 +1884,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   }
 
   return (
-    <div className="min-h-screen bg-[#f3f5f9] text-slate-900">
+    <div className="min-h-screen bg-[#eef2f7] text-slate-900">
       <div className="sticky top-0 z-40 border-b border-slate-200/80 bg-[#f8f9fc]/90 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 px-4 py-2.5 sm:px-6">
           <div className="flex items-center gap-1.5">
@@ -1866,8 +1901,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         </div>
       </div>
 
-      <header className="mx-auto mt-5 w-full max-w-5xl px-4 sm:px-6">
-        <div className="overflow-hidden rounded-[32px] border border-slate-200/80 bg-gradient-to-b from-[#0f1f3d] via-[#13274c] to-[#1d3561] text-white shadow-[0_30px_90px_rgba(15,23,42,0.30)]">
+      <header className="mx-auto mt-5 w-full max-w-[1180px] px-4 sm:px-6">
+        <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white text-slate-900 shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
           <div className="relative">
             {heroPhoto ? (
               <div className="relative h-56 overflow-hidden sm:h-72">
@@ -1879,27 +1914,27 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             )}
 
             <div className="absolute inset-x-0 top-0 flex items-center justify-between p-4 sm:p-6">
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] backdrop-blur-md">
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-700">
                 <ShieldCheck size={13} /> Dubai Spares UAE
               </div>
-              {logoUrl && <img src={logoUrl} alt="Company logo" className="h-11 w-auto max-w-[180px] rounded-lg bg-white/90 p-1.5 object-contain" />}
+              {logoUrl && <img src={logoUrl} alt="Company logo" className="h-11 w-auto max-w-[180px] rounded-lg border border-slate-200 bg-white p-1.5 object-contain" />}
             </div>
           </div>
 
           <div className="space-y-5 px-5 pb-6 pt-5 sm:px-7 sm:pb-7">
             <div className="flex flex-wrap items-start justify-between gap-5">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-200/80">{t.commercialOffer}</p>
-                <h1 className="mt-2 text-3xl font-black leading-tight tracking-tight text-white sm:text-[2.4rem]">{order.brand} {order.model} {order.year}</h1>
-                <p className="mt-2 text-sm font-medium text-slate-200">VIN / REF: {maskVin(order.vin)}</p>
+                <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t.commercialOffer}</p>
+                <h1 className="mt-2 text-3xl font-bold leading-tight tracking-tight text-[#0f1f3d] sm:text-[2.35rem]">{order.brand} {order.model} {order.year}</h1>
+                <p className="mt-2 text-sm font-medium text-slate-600">VIN / REF: {maskVin(order.vin)}</p>
                 {clientDisplayName && (
-                  <p className="mt-2 text-sm font-semibold text-slate-100">
+                  <p className="mt-2 text-sm font-semibold text-slate-700">
                     {t.clientLabel}: {clientDisplayName}{clientNickname ? ` (${clientNickname})` : ''}
                   </p>
                 )}
               </div>
-              <div className="min-w-[220px] rounded-2xl border border-white/20 bg-white/95 p-4 text-slate-900 shadow-[0_15px_40px_rgba(2,6,23,0.18)]">
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{t.quoteTotal}</p>
+              <div className="min-w-[220px] rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-900 shadow-none">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t.quoteTotal}</p>
                 <p className="mt-1 text-4xl font-black leading-none text-[#0f1f3d]">{totals.totalConverted.toFixed(2)}</p>
                 <p className="mt-1 text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">{currency}</p>
               </div>
@@ -1907,16 +1942,16 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
             <div className="flex flex-wrap gap-2.5">
               {canOpenWhatsapp && (
-                <button type="button" onClick={() => openWhatsappChat('hero')} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-emerald-500 px-5 text-sm font-bold text-white shadow-[0_14px_30px_rgba(16,185,129,0.35)] transition hover:bg-emerald-400 active:scale-[0.98]">
+                <button type="button" onClick={() => openWhatsappChat('hero')} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[#0f1f3d] px-5 text-sm font-semibold text-white transition hover:bg-[#162b52] active:scale-[0.98]">
                   <MessageCircle size={17} /> {t.confirmWhatsApp}
                 </button>
               )}
-              <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex h-12 items-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/15 active:scale-[0.99]">
+              <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex h-12 items-center gap-2 rounded-2xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.99]">
                 <Images size={16} /> {t.viewParts}
               </button>
             </div>
 
-            <div className="flex flex-wrap gap-2 text-[11px] font-semibold text-slate-100">
+            <div className="flex flex-wrap gap-2 text-[11px] font-semibold text-slate-600">
               <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-1.5"><ShieldCheck size={12} /> {t.trustedSupplierBadge}</span>
               <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-1.5"><Clock3 size={12} /> {t.fastResponseBadge}</span>
               {expiresAtIso && <span className="rounded-full border border-amber-200/50 bg-amber-300/20 px-3 py-1.5 text-amber-100">{t.validUntil}: {new Date(expiresAtIso).toLocaleDateString()}</span>}
@@ -1925,11 +1960,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl space-y-7 px-4 py-7 pb-28 sm:px-6">
+      <main className="mx-auto w-full max-w-[1180px] space-y-6 px-4 py-6 pb-28 sm:px-6">
 
         <section ref={detailRef} className="space-y-3">
           <div className="flex items-center justify-between">
-          <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{t.partsGallery} — {partCards.length} {lang === 'ru' ? 'позиц.' : 'items'}</h2>
+          <h2 className="text-[14px] font-semibold uppercase tracking-[0.08em] text-slate-700">{t.partsGallery} — {partCards.length} {lang === 'ru' ? 'позиц.' : 'items'}</h2>
           </div>
           {partCards.map(({ part, quantity, converted, previewPhotos, galleryPhotos, availability }) => {
             const isGroupPart = part.partKind === 'group';
@@ -2002,7 +2037,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
         {termsFileUrl && (
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.workTermsTitle}</p>
+            <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-500">{t.workTermsTitle}</p>
             <a
               href={termsFileUrl}
               target="_blank"
@@ -2016,7 +2051,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         )}
 
         {cargoEstimates && (
-          <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_14px_34px_rgba(15,23,42,0.08)]">
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
             <div className="border-b border-slate-100 px-5 py-3">
               <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{t.cargoTitle}</h2>
               <p className="mt-1 text-xs text-slate-500">{t.cargoHelper}</p>
@@ -2032,9 +2067,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         )}
 
 
-        <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_14px_34px_rgba(15,23,42,0.08)]">
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
           <div className="border-b border-slate-100 px-5 py-3">
-            <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.priceBreakdown}</h2>
+            <h2 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-500">{t.priceBreakdown}</h2>
           </div>
           <div className="divide-y divide-slate-100 px-5">
             <div className="flex items-center justify-between py-3 text-sm">
@@ -2059,9 +2094,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 <strong className="text-slate-900">{(totals.serviceFee * rates[currency]).toFixed(2)} {currency}</strong>
               </div>
             )}
-            <div className="mt-1 flex items-end justify-between border-t border-slate-200 py-4">
+            <div className="mt-1 flex items-end justify-between border-t border-slate-200 py-5">
               <span className="text-sm font-bold uppercase tracking-[0.08em] text-slate-700">{t.total}</span>
-              <strong className="text-3xl font-black text-[#0f1f3d]">{totals.totalConverted.toFixed(2)} <span className="text-base font-semibold text-slate-500">{currency}</span></strong>
+              <strong className="text-[2rem] font-black text-[#0f1f3d]">{totals.totalConverted.toFixed(2)} <span className="text-base font-semibold text-slate-500">{currency}</span></strong>
             </div>
           </div>
         </section>
@@ -2072,9 +2107,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           </section>
         )}
 
-        <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_14px_34px_rgba(15,23,42,0.08)]">
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
           <div className="border-b border-slate-100 px-5 py-3">
-            <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.trust}</h2>
+            <h2 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-500">{t.trust}</h2>
           </div>
           <div className="p-5 space-y-4">
             <ul className="space-y-2 text-sm text-slate-700">
@@ -2113,8 +2148,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         </button>
 
         {(signatureUrl || managerName) && (
-          <section className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_28px_rgba(15,23,42,0.08)]">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.officialSignature}</p>
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+            <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-500">{t.officialSignature}</p>
             <div className="mt-3 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-[1fr_auto] sm:items-end">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{lang === 'ru' ? 'Имя и фамилия' : 'Name'}</p>
