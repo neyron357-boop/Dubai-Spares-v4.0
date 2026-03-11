@@ -1089,6 +1089,19 @@ const openInvoicePrintWindow = ({
     const allocatedContainerUsd = Math.round(cargoContainerCostUsd * weightShare * 100) / 100;
     return { ...part, partTotalWeight, allocatedAirUsd, allocatedContainerUsd };
   });
+  const cargoDetailedRows = cargoAllocatedRows.map((row, idx) => `
+    <tr>
+      <td>${idx + 1}</td>
+      <td>${escapeHtml(row.name)}</td>
+      <td>${row.qty}</td>
+      <td>${row.weightKg.toFixed(1)} kg</td>
+      <td>${row.partTotalWeight.toFixed(1)} kg</td>
+      <td>${row.places.toFixed(0)}</td>
+      <td>${escapeHtml(row.cargoPlaceGroup || '—')}</td>
+      <td>${cargoCostLabel(row.allocatedAirUsd)}</td>
+      <td>${cargoCostLabel(row.allocatedContainerUsd)}</td>
+    </tr>
+  `).join('');
 
   const issueDate = new Date();
   const invoiceId = order.id.slice(0, 8).toUpperCase();
@@ -1140,6 +1153,8 @@ const openInvoicePrintWindow = ({
     .totals-sign-value { margin-top:4px; font-size:14px; font-weight:700; color:#0f1f3d; }
     .totals-signature { text-align:right; }
     .totals-signature img { max-height:90px; max-width:240px; object-fit:contain; }
+    .page-break { break-before: page; page-break-before: always; }
+    .cargo-details-table th, .cargo-details-table td { font-size: 12px; }
     .signature { margin-top: 22px; border-top: 1px solid #dce4f0; padding-top: 16px; }
     .signature-row { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; min-height:104px; }
     .signature-owner { flex:1; }
@@ -1252,6 +1267,41 @@ const openInvoicePrintWindow = ({
 
     ${termsFileUrl ? `<div style="margin-top:14px"><p class="muted" style="margin:0 0 6px">Terms / conditions document</p><a href="${escapeHtml(termsFileUrl)}" target="_blank" rel="noreferrer" style="font-size:12px;color:#2563eb;text-decoration:underline">${escapeHtml(termsFileName || 'Download attached terms file')}</a></div>` : ''}
 
+  </div>
+
+  <div class="card page-break">
+    <h2 style="margin:0;font-size:20px;color:#0f1f3d">Cargo / Logistics details</h2>
+    <p class="muted" style="margin:6px 0 0">Route: ${escapeHtml(cargoCountry)} · AIR ${escapeHtml(cargoAirEta)} days · CONTAINER ${escapeHtml(cargoContainerEta)} days</p>
+    <div class="compact-logistics" style="margin-top:12px">
+      <h3>Summary</h3>
+      <div class="compact-logistics-grid">
+        <p><span>Total real weight</span><span>${cargoRealWeight.toFixed(1)} kg</span></p>
+        <p><span>Chargeable weight</span><span>${cargoChargeableWeight.toFixed(1)} kg</span></p>
+        <p><span>Total places</span><span>${cargoPlaces.toFixed(0)}</span></p>
+        <p><span>AIR total</span><span>${cargoCostLabel(cargoAirCostUsd)}</span></p>
+        <p><span>CONTAINER total</span><span>${cargoCostLabel(cargoContainerCostUsd)}</span></p>
+        <p><span>Place groups</span><span>${cargoAllocatedRows.length > 0 ? escapeHtml(cargoAllocatedRows.map((row) => row.cargoPlaceGroup).filter(Boolean).join(', ') || '—') : '—'}</span></p>
+      </div>
+    </div>
+    <p class="section-title" style="margin-top:16px">Per-part cargo allocation</p>
+    <table class="cargo-details-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Part</th>
+          <th>Qty</th>
+          <th>Unit kg</th>
+          <th>Total kg</th>
+          <th>Places</th>
+          <th>Group</th>
+          <th>AIR</th>
+          <th>CONTAINER</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${cargoDetailedRows || '<tr><td colspan="9" style="text-align:center;color:#94a3b8">Cargo parameters are not filled yet</td></tr>'}
+      </tbody>
+    </table>
   </div>
   <script>
     window.addEventListener('load', () => {

@@ -318,6 +318,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [isVehicleBlockExpanded, setIsVehicleBlockExpanded] = useState(false);
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
   const [isPricingCargoExpanded, setIsPricingCargoExpanded] = useState(false);
+  const [expandedCargoPartIds, setExpandedCargoPartIds] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
@@ -1065,6 +1066,10 @@ const OrderDetailsScreen: React.FC = () => {
         }
       };
     });
+  }, []);
+
+  const toggleCargoPartDraft = useCallback((partId: string) => {
+    setExpandedCargoPartIds((prev) => ({ ...prev, [partId]: !prev[partId] }));
   }, []);
 
   const hasPartCargoDiff = useMemo(() => {
@@ -2506,7 +2511,7 @@ const OrderDetailsScreen: React.FC = () => {
               {(order.parts || []).length === 0 ? (
                 <p className="text-xs text-gray-500">Добавьте детали, чтобы рассчитать карго.</p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {(order.parts || []).map((part) => {
                     const cargoDraft = partCargoDrafts[part.id] || {
                       weightKg: Number((part as any).weightKg || 0) > 0 ? String(Number((part as any).weightKg || 0)) : '',
@@ -2514,21 +2519,30 @@ const OrderDetailsScreen: React.FC = () => {
                       cargoPlaceGroup: String((part as any).cargoPlaceGroup || ''),
                       isOversized: Boolean((part as any).isOversized)
                     };
+                    const isExpanded = !!expandedCargoPartIds[part.id];
                     return (
-                      <div key={part.id} className="rounded-xl border border-gray-200 bg-white p-2">
-                        <p className="mb-2 text-xs font-bold text-gray-700">{part.name}</p>
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="flex flex-col gap-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Вес, кг</span>
-                            <input type="number" min={0} step="0.1" value={cargoDraft.weightKg} onChange={(e) => onPartCargoDraftChange(part.id, 'weightKg', e.target.value)} className="rounded-lg border-2 border-gray-300 bg-white px-2 py-2 text-xs font-semibold text-gray-800" />
-                          </label>
-                          <input type="number" min={1} step="1" value={cargoDraft.places} onChange={(e) => onPartCargoDraftChange(part.id, 'places', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Мест" />
-                          <label className="col-span-2 flex flex-col gap-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Группа места (опц.)</span>
-                            <input type="text" value={cargoDraft.cargoPlaceGroup} onChange={(e) => onPartCargoDraftChange(part.id, 'cargoPlaceGroup', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Например: BOX-1" />
-                          </label>
-                          <label className="col-span-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold text-gray-600"><input type="checkbox" checked={cargoDraft.isOversized} onChange={(e) => onPartCargoDraftChange(part.id, 'isOversized', e.target.checked)} /> Крупногабарит</label>
-                        </div>
+                      <div key={part.id} className="rounded-lg border border-gray-200 bg-white">
+                        <button type="button" onClick={() => toggleCargoPartDraft(part.id)} className="flex w-full items-center justify-between px-2.5 py-2 text-left">
+                          <p className="truncate pr-2 text-[11px] font-bold text-gray-700">{part.name}</p>
+                          {isExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                        </button>
+                        {isExpanded && (
+                          <div className="grid grid-cols-2 gap-1.5 border-t border-gray-100 px-2.5 py-2">
+                            <label className="flex flex-col gap-1">
+                              <span className="text-[9px] font-black uppercase tracking-[0.1em] text-gray-400">Вес, кг</span>
+                              <input type="number" min={0} step="0.1" value={cargoDraft.weightKg} onChange={(e) => onPartCargoDraftChange(part.id, 'weightKg', e.target.value)} className="h-8 rounded-md border border-gray-200 bg-white px-2 text-[11px] font-semibold text-gray-800" />
+                            </label>
+                            <label className="flex flex-col gap-1">
+                              <span className="text-[9px] font-black uppercase tracking-[0.1em] text-gray-400">Мест</span>
+                              <input type="number" min={1} step="1" value={cargoDraft.places} onChange={(e) => onPartCargoDraftChange(part.id, 'places', e.target.value)} className="h-8 rounded-md border border-gray-200 bg-white px-2 text-[11px] font-semibold" />
+                            </label>
+                            <label className="col-span-2 flex flex-col gap-1">
+                              <span className="text-[9px] font-black uppercase tracking-[0.1em] text-gray-400">Группа места</span>
+                              <input type="text" value={cargoDraft.cargoPlaceGroup} onChange={(e) => onPartCargoDraftChange(part.id, 'cargoPlaceGroup', e.target.value)} className="h-8 rounded-md border border-gray-200 bg-white px-2 text-[11px] font-semibold" placeholder="BOX-1" />
+                            </label>
+                            <label className="col-span-2 flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-gray-600"><input type="checkbox" checked={cargoDraft.isOversized} onChange={(e) => onPartCargoDraftChange(part.id, 'isOversized', e.target.checked)} /> Крупногабарит</label>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
