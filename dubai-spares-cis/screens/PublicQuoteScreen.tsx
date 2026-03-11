@@ -734,7 +734,27 @@ const isDisplayablePhotoUrl = (value: string) => (
 const normalizePublicPhotoCandidate = (value: string) => {
   const trimmed = String(value || '').trim();
   if (!trimmed || trimmed.startsWith('local://') || trimmed.startsWith('blob:')) return '';
-  if (isDisplayablePhotoUrl(trimmed)) return trimmed;
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.pathname.includes('/storage/v1/object/sign/')) {
+        parsed.pathname = parsed.pathname.replace('/storage/v1/object/sign/', '/storage/v1/object/public/');
+        parsed.search = '';
+        return parsed.toString();
+      }
+      if (parsed.pathname.includes('/storage/v1/object/public/')) {
+        parsed.searchParams.delete('token');
+      }
+      return parsed.toString();
+    } catch {
+      return trimmed;
+    }
+  }
+
+  if (trimmed.startsWith('/storage/v1/object/sign/') && SUPABASE_URL) {
+    return `${SUPABASE_URL}${trimmed.replace('/storage/v1/object/sign/', '/storage/v1/object/public/')}`;
+  }
   if (trimmed.startsWith('/storage/v1/object/public/') && SUPABASE_URL) return `${SUPABASE_URL}${trimmed}`;
 
   if (!SUPABASE_URL || trimmed.includes('://') || trimmed.startsWith('/')) return trimmed;
@@ -990,10 +1010,8 @@ const openInvoicePrintWindow = ({
   const cargoPlaces = Number(order.logistics?.cargoTotalPlaces ?? cargoComputed.air.totalPlaces ?? 0);
   const cargoAirCostUsd = Number(order.logistics?.cargoAirCostUsd ?? cargoComputed.air.totalCostUsd ?? 0);
   const cargoContainerCostUsd = Number(order.logistics?.cargoContainerCostUsd ?? cargoComputed.container.totalCostUsd ?? 0);
-  const cargoTotalCostUsd = Number(order.logistics?.cargoTotalCostUsd ?? (cargoAirCostUsd + cargoContainerCostUsd));
   const cargoAirEta = String(order.logistics?.cargoAirEtaDays ?? cargoComputed.air.eta ?? '—');
   const cargoContainerEta = String(order.logistics?.cargoContainerEtaDays ?? cargoComputed.container.eta ?? '—');
-  const shouldHideAirCargo = cargoAirCostUsd > 1000;
   const cargoCostLabel = (amountUsd: number) => `${(amountUsd * exchangeRate).toFixed(2)} ${currency} (${amountUsd.toFixed(2)} USD)`;
   const cargoParts = (order.parts || [])
     .filter((part) => Number((part as any).weightKg || 0) > 0 || Number((part as any).places || 0) > 0)
@@ -1008,8 +1026,9 @@ const openInvoicePrintWindow = ({
   const cargoAllocatedRows = cargoParts.map((part) => {
     const partTotalWeight = part.weightKg * part.qty;
     const weightShare = totalPartWeight > 0 ? (partTotalWeight / totalPartWeight) : 0;
-    const allocatedUsd = Math.round(cargoTotalCostUsd * weightShare * 100) / 100;
-    return { ...part, partTotalWeight, allocatedUsd };
+    const allocatedAirUsd = Math.round(cargoAirCostUsd * weightShare * 100) / 100;
+    const allocatedContainerUsd = Math.round(cargoContainerCostUsd * weightShare * 100) / 100;
+    return { ...part, partTotalWeight, allocatedAirUsd, allocatedContainerUsd };
   });
 
   const issueDate = new Date();
@@ -1101,24 +1120,18 @@ const openInvoicePrintWindow = ({
           <th colspan="4">Cargo / Logistics</th>
         </tr>
         <tr>
-          <th>Route</th>
           <th>Country</th>
-          <th style="width:220px">Weight / places</th>
-          <th style="width:170px;text-align:right">Cost (info)</th>
+          <th style="width:240px">Weight / places</th>
+          <th style="width:210px">AIR</th>
+          <th style="width:210px">CONTAINER</th>
         </tr>
       </thead>
       <tbody>
-        ${shouldHideAirCargo ? '' : `<tr>
-          <td>AIR (${escapeHtml(cargoAirEta)} days)</td>
-          <td>${escapeHtml(cargoCountry)}</td>
-          <td>${cargoRealWeight.toFixed(1)} kg (CW ${cargoChargeableWeight.toFixed(1)}) · ${cargoPlaces.toFixed(0)} places</td>
-          <td style="text-align:right">${cargoCostLabel(cargoAirCostUsd)}</td>
-        </tr>`}
         <tr>
-          <td>CONTAINER (${escapeHtml(cargoContainerEta)} days)</td>
           <td>${escapeHtml(cargoCountry)}</td>
           <td>${cargoRealWeight.toFixed(1)} kg (CW ${cargoChargeableWeight.toFixed(1)}) · ${cargoPlaces.toFixed(0)} places</td>
-          <td style="text-align:right">${cargoCostLabel(cargoContainerCostUsd)}</td>
+          <td>${escapeHtml(cargoAirEta)} days · ${cargoCostLabel(cargoAirCostUsd)}</td>
+          <td>${escapeHtml(cargoContainerEta)} days · ${cargoCostLabel(cargoContainerCostUsd)}</td>
         </tr>
       </tbody>
     </table>
@@ -1126,14 +1139,15 @@ const openInvoicePrintWindow = ({
     <table style="margin-top:20px">
       <thead>
         <tr>
-          <th colspan="5">Cargo details by part</th>
+          <th colspan="6">Cargo details by part</th>
         </tr>
         <tr>
           <th>Part</th>
-          <th style="width:82px;text-align:center">Qty</th>
-          <th style="width:140px">Weight</th>
-          <th style="width:120px">Places</th>
-          <th style="width:170px;text-align:right">Allocated cargo</th>
+          <th style="width:70px;text-align:center">Qty</th>
+          <th style="width:130px">Weight</th>
+          <th style="width:80px">Places</th>
+          <th style="width:150px;text-align:right">AIR allocation</th>
+          <th style="width:170px;text-align:right">CONTAINER allocation</th>
         </tr>
       </thead>
       <tbody>
@@ -1143,9 +1157,10 @@ const openInvoicePrintWindow = ({
             <td style="text-align:center">${row.qty}</td>
             <td>${row.partTotalWeight.toFixed(1)} kg${row.weightKg > 0 && row.qty > 1 ? ` <span style="color:#64748b">(${row.weightKg.toFixed(1)} × ${row.qty})</span>` : ''}</td>
             <td>${row.places.toFixed(0)}</td>
-            <td style="text-align:right">${cargoCostLabel(row.allocatedUsd)}</td>
+            <td style="text-align:right">${cargoCostLabel(row.allocatedAirUsd)}</td>
+            <td style="text-align:right">${cargoCostLabel(row.allocatedContainerUsd)}</td>
           </tr>`).join('')
-          : '<tr><td colspan="5" style="text-align:center;color:#94a3b8">No part-level cargo details available</td></tr>'}
+          : '<tr><td colspan="6" style="text-align:center;color:#94a3b8">No part-level cargo details available</td></tr>'}
       </tbody>
     </table>
 
@@ -1910,9 +1925,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Country</span><strong className="text-slate-900">{cargoEstimates.country}</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Weight</span><strong className="text-slate-900">{cargoEstimates.realWeight.toFixed(1)} kg</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Total places</span><strong className="text-slate-900">{cargoEstimates.places.toFixed(0)}</strong></div>
-              {cargoEstimates.air.costUsd <= 1000 && (
-                <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">AIR ({cargoEstimates.air.eta} days){cargoEstimates.places > 0 && cargoEstimates.airSeatUsd > 0 ? ` · includes place fee (${cargoEstimates.places.toFixed(0)} × $${cargoEstimates.airSeatUsd.toFixed(2)})` : ''}</span><strong className="text-slate-900">{(cargoEstimates.air.costUsd * rates[currency]).toFixed(2)} {currency}</strong></div>
-              )}
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">AIR ({cargoEstimates.air.eta} days){cargoEstimates.places > 0 && cargoEstimates.airSeatUsd > 0 ? ` · includes place fee (${cargoEstimates.places.toFixed(0)} × $${cargoEstimates.airSeatUsd.toFixed(2)})` : ''}</span><strong className="text-slate-900">{(cargoEstimates.air.costUsd * rates[currency]).toFixed(2)} {currency}</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">CONTAINER ({cargoEstimates.container.eta} days)</span><strong className="text-slate-900">{(cargoEstimates.container.costUsd * rates[currency]).toFixed(2)} {currency}</strong></div>
             </div>
           </section>
