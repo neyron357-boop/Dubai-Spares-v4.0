@@ -495,8 +495,8 @@ const PartDetailsScreen: React.FC = () => {
           ...p,
           isFound: true,
           bestOfferId,
-          photoUrl: p.photoUrl || form.photos[0],
-          photos: p.photos?.length ? p.photos : form.photos,
+          photoUrl: p.photoUrl || '',
+          photos: Array.isArray(p.photos) ? p.photos : [],
           variants: variants.map((v) => ({ ...v, isBest: form.isBest ? v.id === variantId : v.isBest && v.id !== variantId }))
         };
       });

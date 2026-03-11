@@ -410,6 +410,8 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
   const logisticsObj = payload.logistics && typeof payload.logistics === 'object' ? payload.logistics as Record<string, unknown> : {};
   const pricingObj = payload.pricing && typeof payload.pricing === 'object' ? payload.pricing as Record<string, unknown> : {};
   const feesObj = payload.fees && typeof payload.fees === 'object' ? payload.fees as Record<string, unknown> : {};
+  const orderObj = payload.order && typeof payload.order === 'object' ? payload.order as Record<string, unknown> : {};
+  const orderLogisticsObj = orderObj.logistics && typeof orderObj.logistics === 'object' ? orderObj.logistics as Record<string, unknown> : {};
 
   const payloadRates = ((breakdownObj.rates && typeof breakdownObj.rates === 'object' ? breakdownObj.rates : pricingObj.rates) || {}) as Record<string, number>;
   const mergedRates: QuoteRates = {
@@ -434,7 +436,10 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
     logisticsObj.delivery,
     breakdownObj.delivery,
     totalsObj.logistics_aed,
-    payload.delivery
+    payload.delivery,
+    orderLogisticsObj.deliveryAed,
+    orderLogisticsObj.delivery_aed,
+    orderLogisticsObj.delivery
   );
   const packingAed = parseMoneyField(
     feesObj.packaging,
@@ -443,7 +448,10 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
     logisticsObj.packaging,
     breakdownObj.packaging,
     totalsObj.packing_aed,
-    payload.packing
+    payload.packing,
+    orderLogisticsObj.packingAed,
+    orderLogisticsObj.packing_aed,
+    orderLogisticsObj.packing
   );
   const commissionAed = parseMoneyField(
     feesObj.commission,
@@ -451,7 +459,10 @@ const resolveTotalsFromPayload = (payload: Record<string, unknown>, activeRates:
     logisticsObj.commission,
     breakdownObj.commission,
     totalsObj.commission_aed,
-    payload.commission
+    payload.commission,
+    orderLogisticsObj.serviceFeeAed,
+    orderLogisticsObj.service_fee_aed,
+    orderLogisticsObj.commission
   );
   const feesTotalAed = deliveryAed + packingAed + commissionAed;
   const computedGrandTotalAed = partsTotalAed + feesTotalAed;
@@ -1089,6 +1100,28 @@ const openInvoicePrintWindow = ({
     const allocatedContainerUsd = Math.round(cargoContainerCostUsd * weightShare * 100) / 100;
     return { ...part, partTotalWeight, allocatedAirUsd, allocatedContainerUsd };
   });
+  const cargoGroups = cargoAllocatedRows.reduce((acc, row) => {
+    const key = row.cargoPlaceGroup || 'UNGROUPED';
+    if (!acc[key]) {
+      acc[key] = {
+        key,
+        totalWeight: 0,
+        totalAirUsd: 0,
+        totalContainerUsd: 0,
+        items: [] as typeof cargoAllocatedRows
+      };
+    }
+    acc[key].totalWeight += row.partTotalWeight;
+    acc[key].totalAirUsd += row.allocatedAirUsd;
+    acc[key].totalContainerUsd += row.allocatedContainerUsd;
+    acc[key].items.push(row);
+    return acc;
+  }, {} as Record<string, { key: string; totalWeight: number; totalAirUsd: number; totalContainerUsd: number; items: typeof cargoAllocatedRows }>);
+  const cargoGroupRowsHtml = Object.values(cargoGroups).map((group, groupIndex) => {
+    const groupLabel = group.key === 'UNGROUPED' ? `Group ${groupIndex + 1} (No code)` : `Group ${groupIndex + 1} (${group.key})`;
+    const itemsRows = group.items.map((row, idx) => `<tr><td>${groupIndex + 1}.${idx + 1}</td><td>${escapeHtml(row.name)}</td><td>${row.qty}</td><td>${row.weightKg.toFixed(2)} kg</td><td>${row.partTotalWeight.toFixed(2)} kg</td><td>${row.allocatedAirUsd.toFixed(2)} USD</td><td>${row.allocatedContainerUsd.toFixed(2)} USD</td></tr>`).join('');
+    return `<tr class="group-head"><td colspan="7">${escapeHtml(groupLabel)} · Weight ${group.totalWeight.toFixed(2)} kg · AIR ${group.totalAirUsd.toFixed(2)} USD · CONTAINER ${group.totalContainerUsd.toFixed(2)} USD</td></tr>${itemsRows}`;
+  }).join('');
 
   const issueDate = new Date();
   const invoiceId = order.id.slice(0, 8).toUpperCase();
@@ -1129,13 +1162,17 @@ const openInvoicePrintWindow = ({
     .total { font-size: 26px !important; font-weight: 800; background: #f0f5fd; color: #0f1f3d; }
     .total span:last-child { text-align: right; }
     .compact-logistics { margin-top: 18px; border: 1px solid #dde4ee; border-radius: 16px; background: #fff; overflow: hidden; }
+    .page-break { page-break-before: always; break-before: page; margin-top: 28px; }
     .compact-logistics h3 { margin: 0; padding: 12px 14px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; background:#f1f5fb; color:#334155; }
     .compact-logistics-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0; }
     .compact-logistics-grid p { margin:0; padding:10px 14px; border-top:1px solid #e8edf4; font-size:13px; display:flex; justify-content:space-between; gap:10px; }
     .compact-logistics-grid p span:first-child { color:#64748b; }
     .compact-logistics-grid p span:last-child { color:#0f172a; font-weight:700; text-align:right; }
-    .totals-sign-row { border-top:1px solid #e2e8f0; padding:12px 14px; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
+    .totals-sign-row { border:1px solid #d7e0eb; border-radius:16px; margin-top:18px; padding:12px 14px; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; background:#fff; }
     .totals-sign-name p { margin:0; }
+    .grand-total-box { min-width:240px; text-align:right; }
+    .grand-total-box .total { font-size:22px !important; border-radius:12px; }
+    .group-head td { background:#f8fafc; font-weight:700; color:#0f172a; }
     .totals-sign-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#64748b; }
     .totals-sign-value { margin-top:4px; font-size:14px; font-weight:700; color:#0f1f3d; }
     .totals-signature { text-align:right; }
@@ -1227,30 +1264,45 @@ const openInvoicePrintWindow = ({
       <p class="total"><span>Grand total</span><span>${moneyLabel(totals.totalAed)}</span></p>
     </div>
 
-    <div class="compact-logistics">
-      <h3>Cargo / Logistics</h3>
-      <div class="compact-logistics-grid">
-        <p><span>Route / Country</span><span>${escapeHtml(cargoCountry)}</span></p>
-        <p><span>Weight / CW</span><span>${cargoRealWeight.toFixed(1)} kg / ${cargoChargeableWeight.toFixed(1)} kg</span></p>
-        <p><span>Total places</span><span>${cargoPlaces.toFixed(0)}</span></p>
-        <p><span>AIR</span><span>${escapeHtml(cargoAirEta)} days · ${cargoCostLabel(cargoAirCostUsd)}</span></p>
-        <p><span>CONTAINER</span><span>${escapeHtml(cargoContainerEta)} days · ${cargoCostLabel(cargoContainerCostUsd)}</span></p>
-        <p><span>Place groups</span><span>${cargoAllocatedRows.length > 0 ? escapeHtml(cargoAllocatedRows.map((row) => row.cargoPlaceGroup).filter(Boolean).join(', ') || '—') : '—'}</span></p>
-      </div>
-    </div>
-
     <div class="totals-sign-row">
       <div class="totals-sign-name">
         <p class="totals-sign-label">Name</p>
         <p class="totals-sign-value">${escapeHtml((managerName || '').trim() || 'Not specified')}</p>
+        <div class="totals-signature" style="text-align:left; margin-top:8px;">
+          <p class="totals-sign-label" style="margin:0 0 6px">Signature</p>
+          ${signatureUrl ? `<img src="${escapeHtml(signatureUrl)}" alt="Signature" />` : '<p class="muted" style="margin:0">Configured in public settings</p>'}
+        </div>
       </div>
-      <div class="totals-signature">
-        <p class="totals-sign-label" style="margin:0 0 6px">Signature</p>
-        ${signatureUrl ? `<img src="${escapeHtml(signatureUrl)}" alt="Signature" />` : '<p class="muted" style="margin:0">Configured in public settings</p>'}
+      <div class="grand-total-box">
+        <p class="totals-sign-label" style="margin:0 0 6px">Total (all parts)</p>
+        <div class="totals" style="margin-top:0; max-width:none;"><p class="total"><span>Grand total</span><span>${moneyLabel(totals.totalAed)}</span></p></div>
       </div>
     </div>
 
     ${termsFileUrl ? `<div style="margin-top:14px"><p class="muted" style="margin:0 0 6px">Terms / conditions document</p><a href="${escapeHtml(termsFileUrl)}" target="_blank" rel="noreferrer" style="font-size:12px;color:#2563eb;text-decoration:underline">${escapeHtml(termsFileName || 'Download attached terms file')}</a></div>` : ''}
+
+    <div class="page-break">
+      <div class="compact-logistics">
+        <h3>Cargo / Logistics (Detailed)</h3>
+        <div class="compact-logistics-grid">
+          <p><span>Route / Country</span><span>${escapeHtml(cargoCountry)}</span></p>
+          <p><span>Weight / CW</span><span>${cargoRealWeight.toFixed(1)} kg / ${cargoChargeableWeight.toFixed(1)} kg</span></p>
+          <p><span>Total places</span><span>${cargoPlaces.toFixed(0)}</span></p>
+          <p><span>AIR</span><span>${escapeHtml(cargoAirEta)} days · ${cargoCostLabel(cargoAirCostUsd)}</span></p>
+          <p><span>CONTAINER</span><span>${escapeHtml(cargoContainerEta)} days · ${cargoCostLabel(cargoContainerCostUsd)}</span></p>
+          <p><span>Place groups</span><span>${cargoAllocatedRows.length > 0 ? escapeHtml(cargoAllocatedRows.map((row) => row.cargoPlaceGroup).filter(Boolean).join(', ') || '—') : '—'}</span></p>
+        </div>
+      </div>
+      <p class="section-title">Cargo groups and part allocation</p>
+      <table>
+        <thead>
+          <tr><th>#</th><th>Part</th><th>Qty</th><th>Weight per unit</th><th>Total weight</th><th>AIR cost</th><th>CONTAINER cost</th></tr>
+        </thead>
+        <tbody>
+          ${cargoGroupRowsHtml || '<tr><td colspan="7" style="text-align:center;color:#94a3b8">No cargo parameters provided</td></tr>'}
+        </tbody>
+      </table>
+    </div>
 
   </div>
   <script>

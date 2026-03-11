@@ -940,9 +940,27 @@ export const ensurePublicImageUrls = async (
   folder: string,
   options?: { skipUpload?: boolean; fileNames?: string[]; cleanupExtraFiles?: boolean }
 ): Promise<string[]> => {
+  await logger.info('storage:ensure-public-start', 'Normalizing image URLs for persistence', {
+    folder,
+    total: images.length,
+    skipUpload: !!options?.skipUpload,
+    cleanupExtraFiles: !!options?.cleanupExtraFiles,
+    localUrls: images.filter((image) => String(image || '').startsWith('local://')).length,
+    dataUrls: images.filter((image) => String(image || '').startsWith('data:image')).length,
+    remoteUrls: images.filter((image) => /^https?:\/\//i.test(String(image || ''))).length
+  });
+
   if (options?.skipUpload) return [];
 
   if (!images.length) {
+    await logger.info('storage:ensure-public-done', 'Image URLs normalized for persistence', {
+      folder,
+      total: images.length,
+      uploadedRemote: 0,
+      remainingLocal: 0,
+      remainingData: 0
+    });
+
     if (options?.cleanupExtraFiles && isCloudConfigured) {
       for (const bucket of BUCKET_CANDIDATES) {
         try {
@@ -968,6 +986,15 @@ export const ensurePublicImageUrls = async (
         return image;
       }
 
+      if (image.startsWith('local://')) {
+        await logger.warn('storage:ensure-public-local', 'Local-only image URL detected; this image can break after restart/deploy', {
+          folder,
+          index,
+          image
+        });
+        return image;
+      }
+
       if (!image.startsWith('data:image')) {
         return image;
       }
@@ -985,6 +1012,14 @@ export const ensurePublicImageUrls = async (
       }
     })
   );
+
+  await logger.info('storage:ensure-public-done', 'Image URLs normalized for persistence', {
+    folder,
+    total: images.length,
+    uploadedRemote: uploaded.filter((url) => /^https?:\/\//i.test(String(url || ''))).length,
+    remainingLocal: uploaded.filter((url) => String(url || '').startsWith('local://')).length,
+    remainingData: uploaded.filter((url) => String(url || '').startsWith('data:image')).length
+  });
 
   if (options?.cleanupExtraFiles && isCloudConfigured) {
     for (const bucket of BUCKET_CANDIDATES) {

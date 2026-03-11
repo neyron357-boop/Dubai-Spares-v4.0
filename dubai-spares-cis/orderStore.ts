@@ -1025,6 +1025,16 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
 const withUploadedPhotos = async (order: Order): Promise<Order> => {
   const orderId = ensureUuid(order.id);
   const skipUpload = !!order.localOnlyPhotos;
+
+  const allPhotoUrls = collectOrderPhotoUrls(order);
+  await logger.info('photos:persist:start', 'Preparing order photos for persistence', {
+    orderId,
+    skipUpload,
+    total: allPhotoUrls.length,
+    dataUrls: allPhotoUrls.filter((url) => String(url || '').startsWith('data:image')).length,
+    localUrls: allPhotoUrls.filter((url) => String(url || '').startsWith('local://')).length,
+    remoteUrls: allPhotoUrls.filter((url) => /^https?:\/\//i.test(String(url || ''))).length
+  });
   const carSource = (order.carPhotos || []).slice(0, 1);
   const carPhotos = await ensurePublicImageUrls(carSource, `orders/${orderId}`, {
     skipUpload,
@@ -1070,7 +1080,17 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
     })
   );
 
-  return { ...order, id: orderId, carPhotos, carPhotoUrl: carPhotos[0], notes, parts };
+  const normalizedOrder = { ...order, id: orderId, carPhotos, carPhotoUrl: carPhotos[0], notes, parts };
+  const persistedPhotoUrls = collectOrderPhotoUrls(normalizedOrder);
+  await logger.info('photos:persist:done', 'Order photos persisted and normalized', {
+    orderId,
+    total: persistedPhotoUrls.length,
+    dataUrls: persistedPhotoUrls.filter((url) => String(url || '').startsWith('data:image')).length,
+    localUrls: persistedPhotoUrls.filter((url) => String(url || '').startsWith('local://')).length,
+    remoteUrls: persistedPhotoUrls.filter((url) => /^https?:\/\//i.test(String(url || ''))).length
+  });
+
+  return normalizedOrder;
 };
 
 const persistOrderGraph = async (order: Order) => {
