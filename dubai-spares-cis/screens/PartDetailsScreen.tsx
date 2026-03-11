@@ -30,8 +30,9 @@ import ConfirmModal from '../components/ConfirmModal';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
-import { optimizeImageForUpload } from '../storage/photos';
+import { optimizeImageForUpload, uploadImageToStorage } from '../storage/photos';
 import { cloneVariantForPart, VariantLibraryItem } from '../variantLibraryStore';
+import { logger } from '../logging';
 
 interface OfferFormState {
   priceAed: string;
@@ -456,6 +457,22 @@ const PartDetailsScreen: React.FC = () => {
       }
 
       const variantId = editingVariantId || createUuid();
+      const persistedVariantPhotos = await Promise.all((form.photos || []).map(async (photo, index) => {
+        const raw = String(photo || '').trim();
+        if (!raw) return '';
+        if (!raw.startsWith('data:image')) return raw;
+        const fileName = `${variantId}-${Date.now()}-${index}.webp`;
+        const uploaded = await uploadImageToStorage(raw, `orders/${order.id}/parts/${part.id}/variants`, fileName);
+        await logger.info('part-details:variant-photo-persisted', 'Variant photo persisted', {
+          orderId: order.id,
+          partId: part.id,
+          variantId,
+          index,
+          storageUrl: uploaded
+        });
+        return uploaded;
+      }));
+      const variantPhotos = persistedVariantPhotos.filter(Boolean);
       const resolvedShopName = form.shopName.trim() || existingSupplier?.name || '';
       const newVariant: PriceVariant = {
         id: variantId,
@@ -471,8 +488,8 @@ const PartDetailsScreen: React.FC = () => {
         mapsUrl: form.mapsUrl,
         lat: resolvedCoordinates?.lat,
         lng: resolvedCoordinates?.lng,
-        photos: form.photos,
-        photoUrl: form.photos[0],
+        photos: variantPhotos,
+        photoUrl: variantPhotos[0],
         condition: form.condition,
         availability: form.availability,
         deliveryEta: form.deliveryEta,
@@ -495,8 +512,10 @@ const PartDetailsScreen: React.FC = () => {
           ...p,
           isFound: true,
           bestOfferId,
-          photoUrl: p.photoUrl || form.photos[0],
-          photos: p.photos?.length ? p.photos : form.photos,
+          // Keep sample photos independent from variant photos.
+          // Preview consumers should combine part + variant photos at read-time.
+          photoUrl: p.photoUrl || '',
+          photos: p.photos || [],
           variants: variants.map((v) => ({ ...v, isBest: form.isBest ? v.id === variantId : v.isBest && v.id !== variantId }))
         };
       });
@@ -638,8 +657,25 @@ const PartDetailsScreen: React.FC = () => {
     if (!files.length) return;
     Promise.all(files.map(async (file) => {
       try {
-        return await optimizeImageForUpload(file, `part-details:sample:${file.name}`);
+        const optimized = await optimizeImageForUpload(file, `part-details:sample:${file.name}`);
+        const uploaded = await uploadImageToStorage(
+          optimized,
+          `orders/${order.id}/parts/${part.id}/samples`,
+          `${part.id}-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}`
+        );
+        await logger.info('part-details:sample-photo-persisted', 'Sample photo persisted', {
+          orderId: order.id,
+          partId: part.id,
+          name: file.name,
+          storageUrl: uploaded
+        });
+        return uploaded;
       } catch {
+        void logger.warn('part-details:sample-photo-persist-failed', 'Sample photo persist failed', {
+          orderId: order.id,
+          partId: part.id,
+          name: file.name
+        });
         return '';
       }
     })).then((photos) => {
