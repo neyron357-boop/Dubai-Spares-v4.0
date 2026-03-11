@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Building2,
   CheckCircle2,
   Images,
   ChevronRight,
   Download,
   Globe,
+  Info,
   Instagram,
   MessageCircle,
   RefreshCcw,
@@ -103,6 +105,24 @@ const i18n = {
     commercialOffer: 'Commercial offer',
     contactManager: 'Contact the manager',
     expiredQuoteWhatsappMessage: 'Hello! I need a new public quote link.'
+    ,
+    quantity: 'Qty',
+    policyNoticeTitle: 'Payment policy',
+    policyNoticeBody: 'Full prepayment is required before order processing. Please confirm every position carefully with your manager before payment.',
+    cargoTitle: 'Cargo estimates',
+    cargoHelper: 'Informational estimate for planning delivery timeline and budget.',
+    country: 'Country',
+    weight: 'Weight',
+    totalPlaces: 'Total places',
+    air: 'Air',
+    container: 'Container',
+    etaDays: 'days',
+    statusDefault: 'Awaiting confirmation',
+    statusLoading: 'Opening WhatsApp…',
+    statusConfirmed: 'Parts reviewed',
+    statusUnavailable: 'Contact unavailable',
+    statusExpired: 'Quote expired',
+    officialSignature: 'Official signature'
   },
   ru: {
     quoteUnavailable: 'Предложение недоступно.',
@@ -172,6 +192,24 @@ const i18n = {
     commercialOffer: 'Коммерческое предложение',
     contactManager: 'Свяжитесь с менеджером',
     expiredQuoteWhatsappMessage: 'Здравствуйте! Нужна новая ссылка на смету.'
+    ,
+    quantity: 'Кол-во',
+    policyNoticeTitle: 'Условия оплаты',
+    policyNoticeBody: 'Заказ оформляется по полной предоплате. Перед оплатой подтвердите все позиции и условия с менеджером.',
+    cargoTitle: 'Оценка логистики',
+    cargoHelper: 'Информационный расчёт для понимания сроков и бюджета доставки.',
+    country: 'Страна',
+    weight: 'Вес',
+    totalPlaces: 'Мест',
+    air: 'Авиа',
+    container: 'Контейнер',
+    etaDays: 'дн.',
+    statusDefault: 'Ожидает подтверждения',
+    statusLoading: 'Открываем WhatsApp…',
+    statusConfirmed: 'Позиции просмотрены',
+    statusUnavailable: 'Контакт не настроен',
+    statusExpired: 'Срок сметы истёк',
+    officialSignature: 'Официальная подпись'
   }
 } as const;
 
@@ -1207,6 +1245,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     contactsSource: 'legacy'
   });
   const [resolvedSettings, setResolvedSettings] = useState(() => normalizePublicSettings({}));
+  const [isOpeningWhatsapp, setIsOpeningWhatsapp] = useState(false);
   const detailRef = useRef<HTMLDivElement | null>(null);
   const errorCardRef = useRef<HTMLDivElement | null>(null);
   const errorIconRef = useRef<HTMLDivElement | null>(null);
@@ -1670,9 +1709,21 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const openWhatsappChat = useCallback((placement: 'hero' | 'sticky') => {
     if (!whatsappConfirmUrl) return;
+    setIsOpeningWhatsapp(true);
     logEvent('confirm_click', { placement });
     window.location.href = whatsappConfirmUrl;
   }, [whatsappConfirmUrl]);
+
+  const isQuoteExpired = Boolean(expiresAtIso && Date.parse(expiresAtIso) < Date.now());
+  const stickyStatusLabel = isQuoteExpired
+    ? t.statusExpired
+    : isOpeningWhatsapp
+      ? t.statusLoading
+      : !canOpenWhatsapp
+        ? t.statusUnavailable
+        : partsVerified
+          ? t.statusConfirmed
+          : t.statusDefault;
 
   const downloadPdf = async () => {
     if (!order) return;
@@ -1764,16 +1815,16 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-2 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-2 px-4 py-2.5 sm:px-6">
           <div className="flex items-center gap-1.5">
             <Globe size={14} className="text-slate-400" />
-            <button type="button" onClick={() => setLang('en')} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${lang === 'en' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>EN</button>
-            <button type="button" onClick={() => setLang('ru')} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${lang === 'ru' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>RU</button>
+            <button type="button" onClick={() => setLang('en')} className={`h-9 rounded-full px-3 text-[11px] font-bold ${lang === 'en' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>EN</button>
+            <button type="button" onClick={() => setLang('ru')} className={`h-9 rounded-full px-3 text-[11px] font-bold ${lang === 'ru' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>RU</button>
           </div>
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 shrink-0">{t.currency}</span>
             {(Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[]).map((code) => (
-              <button key={code} type="button" onClick={() => { setCurrency(code); logEvent('currency_switch', { currency: code }); }} className={`min-h-8 min-w-[50px] rounded-full px-3 text-[11px] font-bold ${currency === code ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>{code}</button>
+              <button key={code} type="button" onClick={() => { setCurrency(code); logEvent('currency_switch', { currency: code }); }} className={`h-9 min-w-[54px] rounded-full px-3 text-[11px] font-bold ${currency === code ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>{code}</button>
             ))}
           </div>
         </div>
@@ -1781,11 +1832,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
       <header className="mx-auto mt-4 w-full max-w-4xl px-4 sm:px-6">
         <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          {heroPhoto ? <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="h-44 w-full object-cover sm:h-52" /> : null}
+          {heroPhoto ? <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="h-48 w-full object-cover sm:h-56" /> : null}
           <div className="space-y-4 p-5 sm:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Dubai Spares UAE</div>
-              {logoUrl && <img src={logoUrl} alt="Company logo" className="h-24 w-auto max-w-[420px] object-contain" />}
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Dubai Spares UAE</div>
+              {logoUrl && <img src={logoUrl} alt="Company logo" className="h-12 w-auto max-w-[220px] object-contain" />}
             </div>
             <div>
               <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">{order.brand} {order.model} {order.year}</h1>
@@ -1825,14 +1876,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           <div className="flex items-center justify-between">
           <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{t.partsGallery} — {partCards.length} {lang === 'ru' ? 'позиц.' : 'items'}</h2>
           </div>
-          {partCards.map(({ part, quantity, best, converted, previewPhotos, galleryPhotos, availability }) => {
-            const partMessage = `Hello! I confirm ${part.name} for ${order.brand} ${order.model} ${order.year}.\nVIN: ${maskVin(order.vin || '')}.\nPrice: ${converted.toFixed(2)} ${currency}.`;
-            const partWhatsappUrl = whatsappPhoneDigits ? `https://wa.me/${whatsappPhoneDigits}?text=${encodeURIComponent(partMessage)}` : '';
+          {partCards.map(({ part, quantity, converted, previewPhotos, galleryPhotos, availability }) => {
             const isGroupPart = part.partKind === 'group';
             const groupItems = normalizeGroupItems((part as any).groupItems);
 
             return (
-            <article key={part.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <article key={part.id} className="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-sm">
               <div className="flex items-center gap-4 p-4 sm:p-5">
                 {/* Photo — left */}
                 <button
@@ -1845,7 +1894,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                     setGallery({ images: galleryPhotos, index: 0 });
                     logEvent('gallery_open', { partId: part.id });
                   }}
-                  className="relative shrink-0 inline-flex h-[72px] w-[72px] items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-slate-400"
+                  className="relative shrink-0 inline-flex h-[84px] w-[84px] items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 text-slate-500"
                   title={galleryPhotos.length > 1 ? `Фото: ${galleryPhotos.length}` : t.noPhotos}
                 >
                   {previewPhotos[0] ? <img src={previewPhotos[0]} alt={part.name} className="h-full w-full object-cover" /> : <Images size={22} />}
@@ -1878,13 +1927,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 </div>
               </div>
 
-              {partWhatsappUrl && (
-                <div className="border-t border-slate-100 bg-slate-50 px-4 py-2.5 sm:px-5">
-                  <button type="button" onClick={() => { window.location.href = partWhatsappUrl; }} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3.5 py-1.5 text-xs font-bold text-white">
-                    <MessageCircle size={13} /> {t.confirmWhatsApp}
-                  </button>
-                </div>
-              )}
             </article>
             );
           })}
@@ -1896,8 +1938,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
 
         {settings.publicWorkTerms.trim() && (
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm p-5 text-sm text-slate-700">
-            {settings.publicWorkTerms.trim() && <p className="whitespace-pre-line">{settings.publicWorkTerms.trim()}</p>}
+          <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/60 shadow-sm p-5 text-sm text-amber-900">
+            <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em]"><Info size={14} /> {t.policyNoticeTitle}</p>
+            {settings.publicWorkTerms.trim() && <p className="mt-2 whitespace-pre-line">{settings.publicWorkTerms.trim()}</p>}
+            <p className="mt-2 text-amber-800/90">{t.policyNoticeBody}</p>
           </section>
         )}
 
@@ -1919,14 +1963,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         {cargoEstimates && (
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 px-5 py-3">
-              <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Cargo estimates (informational)</h2>
+              <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{t.cargoTitle}</h2>
+              <p className="mt-1 text-xs text-slate-500">{t.cargoHelper}</p>
             </div>
             <div className="divide-y divide-slate-100 px-5">
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Country</span><strong className="text-slate-900">{cargoEstimates.country}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Weight</span><strong className="text-slate-900">{cargoEstimates.realWeight.toFixed(1)} kg</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">Total places</span><strong className="text-slate-900">{cargoEstimates.places.toFixed(0)}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">AIR ({cargoEstimates.air.eta} days){cargoEstimates.places > 0 && cargoEstimates.airSeatUsd > 0 ? ` · includes place fee (${cargoEstimates.places.toFixed(0)} × $${cargoEstimates.airSeatUsd.toFixed(2)})` : ''}</span><strong className="text-slate-900">{(cargoEstimates.air.costUsd * rates[currency]).toFixed(2)} {currency}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">CONTAINER ({cargoEstimates.container.eta} days)</span><strong className="text-slate-900">{(cargoEstimates.container.costUsd * rates[currency]).toFixed(2)} {currency}</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.country}</span><strong className="text-slate-900">{cargoEstimates.country}</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.weight}</span><strong className="text-slate-900">{cargoEstimates.realWeight.toFixed(1)} kg</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.totalPlaces}</span><strong className="text-slate-900">{cargoEstimates.places.toFixed(0)}</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.air} ({cargoEstimates.air.eta} {t.etaDays})</span><strong className="text-slate-900">{(cargoEstimates.air.costUsd * rates[currency]).toFixed(2)} {currency}</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.container} ({cargoEstimates.container.eta} {t.etaDays})</span><strong className="text-slate-900">{(cargoEstimates.container.costUsd * rates[currency]).toFixed(2)} {currency}</strong></div>
             </div>
           </section>
         )}
@@ -1984,22 +2029,22 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             </ul>
             <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <p className="font-bold text-slate-800">{t.companyProfile}: Dubai Spares UAE</p>
+                <p className="inline-flex items-center gap-2 font-bold text-slate-800"><Building2 size={16} /> {t.companyProfile}: Dubai Spares UAE</p>
                 {logoUrl && <img src={logoUrl} alt="Company logo" className="h-20 w-auto max-w-[360px] object-contain" />}
               </div>
               <div className="flex flex-wrap gap-2">
                 {whatsappPhoneDigits && (
-                  <a href={`https://wa.me/${whatsappPhoneDigits}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white">
+                  <a href={`https://wa.me/${whatsappPhoneDigits}`} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">
                     <MessageCircle size={15} /> WhatsApp
                   </a>
                 )}
                 {settings.publicTelegramUrl && (
-                  <a href={settings.publicTelegramUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white">
+                  <a href={settings.publicTelegramUrl} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">
                     <Send size={15} /> Telegram
                   </a>
                 )}
                 {settings.publicInstagramUrl && (
-                  <a href={settings.publicInstagramUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 px-4 py-2 text-sm font-bold text-white">
+                  <a href={settings.publicInstagramUrl} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">
                     <Instagram size={15} /> Instagram
                   </a>
                 )}
@@ -2008,13 +2053,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           </div>
         </section>
 
-        <button type="button" onClick={downloadPdf} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-sm">
+        <button type="button" onClick={downloadPdf} className="inline-flex h-11 items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm">
           <Download size={15} /> {t.downloadPdf}
         </button>
 
         {signatureUrl && (
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.signature}</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.officialSignature}</p>
             <div className="mt-2 border-t border-slate-100 pt-3">
               <img src={signatureUrl} alt="Owner signature" className="h-20 w-auto object-contain" />
             </div>
@@ -2028,14 +2073,14 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         </div>
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/98 p-3 pb-[calc(env(safe-area-inset-bottom)+10px)] backdrop-blur-xl">
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 px-3 py-2 pb-[calc(env(safe-area-inset-bottom)+8px)] backdrop-blur">
         <div className="mx-auto flex w-full max-w-4xl items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{t.quoteTotal}</p>
             <p className="text-xl font-black text-slate-900 leading-tight">{totals.totalConverted.toFixed(2)} <span className="text-sm text-slate-400">{currency}</span></p>
-            {partsVerified && <p className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600"><CheckCircle2 size={10} /> {t.partsVerified}</p>}
+            <p className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600"><CheckCircle2 size={10} /> {stickyStatusLabel}</p>
           </div>
-          <button type="button" disabled={!canOpenWhatsapp} onClick={() => openWhatsappChat('sticky')} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-2xl bg-emerald-500 px-4 text-sm font-bold text-white shadow-[0_8px_24px_rgba(16,185,129,0.35)] disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" disabled={!canOpenWhatsapp || isQuoteExpired} onClick={() => openWhatsappChat('sticky')} className="inline-flex h-11 shrink-0 items-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
             <MessageCircle size={16} /> {canOpenWhatsapp ? t.confirmWhatsApp : t.contactNotConfigured} <ChevronRight size={14} />
           </button>
         </div>
