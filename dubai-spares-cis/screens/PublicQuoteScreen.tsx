@@ -1307,7 +1307,8 @@ const openCargoLogisticsPrintWindow = ({
   if (!printWindow) return false;
 
   const exchangeRate = rates[currency] || 1;
-  const cargoCostLabel = (amountUsd: number) => `${(amountUsd * exchangeRate).toFixed(2)} ${currency} (${amountUsd.toFixed(2)} USD)`;
+  const usdToAed = 1 / (rates['USD'] || DEFAULT_QUOTE_RATES['USD']);
+  const cargoCostLabel = (amountUsd: number) => `${(amountUsd * usdToAed * exchangeRate).toFixed(2)} ${currency} (${amountUsd.toFixed(2)} USD)`;
 
   const {
     cargoCountry, cargoRealWeight, cargoChargeableWeight, cargoPlaces,
@@ -2258,8 +2259,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.country}</span><strong className="text-slate-900">{cargoEstimates.country}</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.weight}</span><strong className="text-slate-900">{cargoEstimates.realWeight.toFixed(1)} kg</strong></div>
               <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.totalPlaces}</span><strong className="text-slate-900">{cargoEstimates.places.toFixed(0)}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.air} ({cargoEstimates.air.eta} {t.etaDays})</span><strong className="text-slate-900">{(cargoEstimates.air.costUsd * rates[currency]).toFixed(2)} {currency}</strong></div>
-              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.container} ({cargoEstimates.container.eta} {t.etaDays})</span><strong className="text-slate-900">{(cargoEstimates.container.costUsd * rates[currency]).toFixed(2)} {currency}</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.air} ({cargoEstimates.air.eta} {t.etaDays})</span><strong className="text-slate-900">{(cargoEstimates.air.costUsd / (rates['USD'] || DEFAULT_QUOTE_RATES['USD']) * rates[currency]).toFixed(2)} {currency}</strong></div>
+              <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.container} ({cargoEstimates.container.eta} {t.etaDays})</span><strong className="text-slate-900">{(cargoEstimates.container.costUsd / (rates['USD'] || DEFAULT_QUOTE_RATES['USD']) * rates[currency]).toFixed(2)} {currency}</strong></div>
             </div>
           </section>
         )}
