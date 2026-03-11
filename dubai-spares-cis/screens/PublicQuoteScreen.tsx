@@ -18,6 +18,7 @@ import { logger } from '../logging';
 import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot, resolveClientUnitPriceAed } from '../publicQuoteApi';
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 import { calculateCargoEstimates } from '../utils/cargo';
+import { SUPABASE_URL } from '../cloudConfig';
 
 type Language = 'en' | 'ru';
 
@@ -487,11 +488,12 @@ const normalizeLogistics = (raw: any) => {
   const cargoTotalPlaces = parseMoneyField(raw.cargoTotalPlaces, raw.cargo_total_places);
   const cargoAirCostUsd = parseMoneyField(raw.cargoAirCostUsd, raw.cargo_air_cost_usd);
   const cargoContainerCostUsd = parseMoneyField(raw.cargoContainerCostUsd, raw.cargo_container_cost_usd);
+  const cargoTotalCostUsd = parseMoneyField(raw.cargoTotalCostUsd, raw.cargo_total_cost_usd, raw.totalCargoCostUsd, raw.total_cargo_cost_usd, raw.totalsCargoTotalCostUsd, raw.pricingBreakdownCargoTotalCostUsd, raw.pricing_breakdown_cargo_total_cost_usd);
   const cargoAirEtaDays = String(raw.cargoAirEtaDays || raw.cargo_air_eta_days || '').trim();
   const cargoContainerEtaDays = String(raw.cargoContainerEtaDays || raw.cargo_container_eta_days || '').trim();
 
   const hasAedFees = deliveryAed > 0 || packingAed > 0 || serviceFeeAed > 0;
-  const hasCargo = Boolean(cargoCountry) || cargoTotalWeightKg > 0 || cargoChargeableWeightKg > 0 || cargoTotalPlaces > 0 || cargoAirCostUsd > 0 || cargoContainerCostUsd > 0;
+  const hasCargo = Boolean(cargoCountry) || cargoTotalWeightKg > 0 || cargoChargeableWeightKg > 0 || cargoTotalPlaces > 0 || cargoAirCostUsd > 0 || cargoContainerCostUsd > 0 || cargoTotalCostUsd > 0;
   if (!hasAedFees && !hasCargo) return undefined;
 
   return {
@@ -505,6 +507,7 @@ const normalizeLogistics = (raw: any) => {
     cargoTotalPlaces,
     cargoAirCostUsd,
     cargoContainerCostUsd,
+    cargoTotalCostUsd,
     cargoAirEtaDays: cargoAirEtaDays || undefined,
     cargoContainerEtaDays: cargoContainerEtaDays || undefined
   };
@@ -544,6 +547,11 @@ const resolveOrderLogistics = (row: any) => {
     cargo_air_cost_usd: row?.cargo_air_cost_usd,
     cargoContainerCostUsd: row?.cargoContainerCostUsd,
     cargo_container_cost_usd: row?.cargo_container_cost_usd,
+    cargoTotalCostUsd: row?.cargoTotalCostUsd,
+    cargo_total_cost_usd: row?.cargo_total_cost_usd,
+    totalsCargoTotalCostUsd: row?.totals?.cargo_total_cost_usd,
+    pricingBreakdownCargoTotalCostUsd: row?.pricingBreakdown?.cargo_total_cost_usd,
+    pricing_breakdown_cargo_total_cost_usd: row?.pricing_breakdown?.cargo_total_cost_usd,
     cargoAirEtaDays: row?.cargoAirEtaDays,
     cargo_air_eta_days: row?.cargo_air_eta_days,
     cargoContainerEtaDays: row?.cargoContainerEtaDays,
@@ -723,6 +731,19 @@ const isDisplayablePhotoUrl = (value: string) => (
   || value.startsWith('data:image')
 );
 
+const normalizePublicPhotoCandidate = (value: string) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed || trimmed.startsWith('local://') || trimmed.startsWith('blob:')) return '';
+  if (isDisplayablePhotoUrl(trimmed)) return trimmed;
+  if (trimmed.startsWith('/storage/v1/object/public/') && SUPABASE_URL) return `${SUPABASE_URL}${trimmed}`;
+
+  if (!SUPABASE_URL || trimmed.includes('://') || trimmed.startsWith('/')) return trimmed;
+
+  const bucket = ((import.meta as any).env?.VITE_SUPABASE_STORAGE_BUCKET as string | undefined)?.trim() || 'images';
+  const normalizedPath = trimmed.replace(/^\/+/, '');
+  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${normalizedPath}`;
+};
+
 const isUnavailablePhotoPlaceholder = (value: string) => {
   const normalized = String(value || '').trim().toLowerCase();
   if (!normalized) return true;
@@ -752,8 +773,8 @@ const sanitizePhotoList = (photos: string[]) => {
   const seen = new Set<string>();
   const next: string[] = [];
   photos
-    .map((photo) => String(photo || '').trim())
-    .filter((photo) => !!photo && !photo.startsWith('local://') && !photo.startsWith('blob:') && isDisplayablePhotoUrl(photo) && !isUnavailablePhotoPlaceholder(photo))
+    .map((photo) => normalizePublicPhotoCandidate(String(photo || '').trim()))
+    .filter((photo) => !!photo && isDisplayablePhotoUrl(photo) && !isUnavailablePhotoPlaceholder(photo))
     .forEach((photo) => {
       const key = normalizePhotoKey(photo);
       if (seen.has(key)) return;
@@ -965,13 +986,31 @@ const openInvoicePrintWindow = ({
   const cargoComputed = calculateCargoEstimates(order, {});
   const cargoCountry = String(order.logistics?.cargoCountry || cargoComputed.air.country || '—');
   const cargoRealWeight = Number(order.logistics?.cargoTotalWeightKg ?? cargoComputed.air.realWeight ?? 0);
+  const cargoChargeableWeight = Number(order.logistics?.cargoChargeableWeightKg ?? cargoComputed.air.chargeableWeight ?? 0);
   const cargoPlaces = Number(order.logistics?.cargoTotalPlaces ?? cargoComputed.air.totalPlaces ?? 0);
   const cargoAirCostUsd = Number(order.logistics?.cargoAirCostUsd ?? cargoComputed.air.totalCostUsd ?? 0);
   const cargoContainerCostUsd = Number(order.logistics?.cargoContainerCostUsd ?? cargoComputed.container.totalCostUsd ?? 0);
+  const cargoTotalCostUsd = Number(order.logistics?.cargoTotalCostUsd ?? (cargoAirCostUsd + cargoContainerCostUsd));
   const cargoAirEta = String(order.logistics?.cargoAirEtaDays ?? cargoComputed.air.eta ?? '—');
   const cargoContainerEta = String(order.logistics?.cargoContainerEtaDays ?? cargoComputed.container.eta ?? '—');
   const shouldHideAirCargo = cargoAirCostUsd > 1000;
   const cargoCostLabel = (amountUsd: number) => `${(amountUsd * exchangeRate).toFixed(2)} ${currency} (${amountUsd.toFixed(2)} USD)`;
+  const cargoParts = (order.parts || [])
+    .filter((part) => Number((part as any).weightKg || 0) > 0 || Number((part as any).places || 0) > 0)
+    .map((part) => ({
+      name: String(part.name || 'Part'),
+      qty: normalizePartQuantity((part as any).quantity),
+      weightKg: Number((part as any).weightKg || 0),
+      places: Number((part as any).places || 0),
+      cargoPlaceGroup: String((part as any).cargoPlaceGroup || '').trim()
+    }));
+  const totalPartWeight = cargoParts.reduce((sum, part) => sum + part.weightKg * part.qty, 0);
+  const cargoAllocatedRows = cargoParts.map((part) => {
+    const partTotalWeight = part.weightKg * part.qty;
+    const weightShare = totalPartWeight > 0 ? (partTotalWeight / totalPartWeight) : 0;
+    const allocatedUsd = Math.round(cargoTotalCostUsd * weightShare * 100) / 100;
+    return { ...part, partTotalWeight, allocatedUsd };
+  });
 
   const issueDate = new Date();
   const invoiceId = order.id.slice(0, 8).toUpperCase();
@@ -1072,15 +1111,41 @@ const openInvoicePrintWindow = ({
         ${shouldHideAirCargo ? '' : `<tr>
           <td>AIR (${escapeHtml(cargoAirEta)} days)</td>
           <td>${escapeHtml(cargoCountry)}</td>
-          <td>${cargoRealWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
+          <td>${cargoRealWeight.toFixed(1)} kg (CW ${cargoChargeableWeight.toFixed(1)}) · ${cargoPlaces.toFixed(0)} places</td>
           <td style="text-align:right">${cargoCostLabel(cargoAirCostUsd)}</td>
         </tr>`}
         <tr>
           <td>CONTAINER (${escapeHtml(cargoContainerEta)} days)</td>
           <td>${escapeHtml(cargoCountry)}</td>
-          <td>${cargoRealWeight.toFixed(1)} kg · ${cargoPlaces.toFixed(0)} places</td>
+          <td>${cargoRealWeight.toFixed(1)} kg (CW ${cargoChargeableWeight.toFixed(1)}) · ${cargoPlaces.toFixed(0)} places</td>
           <td style="text-align:right">${cargoCostLabel(cargoContainerCostUsd)}</td>
         </tr>
+      </tbody>
+    </table>
+
+    <table style="margin-top:20px">
+      <thead>
+        <tr>
+          <th colspan="5">Cargo details by part</th>
+        </tr>
+        <tr>
+          <th>Part</th>
+          <th style="width:82px;text-align:center">Qty</th>
+          <th style="width:140px">Weight</th>
+          <th style="width:120px">Places</th>
+          <th style="width:170px;text-align:right">Allocated cargo</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${cargoAllocatedRows.length > 0
+          ? cargoAllocatedRows.map((row) => `<tr>
+            <td>${escapeHtml(row.name)}${row.cargoPlaceGroup ? `<div style="margin-top:4px;font-size:11px;color:#64748b">Group: ${escapeHtml(row.cargoPlaceGroup)}</div>` : ''}</td>
+            <td style="text-align:center">${row.qty}</td>
+            <td>${row.partTotalWeight.toFixed(1)} kg${row.weightKg > 0 && row.qty > 1 ? ` <span style="color:#64748b">(${row.weightKg.toFixed(1)} × ${row.qty})</span>` : ''}</td>
+            <td>${row.places.toFixed(0)}</td>
+            <td style="text-align:right">${cargoCostLabel(row.allocatedUsd)}</td>
+          </tr>`).join('')
+          : '<tr><td colspan="5" style="text-align:center;color:#94a3b8">No part-level cargo details available</td></tr>'}
       </tbody>
     </table>
 
