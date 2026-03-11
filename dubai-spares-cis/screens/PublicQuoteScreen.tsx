@@ -1035,115 +1035,86 @@ const resolveInvoiceCargoData = (order: Order) => {
 
 const INVOICE_SHARED_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Inter', 'Segoe UI', Arial, sans-serif; color: #1a2540; background: #eef1f6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  a { color: #2563eb; text-decoration: underline; }
-  .page-wrap { padding: 20px 16px; }
-  .doc { position: relative; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #d8e0ec; border-radius: 22px; padding: 32px; box-shadow: 0 8px 32px rgba(15,23,42,0.07); }
+  html, body { width: 210mm; margin: 0 auto; }
+  body { font-family: 'Inter', Helvetica, Arial, sans-serif; color: #111827; background: #fff; font-size: 13px; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  a { color: #0F2A44; text-decoration: underline; }
+
+  /* ── Page layout ── */
+  .page-wrap { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 26mm 20mm 24mm 20mm; background: #fff; }
 
   /* ── Header ── */
-  .inv-header { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: start; gap: 24px; }
-  .inv-logo { max-height: 72px; max-width: 260px; object-fit: contain; display: block; }
-  .inv-brand-name { font-size: 18px; font-weight: 800; letter-spacing: .04em; color: #0f1f3d; }
-  .inv-subtitle { margin-top: 6px; font-size: 14px; color: #64748b; font-weight: 400; letter-spacing: .01em; }
+  .inv-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5mm; }
+  .inv-logo { max-height: 56px; max-width: 200px; object-fit: contain; display: block; }
+  .inv-brand-name { font-size: 18px; font-weight: 700; color: #0F2A44; letter-spacing: 0.02em; }
+  .inv-company-sub { margin-top: 4px; font-size: 12px; color: #6B7280; line-height: 1.45; }
   .inv-title-col { text-align: right; }
-  .inv-title { font-size: 38px; font-weight: 800; letter-spacing: .1em; color: #0f1f3d; line-height: 1; }
-  .inv-meta { margin-top: 8px; font-size: 12px; color: #64748b; line-height: 1.7; }
-  .inv-meta strong { color: #334155; font-weight: 600; }
-  .inv-divider { height: 1px; background: #e2e8f0; margin: 22px 0; }
+  .inv-title { font-size: 34px; font-weight: 700; letter-spacing: 0.08em; color: #0F2A44; line-height: 1; }
+  .inv-meta { margin-top: 8px; font-size: 13px; color: #111827; line-height: 1.65; }
+  .inv-meta .lbl { color: #6B7280; }
+  .inv-divider { height: 1px; background: #E5E7EB; margin: 5mm 0; }
 
-  /* ── Info block ── */
-  .info-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; }
-  .info-cell { padding: 14px 18px; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; }
-  .info-cell:nth-child(2n) { border-right: none; }
-  .info-cell:nth-last-child(-n+2) { border-bottom: none; }
-  .info-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: #94a3b8; margin-bottom: 5px; }
-  .info-value { font-size: 15px; font-weight: 600; color: #0f1f3d; line-height: 1.4; word-break: break-word; }
+  /* ── Customer / Vehicle block ── */
+  .customer-table { width: 100%; border-collapse: collapse; margin-bottom: 5mm; }
+  .customer-table td { padding: 3px 0; vertical-align: top; }
+  .customer-table td.lbl { font-size: 12px; color: #6B7280; width: 130px; padding-right: 12px; white-space: nowrap; }
+  .customer-table td.val { font-size: 13px; color: #111827; font-weight: 500; }
 
   /* ── Section title ── */
-  .sec-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: #64748b; margin: 26px 0 14px; }
+  .sec-title { font-size: 14px; font-weight: 600; letter-spacing: 0.07em; color: #111827; text-transform: uppercase; margin: 0 0 3mm 0; }
 
   /* ── Parts table ── */
-  .parts-table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; }
-  .parts-table th { background: #f4f7fb; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #64748b; padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
-  .parts-table td { padding: 13px 12px; border-bottom: 1px solid #edf2f8; font-size: 13px; color: #334155; vertical-align: top; }
-  .parts-table tr:last-child td { border-bottom: none; }
-  .item-name { font-size: 15px; font-weight: 600; color: #0f1f3d; line-height: 1.35; }
-  .item-desc { margin-top: 3px; font-size: 12px; color: #94a3b8; white-space: pre-line; line-height: 1.4; }
-  .num-col { font-size: 13px; color: #475569; }
-  .amt-col { font-size: 14px; font-weight: 600; color: #1a2540; }
+  .parts-table { width: 100%; border-collapse: collapse; margin-bottom: 4mm; }
+  .parts-table th { background: #F3F4F6; font-size: 12px; font-weight: 600; color: #6B7280; padding: 8px 10px; text-align: left; border: 1px solid #E5E7EB; }
+  .parts-table td { padding: 9px 10px; border: 1px solid #E5E7EB; font-size: 13px; color: #111827; vertical-align: top; }
+  .item-name { font-size: 14px; font-weight: 600; color: #111827; line-height: 1.3; }
+  .item-desc { margin-top: 2px; font-size: 11px; color: #6B7280; line-height: 1.4; }
+  .num-col { font-size: 13px; color: #111827; }
+  .amt-col { font-size: 13px; font-weight: 600; color: #111827; }
 
-  /* ── Bottom row (sign + totals) ── */
-  .bottom-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,320px); gap: 20px; align-items: end; margin-top: 24px; }
+  /* ── Totals section ── */
+  .totals-section { display: flex; justify-content: flex-end; margin-bottom: 8mm; }
+  .totals-inner { width: 260px; }
+  .totals-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; color: #111827; border-bottom: 1px solid #E5E7EB; }
+  .totals-row .tr-label { color: #6B7280; }
+  .totals-row .tr-val { font-weight: 500; }
+  .totals-divider { height: 2px; background: #111827; margin: 6px 0 4px; }
+  .totals-grand { display: flex; justify-content: space-between; padding: 4px 0; font-size: 18px; font-weight: 700; color: #111827; }
 
   /* ── Signature block ── */
-  .sign-block { border: 1px solid #e2e8f0; border-radius: 16px; background: #f8fafc; padding: 20px; min-height: 148px; display: flex; flex-direction: column; justify-content: space-between; }
-  .sign-top { }
-  .sign-sub-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: #94a3b8; margin-bottom: 6px; }
-  .sign-name { font-size: 17px; font-weight: 700; color: #0f1f3d; margin-bottom: 0; }
-  .sign-bottom { margin-top: 16px; }
-  .sign-img { max-height: 76px; max-width: 200px; object-fit: contain; display: block; }
-  .sign-placeholder { font-size: 12px; color: #cbd5e1; font-style: italic; }
+  .sign-block { margin-top: 10mm; padding-top: 5mm; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: flex-end; }
+  .sign-left { }
+  .sign-authorized { font-size: 12px; color: #6B7280; margin-bottom: 4px; }
+  .sign-name { font-size: 16px; font-weight: 700; color: #111827; }
+  .sign-right { text-align: right; }
+  .sign-label { font-size: 11px; color: #6B7280; margin-bottom: 6px; }
+  .sign-img { max-height: 60px; max-width: 160px; object-fit: contain; display: block; margin-left: auto; }
+  .sign-placeholder { font-size: 11px; color: #6B7280; font-style: italic; }
 
-  /* ── Totals block ── */
-  .totals-block { border: 1px solid #e2e8f0; border-radius: 16px; background: #f8fafc; overflow: hidden; }
-  .totals-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid #edf2f8; font-size: 13px; color: #475569; }
-  .totals-row:last-child { border-bottom: none; }
-  .totals-row .tr-label { font-weight: 500; }
-  .totals-row .tr-val { font-weight: 600; color: #334155; }
-  .totals-subtotal { background: #fff; }
-  .totals-grand { background: #0f1f3d; padding: 16px; flex-direction: column; align-items: stretch; gap: 4px; }
-  .totals-grand .tr-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: rgba(255,255,255,.55); margin-bottom: 2px; }
-  .totals-grand .tr-val { font-size: 30px; font-weight: 800; color: #fff; text-align: right; letter-spacing: .01em; }
+  /* ── Footer ── */
+  .inv-footer { margin-top: 6mm; padding-top: 3mm; border-top: 1px solid #E5E7EB; text-align: center; font-size: 11px; color: #6B7280; line-height: 1.6; }
 
-  /* ── Logistics summary ── */
-  .logistics-summary { margin-top: 22px; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background: #f8fafc; }
-  .logistics-header { padding: 10px 16px; background: #f4f7fb; border-bottom: 1px solid #e2e8f0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: #64748b; }
-  .logistics-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); }
-  .logistics-cell { padding: 11px 16px; border-right: 1px solid #edf2f8; border-bottom: 1px solid #edf2f8; }
-  .logistics-cell:nth-child(3n) { border-right: none; }
-  .logistics-cell:nth-last-child(-n+3) { border-bottom: none; }
-  .logistics-cell-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; margin-bottom: 4px; }
-  .logistics-cell-val { font-size: 13px; font-weight: 700; color: #0f1f3d; }
+  /* ── Empty state ── */
+  .empty-state { padding: 16px; border: 1px solid #E5E7EB; text-align: center; color: #6B7280; font-size: 13px; }
 
   /* ── Terms link ── */
-  .terms-row { margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf2f8; font-size: 12px; }
-  .terms-row .tl { color: #94a3b8; margin-bottom: 4px; }
+  .terms-row { margin-top: 4mm; padding-top: 3mm; border-top: 1px solid #E5E7EB; font-size: 12px; }
+  .terms-row .tl { color: #6B7280; margin-bottom: 3px; }
 
-  /* ── Mobile ── */
-  @media (max-width: 680px) {
-    .page-wrap { padding: 12px; }
-    .doc { padding: 20px 16px; border-radius: 18px; }
-    .inv-header { grid-template-columns: 1fr; gap: 14px; }
-    .inv-title-col { text-align: left; }
-    .inv-title { font-size: 30px; }
-    .info-grid { grid-template-columns: 1fr; }
-    .info-cell { border-right: none; border-bottom: 1px solid #e2e8f0; }
-    .info-cell:last-child { border-bottom: none; }
-    .parts-table thead { display: none; }
-    .parts-table tbody tr { display: block; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
-    .parts-table tbody td { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #edf2f8 !important; font-size: 13px; text-align: right !important; }
-    .parts-table tbody td::before { content: attr(data-label); font-size: 11px; font-weight: 600; color: #94a3b8; text-align: left; flex-shrink: 0; }
-    .parts-table tbody td[data-label="Part"] { display: block; text-align: left !important; }
-    .parts-table tbody td[data-label="Part"]::before { display: block; margin-bottom: 4px; }
-    .parts-table tbody td:last-child { border-bottom: none !important; }
-    .bottom-row { grid-template-columns: 1fr; }
-    .totals-grand .tr-val { font-size: 24px; }
-    .logistics-grid { grid-template-columns: 1fr 1fr; }
-    .logistics-cell:nth-child(3n) { border-right: 1px solid #edf2f8; }
-    .logistics-cell:nth-child(2n) { border-right: none; }
-  }
+  /* ── Logistics summary (cargo doc only) ── */
+  .logistics-summary { margin-top: 4mm; border: 1px solid #E5E7EB; overflow: hidden; }
+  .logistics-header { padding: 8px 12px; background: #F3F4F6; border-bottom: 1px solid #E5E7EB; font-size: 12px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.07em; }
+  .logistics-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .logistics-cell { padding: 8px 12px; border-right: 1px solid #E5E7EB; border-bottom: 1px solid #E5E7EB; }
+  .logistics-cell:nth-child(3n) { border-right: none; }
+  .logistics-cell:nth-last-child(-n+3) { border-bottom: none; }
+  .logistics-cell-label { font-size: 11px; font-weight: 600; color: #6B7280; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .logistics-cell-val { font-size: 13px; font-weight: 600; color: #111827; }
 
   /* ── Print ── */
   @media print {
-    body { background: #fff; }
-    .page-wrap { padding: 0; }
-    .doc { border: none; border-radius: 0; box-shadow: none; padding: 20px 16px; max-width: none; }
-    .parts-table thead { display: table-header-group; }
-    .parts-table tbody tr { display: table-row; border: none; border-radius: 0; margin: 0; }
-    .parts-table tbody td { display: table-cell; text-align: unset !important; }
-    .parts-table tbody td::before { display: none; }
-    .bottom-row { grid-template-columns: minmax(0,1fr) minmax(0,300px); }
-    .totals-grand .tr-val { font-size: 26px; }
+    @page { size: A4 portrait; margin: 0; }
+    html, body { width: 210mm; margin: 0; }
+    .page-wrap { padding: 24mm 20mm; width: 210mm; min-height: 297mm; }
   }
 `;
 
@@ -1181,24 +1152,18 @@ const openInvoicePrintWindow = ({
 
   const rows = lineItems.map((item, idx) => `
     <tr>
-      <td data-label="#" class="num-col" style="width:44px;color:#94a3b8">${idx + 1}</td>
-      <td data-label="Part">
+      <td class="num-col" style="width:36px;text-align:center">${idx + 1}</td>
+      <td>
         <div class="item-name">${escapeHtml(item.name)}</div>
         ${item.description ? `<div class="item-desc">${escapeHtml(item.description)}</div>` : ''}
       </td>
-      <td data-label="Qty" class="num-col" style="width:60px;text-align:center">1</td>
-      <td data-label="Unit price" class="num-col" style="width:150px;text-align:right">${moneyLabel(item.price)}</td>
-      <td data-label="Total" class="amt-col" style="width:150px;text-align:right">${moneyLabel(item.price)}</td>
+      <td class="num-col" style="width:50px;text-align:center">1</td>
+      <td class="num-col" style="width:130px;text-align:right">${moneyLabel(item.price)}</td>
+      <td class="amt-col" style="width:130px;text-align:right">${moneyLabel(item.price)}</td>
     </tr>
   `).join('');
 
   const partsSubtotalAed = lineItems.reduce((sum, item) => sum + Number(item.price || 0), 0);
-
-  const {
-    cargoCountry, cargoRealWeight, cargoChargeableWeight, cargoPlaces,
-    cargoAirCostUsd, cargoContainerCostUsd, cargoAirEta, cargoContainerEta
-  } = resolveInvoiceCargoData(order);
-  const cargoCostLabel = (amountUsd: number) => `${(amountUsd * exchangeRate).toFixed(2)} ${currency} (${amountUsd.toFixed(2)} USD)`;
 
   const locale = lang === 'ru' ? 'ru-RU' : 'en-GB';
   const issueDate = new Date();
@@ -1207,156 +1172,102 @@ const openInvoicePrintWindow = ({
   const socialNickname = String((order as any).socialNickname || (order as any).social_nickname || '').trim();
   const customerContact = String((order as any).customerContact || (order as any).customer_contact || '').trim();
   const contactDetails = [customerContact, socialNickname].filter(Boolean).join(' · ');
-
-  const hasCargoData = cargoRealWeight > 0 || cargoPlaces > 0 || cargoAirCostUsd > 0 || cargoContainerCostUsd > 0;
+  const vehicleLabel = `${order.brand} ${order.model} ${order.year || ''}`.trim();
+  const managerLabel = (managerName || '').trim() || '—';
 
   printWindow.document.write(`<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=210mm, initial-scale=1" />
   <title>Invoice ${invoiceId}</title>
   <style>${INVOICE_SHARED_CSS}</style>
 </head>
 <body>
 <div class="page-wrap">
-  <div class="doc">
 
-    <!-- ── HEADER ── -->
-    <div class="inv-header">
-      <div>
-        ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" class="inv-logo" alt="Company logo" />` : `<div class="inv-brand-name">DUBAI SPARES UAE</div>`}
-        <div class="inv-subtitle">Automotive parts &amp; supply</div>
-      </div>
-      <div class="inv-title-col">
-        <div class="inv-title">INVOICE</div>
-        <div class="inv-meta">
-          <strong>Invoice&nbsp;No.</strong>&nbsp;${invoiceId}<br />
-          <strong>Date:</strong>&nbsp;${issueDate.toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric' })}
-        </div>
+  <!-- ── HEADER ── -->
+  <div class="inv-header">
+    <div>
+      ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" class="inv-logo" alt="Dubai Spares" />` : `<div class="inv-brand-name">DUBAI SPARES</div>`}
+      <div class="inv-company-sub">Automotive Parts &amp; Supply<br />Dubai, UAE</div>
+    </div>
+    <div class="inv-title-col">
+      <div class="inv-title">INVOICE</div>
+      <div class="inv-meta">
+        <span class="lbl">Invoice No:&nbsp;</span>${invoiceId}<br />
+        <span class="lbl">Date:&nbsp;</span>${issueDate.toLocaleDateString(locale, { day: '2-digit', month: 'long', year: 'numeric' })}
       </div>
     </div>
-
-    <div class="inv-divider"></div>
-
-    <!-- ── INFO BLOCK ── -->
-    <div class="info-grid">
-      <div class="info-cell">
-        <div class="info-label">Bill to</div>
-        <div class="info-value">${escapeHtml(billToName)}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Contact</div>
-        <div class="info-value">${escapeHtml(contactDetails || '—')}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Vehicle</div>
-        <div class="info-value">${escapeHtml(`${order.brand} ${order.model} ${order.year || ''}`.trim())}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">VIN</div>
-        <div class="info-value">${escapeHtml(order.vin || '—')}</div>
-      </div>
-    </div>
-
-    <!-- ── PARTS TABLE ── -->
-    <div class="sec-title">Parts &amp; services</div>
-    <table class="parts-table">
-      <thead>
-        <tr>
-          <th style="width:44px">#</th>
-          <th>Description</th>
-          <th style="width:60px;text-align:center">Qty</th>
-          <th style="width:150px;text-align:right">Unit price</th>
-          <th style="width:150px;text-align:right">Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows || '<tr><td colspan="5" style="text-align:center;padding:20px;color:#94a3b8;font-size:13px">No line items available</td></tr>'}
-      </tbody>
-    </table>
-
-    <!-- ── BOTTOM ROW: SIGN + TOTALS ── -->
-    <div class="bottom-row">
-      <!-- Authorized by -->
-      <div class="sign-block">
-        <div class="sign-top">
-          <div class="sign-sub-label">Authorized by</div>
-          <div class="sign-name">${escapeHtml((managerName || '').trim() || '—')}</div>
-        </div>
-        <div class="sign-bottom">
-          <div class="sign-sub-label" style="margin-bottom:8px">Signature</div>
-          ${signatureUrl
-            ? `<img src="${escapeHtml(signatureUrl)}" class="sign-img" alt="Signature" />`
-            : `<span class="sign-placeholder">Not configured</span>`}
-        </div>
-      </div>
-
-      <!-- Totals -->
-      <div class="totals-block">
-        <div class="totals-row totals-subtotal">
-          <span class="tr-label">Parts subtotal</span>
-          <span class="tr-val">${moneyLabel(partsSubtotalAed)}</span>
-        </div>
-        <div class="totals-row">
-          <span class="tr-label">Delivery</span>
-          <span class="tr-val">${moneyLabel(totals.delivery)}</span>
-        </div>
-        <div class="totals-row">
-          <span class="tr-label">Packing</span>
-          <span class="tr-val">${moneyLabel(totals.packing)}</span>
-        </div>
-        <div class="totals-row">
-          <span class="tr-label">Service fee</span>
-          <span class="tr-val">${moneyLabel(totals.serviceFee)}</span>
-        </div>
-        <div class="totals-row totals-grand">
-          <div class="tr-label">Grand total</div>
-          <div class="tr-val">${moneyLabel(totals.totalAed)}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── LOGISTICS SUMMARY ── -->
-    ${hasCargoData ? `
-    <div class="logistics-summary">
-      <div class="logistics-header">Logistics summary</div>
-      <div class="logistics-grid">
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">Route / Country</div>
-          <div class="logistics-cell-val">${escapeHtml(cargoCountry)}</div>
-        </div>
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">Real weight</div>
-          <div class="logistics-cell-val">${cargoRealWeight.toFixed(1)} kg</div>
-        </div>
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">Chargeable weight</div>
-          <div class="logistics-cell-val">${cargoChargeableWeight.toFixed(1)} kg</div>
-        </div>
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">Total places</div>
-          <div class="logistics-cell-val">${cargoPlaces.toFixed(0)}</div>
-        </div>
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">AIR (${escapeHtml(cargoAirEta)} days)</div>
-          <div class="logistics-cell-val">${cargoCostLabel(cargoAirCostUsd)}</div>
-        </div>
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">CONTAINER (${escapeHtml(cargoContainerEta)} days)</div>
-          <div class="logistics-cell-val">${cargoCostLabel(cargoContainerCostUsd)}</div>
-        </div>
-      </div>
-    </div>` : ''}
-
-    <!-- ── TERMS ── -->
-    ${termsFileUrl ? `
-    <div class="terms-row">
-      <div class="tl">Terms &amp; conditions document</div>
-      <a href="${escapeHtml(termsFileUrl)}" target="_blank" rel="noreferrer">${escapeHtml(termsFileName || 'Download attached terms file')}</a>
-    </div>` : ''}
-
   </div>
+
+  <div class="inv-divider"></div>
+
+  <!-- ── CUSTOMER / VEHICLE ── -->
+  <table class="customer-table">
+    <tbody>
+      <tr><td class="lbl">Bill To:</td><td class="val">${escapeHtml(billToName)}</td></tr>
+      <tr><td class="lbl">Contact:</td><td class="val">${escapeHtml(contactDetails || '—')}</td></tr>
+      <tr><td class="lbl">Vehicle:</td><td class="val">${escapeHtml(vehicleLabel || '—')}</td></tr>
+      <tr><td class="lbl">VIN:</td><td class="val">${escapeHtml(order.vin || '—')}</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ── PARTS TABLE ── -->
+  <div class="sec-title">Parts &amp; Services</div>
+  <table class="parts-table">
+    <thead>
+      <tr>
+        <th style="width:36px;text-align:center">#</th>
+        <th>Part Name</th>
+        <th style="width:50px;text-align:center">Qty</th>
+        <th style="width:130px;text-align:right">Unit Price</th>
+        <th style="width:130px;text-align:right">Line Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows || `<tr><td colspan="5" class="empty-state">No line items available</td></tr>`}
+    </tbody>
+  </table>
+
+  <!-- ── TOTALS ── -->
+  <div class="totals-section">
+    <div class="totals-inner">
+      <div class="totals-row"><span class="tr-label">Parts subtotal</span><span class="tr-val">${moneyLabel(partsSubtotalAed)}</span></div>
+      <div class="totals-row"><span class="tr-label">Delivery</span><span class="tr-val">${moneyLabel(totals.delivery)}</span></div>
+      <div class="totals-row"><span class="tr-label">Packing</span><span class="tr-val">${moneyLabel(totals.packing)}</span></div>
+      <div class="totals-row"><span class="tr-label">Service fee</span><span class="tr-val">${moneyLabel(totals.serviceFee)}</span></div>
+      <div class="totals-divider"></div>
+      <div class="totals-grand"><span>GRAND TOTAL</span><span>${moneyLabel(totals.totalAed)}</span></div>
+    </div>
+  </div>
+
+  <!-- ── TERMS ── -->
+  ${termsFileUrl ? `
+  <div class="terms-row">
+    <div class="tl">Terms &amp; conditions document</div>
+    <a href="${escapeHtml(termsFileUrl)}" target="_blank" rel="noreferrer">${escapeHtml(termsFileName || 'Download attached terms file')}</a>
+  </div>` : ''}
+
+  <!-- ── SIGNATURE ── -->
+  <div class="sign-block">
+    <div class="sign-left">
+      <div class="sign-authorized">Authorized by:</div>
+      <div class="sign-name">${escapeHtml(managerLabel)}</div>
+    </div>
+    <div class="sign-right">
+      <div class="sign-label">Signature</div>
+      ${signatureUrl
+        ? `<img src="${escapeHtml(signatureUrl)}" class="sign-img" alt="Signature" />`
+        : `<div class="sign-placeholder">Not configured</div>`}
+    </div>
+  </div>
+
+  <!-- ── FOOTER ── -->
+  <div class="inv-footer">
+    Dubai Spares UAE &nbsp;|&nbsp; Automotive Parts Supplier &nbsp;|&nbsp; Dubai, United Arab Emirates
+  </div>
+
 </div>
 <script>
   window.addEventListener('load', function() { window.focus(); window.print(); });
@@ -1433,131 +1344,119 @@ const openCargoLogisticsPrintWindow = ({
   const issueDate = new Date();
   const invoiceId = order.id.slice(0, 8).toUpperCase();
 
+  const managerLabel = (managerName || '').trim() || '—';
+
   printWindow.document.write(`<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=210mm, initial-scale=1" />
   <title>Cargo &amp; Logistics — ${invoiceId}</title>
   <style>
     ${INVOICE_SHARED_CSS}
-    .alloc-table { width:100%; border-collapse:separate; border-spacing:0; border:1px solid #e2e8f0; border-radius:14px; overflow:hidden; }
-    .alloc-table th { background:#f4f7fb; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#64748b; padding:9px 10px; border-bottom:1px solid #e2e8f0; }
-    .alloc-table td { padding:10px 10px; border-bottom:1px solid #edf2f8; font-size:12px; vertical-align:top; }
-    .alloc-table tr:last-child td { border-bottom:none; }
-    @media (max-width:680px) {
-      .alloc-table thead { display:none; }
-      .alloc-table tbody tr { display:block; border:1px solid #e2e8f0; border-radius:12px; margin-bottom:10px; overflow:hidden; }
-      .alloc-table tbody td { display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:9px 12px; border-bottom:1px solid #edf2f8 !important; font-size:12px; text-align:right !important; }
-      .alloc-table tbody td::before { content:attr(data-label); font-size:10px; font-weight:600; color:#94a3b8; text-align:left; flex-shrink:0; }
-      .alloc-table tbody td[data-label="Part"] { display:block; text-align:left !important; }
-      .alloc-table tbody td[data-label="Part"]::before { display:block; margin-bottom:3px; }
-      .alloc-table tbody td:last-child { border-bottom:none !important; }
-    }
-    @media print {
-      .alloc-table thead { display:table-header-group; }
-      .alloc-table tbody tr { display:table-row; }
-      .alloc-table tbody td { display:table-cell; text-align:unset !important; }
-      .alloc-table tbody td::before { display:none; }
-    }
+    .alloc-table { width:100%; border-collapse:collapse; }
+    .alloc-table th { background:#F3F4F6; font-size:12px; font-weight:600; color:#6B7280; padding:8px 10px; text-align:left; border:1px solid #E5E7EB; }
+    .alloc-table td { padding:8px 10px; border:1px solid #E5E7EB; font-size:12px; vertical-align:top; color:#111827; }
   </style>
 </head>
 <body>
 <div class="page-wrap">
-  <div class="doc">
 
-    <!-- ── HEADER ── -->
-    <div class="inv-header">
-      <div>
-        ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" class="inv-logo" alt="Company logo" />` : `<div class="inv-brand-name">DUBAI SPARES UAE</div>`}
-        <div class="inv-subtitle">Cargo &amp; logistics details</div>
-      </div>
-      <div class="inv-title-col">
-        <div class="inv-title" style="font-size:28px;letter-spacing:.06em">CARGO</div>
-        <div class="inv-meta">
-          <strong>Invoice&nbsp;No.</strong>&nbsp;${invoiceId}<br />
-          <strong>Date:</strong>&nbsp;${issueDate.toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric' })}
-        </div>
+  <!-- ── HEADER ── -->
+  <div class="inv-header">
+    <div>
+      ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" class="inv-logo" alt="Dubai Spares" />` : `<div class="inv-brand-name">DUBAI SPARES</div>`}
+      <div class="inv-company-sub">Automotive Parts &amp; Supply<br />Dubai, UAE</div>
+    </div>
+    <div class="inv-title-col">
+      <div class="inv-title" style="font-size:28px">CARGO</div>
+      <div class="inv-meta">
+        <span class="lbl">Invoice No:&nbsp;</span>${invoiceId}<br />
+        <span class="lbl">Date:&nbsp;</span>${issueDate.toLocaleDateString(locale, { day: '2-digit', month: 'long', year: 'numeric' })}
       </div>
     </div>
+  </div>
 
-    <div class="inv-divider"></div>
+  <div class="inv-divider"></div>
 
-    <!-- ── SUMMARY GRID ── -->
-    <div class="sec-title">Cargo summary</div>
-    <div class="logistics-summary" style="margin-top:0">
-      <div class="logistics-grid">
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">Country / Route</div>
-          <div class="logistics-cell-val">${escapeHtml(cargoCountry)}</div>
-        </div>
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">Total real weight</div>
-          <div class="logistics-cell-val">${cargoRealWeight.toFixed(1)} kg</div>
-        </div>
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">Chargeable weight</div>
-          <div class="logistics-cell-val">${cargoChargeableWeight.toFixed(1)} kg</div>
-        </div>
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">Total places</div>
-          <div class="logistics-cell-val">${cargoPlaces.toFixed(0)}</div>
-        </div>
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">AIR — ${escapeHtml(cargoAirEta)} days</div>
-          <div class="logistics-cell-val">${cargoCostLabel(cargoAirCostUsd)}</div>
-        </div>
-        <div class="logistics-cell">
-          <div class="logistics-cell-label">CONTAINER — ${escapeHtml(cargoContainerEta)} days</div>
-          <div class="logistics-cell-val">${cargoCostLabel(cargoContainerCostUsd)}</div>
-        </div>
-        ${cargoAllocatedRows.length > 0 ? `
-        <div class="logistics-cell" style="grid-column:1/-1;border-right:none">
-          <div class="logistics-cell-label">Place groups</div>
-          <div class="logistics-cell-val">${escapeHtml(placeGroups)}</div>
-        </div>` : ''}
+  <!-- ── CARGO SUMMARY ── -->
+  <div class="sec-title">Cargo Summary</div>
+  <div class="logistics-summary" style="margin-top:0">
+    <div class="logistics-grid">
+      <div class="logistics-cell">
+        <div class="logistics-cell-label">Country / Route</div>
+        <div class="logistics-cell-val">${escapeHtml(cargoCountry)}</div>
       </div>
-    </div>
-
-    <!-- ── PER-PART ALLOCATION ── -->
-    ${cargoAllocatedRows.length > 0 ? `
-    <div class="sec-title" style="margin-top:26px">Per-part cargo allocation</div>
-    <table class="alloc-table">
-      <thead>
-        <tr>
-          <th style="width:36px;text-align:center">#</th>
-          <th>Part</th>
-          <th style="width:44px;text-align:center">Qty</th>
-          <th style="width:80px;text-align:right">Unit kg</th>
-          <th style="width:80px;text-align:right">Total kg</th>
-          <th style="width:60px;text-align:center">Places</th>
-          <th style="width:80px">Group</th>
-          <th style="width:170px;text-align:right">AIR allocation</th>
-          <th style="width:170px;text-align:right">CONTAINER allocation</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${allocationRows}
-      </tbody>
-    </table>` : `
-    <div style="margin-top:22px;padding:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;text-align:center;color:#94a3b8;font-size:13px">
-      Cargo parameters are not filled yet
-    </div>`}
-
-    <!-- ── AUTHORIZATION ── -->
-    <div style="margin-top:28px;padding-top:20px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:flex-end;gap:20px">
-      <div>
-        <div class="sign-sub-label" style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#94a3b8;margin-bottom:6px">Authorized by</div>
-        <div style="font-size:16px;font-weight:700;color:#0f1f3d">${escapeHtml((managerName || '').trim() || '—')}</div>
+      <div class="logistics-cell">
+        <div class="logistics-cell-label">Total Real Weight</div>
+        <div class="logistics-cell-val">${cargoRealWeight.toFixed(1)} kg</div>
       </div>
-      ${signatureUrl ? `
-      <div style="text-align:right">
-        <div class="sign-sub-label" style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#94a3b8;margin-bottom:8px">Signature</div>
-        <img src="${escapeHtml(signatureUrl)}" alt="Signature" style="max-height:64px;max-width:180px;object-fit:contain;display:block;margin-left:auto" />
+      <div class="logistics-cell">
+        <div class="logistics-cell-label">Chargeable Weight</div>
+        <div class="logistics-cell-val">${cargoChargeableWeight.toFixed(1)} kg</div>
+      </div>
+      <div class="logistics-cell">
+        <div class="logistics-cell-label">Total Places</div>
+        <div class="logistics-cell-val">${cargoPlaces.toFixed(0)}</div>
+      </div>
+      <div class="logistics-cell">
+        <div class="logistics-cell-label">AIR — ${escapeHtml(cargoAirEta)} days</div>
+        <div class="logistics-cell-val">${cargoCostLabel(cargoAirCostUsd)}</div>
+      </div>
+      <div class="logistics-cell">
+        <div class="logistics-cell-label">CONTAINER — ${escapeHtml(cargoContainerEta)} days</div>
+        <div class="logistics-cell-val">${cargoCostLabel(cargoContainerCostUsd)}</div>
+      </div>
+      ${cargoAllocatedRows.length > 0 ? `
+      <div class="logistics-cell" style="grid-column:1/-1;border-right:none">
+        <div class="logistics-cell-label">Place Groups</div>
+        <div class="logistics-cell-val">${escapeHtml(placeGroups)}</div>
       </div>` : ''}
     </div>
-
   </div>
+
+  <!-- ── PER-PART ALLOCATION ── -->
+  ${cargoAllocatedRows.length > 0 ? `
+  <div class="sec-title" style="margin-top:5mm">Per-Part Cargo Allocation</div>
+  <table class="alloc-table">
+    <thead>
+      <tr>
+        <th style="width:36px;text-align:center">#</th>
+        <th>Part</th>
+        <th style="width:44px;text-align:center">Qty</th>
+        <th style="width:80px;text-align:right">Unit kg</th>
+        <th style="width:80px;text-align:right">Total kg</th>
+        <th style="width:60px;text-align:center">Places</th>
+        <th style="width:80px">Group</th>
+        <th style="width:160px;text-align:right">AIR</th>
+        <th style="width:160px;text-align:right">CONTAINER</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${allocationRows}
+    </tbody>
+  </table>` : `
+  <div class="empty-state" style="margin-top:4mm">Cargo parameters are not filled yet</div>`}
+
+  <!-- ── SIGNATURE ── -->
+  <div class="sign-block">
+    <div class="sign-left">
+      <div class="sign-authorized">Authorized by:</div>
+      <div class="sign-name">${escapeHtml(managerLabel)}</div>
+    </div>
+    <div class="sign-right">
+      <div class="sign-label">Signature</div>
+      ${signatureUrl
+        ? `<img src="${escapeHtml(signatureUrl)}" class="sign-img" alt="Signature" />`
+        : `<div class="sign-placeholder">Not configured</div>`}
+    </div>
+  </div>
+
+  <!-- ── FOOTER ── -->
+  <div class="inv-footer">
+    Dubai Spares UAE &nbsp;|&nbsp; Automotive Parts Supplier &nbsp;|&nbsp; Dubai, United Arab Emirates
+  </div>
+
 </div>
 <script>
   window.addEventListener('load', function() { window.focus(); window.print(); });
