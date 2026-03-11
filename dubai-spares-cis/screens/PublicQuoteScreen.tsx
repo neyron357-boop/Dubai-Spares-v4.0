@@ -1123,12 +1123,24 @@ const openInvoicePrintWindow = ({
     th { text-align: left; background: #f1f5fb; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #475569; }
     .item-name { font-size: 15px; font-weight: 600; color: #0f172a; }
     .item-description { margin-top: 4px; font-size: 12px; color: #64748b; white-space: pre-line; }
-    .totals { margin-top: 18px; margin-left: auto; width: 100%; max-width: 400px; border: 1px solid #d7e0eb; border-radius: 16px; background: #f8fafc; overflow: hidden; }
+    .totals { margin-top: 18px; margin-left: auto; width: 100%; max-width: 520px; border: 1px solid #d7e0eb; border-radius: 16px; background: #f8fafc; overflow: hidden; }
     .totals p { display: flex; justify-content: space-between; margin: 0; padding: 11px 14px; font-size: 13px; border-bottom: 1px solid #e2e8f0; }
     .totals p:last-child { border-bottom: none; }
     .total { font-size: 26px !important; font-weight: 800; background: #f0f5fd; color: #0f1f3d; }
     .total span:last-child { text-align: right; }
-    .signature { margin-top: 28px; border-top: 1px solid #dce4f0; padding-top: 20px; }
+    .compact-logistics { margin-top: 18px; border: 1px solid #dde4ee; border-radius: 16px; background: #fff; overflow: hidden; }
+    .compact-logistics h3 { margin: 0; padding: 12px 14px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; background:#f1f5fb; color:#334155; }
+    .compact-logistics-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0; }
+    .compact-logistics-grid p { margin:0; padding:10px 14px; border-top:1px solid #e8edf4; font-size:13px; display:flex; justify-content:space-between; gap:10px; }
+    .compact-logistics-grid p span:first-child { color:#64748b; }
+    .compact-logistics-grid p span:last-child { color:#0f172a; font-weight:700; text-align:right; }
+    .totals-sign-row { border-top:1px solid #e2e8f0; padding:12px 14px; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
+    .totals-sign-name p { margin:0; }
+    .totals-sign-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#64748b; }
+    .totals-sign-value { margin-top:4px; font-size:14px; font-weight:700; color:#0f1f3d; }
+    .totals-signature { text-align:right; }
+    .totals-signature img { max-height:90px; max-width:240px; object-fit:contain; }
+    .signature { margin-top: 22px; border-top: 1px solid #dce4f0; padding-top: 16px; }
     .signature-row { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; min-height:104px; }
     .signature-owner { flex:1; }
     .signature-sign { min-width:240px; text-align:right; }
@@ -1150,6 +1162,9 @@ const openInvoicePrintWindow = ({
       table tbody td:last-child { border-bottom: none; }
       .totals { max-width: none; }
       .total { font-size: 23px !important; }
+      .compact-logistics-grid { grid-template-columns: 1fr; }
+      .totals-sign-row { flex-direction:column; align-items:flex-start; }
+      .totals-signature { text-align:left; }
       .signature-row { flex-direction: column; align-items:flex-start; }
       .signature-sign { text-align:left; min-width:0; }
     }
@@ -1212,71 +1227,31 @@ const openInvoicePrintWindow = ({
       <p class="total"><span>Grand total</span><span>${moneyLabel(totals.totalAed)}</span></p>
     </div>
 
-    <table style="margin-top:20px">
-      <thead>
-        <tr>
-          <th colspan="4">Cargo / Logistics</th>
-        </tr>
-        <tr>
-          <th>Route / Country</th>
-          <th style="width:240px">Weight / places</th>
-          <th style="width:210px">AIR</th>
-          <th style="width:210px">CONTAINER</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td data-label="Route">${escapeHtml(cargoCountry)}</td>
-          <td data-label="Weight / places">${cargoRealWeight.toFixed(1)} kg (CW ${cargoChargeableWeight.toFixed(1)}) · ${cargoPlaces.toFixed(0)} places</td>
-          <td data-label="AIR">${escapeHtml(cargoAirEta)} days · ${cargoCostLabel(cargoAirCostUsd)}</td>
-          <td data-label="CONTAINER">${escapeHtml(cargoContainerEta)} days · ${cargoCostLabel(cargoContainerCostUsd)}</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="compact-logistics">
+      <h3>Cargo / Logistics</h3>
+      <div class="compact-logistics-grid">
+        <p><span>Route / Country</span><span>${escapeHtml(cargoCountry)}</span></p>
+        <p><span>Weight / CW</span><span>${cargoRealWeight.toFixed(1)} kg / ${cargoChargeableWeight.toFixed(1)} kg</span></p>
+        <p><span>Total places</span><span>${cargoPlaces.toFixed(0)}</span></p>
+        <p><span>AIR</span><span>${escapeHtml(cargoAirEta)} days · ${cargoCostLabel(cargoAirCostUsd)}</span></p>
+        <p><span>CONTAINER</span><span>${escapeHtml(cargoContainerEta)} days · ${cargoCostLabel(cargoContainerCostUsd)}</span></p>
+        <p><span>Place groups</span><span>${cargoAllocatedRows.length > 0 ? escapeHtml(cargoAllocatedRows.map((row) => row.cargoPlaceGroup).filter(Boolean).join(', ') || '—') : '—'}</span></p>
+      </div>
+    </div>
 
-    <table style="margin-top:20px">
-      <thead>
-        <tr>
-          <th colspan="6">Cargo details by part</th>
-        </tr>
-        <tr>
-          <th>Part</th>
-          <th style="width:70px;text-align:center">Qty</th>
-          <th style="width:130px">Weight</th>
-          <th style="width:80px">Places</th>
-          <th style="width:150px;text-align:right">AIR allocation</th>
-          <th style="width:170px;text-align:right">CONTAINER allocation</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${cargoAllocatedRows.length > 0
-          ? cargoAllocatedRows.map((row) => `<tr>
-            <td data-label="Part"><span class="item-name">${escapeHtml(row.name)}</span>${row.cargoPlaceGroup ? `<div class="item-description">Group: ${escapeHtml(row.cargoPlaceGroup)}</div>` : ''}</td>
-            <td data-label="Qty" style="text-align:center">${row.qty}</td>
-            <td data-label="Weight">${row.partTotalWeight.toFixed(1)} kg${row.weightKg > 0 && row.qty > 1 ? ` <span class="item-description">(${row.weightKg.toFixed(1)} × ${row.qty})</span>` : ''}</td>
-            <td data-label="Places">${row.places.toFixed(0)}</td>
-            <td data-label="AIR allocation" style="text-align:right">${cargoCostLabel(row.allocatedAirUsd)}</td>
-            <td data-label="CONTAINER allocation" style="text-align:right">${cargoCostLabel(row.allocatedContainerUsd)}</td>
-          </tr>`).join('')
-          : '<tr><td colspan="6" style="text-align:center;color:#94a3b8">No part-level cargo details available</td></tr>'}
-      </tbody>
-    </table>
+    <div class="totals-sign-row">
+      <div class="totals-sign-name">
+        <p class="totals-sign-label">Name</p>
+        <p class="totals-sign-value">${escapeHtml((managerName || '').trim() || 'Not specified')}</p>
+      </div>
+      <div class="totals-signature">
+        <p class="totals-sign-label" style="margin:0 0 6px">Signature</p>
+        ${signatureUrl ? `<img src="${escapeHtml(signatureUrl)}" alt="Signature" />` : '<p class="muted" style="margin:0">Configured in public settings</p>'}
+      </div>
+    </div>
 
     ${termsFileUrl ? `<div style="margin-top:14px"><p class="muted" style="margin:0 0 6px">Terms / conditions document</p><a href="${escapeHtml(termsFileUrl)}" target="_blank" rel="noreferrer" style="font-size:12px;color:#2563eb;text-decoration:underline">${escapeHtml(termsFileName || 'Download attached terms file')}</a></div>` : ''}
 
-    <div class="signature">
-      <p class="muted" style="margin:0 0 10px">Authorized by</p>
-      <div class="signature-row">
-        <div class="signature-owner">
-          <p class="muted" style="margin:0 0 4px">Name</p>
-          <p class="signature-name">${escapeHtml((managerName || '').trim() || 'Not specified')}</p>
-        </div>
-        <div class="signature-sign">
-          <p class="muted" style="margin:0 0 4px">Signature</p>
-          ${signatureUrl ? `<img src="${escapeHtml(signatureUrl)}" style="max-height:72px;max-width:220px;object-fit:contain" alt="Signature" />` : '<p class="muted" style="margin:0">Configured in public settings</p>'}
-        </div>
-      </div>
-    </div>
   </div>
   <script>
     window.addEventListener('load', () => {

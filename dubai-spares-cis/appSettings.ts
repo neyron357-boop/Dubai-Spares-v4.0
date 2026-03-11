@@ -46,6 +46,7 @@ export interface AppSettings {
   publicTermsFileUrl: string;
   publicTermsFileName: string;
   publicContactsUpdatedAt: number;
+  appSettingsUpdatedAt: number;
   cargoTariffs: CargoTariff[];
 }
 
@@ -84,6 +85,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   publicTermsFileUrl: '',
   publicTermsFileName: '',
   publicContactsUpdatedAt: 0,
+  appSettingsUpdatedAt: 0,
   cargoTariffs: DEFAULT_CARGO_TARIFFS
 };
 
@@ -105,6 +107,7 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
   publicTermsFileUrl: typeof raw?.publicTermsFileUrl === 'string' ? raw.publicTermsFileUrl : '',
   publicTermsFileName: typeof raw?.publicTermsFileName === 'string' ? raw.publicTermsFileName : '',
   publicContactsUpdatedAt: Number.isFinite(Number(raw?.publicContactsUpdatedAt)) ? Number(raw?.publicContactsUpdatedAt) : 0,
+  appSettingsUpdatedAt: Number.isFinite(Number(raw?.appSettingsUpdatedAt)) ? Number(raw?.appSettingsUpdatedAt) : 0,
   defaultVendorChecklist: Array.isArray(raw?.defaultVendorChecklist)
     ? raw.defaultVendorChecklist
       .filter((item): item is string => typeof item === 'string')
@@ -236,7 +239,8 @@ export const saveAppSettings = (patch: Partial<AppSettings>): AppSettings => {
   const next = normalizeSettings({
     ...loadAppSettings(),
     ...patch,
-    ...(touchesPublicContacts ? { publicContactsUpdatedAt: Date.now() } : {})
+    ...(touchesPublicContacts ? { publicContactsUpdatedAt: Date.now() } : {}),
+    appSettingsUpdatedAt: Date.now()
   });
   localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(next));
   window.dispatchEvent(new CustomEvent('app-settings-updated', { detail: next }));
@@ -255,7 +259,7 @@ export const useAppSettings = () => {
       if (!active) return;
 
       const localSettings = loadAppSettings();
-      const localUpdatedAt = Number(localSettings.publicContactsUpdatedAt || 0);
+      const localUpdatedAt = Number(localSettings.appSettingsUpdatedAt || localSettings.publicContactsUpdatedAt || 0);
 
       const mergedFromCloud = cloudSettings && Number(cloudSettings.updatedAt || 0) > localUpdatedAt
         ? normalizeSettings(cloudSettings)
