@@ -947,8 +947,11 @@ export const ensurePublicImageUrls = async (
       for (const bucket of BUCKET_CANDIDATES) {
         try {
           const remote = await listStoragePathsRecursive(bucket, folder);
-          for (let offset = 0; offset < remote.length; offset += 20) {
-            await deleteStorageFiles(bucket, remote.slice(offset, offset + 20));
+          if (remote.length > 0) {
+            await logger.info('photo:delete', `Cleanup folder (no images remain): ${folder}`, { bucket, folder, deletedCount: remote.length, paths: remote.slice(0, 20) });
+            for (let offset = 0; offset < remote.length; offset += 20) {
+              await deleteStorageFiles(bucket, remote.slice(offset, offset + 20));
+            }
           }
         } catch (error) {
           await logger.warn('storage:cleanup-extra-files', 'Failed to cleanup folder after image removal', {
@@ -998,8 +1001,11 @@ export const ensurePublicImageUrls = async (
         if (!currentPaths.size) continue;
         const remote = await listStoragePathsRecursive(bucket, folder);
         const extraPaths = remote.filter((path) => !currentPaths.has(path));
-        for (let offset = 0; offset < extraPaths.length; offset += 20) {
-          await deleteStorageFiles(bucket, extraPaths.slice(offset, offset + 20));
+        if (extraPaths.length > 0) {
+          await logger.info('photo:delete', `Cleanup extra files in folder: ${folder}`, { bucket, folder, keptCount: currentPaths.size, extraCount: extraPaths.length, extraPaths: extraPaths.slice(0, 20) });
+          for (let offset = 0; offset < extraPaths.length; offset += 20) {
+            await deleteStorageFiles(bucket, extraPaths.slice(offset, offset + 20));
+          }
         }
       } catch (error) {
         await logger.warn('storage:cleanup-extra-files', 'Failed to cleanup extra files in folder', {
