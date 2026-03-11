@@ -775,6 +775,7 @@ const normalizePublicSettings = (raw: unknown) => {
     publicWorkTerms: read('publicWorkTerms', 'public_work_terms', 'workTerms', 'work_terms'),
     publicCompanyLogoUrl: read('publicCompanyLogoUrl', 'public_company_logo_url', 'companyLogoUrl', 'logo', 'logoUrl'),
     publicInvoiceSignatureUrl: read('publicInvoiceSignatureUrl', 'public_invoice_signature_url', 'invoiceSignatureUrl', 'signature', 'signatureUrl'),
+    publicManagerName: read('publicManagerName', 'public_manager_name', 'managerName', 'manager_name', 'ownerName', 'owner_name'),
     publicTermsFileUrl: read('publicTermsFileUrl', 'public_terms_file_url', 'termsFileUrl', 'terms_file_url'),
     publicTermsFileName: read('publicTermsFileName', 'public_terms_file_name', 'termsFileName', 'terms_file_name')
   };
@@ -901,6 +902,7 @@ const mergePublicSettings = (
   publicWorkTerms: preferred.publicWorkTerms || fallback?.publicWorkTerms || '',
   publicCompanyLogoUrl: preferred.publicCompanyLogoUrl || fallback?.publicCompanyLogoUrl || '',
   publicInvoiceSignatureUrl: preferred.publicInvoiceSignatureUrl || fallback?.publicInvoiceSignatureUrl || '',
+  publicManagerName: preferred.publicManagerName || fallback?.publicManagerName || '',
   publicTermsFileUrl: preferred.publicTermsFileUrl || fallback?.publicTermsFileUrl || '',
   publicTermsFileName: preferred.publicTermsFileName || fallback?.publicTermsFileName || ''
 });
@@ -1023,6 +1025,7 @@ const openInvoicePrintWindow = ({
   rates,
   logoUrl,
   signatureUrl,
+  managerName,
   termsFileUrl,
   termsFileName
 }: {
@@ -1033,6 +1036,7 @@ const openInvoicePrintWindow = ({
   rates: QuoteRates;
   logoUrl?: string;
   signatureUrl?: string;
+  managerName?: string;
   termsFileUrl?: string;
   termsFileName?: string;
 }) => {
@@ -1117,8 +1121,12 @@ const openInvoicePrintWindow = ({
     .totals p { display: flex; justify-content: space-between; margin: 0; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0; }
     .totals p:last-child { border-bottom: none; }
     .total { font-size: 18px !important; font-weight: 800; background: #f8fafc; }
-    .signature { margin-top: 22px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
-    @media print { body { padding: 0; background: #fff; } .card { border: none; border-radius: 0; } }
+    .signature { margin-top: 26px; border-top: 1px solid #d6deea; padding-top: 18px; }
+    .signature-row { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; min-height:94px; }
+    .signature-owner { flex:1; }
+    .signature-sign { min-width:220px; text-align:right; }
+    .signature-name { margin:0; font-weight:700; font-size:16px; color:#0f1f3d; }
+    @media (max-width: 760px) { body { padding: 16px; } .card { padding: 20px; border-radius: 22px; } .header { grid-template-columns: 1fr; gap: 10px; } h1 { font-size: 32px !important; } .meta-grid { grid-template-columns: 1fr; gap: 12px; } table { border: none; margin: 14px 0; } table thead { display: none; } table tbody tr { display: block; border: 1px solid #dbe2ea; border-radius: 14px; margin-bottom: 10px; overflow: hidden; } table tbody td { display: flex; justify-content: space-between; gap: 12px; border-right: none; border-bottom: 1px solid #e8edf4; padding: 10px 12px; font-size: 13px; } table tbody td:last-child { border-bottom: none; } .signature-row { flex-direction: column; align-items:flex-start; } .signature-sign { text-align:left; min-width:0; } } @media print { body { padding: 0; background: #fff; } .card { border: none; border-radius: 0; box-shadow:none; } table thead { display: table-header-group; } table tbody tr { display: table-row; border: none; } table tbody td { display: table-cell; } }
   </style>
 </head>
 <body>
@@ -1222,8 +1230,17 @@ const openInvoicePrintWindow = ({
     ${termsFileUrl ? `<div style="margin-top:14px"><p class="muted" style="margin:0 0 6px">Terms / conditions document</p><a href="${escapeHtml(termsFileUrl)}" target="_blank" rel="noreferrer" style="font-size:12px;color:#2563eb;text-decoration:underline">${escapeHtml(termsFileName || 'Download attached terms file')}</a></div>` : ''}
 
     <div class="signature">
-      <p class="muted" style="margin:0 0 8px">Owner signature</p>
-      ${signatureUrl ? `<img src="${escapeHtml(signatureUrl)}" style="max-height:72px;max-width:220px;object-fit:contain" alt="Signature" />` : '<p class="muted" style="margin:0">Configured in public settings</p>'}
+      <p class="muted" style="margin:0 0 10px">Authorized by</p>
+      <div class="signature-row">
+        <div class="signature-owner">
+          <p class="muted" style="margin:0 0 4px">Name</p>
+          <p class="signature-name">${escapeHtml((managerName || '').trim() || 'Not specified')}</p>
+        </div>
+        <div class="signature-sign">
+          <p class="muted" style="margin:0 0 4px">Signature</p>
+          ${signatureUrl ? `<img src="${escapeHtml(signatureUrl)}" style="max-height:72px;max-width:220px;object-fit:contain" alt="Signature" />` : '<p class="muted" style="margin:0">Configured in public settings</p>'}
+        </div>
+      </div>
     </div>
   </div>
   <script>
@@ -1701,6 +1718,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const settings = mergePublicSettings(settingsFromPayload, resolvedSettings);
   const logoUrl = settings.publicCompanyLogoUrl;
   const signatureUrl = settings.publicInvoiceSignatureUrl;
+  const managerName = settings.publicManagerName.trim();
   const termsFileUrl = settings.publicTermsFileUrl;
   const termsFileName = settings.publicTermsFileName;
   const normalizedOwner = normalizePayloadOwner(payloadOwner);
@@ -1757,6 +1775,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       rates,
       logoUrl,
       signatureUrl,
+      managerName,
       termsFileUrl,
       termsFileName
     });
@@ -2093,11 +2112,24 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           <Download size={15} /> {t.downloadPdf}
         </button>
 
-        {signatureUrl && (
+        {(signatureUrl || managerName) && (
           <section className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_28px_rgba(15,23,42,0.08)]">
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.officialSignature}</p>
-            <div className="mt-2 border-t border-slate-100 pt-3">
-              <img src={signatureUrl} alt="Owner signature" className="h-20 w-auto object-contain" />
+            <div className="mt-3 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-[1fr_auto] sm:items-end">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{lang === 'ru' ? 'Имя и фамилия' : 'Name'}</p>
+                <p className="mt-2 text-lg font-bold text-[#0f1f3d]">{managerName || (lang === 'ru' ? 'Не указано' : 'Not specified')}</p>
+              </div>
+              <div className="sm:text-right">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{t.signature}</p>
+                <div className="mt-2 min-h-[74px]">
+                  {signatureUrl ? (
+                    <img src={signatureUrl} alt="Owner signature" className="h-20 w-auto object-contain sm:ml-auto" />
+                  ) : (
+                    <p className="text-sm text-slate-400">{lang === 'ru' ? 'Подпись не настроена' : 'Signature is not configured'}</p>
+                  )}
+                </div>
+              </div>
             </div>
           </section>
         )}

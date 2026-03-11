@@ -1382,6 +1382,16 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               </div>
             </Field>
 
+
+            <Field label="Имя и фамилия менеджера / владельца (для публичной сметы и invoice)">
+              <input
+                value={draftSettings.publicManagerName}
+                onChange={(e) => updateDraft({ publicManagerName: e.target.value })}
+                placeholder="Например: Ahmed Al Mansoori"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              />
+            </Field>
+
             <Field label="Подпись владельца (для invoice)">
               <div className="space-y-2">
                 <input

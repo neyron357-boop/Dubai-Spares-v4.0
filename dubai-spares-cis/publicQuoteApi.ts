@@ -91,6 +91,7 @@ export type PublicQuotePayloadV1 = {
     publicWorkTerms?: string;
     publicCompanyLogoUrl?: string;
     publicInvoiceSignatureUrl?: string;
+    publicManagerName?: string;
     whatsapp_phone?: string | null;
   };
   logistics?: {
@@ -158,6 +159,7 @@ type AppStatePublicSettingsRow = {
     publicWorkTerms?: string;
     publicCompanyLogoUrl?: string;
     publicInvoiceSignatureUrl?: string;
+    publicManagerName?: string;
   };
 };
 
@@ -169,6 +171,7 @@ export type PublicContactSettings = {
   publicWorkTerms: string;
   publicCompanyLogoUrl: string;
   publicInvoiceSignatureUrl: string;
+  publicManagerName: string;
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -631,6 +634,7 @@ const buildSnapshotPayload = (
     publicWorkTerms?: string;
     publicCompanyLogoUrl?: string;
     publicInvoiceSignatureUrl?: string;
+    publicManagerName?: string;
   },
   rates?: QuoteRates
 ): PublicQuotePayloadV1 => {
@@ -1154,7 +1158,8 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
       publicDeliveryTerms: first('publicDeliveryTerms', 'public_delivery_terms', 'deliveryTerms', 'delivery_terms'),
       publicWorkTerms: first('publicWorkTerms', 'public_work_terms', 'workTerms', 'work_terms'),
       publicCompanyLogoUrl: first('publicCompanyLogoUrl', 'public_company_logo_url', 'companyLogoUrl', 'logo', 'logoUrl'),
-      publicInvoiceSignatureUrl: first('publicInvoiceSignatureUrl', 'public_invoice_signature_url', 'invoiceSignatureUrl', 'signature', 'signatureUrl')
+      publicInvoiceSignatureUrl: first('publicInvoiceSignatureUrl', 'public_invoice_signature_url', 'invoiceSignatureUrl', 'signature', 'signatureUrl'),
+      publicManagerName: first('publicManagerName', 'public_manager_name', 'managerName', 'manager_name', 'ownerName', 'owner_name')
     };
   };
 
@@ -1165,7 +1170,8 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
     publicDeliveryTerms: preferred.publicDeliveryTerms || fallback?.publicDeliveryTerms || '',
     publicWorkTerms: preferred.publicWorkTerms || fallback?.publicWorkTerms || '',
     publicCompanyLogoUrl: preferred.publicCompanyLogoUrl || fallback?.publicCompanyLogoUrl || '',
-    publicInvoiceSignatureUrl: preferred.publicInvoiceSignatureUrl || fallback?.publicInvoiceSignatureUrl || ''
+    publicInvoiceSignatureUrl: preferred.publicInvoiceSignatureUrl || fallback?.publicInvoiceSignatureUrl || '',
+    publicManagerName: preferred.publicManagerName || fallback?.publicManagerName || ''
   });
 
   try {
@@ -1181,7 +1187,7 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
     const fromPublicSettings = readPublicContactSettings((byId.get('public_settings')?.data || null) as Record<string, any> | null);
     const fromGlobal = readPublicContactSettings((byId.get('global')?.data || null) as Record<string, any> | null);
     const merged = mergeSettings(fromPublicSettings, fromGlobal);
-    if (merged.publicWhatsappNumber || merged.publicTelegramUrl || merged.publicInstagramUrl || merged.publicDeliveryTerms || merged.publicWorkTerms || merged.publicCompanyLogoUrl || merged.publicInvoiceSignatureUrl) {
+    if (merged.publicWhatsappNumber || merged.publicTelegramUrl || merged.publicInstagramUrl || merged.publicDeliveryTerms || merged.publicWorkTerms || merged.publicCompanyLogoUrl || merged.publicInvoiceSignatureUrl || merged.publicManagerName) {
       return merged;
     }
     return null;
