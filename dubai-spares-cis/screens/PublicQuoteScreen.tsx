@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Building2,
   CheckCircle2,
+  Clock3,
   Images,
   ChevronRight,
   Download,
@@ -11,7 +12,8 @@ import {
   Instagram,
   MessageCircle,
   RefreshCcw,
-  Send
+  Send,
+  ShieldCheck
 } from 'lucide-react';
 import { Order, Part, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
@@ -1098,8 +1100,8 @@ const openInvoicePrintWindow = ({
   <title>Invoice ${order.id.slice(0, 8).toUpperCase()}</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: Inter, Arial, sans-serif; margin: 0; padding: 24px; color: #0f172a; background: #f8fafc; }
-    .card { position: relative; max-width: 920px; margin: 0 auto; border: 1px solid #dbe2ea; border-radius: 18px; padding: 24px; background: #fff; }
+    body { font-family: Inter, Arial, sans-serif; margin: 0; padding: 20px; color: #0f172a; background: #edf1f7; }
+    .card { position: relative; max-width: 940px; margin: 0 auto; border: 1px solid #d8e0ec; border-radius: 24px; padding: 26px; background: linear-gradient(180deg,#ffffff,#fdfefe); box-shadow: 0 24px 60px rgba(15,23,42,0.12); }
     .header { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 20px; margin-bottom: 16px; }
     .logo { max-height: 78px; max-width: 280px; object-fit: contain; }
     .muted { color: #64748b; font-size: 12px; }
@@ -1828,9 +1830,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-2 px-4 py-2.5 sm:px-6">
+    <div className="min-h-screen bg-[#f3f5f9] text-slate-900">
+      <div className="sticky top-0 z-40 border-b border-slate-200/80 bg-[#f8f9fc]/90 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 px-4 py-2.5 sm:px-6">
           <div className="flex items-center gap-1.5">
             <Globe size={14} className="text-slate-400" />
             <button type="button" onClick={() => setLang('en')} className={`h-9 rounded-full px-3 text-[11px] font-bold ${lang === 'en' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>EN</button>
@@ -1845,47 +1847,66 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         </div>
       </div>
 
-      <header className="mx-auto mt-4 w-full max-w-4xl px-4 sm:px-6">
-        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          {heroPhoto ? <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="h-48 w-full object-cover sm:h-56" /> : null}
-          <div className="space-y-4 p-5 sm:p-6">
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-              <div className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Dubai Spares UAE</div>
-              {logoUrl && <img src={logoUrl} alt="Company logo" className="h-12 w-auto max-w-[220px] object-contain" />}
+      <header className="mx-auto mt-5 w-full max-w-5xl px-4 sm:px-6">
+        <div className="overflow-hidden rounded-[32px] border border-slate-200/80 bg-gradient-to-b from-[#0f1f3d] via-[#13274c] to-[#1d3561] text-white shadow-[0_30px_90px_rgba(15,23,42,0.30)]">
+          <div className="relative">
+            {heroPhoto ? (
+              <div className="relative h-56 overflow-hidden sm:h-72">
+                <img src={heroPhoto} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" />
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0b142a]/85 via-[#0f1f3d]/45 to-transparent" />
+              </div>
+            ) : (
+              <div className="relative h-44 bg-gradient-to-br from-[#1d3561] via-[#233f73] to-[#365489]" />
+            )}
+
+            <div className="absolute inset-x-0 top-0 flex items-center justify-between p-4 sm:p-6">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] backdrop-blur-md">
+                <ShieldCheck size={13} /> Dubai Spares UAE
+              </div>
+              {logoUrl && <img src={logoUrl} alt="Company logo" className="h-11 w-auto max-w-[180px] rounded-lg bg-white/90 p-1.5 object-contain" />}
             </div>
-            <div>
-              <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">{order.brand} {order.model} {order.year}</h1>
-              <p className="mt-1 text-xs font-medium uppercase tracking-[0.14em] text-slate-400">VIN: {maskVin(order.vin)}</p>
-              {clientDisplayName && (
-                <p className="mt-2 text-sm font-semibold text-slate-700">
-                  {t.clientLabel}: {clientDisplayName}{clientNickname ? ` (${clientNickname})` : ''}
-                </p>
-              )}
-            </div>
-            <div className="flex flex-wrap items-end justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
+          </div>
+
+          <div className="space-y-5 px-5 pb-6 pt-5 sm:px-7 sm:pb-7">
+            <div className="flex flex-wrap items-start justify-between gap-5">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t.quoteTotal}</p>
-                <p className="mt-1 text-3xl font-black text-slate-900 sm:text-4xl">{totals.totalConverted.toFixed(2)} <span className="text-lg font-bold text-slate-500">{currency}</span></p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {canOpenWhatsapp && (
-                  <button type="button" onClick={() => openWhatsappChat('hero')} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white">
-                    <MessageCircle size={16} /> {t.confirmWhatsApp}
-                  </button>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-200/80">{t.commercialOffer}</p>
+                <h1 className="mt-2 text-3xl font-black leading-tight tracking-tight text-white sm:text-[2.4rem]">{order.brand} {order.model} {order.year}</h1>
+                <p className="mt-2 text-sm font-medium text-slate-200">VIN / REF: {maskVin(order.vin)}</p>
+                {clientDisplayName && (
+                  <p className="mt-2 text-sm font-semibold text-slate-100">
+                    {t.clientLabel}: {clientDisplayName}{clientNickname ? ` (${clientNickname})` : ''}
+                  </p>
                 )}
-                <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">📄 {t.viewParts}</button>
+              </div>
+              <div className="min-w-[220px] rounded-2xl border border-white/20 bg-white/95 p-4 text-slate-900 shadow-[0_15px_40px_rgba(2,6,23,0.18)]">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{t.quoteTotal}</p>
+                <p className="mt-1 text-4xl font-black leading-none text-[#0f1f3d]">{totals.totalConverted.toFixed(2)}</p>
+                <p className="mt-1 text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">{currency}</p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2 text-[11px] font-semibold text-slate-500">
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">{t.trustedSupplierBadge}</span>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">{t.fastResponseBadge}</span>
-              {expiresAtIso && <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">{t.validUntil}: {new Date(expiresAtIso).toLocaleDateString()}</span>}
+
+            <div className="flex flex-wrap gap-2.5">
+              {canOpenWhatsapp && (
+                <button type="button" onClick={() => openWhatsappChat('hero')} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-emerald-500 px-5 text-sm font-bold text-white shadow-[0_14px_30px_rgba(16,185,129,0.35)] transition hover:bg-emerald-400 active:scale-[0.98]">
+                  <MessageCircle size={17} /> {t.confirmWhatsApp}
+                </button>
+              )}
+              <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex h-12 items-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/15 active:scale-[0.99]">
+                <Images size={16} /> {t.viewParts}
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2 text-[11px] font-semibold text-slate-100">
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-1.5"><ShieldCheck size={12} /> {t.trustedSupplierBadge}</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-1.5"><Clock3 size={12} /> {t.fastResponseBadge}</span>
+              {expiresAtIso && <span className="rounded-full border border-amber-200/50 bg-amber-300/20 px-3 py-1.5 text-amber-100">{t.validUntil}: {new Date(expiresAtIso).toLocaleDateString()}</span>}
             </div>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-4xl space-y-5 px-4 py-6 pb-32 sm:px-6">
+      <main className="mx-auto w-full max-w-5xl space-y-7 px-4 py-7 pb-28 sm:px-6">
 
         <section ref={detailRef} className="space-y-3">
           <div className="flex items-center justify-between">
@@ -1896,8 +1917,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             const groupItems = normalizeGroupItems((part as any).groupItems);
 
             return (
-            <article key={part.id} className="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center gap-4 p-4 sm:p-5">
+            <article key={part.id} className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-white/95 shadow-[0_14px_34px_rgba(15,23,42,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_38px_rgba(15,23,42,0.12)]">
+              <div className="flex items-center gap-4 p-4 sm:gap-5 sm:p-5">
                 {/* Photo — left */}
                 <button
                   type="button"
@@ -1909,10 +1930,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                     setGallery({ images: galleryPhotos, index: 0 });
                     logEvent('gallery_open', { partId: part.id });
                   }}
-                  className="relative shrink-0 inline-flex h-[84px] w-[84px] items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 text-slate-500"
+                  className="relative shrink-0 inline-flex h-[86px] w-[86px] items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-[radial-gradient(circle_at_25%_20%,#e2e8f0,#cbd5e1)] text-slate-500"
                   title={galleryPhotos.length > 1 ? `Фото: ${galleryPhotos.length}` : t.noPhotos}
                 >
-                  {previewPhotos[0] ? <img src={previewPhotos[0]} alt={part.name} className="h-full w-full object-cover" /> : <Images size={22} />}
+                  {previewPhotos[0] ? <img src={previewPhotos[0]} alt={part.name} className="h-full w-full object-cover" /> : <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-600"><Images size={20} /><span className="text-[9px] font-semibold uppercase tracking-[0.14em]">No photo</span></div>}
                   {galleryPhotos.length > 1 && (
                     <span aria-label={`${galleryPhotos.length} photos`} className="absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-0.5 text-[8px] font-bold text-white leading-none">{galleryPhotos.length}</span>
                   )}
@@ -1936,8 +1957,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 </div>
 
                 {/* Price — right */}
-                <div className="shrink-0 text-right pl-2">
-                  <p className="text-2xl font-black text-slate-900 sm:text-3xl leading-none">{converted.toFixed(2)}</p>
+                <div className="shrink-0 border-l border-slate-100 pl-3 text-right">
+                  <p className="text-2xl font-black leading-none text-[#0f1f3d] sm:text-3xl">{converted.toFixed(2)}</p>
                   <p className="text-xs font-semibold text-slate-400 mt-0.5">{currency}</p>
                 </div>
               </div>
@@ -1953,7 +1974,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
 
         {settings.publicWorkTerms.trim() && (
-          <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/60 shadow-sm p-5 text-sm text-amber-900">
+          <section className="overflow-hidden rounded-3xl border border-amber-200/80 bg-gradient-to-b from-amber-50 to-white p-5 text-sm text-amber-900 shadow-[0_12px_26px_rgba(180,83,9,0.09)]">
             <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em]"><Info size={14} /> {t.policyNoticeTitle}</p>
             {settings.publicWorkTerms.trim() && <p className="mt-2 whitespace-pre-line">{settings.publicWorkTerms.trim()}</p>}
             <p className="mt-2 text-amber-800/90">{t.policyNoticeBody}</p>
@@ -1976,7 +1997,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         )}
 
         {cargoEstimates && (
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_14px_34px_rgba(15,23,42,0.08)]">
             <div className="border-b border-slate-100 px-5 py-3">
               <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{t.cargoTitle}</h2>
               <p className="mt-1 text-xs text-slate-500">{t.cargoHelper}</p>
@@ -1992,7 +2013,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         )}
 
 
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_14px_34px_rgba(15,23,42,0.08)]">
           <div className="border-b border-slate-100 px-5 py-3">
             <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.priceBreakdown}</h2>
           </div>
@@ -2019,9 +2040,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 <strong className="text-slate-900">{(totals.serviceFee * rates[currency]).toFixed(2)} {currency}</strong>
               </div>
             )}
-            <div className="flex items-center justify-between py-4">
-              <span className="font-bold text-slate-900">{t.total}</span>
-              <strong className="text-2xl font-black text-slate-900">{totals.totalConverted.toFixed(2)} <span className="text-base text-slate-500">{currency}</span></strong>
+            <div className="mt-1 flex items-end justify-between border-t border-slate-200 py-4">
+              <span className="text-sm font-bold uppercase tracking-[0.08em] text-slate-700">{t.total}</span>
+              <strong className="text-3xl font-black text-[#0f1f3d]">{totals.totalConverted.toFixed(2)} <span className="text-base font-semibold text-slate-500">{currency}</span></strong>
             </div>
           </div>
         </section>
@@ -2032,34 +2053,34 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           </section>
         )}
 
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_14px_34px_rgba(15,23,42,0.08)]">
           <div className="border-b border-slate-100 px-5 py-3">
             <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.trust}</h2>
           </div>
           <div className="p-5 space-y-4">
-            <ul className="space-y-1.5 text-sm text-slate-600">
-              <li className="flex items-start gap-2"><span className="mt-0.5 text-emerald-500">✓</span> {t.trustedBy}</li>
-              <li className="flex items-start gap-2"><span className="mt-0.5 text-emerald-500">✓</span> {t.yards}</li>
-              <li className="flex items-start gap-2"><span className="mt-0.5 text-emerald-500">✓</span> {t.response}</li>
+            <ul className="space-y-2 text-sm text-slate-700">
+              <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> {t.trustedBy}</li>
+              <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> {t.yards}</li>
+              <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> {t.response}</li>
             </ul>
-            <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 space-y-3">
+            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50 to-white p-5 space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="inline-flex items-center gap-2 font-bold text-slate-800"><Building2 size={16} /> {t.companyProfile}: Dubai Spares UAE</p>
                 {logoUrl && <img src={logoUrl} alt="Company logo" className="h-20 w-auto max-w-[360px] object-contain" />}
               </div>
               <div className="flex flex-wrap gap-2">
                 {whatsappPhoneDigits && (
-                  <a href={`https://wa.me/${whatsappPhoneDigits}`} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">
+                  <a href={`https://wa.me/${whatsappPhoneDigits}`} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(16,185,129,0.28)] transition hover:bg-emerald-400">
                     <MessageCircle size={15} /> WhatsApp
                   </a>
                 )}
                 {settings.publicTelegramUrl && (
-                  <a href={settings.publicTelegramUrl} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">
+                  <a href={settings.publicTelegramUrl} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100">
                     <Send size={15} /> Telegram
                   </a>
                 )}
                 {settings.publicInstagramUrl && (
-                  <a href={settings.publicInstagramUrl} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">
+                  <a href={settings.publicInstagramUrl} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">
                     <Instagram size={15} /> Instagram
                   </a>
                 )}
@@ -2068,12 +2089,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           </div>
         </section>
 
-        <button type="button" onClick={downloadPdf} className="inline-flex h-11 items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm">
+        <button type="button" onClick={downloadPdf} className="inline-flex h-11 items-center gap-2 self-start rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 active:scale-[0.99]">
           <Download size={15} /> {t.downloadPdf}
         </button>
 
         {signatureUrl && (
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <section className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_28px_rgba(15,23,42,0.08)]">
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.officialSignature}</p>
             <div className="mt-2 border-t border-slate-100 pt-3">
               <img src={signatureUrl} alt="Owner signature" className="h-20 w-auto object-contain" />
@@ -2088,14 +2109,14 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         </div>
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 px-3 py-2 pb-[calc(env(safe-area-inset-bottom)+8px)] backdrop-blur">
-        <div className="mx-auto flex w-full max-w-4xl items-center gap-3">
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200/90 bg-white/90 px-3 py-1.5 pb-[calc(env(safe-area-inset-bottom)+6px)] backdrop-blur-sm">
+        <div className="mx-auto flex w-full max-w-5xl items-center gap-2.5">
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{t.quoteTotal}</p>
-            <p className="text-xl font-black text-slate-900 leading-tight">{totals.totalConverted.toFixed(2)} <span className="text-sm text-slate-400">{currency}</span></p>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">{t.quoteTotal}</p>
+            <p className="text-lg font-black leading-tight text-[#0f1f3d]">{totals.totalConverted.toFixed(2)} <span className="text-sm text-slate-400">{currency}</span></p>
             <p className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600"><CheckCircle2 size={10} /> {stickyStatusLabel}</p>
           </div>
-          <button type="button" disabled={!canOpenWhatsapp || isQuoteExpired} onClick={() => openWhatsappChat('sticky')} className="inline-flex h-11 shrink-0 items-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" disabled={!canOpenWhatsapp || isQuoteExpired} onClick={() => openWhatsappChat('sticky')} className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl bg-emerald-500 px-3.5 text-sm font-bold text-white shadow-[0_10px_24px_rgba(16,185,129,0.30)] transition hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50">
             <MessageCircle size={16} /> {canOpenWhatsapp ? t.confirmWhatsApp : t.contactNotConfigured} <ChevronRight size={14} />
           </button>
         </div>
