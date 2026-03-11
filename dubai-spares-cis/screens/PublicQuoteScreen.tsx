@@ -564,10 +564,12 @@ const normalizeLogistics = (raw: any) => {
 };
 
 const resolveOrderLogistics = (row: any) => {
+  // Top-level row fields are listed first so that nested logistics/pricingBreakdown
+  // spreads (placed last) can override undefined top-level values. This is especially
+  // important for cargo fields (cargoCountry, cargoAirCostUsd, etc.) which are stored
+  // only in the nested `row.logistics` object of snapshot payloads and must not be
+  // lost when the corresponding top-level `row.cargoXxx` keys are undefined.
   const mergedSources = {
-    ...(row?.logistics && typeof row.logistics === 'object' ? row.logistics : {}),
-    ...(row?.pricingBreakdown && typeof row.pricingBreakdown === 'object' ? row.pricingBreakdown : {}),
-    ...(row?.pricing_breakdown && typeof row.pricing_breakdown === 'object' ? row.pricing_breakdown : {}),
     deliveryAed: row?.deliveryAed,
     delivery_aed: row?.delivery_aed,
     delivery: row?.delivery,
@@ -618,7 +620,12 @@ const resolveOrderLogistics = (row: any) => {
     totalsPackingAed: row?.totals?.packing_aed,
     totalsCommissionAed: row?.totals?.commission_aed,
     deliveryType: row?.deliveryType,
-    delivery_type: row?.delivery_type
+    delivery_type: row?.delivery_type,
+    // Nested objects spread last so their values take precedence over undefined
+    // top-level placeholders above.
+    ...(row?.pricing_breakdown && typeof row.pricing_breakdown === 'object' ? row.pricing_breakdown : {}),
+    ...(row?.pricingBreakdown && typeof row.pricingBreakdown === 'object' ? row.pricingBreakdown : {}),
+    ...(row?.logistics && typeof row.logistics === 'object' ? row.logistics : {}),
   };
 
   return normalizeLogistics(mergedSources);
@@ -2078,17 +2085,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   return (
     <div className="min-h-screen bg-[#eef2f7] text-slate-900">
       <div className="sticky top-0 z-40 border-b border-slate-200/80 bg-[#f8f9fc]/90 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 px-4 py-2.5 sm:px-6">
+        <div className="mx-auto flex w-full max-w-5xl items-center gap-2 px-4 py-2.5 sm:px-6">
           <div className="flex items-center gap-1.5">
             <Globe size={14} className="text-slate-400" />
             <button type="button" onClick={() => setLang('en')} className={`h-9 rounded-full px-3 text-[11px] font-bold ${lang === 'en' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>EN</button>
             <button type="button" onClick={() => setLang('ru')} className={`h-9 rounded-full px-3 text-[11px] font-bold ${lang === 'ru' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>RU</button>
-          </div>
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 shrink-0">{t.currency}</span>
-            {(Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[]).map((code) => (
-              <button key={code} type="button" onClick={() => { setCurrency(code); logEvent('currency_switch', { currency: code }); }} className={`h-9 min-w-[54px] rounded-full px-3 text-[11px] font-bold ${currency === code ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>{code}</button>
-            ))}
           </div>
         </div>
       </div>
@@ -2128,7 +2129,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <div className="min-w-[220px] rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-900 shadow-none">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t.quoteTotal}</p>
                 <p className="mt-1 text-4xl font-black leading-none text-[#0f1f3d]">{totals.totalConverted.toFixed(2)}</p>
-                <p className="mt-1 text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">{currency}</p>
+                <p className="mt-0.5 text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">{currency}</p>
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {(Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[]).map((code) => (
+                    <button key={code} type="button" onClick={() => { setCurrency(code); logEvent('currency_switch', { currency: code }); }} className={`h-7 min-w-[42px] rounded-full px-2 text-[10px] font-bold transition ${currency === code ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>{code}</button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -2146,7 +2152,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             <div className="flex flex-wrap gap-2 text-[11px] font-semibold text-slate-600">
               <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-1.5"><ShieldCheck size={12} /> {t.trustedSupplierBadge}</span>
               <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-1.5"><Clock3 size={12} /> {t.fastResponseBadge}</span>
-              {expiresAtIso && <span className="rounded-full border border-amber-200/50 bg-amber-300/20 px-3 py-1.5 text-amber-100">{t.validUntil}: {new Date(expiresAtIso).toLocaleDateString()}</span>}
+              {expiresAtIso && <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-100 px-3 py-1.5 text-[11px] font-semibold text-amber-800"><Clock3 size={12} /> {t.validUntil}: {new Date(expiresAtIso).toLocaleDateString()}</span>}
             </div>
           </div>
         </div>
