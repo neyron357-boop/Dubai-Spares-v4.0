@@ -327,6 +327,7 @@ const OrderDetailsScreen: React.FC = () => {
     serviceFeeAed: String(Number(order?.logistics?.serviceFeeAed || 0))
   });
   const pricingSaveDebounceRef = useRef<number | null>(null);
+  const pricingAutoSaveTimerRef = useRef<number | null>(null);
   const markupCommitTimerRef = useRef<number | null>(null);
   const exchangeRateCommitTimerRef = useRef<number | null>(null);
   const deferredFieldTimersRef = useRef<Partial<Record<keyof Order, number>>>({});
@@ -410,6 +411,11 @@ const OrderDetailsScreen: React.FC = () => {
         void updateOrder({ ...latestOrder, [typedField]: pendingValue });
       }
     });
+
+    if (pricingAutoSaveTimerRef.current) {
+      window.clearTimeout(pricingAutoSaveTimerRef.current);
+      pricingAutoSaveTimerRef.current = null;
+    }
 
   }, []);
 
@@ -548,16 +554,37 @@ const OrderDetailsScreen: React.FC = () => {
 
   const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency }) => {
     if (!order) return;
+    const nextParts = applyPartCargoDrafts(order.parts || []);
+    const draftLogistics = {
+      ...(order.logistics || {}),
+      deliveryAed: Number(logisticsDraft.deliveryAed || 0),
+      packingAed: Number(logisticsDraft.packingAed || 0),
+      serviceFeeAed: Number(logisticsDraft.serviceFeeAed || 0)
+    };
+    const draftCargo = calculateCargo({ ...order, parts: nextParts, logistics: draftLogistics }, settings);
+    const draftEstimates = calculateCargoEstimates({ ...order, parts: nextParts, logistics: draftLogistics }, settings);
     const quoteOrder = {
       ...order,
+      parts: nextParts,
       logistics: {
-        ...(order.logistics || {}),
-        deliveryAed: Number(order.logistics?.deliveryAed || 0),
-        packingAed: Number(order.logistics?.packingAed || 0),
-        serviceFeeAed: Number(order.logistics?.serviceFeeAed || 0)
+        ...draftLogistics,
+        cargoEtaDays: draftCargo.eta,
+        cargoTotalWeightKg: draftCargo.realWeight,
+        cargoChargeableWeightKg: draftCargo.chargeableWeight,
+        cargoTotalPlaces: draftCargo.totalPlaces,
+        cargoBaseCostUsd: draftCargo.baseCostUsd,
+        cargoTotalCostUsd: draftCargo.totalCostUsd,
+        cargoAirEtaDays: draftEstimates.air.eta,
+        cargoAirCostUsd: draftEstimates.air.totalCostUsd,
+        cargoContainerEtaDays: draftEstimates.container.eta,
+        cargoContainerCostUsd: draftEstimates.container.totalCostUsd
       },
       markupFixedAed: Number(markupFixedInput || order.markupFixedAed || 0)
     };
+
+    if (hasPendingPricingChanges) {
+      await updateOrder(quoteOrder);
+    }
     await shareQuoteLink(quoteOrder, options);
   };
 
@@ -1134,6 +1161,22 @@ const OrderDetailsScreen: React.FC = () => {
     scheduleDebouncedSaveLog();
     setToast({ message: 'Логистика сохранена' });
   }, [applyPartCargoDrafts, hasPendingPricingChanges, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, markupFixedInput, order, scheduleDebouncedSaveLog, settings, updateOrder]);
+
+  useEffect(() => {
+    if (!isEditMode || !hasPendingPricingChanges) return;
+    if (pricingAutoSaveTimerRef.current) window.clearTimeout(pricingAutoSaveTimerRef.current);
+    pricingAutoSaveTimerRef.current = window.setTimeout(() => {
+      pricingAutoSaveTimerRef.current = null;
+      saveLogisticsDraft();
+    }, 900);
+
+    return () => {
+      if (pricingAutoSaveTimerRef.current) {
+        window.clearTimeout(pricingAutoSaveTimerRef.current);
+        pricingAutoSaveTimerRef.current = null;
+      }
+    };
+  }, [hasPendingPricingChanges, isEditMode, saveLogisticsDraft]);
 
   const updateLogisticsField = (field: 'deliveryType', value: string) => {
     if (!isEditMode) return value;
