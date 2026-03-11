@@ -2498,15 +2498,43 @@ const OrderDetailsScreen: React.FC = () => {
 
           <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-2 gap-2">
             <div className="col-span-2">
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Страна карго</span>
-              <select value={order.logistics?.cargoCountry || cargoCalc.country} onChange={(e) => updateCargoField({ cargoCountry: e.target.value })} className="w-full h-10 mt-1 font-bold bg-gray-50 rounded-xl px-3 border border-gray-100">{cargoTariffOptions.map((item) => <option key={item.country} value={item.country}>{item.country}</option>)}</select>
+              <span className="text-[15px] font-semibold text-[#2B3445]">Страна карго</span>
+              <select value={order.logistics?.cargoCountry || cargoCalc.country} onChange={(e) => updateCargoField({ cargoCountry: e.target.value })} className="mt-2 h-14 w-full rounded-[18px] border border-slate-200 bg-slate-50 px-4 text-[18px] font-bold text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100">{cargoTariffOptions.map((item) => <option key={item.country} value={item.country}>{item.country}</option>)}</select>
+              <p className="mt-2 text-xs text-slate-500">Страна влияет на расчёт доставки и отображение логистики в invoice.</p>
             </div>
-            <div className="col-span-2 rounded-xl border border-gray-200 bg-gray-50 p-2">
-              <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-400">Параметры карго (по деталям)</p>
+            <div className="col-span-2 rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+              <div className="mb-3">
+                <p className="text-[15px] font-semibold text-[#2B3445]">Параметры cargo по деталям</p>
+                <p className="mt-1 text-xs text-slate-500">Эти параметры используются для расчёта логистики и отображения в invoice.</p>
+              </div>
               {(order.parts || []).length === 0 ? (
                 <p className="text-xs text-gray-500">Добавьте детали, чтобы рассчитать карго.</p>
               ) : (
-                <div className="space-y-2">
+                <>
+                <div className="mb-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
+                  {(() => {
+                    const stats = (order.parts || []).reduce((acc, part) => {
+                      const cargoDraft = partCargoDrafts[part.id] || {
+                        weightKg: Number((part as any).weightKg || 0) > 0 ? String(Number((part as any).weightKg || 0)) : '',
+                        places: Number((part as any).places || 0) > 0 ? String(Number((part as any).places || 0)) : '',
+                        cargoPlaceGroup: String((part as any).cargoPlaceGroup || ''),
+                        isOversized: Boolean((part as any).isOversized)
+                      };
+                      const weightValue = parseCargoNumber(cargoDraft.weightKg);
+                      const placesRaw = String(cargoDraft.places || '').trim();
+                      const placesValue = Number(placesRaw);
+                      const isPlacesValid = /^\d+$/.test(placesRaw) && placesValue >= 1;
+                      if (weightValue > 0 && isPlacesValid) acc.ready += 1;
+                      return acc;
+                    }, { ready: 0 });
+                    const total = (order.parts || []).length;
+                    const missing = total - stats.ready;
+                    return missing > 0
+                      ? `Для ${missing} ${missing === 1 ? 'детали' : 'деталей'} не хватает cargo-параметров`
+                      : `Заполнено ${stats.ready} из ${total} деталей`;
+                  })()}
+                </div>
+                <div className="space-y-3">
                   {(order.parts || []).map((part) => {
                     const cargoDraft = partCargoDrafts[part.id] || {
                       weightKg: Number((part as any).weightKg || 0) > 0 ? String(Number((part as any).weightKg || 0)) : '',
@@ -2514,25 +2542,59 @@ const OrderDetailsScreen: React.FC = () => {
                       cargoPlaceGroup: String((part as any).cargoPlaceGroup || ''),
                       isOversized: Boolean((part as any).isOversized)
                     };
+                    const weightValue = parseCargoNumber(cargoDraft.weightKg);
+                    const placesRaw = String(cargoDraft.places || '').trim();
+                    const placesValue = Number(placesRaw);
+                    const hasWeight = !!String(cargoDraft.weightKg || '').trim();
+                    const hasPlaces = !!placesRaw;
+                    const isWeightValid = weightValue > 0;
+                    const isPlacesValid = /^\d+$/.test(placesRaw) && placesValue >= 1;
+                    const readyFields = Number(isWeightValid) + Number(isPlacesValid);
+                    const status = readyFields === 2 ? 'Готово' : readyFields === 1 ? 'Частично' : 'Нужно заполнить';
+                    const statusStyles = readyFields === 2
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : readyFields === 1
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-rose-50 text-rose-700 border-rose-200';
                     return (
-                      <div key={part.id} className="rounded-xl border border-gray-200 bg-white p-2">
-                        <p className="mb-2 text-xs font-bold text-gray-700">{part.name}</p>
-                        <div className="grid grid-cols-2 gap-2">
+                      <div key={part.id} className="rounded-[18px] border border-slate-200 bg-white p-4">
+                        <div className="mb-3 flex items-start justify-between gap-2">
+                          <p className="text-[16px] font-semibold text-slate-800">{part.name}</p>
+                          <span className={`shrink-0 rounded-full border px-2 py-1 text-[11px] font-semibold ${statusStyles}`}>{status}</span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <label className="flex flex-col gap-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Вес, кг</span>
-                            <input type="number" min={0} step="0.1" value={cargoDraft.weightKg} onChange={(e) => onPartCargoDraftChange(part.id, 'weightKg', e.target.value)} className="rounded-lg border-2 border-gray-300 bg-white px-2 py-2 text-xs font-semibold text-gray-800" />
+                            <span className="text-[12px] font-semibold text-slate-600">Вес, кг</span>
+                            <input type="text" inputMode="decimal" value={cargoDraft.weightKg} onChange={(e) => onPartCargoDraftChange(part.id, 'weightKg', e.target.value.replace(/[^\d.,]/g, ''))} className={`h-[52px] rounded-xl border bg-white px-3 text-[18px] font-semibold text-slate-800 outline-none transition focus:ring-2 focus:ring-blue-100 ${!hasWeight ? 'border-slate-200' : isWeightValid ? 'border-emerald-300' : 'border-rose-300'}`} placeholder="Введите вес" />
+                            {hasWeight && !isWeightValid && <span className="text-[11px] font-semibold text-rose-600">Вес должен быть больше 0</span>}
                           </label>
-                          <input type="number" min={1} step="1" value={cargoDraft.places} onChange={(e) => onPartCargoDraftChange(part.id, 'places', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Мест" />
+                          <label className="flex flex-col gap-1">
+                            <span className="text-[12px] font-semibold text-slate-600">Мест</span>
+                            <input type="text" inputMode="numeric" value={cargoDraft.places} onChange={(e) => onPartCargoDraftChange(part.id, 'places', e.target.value.replace(/[^\d]/g, ''))} className={`h-[52px] rounded-xl border bg-white px-3 text-[18px] font-semibold text-slate-800 outline-none transition focus:ring-2 focus:ring-blue-100 ${!hasPlaces ? 'border-slate-200' : isPlacesValid ? 'border-emerald-300' : 'border-rose-300'}`} placeholder="1" />
+                            {hasPlaces && !isPlacesValid && <span className="text-[11px] font-semibold text-rose-600">Минимум 1 место</span>}
+                          </label>
                           <label className="col-span-2 flex flex-col gap-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Группа места (опц.)</span>
-                            <input type="text" value={cargoDraft.cargoPlaceGroup} onChange={(e) => onPartCargoDraftChange(part.id, 'cargoPlaceGroup', e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold" placeholder="Например: BOX-1" />
+                            <div className="flex items-center justify-between">
+                              <span className="text-[12px] font-semibold text-slate-500">Группа места</span>
+                              <span className="text-[11px] font-medium text-slate-400">Опционально</span>
+                            </div>
+                            <input type="text" value={cargoDraft.cargoPlaceGroup} onChange={(e) => onPartCargoDraftChange(part.id, 'cargoPlaceGroup', e.target.value)} className="h-12 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100" placeholder="Например, BOX-1" />
                           </label>
-                          <label className="col-span-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-semibold text-gray-600"><input type="checkbox" checked={cargoDraft.isOversized} onChange={(e) => onPartCargoDraftChange(part.id, 'isOversized', e.target.checked)} /> Крупногабарит</label>
+                          <div className="col-span-2 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-700">Крупногабарит</p>
+                              <p className="text-[11px] text-slate-500">Влияет на расчёт и логистику</p>
+                            </div>
+                            <button type="button" role="switch" aria-checked={cargoDraft.isOversized} onClick={() => onPartCargoDraftChange(part.id, 'isOversized', !cargoDraft.isOversized)} className={`relative inline-flex h-7 w-12 items-center rounded-full transition ${cargoDraft.isOversized ? 'bg-blue-600' : 'bg-slate-300'}`}>
+                              <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${cargoDraft.isOversized ? 'translate-x-6' : 'translate-x-1'}`} />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
                   })}
                 </div>
+                </>
               )}
             </div>
             {([
