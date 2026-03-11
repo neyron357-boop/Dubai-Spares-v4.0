@@ -329,6 +329,7 @@ const OrdersScreen: React.FC = () => {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
 
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
@@ -520,12 +521,6 @@ const OrdersScreen: React.FC = () => {
   }, [activeTab, navigate]);
 
   const showSkeleton = isLoading && orders.length === 0;
-
-
-
-  const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
-
-
   const confirmDelete = async () => {
     if (!deleteId) return;
     setIsDeleting(true);
