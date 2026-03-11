@@ -352,14 +352,24 @@ const OrdersScreen: React.FC = () => {
         setOpenSwipeId(null);
       }
     };
-    const onScroll = () => setOpenSwipeId(null);
+
+    let scrollRaf = 0;
+    const onScroll = () => {
+      if (!openSwipeId || scrollRaf) return;
+      scrollRaf = window.requestAnimationFrame(() => {
+        scrollRaf = 0;
+        setOpenSwipeId(null);
+      });
+    };
+
     document.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('scroll', onScroll, { passive: true });
+    if (openSwipeId) window.addEventListener('scroll', onScroll, { passive: true });
     return () => {
       document.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('scroll', onScroll);
+      if (openSwipeId) window.removeEventListener('scroll', onScroll);
+      if (scrollRaf) window.cancelAnimationFrame(scrollRaf);
     };
-  }, []);
+  }, [openSwipeId]);
 
   const refreshOrders = async () => {
     setIsRefreshing(true);
