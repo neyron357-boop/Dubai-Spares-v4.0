@@ -655,31 +655,44 @@ const PartDetailsScreen: React.FC = () => {
   const handleSamplePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    Promise.all(files.map(async (file) => {
+    const photoIndex = getSamplePhotos().length;
+    Promise.all(files.map(async (file, fileIndex) => {
       try {
         const optimized = await optimizeImageForUpload(file, `part-details:sample:${file.name}`);
+        // Use the same "example" folder that orderStore.withUploadedPhotos uses to keep paths consistent
+        const fileName = `${photoIndex + fileIndex}.jpg`;
         const uploaded = await uploadImageToStorage(
           optimized,
-          `orders/${order.id}/parts/${part.id}/samples`,
-          `${part.id}-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}`
+          `orders/${order.id}/parts/${part.id}/example`,
+          fileName
         );
-        await logger.info('part-details:sample-photo-persisted', 'Sample photo persisted', {
+        await logger.info('part-details:sample-photo-persisted', 'Sample photo persisted to cloud storage', {
+          orderId: order.id,
+          partId: part.id,
+          fileName,
+          name: file.name,
+          storageUrl: uploaded,
+          isHttpUrl: uploaded.startsWith('http')
+        });
+        return uploaded;
+      } catch (err) {
+        void logger.warn('part-details:sample-photo-persist-failed', 'Sample photo upload to cloud failed', {
           orderId: order.id,
           partId: part.id,
           name: file.name,
-          storageUrl: uploaded
-        });
-        return uploaded;
-      } catch {
-        void logger.warn('part-details:sample-photo-persist-failed', 'Sample photo persist failed', {
-          orderId: order.id,
-          partId: part.id,
-          name: file.name
+          error: String(err)
         });
         return '';
       }
     })).then((photos) => {
       const merged = Array.from(new Set([...(getSamplePhotos() || []), ...photos.filter(Boolean)]));
+      void logger.info('part-details:sample-photos-saved', 'Sample photos merged and saved', {
+        orderId: order.id,
+        partId: part.id,
+        totalPhotos: merged.length,
+        newPhotos: photos.filter(Boolean).length,
+        allHttpUrls: merged.every(u => u.startsWith('http'))
+      });
       replaceSamplePhotos(merged);
     }).finally(() => {
       e.target.value = '';

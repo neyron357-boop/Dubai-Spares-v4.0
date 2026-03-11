@@ -1136,30 +1136,27 @@ const openInvoicePrintWindow = ({
     th { text-align: left; background: #f1f5fb; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #475569; }
     .item-name { font-size: 15px; font-weight: 600; color: #0f172a; }
     .item-description { margin-top: 4px; font-size: 12px; color: #64748b; white-space: pre-line; }
-    .totals { margin-top: 18px; margin-left: auto; width: 100%; max-width: 520px; border: 1px solid #d7e0eb; border-radius: 16px; background: #f8fafc; overflow: hidden; }
+    /* Bottom section: name+signature on left, totals on right */
+    .bottom-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,520px); gap: 20px; align-items: end; margin-top: 18px; }
+    .sign-block { border: 1px solid #d7e0eb; border-radius: 16px; background: #f8fafc; padding: 18px; min-height: 140px; display: flex; flex-direction: column; justify-content: space-between; }
+    .sign-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #64748b; margin: 0 0 4px; }
+    .sign-name { font-size: 17px; font-weight: 700; color: #0f1f3d; margin: 0 0 12px; }
+    .sign-img-wrap { flex: 1; display: flex; align-items: flex-end; }
+    .sign-img-wrap img { max-height: 80px; max-width: 220px; object-fit: contain; }
+    .totals { border: 1px solid #d7e0eb; border-radius: 16px; background: #f8fafc; overflow: hidden; }
     .totals p { display: flex; justify-content: space-between; margin: 0; padding: 11px 14px; font-size: 13px; border-bottom: 1px solid #e2e8f0; }
     .totals p:last-child { border-bottom: none; }
     .total { font-size: 26px !important; font-weight: 800; background: #f0f5fd; color: #0f1f3d; }
     .total span:last-child { text-align: right; }
+    /* Cargo / logistics block */
     .compact-logistics { margin-top: 18px; border: 1px solid #dde4ee; border-radius: 16px; background: #fff; overflow: hidden; }
-    .compact-logistics h3 { margin: 0; padding: 12px 14px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; background:#f1f5fb; color:#334155; }
-    .compact-logistics-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0; }
-    .compact-logistics-grid p { margin:0; padding:10px 14px; border-top:1px solid #e8edf4; font-size:13px; display:flex; justify-content:space-between; gap:10px; }
-    .compact-logistics-grid p span:first-child { color:#64748b; }
-    .compact-logistics-grid p span:last-child { color:#0f172a; font-weight:700; text-align:right; }
-    .totals-sign-row { border-top:1px solid #e2e8f0; padding:12px 14px; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
-    .totals-sign-name p { margin:0; }
-    .totals-sign-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#64748b; }
-    .totals-sign-value { margin-top:4px; font-size:14px; font-weight:700; color:#0f1f3d; }
-    .totals-signature { text-align:right; }
-    .totals-signature img { max-height:90px; max-width:240px; object-fit:contain; }
+    .compact-logistics h3 { margin: 0; padding: 10px 14px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; background:#f1f5fb; color:#334155; }
+    .compact-logistics-grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 0; }
+    .compact-logistics-grid p { margin:0; padding:9px 14px; border-top:1px solid #e8edf4; font-size:12px; display:flex; flex-direction:column; gap:2px; }
+    .compact-logistics-grid p span:first-child { color:#64748b; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; }
+    .compact-logistics-grid p span:last-child { color:#0f172a; font-weight:700; }
     .page-break { break-before: page; page-break-before: always; }
     .cargo-details-table th, .cargo-details-table td { font-size: 12px; }
-    .signature { margin-top: 22px; border-top: 1px solid #dce4f0; padding-top: 16px; }
-    .signature-row { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; min-height:104px; }
-    .signature-owner { flex:1; }
-    .signature-sign { min-width:240px; text-align:right; }
-    .signature-name { margin:0; font-weight:700; font-size:17px; color:#0f1f3d; }
     @media (max-width: 760px) {
       body { padding: 16px; }
       .card { padding: 20px; border-radius: 20px; }
@@ -1175,13 +1172,10 @@ const openInvoicePrintWindow = ({
       table tbody td[data-label="Part name"] { display: block; text-align: left !important; }
       table tbody td[data-label="Part name"]::before { display: block; margin-bottom: 4px; }
       table tbody td:last-child { border-bottom: none; }
+      .bottom-row { grid-template-columns: 1fr; }
       .totals { max-width: none; }
       .total { font-size: 23px !important; }
       .compact-logistics-grid { grid-template-columns: 1fr; }
-      .totals-sign-row { flex-direction:column; align-items:flex-start; }
-      .totals-signature { text-align:left; }
-      .signature-row { flex-direction: column; align-items:flex-start; }
-      .signature-sign { text-align:left; min-width:0; }
     }
     @media print {
       body { padding: 0; background: #fff; }
@@ -1231,37 +1225,41 @@ const openInvoicePrintWindow = ({
       </tbody>
     </table>
 
-    <div class="totals">
-      <p class="total"><span>Parts subtotal</span><span>${moneyLabel(partsSubtotalAed)}</span></p>
-    </div>
-
-    <div class="totals">
-      <p><span>Delivery</span><span>${moneyLabel(totals.delivery)}</span></p>
-      <p><span>Packing</span><span>${moneyLabel(totals.packing)}</span></p>
-      <p><span>Service fee</span><span>${moneyLabel(totals.serviceFee)}</span></p>
-      <p class="total"><span>Grand total</span><span>${moneyLabel(totals.totalAed)}</span></p>
+    <div class="bottom-row">
+      <!-- Left: name + signature -->
+      <div class="sign-block">
+        <div>
+          <p class="sign-label">Prepared by</p>
+          <p class="sign-name">${escapeHtml((managerName || '').trim() || 'Not specified')}</p>
+        </div>
+        <div class="sign-img-wrap">
+          <div>
+            <p class="sign-label" style="margin-bottom:6px">Signature</p>
+            ${signatureUrl ? `<img src="${escapeHtml(signatureUrl)}" alt="Signature" />` : '<p class="muted" style="margin:0;font-style:italic">Configure in public settings</p>'}
+          </div>
+        </div>
+      </div>
+      <!-- Right: financial totals -->
+      <div>
+        <div class="totals" style="margin-top:0">
+          <p><span>Parts subtotal</span><span>${moneyLabel(partsSubtotalAed)}</span></p>
+          <p><span>Delivery</span><span>${moneyLabel(totals.delivery)}</span></p>
+          <p><span>Packing</span><span>${moneyLabel(totals.packing)}</span></p>
+          <p><span>Service fee</span><span>${moneyLabel(totals.serviceFee)}</span></p>
+          <p class="total"><span>Grand total</span><span>${moneyLabel(totals.totalAed)}</span></p>
+        </div>
+      </div>
     </div>
 
     <div class="compact-logistics">
-      <h3>Cargo / Logistics</h3>
+      <h3>Cargo / Logistics summary</h3>
       <div class="compact-logistics-grid">
         <p><span>Route / Country</span><span>${escapeHtml(cargoCountry)}</span></p>
-        <p><span>Weight / CW</span><span>${cargoRealWeight.toFixed(1)} kg / ${cargoChargeableWeight.toFixed(1)} kg</span></p>
+        <p><span>Real weight</span><span>${cargoRealWeight.toFixed(1)} kg</span></p>
+        <p><span>Chargeable weight</span><span>${cargoChargeableWeight.toFixed(1)} kg</span></p>
         <p><span>Total places</span><span>${cargoPlaces.toFixed(0)}</span></p>
-        <p><span>AIR</span><span>${escapeHtml(cargoAirEta)} days · ${cargoCostLabel(cargoAirCostUsd)}</span></p>
-        <p><span>CONTAINER</span><span>${escapeHtml(cargoContainerEta)} days · ${cargoCostLabel(cargoContainerCostUsd)}</span></p>
-        <p><span>Place groups</span><span>${cargoAllocatedRows.length > 0 ? escapeHtml(cargoAllocatedRows.map((row) => row.cargoPlaceGroup).filter(Boolean).join(', ') || '—') : '—'}</span></p>
-      </div>
-    </div>
-
-    <div class="totals-sign-row">
-      <div class="totals-sign-name">
-        <p class="totals-sign-label">Name</p>
-        <p class="totals-sign-value">${escapeHtml((managerName || '').trim() || 'Not specified')}</p>
-      </div>
-      <div class="totals-signature">
-        <p class="totals-sign-label" style="margin:0 0 6px">Signature</p>
-        ${signatureUrl ? `<img src="${escapeHtml(signatureUrl)}" alt="Signature" />` : '<p class="muted" style="margin:0">Configured in public settings</p>'}
+        <p><span>AIR (${escapeHtml(cargoAirEta)} days)</span><span>${cargoCostLabel(cargoAirCostUsd)}</span></p>
+        <p><span>CONTAINER (${escapeHtml(cargoContainerEta)} days)</span><span>${cargoCostLabel(cargoContainerCostUsd)}</span></p>
       </div>
     </div>
 
@@ -1270,19 +1268,25 @@ const openInvoicePrintWindow = ({
   </div>
 
   <div class="card page-break">
-    <h2 style="margin:0;font-size:20px;color:#0f1f3d">Cargo / Logistics details</h2>
-    <p class="muted" style="margin:6px 0 0">Route: ${escapeHtml(cargoCountry)} · AIR ${escapeHtml(cargoAirEta)} days · CONTAINER ${escapeHtml(cargoContainerEta)} days</p>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:4px">
+      <h2 style="margin:0;font-size:20px;color:#0f1f3d">Cargo / Logistics details</h2>
+      <p class="muted" style="margin:0">Invoice ID: ${invoiceId}</p>
+    </div>
+    <p class="muted" style="margin:4px 0 0">Route: ${escapeHtml(cargoCountry)} · AIR ${escapeHtml(cargoAirEta)} days · CONTAINER ${escapeHtml(cargoContainerEta)} days</p>
+
     <div class="compact-logistics" style="margin-top:12px">
-      <h3>Summary</h3>
+      <h3>Cargo summary</h3>
       <div class="compact-logistics-grid">
+        <p><span>Country / Route</span><span>${escapeHtml(cargoCountry)}</span></p>
         <p><span>Total real weight</span><span>${cargoRealWeight.toFixed(1)} kg</span></p>
         <p><span>Chargeable weight</span><span>${cargoChargeableWeight.toFixed(1)} kg</span></p>
         <p><span>Total places</span><span>${cargoPlaces.toFixed(0)}</span></p>
-        <p><span>AIR total</span><span>${cargoCostLabel(cargoAirCostUsd)}</span></p>
-        <p><span>CONTAINER total</span><span>${cargoCostLabel(cargoContainerCostUsd)}</span></p>
-        <p><span>Place groups</span><span>${cargoAllocatedRows.length > 0 ? escapeHtml(cargoAllocatedRows.map((row) => row.cargoPlaceGroup).filter(Boolean).join(', ') || '—') : '—'}</span></p>
+        <p><span>AIR — ${escapeHtml(cargoAirEta)} days</span><span>${cargoCostLabel(cargoAirCostUsd)}</span></p>
+        <p><span>CONTAINER — ${escapeHtml(cargoContainerEta)} days</span><span>${cargoCostLabel(cargoContainerCostUsd)}</span></p>
+        ${cargoAllocatedRows.length > 0 ? `<p><span>Place groups</span><span>${escapeHtml(cargoAllocatedRows.map((row) => row.cargoPlaceGroup).filter(Boolean).join(', ') || '—')}</span></p>` : ''}
       </div>
     </div>
+
     <p class="section-title" style="margin-top:16px">Per-part cargo allocation</p>
     <table class="cargo-details-table">
       <thead>
@@ -1294,14 +1298,20 @@ const openInvoicePrintWindow = ({
           <th>Total kg</th>
           <th>Places</th>
           <th>Group</th>
-          <th>AIR</th>
-          <th>CONTAINER</th>
+          <th>AIR allocation</th>
+          <th>CONTAINER allocation</th>
         </tr>
       </thead>
       <tbody>
         ${cargoDetailedRows || '<tr><td colspan="9" style="text-align:center;color:#94a3b8">Cargo parameters are not filled yet</td></tr>'}
       </tbody>
     </table>
+
+    <div style="margin-top:20px;padding:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px">
+      <p class="sign-label" style="margin-bottom:6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b">Prepared by</p>
+      <p style="margin:0 0 10px;font-size:15px;font-weight:700;color:#0f1f3d">${escapeHtml((managerName || '').trim() || 'Not specified')}</p>
+      ${signatureUrl ? `<img src="${escapeHtml(signatureUrl)}" alt="Signature" style="max-height:70px;max-width:200px;object-fit:contain" />` : ''}
+    </div>
   </div>
   <script>
     window.addEventListener('load', () => {

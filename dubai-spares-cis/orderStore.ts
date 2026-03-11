@@ -1076,17 +1076,28 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
 const persistOrderGraph = async (order: Order) => {
   if (!supabase) return normalizeOrder(order);
   const uploadedOrder = await withUploadedPhotos(order);
+  // Strip any non-HTTP(S) URLs (e.g. data: / blob:) from the cloud copy when localOnlyPhotos is set.
+  // We intentionally keep both http:// and https:// URLs since they already point to cloud storage
+  // and must remain reachable after the order syncs. Only raw data/blob URLs should be withheld.
+  const stripLocalPhotos = (photos: string[]) =>
+    (photos || []).filter((url) => url.startsWith('http://') || url.startsWith('https://'));
   const cloudOrder = uploadedOrder.localOnlyPhotos
     ? {
         ...uploadedOrder,
-        carPhotoUrl: undefined,
-        carPhotos: [],
-        parts: (uploadedOrder.parts || []).map((part) => ({
-          ...part,
-          photoUrl: undefined,
-          photos: [],
-          variants: (part.variants || []).map((variant) => ({ ...variant, photoUrl: undefined, photos: [] }))
-        }))
+        carPhotoUrl: stripLocalPhotos([uploadedOrder.carPhotoUrl || ''])[0] || undefined,
+        carPhotos: stripLocalPhotos(uploadedOrder.carPhotos || []),
+        parts: (uploadedOrder.parts || []).map((part) => {
+          const partPhotos = stripLocalPhotos(part.photos || []);
+          return {
+            ...part,
+            photoUrl: partPhotos[0] || undefined,
+            photos: partPhotos,
+            variants: (part.variants || []).map((variant) => {
+              const variantPhotos = stripLocalPhotos(variant.photos || []);
+              return { ...variant, photoUrl: variantPhotos[0] || undefined, photos: variantPhotos };
+            })
+          };
+        })
       }
     : uploadedOrder;
 
