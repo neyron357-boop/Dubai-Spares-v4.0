@@ -94,9 +94,21 @@ export type PublicQuotePayloadV1 = {
     whatsapp_phone?: string | null;
   };
   logistics?: {
+    deliveryType?: 'uae' | 'export';
     deliveryAed?: number;
     packingAed?: number;
     serviceFeeAed?: number;
+    cargoDeliveryType?: 'air' | 'express_air' | 'container';
+    cargoEtaDays?: string;
+    cargoVolumeCbm?: number;
+    cargoBaseCostUsd?: number;
+    cargoTotalCostUsd?: number;
+    additionalCostsUsd?: {
+      packagingUsd?: number;
+      insuranceUsd?: number;
+      customsUsd?: number;
+      cityDeliveryUsd?: number;
+    };
   };
   items?: Array<{
     name: string;
@@ -628,13 +640,19 @@ const buildSnapshotPayload = (
   const packingAed = parseMoney(order.logistics?.packingAed, (order as any).logistics?.packing, (order as any).packingAed, (order as any).packing);
   const commissionAed = parseMoney(order.logistics?.serviceFeeAed, (order as any).logistics?.commission, (order as any).commissionAed, (order as any).commission);
   const cargoCountry = String(order.logistics?.cargoCountry || '').trim();
+  const cargoDeliveryType = (order.logistics?.cargoDeliveryType || 'air') as 'air' | 'express_air' | 'container';
+  const cargoEtaDays = String(order.logistics?.cargoEtaDays || '').trim();
   const cargoTotalWeightKg = parseMoney(order.logistics?.cargoTotalWeightKg);
   const cargoChargeableWeightKg = parseMoney(order.logistics?.cargoChargeableWeightKg);
+  const cargoVolumeCbm = parseMoney(order.logistics?.cargoVolumeCbm);
   const cargoTotalPlaces = parseMoney(order.logistics?.cargoTotalPlaces);
+  const cargoBaseCostUsd = parseMoney(order.logistics?.cargoBaseCostUsd);
+  const cargoTotalCostUsd = parseMoney(order.logistics?.cargoTotalCostUsd);
   const cargoAirCostUsd = parseMoney(order.logistics?.cargoAirCostUsd);
   const cargoContainerCostUsd = parseMoney(order.logistics?.cargoContainerCostUsd);
   const cargoAirEtaDays = String(order.logistics?.cargoAirEtaDays || '').trim();
   const cargoContainerEtaDays = String(order.logistics?.cargoContainerEtaDays || '').trim();
+  const additionalCostsUsd = order.logistics?.additionalCostsUsd || undefined;
 
   const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
   const fixedMarkupTotal = parseMoney(order.markupFixedAed) || 0;
@@ -745,17 +763,24 @@ const buildSnapshotPayload = (
     },
     parts: pricedParts,
     logistics: {
+      deliveryType: (order.logistics?.deliveryType || 'uae') as 'uae' | 'export',
       deliveryAed,
       packingAed,
       serviceFeeAed: commissionAed,
       cargoCountry: cargoCountry || undefined,
+      cargoDeliveryType,
+      cargoEtaDays: cargoEtaDays || undefined,
       cargoTotalWeightKg,
       cargoChargeableWeightKg,
+      cargoVolumeCbm,
       cargoTotalPlaces,
+      cargoBaseCostUsd,
+      cargoTotalCostUsd,
       cargoAirCostUsd,
       cargoContainerCostUsd,
       cargoAirEtaDays: cargoAirEtaDays || undefined,
-      cargoContainerEtaDays: cargoContainerEtaDays || undefined
+      cargoContainerEtaDays: cargoContainerEtaDays || undefined,
+      additionalCostsUsd
     },
     items: snapshotItems,
     fees: {

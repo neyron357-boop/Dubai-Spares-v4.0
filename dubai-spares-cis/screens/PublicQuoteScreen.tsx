@@ -521,9 +521,13 @@ const normalizeLogistics = (raw: any) => {
   );
   const deliveryType = raw.deliveryType || raw.delivery_type;
   const cargoCountry = String(raw.cargoCountry || raw.cargo_country || '').trim();
+  const cargoDeliveryType = raw.cargoDeliveryType || raw.cargo_delivery_type;
+  const cargoEtaDays = String(raw.cargoEtaDays || raw.cargo_eta_days || '').trim();
   const cargoTotalWeightKg = parseMoneyField(raw.cargoTotalWeightKg, raw.cargo_total_weight_kg);
   const cargoChargeableWeightKg = parseMoneyField(raw.cargoChargeableWeightKg, raw.cargo_chargeable_weight_kg);
+  const cargoVolumeCbm = parseMoneyField(raw.cargoVolumeCbm, raw.cargo_volume_cbm);
   const cargoTotalPlaces = parseMoneyField(raw.cargoTotalPlaces, raw.cargo_total_places);
+  const cargoBaseCostUsd = parseMoneyField(raw.cargoBaseCostUsd, raw.cargo_base_cost_usd);
   const cargoAirCostUsd = parseMoneyField(raw.cargoAirCostUsd, raw.cargo_air_cost_usd);
   const cargoContainerCostUsd = parseMoneyField(raw.cargoContainerCostUsd, raw.cargo_container_cost_usd);
   const cargoTotalCostUsd = parseMoneyField(raw.cargoTotalCostUsd, raw.cargo_total_cost_usd, raw.totalCargoCostUsd, raw.total_cargo_cost_usd, raw.totalsCargoTotalCostUsd, raw.pricingBreakdownCargoTotalCostUsd, raw.pricing_breakdown_cargo_total_cost_usd);
@@ -531,7 +535,7 @@ const normalizeLogistics = (raw: any) => {
   const cargoContainerEtaDays = String(raw.cargoContainerEtaDays || raw.cargo_container_eta_days || '').trim();
 
   const hasAedFees = deliveryAed > 0 || packingAed > 0 || serviceFeeAed > 0;
-  const hasCargo = Boolean(cargoCountry) || cargoTotalWeightKg > 0 || cargoChargeableWeightKg > 0 || cargoTotalPlaces > 0 || cargoAirCostUsd > 0 || cargoContainerCostUsd > 0 || cargoTotalCostUsd > 0;
+  const hasCargo = Boolean(cargoCountry) || cargoTotalWeightKg > 0 || cargoChargeableWeightKg > 0 || cargoVolumeCbm > 0 || cargoTotalPlaces > 0 || cargoBaseCostUsd > 0 || cargoAirCostUsd > 0 || cargoContainerCostUsd > 0 || cargoTotalCostUsd > 0;
   if (!hasAedFees && !hasCargo) return undefined;
 
   return {
@@ -540,9 +544,13 @@ const normalizeLogistics = (raw: any) => {
     packingAed,
     serviceFeeAed,
     cargoCountry: cargoCountry || undefined,
+    cargoDeliveryType: (cargoDeliveryType === 'express_air' || cargoDeliveryType === 'container') ? cargoDeliveryType : 'air',
+    cargoEtaDays: cargoEtaDays || undefined,
     cargoTotalWeightKg,
     cargoChargeableWeightKg,
+    cargoVolumeCbm,
     cargoTotalPlaces,
+    cargoBaseCostUsd,
     cargoAirCostUsd,
     cargoContainerCostUsd,
     cargoTotalCostUsd,
@@ -575,12 +583,20 @@ const resolveOrderLogistics = (row: any) => {
     fee: row?.fee,
     cargoCountry: row?.cargoCountry,
     cargo_country: row?.cargo_country,
+    cargoDeliveryType: row?.cargoDeliveryType,
+    cargo_delivery_type: row?.cargo_delivery_type,
+    cargoEtaDays: row?.cargoEtaDays,
+    cargo_eta_days: row?.cargo_eta_days,
     cargoTotalWeightKg: row?.cargoTotalWeightKg,
     cargo_total_weight_kg: row?.cargo_total_weight_kg,
     cargoChargeableWeightKg: row?.cargoChargeableWeightKg,
     cargo_chargeable_weight_kg: row?.cargo_chargeable_weight_kg,
+    cargoVolumeCbm: row?.cargoVolumeCbm,
+    cargo_volume_cbm: row?.cargo_volume_cbm,
     cargoTotalPlaces: row?.cargoTotalPlaces,
     cargo_total_places: row?.cargo_total_places,
+    cargoBaseCostUsd: row?.cargoBaseCostUsd,
+    cargo_base_cost_usd: row?.cargo_base_cost_usd,
     cargoAirCostUsd: row?.cargoAirCostUsd,
     cargo_air_cost_usd: row?.cargo_air_cost_usd,
     cargoContainerCostUsd: row?.cargoContainerCostUsd,
@@ -777,8 +793,7 @@ const normalizePublicPhotoCandidate = (value: string) => {
     try {
       const parsed = new URL(trimmed);
       if (parsed.pathname.includes('/storage/v1/object/sign/')) {
-        parsed.pathname = parsed.pathname.replace('/storage/v1/object/sign/', '/storage/v1/object/public/');
-        parsed.search = '';
+        // Signed URLs must keep their token, otherwise private buckets won't render in public quote.
         return parsed.toString();
       }
       if (parsed.pathname.includes('/storage/v1/object/public/')) {
@@ -791,7 +806,7 @@ const normalizePublicPhotoCandidate = (value: string) => {
   }
 
   if (trimmed.startsWith('/storage/v1/object/sign/') && SUPABASE_URL) {
-    return `${SUPABASE_URL}${trimmed.replace('/storage/v1/object/sign/', '/storage/v1/object/public/')}`;
+    return `${SUPABASE_URL}${trimmed}`;
   }
   if (trimmed.startsWith('/storage/v1/object/public/') && SUPABASE_URL) return `${SUPABASE_URL}${trimmed}`;
 
