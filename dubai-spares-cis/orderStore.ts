@@ -82,8 +82,34 @@ const getMissingColumnName = (error: unknown): string | null => {
 };
 
 
-const normalizePhotoKey = (url: string) => {
+const normalizeSupabaseStorageUrl = (url: string) => {
   const trimmed = String(url || '').trim();
+  if (!trimmed) return '';
+
+  try {
+    const parsed = new URL(trimmed);
+    const signMarker = '/storage/v1/object/sign/';
+    const publicMarker = '/storage/v1/object/public/';
+
+    if (parsed.pathname.includes(signMarker)) {
+      parsed.pathname = parsed.pathname.replace(signMarker, publicMarker);
+      parsed.search = '';
+      return parsed.toString();
+    }
+
+    if (parsed.pathname.includes(publicMarker)) {
+      parsed.searchParams.delete('token');
+      return parsed.toString();
+    }
+
+    return trimmed;
+  } catch {
+    return trimmed;
+  }
+};
+
+const normalizePhotoKey = (url: string) => {
+  const trimmed = normalizeSupabaseStorageUrl(url);
   if (!trimmed) return '';
   try {
     const parsed = new URL(trimmed);
@@ -107,7 +133,7 @@ const normalizePhotoList = (photos: string[] = []): string[] => {
     const key = normalizePhotoKey(value);
     if (!key || seen.has(key)) return;
     seen.add(key);
-    normalized.push(value);
+    normalized.push(key);
   });
   return normalized;
 };
