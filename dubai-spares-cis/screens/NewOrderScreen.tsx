@@ -178,9 +178,9 @@ const serializeError = (error: unknown) => {
   };
 };
 
-const inputClass = 'h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-slate-300 focus:ring-4 focus:ring-slate-100';
+const inputClass = 'h-14 w-full rounded-[14px] border border-[#E5E7EB] bg-white px-4 text-base text-[#0F172A] outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-50';
 
-const cardClass = 'space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200';
+const cardClass = 'space-y-4 rounded-2xl border border-[#E5E7EB] bg-white p-4 shadow-sm transition-all duration-200';
 
 const SearchableDropdown: React.FC<{
   value: string;
@@ -333,6 +333,8 @@ const NewOrderScreen: React.FC = () => {
   const notePhotoRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const carGalleryRef = useRef<HTMLInputElement>(null);
   const carCameraRef = useRef<HTMLInputElement>(null);
+  const vinCameraRef = useRef<HTMLInputElement>(null);
+  const partsEndRef = useRef<HTMLDivElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recorderStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -707,6 +709,16 @@ const NewOrderScreen: React.FC = () => {
     toast(`Удалено черновиков: ${draftIds.length}`, 'success');
   };
 
+  // Allow React to batch the state update before scrolling to the newly added part.
+  const SCROLL_AFTER_ADD_MS = 80;
+
+  const addPart = () => {
+    setParts((prev) => [...prev, createDraftPart()]);
+    window.setTimeout(() => {
+      partsEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, SCROLL_AFTER_ADD_MS);
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting || submitLockRef.current) return;
@@ -817,126 +829,184 @@ const NewOrderScreen: React.FC = () => {
   };
 
   return (
-    <form onSubmit={submit} className="mx-auto max-w-2xl space-y-4 p-4 pb-[210px]">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-black text-slate-900">Создать заказ</h1>
-        <button type="button" onClick={saveDraft} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700" aria-label="Сохранить черновик"><Save size={14} />Сохранить черновик</button>
+    <form onSubmit={submit} className="mx-auto max-w-2xl bg-[#F8FAFC] pb-[220px]">
+
+      {/* HEADER */}
+      <div className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-[#E5E7EB] bg-white px-4 shadow-sm">
+        <h1 style={{ fontSize: '26px', fontWeight: 600 }} className="text-[#0F172A]">Создать заказ</h1>
+        <button
+          type="button"
+          onClick={saveDraft}
+          className="inline-flex h-9 items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-3 text-sm font-semibold text-[#0F172A] transition hover:bg-slate-50"
+          aria-label="Сохранить черновик"
+        >
+          <Save size={15} /> Сохранить черновик
+        </button>
       </div>
 
-      {!!savedDrafts.length && (
-        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
-          <p className="text-xs font-bold text-amber-800">Сохраненные черновики</p>
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => setSelectedDraftIds((prev) => prev.size === savedDrafts.length ? new Set() : new Set(savedDrafts.map((item) => item.id)))}
-              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-bold text-amber-800"
-            >
-              {selectedDraftIds.size === savedDrafts.length ? 'Снять выбор' : 'Выбрать все'}
-            </button>
-            <button
-              type="button"
-              disabled={selectedDraftIds.size === 0}
-              onClick={() => deleteDrafts(Array.from(selectedDraftIds))}
-              className="inline-flex items-center gap-1 rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] font-black text-rose-700 disabled:opacity-40"
-            >
-              <Trash2 size={12} />Удалить выбранные ({selectedDraftIds.size})
-            </button>
-          </div>
-          <div className="mt-2 space-y-2">
-            {savedDrafts.map((item) => (
-              <div key={item.id} className="flex items-center gap-2 rounded-lg border border-amber-200 bg-white px-2 py-2 text-xs text-slate-700">
-                <input type="checkbox" checked={selectedDraftIds.has(item.id)} onChange={() => toggleDraftSelection(item.id)} className="h-4 w-4" />
-                <button type="button" onClick={() => applyDraft(item.data)} className="flex flex-1 items-center justify-between text-left">
-                  <span>{item.title}</span>
-                  <span className="text-[11px] text-slate-500">{new Date(item.createdAt).toLocaleString('ru-RU')}</span>
+      <div className="space-y-4 p-4">
+
+        {/* DRAFTS */}
+        {!!savedDrafts.length && (
+          <section className="rounded-[10px] border border-[#E5E7EB] bg-white p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[12px] font-semibold text-[#0F172A]">Черновики</p>
+              <div className="flex gap-4">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDraftIds((prev) => prev.size === savedDrafts.length ? new Set() : new Set(savedDrafts.map((item) => item.id)))}
+                  className="text-[12px] font-semibold text-[#0F172A]"
+                >
+                  {selectedDraftIds.size === savedDrafts.length ? 'Снять выбор' : 'Выбрать все'}
                 </button>
-                <button type="button" onClick={() => deleteDrafts([item.id])} className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 p-1 text-rose-700" aria-label="Удалить черновик">
-                  <Trash2 size={12} />
+                <button
+                  type="button"
+                  disabled={selectedDraftIds.size === 0}
+                  onClick={() => deleteDrafts(Array.from(selectedDraftIds))}
+                  className="text-[12px] font-semibold text-[#EF4444] disabled:opacity-40"
+                >
+                  Удалить выбранные
                 </button>
               </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <div className="rounded-2xl bg-slate-100 p-1">
-        <div className="grid grid-cols-2 gap-1">
-          <button type="button" onClick={() => setMode('quick')} className={`h-10 rounded-xl text-sm font-bold transition ${mode === 'quick' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Быстро</button>
-          <button type="button" onClick={() => setMode('full')} className={`h-10 rounded-xl text-sm font-bold transition ${mode === 'full' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Полно</button>
-        </div>
-      </div>
-
-      <section className={cardClass}>
-        <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><CarFront size={16} /> Автомобиль</h2>
-        <p className="text-xs text-slate-500">Поля со звёздочкой (*) обязательны. Сначала марка и модель, затем всё остальное.</p>
-
-        {mode === 'full' && (
-          <div className="space-y-1 transition-all duration-200">
-            <input autoFocus value={vin} onChange={(e) => setVin(e.target.value.toUpperCase().slice(0, 17))} placeholder="VIN (необязательно)" className={inputClass} />
-            {errors.vin && <p className="text-xs text-rose-600">{errors.vin}</p>}
-          </div>
+            </div>
+            <div className="space-y-1.5">
+              {savedDrafts.map((item) => (
+                <div key={item.id} className="flex h-12 items-center gap-3 rounded-[10px] border border-[#E5E7EB] bg-white px-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedDraftIds.has(item.id)}
+                    onChange={() => toggleDraftSelection(item.id)}
+                    className="h-4 w-4 rounded"
+                  />
+                  <button type="button" onClick={() => applyDraft(item.data)} className="flex flex-1 items-center justify-between text-left">
+                    <span className="text-sm font-medium text-[#0F172A]">{item.title}</span>
+                    <span className="text-[11px] text-slate-400">
+                      {new Date(item.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
-        <label className="space-y-1">
-          <span className="text-xs font-semibold text-slate-500">Марка *</span>
-          <SearchableDropdown
-            value={brand}
-            placeholder="Выберите марку"
-            options={brandOptions}
-            loading={brandLoading}
-            required
-            onChange={(value) => {
-              touched.current.brand = true;
-              setBrand(value);
-              setModel('');
-              setSeriesCode('');
-              setManualModelMode(false);
-            }}
-          />
-          {errors.brand && <p className="text-xs text-rose-600">{errors.brand}</p>}
-        </label>
-
-        <div className="space-y-1 transition-all duration-200">
-          <span className="text-xs font-semibold text-slate-500">Модель *</span>
-          <SearchableDropdown
-            value={model}
-            placeholder="Выберите модель"
-            options={modelOptions}
-            loading={modelLoading}
-            disabled={!brand}
-            required
-            onChange={(value) => {
-              touched.current.model = true;
-              setModel(value);
-              setManualModelMode(false);
-            }}
-          />
-          {errors.model && <p className="text-xs text-rose-600">{errors.model}</p>}
-          <button
-            type="button"
-            onClick={() => setManualModelMode((prev) => !prev)}
-            className="text-xs font-semibold text-slate-600 underline underline-offset-2"
-          >
-            {manualModelMode ? 'Выбрать модель из списка' : 'Добавить модель вручную'}
-          </button>
-          {(manualModelMode || (brand && modelOptions.length === 0)) && (
-            <input
-              value={model}
-              onChange={(e) => {
-                touched.current.model = true;
-                setModel(e.target.value);
-              }}
-              placeholder="Введите модель вручную"
-              className={inputClass}
-            />
-          )}
-          {!!chassisCodes.length && <p className="text-xs text-slate-500">Популярные серии: {chassisCodes.slice(0, 4).map((x) => x.value).join(', ')}</p>}
+        {/* MODE SWITCH */}
+        <div className="h-11 rounded-xl bg-[#F3F4F6] p-1">
+          <div className="grid h-full grid-cols-2 gap-1">
+            <button
+              type="button"
+              onClick={() => setMode('quick')}
+              className={`h-full rounded-[10px] text-sm font-semibold transition-all duration-200 ${mode === 'quick' ? 'bg-white text-[#0F172A] shadow-sm' : 'text-slate-500'}`}
+            >
+              Быстро
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('full')}
+              className={`h-full rounded-[10px] text-sm font-semibold transition-all duration-200 ${mode === 'full' ? 'bg-white text-[#0F172A] shadow-sm' : 'text-slate-500'}`}
+            >
+              Полно
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* АВТОМОБИЛЬ */}
+        <section className={cardClass}>
+          <h2 className="flex items-center gap-2 text-[18px] font-semibold text-[#0F172A]">
+            <CarFront size={18} className="text-[#2563EB]" /> Автомобиль
+          </h2>
+          <p className="text-[12px] text-slate-500">Поля со звёздочкой (*) обязательны.</p>
+
+          {/* VIN — always visible */}
+          <div className="space-y-1">
+            <label className="text-[12px] font-semibold text-slate-500">VIN</label>
+            <div className="relative">
+              <input
+                value={vin}
+                onChange={(e) => setVin(e.target.value.toUpperCase().slice(0, 17))}
+                placeholder="Введите VIN (необязательно)"
+                className={`${inputClass} pr-44`}
+              />
+              <button
+                type="button"
+                onClick={() => vinCameraRef.current?.click()}
+                className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 text-xs font-semibold text-[#2563EB]"
+              >
+                <Camera size={13} /> Сканировать VIN
+              </button>
+              <input
+                ref={vinCameraRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={() => { toast('Сканирование VIN будет доступно в следующей версии', 'error'); }}
+              />
+            </div>
+            {errors.vin && <p className="text-xs text-rose-600">{errors.vin}</p>}
+          </div>
+
+          {/* Марка */}
           <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Год *</span>
+            <span className="text-[12px] font-semibold text-slate-500">Марка *</span>
+            <SearchableDropdown
+              value={brand}
+              placeholder="Выберите марку"
+              options={brandOptions}
+              loading={brandLoading}
+              required
+              onChange={(value) => {
+                touched.current.brand = true;
+                setBrand(value);
+                setModel('');
+                setSeriesCode('');
+                setManualModelMode(false);
+              }}
+            />
+            {errors.brand && <p className="text-xs text-rose-600">{errors.brand}</p>}
+          </label>
+
+          {/* Модель */}
+          <div className="space-y-1">
+            <span className="text-[12px] font-semibold text-slate-500">Модель *</span>
+            <SearchableDropdown
+              value={model}
+              placeholder="Выберите модель"
+              options={modelOptions}
+              loading={modelLoading}
+              disabled={!brand}
+              required
+              onChange={(value) => {
+                touched.current.model = true;
+                setModel(value);
+                setManualModelMode(false);
+              }}
+            />
+            {errors.model && <p className="text-xs text-rose-600">{errors.model}</p>}
+            <button
+              type="button"
+              onClick={() => setManualModelMode((prev) => !prev)}
+              className="text-xs font-semibold text-[#2563EB] underline underline-offset-2"
+            >
+              {manualModelMode ? 'Выбрать из списка' : 'Добавить вручную'}
+            </button>
+            {(manualModelMode || (brand && modelOptions.length === 0)) && (
+              <input
+                value={model}
+                onChange={(e) => {
+                  touched.current.model = true;
+                  setModel(e.target.value);
+                }}
+                placeholder="Введите модель вручную"
+                className={inputClass}
+              />
+            )}
+            {!!chassisCodes.length && <p className="text-xs text-slate-400">Серии: {chassisCodes.slice(0, 4).map((x) => x.value).join(', ')}</p>}
+          </div>
+
+          {/* Год */}
+          <label className="space-y-1">
+            <span className="text-[12px] font-semibold text-slate-500">Год *</span>
             <SearchableDropdown
               value={year}
               placeholder="Выберите год"
@@ -950,224 +1020,326 @@ const NewOrderScreen: React.FC = () => {
             {errors.year && <p className="text-xs text-rose-600">{errors.year}</p>}
           </label>
 
-          <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Тип кузова (необязательно)</span>
-            <input
-              value={bodyType}
-              onChange={(e) => setBodyType(e.target.value)}
-              placeholder="Введите тип кузова"
-              className={inputClass}
-            />
-            {!!bodyTypeOptions.length && (
-              <p className="text-xs text-slate-500">
-                Часто используют: {bodyTypeOptions.slice(0, 6).map((item) => item.value).join(', ')}
-              </p>
-            )}
-          </label>
-        </div>
+          {/* Full mode: additional fields */}
+          {mode === 'full' && (
+            <div className="space-y-4 border-t border-[#E5E7EB] pt-4">
+              {/* Тип кузова */}
+              <label className="space-y-1">
+                <span className="text-[12px] font-semibold text-slate-500">Тип кузова</span>
+                <input
+                  value={bodyType}
+                  onChange={(e) => setBodyType(e.target.value)}
+                  placeholder="Например: Седан, Кроссовер, SUV"
+                  className={inputClass}
+                />
+                {!!bodyTypeOptions.length && (
+                  <p className="text-[11px] text-slate-400">{bodyTypeOptions.slice(0, 5).map((item) => item.value).join(' · ')}</p>
+                )}
+              </label>
 
-        {mode === 'full' && !!chassisCodes.length && (
-          <label className="space-y-1 transition-all duration-200">
-            <span className="text-xs font-semibold text-slate-500">Series / Code (необязательно)</span>
-            <SearchableDropdown value={seriesCode} placeholder="Выберите серию" options={chassisCodes} onChange={setSeriesCode} />
-          </label>
-        )}
+              {!!chassisCodes.length && (
+                <label className="space-y-1">
+                  <span className="text-[12px] font-semibold text-slate-500">Series / Code</span>
+                  <SearchableDropdown value={seriesCode} placeholder="Выберите серию" options={chassisCodes} onChange={setSeriesCode} />
+                </label>
+              )}
 
-        <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-3">
-          <p className="text-xs font-semibold text-slate-600">Фото авто (до 10, форматы: jpg/png/heic)</p>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => carCameraRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Камера</button>
-            <button type="button" onClick={() => carGalleryRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><ImagePlus size={14} /> Галерея</button>
-          </div>
-          {!!carPhotos.length && (
-            <div className="grid grid-cols-3 gap-2">
-              {carPhotos.map((photo, index) => (
-                <div key={`${photo}-${index}`} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white">
-                  <img src={photo} alt={`car-${index}`} className="h-20 w-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setCarPhotos((prev) => prev.filter((_, i) => i !== index))}
-                    className="absolute right-1 top-1 h-5 w-5 rounded-full bg-black/60 text-[10px] text-white"
-                  >×</button>
+              {/* Car Photo Upload Container */}
+              <div className="space-y-2">
+                <span className="text-[12px] font-semibold text-slate-500">Фото автомобиля</span>
+                <div
+                  className="flex h-[100px] w-full flex-col items-center justify-center gap-2 rounded-[14px] border-2 border-dashed border-[#E5E7EB] bg-[#F8FAFC] transition hover:border-[#2563EB] hover:bg-blue-50 cursor-pointer"
+                  onClick={() => carGalleryRef.current?.click()}
+                >
+                  <p className="text-xs font-semibold text-slate-500">+ Добавить фото автомобиля</p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); carCameraRef.current?.click(); }}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-semibold text-[#0F172A] shadow-sm"
+                    >
+                      <Camera size={13} /> Камера
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); carGalleryRef.current?.click(); }}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-semibold text-[#0F172A] shadow-sm"
+                    >
+                      <ImagePlus size={13} /> Галерея
+                    </button>
+                  </div>
                 </div>
-              ))}
+                {!!carPhotos.length && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {carPhotos.map((photo, index) => (
+                      <div key={`${photo}-${index}`} className="relative overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">
+                        <img src={photo} alt={`car-${index}`} className="h-20 w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setCarPhotos((prev) => prev.filter((_, i) => i !== index))}
+                          className="absolute right-1 top-1 h-5 w-5 rounded-full bg-black/60 text-[10px] text-white"
+                        >×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <input ref={carGalleryRef} type="file" accept=".jpg,.jpeg,.png,.heic,image/heic" multiple className="hidden" onChange={(e) => { void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-gallery'); e.target.value = ''; }} />
+                <input ref={carCameraRef} type="file" accept=".jpg,.jpeg,.png,.heic,image/heic" capture="environment" className="hidden" onChange={(e) => { void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-camera'); e.target.value = ''; }} />
+              </div>
             </div>
           )}
-          <input ref={carGalleryRef} type="file" accept=".jpg,.jpeg,.png,.heic,image/heic" multiple className="hidden" onChange={(e) => { void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-gallery'); e.target.value = ''; }} />
-          <input ref={carCameraRef} type="file" accept=".jpg,.jpeg,.png,.heic,image/heic" capture="environment" className="hidden" onChange={(e) => { void attachCompressedImages(e.target.files, setCarPhotos, 10, 'new-order:car-camera'); e.target.value = ''; }} />
-        </div>
-      </section>
+        </section>
 
-      <section className={cardClass}>
-        <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><Wrench size={16} /> Деталь / запрос</h2>
-        <div className="space-y-3">
-          {parts.map((part, index) => (
-            <div key={part.id} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <label className="space-y-1">
-                <span className="text-xs font-semibold text-slate-500">Деталь {index + 1} *</span>
-                <textarea
-                  value={part.name}
-                  onChange={(e) => setParts((prev) => prev.map((item) => (item.id === part.id ? { ...item, name: e.target.value } : item)))}
-                  placeholder="Название детали (можно с новой строки)"
-                  rows={2}
-                  className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+        {/* ДЕТАЛЬ / ЗАПРОС */}
+        <section className={cardClass}>
+          <h2 className="flex items-center gap-2 text-[18px] font-semibold text-[#0F172A]">
+            <Wrench size={18} className="text-[#2563EB]" /> Деталь / запрос
+          </h2>
+
+          <div className="space-y-3">
+            {parts.map((part, index) => (
+              <div key={part.id} className="space-y-3 rounded-xl border border-[#E5E7EB] bg-white p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-[#0F172A]">Деталь {index + 1}</span>
+                  {parts.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setParts((prev) => prev.filter((item) => item.id !== part.id))}
+                      className="text-xs font-semibold text-[#EF4444]"
+                    >
+                      Удалить
+                    </button>
+                  )}
+                </div>
+                <label className="space-y-1">
+                  <span className="text-[12px] font-semibold text-slate-500">Название детали *</span>
+                  <textarea
+                    value={part.name}
+                    onChange={(e) => setParts((prev) => prev.map((item) => (item.id === part.id ? { ...item, name: e.target.value } : item)))}
+                    placeholder={'Например:\nПередний амортизатор\nЛевая фара\nРешетка радиатора'}
+                    rows={3}
+                    className="w-full resize-none rounded-[14px] border border-[#E5E7EB] p-3 text-base text-[#0F172A] outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-50"
+                  />
+                </label>
+                <input
+                  value={part.comment}
+                  onChange={(e) => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, comment: e.target.value } : item))}
+                  placeholder="Комментарий (необязательно)"
+                  className={inputClass}
                 />
-              </label>
-              <input value={part.comment} onChange={(e) => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, comment: e.target.value } : item))} placeholder="Комментарий (необязательно)" className={inputClass} />
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => partPhotoRefs.current[part.id]?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото детали</button>
-                {parts.length > 1 && <button type="button" onClick={() => setParts((prev) => prev.filter((item) => item.id !== part.id))} className="inline-flex h-10 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-bold text-rose-600">Удалить</button>}
-              </div>
-              {!!part.photos.length && (
-                <div className="grid grid-cols-3 gap-2">
-                  {part.photos.map((photo, photoIndex) => (
-                    <div key={`${photo}-${photoIndex}`} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white">
-                      <img src={photo} alt={`part-${index}-${photoIndex}`} className="h-20 w-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, photos: item.photos.filter((_, i) => i !== photoIndex) } : item))}
-                        className="absolute right-1 top-1 h-5 w-5 rounded-full bg-black/60 text-[10px] text-white"
-                      >×</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <input
-                ref={(el) => { partPhotoRefs.current[part.id] = el; }}
-                type="file"
-                accept=".jpg,.jpeg,.png,.heic,image/heic"
-                multiple
-                className="hidden"
-                onChange={(e) => { void attachCompressedImages(e.target.files, (updater) => {
-                  setParts((prev) => prev.map((item) => {
-                    if (item.id !== part.id) return item;
-                    const nextPhotos = typeof updater === 'function' ? updater(item.photos) : updater;
-                    return { ...item, photos: nextPhotos };
-                  }));
-                }, 10, 'new-order:part'); e.target.value = ''; }}
-              />
-            </div>
-          ))}
-          {errors.partName && <p className="text-xs text-rose-600">{errors.partName}</p>}
-          <button type="button" onClick={() => setParts((prev) => [...prev, createDraftPart()])} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700">+ Добавить ещё деталь</button>
-        </div>
-
-        <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-slate-600">Комментарии / заметки (текст, фото, аудио)</p>
-            <button type="button" onClick={() => setMode('full')} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700"><NotebookPen size={12} /> Расширенно</button>
-          </div>
-          {notes.map((note, index) => (
-            <div key={note.id} className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-              <textarea
-                value={note.text}
-                onChange={(e) => setNotes((prev) => prev.map((item) => item.id === note.id ? { ...item, text: e.target.value } : item))}
-                placeholder={`Комментарий ${index + 1}`}
-                rows={2}
-                className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-              />
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => notePhotoRefs.current[note.id]?.click()} className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото</button>
-                <button type="button" onClick={() => void toggleNoteRecording(note.id)} className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700">{recordingNoteId === note.id ? <Square size={14} /> : <Mic size={14} />} {recordingNoteId === note.id ? 'Стоп' : 'Голос'}</button>
-                {notes.length > 1 && <button type="button" onClick={() => setNotes((prev) => prev.filter((item) => item.id !== note.id))} className="inline-flex h-9 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-bold text-rose-600">Удалить</button>}
-              </div>
-              {!!note.voices.length && <p className="text-xs text-slate-500">Голосовых заметок: {note.voices.length}</p>}
-              {recordingNoteId === note.id && <div className="flex h-5 items-end gap-1">{Array.from({ length: 20 }).map((_, bar) => <span key={`${note.id}-rec-${bar}`} className="w-1 rounded-full bg-rose-300" style={{ height: `${30 + Math.abs(Math.sin((recordingTick + bar) * 0.9)) * 70}%` }} />)}</div>}
-              {!!note.voices.length && (
-                <div className="space-y-2">
-                  {note.voices.map((voice, voiceIndex) => {
-                    const voiceId = `new-note-${note.id}-${voiceIndex}`;
-                    const isPlaying = playingVoiceId === voiceId;
-                    return (
-                      <div key={voiceId} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
-                        <button type="button" onClick={() => toggleVoicePlayback(voiceId)} className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-white">{isPlaying ? <Pause size={12} /> : <Play size={12} className="ml-0.5" />}</button>
-                        <audio id={voiceId} src={voice} preload="metadata" />
-                        <span className="text-[11px] font-semibold text-slate-600">Аудио {voiceIndex + 1}</span>
+                <button
+                  type="button"
+                  onClick={() => partPhotoRefs.current[part.id]?.click()}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-3 text-xs font-semibold text-[#0F172A]"
+                >
+                  <Camera size={14} /> Фото детали
+                </button>
+                {!!part.photos.length && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {part.photos.map((photo, photoIndex) => (
+                      <div key={`${photo}-${photoIndex}`} className="relative overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">
+                        <img src={photo} alt={`part-${index}-${photoIndex}`} className="h-20 w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, photos: item.photos.filter((_, i) => i !== photoIndex) } : item))}
+                          className="absolute right-1 top-1 h-5 w-5 rounded-full bg-black/60 text-[10px] text-white"
+                        >×</button>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-              {!!note.photos.length && (
-                <div className="grid grid-cols-4 gap-2">
-                  {note.photos.map((photo, photoIndex) => (
-                    <div key={`${photo}-${photoIndex}`} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white">
-                      <img src={photo} alt={`note-${index}-${photoIndex}`} className="h-16 w-full object-cover" />
-                    </div>
-                  ))}
-                </div>
-              )}
-              <input
-                ref={(el) => { notePhotoRefs.current[note.id] = el; }}
-                type="file"
-                accept=".jpg,.jpeg,.png,.heic,image/heic"
-                multiple
-                className="hidden"
-                onChange={(e) => { void attachCompressedImages(e.target.files, (updater) => {
-                  setNotes((prev) => prev.map((item) => {
-                    if (item.id !== note.id) return item;
-                    const nextPhotos = typeof updater === 'function' ? updater(item.photos) : updater;
-                    return { ...item, photos: nextPhotos };
-                  }));
-                }, 10, 'new-order:note'); e.target.value = ''; }}
-              />
+                    ))}
+                  </div>
+                )}
+                <input
+                  ref={(el) => { partPhotoRefs.current[part.id] = el; }}
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.heic,image/heic"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => { void attachCompressedImages(e.target.files, (updater) => {
+                    setParts((prev) => prev.map((item) => {
+                      if (item.id !== part.id) return item;
+                      const nextPhotos = typeof updater === 'function' ? updater(item.photos) : updater;
+                      return { ...item, photos: nextPhotos };
+                    }));
+                  }, 10, 'new-order:part'); e.target.value = ''; }}
+                />
+              </div>
+            ))}
+            {errors.partName && <p className="text-xs text-rose-600">{errors.partName}</p>}
+            <div ref={partsEndRef} />
+          </div>
+
+          <button
+            type="button"
+            onClick={addPart}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#E5E7EB] text-sm font-semibold text-[#2563EB] transition hover:border-[#2563EB] hover:bg-blue-50"
+          >
+            + Добавить деталь
+          </button>
+
+          {/* КОММЕНТАРИИ / ЗАМЕТКИ */}
+          <div className="space-y-3 rounded-xl border border-[#E5E7EB] bg-[#F8FAFC] p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[12px] font-semibold text-[#0F172A]">Комментарий</p>
+              <button type="button" onClick={() => setMode('full')} className="inline-flex h-8 items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-2 text-[11px] font-semibold text-[#0F172A]"><NotebookPen size={12} /> Расширенно</button>
             </div>
-          ))}
-          <button type="button" onClick={() => setNotes((prev) => [...prev, createDraftNote()])} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700">+ Добавить комментарий</button>
-        </div>
-      </section>
+            {notes.map((note, index) => (
+              <div key={note.id} className="space-y-2 rounded-xl border border-[#E5E7EB] bg-white p-3">
+                <textarea
+                  value={note.text}
+                  onChange={(e) => setNotes((prev) => prev.map((item) => item.id === note.id ? { ...item, text: e.target.value } : item))}
+                  placeholder={`Комментарий ${index + 1}`}
+                  rows={2}
+                  className="w-full resize-none rounded-[14px] border border-[#E5E7EB] p-3 text-base text-[#0F172A] outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-50"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => notePhotoRefs.current[note.id]?.click()} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-3 text-xs font-semibold text-[#0F172A]"><Camera size={13} /> Фото</button>
+                  <button type="button" onClick={() => void toggleNoteRecording(note.id)} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${recordingNoteId === note.id ? 'border-rose-300 bg-rose-50 text-rose-600' : 'border-[#E5E7EB] bg-white text-[#0F172A]'}`}>{recordingNoteId === note.id ? <Square size={13} /> : <Mic size={13} />} {recordingNoteId === note.id ? 'Стоп' : 'Голос'}</button>
+                  {notes.length > 1 && <button type="button" onClick={() => setNotes((prev) => prev.filter((item) => item.id !== note.id))} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-3 text-xs font-semibold text-[#EF4444]">Удалить</button>}
+                </div>
+                {recordingNoteId === note.id && (
+                  <div className="flex h-6 items-end gap-0.5">
+                    {Array.from({ length: 24 }).map((_, bar) => (
+                      <span key={`${note.id}-rec-${bar}`} className="w-1 rounded-full bg-rose-400" style={{ height: `${30 + Math.abs(Math.sin((recordingTick + bar) * 0.9)) * 70}%` }} />
+                    ))}
+                  </div>
+                )}
+                {!!note.voices.length && (
+                  <div className="space-y-1.5">
+                    {note.voices.map((voice, voiceIndex) => {
+                      const voiceId = `new-note-${note.id}-${voiceIndex}`;
+                      const isPlaying = playingVoiceId === voiceId;
+                      return (
+                        <div key={voiceId} className="flex items-center gap-3 rounded-xl border border-[#E5E7EB] bg-[#F8FAFC] p-2">
+                          <button type="button" onClick={() => toggleVoicePlayback(voiceId)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0F172A] text-white">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
+                          <audio id={voiceId} src={voice} preload="metadata" />
+                          <span className="flex-1 text-xs font-semibold text-[#0F172A]">Аудио {voiceIndex + 1}</span>
+                          <button type="button" onClick={() => setNotes((prev) => prev.map((item) => item.id === note.id ? { ...item, voices: item.voices.filter((_, i) => i !== voiceIndex) } : item))} className="text-[#EF4444]"><Trash2 size={13} /></button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {!!note.photos.length && (
+                  <div className="grid grid-cols-4 gap-2">
+                    {note.photos.map((photo, photoIndex) => (
+                      <div key={`${photo}-${photoIndex}`} className="relative overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">
+                        <img src={photo} alt={`note-${index}-${photoIndex}`} className="h-16 w-full object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <input
+                  ref={(el) => { notePhotoRefs.current[note.id] = el; }}
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.heic,image/heic"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => { void attachCompressedImages(e.target.files, (updater) => {
+                    setNotes((prev) => prev.map((item) => {
+                      if (item.id !== note.id) return item;
+                      const nextPhotos = typeof updater === 'function' ? updater(item.photos) : updater;
+                      return { ...item, photos: nextPhotos };
+                    }));
+                  }, 10, 'new-order:note'); e.target.value = ''; }}
+                />
+              </div>
+            ))}
+            <button type="button" onClick={() => setNotes((prev) => [...prev, createDraftNote()])} className="inline-flex h-9 items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-3 text-xs font-semibold text-[#0F172A]">+ Добавить комментарий</button>
+          </div>
+        </section>
 
-      <section className={cardClass}>
-        <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><UserRound size={16} /> Клиент</h2>
-        <input
-          type="tel"
-          name="customerContact"
-          autoComplete="tel"
-          value={customerContact}
-          onChange={(e) => setCustomerContact(e.target.value.replace(/\s+/g, ''))}
-          placeholder="WhatsApp / телефон (+971501234567)"
-          className={inputClass}
-        />
-        {errors.customerContact && <p className="text-xs text-rose-600">{errors.customerContact}</p>}
-        <input
-          type="text"
-          name="clientName"
-          autoComplete="name"
-          value={clientName}
-          onChange={(e) => setClientName(e.target.value)}
-          placeholder="Имя (необязательно)"
-          className={inputClass}
-        />
+        {/* КЛИЕНТ */}
+        <section className={cardClass}>
+          <h2 className="flex items-center gap-2 text-[18px] font-semibold text-[#0F172A]">
+            <UserRound size={18} className="text-[#2563EB]" /> Клиент
+          </h2>
 
-        <div className="grid grid-cols-1 gap-3 transition-all duration-200 sm:grid-cols-2">
-          <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Страна (необязательно)</span>
-            <SearchableDropdown value={country} placeholder="Выберите страну" options={COUNTRY_OPTIONS.map((item) => ({ label: item, value: item }))} onChange={(value) => { setCountry(value); setCity(''); setCityManualMode(false); }} noOptionsText="Страна не найдена" />
-          </label>
-          <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Город (необязательно)</span>
-            {cityManualMode ? (
-              <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Введите город вручную" className={inputClass} />
-            ) : (
-              <SearchableDropdown value={city} placeholder={country ? 'Выберите город' : 'Сначала выберите страну'} options={cityOptions} disabled={!country} onChange={setCity} noOptionsText="Город не найден" />
-            )}
-            {!!country && <button type="button" onClick={() => setCityManualMode((prev) => !prev)} className="text-xs font-semibold text-slate-600 underline underline-offset-2">{cityManualMode ? 'Выбрать из списка' : 'Нет города в списке? Ввести вручную'}</button>}
-          </label>
-          <label className="space-y-1 sm:col-span-2">
-            <span className="text-xs font-semibold text-slate-500">Источник</span>
-            <select value={leadSource} onChange={(e) => setLeadSource(e.target.value as Source)} className={inputClass}>
-              <option value={Source.INSTAGRAM}>Instagram</option>
-              <option value={Source.TIKTOK}>TikTok</option>
-              <option value={Source.WHATSAPP}>WhatsApp</option>
-              <option value={Source.OTHER}>Другое</option>
-            </select>
-          </label>
-        </div>
-      </section>
+          <div className="space-y-1">
+            <label className="text-[12px] font-semibold text-slate-500">Телефон / WhatsApp</label>
+            <input
+              type="tel"
+              name="customerContact"
+              autoComplete="tel"
+              value={customerContact}
+              onChange={(e) => setCustomerContact(e.target.value.replace(/\s+/g, ''))}
+              placeholder="+971 50 123 4567"
+              className={inputClass}
+            />
+            {errors.customerContact && <p className="text-xs text-rose-600">{errors.customerContact}</p>}
+          </div>
 
-      <div style={{ bottom: `${keyboardOffset}px` }} className="fixed inset-x-0 z-40 mx-auto w-full max-w-md border-t border-slate-200 bg-white/95 px-3 pt-3 backdrop-blur" >
-        <div className="space-y-2 pb-[calc(env(safe-area-inset-bottom)+64px)]">
-          <button type="button" onClick={saveDraft} className="h-11 w-full rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-700">Сохранить черновик</button>
+          <div className="space-y-1">
+            <label className="text-[12px] font-semibold text-slate-500">Имя</label>
+            <input
+              type="text"
+              name="clientName"
+              autoComplete="name"
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              placeholder="Имя клиента (необязательно)"
+              className={inputClass}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="space-y-1">
+              <span className="text-[12px] font-semibold text-slate-500">Страна</span>
+              <SearchableDropdown
+                value={country}
+                placeholder="Выберите страну"
+                options={COUNTRY_OPTIONS.map((item) => ({ label: item, value: item }))}
+                onChange={(value) => { setCountry(value); setCity(''); setCityManualMode(false); }}
+                noOptionsText="Страна не найдена"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[12px] font-semibold text-slate-500">Город</span>
+              {!country && <span className="ml-1 text-[12px] text-slate-400">(сначала выберите страну)</span>}
+              {cityManualMode ? (
+                <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Введите город вручную" className={inputClass} />
+              ) : (
+                <SearchableDropdown
+                  value={city}
+                  placeholder={country ? 'Выберите город' : 'Сначала выберите страну'}
+                  options={cityOptions}
+                  disabled={!country}
+                  onChange={setCity}
+                  noOptionsText="Город не найден"
+                />
+              )}
+              {!!country && (
+                <button type="button" onClick={() => setCityManualMode((prev) => !prev)} className="text-xs font-semibold text-[#2563EB] underline underline-offset-2">
+                  {cityManualMode ? 'Выбрать из списка' : 'Нет города в списке? Ввести вручную'}
+                </button>
+              )}
+            </label>
+            <label className="space-y-1 sm:col-span-2">
+              <span className="text-[12px] font-semibold text-slate-500">Источник</span>
+              <select value={leadSource} onChange={(e) => setLeadSource(e.target.value as Source)} className={inputClass}>
+                <option value={Source.INSTAGRAM}>Instagram</option>
+                <option value={Source.TIKTOK}>TikTok</option>
+                <option value={Source.WHATSAPP}>WhatsApp</option>
+                <option value={Source.OTHER}>Другое</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+      </div>
+
+      {/* STICKY ACTION BAR */}
+      <div
+        style={{ bottom: `${keyboardOffset}px` }}
+        className="fixed inset-x-0 z-40 mx-auto w-full max-w-md border-t border-[#E5E7EB] bg-white/95 px-4 pt-3 backdrop-blur"
+      >
+        <div className="flex flex-col gap-2 pb-[calc(env(safe-area-inset-bottom)+8px)]">
+          <button
+            type="button"
+            onClick={saveDraft}
+            className="h-10 w-full rounded-[14px] border border-[#E5E7EB] bg-white text-sm font-semibold text-[#0F172A] transition hover:bg-slate-50"
+          >
+            Сохранить черновик
+          </button>
           <button
             type="submit"
             onClick={(event) => {
@@ -1181,7 +1353,13 @@ const NewOrderScreen: React.FC = () => {
               toast(`Заполните обязательные поля: ${missing.join(', ')}`, 'error');
             }}
             disabled={isSyncing || isSubmitting}
-            className={`h-14 w-full rounded-2xl text-sm font-black uppercase tracking-wide text-white transition-all duration-200 disabled:opacity-40 ${canCreate ? 'bg-emerald-600 shadow-[0_8px_20px_rgba(5,150,105,0.35)]' : 'bg-slate-900'}`}
+            className={[
+              'h-14 w-full rounded-[14px] text-sm font-semibold uppercase tracking-wide text-white',
+              'transition-all duration-200 disabled:opacity-40',
+              canCreate
+                ? 'bg-[#2563EB] shadow-[0_8px_20px_rgba(37,99,235,0.35)]'
+                : 'bg-[#0F172A]'
+            ].join(' ')}
           >
             {isSubmitting ? 'Создание...' : 'Создать заказ'}
           </button>
