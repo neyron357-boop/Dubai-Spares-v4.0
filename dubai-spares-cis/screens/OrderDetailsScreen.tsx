@@ -2609,7 +2609,16 @@ const OrderDetailsScreen: React.FC = () => {
                     );
                   })()}
                   <div className="mt-2 space-y-1.5">
-                    {(order.parts || []).map((part) => {
+                    {(() => {
+                      const existingGroups = Array.from(new Set(
+                        (order.parts || []).flatMap((p) => {
+                          const draft = partCargoDrafts[p.id];
+                          const group = draft ? draft.cargoPlaceGroup : String((p as any).cargoPlaceGroup || '');
+                          return group.trim() ? [group.trim()] : [];
+                        })
+                      ));
+                      const groupOptions = Array.from(new Set([...existingGroups, 'BOX-1', 'BOX-2', 'BOX-3', 'BOX-4', 'BOX-5', 'PAL-1', 'PAL-2']));
+                      return (order.parts || []).map((part) => {
                       const cargoDraft = partCargoDrafts[part.id] || {
                         weightKg: Number((part as any).weightKg || 0) > 0 ? String(Number((part as any).weightKg || 0)) : '',
                         places: Number((part as any).places || 0) > 0 ? String(Number((part as any).places || 0)) : '',
@@ -2650,27 +2659,31 @@ const OrderDetailsScreen: React.FC = () => {
                                 </label>
                                 <label className="flex flex-col gap-0.5">
                                   <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Мест</span>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    step="1"
-                                    inputMode="numeric"
+                                  <select
                                     value={cargoDraft.places}
                                     onChange={(e) => onPartCargoDraftChange(part.id, 'places', e.target.value)}
                                     className={`h-7 rounded-lg border px-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 ${cargoDraft.places && placesValue < 1 ? 'border-rose-300 bg-rose-50/40' : 'border-slate-200 bg-white'}`}
-                                  />
+                                  >
+                                    <option value="">—</option>
+                                    {[1,2,3,4,5,6,7,8,9,10,12,15,20].map((n) => (
+                                      <option key={n} value={String(n)}>{n}</option>
+                                    ))}
+                                  </select>
                                 </label>
                               </div>
                               <div className="grid grid-cols-2 gap-1.5 items-center">
                                 <label className="flex flex-col gap-0.5">
                                   <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Группа мест</span>
-                                  <input
-                                    type="text"
+                                  <select
                                     value={cargoDraft.cargoPlaceGroup}
                                     onChange={(e) => onPartCargoDraftChange(part.id, 'cargoPlaceGroup', e.target.value)}
                                     className="h-7 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                                    placeholder="BOX-1"
-                                  />
+                                  >
+                                    <option value="">—</option>
+                                    {groupOptions.map((g) => (
+                                      <option key={g} value={g}>{g}</option>
+                                    ))}
+                                  </select>
                                 </label>
                                 <label className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2 h-7 cursor-pointer">
                                   <span className="text-[10px] font-semibold text-slate-600">КГ</span>
@@ -2689,7 +2702,8 @@ const OrderDetailsScreen: React.FC = () => {
                           )}
                         </div>
                       );
-                    })}
+                      });
+                    })()}
                   </div>
                 </>
               )}

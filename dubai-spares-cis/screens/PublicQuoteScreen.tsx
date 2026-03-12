@@ -1644,6 +1644,23 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       setQuoteBreakdown(resolvedBreakdown);
       setQuoteContact(resolvedContact);
       setResolvedSettings(diagnosticsSettings);
+
+      // Apply rates and currency from snapshot if URL params don't provide custom rates
+      const sharedRates = parseQuoteRates(params.get('rates'));
+      if (!sharedRates && resolvedBreakdown.rates) {
+        const snapshotRates = resolvedBreakdown.rates as Record<string, number>;
+        const fullRates: QuoteRates = { ...DEFAULT_QUOTE_RATES };
+        (Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[]).forEach((code) => {
+          const val = Number(snapshotRates[code]);
+          if (Number.isFinite(val) && val > 0) fullRates[code] = val;
+        });
+        setRates(fullRates);
+        setRateSource('Manager custom rates');
+      }
+      const sharedCurrency = (params.get('currency') || '').toUpperCase() as QuoteCurrency;
+      if (!(sharedCurrency in DEFAULT_QUOTE_RATES) && resolvedBreakdown.currency && resolvedBreakdown.currency in DEFAULT_QUOTE_RATES) {
+        setCurrency(resolvedBreakdown.currency as QuoteCurrency);
+      }
       void logger.info('public-quote:view', 'Snapshot mapped to public order', {
         orderId: snapshotOrder.id || orderId,
         token,
@@ -1678,7 +1695,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       await logger.warn('quote-shared-snapshot-miss', 'Unable to load shared public quote snapshot', { quoteId: orderId, lookupToken: publicQuoteKey?.value, urlToken: publicQuoteKey?.urlToken, urlSnapshot: publicQuoteKey?.urlSnapshot, error: error instanceof Error ? error.message : 'unknown' });
       return { order: null, expired: false, notFound: true, corrupted: false };
     }
-  }, [orderId, publicQuoteKey]);
+  }, [orderId, publicQuoteKey, params, setRates, setCurrency, setRateSource]);
 
   const readQuoteFromCache = useCallback(() => {
     const raw = window.localStorage.getItem(`public-quote-cache:${orderId}`);
