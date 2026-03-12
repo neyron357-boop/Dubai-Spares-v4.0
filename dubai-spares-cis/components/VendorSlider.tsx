@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckSquare, ChevronDown, ExternalLink, Filter, ImageOff, MapPin, MessageCircle, Phone, Plus, Users, X } from 'lucide-react';
+import { CheckSquare, ChevronDown, Clock, ExternalLink, Filter, ImageOff, MapPin, MessageCircle, Phone, Plus, Search, Users, X, Zap } from 'lucide-react';
 import { useStore } from '../store';
 import { Priority, type OrderVendorContact, type Part, type Supplier, type VendorChecklistItem } from '../types';
 import { vibrate } from '../feedback';
@@ -22,6 +22,11 @@ const FOUND_SLIDES_KEY = '__found_with_prices';
 const NOT_FOUND_SLIDES_KEY = '__without_prices';
 const SUPPLIER_SEARCH_KEY = '__supplier_search';
 const SUPPLIER_READY_KEY = '__supplier_ready';
+const URGENT_KEY = '__urgent';
+const NEED_SEND_KEY = '__need_send';
+const RECENT_CARS_KEY = 'vs_recent';
+const MAX_RECENT_CARS = 10;
+const MAX_SEARCH_RESULTS = 10;
 
 const sanitizeImages = (values: Array<unknown>) => {
   const seen = new Set<string>();
@@ -82,7 +87,7 @@ const VendorSliderContent: React.FC = () => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [partsSheetOpen, setPartsSheetOpen] = useState(false);
   const [vehicleDetailsOpen, setVehicleDetailsOpen] = useState(false);
-  const [statusSlidesExpanded, setStatusSlidesExpanded] = useState(false);
+  const [statusSlidesExpanded, setStatusSlidesExpanded] = useState(true);
   const [suppliersOpen, setSuppliersOpen] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [newChecklistTask, setNewChecklistTask] = useState('');
@@ -92,11 +97,22 @@ const VendorSliderContent: React.FC = () => {
   const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
   const [supplierToDeleteId, setSupplierToDeleteId] = useState<string | null>(null);
   const [brokenImages, setBrokenImages] = useState<Record<string, true>>({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [brandSortBy, setBrandSortBy] = useState<'orders' | 'urgent' | 'updated'>('orders');
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [pendingNavigateId, setPendingNavigateId] = useState<string | null>(null);
+  const [recentCarIds, setRecentCarIds] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(RECENT_CARS_KEY);
+      return stored ? (JSON.parse(stored) as string[]) : [];
+    } catch { return []; }
+  });
 
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const syncTimerRef = useRef<number | null>(null);
   const supplierDeletePressTimerRef = useRef<number | null>(null);
   const lastUrlSyncAtRef = useRef(0);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const clearPendingUrlSync = () => {
     if (!syncTimerRef.current) return;
@@ -118,6 +134,11 @@ const VendorSliderContent: React.FC = () => {
         if (effectiveBrand === NOT_FOUND_SLIDES_KEY) return !hasPricedPart(o);
         if (effectiveBrand === SUPPLIER_SEARCH_KEY) return !hasOrderSuppliers(o);
         if (effectiveBrand === SUPPLIER_READY_KEY) return hasOrderSuppliers(o);
+        if (effectiveBrand === URGENT_KEY) return o.priority === Priority.HIGH;
+        if (effectiveBrand === NEED_SEND_KEY) {
+          const contacts = o.vendorContacts || [];
+          return contacts.length > 0 && contacts.some((c) => !c.lastWhatsappAt);
+        }
         return o.brand === effectiveBrand;
       })
       .filter((o) => priorityFilter === 'all' || o.priority === priorityFilter)
@@ -215,6 +236,25 @@ const VendorSliderContent: React.FC = () => {
     setNewChecklistTask('');
   }, [current?.id]);
 
+  useEffect(() => {
+    if (!committedSlide?.id || !selectedBrand) return;
+    setRecentCarIds((prev) => {
+      const updated = [committedSlide.id, ...prev.filter((id) => id !== committedSlide.id)].slice(0, MAX_RECENT_CARS);
+      localStorage.setItem(RECENT_CARS_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }, [committedSlide?.id, selectedBrand]);
+
+  useEffect(() => {
+    if (!pendingNavigateId || orderSlides.length === 0) return;
+    const idx = orderSlides.findIndex((s) => s.id === pendingNavigateId);
+    if (idx >= 0) {
+      setTransientDragIndex(idx);
+      setCommittedIndex(idx);
+      setPendingNavigateId(null);
+    }
+  }, [pendingNavigateId, orderSlides]);
+
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
 
   const leadActiveNeedCount = useMemo(
@@ -234,6 +274,65 @@ const VendorSliderContent: React.FC = () => {
     });
     return counts;
   }, [orders]);
+
+  const statusCardData = useMemo(() => {
+    const active = orders.filter((o) => !o.isArchived && !o.isSold);
+    const countParts = (list: typeof active) => list.reduce((s, o) => s + o.parts.length, 0);
+    const urgentList = active.filter((o) => o.priority === Priority.HIGH);
+    const foundList = active.filter(hasPricedPart);
+    const notFoundList = active.filter((o) => !hasPricedPart(o));
+    const noSupplierList = active.filter((o) => !hasOrderSuppliers(o));
+    const needSendList = active.filter((o) => {
+      const contacts = o.vendorContacts || [];
+      return contacts.length > 0 && contacts.some((c) => !c.lastWhatsappAt);
+    });
+    return [
+      { key: URGENT_KEY, title: '🔥 Срочные', orders: urgentList.length, parts: countParts(urgentList), className: 'border-rose-500 bg-rose-900/45 shadow-[0_0_0_1px_rgba(251,113,133,0.18)]' },
+      { key: FOUND_SLIDES_KEY, title: '🟢 Есть варианты', orders: foundList.length, parts: countParts(foundList), className: 'border-emerald-600 bg-emerald-900/35' },
+      { key: NOT_FOUND_SLIDES_KEY, title: '🟡 Нет вариантов', orders: notFoundList.length, parts: countParts(notFoundList), className: 'border-amber-500 bg-amber-900/30' },
+      { key: SUPPLIER_SEARCH_KEY, title: '👥 Нет поставщиков', orders: noSupplierList.length, parts: countParts(noSupplierList), className: 'border-fuchsia-600 bg-fuchsia-900/35' },
+      { key: NEED_SEND_KEY, title: '📤 Нужно отправить', orders: needSendList.length, parts: countParts(needSendList), className: 'border-cyan-500 bg-cyan-900/35' }
+    ];
+  }, [orders]);
+
+  const brandData = useMemo(() => {
+    const map = new Map<string, { orders: number; urgent: number; lastUpdated: number }>();
+    orders.forEach((o) => {
+      if (o.isArchived || o.isSold) return;
+      const prev = map.get(o.brand) || { orders: 0, urgent: 0, lastUpdated: 0 };
+      map.set(o.brand, {
+        orders: prev.orders + 1,
+        urgent: prev.urgent + (o.priority === Priority.HIGH ? 1 : 0),
+        lastUpdated: Math.max(prev.lastUpdated, o.updatedAt || o.createdAt || 0)
+      });
+    });
+    return Array.from(map.entries()).map(([brand, stats]) => ({ brand, ...stats }));
+  }, [orders]);
+
+  const sortedBrands = useMemo(() => [...brandData].sort((a, b) => {
+    if (brandSortBy === 'orders') return b.orders - a.orders;
+    if (brandSortBy === 'urgent') return b.urgent - a.urgent;
+    return b.lastUpdated - a.lastUpdated;
+  }), [brandData, brandSortBy]);
+
+  const recentCars = useMemo(() => {
+    const orderMap = new Map(orders.map((o) => [o.id, o]));
+    return recentCarIds.map((id) => orderMap.get(id)).filter(Boolean) as typeof orders;
+  }, [recentCarIds, orders]);
+
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [] as typeof orders;
+    return orders
+      .filter((o) => !o.isArchived && !o.isSold && (
+        o.brand.toLowerCase().includes(q)
+        || o.model.toLowerCase().includes(q)
+        || (o.vin || '').toLowerCase().includes(q)
+        || (o.clientName || '').toLowerCase().includes(q)
+        || o.parts.some((p) => p.name.toLowerCase().includes(q))
+      ))
+      .slice(0, MAX_SEARCH_RESULTS);
+  }, [searchQuery, orders]);
 
   const variantSupplierContacts = useMemo(() => {
     if (!current) return [] as OrderVendorContact[];
@@ -622,68 +721,267 @@ const VendorSliderContent: React.FC = () => {
   };
 
   if (!selectedBrand) {
-    const statusSlides = [
-      { key: LEAD_SLIDES_KEY, title: '🔥 ЛИД', subtitle: `Найти заказов: ${leadActiveNeedCount}`, className: 'border-rose-500 bg-rose-900/45 shadow-[0_0_0_1px_rgba(251,113,133,0.2)] hover:border-rose-400' },
-      { key: FOUND_SLIDES_KEY, title: '✅ Найденные', subtitle: 'Есть хотя бы 1 ценовой вариант', className: 'border-emerald-600 bg-emerald-900/35' },
-      { key: NOT_FOUND_SLIDES_KEY, title: '🟨 Ненайденные', subtitle: 'Нет ни одного ценового варианта', className: 'border-amber-500 bg-amber-900/30' },
-      { key: SUPPLIER_SEARCH_KEY, title: '🔎 Поиск поставщика', subtitle: 'Нет прикреплённых поставщиков', className: 'border-fuchsia-600 bg-fuchsia-900/35' },
-      { key: SUPPLIER_READY_KEY, title: '👥 С поставщиками', subtitle: 'Осталось отправить запросы', className: 'border-cyan-500 bg-cyan-900/35' }
-    ];
-
     return (
-      <div className="fixed inset-0 z-50 flex min-h-screen flex-col overflow-hidden bg-[#0B1220] p-4 text-white">
-        <p className="text-xl font-black">Vendor Slides</p>
-        <p className="mb-3 text-xs text-white/65">Сначала статусные слайды, ниже отдельно марки автомобилей.</p>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-20">
+      <div className="fixed inset-0 z-50 flex min-h-screen flex-col overflow-hidden bg-[#0B1220] text-white">
+        {/* HEADER */}
+        <div className="flex shrink-0 items-center justify-between px-4 pb-2 pt-4">
           <div>
+            <p className="text-xl font-black">Vendor Slides</p>
+            <p className="text-[11px] text-white/50">Управление поставщиками</p>
+          </div>
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setStatusSlidesExpanded((prev) => !prev)}
-              className="mb-2 flex w-full items-center justify-between rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/75"
+              onClick={() => { searchInputRef.current?.focus(); }}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white/70"
+              aria-label="Поиск"
             >
-              <span>Статусные слайды</span>
-              <ChevronDown size={14} className={`transition-transform ${statusSlidesExpanded ? 'rotate-180' : ''}`} />
+              <Search size={16} />
             </button>
-            {statusSlidesExpanded && (
-              <div className="grid grid-cols-2 gap-2">
-                {statusSlides.map((item) => (
+            <button
+              type="button"
+              onClick={() => setQuickActionsOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-amber-300"
+              aria-label="Быстрые действия"
+            >
+              <Zap size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* SEARCH BAR */}
+        <div className="shrink-0 px-4 pb-2">
+          <div className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-900/80 px-3 py-2">
+            <Search size={14} className="shrink-0 text-white/35" />
+            <input
+              ref={searchInputRef}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Поиск по марке, модели, VIN, детали или клиенту..."
+              className="flex-1 bg-transparent text-sm text-white placeholder-white/35 outline-none"
+            />
+            {searchQuery && (
+              <button type="button" onClick={() => setSearchQuery('')} className="shrink-0 text-white/40">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* QUICK FILTER BAR */}
+        <div className="flex shrink-0 gap-2 overflow-x-auto px-4 pb-3 [scrollbar-width:none]">
+          {([
+            { key: 'all', label: 'Все' },
+            { key: URGENT_KEY, label: '🔥 Срочно' },
+            { key: FOUND_SLIDES_KEY, label: '🟢 Найдено' },
+            { key: NOT_FOUND_SLIDES_KEY, label: '🔴 Нет вариантов' },
+            { key: SUPPLIER_SEARCH_KEY, label: '👥 Без поставщиков' },
+            { key: NEED_SEND_KEY, label: '📤 Нужно отправить' }
+          ] as const).map((filter) => (
+            <button
+              key={filter.key}
+              type="button"
+              onClick={() => {
+                setSelectedBrand(filter.key);
+                setBrandFilter(filter.key);
+              }}
+              className="shrink-0 whitespace-nowrap rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-[11px] font-bold text-white/80 hover:border-blue-500 hover:text-white"
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+
+        {/* MAIN CONTENT */}
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-20">
+
+          {/* SEARCH RESULTS */}
+          {searchQuery.trim() && (
+            <div>
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Результаты поиска</p>
+              {searchResults.length === 0 ? (
+                <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-3 text-xs text-slate-400">Ничего не найдено</p>
+              ) : (
+                <div className="space-y-2">
+                  {searchResults.map((order) => (
+                    <button
+                      key={order.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedBrand(order.brand);
+                        setBrandFilter(order.brand);
+                        setPendingNavigateId(order.id);
+                      }}
+                      className="flex w-full items-center justify-between rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-left"
+                    >
+                      <div>
+                        <p className="text-sm font-black">{order.brand} {order.model} {order.year}</p>
+                        <p className="text-[11px] text-white/50">{order.parts.length} дет. · VIN: {order.vin || '—'}</p>
+                      </div>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${order.priority === Priority.HIGH ? 'bg-rose-700 text-white' : order.priority === Priority.MEDIUM ? 'bg-amber-700 text-white' : 'bg-slate-700 text-white/70'}`}>
+                        {order.priority}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {!searchQuery.trim() && (
+            <>
+              {/* RECENT CARS */}
+              {recentCars.length > 0 && (
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <Clock size={12} className="text-white/40" />
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Недавние машины</p>
+                  </div>
+                  <div className="space-y-2">
+                    {recentCars.map((car) => (
+                      <button
+                        key={car.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedBrand(car.brand);
+                          setBrandFilter(car.brand);
+                          setPendingNavigateId(car.id);
+                        }}
+                        className="flex w-full items-center gap-3 rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-left hover:border-slate-500"
+                      >
+                        <Clock size={14} className="shrink-0 text-white/25" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold">{car.brand} {car.model}</p>
+                          <p className="text-[11px] text-white/50">{car.year} · {car.parts.length} дет.</p>
+                        </div>
+                        {car.priority === Priority.HIGH && <span className="shrink-0 text-xs text-rose-400">🔥</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* STATUS BLOCK */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setStatusSlidesExpanded((prev) => !prev)}
+                  className="mb-2 flex w-full items-center justify-between rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/75"
+                >
+                  <span>STATUS</span>
+                  <ChevronDown size={14} className={`transition-transform ${statusSlidesExpanded ? 'rotate-180' : ''}`} />
+                </button>
+                {statusSlidesExpanded && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {statusCardData.map((card) => (
+                      <button
+                        key={card.key}
+                        type="button"
+                        onClick={() => {
+                          setSelectedBrand(card.key);
+                          setBrandFilter(card.key);
+                        }}
+                        className={`rounded-xl border px-3 py-3 text-left ${card.className}`}
+                      >
+                        <p className="text-sm font-black leading-tight">{card.title}</p>
+                        <p className="mt-1.5 text-[11px] font-semibold text-white/80">{card.orders} заказов</p>
+                        <p className="text-[10px] text-white/60">{card.parts} деталей</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* BRANDS BLOCK */}
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">МАРКИ</p>
+                  <div className="flex gap-0.5 rounded-lg border border-slate-700 bg-slate-900/60 p-0.5">
+                    {([['orders', 'заказы'], ['urgent', 'срочность'], ['updated', 'обновление']] as const).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setBrandSortBy(key)}
+                        className={`rounded px-2 py-1 text-[10px] font-bold ${brandSortBy === key ? 'bg-[#2563EB] text-white' : 'text-white/55'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {sortedBrands.map(({ brand, orders: brandOrders, urgent }) => (
+                    <button
+                      key={brand}
+                      type="button"
+                      onClick={() => {
+                        setSelectedBrand(brand);
+                        setBrandFilter(brand);
+                      }}
+                      className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-4 text-left hover:border-[#2563EB]"
+                    >
+                      <p className="text-lg font-black">{brand}</p>
+                      <p className="mt-1 text-xs font-semibold text-white/65">{brandOrders} заказов</p>
+                      {urgent > 0 && <p className="mt-0.5 text-[11px] font-bold text-rose-400">{urgent} срочных</p>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* QUICK ACTIONS MENU */}
+        {quickActionsOpen && (
+          <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setQuickActionsOpen(false)}>
+            <div className="mt-16 rounded-3xl border border-amber-700/40 bg-[#1a1510] p-4" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-3 flex items-center gap-2">
+                <Zap size={14} className="text-amber-300" />
+                <p className="text-sm font-bold uppercase tracking-[0.2em] text-amber-100">Быстрые действия</p>
+              </div>
+              <div className="space-y-2">
+                {[
+                  {
+                    label: 'Открыть последний заказ',
+                    action: () => {
+                      const lastId = recentCarIds[0];
+                      if (lastId) {
+                        const order = orders.find((o) => o.id === lastId);
+                        if (order) {
+                          setSelectedBrand(order.brand);
+                          setBrandFilter(order.brand);
+                          setPendingNavigateId(lastId);
+                        }
+                      }
+                      setQuickActionsOpen(false);
+                    }
+                  },
+                  {
+                    label: 'Показать машины без вариантов',
+                    action: () => { setSelectedBrand(NOT_FOUND_SLIDES_KEY); setBrandFilter(NOT_FOUND_SLIDES_KEY); setQuickActionsOpen(false); }
+                  },
+                  {
+                    label: 'Показать машины без поставщиков',
+                    action: () => { setSelectedBrand(SUPPLIER_SEARCH_KEY); setBrandFilter(SUPPLIER_SEARCH_KEY); setQuickActionsOpen(false); }
+                  },
+                  {
+                    label: 'Показать срочные',
+                    action: () => { setSelectedBrand(URGENT_KEY); setBrandFilter(URGENT_KEY); setQuickActionsOpen(false); }
+                  }
+                ].map((action) => (
                   <button
-                    key={item.key}
+                    key={action.label}
                     type="button"
-                    onClick={() => {
-                      setSelectedBrand(item.key);
-                      setBrandFilter(item.key);
-                    }}
-                    className={`rounded-xl border px-3 py-2 text-left text-sm font-black ${item.className}`}
+                    onClick={action.action}
+                    className="flex w-full rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-left text-sm font-semibold text-white hover:border-amber-500/60 hover:bg-amber-900/20"
                   >
-                    <span>{item.title}</span>
-                    <span className="mt-1 block text-[10px] font-semibold text-white/80">{item.subtitle}</span>
+                    {action.label}
                   </button>
                 ))}
               </div>
-            )}
-          </div>
-
-          <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Марки автомобилей</p>
-            <div className="grid grid-cols-2 gap-3">
-              {brandOptions.map((brand) => (
-                <button
-                  key={brand}
-                  type="button"
-                  onClick={() => {
-                    setSelectedBrand(brand);
-                    setBrandFilter(brand);
-                  }}
-                  className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-4 text-left text-lg font-black hover:border-[#2563EB]"
-                >
-                  <span>{brand}</span>
-                  <span className="mt-1 block text-xs font-semibold text-white/65">Найти заказов: {brandActiveNeedCounts.get(brand) || 0}</span>
-                </button>
-              ))}
             </div>
           </div>
-        </div>
+        )}
       </div>
     );
   }
@@ -852,11 +1150,13 @@ const VendorSliderContent: React.FC = () => {
                   className="w-full rounded-xl bg-slate-800 px-3 py-2"
                 >
                   <option value="all">Все марки</option>
+                  <option value={URGENT_KEY}>🔥 Срочные (HIGH приоритет)</option>
                   <option value={LEAD_SLIDES_KEY}>Только ЛИД</option>
-                  <option value={FOUND_SLIDES_KEY}>Найденные (есть цена)</option>
-                  <option value={NOT_FOUND_SLIDES_KEY}>Ненайденные (без цен)</option>
-                  <option value={SUPPLIER_SEARCH_KEY}>Поиск поставщика (0 контактов)</option>
+                  <option value={FOUND_SLIDES_KEY}>🟢 Найденные (есть цена)</option>
+                  <option value={NOT_FOUND_SLIDES_KEY}>🟡 Ненайденные (без цен)</option>
+                  <option value={SUPPLIER_SEARCH_KEY}>👥 Нет поставщиков (0 контактов)</option>
                   <option value={SUPPLIER_READY_KEY}>С поставщиками (1+ контакт)</option>
+                  <option value={NEED_SEND_KEY}>📤 Нужно отправить запрос</option>
                   <option value="__choose">Выбрать экран марок</option>
                   {brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
                 </select>
