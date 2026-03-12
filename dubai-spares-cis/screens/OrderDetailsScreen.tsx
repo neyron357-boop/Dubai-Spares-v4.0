@@ -355,7 +355,7 @@ const OrderDetailsScreen: React.FC = () => {
   // Sync local rate input if order changes
   useEffect(() => {
     if (order) setRateInput(order.exchangeRate.toString());
-  }, [order?.id]);
+  }, [order?.id, order?.exchangeRate]);
 
   useEffect(() => {
     setMarkupFixedInput((order?.markupFixedAed || 0).toString());
@@ -566,6 +566,10 @@ const OrderDetailsScreen: React.FC = () => {
 
   const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency }) => {
     if (!order) return;
+    const parsedRateInput = parseFloat(String(rateInput || '').replace(',', '.'));
+    const quoteExchangeRate = Number.isFinite(parsedRateInput) && parsedRateInput > 0
+      ? parsedRateInput
+      : Number(order.exchangeRate || 3.67);
     const nextParts = applyPartCargoDrafts(order.parts || []);
     const draftLogistics = {
       ...(order.logistics || {}),
@@ -594,7 +598,8 @@ const OrderDetailsScreen: React.FC = () => {
         cargoContainerEtaDays: hasPartCargoData ? draftEstimates.container.eta : (draftLogistics.cargoContainerEtaDays || draftEstimates.container.eta),
         cargoContainerCostUsd: hasPartCargoData ? draftEstimates.container.totalCostUsd : (draftLogistics.cargoContainerCostUsd ?? draftEstimates.container.totalCostUsd)
       },
-      markupFixedAed: Number(markupFixedInput || order.markupFixedAed || 0)
+      markupFixedAed: Number(markupFixedInput || order.markupFixedAed || 0),
+      exchangeRate: quoteExchangeRate
     };
 
     if (hasPendingPricingChanges) {
@@ -1246,6 +1251,20 @@ const OrderDetailsScreen: React.FC = () => {
       syncPerf.recordTypingSample(Math.round((performance.now() - startedAt) * 100) / 100);
     }
   };
+
+
+  const flushExchangeRateCommit = useCallback(() => {
+    const normalized = String(rateInput || '').replace(',', '.');
+    const num = parseFloat(normalized);
+    if (!Number.isFinite(num) || num <= 0) return;
+    if (exchangeRateCommitTimerRef.current) {
+      window.clearTimeout(exchangeRateCommitTimerRef.current);
+      exchangeRateCommitTimerRef.current = null;
+    }
+    if (num !== Number(order.exchangeRate || 0)) {
+      updateOrderField('exchangeRate', num);
+    }
+  }, [order.exchangeRate, rateInput]);
 
   const commitMarkupFixed = useCallback((forcedValue?: number) => {
     const nextValue = forcedValue ?? Number(markupFixedInput || 0);
@@ -2524,6 +2543,31 @@ const OrderDetailsScreen: React.FC = () => {
               <input type="checkbox" checked={!!order.useMarkupAsDefaultForNewParts} onChange={(e) => updateOrderField('useMarkupAsDefaultForNewParts', e.target.checked)} />
               Apply margin to new parts
             </label>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Валюта клиента</span>
+                <select
+                  value={order.clientCurrency || 'USD'}
+                  onChange={(e) => updateOrderField('clientCurrency', e.target.value)}
+                  disabled={!isEditMode}
+                  className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-gray-800 outline-none"
+                >
+                  {(['AED', 'USD', 'RUB', 'TJS'] as const).map((code) => <option key={code} value={code}>{code}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Курс USD→AED</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={rateInput}
+                  onChange={handleRateChange}
+                  onBlur={flushExchangeRateCommit}
+                  className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-gray-800 outline-none"
+                  placeholder="3.67"
+                />
+              </label>
+            </div>
           </div>
 
           <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-2 gap-2">
