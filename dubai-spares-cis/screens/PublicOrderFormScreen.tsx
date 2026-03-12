@@ -254,7 +254,7 @@ const ButtonDropdown: React.FC<{
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Поиск..."
+              placeholder="Поиск…"
               className="w-full bg-transparent text-sm outline-none"
               style={{ color: '#F9FAFB' }}
             />
@@ -347,6 +347,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
   const deliveryCityOptions = useMemo(() => DELIVERY_CITIES[deliveryCountry as keyof typeof DELIVERY_CITIES] || [], [deliveryCountry]);
   const [cityQuery, setCityQuery] = useState('');
+  const [isCityInputFocused, setCityInputFocused] = useState(false);
   const filteredCityOptions = useMemo(() => {
     const normalized = cityQuery.trim().toLowerCase();
     if (!normalized) return deliveryCityOptions;
@@ -1114,6 +1115,15 @@ Best time: ${bestContactTime || '—'}`,
     color: '#FCD34D'
   };
 
+  const onInputFocus = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    e.currentTarget.style.borderColor = '#F59E0B';
+    e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)';
+  };
+  const onInputBlur = (hasError: boolean) => (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    e.currentTarget.style.borderColor = hasError ? '#F59E0B' : '#374151';
+    e.currentTarget.style.boxShadow = 'none';
+  };
+
   return (
     <div className="min-h-screen pb-[88px]" style={{ background: '#0B1220', color: '#F9FAFB', fontFamily: 'Inter, system-ui, sans-serif' }}>
       {import.meta.env.DEV && (
@@ -1228,8 +1238,8 @@ Best time: ${bestContactTime || '—'}`,
                     onChange={(e) => setModel(e.target.value)}
                     placeholder="Введите модель вручную"
                     style={{ ...inputStyle(Boolean(errors.model)), marginTop: '8px' }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = errors.model ? '#F59E0B' : '#374151'; e.currentTarget.style.boxShadow = 'none'; }}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.model))}
                   />
                 )}
                 {errors.model && <p style={errorTextStyle}>{errors.model}</p>}
@@ -1251,8 +1261,8 @@ Best time: ${bestContactTime || '—'}`,
                     onChange={(e) => setBodyType(e.target.value.slice(0, 40))}
                     placeholder="Напр. E39, F10, W212"
                     style={inputStyle(Boolean(errors.bodyType))}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = errors.bodyType ? '#F59E0B' : '#374151'; e.currentTarget.style.boxShadow = 'none'; }}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.bodyType))}
                   />
                   {errors.bodyType && <p style={errorTextStyle}>{errors.bodyType}</p>}
                 </label>
@@ -1269,8 +1279,8 @@ Best time: ${bestContactTime || '—'}`,
                     onChange={(e) => { const formatted = formatVinInput(e.target.value); setVin(formatted); if (!formatted) return; detectByVin(formatted); }}
                     placeholder="WDB12345678901234"
                     style={{ ...inputStyle(Boolean(errors.vin)), paddingRight: '130px' }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = errors.vin ? '#F59E0B' : '#374151'; e.currentTarget.style.boxShadow = 'none'; }}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.vin))}
                   />
                   <button
                     type="button"
@@ -1278,7 +1288,7 @@ Best time: ${bestContactTime || '—'}`,
                     className="absolute right-2 flex items-center gap-1 rounded-[10px] px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-80"
                     style={{ background: 'rgba(245,158,11,0.15)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.3)' }}
                   >
-                    <Camera className="h-3 w-3" /> Scan VIN
+                    <Camera className="h-3 w-3" /> Скан VIN
                   </button>
                 </div>
                 {errors.vin && <p style={errorTextStyle}>{errors.vin}</p>}
@@ -1367,8 +1377,8 @@ Best time: ${bestContactTime || '—'}`,
                     onChange={(e) => setEngineCode(e.target.value)}
                     placeholder="Например: N52B30"
                     style={inputStyle()}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = '#374151'; e.currentTarget.style.boxShadow = 'none'; }}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(false)}
                   />
                 </label>
               </div>
@@ -1423,8 +1433,8 @@ Best time: ${bestContactTime || '—'}`,
                     }}
                     placeholder="Наименование детали"
                     style={inputStyle(Boolean(errors[`partName-${index}`]))}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = errors[`partName-${index}`] ? '#F59E0B' : '#374151'; e.currentTarget.style.boxShadow = 'none'; }}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors[`partName-${index}`]))}
                   />
                   {errors[`partName-${index}`] && <p style={errorTextStyle}>{errors[`partName-${index}`]}</p>}
                 </label>
@@ -1436,8 +1446,8 @@ Best time: ${bestContactTime || '—'}`,
                     onChange={(e) => updateRequestedPart(index, { comment: e.target.value })}
                     placeholder="Описание, артикул, особенности…"
                     style={{ ...inputStyle(), height: '48px' }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = '#374151'; e.currentTarget.style.boxShadow = 'none'; }}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(false)}
                   />
                 </label>
 
@@ -1589,8 +1599,8 @@ Best time: ${bestContactTime || '—'}`,
                       value={contactCountryCode}
                       onChange={(e) => setContactCountryCode(e.target.value)}
                       style={{ ...inputStyle(), paddingLeft: '12px', paddingRight: '8px', cursor: 'pointer' }}
-                      onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                      onBlur={(e) => { e.currentTarget.style.borderColor = '#374151'; e.currentTarget.style.boxShadow = 'none'; }}
+                      onFocus={onInputFocus}
+                      onBlur={onInputBlur(false)}
                     >
                       {PHONE_CODES.map((item) => <option key={item.id} value={item.code} style={{ background: '#1F2937' }}>{item.label} {item.code}</option>)}
                     </select>
@@ -1600,8 +1610,8 @@ Best time: ${bestContactTime || '—'}`,
                       onChange={(e) => setCustomerContact(formatPhone(e.target.value))}
                       placeholder="901234567"
                       style={inputStyle(Boolean(errors.phone))}
-                      onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                      onBlur={(e) => { e.currentTarget.style.borderColor = errors.phone ? '#F59E0B' : '#374151'; e.currentTarget.style.boxShadow = 'none'; }}
+                      onFocus={onInputFocus}
+                      onBlur={onInputBlur(Boolean(errors.phone))}
                     />
                   </div>
                   {errors.phone && <p style={errorTextStyle}>{errors.phone}</p>}
@@ -1613,8 +1623,8 @@ Best time: ${bestContactTime || '—'}`,
                 <label className="block">
                   <span style={labelStyle}>Telegram *</span>
                   <input value={telegramContact} onChange={(e) => setTelegramContact(e.target.value)} placeholder="@username" style={inputStyle(Boolean(errors.telegram))}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = errors.telegram ? '#F59E0B' : '#374151'; e.currentTarget.style.boxShadow = 'none'; }} />
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.telegram))} />
                   {errors.telegram && <p style={errorTextStyle}>{errors.telegram}</p>}
                 </label>
               )}
@@ -1622,8 +1632,8 @@ Best time: ${bestContactTime || '—'}`,
                 <label className="block">
                   <span style={labelStyle}>Instagram</span>
                   <input value={instagramContact} onChange={(e) => setInstagramContact(e.target.value)} placeholder="@username или ссылка" style={inputStyle(Boolean(errors.instagram))}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = errors.instagram ? '#F59E0B' : '#374151'; e.currentTarget.style.boxShadow = 'none'; }} />
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.instagram))} />
                   {errors.instagram && <p style={errorTextStyle}>{errors.instagram}</p>}
                 </label>
               )}
@@ -1631,17 +1641,17 @@ Best time: ${bestContactTime || '—'}`,
                 <label className="block">
                   <span style={labelStyle}>E-mail *</span>
                   <input type="email" value={emailContact} onChange={(e) => setEmailContact(e.target.value)} placeholder="you@example.com" style={inputStyle(Boolean(errors.email))}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = errors.email ? '#F59E0B' : '#374151'; e.currentTarget.style.boxShadow = 'none'; }} />
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.email))} />
                   {errors.email && <p style={errorTextStyle}>{errors.email}</p>}
                 </label>
               )}
               {preferredContactChannel === 'phone' && (
                 <label className="block">
                   <span style={labelStyle}>Телефон *</span>
-                  <input type="tel" value={phoneContact} onChange={(e) => setPhoneContact(e.target.value)} placeholder="+971..." style={inputStyle(Boolean(errors.phoneAlt))}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = errors.phoneAlt ? '#F59E0B' : '#374151'; e.currentTarget.style.boxShadow = 'none'; }} />
+                  <input type="tel" value={phoneContact} onChange={(e) => setPhoneContact(e.target.value)} placeholder="+971…" style={inputStyle(Boolean(errors.phoneAlt))}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.phoneAlt))} />
                   {errors.phoneAlt && <p style={errorTextStyle}>{errors.phoneAlt}</p>}
                 </label>
               )}
@@ -1649,8 +1659,8 @@ Best time: ${bestContactTime || '—'}`,
               <label className="block mt-4">
                 <span style={labelStyle}>Ваше имя или ник (опционально)</span>
                 <input value={clientAlias} onChange={(e) => setClientAlias(e.target.value.slice(0, 60))} placeholder="Напр. @alex" style={inputStyle()}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                  onBlur={(e) => { e.currentTarget.style.borderColor = '#374151'; e.currentTarget.style.boxShadow = 'none'; }} />
+                  onFocus={onInputFocus}
+                  onBlur={onInputBlur(false)} />
               </label>
             </div>
 
@@ -1666,15 +1676,15 @@ Best time: ${bestContactTime || '—'}`,
 
               <label className="block mb-4">
                 <span style={labelStyle}>Город (опционально)</span>
-                <div className="rounded-[14px] p-3" style={{ background: '#1F2937', border: '1px solid #374151' }}>
+                <div className="rounded-[14px] p-3" style={{ background: '#1F2937', border: isCityInputFocused ? '1px solid #F59E0B' : '1px solid #374151', boxShadow: isCityInputFocused ? '0 0 0 3px rgba(245,158,11,0.18)' : 'none', transition: 'border-color 0.15s, box-shadow 0.15s' }}>
                   <input
                     value={cityQuery}
                     onChange={(e) => { const query = e.target.value; setCityQuery(query); if (query.trim().length >= 3) setDeliveryCity(''); }}
                     placeholder="Начните вводить минимум 3 буквы"
                     className="w-full rounded-[10px] bg-transparent px-3 py-2 text-sm outline-none"
                     style={{ color: '#F9FAFB' }}
-                    onFocus={(e) => { (e.currentTarget.parentElement as HTMLElement).style.borderColor = '#F59E0B'; (e.currentTarget.parentElement as HTMLElement).style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                    onBlur={(e) => { (e.currentTarget.parentElement as HTMLElement).style.borderColor = '#374151'; (e.currentTarget.parentElement as HTMLElement).style.boxShadow = 'none'; }}
+                    onFocus={() => setCityInputFocused(true)}
+                    onBlur={() => setCityInputFocused(false)}
                   />
                   {filteredCityOptions.length > 0 && (
                     <div className="mt-2">
@@ -1706,8 +1716,8 @@ Best time: ${bestContactTime || '—'}`,
                   value={messageSource}
                   onChange={(e) => { setMessageSourceTouched(true); setMessageSource(e.target.value as Source); }}
                   style={{ ...inputStyle(), cursor: 'pointer' }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                  onBlur={(e) => { e.currentTarget.style.borderColor = '#374151'; e.currentTarget.style.boxShadow = 'none'; }}
+                  onFocus={onInputFocus}
+                  onBlur={onInputBlur(false)}
                 >
                   {[Source.INSTAGRAM, Source.WHATSAPP, Source.TELEGRAM, Source.TIKTOK, Source.FACEBOOK, Source.OTHER].map((item) => (
                     <option key={item} value={item} style={{ background: '#1F2937' }}>{item}</option>
@@ -1725,8 +1735,8 @@ Best time: ${bestContactTime || '—'}`,
                   rows={3}
                   placeholder="Комментарий к заказу"
                   style={{ width: '100%', borderRadius: '14px', border: '1px solid #374151', background: '#1F2937', padding: '14px 16px', fontSize: '16px', color: '#F9FAFB', outline: 'none', resize: 'vertical', transition: 'border-color 0.15s, box-shadow 0.15s' }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)'; }}
-                  onBlur={(e) => { e.currentTarget.style.borderColor = '#374151'; e.currentTarget.style.boxShadow = 'none'; }}
+                  onFocus={onInputFocus}
+                  onBlur={onInputBlur(false)}
                 />
               </label>
             </div>
