@@ -55,11 +55,7 @@ import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
 const CUSTOMER_STATUSES = ['Lead', 'VIP', 'Inquiry'] as const;
-const PIPELINE_STYLES: Record<(typeof CUSTOMER_STATUSES)[number], string> = {
-  Lead: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.24)]',
-  VIP: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.24)]',
-  Inquiry: 'bg-[#3B6AF7] text-white shadow-[0_4px_12px_rgba(59,106,247,0.24)]'
-};
+const PIPELINE_STAGES = ['Lead', 'VIP', 'Inquiry', 'Quote', 'Won'] as const;
 const SALES_STATUS_STYLES: Record<(typeof SALES_STATUSES)[number], string> = {
   Inquiry: 'text-[#3B6AF7] border-blue-100 bg-blue-50',
   'Price Sent': 'text-[#3B6AF7] border-blue-100 bg-blue-50',
@@ -860,6 +856,24 @@ const OrderDetailsScreen: React.FC = () => {
         isLead: prevStatus === 'Lead'
       })
     });
+  };
+
+  const resolvedPipelineStage = ((): typeof PIPELINE_STAGES[number] => {
+    if (order.isSold || order.salesStatus === 'Paid' || order.salesStatus === 'Completed') return 'Won';
+    if (order.salesStatus === 'Price Sent' || order.salesStatus === 'Pending Approval') return 'Quote';
+    if (resolvedCustomerStatus === 'VIP') return 'VIP';
+    if (resolvedCustomerStatus === 'Lead') return 'Lead';
+    return 'Inquiry';
+  })();
+
+  const updatePipelineStage = (stage: typeof PIPELINE_STAGES[number]) => {
+    if (stage === 'Lead' || stage === 'VIP' || stage === 'Inquiry') {
+      updateCustomerStatus(stage);
+    } else if (stage === 'Quote') {
+      updateOrderField('salesStatus', 'Price Sent');
+    } else if (stage === 'Won') {
+      updateOrderField('salesStatus', 'Paid');
+    }
   };
 
   const isStrictBrandShop = (shop: Shop) => {
@@ -1999,74 +2013,84 @@ const OrderDetailsScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] text-[#1E1F23]">
-      <div className="p-4 sticky top-0 z-20 backdrop-blur bg-white/95 border-b border-gray-100 space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
-        <div className="flex items-center justify-between gap-2">
-          <button type="button" onClick={() => navigate('/')} className="p-3 -ml-2 rounded-full transition-colors text-gray-600 active:bg-gray-100">
+      <div className="p-4 sticky top-0 z-20 backdrop-blur bg-white/95 border-b border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+        {/* Header row: back + title + menu */}
+        <div className="flex items-start justify-between gap-2">
+          <button type="button" onClick={() => navigate('/')} className="p-2 -ml-2 rounded-full transition-colors text-gray-600 active:bg-gray-100 mt-0.5">
             <ArrowLeft size={22} />
           </button>
-          <div className="text-left flex-1 mx-2 min-w-0">
-            <h1 className="text-[18px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model} <span className="text-slate-500">{order.year}</span></h1>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="text-[#667085]">ID <span className="font-mono font-bold text-gray-700">#{order.id.slice(0, 8).toUpperCase()}</span></span>
-              <button type="button" onClick={() => void copyText(order.id, 'ID скопирован')} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-gray-600"><Copy size={11} />Копировать</button>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700"><Cloud size={11} />Синхронизировано</span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="text-[#667085]">VIN: <span className="font-mono uppercase text-gray-700">{order.vin || 'Не добавлен'}</span></span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Возраст: {orderAgeDays} дн</span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Найдено: {foundPartsCount}/{partsCount}</span>
+          <div className="flex-1 mx-2 min-w-0">
+            <h1 className="text-[22px] font-semibold leading-tight text-[#1E1F23] truncate">{order.brand} {order.model} <span className="text-slate-400">{order.year}</span></h1>
+            <p className="text-[13px] text-[#6B7280] mt-0.5">Order #{order.id.slice(0, 8).toUpperCase()}</p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px] text-[#6B7280]">
+              <span>VIN: <span className="font-mono text-gray-700">{order.vin || '—'}</span></span>
+              <span>·</span>
+              <span>Age: {orderAgeDays} {orderAgeDays === 1 ? 'day' : 'days'}</span>
+              <span>·</span>
+              <span>Parts: {foundPartsCount} / {partsCount}</span>
             </div>
             {vinIsIncomplete && <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-[10px] font-bold text-orange-700">⚠ VIN неполный</span>}
           </div>
-          <div className="relative">
-            <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-3 rounded-full text-gray-600 active:bg-gray-100">
+          <div className="relative mt-0.5">
+            <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-2 rounded-full text-gray-600 active:bg-gray-100">
               <MoreVertical size={20} />
             </button>
             {showActionsMenu && (
-              <div className="absolute right-0 mt-1 w-56 rounded-xl border border-gray-100 bg-white shadow-lg p-1 text-xs font-semibold z-30">
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEditMode((prev) => !prev)}>Edit order</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrder({ ...order, id: `${order.id}-copy-${Date.now()}` })}>Duplicate order</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrderField('isArchived', !order.isArchived)}>{order.isArchived ? 'Unarchive' : 'Archive'}</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => void copyText('Синхронизация активна', 'Синхронизация')}>Состояние синхронизации</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEstimateOpen(true)}>Export</button>
+              <div className="absolute right-0 mt-1 w-48 rounded-xl border border-gray-100 bg-white shadow-lg p-1 text-xs font-semibold z-30">
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => { void copyText(order.id, 'ID copied'); setShowActionsMenu(false); }}>Copy ID</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => { updateOrder({ ...order, id: `${order.id}-copy-${Date.now()}` }); setShowActionsMenu(false); }}>Duplicate</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => { setIsEstimateOpen(true); setShowActionsMenu(false); }}>Export</button>
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-red-600" onClick={() => setShowActionsMenu(false)}>Delete</button>
               </div>
             )}
           </div>
         </div>
-        <div className="space-y-2 rounded-[14px] bg-white px-4 py-4 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
-          <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Pipeline</p>
-          <div className="flex items-center justify-between gap-3">
-          <div className="inline-flex rounded-[12px] bg-[#F6F7FB] border border-[#E7EAF3] p-1">
-            {CUSTOMER_STATUSES.map(status => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => updateCustomerStatus(status)}
-                className={`h-10 min-w-[84px] px-3 rounded-[10px] text-[13px] font-medium transition-all duration-150 active:scale-[0.97] ${resolvedCustomerStatus === status ? PIPELINE_STYLES[status] : 'text-gray-500'}`}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
-          <div className={`inline-flex items-center gap-1 text-xs font-bold ${isSlaBreached ? 'text-amber-700' : 'text-gray-500'}`}>
-            <Clock3 size={14} /> {orderAgeDays} дней
-          </div>
+
+        {/* Stage tracker */}
+        <div className="mt-3 flex items-center gap-0">
+          {PIPELINE_STAGES.map((stage, index) => {
+            const isActive = resolvedPipelineStage === stage;
+            const isPast = PIPELINE_STAGES.indexOf(resolvedPipelineStage) > index;
+            return (
+              <React.Fragment key={stage}>
+                <button
+                  type="button"
+                  onClick={() => updatePipelineStage(stage)}
+                  className={`h-[36px] flex-1 px-1 text-[12px] font-medium rounded-lg transition-all duration-150 truncate ${
+                    isActive
+                      ? 'bg-[#3B6AF7] text-white shadow-sm'
+                      : isPast
+                        ? 'bg-blue-50 text-[#3B6AF7]'
+                        : 'bg-transparent text-gray-400'
+                  }`}
+                >
+                  {stage}
+                </button>
+                {index < PIPELINE_STAGES.length - 1 && (
+                  <ChevronRight size={12} className={isPast || isActive ? 'text-[#3B6AF7]' : 'text-gray-300'} />
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
-        </div>
-        <div className="flex gap-2 items-center overflow-x-auto no-scrollbar">
-          <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white')}`}>
-            <span className="tracking-[0.04em]">Status</span>
-            <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="bg-transparent text-[12px] font-medium text-current outline-none">
-            {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
+
+        {/* Status + Priority row */}
+        <div className="mt-2 flex items-center gap-3 text-[12px]">
+          <div className="flex items-center gap-1.5 text-gray-600">
+            <span className="font-medium">Status:</span>
+            <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} className={`bg-transparent font-semibold outline-none ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || '').split(' ').find(c => c.startsWith('text-')) || 'text-[#3B6AF7]'}`}>
+              {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </div>
-          <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} disabled={!isEditMode} className="text-[11px] font-bold px-3 py-1.5 rounded-full bg-red-50 border border-red-200 text-red-700 shrink-0">
-            <option value={Priority.HIGH}>HIGH</option>
-            <option value={Priority.MEDIUM}>MEDIUM</option>
-            <option value={Priority.LOW}>LOW</option>
-          </select>
-          <button type="button" onClick={() => void pasteVinFromClipboard()} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">Вставить VIN</button>
+          <span className="text-gray-300">·</span>
+          <div className="flex items-center gap-1.5 text-gray-600">
+            <span className="font-medium">Priority:</span>
+            <select value={order.priority} onChange={(e) => updatePriority(e.target.value as Priority)} className="bg-transparent font-semibold outline-none text-gray-700">
+              <option value={Priority.HIGH}>High</option>
+              <option value={Priority.MEDIUM}>Medium</option>
+              <option value={Priority.LOW}>Low</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -2190,133 +2214,122 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
-        <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-5 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
-          <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Order Workspace</p>
-          <div className="grid grid-cols-1 gap-5 text-xs">
-            <div className="rounded-[14px] border border-[#E7EAF3] bg-white p-4 space-y-2">
-              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Main</p>
-              <p className="text-[20px] font-semibold text-[#1E1F23]">{order.brand} {order.model} {order.year}</p>
-              <p className="text-[20px] font-bold text-[#1E1F23]">{formatMoney(sellTotalAed, clientCurrency)}</p>
-              <p className="text-[13px] font-normal text-[#8B8F98]">Supplier: {orderWorkspaceSuppliers[0]?.name || 'Not selected'}</p>
-              <p className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-[12px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white border')}`}>
-                {order.salesStatus || 'Inquiry'}
-              </p>
+        {/* Quote Summary Block */}
+        <div className="bg-[#F8FAFC] p-4 rounded-[14px] border border-[#E5E7EB] space-y-3">
+          <p className="text-[13px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Quote summary</p>
+          <div className="space-y-1 text-[13px] text-[#374151]">
+            <div className="flex items-center justify-between">
+              <span>Purchase</span><span className="font-semibold">{formatMoney(selectedOfferTotal)}</span>
             </div>
-            <div className="rounded-[14px] border border-[#E7EAF3] bg-white p-4 space-y-3">
-              <button
-                type="button"
-                onClick={() => setIsSupplierIntelligenceExpanded((prev) => !prev)}
-                className="flex w-full items-center justify-between text-left"
-              >
-                <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Supplier intelligence</p>
-                {isSupplierIntelligenceExpanded ? <ChevronUp size={14} className="text-[#8B8F98]" /> : <ChevronDown size={14} className="text-[#8B8F98]" />}
-              </button>
-              {isSupplierIntelligenceExpanded && (
-                <>
+            <div className="flex items-center justify-between">
+              <span>Logistics</span><span className="font-semibold">{formatMoney(logisticsWithCargoTotal)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Margin</span><span className="font-semibold">{formatMoney(markupAed)}</span>
+            </div>
+            <div className="my-1 border-t border-[#E5E7EB]" />
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-medium text-[#6B7280]">Client price</span>
+              <span className="text-[22px] font-bold text-[#0F172A]">{formatMoney(sellTotalAed, clientCurrency)}</span>
+            </div>
+          </div>
+          <button type="button" onClick={() => setIsEstimateOpen(true)} className="mt-1 h-11 w-full rounded-[12px] bg-[#3B6AF7] text-white text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Send quote</button>
+        </div>
+
+        {/* Supplier Intelligence */}
+        <div className="bg-white rounded-[14px] border border-[#E7EAF3] shadow-sm overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setIsSupplierIntelligenceExpanded((prev) => !prev)}
+            className="flex w-full items-center justify-between p-4 text-left"
+          >
+            <p className="text-[13px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Supplier intelligence</p>
+            {isSupplierIntelligenceExpanded ? <ChevronUp size={14} className="text-[#8B8F98]" /> : <ChevronDown size={14} className="text-[#8B8F98]" />}
+          </button>
+          {isSupplierIntelligenceExpanded && (
+            <div className="px-4 pb-4 space-y-3">
               {orderWorkspaceSuppliers.slice(0, 3).map((supplier) => (
-                <div key={supplier.name} className="rounded-[12px] bg-[#F6F7FB] p-3 space-y-2">
-                  <p className="text-[16px] font-medium text-[#1E1F23]">{supplier.name}</p>
-                  <div className="grid grid-cols-3 gap-3 text-[#8B8F98]">
-                    <div className="flex flex-col"><span className="text-[11px] uppercase">Score</span><span className="text-[15px] font-bold text-[#1E1F23]">{supplier.score || 0}</span></div>
-                    <div className="flex flex-col"><span className="text-[11px] uppercase">Deals</span><span className="text-[15px] font-bold text-[#1E1F23]">{supplier.dealsCompleted || 0}</span></div>
-                    <div className="flex flex-col"><span className="text-[11px] uppercase">Avg price</span><span className="text-[15px] font-bold text-[#1E1F23]">{supplier.avgPrice ? `${supplier.avgPrice} AED` : '—'}</span></div>
+                <div key={supplier.name} className="rounded-[14px] border border-[#E7EAF3] bg-white p-4 space-y-2">
+                  <p className="text-[15px] font-semibold text-[#1E1F23]">{supplier.name}</p>
+                  <div className="flex flex-wrap gap-4 text-[12px] text-[#6B7280]">
+                    <span>Avg price: <strong className="text-[#1E1F23]">{supplier.avgPrice ? `${supplier.avgPrice} AED` : '—'}</strong></span>
+                    <span>Deals: <strong className="text-[#1E1F23]">{supplier.dealsCompleted || 0}</strong></span>
+                    <span>Score: <strong className="text-[#1E1F23]">{supplier.score || 0}</strong></span>
                   </div>
-                  <p className="text-[12px] text-[#8B8F98]">Response: {supplier.responseHours ? `${supplier.responseHours}h avg` : 'No data'}</p>
-                  <div className="mt-1 flex gap-2 text-[12px] font-medium">
-                    <button type="button" onClick={() => openSupplierCard(supplier.name)} className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1 active:scale-[0.98]">👁 View</button>
-                    <button type="button" onClick={() => openSupplierMap(supplier.name)} className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1 active:scale-[0.98]">📍 Map</button>
-                    <button type="button" onClick={() => contactSupplier(supplier.name)} className="rounded-[10px] border border-[#E7EAF3] bg-white px-2 py-1 active:scale-[0.98]">💬 Contact</button>
+                  <div className="flex gap-2 text-[12px] font-medium">
+                    <button type="button" onClick={() => openSupplierCard(supplier.name)} className="rounded-[10px] border border-[#E7EAF3] bg-[#F6F7FB] px-3 py-1.5 active:scale-[0.98]">View</button>
+                    <button type="button" onClick={() => openSupplierMap(supplier.name)} className="rounded-[10px] border border-[#E7EAF3] bg-[#F6F7FB] px-3 py-1.5 active:scale-[0.98]">Map</button>
+                    <button type="button" onClick={() => contactSupplier(supplier.name)} className="rounded-[10px] border border-[#E7EAF3] bg-[#F6F7FB] px-3 py-1.5 active:scale-[0.98]">Contact</button>
                   </div>
                 </div>
               ))}
-              {!orderWorkspaceSuppliers.length && <p className="text-[12px] text-[#8B8F98]">Добавьте офферы, чтобы увидеть аналитику поставщиков.</p>}
-                </>
-              )}
+              {!orderWorkspaceSuppliers.length && <p className="text-[12px] text-[#8B8F98] pb-2">Добавьте офферы, чтобы увидеть аналитику поставщиков.</p>}
             </div>
-            <div className="rounded-[16px] bg-gradient-to-r from-[#5A6CF8] to-[#6C7CFF] p-4 text-white space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.12)]">
-              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-white/90">Quote клиенту</p>
-              <div className="space-y-1 text-[13px] leading-[20px]">
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <p>Purchase</p><p className="text-right text-[16px] font-medium">{formatMoney(selectedOfferTotal)}</p>
-                <p>Margin</p><p className="text-right text-[16px] font-medium">{formatMoney(markupAed)}</p>
-                <p>Logistics</p><p className="text-right text-[16px] font-medium">{formatMoney(logisticsWithCargoTotal)}</p>
-              </div>
-                <p className="flex items-center justify-between border-t border-white/30 pt-2"><span>Client price</span><span className="text-[20px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</span></p>
-              </div>
-              <button type="button" onClick={() => setIsEstimateOpen(true)} className="mt-2 h-12 w-full rounded-[12px] bg-white text-[#3B6AF7] text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Отправить клиенту</button>
-            </div>
-            <div className="rounded-[14px] border border-[#E7EAF3] bg-white p-4 space-y-2">
-              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Панель деталей</p>
-              {partsGraphInsights.map((insight) => (
-                <p key={insight.partId} className="text-[13px] text-[#8B8F98]">
-                  <span className="font-medium text-[#1E1F23]">{insight.partName}:</span> {insight.suppliersForPart.join(', ') || 'без истории'} {insight.lastPrice ? `· last ${insight.lastPrice} AED` : ''}
-                </p>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
 
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <button type="button" onClick={() => setIsVehicleBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
-            <div>
-              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Данные автомобиля</p>
-              <p className="text-sm font-bold text-gray-800">{String(draftFields.model ?? order.model ?? '—')} · {String(draftFields.year ?? order.year ?? '—')} · {String(draftFields.bodyType ?? order.bodyType ?? '—')}</p>
+        {/* Car info */}
+        <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-sm">
+          <p className="text-[13px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98] mb-3">Car info</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[13px]">
+            <div><span className="text-[#6B7280]">Model: </span><span className="font-semibold text-[#1E1F23]">{String(draftFields.model ?? order.model ?? '—')}</span></div>
+            <div><span className="text-[#6B7280]">Year: </span><span className="font-semibold text-[#1E1F23]">{String(draftFields.year ?? order.year ?? '—')}</span></div>
+            <div><span className="text-[#6B7280]">Generation: </span><span className="font-semibold text-[#1E1F23]">{String(draftFields.bodyType ?? order.bodyType ?? '—')}</span></div>
+            <div><span className="text-[#6B7280]">Body: </span><span className="font-semibold text-[#1E1F23]">{String(draftFields.vehicleDetails?.engineType ?? order.vehicleDetails?.engineType ?? '—')}</span></div>
+            <div className="col-span-2"><span className="text-[#6B7280]">VIN: </span><span className="font-mono font-semibold text-[#1E1F23]">{order.vin || '—'}</span></div>
+          </div>
+          {isVehicleBlockExpanded && (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Модель</label>
+                <input
+                  type="text"
+                  value={String(draftFields.model ?? order.model ?? '')}
+                  readOnly={!isEditMode}
+                  onChange={(e) => updateOrderField('model', e.target.value)}
+                  onBlur={() => flushDeferredOrderField('model')}
+                  className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Год</label>
+                <input
+                  type="text"
+                  value={String(draftFields.year ?? order.year ?? '')}
+                  readOnly={!isEditMode}
+                  onChange={(e) => updateOrderField('year', e.target.value)}
+                  onBlur={() => flushDeferredOrderField('year')}
+                  className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Поколение / Кузов</label>
+                <input
+                  type="text"
+                  value={String(draftFields.bodyType ?? order.bodyType ?? '')}
+                  readOnly={!isEditMode}
+                  onChange={(e) => updateOrderField('bodyType', e.target.value)}
+                  onBlur={() => flushDeferredOrderField('bodyType')}
+                  placeholder="E39 / F10 / S-Class"
+                  className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+                />
+              </div>
             </div>
-            {isVehicleBlockExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+          )}
+          <button type="button" onClick={() => setIsVehicleBlockExpanded((prev) => !prev)} className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-[#3B6AF7]">
+            {isVehicleBlockExpanded ? <><ChevronUp size={13} /> Hide edit fields</> : <><ChevronDown size={13} /> Edit fields</>}
           </button>
-          {isVehicleBlockExpanded && <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Model: {String(draftFields.model ?? order.model ?? '—')}</div>
-          <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Year: {String(draftFields.year ?? order.year ?? '—')}</div>
-          <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Generation: {String(draftFields.bodyType ?? order.bodyType ?? '—')}</div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Модель</label>
-            <input
-              type="text"
-              value={String(draftFields.model ?? order.model ?? '')}
-              readOnly={!isEditMode}
-              onChange={(e) => updateOrderField('model', e.target.value)}
-              onBlur={() => flushDeferredOrderField('model')}
-              className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Год</label>
-            <input
-              type="text"
-              value={String(draftFields.year ?? order.year ?? '')}
-              readOnly={!isEditMode}
-              onChange={(e) => updateOrderField('year', e.target.value)}
-              onBlur={() => flushDeferredOrderField('year')}
-              className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Тип кузова</label>
-            <input
-              type="text"
-              value={String(draftFields.bodyType ?? order.bodyType ?? '')}
-              readOnly={!isEditMode}
-              onChange={(e) => updateOrderField('bodyType', e.target.value)}
-              onBlur={() => flushDeferredOrderField('bodyType')}
-              placeholder="E39 / F10 / S-Class"
-              className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-            />
-          </div>
-          </div>}
         </div>
 
-
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <button type="button" onClick={() => setIsVehicleDetailsExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
-            <div>
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Подробные данные автомобиля</p>
-              <p className="text-[11px] text-gray-500 mt-1">Двигатель, привод, коробка, рынок/спецификация и другие важные параметры для точного подбора деталей.</p>
-            </div>
+        {/* Car Details (accordion) */}
+        <div className="bg-white rounded-[14px] border border-[#E7EAF3] shadow-sm overflow-hidden">
+          <button type="button" onClick={() => setIsVehicleDetailsExpanded((prev) => !prev)} className="flex w-full items-center justify-between p-4 text-left">
+            <p className="text-[13px] font-semibold text-[#1E1F23]">Car details</p>
             {isVehicleDetailsExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
           </button>
 
           {isVehicleDetailsExpanded && (
-            <>
+            <div className="px-4 pb-4">
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Тип двигателя</label>
@@ -2480,22 +2493,22 @@ const OrderDetailsScreen: React.FC = () => {
               className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
             />
           </div>
-            </>
+            </div>
           )}
         </div>
 
-        <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Фото автомобиля</div>
+        <div className="bg-white rounded-[14px] border border-[#E7EAF3] shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between p-4">
+            <div className="text-[13px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Фото автомобиля</div>
             <>
               <input type="file" ref={carFileRef} onChange={handleCarPhotoChange} className="hidden" accept="image/*" multiple />
               <button type="button" onClick={() => carFileRef.current?.click()} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Добавить фото</button>
             </>
           </div>
           {getCarPhotos().length > 0 ? (
-            <div className="flex gap-2 overflow-x-auto no-scrollbar">
+            <div className="flex gap-2 overflow-x-auto no-scrollbar px-4 pb-4">
               {getCarPhotos().map((ph, i) => (
-                <div key={i} className="relative w-[180px] h-[120px] rounded-[12px] overflow-hidden border border-gray-100 shrink-0">
+                <div key={i} className="relative w-full aspect-video rounded-[12px] overflow-hidden border border-gray-100 shrink-0 min-w-[240px]">
                   <button type="button" className="w-full h-full" onClick={(e) => { e.stopPropagation(); setGallery({ images: getCarPhotos(), index: i }); }}>
                     <img src={ph} className="w-full h-full object-cover" />
                   </button>
@@ -2504,27 +2517,28 @@ const OrderDetailsScreen: React.FC = () => {
               ))}
             </div>
           ) : (
-            <p className="text-xs text-gray-400">Фотографии автомобиля не добавлены.</p>
+            <p className="text-xs text-gray-400 px-4 pb-4">Фотографии автомобиля не добавлены.</p>
           )}
         </div>
 
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <button type="button" onClick={() => setIsPricingCargoExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
+        {/* Cargo settings */}
+        <div className="bg-white rounded-[14px] border border-[#E7EAF3] shadow-sm overflow-hidden">
+          <button type="button" onClick={() => setIsPricingCargoExpanded((prev) => !prev)} className="flex w-full items-center justify-between p-4 text-left">
             <div>
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Наценка и карго</p>
-              <p className="text-xs font-semibold text-gray-600">{formatMoney(markupAed)} · {order.logistics?.cargoCountry || cargoCalc.country}</p>
+              <p className="text-[13px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Cargo settings</p>
+              <p className="text-[12px] text-gray-500 mt-0.5">{order.logistics?.cargoCountry || cargoCalc.country} · Margin {formatMoney(markupAed)} · {order.clientCurrency || 'AED'} · {(order.exchangeRate || 3.67).toFixed(2)}</p>
             </div>
             {isPricingCargoExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
           </button>
           {isPricingCargoExpanded && (
-            <>
+            <div className="px-4 pb-4 space-y-4">
         <div className="grid grid-cols-1 gap-3">
-          <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
+          <div className="bg-[#F8FAFC] p-3 rounded-xl border border-[#E5E7EB]">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Margin</span>
-              <div className="inline-flex rounded-xl border border-gray-200 p-1">
+              <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Margin</span>
+              <div className="inline-flex rounded-xl border border-gray-200 p-0.5">
                 <button type="button" onClick={() => updateOrderField('markupType', 'percent')} className={`px-3 py-1 text-xs font-bold rounded-lg ${(order.markupType || 'percent') === 'percent' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>%</button>
-                <button type="button" onClick={() => updateOrderField('markupType', 'fixed')} className={`px-3 py-1 text-xs font-bold rounded-lg ${(order.markupType || 'percent') === 'fixed' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>фикс</button>
+                <button type="button" onClick={() => updateOrderField('markupType', 'fixed')} className={`px-3 py-1 text-xs font-bold rounded-lg ${(order.markupType || 'percent') === 'fixed' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>Fix</button>
               </div>
             </div>
             {(order.markupType || 'percent') === 'percent' ? (
@@ -2556,7 +2570,7 @@ const OrderDetailsScreen: React.FC = () => {
                 </select>
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Курс USD→AED</span>
+                <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Rate</span>
                 <input
                   type="text"
                   inputMode="decimal"
@@ -2570,23 +2584,23 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-2 gap-2">
-            <div className="col-span-2">
-              <span className="text-sm font-semibold text-slate-600">Страна карго</span>
-              <select
-                value={order.logistics?.cargoCountry || cargoCalc.country}
-                onChange={(e) => updateCargoField({ cargoCountry: e.target.value })}
-                className="mt-2 h-14 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 text-lg font-bold text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                {cargoTariffOptions.map((item) => <option key={item.country} value={item.country}>{item.country}</option>)}
-              </select>
-              <p className="mt-2 text-xs text-slate-500">Страна влияет на расчёт доставки и отображение логистики в invoice.</p>
+          <div className="bg-[#F8FAFC] p-3 rounded-xl border border-[#E5E7EB] space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide block mb-1">Country</span>
+                <select
+                  value={order.logistics?.cargoCountry || cargoCalc.country}
+                  onChange={(e) => updateCargoField({ cargoCountry: e.target.value })}
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none"
+                >
+                  {cargoTariffOptions.map((item) => <option key={item.country} value={item.country}>{item.country}</option>)}
+                </select>
+              </div>
             </div>
-            <div className="col-span-2 rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
-              <p className="text-sm font-semibold text-slate-700">Параметры cargo по деталям</p>
-              <p className="mt-1 text-xs text-slate-500">Эти параметры используются для расчёта логистики и отображения в invoice.</p>
+            <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-[12px] font-semibold text-slate-700 mb-2">Part | Weight | Places</p>
               {(order.parts || []).length === 0 ? (
-                <p className="mt-3 text-xs text-slate-500">Добавьте детали, чтобы рассчитать карго.</p>
+                <p className="text-xs text-slate-500">Добавьте детали, чтобы рассчитать карго.</p>
               ) : (
                 <>
                   {(() => {
@@ -2709,9 +2723,9 @@ const OrderDetailsScreen: React.FC = () => {
               )}
             </div>
             {([
-              { field: 'deliveryAed', label: 'Доставка' },
-              { field: 'packingAed', label: 'Упаковка' },
-              { field: 'serviceFeeAed', label: 'Комиссия' }
+              { field: 'deliveryAed', label: 'Delivery' },
+              { field: 'packingAed', label: 'Packing' },
+              { field: 'serviceFeeAed', label: 'Service fee' }
             ] as const).map(({ field, label }) => (
               <LogisticsAmountInput
                 key={field}
@@ -2733,29 +2747,38 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           </div>
 
-<div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-2">
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Purchase</p><p className="font-black text-gray-800">{formatMoney(selectedOfferTotal)}</p></div>
-              <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Cargo</p><p className="font-black text-gray-800">{formatDualMoney(cargoTotalAed)}</p></div>
-              <div className="rounded-xl bg-blue-50 px-3 py-2"><p className="text-blue-500">Margin</p><p className="font-black text-blue-700">{formatDualMoney(markupAed)}</p></div>
-              <div className="rounded-xl bg-emerald-50 px-3 py-2"><p className="text-emerald-500">Client price</p><p className="font-black text-emerald-700">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
+          {/* Profit summary */}
+          <div className="bg-[#F8FAFC] p-4 rounded-xl border border-[#E5E7EB] space-y-1.5 text-[13px]">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280] mb-2">Profit summary</p>
+            <div className="flex items-center justify-between text-[#374151]">
+              <span>Purchase</span><span className="font-semibold">{formatMoney(selectedOfferTotal)}</span>
             </div>
-            <div className="rounded-xl bg-emerald-100 px-3 py-2 text-sm font-black text-emerald-800">Чистая прибыль: {canComputeProfit && netProfitAed !== null ? formatDualMoney(netProfitAed) : '—'}</div>
-            {!canComputeProfit && <div className="text-xs font-semibold text-gray-500">Добавьте варианты цен.</div>}
-            {isLoss && <div className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">Вы уходите в минус ⚠️</div>}
-            {isMarkupMissing && <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Наценка отсутствует. Прибыль = 0.</div>}
-            {lowMargin && <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Рекомендуемая маржа: 10-20%</div>}
+            <div className="flex items-center justify-between text-[#374151]">
+              <span>Cargo</span><span className="font-semibold">{formatDualMoney(cargoTotalAed)}</span>
+            </div>
+            <div className="flex items-center justify-between text-[#374151]">
+              <span>Margin</span><span className="font-semibold">{formatDualMoney(markupAed)}</span>
+            </div>
+            <div className="border-t border-[#E5E7EB] my-1" />
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-[#1E1F23]">Profit</span>
+              <span className="font-bold text-[#1E1F23]">{canComputeProfit && netProfitAed !== null ? formatDualMoney(netProfitAed) : '—'}</span>
+            </div>
+            {!canComputeProfit && <p className="text-xs text-gray-400">Add price options to see profit.</p>}
+            {isLoss && <p className="text-xs font-bold text-red-600">⚠️ Operating at a loss</p>}
+            {isMarkupMissing && <p className="text-xs font-bold text-amber-600">No markup. Profit = 0.</p>}
+            {lowMargin && <p className="text-xs font-bold text-amber-600">Recommended margin: 10–20%</p>}
           </div>
 
-          <div className="grid grid-cols-1 gap-2">
-            <div className="grid grid-cols-3 gap-2">
-              <button type="button" onClick={openClientChannel} className="h-11 rounded-2xl bg-emerald-50 text-emerald-700 text-[11px] font-black uppercase">{contactActionLabel}</button>
-              <button type="button" onClick={() => partInputRef.current?.focus()} className="h-11 rounded-2xl bg-blue-50 px-2 text-blue-700 text-[11px] font-black">Добавить деталь</button>
-              <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-2xl bg-slate-100 px-2 text-slate-700 text-[11px] font-black">Добавить поставщика</button>
-            </div>
+          {/* Action buttons */}
+          <div className="grid grid-cols-3 gap-2">
+            <button type="button" onClick={() => setIsEstimateOpen(true)} className="col-span-3 h-11 rounded-2xl bg-[#3B6AF7] text-white text-[12px] font-bold">Send to client</button>
+            <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-50 px-2 text-blue-700 text-[11px] font-black">Add part</button>
+            <button type="button" onClick={() => navigate('/database')} className="h-10 rounded-xl bg-slate-100 px-2 text-slate-700 text-[11px] font-black">Add supplier</button>
+            <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[11px] font-black">{contactActionLabel}</button>
           </div>
         </div>
-            </>
+            </div>
           )}
         </div>
 
@@ -3136,23 +3159,30 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-2.5 shadow-[0_-6px_16px_rgba(0,0,0,0.08)]">
-        <button type="button" onClick={() => setIsBottomSummaryExpanded((prev) => !prev)} className="w-full rounded-xl bg-slate-50 px-3 py-2 text-left">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700">
-            <span>Purchase {formatMoney(selectedOfferTotal)} · Margin {formatDualMoney(markupAed)} · Cargo {formatDualMoney(cargoTotalAed)} · Profit {netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</span>
-            <ChevronUp size={14} className={`transition-transform ${isBottomSummaryExpanded ? '' : 'rotate-180'}`} />
-          </div>
-        </button>
-        {isBottomSummaryExpanded && (
-          <div className="mt-2 grid grid-cols-2 gap-1.5">
-            <div><p className="text-[10px] text-gray-400">Client price</p><p className="text-[13px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
-            <div><p className="text-[10px] text-gray-400">Profit</p><p className="text-[13px] font-bold text-emerald-600">{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
-          </div>
-        )}
-        <div className="mt-2 grid gap-2 grid-cols-3">
-          <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black">{contactActionLabel}</button>
-          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-600 text-white text-[10px] font-black">Добавить деталь</button>
-          <button type="button" onClick={() => setIsEstimateOpen(true)} className="h-10 rounded-xl bg-gray-900 text-white text-[10px] font-black">Сформировать quote</button>
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-100 bg-white/95 backdrop-blur shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+        <div className="px-4 pt-2 pb-1">
+          <button type="button" onClick={() => setIsBottomSummaryExpanded((prev) => !prev)} className="w-full">
+            <div className="flex items-center justify-between text-[11px] text-slate-600">
+              <div className="flex items-center gap-3">
+                <span><span className="text-[#6B7280]">Purchase</span> <strong className="text-[#1E1F23]">{formatMoney(selectedOfferTotal)}</strong></span>
+                <span><span className="text-[#6B7280]">Cargo</span> <strong className="text-[#1E1F23]">{formatMoney(cargoTotalAed)}</strong></span>
+                <span><span className="text-[#6B7280]">Margin</span> <strong className="text-[#1E1F23]">{formatMoney(markupAed)}</strong></span>
+                <span><span className="text-[#6B7280]">Profit</span> <strong className={netProfitAed !== null && netProfitAed > 0 ? 'text-emerald-600' : 'text-[#1E1F23]'}>{netProfitAed === null ? '—' : formatMoney(netProfitAed)}</strong></span>
+              </div>
+              <ChevronUp size={13} className={`text-gray-400 transition-transform ${isBottomSummaryExpanded ? '' : 'rotate-180'}`} />
+            </div>
+          </button>
+          {isBottomSummaryExpanded && (
+            <div className="mt-2 pt-2 border-t border-gray-100 grid grid-cols-2 gap-1.5">
+              <div><p className="text-[10px] text-gray-400">Client price</p><p className="text-[13px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
+              <div><p className="text-[10px] text-gray-400">Profit</p><p className="text-[13px] font-bold text-emerald-600">{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
+            </div>
+          )}
+        </div>
+        <div className="px-4 pb-3 mt-1 grid gap-2 grid-cols-3">
+          <button type="button" onClick={() => setIsEstimateOpen(true)} className="col-span-1 h-10 rounded-xl bg-[#3B6AF7] text-white text-[11px] font-bold">Send to client</button>
+          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-50 text-blue-700 text-[11px] font-bold">Add part</button>
+          <button type="button" onClick={() => navigate('/database')} className="h-10 rounded-xl bg-slate-100 text-slate-700 text-[11px] font-bold">Add supplier</button>
         </div>
       </div>
 
