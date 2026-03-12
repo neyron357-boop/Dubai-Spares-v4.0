@@ -13,7 +13,7 @@ import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
 import { CarFront, PlusCircle, Database, Bell, Settings, Layers } from 'lucide-react';
-import { getUnreadNotificationsCount } from './notificationCenter';
+import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
 import { playSound } from './utils/sounds';
@@ -183,6 +183,10 @@ const App: React.FC = () => {
   useEffect(() => {
     const bootTimer = window.setTimeout(() => setIsBooting(false), 240);
     return () => window.clearTimeout(bootTimer);
+  }, []);
+
+  useEffect(() => {
+    void initNotificationsFromServer();
   }, []);
 
   useEffect(() => {

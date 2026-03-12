@@ -1,3 +1,5 @@
+import { supabase } from './supabase';
+
 export enum NotificationType {
   ORDER_NEW = 'ORDER_NEW',
   ORDER_STATUS_CHANGED = 'ORDER_STATUS_CHANGED',
@@ -140,6 +142,154 @@ const persist = (list: AppNotification[]) => {
   window.dispatchEvent(new CustomEvent('notifications:changed'));
 };
 
+// ── Server persistence helpers ────────────────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const toUuidOrNull = (value?: string): string | null =>
+  value && UUID_RE.test(value.trim()) ? value.trim() : null;
+
+const notificationToRow = (item: AppNotification) => ({
+  client_id: item.id,
+  created_at: new Date(item.createdAt).toISOString(),
+  type: item.type,
+  title: item.title,
+  message: item.message,
+  severity: item.severity,
+  source: item.source || null,
+  order_id: toUuidOrNull(item.orderId),
+  supplier_id: toUuidOrNull(item.supplierId),
+  part_id: item.partId || null,
+  route: item.route || null,
+  payload: {},
+  read_at: item.readAt ? new Date(item.readAt).toISOString() : null,
+  archived_at: item.archivedAt ? new Date(item.archivedAt).toISOString() : null,
+  signature: item.signature || null,
+  snooze_until: item.snoozeUntil || null,
+  follow_up_at: item.followUpAt || null,
+  entity_type: item.entityType || null,
+  entity_id: item.entityId || null,
+  radar_session_id: item.radarSessionId || null,
+  phone: item.phone || null,
+  map_url: item.mapUrl || null,
+  lat: item.lat ?? null,
+  lng: item.lng ?? null,
+  distance_m: item.distanceM ?? null,
+  brand: item.brand || null,
+  car_model: item.carModel || null,
+  car_year: item.carYear || null,
+  offline: item.offline || false
+});
+
+const rowToNotification = (row: Record<string, unknown>): AppNotification | null => {
+  if (!row || typeof row !== 'object') return null;
+  return normalizeNotification({
+    id: row.client_id || row.id,
+    type: row.type,
+    title: row.title,
+    message: row.message,
+    severity: row.severity,
+    source: row.source,
+    orderId: row.order_id,
+    supplierId: row.supplier_id,
+    partId: row.part_id,
+    route: row.route,
+    createdAt: row.created_at ? Date.parse(String(row.created_at)) : Date.now(),
+    readAt: row.read_at ? Date.parse(String(row.read_at)) : undefined,
+    archivedAt: row.archived_at ? Date.parse(String(row.archived_at)) : undefined,
+    signature: row.signature,
+    snoozeUntil: row.snooze_until ? Number(row.snooze_until) : undefined,
+    followUpAt: row.follow_up_at ? Number(row.follow_up_at) : undefined,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    radarSessionId: row.radar_session_id,
+    phone: row.phone,
+    mapUrl: row.map_url,
+    lat: row.lat != null ? Number(row.lat) : undefined,
+    lng: row.lng != null ? Number(row.lng) : undefined,
+    distanceM: row.distance_m != null ? Number(row.distance_m) : undefined,
+    brand: row.brand,
+    carModel: row.car_model,
+    carYear: row.car_year != null ? Number(row.car_year) : undefined,
+    offline: row.offline === true
+  });
+};
+
+/** Fire-and-forget upsert of a single notification to the server. */
+const syncNotificationToServer = (item: AppNotification): void => {
+  if (!supabase) return;
+  const row = notificationToRow(item);
+  void supabase
+    .from('activity_notifications')
+    .upsert(row, { onConflict: 'client_id', ignoreDuplicates: false })
+    .then(({ error }) => {
+      if (error) console.warn('[notificationCenter] server upsert failed', error.message);
+    });
+};
+
+/** Fire-and-forget update of read/archived state for a notification on the server. */
+const syncNotificationStateToServer = (clientId: string, update: { read_at?: string | null; archived_at?: string | null; snooze_until?: number | null; follow_up_at?: number | null }): void => {
+  if (!supabase) return;
+  void supabase
+    .from('activity_notifications')
+    .update(update)
+    .eq('client_id', clientId)
+    .then(({ error }) => {
+      if (error) console.warn('[notificationCenter] server update failed', error.message);
+    });
+};
+
+/**
+ * Load notifications from the server and merge them into localStorage.
+ * Call this once on app startup to restore notifications that survived cache clearing.
+ */
+export const initNotificationsFromServer = async (): Promise<void> => {
+  if (!supabase) return;
+  try {
+    const { data, error } = await supabase
+      .from('activity_notifications')
+      .select('*')
+      .not('client_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(MAX_ITEMS);
+
+    if (error || !data) {
+      console.warn('[notificationCenter] server load failed', error?.message);
+      return;
+    }
+
+    const serverItems = (data as Array<Record<string, unknown>>)
+      .map(rowToNotification)
+      .filter(Boolean) as AppNotification[];
+
+    if (serverItems.length === 0) return;
+
+    // Merge: server items take precedence over local items for shared IDs
+    const local = getNotifications();
+    const localById = new Map(local.map((n) => [n.id, n]));
+    serverItems.forEach((s) => {
+      // Server read/archived state wins if more recent
+      const l = localById.get(s.id);
+      if (!l) {
+        localById.set(s.id, s);
+      } else {
+        const merged: AppNotification = {
+          ...l,
+          readAt: s.readAt && (!l.readAt || s.readAt > l.readAt) ? s.readAt : l.readAt,
+          archivedAt: s.archivedAt && (!l.archivedAt || s.archivedAt > l.archivedAt) ? s.archivedAt : l.archivedAt,
+          snoozeUntil: s.snoozeUntil ?? l.snoozeUntil,
+          followUpAt: s.followUpAt ?? l.followUpAt
+        };
+        localById.set(s.id, merged);
+      }
+    });
+
+    const merged = Array.from(localById.values()).sort((a, b) => b.createdAt - a.createdAt);
+    persist(merged);
+  } catch (err) {
+    console.warn('[notificationCenter] server load error', err);
+  }
+};
+
 const getReadSignatures = () => {
   try {
     const raw = localStorage.getItem(READ_SIGNATURES_KEY);
@@ -215,24 +365,28 @@ export const pushNotification = (payload: Omit<AppNotification, 'id' | 'createdA
   };
   delete (next as any).allowDuplicates;
   persist([next, ...list]);
+  syncNotificationToServer(next);
   return next;
 };
 
 export const markNotificationRead = (id: string) => {
   const signatures = getReadSignatures();
+  const now = Date.now();
   const list = getNotifications().map((item) => {
     if (item.id !== id) return item;
-    if (item.signature) signatures[item.signature] = Date.now();
-    return { ...item, readAt: Date.now() };
+    if (item.signature) signatures[item.signature] = now;
+    return { ...item, readAt: now };
   });
   persistReadSignatures(signatures);
   persist(list);
+  syncNotificationStateToServer(id, { read_at: new Date(now).toISOString() });
 };
 
 export const markNotificationsRead = (ids: string[]) => {
   const target = new Set(ids);
   const signatures = getReadSignatures();
   const now = Date.now();
+  const readAtIso = new Date(now).toISOString();
   const list = getNotifications().map((item) => {
     if (!target.has(item.id)) return item;
     if (item.signature) signatures[item.signature] = now;
@@ -240,17 +394,20 @@ export const markNotificationsRead = (ids: string[]) => {
   });
   persistReadSignatures(signatures);
   persist(list);
+  ids.forEach((id) => syncNotificationStateToServer(id, { read_at: readAtIso }));
 };
 
 export const markAllNotificationsRead = () => {
   const signatures = getReadSignatures();
   const now = Date.now();
+  const readAtIso = new Date(now).toISOString();
   const list = getNotifications().map((item) => {
     if (item.signature) signatures[item.signature] = now;
     return { ...item, readAt: now };
   });
   persistReadSignatures(signatures);
   persist(list);
+  list.forEach((item) => syncNotificationStateToServer(item.id, { read_at: readAtIso }));
 };
 
 export const restoreNotificationReadState = (snapshot: Array<{ id: string; readAt?: number }>) => {
@@ -260,13 +417,16 @@ export const restoreNotificationReadState = (snapshot: Array<{ id: string; readA
 };
 
 export const archiveNotification = (id: string) => {
-  const list = getNotifications().map((item) => item.id === id ? { ...item, archivedAt: Date.now() } : item);
+  const archivedAt = Date.now();
+  const list = getNotifications().map((item) => item.id === id ? { ...item, archivedAt } : item);
   persist(list);
+  syncNotificationStateToServer(id, { archived_at: new Date(archivedAt).toISOString() });
 };
 
 export const restoreFromArchive = (id: string) => {
   const list = getNotifications().map((item) => item.id === id ? { ...item, archivedAt: undefined } : item);
   persist(list);
+  syncNotificationStateToServer(id, { archived_at: null });
 };
 
 export const completeFollowupNotification = archiveNotification;
@@ -280,6 +440,7 @@ export const clearAllNotifications = (tab: NotificationTab = 'active') => {
 export const snoozeNotification = (id: string, snoozeUntil: number) => {
   const list = getNotifications().map((item) => item.id === id ? { ...item, snoozeUntil, followUpAt: snoozeUntil, readAt: undefined } : item);
   persist(list);
+  syncNotificationStateToServer(id, { snooze_until: snoozeUntil, follow_up_at: snoozeUntil });
 };
 
 export const createFollowupFromAction = (payload: {
