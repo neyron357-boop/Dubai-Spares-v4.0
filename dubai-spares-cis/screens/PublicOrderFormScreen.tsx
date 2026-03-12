@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Camera, Check, ChevronDown, ChevronLeft, Copy, Loader2, Mic, MicOff, Search, Trash2, Upload } from 'lucide-react';
+import { ArrowRight, Camera, Check, ChevronDown, ChevronLeft, Loader2, Mic, MicOff, Search, Trash2, Upload } from 'lucide-react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
 import { leadCreate } from '../serverApi';
 import { BRAND_MODELS, BRANDS, YEARS } from '../constants';
@@ -22,10 +22,10 @@ const MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
 
 const STEP_NAMES = ['Автомобиль', 'Детали', 'Контакты', 'Подтверждение'];
 const STEP_TITLES: Record<FormStep, string> = {
-  1: 'Введите, пожалуйста, данные вашего автомобиля',
-  2: 'Введите, какую запчасть вы ищете',
-  3: 'Укажите контакты для связи и доставки',
-  4: 'Проверьте данные и подтвердите отправку заявки'
+  1: 'Введите данные автомобиля',
+  2: 'Укажите нужные детали',
+  3: 'Контакт и доставка',
+  4: 'Проверьте и отправьте заявку'
 };
 const CONTACT_TIME_OPTIONS = [
   '09:00 - 11:00',
@@ -240,21 +240,23 @@ const ButtonDropdown: React.FC<{
           if (justSelected) return;
           setOpen((prev) => !prev);
         }}
-        className="flex h-14 w-full items-center justify-between rounded-3xl border border-white/15 bg-white/10 px-5 text-left text-base outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        style={{ height: '56px', background: '#1F2937', borderRadius: '14px', border: open ? '1px solid #F59E0B' : '1px solid #374151', boxShadow: open ? '0 0 0 3px rgba(245,158,11,0.18)' : 'none' }}
+        className="flex w-full items-center justify-between px-4 text-left text-base outline-none transition-all disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <span className={value ? 'text-white' : 'text-slate-300'}>{value || `${placeholder}${required ? ' *' : ''}`}</span>
-        <ChevronDown className={`h-4 w-4 text-slate-300 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span style={{ color: value ? '#F9FAFB' : '#6B7280' }}>{value || `${placeholder}${required ? ' *' : ''}`}</span>
+        <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} style={{ color: '#9CA3AF' }} />
       </button>
 
       {open && (
-        <div className="absolute z-40 mt-2 w-full rounded-2xl border border-white/15 bg-slate-900/95 p-2 shadow-2xl backdrop-blur">
-          <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 py-2">
-            <Search className="h-4 w-4 text-slate-300" />
+        <div className="absolute z-40 mt-2 w-full rounded-2xl p-2 shadow-2xl" style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.1)' }}>
+          <div className="mb-2 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: '#1F2937', border: '1px solid #374151' }}>
+            <Search className="h-4 w-4" style={{ color: '#9CA3AF' }} />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Поиск..."
-              className="w-full bg-transparent text-sm text-white outline-none"
+              placeholder="Поиск…"
+              className="w-full bg-transparent text-sm outline-none"
+              style={{ color: '#F9FAFB' }}
             />
           </div>
           <div className="max-h-52 overflow-y-auto">
@@ -268,11 +270,12 @@ const ButtonDropdown: React.FC<{
                   setOpen(false);
                   setQuery('');
                 }}
-                className="w-full rounded-xl px-3 py-2 text-left text-sm text-slate-100 hover:bg-white/10"
+                className="w-full rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-white/10"
+                style={{ color: '#F9FAFB' }}
               >
                 {item}
               </button>
-            )) : <p className="px-3 py-2 text-xs text-slate-300">Ничего не найдено</p>}
+            )) : <p className="px-3 py-2 text-xs" style={{ color: '#9CA3AF' }}>Ничего не найдено</p>}
           </div>
         </div>
       )}
@@ -344,6 +347,7 @@ const PublicOrderFormScreen: React.FC = () => {
   const modelOptions = useMemo(() => BRAND_MODELS[brand] || [], [brand]);
   const deliveryCityOptions = useMemo(() => DELIVERY_CITIES[deliveryCountry as keyof typeof DELIVERY_CITIES] || [], [deliveryCountry]);
   const [cityQuery, setCityQuery] = useState('');
+  const [isCityInputFocused, setCityInputFocused] = useState(false);
   const filteredCityOptions = useMemo(() => {
     const normalized = cityQuery.trim().toLowerCase();
     if (!normalized) return deliveryCityOptions;
@@ -1036,77 +1040,165 @@ Best time: ${bestContactTime || '—'}`,
 
   if (showThanks) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black px-4 py-10 text-white">
-        <div className="mx-auto w-full max-w-xl rounded-[32px] border border-white/10 bg-white/5 p-8 shadow-[0_40px_120px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-          <div className="mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400/20 text-emerald-300"><Check className="h-8 w-8" /></div>
-          <h1 className="text-3xl font-semibold tracking-tight">Заявка принята</h1>
-          <p className="mt-2 text-slate-200">Номер заявки: <b>{createdOrderId}</b></p>
-          <p className="mt-1 text-slate-300">Обычно отвечаем в течение 10–20 минут.</p>
-          <div className="mt-5 grid gap-2 sm:grid-cols-2">
-            {whatsappPhone && <a href={`https://wa.me/${whatsappPhone}`} target="_blank" rel="noreferrer" className="rounded-2xl bg-emerald-400 px-4 py-3 text-center font-semibold text-slate-900">Перейти в WhatsApp</a>}
-            <button type="button" onClick={() => navigator.clipboard.writeText(publicFormUrl)} className="rounded-2xl border border-white/25 px-4 py-3 text-sm font-semibold">Скопировать ссылку на форму</button>
-            {settings.publicTelegramUrl && <a href={settings.publicTelegramUrl} target="_blank" rel="noreferrer" className="rounded-2xl border border-sky-300/40 bg-sky-400/20 px-4 py-3 text-center text-sm font-semibold text-sky-100">Telegram</a>}
-            {settings.publicInstagramUrl && <a href={settings.publicInstagramUrl} target="_blank" rel="noreferrer" className="rounded-2xl border border-pink-300/40 bg-pink-400/20 px-4 py-3 text-center text-sm font-semibold text-pink-100">Instagram</a>}
+      <div className="min-h-screen flex items-center justify-center px-4 py-10" style={{ background: '#0B1220', color: '#F9FAFB', fontFamily: 'Inter, system-ui, sans-serif' }}>
+        <div className="w-full max-w-[640px] rounded-[24px] p-8 text-center" style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full" style={{ background: 'rgba(16,185,129,0.15)' }}>
+            <Check className="h-8 w-8" style={{ color: '#10B981' }} />
           </div>
-          <button type="button" onClick={() => setShowThanks(false)} className="mt-6 rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-900">Создать новую заявку</button>
+          <h1 className="text-3xl font-semibold tracking-tight">Заявка отправлена</h1>
+          <p className="mt-3 text-base" style={{ color: '#9CA3AF' }}>Мы свяжемся с вами в течение 10–20 минут.</p>
+          <p className="mt-2 text-sm" style={{ color: '#6B7280' }}>Номер заявки: <span style={{ color: '#F9FAFB', fontWeight: 600 }}>{createdOrderId}</span></p>
+          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+            {whatsappPhone && (
+              <a href={`https://wa.me/${whatsappPhone}`} target="_blank" rel="noreferrer"
+                className="flex items-center justify-center rounded-[14px] py-3 text-sm font-semibold transition-opacity hover:opacity-90"
+                style={{ background: 'linear-gradient(135deg, #F59E0B, #FCD34D)', color: '#0B1220' }}>
+                Перейти в WhatsApp
+              </a>
+            )}
+            <button type="button" onClick={() => navigator.clipboard.writeText(publicFormUrl)}
+              className="flex items-center justify-center rounded-[14px] py-3 text-sm font-semibold transition-colors hover:bg-white/10"
+              style={{ border: '1px solid rgba(255,255,255,0.15)', color: '#F9FAFB' }}>
+              Скопировать ссылку
+            </button>
+            {settings.publicTelegramUrl && (
+              <a href={settings.publicTelegramUrl} target="_blank" rel="noreferrer"
+                className="flex items-center justify-center rounded-[14px] py-3 text-sm font-semibold"
+                style={{ border: '1px solid rgba(125,211,252,0.3)', background: 'rgba(14,165,233,0.12)', color: '#BAE6FD' }}>
+                Telegram
+              </a>
+            )}
+            {settings.publicInstagramUrl && (
+              <a href={settings.publicInstagramUrl} target="_blank" rel="noreferrer"
+                className="flex items-center justify-center rounded-[14px] py-3 text-sm font-semibold"
+                style={{ border: '1px solid rgba(244,114,182,0.3)', background: 'rgba(236,72,153,0.1)', color: '#FBCFE8' }}>
+                Instagram
+              </a>
+            )}
+          </div>
         </div>
       </div>
     );
   }
 
+  // CSS helpers
+  const inputStyle = (hasError = false): React.CSSProperties => ({
+    height: '56px',
+    background: '#1F2937',
+    borderRadius: '14px',
+    border: hasError ? '1px solid #F59E0B' : '1px solid #374151',
+    paddingLeft: '16px',
+    paddingRight: '16px',
+    fontSize: '16px',
+    color: '#F9FAFB',
+    width: '100%',
+    outline: 'none',
+    transition: 'border-color 0.15s, box-shadow 0.15s'
+  });
+  const labelStyle: React.CSSProperties = {
+    display: 'block',
+    fontSize: '12px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+    color: '#9CA3AF',
+    marginBottom: '6px'
+  };
+  const cardStyle: React.CSSProperties = {
+    background: '#111827',
+    borderRadius: '18px',
+    padding: '24px',
+    border: '1px solid rgba(255,255,255,0.06)'
+  };
+  const errorTextStyle: React.CSSProperties = {
+    marginTop: '4px',
+    fontSize: '12px',
+    color: '#FCD34D'
+  };
+
+  const onInputFocus = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    e.currentTarget.style.borderColor = '#F59E0B';
+    e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.18)';
+  };
+  const onInputBlur = (hasError: boolean) => (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    e.currentTarget.style.borderColor = hasError ? '#F59E0B' : '#374151';
+    e.currentTarget.style.boxShadow = 'none';
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black px-4 py-4 pb-32 text-white sm:py-8">
+    <div className="min-h-screen pb-[88px]" style={{ background: '#0B1220', color: '#F9FAFB', fontFamily: 'Inter, system-ui, sans-serif' }}>
       {import.meta.env.DEV && (
-        <div className="fixed top-2 right-2 z-50 text-xs font-mono bg-black/80 text-white px-3 py-2 rounded-lg">
+        <div className="fixed top-2 right-2 z-50 rounded-lg px-3 py-2 text-xs font-mono" style={{ background: 'rgba(0,0,0,0.85)', color: '#F9FAFB' }}>
           Cloud: {isCloudConfigured ? '✅ ON' : (cloudFeatureFlags.clientForm ? '⚠️ PARTIAL' : '❌ OFF')}
           {' | '}
           Form: {cloudFeatureFlags.clientForm ? '✅' : '❌'}
         </div>
       )}
-      <div className="mx-auto w-full max-w-2xl rounded-[32px] border border-white/10 bg-white/5 p-5 shadow-[0_25px_80px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-8">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs uppercase tracking-[0.26em] text-slate-300">Dubai Spares Concierge</p>
-          {companyLogoUrl && <img src={companyLogoUrl} alt="Company logo" className="h-10 w-auto max-w-[160px] object-contain" />}
-        </div>
-                <div className="mt-2 flex items-center justify-between gap-3">
-                  <h1 className="text-3xl font-semibold tracking-tight">{stepTitle}</h1>
-                  <button type="button" onClick={startNewRequest} className="rounded-2xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold">Начать новую заявку</button>
-                </div>
 
-        <div className="mb-6 mt-6">
-          <div className="mb-2 flex items-center justify-between text-xs text-slate-300"><span>Шаг {step} из {TOTAL_STEPS}</span><span>{Math.round(progress)}%</span></div>
-          <div className="mb-2 flex gap-2 overflow-x-auto pb-2 text-xs">
-            {STEP_NAMES.map((name, index) => {
-              const itemStep = (index + 1) as FormStep;
-              return (
+      {/* HEADER */}
+      <div className="mx-auto w-full max-w-[640px] px-6" style={{ paddingTop: '28px', paddingBottom: '12px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '8px' }}>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: '#9CA3AF' }}>Dubai Spares Concierge</span>
+          {companyLogoUrl && <img src={companyLogoUrl} alt="Company logo" className="h-9 w-auto max-w-[140px] object-contain" />}
+        </div>
+        <h1 style={{ fontSize: '36px', fontWeight: 600, lineHeight: 1.2, margin: 0, color: '#F9FAFB' }}>{stepTitle}</h1>
+      </div>
+
+      {/* PROGRESS NAVIGATION */}
+      <div className="mx-auto w-full max-w-[640px] px-6 pb-4">
+        <div className="flex items-center mb-4">
+          {STEP_NAMES.map((name, index) => {
+            const itemStep = (index + 1) as FormStep;
+            const isCompleted = step > itemStep;
+            const isActive = step === itemStep;
+            return (
+              <React.Fragment key={name}>
                 <button
-                  key={name}
                   type="button"
                   onClick={() => goToStep(itemStep)}
-                  className={`rounded-full border px-3 py-1 whitespace-nowrap transition ${step >= itemStep ? 'border-amber-200/70 bg-amber-200/15' : 'border-white/20'}`}
+                  className="flex items-center gap-1.5 shrink-0 transition-all"
+                  style={{ fontSize: '14px', fontWeight: isActive ? 600 : 400, color: (isCompleted || isActive) ? '#F59E0B' : '#6B7280', border: isActive ? '1px solid #F59E0B' : '1px solid transparent', borderRadius: '20px', padding: '4px 10px', background: isActive ? 'rgba(245,158,11,0.08)' : 'transparent', cursor: 'pointer', outline: 'none' }}
                 >
-                  {name}
+                  <span style={{ fontWeight: 700 }}>{itemStep}</span>
+                  <span className="hidden sm:inline">{name}</span>
                 </button>
-              );
-            })}
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-amber-300 via-orange-300 to-yellow-100 transition-all duration-500" style={{ width: `${progress}%` }} /></div>
+                {index < STEP_NAMES.length - 1 && (
+                  <div className="flex-1 mx-1" style={{ height: '1px', background: step > itemStep ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.1)' }} />
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
+        {/* Progress bar */}
+        <div style={{ height: '6px', borderRadius: '99px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', borderRadius: '99px', background: 'linear-gradient(90deg, #F59E0B, #FCD34D)', width: `${progress}%`, transition: 'width 0.4s ease' }} />
+        </div>
+      </div>
+
+      {/* FORM CONTENT */}
+      <div className="mx-auto w-full max-w-[640px] px-6" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
         {step < 4 && stepBlockingErrors.length > 0 && (
-          <div className="mb-4 rounded-2xl border border-amber-300/40 bg-amber-200/10 px-4 py-3 text-xs text-amber-100">
-            <p className="font-semibold">Заполните обязательные поля:</p>
-            <ul className="mt-1 list-disc space-y-1 pl-4">
+          <div className="rounded-[14px] px-4 py-3 text-xs" style={{ border: '1px solid rgba(245,158,11,0.35)', background: 'rgba(245,158,11,0.08)', color: '#FCD34D' }}>
+            <p className="font-semibold mb-1">Заполните обязательные поля:</p>
+            <ul className="list-disc pl-4 space-y-0.5">
               {Array.from(new Set(stepBlockingErrors.map((item) => item.message))).map((message) => <li key={message}>{message}</li>)}
             </ul>
           </div>
         )}
-        <div className="space-y-4 pr-1 transition-all duration-300">
-          {step === 1 && (
-            <>
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm">🚗 {brand || 'Марка'} {model || ''} {year || ''}</div>
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Марка *</span>
+
+        {/* ── STEP 1: АВТОМОБИЛЬ ── */}
+        {step === 1 && (
+          <>
+            {/* Car summary chip */}
+            <div className="flex items-center gap-2 rounded-[14px] px-4 py-3 text-sm" style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <span>🚗</span>
+              <span style={{ color: '#9CA3AF' }}>{[brand, model, year].filter(Boolean).join(' ') || 'Заполните данные ниже'}</span>
+            </div>
+
+            {/* Марка + Модель card */}
+            <div style={cardStyle}>
+              <label className="block mb-5">
+                <span style={labelStyle}>Марка *</span>
                 <ButtonDropdown
                   value={brand}
                   placeholder="Выберите марку"
@@ -1117,11 +1209,11 @@ Best time: ${bestContactTime || '—'}`,
                     setManualModelMode(false);
                   }}
                 />
-                {errors.brand && <p className="mt-1 text-xs text-amber-200">{errors.brand}</p>}
+                {errors.brand && <p style={errorTextStyle}>{errors.brand}</p>}
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Модель *</span>
+                <span style={labelStyle}>Модель *</span>
                 <ButtonDropdown
                   value={model}
                   placeholder="Выберите модель"
@@ -1135,7 +1227,8 @@ Best time: ${bestContactTime || '—'}`,
                 <button
                   type="button"
                   onClick={() => setManualModelMode((prev) => !prev)}
-                  className="mt-2 text-xs font-semibold text-slate-200 underline underline-offset-2"
+                  className="mt-2 text-xs font-semibold underline underline-offset-2"
+                  style={{ color: '#9CA3AF' }}
                 >
                   {manualModelMode ? 'Выбрать модель из списка' : 'Добавить модель вручную'}
                 </button>
@@ -1144,80 +1237,188 @@ Best time: ${bestContactTime || '—'}`,
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
                     placeholder="Введите модель вручную"
-                    className={`mt-2 h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.model ? 'border-amber-300' : 'border-white/15'}`}
+                    style={{ ...inputStyle(Boolean(errors.model)), marginTop: '8px' }}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.model))}
                   />
                 )}
-                {errors.model && <p className="mt-1 text-xs text-amber-200">{errors.model}</p>}
+                {errors.model && <p style={errorTextStyle}>{errors.model}</p>}
               </label>
+            </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+            {/* Год + Тип кузова card */}
+            <div style={cardStyle}>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <label>
-                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Год *</span>
-                  <ButtonDropdown value={year} placeholder="Выберите год" options={YEARS.map((item) => String(item))} required onChange={setYear} />
-                  {errors.year && <p className="mt-1 text-xs text-amber-200">{errors.year}</p>}
+                  <span style={labelStyle}>Год *</span>
+                  <ButtonDropdown value={year} placeholder="Год выпуска" options={YEARS.map((item) => String(item))} required onChange={setYear} />
+                  {errors.year && <p style={errorTextStyle}>{errors.year}</p>}
                 </label>
                 <label>
-                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Тип кузова (опционально)</span>
-                  <input value={bodyType} onChange={(e) => setBodyType(e.target.value.slice(0, 40))} placeholder="Например: E39, F10, W212" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.bodyType ? 'border-amber-300' : 'border-white/15'}`} />
-                  {errors.bodyType && <p className="mt-1 text-xs text-amber-200">{errors.bodyType}</p>}
+                  <span style={labelStyle}>Тип кузова (опционально)</span>
+                  <input
+                    value={bodyType}
+                    onChange={(e) => setBodyType(e.target.value.slice(0, 40))}
+                    placeholder="Напр. E39, F10, W212"
+                    style={inputStyle(Boolean(errors.bodyType))}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.bodyType))}
+                  />
+                  {errors.bodyType && <p style={errorTextStyle}>{errors.bodyType}</p>}
                 </label>
               </div>
+            </div>
 
+            {/* VIN card */}
+            <div style={cardStyle}>
               <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">VIN (опционально)</span>
-                <input value={vin} onChange={(e) => { const formatted = formatVinInput(e.target.value); setVin(formatted); if (!formatted) return; detectByVin(formatted); }} className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.vin ? 'border-amber-300' : 'border-white/15'}`} placeholder="WDB12345678901234" />
-                {errors.vin && <p className="mt-1 text-xs text-amber-200">{errors.vin}</p>}
-              </label>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">VIN фото (опционально, для быстрого подбора)</span>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <button type="button" onClick={() => vinInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Upload className="h-4 w-4" />Галерея</button>
-                  <button type="button" onClick={() => vinCameraInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Camera className="h-4 w-4" />Камера</button>
+                <span style={labelStyle}>VIN (опционально)</span>
+                <div className="relative flex items-center">
+                  <input
+                    value={vin}
+                    onChange={(e) => { const formatted = formatVinInput(e.target.value); setVin(formatted); if (!formatted) return; detectByVin(formatted); }}
+                    placeholder="WDB12345678901234"
+                    style={{ ...inputStyle(Boolean(errors.vin)), paddingRight: '130px' }}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.vin))}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => vinCameraInputRef.current?.click()}
+                    className="absolute right-2 flex items-center gap-1 rounded-[10px] px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-80"
+                    style={{ background: 'rgba(245,158,11,0.15)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.3)' }}
+                  >
+                    <Camera className="h-3 w-3" /> Скан VIN
+                  </button>
                 </div>
+                {errors.vin && <p style={errorTextStyle}>{errors.vin}</p>}
+              </label>
+
+              {/* VIN photo upload */}
+              <div className="mt-5">
+                <span style={labelStyle}>VIN фото (опционально)</span>
+                {!vinPhotoData ? (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => vinInputRef.current?.click()}
+                      className="flex flex-col items-center justify-center gap-1 transition-colors hover:bg-white/5"
+                      style={{ height: '100px', borderRadius: '14px', border: '1.5px dashed rgba(255,255,255,0.2)', fontSize: '13px', color: '#9CA3AF' }}
+                    >
+                      <Upload className="h-5 w-5 mb-1" />
+                      <span>📷 Добавить фото</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => vinCameraInputRef.current?.click()}
+                      className="flex flex-col items-center justify-center gap-1 transition-colors hover:bg-white/5"
+                      style={{ height: '100px', borderRadius: '14px', border: '1.5px dashed rgba(255,255,255,0.2)', fontSize: '13px', color: '#9CA3AF' }}
+                    >
+                      <Camera className="h-5 w-5 mb-1" />
+                      <span>Сделать фото</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <img src={vinPhotoData} alt="vin-preview" className="w-full rounded-[14px] object-cover" style={{ height: '120px' }} />
+                    <button type="button" onClick={() => setVinPhotoData(null)} className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-xs" style={{ background: 'rgba(0,0,0,0.7)', color: '#F9FAFB' }}>✕</button>
+                  </div>
+                )}
                 <input ref={vinInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setVinPhotoData); e.target.value = ''; }} />
                 <input ref={vinCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setVinPhotoData); e.target.value = ''; }} />
-                {vinPhotoData && <img src={vinPhotoData} alt="vin-preview" className="mt-2 h-28 w-full rounded-xl object-cover" />}
               </div>
+            </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Фото автомобиля (опционально, для быстрого подбора)</span>
+            {/* Car photo upload */}
+            <div style={cardStyle}>
+              <span style={labelStyle}>Фото автомобиля (опционально)</span>
+              {!carPhotoData ? (
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <button type="button" onClick={() => carInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Upload className="h-4 w-4" />Галерея</button>
-                  <button type="button" onClick={() => carCameraInputRef.current?.click()} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold"><Camera className="h-4 w-4" />Камера</button>
+                  <button
+                    type="button"
+                    onClick={() => carInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center gap-1 transition-colors hover:bg-white/5"
+                    style={{ height: '100px', borderRadius: '14px', border: '1.5px dashed rgba(255,255,255,0.2)', fontSize: '13px', color: '#9CA3AF' }}
+                  >
+                    <Upload className="h-5 w-5 mb-1" />
+                    <span>📷 Добавить фото</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => carCameraInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center gap-1 transition-colors hover:bg-white/5"
+                    style={{ height: '100px', borderRadius: '14px', border: '1.5px dashed rgba(255,255,255,0.2)', fontSize: '13px', color: '#9CA3AF' }}
+                  >
+                    <Camera className="h-5 w-5 mb-1" />
+                    <span>Сделать фото</span>
+                  </button>
                 </div>
-                <input ref={carInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); e.target.value = ''; }} />
-                <input ref={carCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); e.target.value = ''; }} />
-                {carPhotoData && <img src={carPhotoData} alt="car-preview" className="mt-2 h-28 w-full rounded-xl object-cover" />}
-              </div>
-            </>
-          )}
+              ) : (
+                <div className="relative">
+                  <img src={carPhotoData} alt="car-preview" className="w-full rounded-[14px] object-cover" style={{ height: '120px' }} />
+                  <button type="button" onClick={() => setCarPhotoData(null)} className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-xs" style={{ background: 'rgba(0,0,0,0.7)', color: '#F9FAFB' }}>✕</button>
+                </div>
+              )}
+              <input ref={carInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); e.target.value = ''; }} />
+              <input ref={carCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileToDataUrl(file, setCarPhotoData); e.target.value = ''; }} />
+            </div>
+          </>
+        )}
 
-          {step === 2 && (
-            <>
-              {showEngineCode && (
+        {/* ── STEP 2: ДЕТАЛИ ── */}
+        {step === 2 && (
+          <>
+            {showEngineCode && (
+              <div style={cardStyle}>
                 <label className="block">
-                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Код двигателя (для BMW)</span>
-                  <input value={engineCode} onChange={(e) => setEngineCode(e.target.value)} placeholder="Например: N52B30" className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" />
+                  <span style={labelStyle}>Код двигателя (для BMW)</span>
+                  <input
+                    value={engineCode}
+                    onChange={(e) => setEngineCode(e.target.value)}
+                    placeholder="Например: N52B30"
+                    style={inputStyle()}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(false)}
+                  />
                 </label>
-              )}
+              </div>
+            )}
 
-              {(PART_SUGGESTIONS[smartSuggestionKey] || []).length > 0 && (
-                <div className="rounded-2xl border border-amber-200/30 bg-amber-200/10 p-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-amber-100">Популярные детали</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {PART_SUGGESTIONS[smartSuggestionKey].map((item) => (
-                      <button type="button" key={item} onClick={() => addRequestedPart(item)} className="rounded-full border border-amber-100/40 px-3 py-1 text-xs">{item}</button>
-                    ))}
-                  </div>
+            {(PART_SUGGESTIONS[smartSuggestionKey] || []).length > 0 && (
+              <div className="rounded-[14px] p-4" style={{ border: '1px solid rgba(245,158,11,0.25)', background: 'rgba(245,158,11,0.07)' }}>
+                <p className="text-xs font-semibold uppercase tracking-[0.1em] mb-2" style={{ color: '#FCD34D' }}>Популярные детали</p>
+                <div className="flex flex-wrap gap-2">
+                  {PART_SUGGESTIONS[smartSuggestionKey].map((item) => (
+                    <button
+                      type="button"
+                      key={item}
+                      onClick={() => addRequestedPart(item)}
+                      className="rounded-full px-3 py-1 text-xs transition-colors hover:bg-amber-400/20"
+                      style={{ border: '1px solid rgba(245,158,11,0.35)', color: '#FCD34D' }}
+                    >
+                      {item}
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
 
-              {requestedParts.map((part, index) => (
-                <div key={part.id} className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-300">Деталь #{index + 1}</p>
-                    <button type="button" onClick={() => setRequestedParts((current) => current.length === 1 ? [createRequestedPartInput()] : current.filter((item) => item.id !== part.id))} className="rounded-lg border border-white/20 p-1 text-slate-200"><Trash2 className="h-4 w-4" /></button>
-                  </div>
+            {requestedParts.map((part, index) => (
+              <div key={part.id} style={{ ...cardStyle, position: 'relative' }}>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.1em]" style={{ color: '#9CA3AF' }}>Деталь #{index + 1}</p>
+                  <button
+                    type="button"
+                    onClick={() => setRequestedParts((current) => current.length === 1 ? [createRequestedPartInput()] : current.filter((item) => item.id !== part.id))}
+                    className="flex h-8 w-8 items-center justify-center rounded-[10px] transition-colors hover:bg-red-500/15"
+                    style={{ border: '1px solid rgba(255,255,255,0.12)', color: '#9CA3AF' }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <label className="block mb-3">
+                  <span style={labelStyle}>Название детали *</span>
                   <input
                     value={part.name}
                     onChange={(e) => {
@@ -1230,216 +1431,506 @@ Best time: ${bestContactTime || '—'}`,
                       }
                       updateRequestedPart(index, { name: value });
                     }}
-                    placeholder="Наименование детали *"
-                    className={`h-12 w-full rounded-2xl border bg-white/10 px-4 outline-none ${errors[`partName-${index}`] ? 'border-amber-300' : 'border-white/15'}`}
+                    placeholder="Наименование детали"
+                    style={inputStyle(Boolean(errors[`partName-${index}`]))}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors[`partName-${index}`]))}
                   />
-                  <div className="mt-2 grid gap-2">
-                    <input value={part.comment} onChange={(e) => updateRequestedPart(index, { comment: e.target.value })} placeholder="Комментарий" className="h-11 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm outline-none" />
-                  </div>
-                  {errors[`partName-${index}`] && <p className="mt-1 text-xs text-amber-200">{errors[`partName-${index}`]}</p>}
-                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                    <input id={`${part.id}-gallery`} type="file" accept="image/*" multiple onChange={(e) => { if (e.target.files?.length) { void handleFilesToDataUrls(e.target.files, (values) => { updateRequestedPart(index, { photoDataList: [...part.photoDataList, ...values].slice(0, MAX_PART_PHOTOS) }); void logger.info('public-form:media', 'Part photo attached from gallery', { partId: part.id, index, count: values.length }); }); } e.target.value = ''; }} className="hidden" />
-                    <input id={`${part.id}-camera`} type="file" accept="image/*" capture="environment" onChange={(e) => { if (e.target.files?.length) { void handleFilesToDataUrls(e.target.files, (values) => { updateRequestedPart(index, { photoDataList: [...part.photoDataList, ...values].slice(0, MAX_PART_PHOTOS) }); void logger.info('public-form:media', 'Part photo attached from camera', { partId: part.id, index, count: values.length }); }); } e.target.value = ''; }} className="hidden" />
-                    <label htmlFor={`${part.id}-gallery`} className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs"><Upload className="h-3 w-3" />Фото ({part.photoDataList.length})</label>
-                    <label htmlFor={`${part.id}-camera`} className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs"><Camera className="h-3 w-3" />Камера</label>
-                    {voiceEnabled && <button type="button" onClick={() => void togglePartVoiceRecording(part.id, index)} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 text-xs">{recordingPartId === part.id ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}{recordingPartId === part.id ? 'Стоп' : 'Голос'}</button>}
-                  </div>
-                  {recordingPartId === part.id && <div className="mt-2 flex h-5 items-end gap-1">{Array.from({ length: 18 }).map((_, waveIndex) => <span key={`${part.id}-record-${waveIndex}`} className="w-1 rounded-full bg-rose-300 transition-all" style={{ height: `${25 + Math.abs(Math.sin((recordingTick + waveIndex) * 0.8)) * 75}%` }} />)}</div>}
-                  {part.photoDataList.length > 0 && (
-                    <div className="mt-2 rounded-2xl border border-white/20 bg-black/20 p-2">
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        {part.photoDataList.map((photo, photoIndex) => (
-                          <div key={`${part.id}-photo-${photoIndex}`} className="relative">
-                            <img src={photo} alt={`part-${index}-preview-${photoIndex}`} className="h-24 w-full rounded-xl object-cover" />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                updateRequestedPart(index, { photoDataList: part.photoDataList.filter((_, idx) => idx !== photoIndex) });
-                                void logger.info('public-form:media', 'Part photo removed', { partId: part.id, index, photoIndex });
-                              }}
-                              className="absolute right-1 top-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="mt-2 px-1 text-xs text-slate-300">Фото: {part.photoDataList.length}/{MAX_PART_PHOTOS}</p>
-                    </div>
-                  )}
-                  {part.audioNote && (
-                    <div className="mt-2 flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 p-2">
-                      <audio controls src={part.audioNote} className="h-8 w-full" />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          updateRequestedPart(index, { audioNote: null });
-                          void logger.info('public-form:media', 'Part audio removed', { partId: part.id, index });
-                        }}
-                        className="shrink-0 rounded-lg border border-white/20 px-2 py-1 text-[11px]"
-                      >
-                        Удалить
-                      </button>
-                    </div>
+                  {errors[`partName-${index}`] && <p style={errorTextStyle}>{errors[`partName-${index}`]}</p>}
+                </label>
+
+                <label className="block mb-4">
+                  <span style={labelStyle}>Комментарий</span>
+                  <input
+                    value={part.comment}
+                    onChange={(e) => updateRequestedPart(index, { comment: e.target.value })}
+                    placeholder="Описание, артикул, особенности…"
+                    style={{ ...inputStyle(), height: '48px' }}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(false)}
+                  />
+                </label>
+
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <input id={`${part.id}-gallery`} type="file" accept="image/*" multiple onChange={(e) => { if (e.target.files?.length) { void handleFilesToDataUrls(e.target.files, (values) => { updateRequestedPart(index, { photoDataList: [...part.photoDataList, ...values].slice(0, MAX_PART_PHOTOS) }); void logger.info('public-form:media', 'Part photo attached from gallery', { partId: part.id, index, count: values.length }); }); } e.target.value = ''; }} className="hidden" />
+                  <input id={`${part.id}-camera`} type="file" accept="image/*" capture="environment" onChange={(e) => { if (e.target.files?.length) { void handleFilesToDataUrls(e.target.files, (values) => { updateRequestedPart(index, { photoDataList: [...part.photoDataList, ...values].slice(0, MAX_PART_PHOTOS) }); void logger.info('public-form:media', 'Part photo attached from camera', { partId: part.id, index, count: values.length }); }); } e.target.value = ''; }} className="hidden" />
+
+                  <label
+                    htmlFor={`${part.id}-gallery`}
+                    className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[10px] text-xs font-medium transition-colors hover:bg-white/10"
+                    style={{ border: '1px solid rgba(255,255,255,0.15)', color: '#9CA3AF' }}
+                  >
+                    📷 Фото ({part.photoDataList.length})
+                  </label>
+                  <label
+                    htmlFor={`${part.id}-camera`}
+                    className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[10px] text-xs font-medium transition-colors hover:bg-white/10"
+                    style={{ border: '1px solid rgba(255,255,255,0.15)', color: '#9CA3AF' }}
+                  >
+                    <Camera className="h-3.5 w-3.5" /> Камера
+                  </label>
+                  {voiceEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => void togglePartVoiceRecording(part.id, index)}
+                      className="flex h-10 items-center justify-center gap-2 rounded-[10px] text-xs font-medium transition-colors hover:bg-white/10"
+                      style={{ border: recordingPartId === part.id ? '1px solid rgba(239,68,68,0.5)' : '1px solid rgba(255,255,255,0.15)', color: recordingPartId === part.id ? '#FCA5A5' : '#9CA3AF', background: recordingPartId === part.id ? 'rgba(239,68,68,0.08)' : 'transparent' }}
+                    >
+                      {recordingPartId === part.id ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                      {recordingPartId === part.id ? 'Стоп' : '🎤 Голос'}
+                    </button>
                   )}
                 </div>
-              ))}
 
-              {requestedParts.length < MAX_REQUEST_PART_FIELDS && <button type="button" onClick={() => addRequestedPart()} className="h-12 w-full rounded-2xl border border-white/20 bg-white/10 text-sm font-semibold">+ Добавить ещё</button>}
-            </>
-          )}
+                {recordingPartId === part.id && (
+                  <div className="mt-3 flex h-5 items-end gap-1">
+                    {Array.from({ length: 18 }).map((_, waveIndex) => (
+                      <span key={`${part.id}-record-${waveIndex}`} className="w-1 rounded-full transition-all" style={{ background: '#FCA5A5', height: `${25 + Math.abs(Math.sin((recordingTick + waveIndex) * 0.8)) * 75}%` }} />
+                    ))}
+                  </div>
+                )}
 
-          {step === 3 && (
-            <>
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Предпочтительный канал связи *</span>
-                <select value={preferredContactChannel} onChange={(e) => switchContactChannel(e.target.value as ContactChannel)} className="h-12 w-full rounded-2xl border border-white/20 bg-white/10 px-4 text-sm outline-none">
-                  <option value="whatsapp" className="text-slate-900">WhatsApp</option>
-                  <option value="telegram" className="text-slate-900">Telegram</option>
-                  <option value="instagram" className="text-slate-900">Instagram</option>
-                  <option value="email" className="text-slate-900">E-mail</option>
-                  <option value="phone" className="text-slate-900">Телефон</option>
-                </select>
+                {part.photoDataList.length > 0 && (
+                  <div className="mt-3 rounded-[14px] p-3" style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.2)' }}>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {part.photoDataList.map((photo, photoIndex) => (
+                        <div key={`${part.id}-photo-${photoIndex}`} className="relative">
+                          <img src={photo} alt={`part-${index}-preview-${photoIndex}`} className="w-full rounded-[10px] object-cover" style={{ height: '80px' }} />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateRequestedPart(index, { photoDataList: part.photoDataList.filter((_, idx) => idx !== photoIndex) });
+                              void logger.info('public-form:media', 'Part photo removed', { partId: part.id, index, photoIndex });
+                            }}
+                            className="absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[10px]"
+                            style={{ background: 'rgba(0,0,0,0.7)', color: '#F9FAFB' }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 px-1 text-xs" style={{ color: '#6B7280' }}>Фото: {part.photoDataList.length}/{MAX_PART_PHOTOS}</p>
+                  </div>
+                )}
+
+                {part.audioNote && (
+                  <div className="mt-3 flex items-center gap-2 rounded-[14px] p-3" style={{ border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)' }}>
+                    <audio controls src={part.audioNote} className="h-8 w-full" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateRequestedPart(index, { audioNote: null });
+                        void logger.info('public-form:media', 'Part audio removed', { partId: part.id, index });
+                      }}
+                      className="shrink-0 rounded-[10px] px-2 py-1 text-[11px] transition-colors hover:bg-white/10"
+                      style={{ border: '1px solid rgba(255,255,255,0.15)', color: '#9CA3AF' }}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {requestedParts.length < MAX_REQUEST_PART_FIELDS && (
+              <button
+                type="button"
+                onClick={() => addRequestedPart()}
+                className="flex h-14 w-full items-center justify-center gap-2 rounded-[18px] text-sm font-semibold transition-colors hover:bg-white/5"
+                style={{ border: '1.5px dashed rgba(255,255,255,0.2)', color: '#9CA3AF' }}
+              >
+                + Добавить ещё деталь
+              </button>
+            )}
+          </>
+        )}
+
+        {/* ── STEP 3: КОНТАКТЫ ── */}
+        {step === 3 && (
+          <>
+            {/* Блок 1 — Контакт */}
+            <div style={cardStyle}>
+              <p className="text-sm font-semibold mb-4" style={{ color: '#F9FAFB' }}>Способ связи</p>
+
+              <label className="block mb-4">
+                <span style={labelStyle}>Предпочтительный канал *</span>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['whatsapp', 'telegram', 'phone'] as const).map((ch) => (
+                    <button
+                      key={ch}
+                      type="button"
+                      onClick={() => switchContactChannel(ch)}
+                      className="flex h-11 items-center justify-center rounded-[12px] text-sm font-medium transition-all"
+                      style={{
+                        border: preferredContactChannel === ch ? '1px solid #F59E0B' : '1px solid rgba(255,255,255,0.12)',
+                        background: preferredContactChannel === ch ? 'rgba(245,158,11,0.12)' : '#1F2937',
+                        color: preferredContactChannel === ch ? '#F59E0B' : '#9CA3AF'
+                      }}
+                    >
+                      {ch === 'whatsapp' ? 'WhatsApp' : ch === 'telegram' ? 'Telegram' : 'Телефон'}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {(['instagram', 'email'] as const).map((ch) => (
+                    <button
+                      key={ch}
+                      type="button"
+                      onClick={() => switchContactChannel(ch)}
+                      className="flex h-11 items-center justify-center rounded-[12px] text-sm font-medium transition-all"
+                      style={{
+                        border: preferredContactChannel === ch ? '1px solid #F59E0B' : '1px solid rgba(255,255,255,0.12)',
+                        background: preferredContactChannel === ch ? 'rgba(245,158,11,0.12)' : '#1F2937',
+                        color: preferredContactChannel === ch ? '#F59E0B' : '#9CA3AF'
+                      }}
+                    >
+                      {ch === 'instagram' ? 'Instagram' : 'E-mail'}
+                    </button>
+                  ))}
+                </div>
               </label>
 
               {preferredContactChannel === 'whatsapp' && (
                 <label className="block">
-                  <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">WhatsApp *</span>
-                  <div className="grid grid-cols-[130px_1fr] gap-2">
-                    <select value={contactCountryCode} onChange={(e) => setContactCountryCode(e.target.value)} className="h-14 rounded-3xl border border-white/15 bg-white/10 px-3 text-sm outline-none">{PHONE_CODES.map((item) => <option key={item.id} value={item.code} className="text-slate-900">{item.label} {item.code}</option>)}</select>
-                    <input type="tel" value={customerContact} onChange={(e) => setCustomerContact(formatPhone(e.target.value))} placeholder="901234567" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-lg outline-none ${errors.phone ? 'border-amber-300' : 'border-white/15'}`} />
+                  <span style={labelStyle}>Номер WhatsApp *</span>
+                  <div className="grid gap-2" style={{ gridTemplateColumns: '140px 1fr' }}>
+                    <select
+                      value={contactCountryCode}
+                      onChange={(e) => setContactCountryCode(e.target.value)}
+                      style={{ ...inputStyle(), paddingLeft: '12px', paddingRight: '8px', cursor: 'pointer' }}
+                      onFocus={onInputFocus}
+                      onBlur={onInputBlur(false)}
+                    >
+                      {PHONE_CODES.map((item) => <option key={item.id} value={item.code} style={{ background: '#1F2937' }}>{item.label} {item.code}</option>)}
+                    </select>
+                    <input
+                      type="tel"
+                      value={customerContact}
+                      onChange={(e) => setCustomerContact(formatPhone(e.target.value))}
+                      placeholder="901234567"
+                      style={inputStyle(Boolean(errors.phone))}
+                      onFocus={onInputFocus}
+                      onBlur={onInputBlur(Boolean(errors.phone))}
+                    />
                   </div>
-                  {errors.phone && <p className="mt-1 text-xs text-amber-200">{errors.phone}</p>}
-                  {customerContact && <p className={`mt-1 text-xs ${isWhatsappValid ? 'text-emerald-200' : 'text-red-300'}`}>{isWhatsappValid ? 'WhatsApp номер выглядит корректно' : 'Введите номер полностью'}</p>}
+                  {errors.phone && <p style={errorTextStyle}>{errors.phone}</p>}
+                  {customerContact && <p className="mt-1 text-xs" style={{ color: isWhatsappValid ? '#6EE7B7' : '#FCA5A5' }}>{isWhatsappValid ? 'Номер выглядит корректно ✓' : 'Введите номер полностью'}</p>}
                 </label>
               )}
 
-              {preferredContactChannel === 'telegram' && <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Telegram *</span><input value={telegramContact} onChange={(e) => setTelegramContact(e.target.value)} placeholder="@username" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.telegram ? 'border-amber-300' : 'border-white/15'}`} />{errors.telegram && <p className="mt-1 text-xs text-amber-200">{errors.telegram}</p>}</label>}
-              {preferredContactChannel === 'instagram' && <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Instagram</span><input value={instagramContact} onChange={(e) => setInstagramContact(e.target.value)} placeholder="@username или ссылка" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.instagram ? 'border-amber-300' : 'border-white/15'}`} />{errors.instagram && <p className="mt-1 text-xs text-amber-200">{errors.instagram}</p>}</label>}
-              {preferredContactChannel === 'email' && <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">E-mail *</span><input type="email" value={emailContact} onChange={(e) => setEmailContact(e.target.value)} placeholder="you@example.com" className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.email ? 'border-amber-300' : 'border-white/15'}`} />{errors.email && <p className="mt-1 text-xs text-amber-200">{errors.email}</p>}</label>}
-              {preferredContactChannel === 'phone' && <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Телефон *</span><input type="tel" value={phoneContact} onChange={(e) => setPhoneContact(e.target.value)} placeholder="+971..." className={`h-14 w-full rounded-3xl border bg-white/10 px-5 text-base outline-none ${errors.phoneAlt ? 'border-amber-300' : 'border-white/15'}`} />{errors.phoneAlt && <p className="mt-1 text-xs text-amber-200">{errors.phoneAlt}</p>}</label>}
+              {preferredContactChannel === 'telegram' && (
+                <label className="block">
+                  <span style={labelStyle}>Telegram *</span>
+                  <input value={telegramContact} onChange={(e) => setTelegramContact(e.target.value)} placeholder="@username" style={inputStyle(Boolean(errors.telegram))}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.telegram))} />
+                  {errors.telegram && <p style={errorTextStyle}>{errors.telegram}</p>}
+                </label>
+              )}
+              {preferredContactChannel === 'instagram' && (
+                <label className="block">
+                  <span style={labelStyle}>Instagram</span>
+                  <input value={instagramContact} onChange={(e) => setInstagramContact(e.target.value)} placeholder="@username или ссылка" style={inputStyle(Boolean(errors.instagram))}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.instagram))} />
+                  {errors.instagram && <p style={errorTextStyle}>{errors.instagram}</p>}
+                </label>
+              )}
+              {preferredContactChannel === 'email' && (
+                <label className="block">
+                  <span style={labelStyle}>E-mail *</span>
+                  <input type="email" value={emailContact} onChange={(e) => setEmailContact(e.target.value)} placeholder="you@example.com" style={inputStyle(Boolean(errors.email))}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.email))} />
+                  {errors.email && <p style={errorTextStyle}>{errors.email}</p>}
+                </label>
+              )}
+              {preferredContactChannel === 'phone' && (
+                <label className="block">
+                  <span style={labelStyle}>Телефон *</span>
+                  <input type="tel" value={phoneContact} onChange={(e) => setPhoneContact(e.target.value)} placeholder="+971…" style={inputStyle(Boolean(errors.phoneAlt))}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur(Boolean(errors.phoneAlt))} />
+                  {errors.phoneAlt && <p style={errorTextStyle}>{errors.phoneAlt}</p>}
+                </label>
+              )}
 
-              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Страна доставки *</span><ButtonDropdown value={deliveryCountry} placeholder="Выберите страну" options={[...DELIVERY_COUNTRIES]} required onChange={(value) => { setDeliveryCountry(value); setDeliveryCity(''); setCityQuery(''); }} />{errors.deliveryCountry && <p className="mt-1 text-xs text-amber-200">{errors.deliveryCountry}</p>}</label>
+              <label className="block mt-4">
+                <span style={labelStyle}>Ваше имя или ник (опционально)</span>
+                <input value={clientAlias} onChange={(e) => setClientAlias(e.target.value.slice(0, 60))} placeholder="Напр. @alex" style={inputStyle()}
+                  onFocus={onInputFocus}
+                  onBlur={onInputBlur(false)} />
+              </label>
+            </div>
 
-              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Город (опционально)</span><div className="rounded-3xl border border-white/15 bg-white/10 p-3"><input value={cityQuery} onChange={(e) => { const query = e.target.value; setCityQuery(query); if (query.trim().length >= 3) setDeliveryCity(''); }} placeholder="Начните вводить минимум 3 буквы" className="h-10 w-full rounded-2xl bg-black/20 px-3 text-sm outline-none" /><div className="mt-2">{filteredCityOptions.map((item) => <button key={item} type="button" onClick={() => { setDeliveryCity(item); setCityQuery(item); }} className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${deliveryCity === item ? 'bg-amber-200/20 text-amber-100' : 'hover:bg-white/10'}`}>{item}</button>)}</div></div></label>
+            {/* Блок 2 — Доставка */}
+            <div style={cardStyle}>
+              <p className="text-sm font-semibold mb-4" style={{ color: '#F9FAFB' }}>Доставка</p>
 
-              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Лучшее время для связи (опционально)</span><ButtonDropdown value={bestContactTime} placeholder="Выберите интервал" options={CONTACT_TIME_OPTIONS} onChange={setBestContactTime} />{errors.bestContactTime && <p className="mt-1 text-xs text-amber-200">{errors.bestContactTime}</p>}</label>
-              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Ваше имя или ник (опционально)</span><input value={clientAlias} onChange={(e) => setClientAlias(e.target.value.slice(0, 60))} placeholder="Напр. @alex" className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none" /></label>
-              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Откуда вы пишете</span><select value={messageSource} onChange={(e) => { setMessageSourceTouched(true); setMessageSource(e.target.value as Source); }} className="h-14 w-full rounded-3xl border border-white/15 bg-white/10 px-5 text-base outline-none">{[Source.INSTAGRAM, Source.WHATSAPP, Source.TELEGRAM, Source.TIKTOK, Source.FACEBOOK, Source.OTHER].map((item) => <option key={item} value={item} className="text-slate-900">{item}</option>)}</select></label>
-              <label className="block"><span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-300">Комментарий (опционально)</span><textarea name="delivery-address-note" autoComplete="off" value={deliveryAddressNote} onChange={(e) => setDeliveryAddressNote(e.target.value)} rows={3} placeholder="Комментарий к заказу" className="w-full rounded-[28px] border border-white/15 bg-white/10 px-5 py-4 text-base outline-none" /></label>
-            </>
-          )}
+              <label className="block mb-4">
+                <span style={labelStyle}>Страна доставки *</span>
+                <ButtonDropdown value={deliveryCountry} placeholder="Выберите страну" options={[...DELIVERY_COUNTRIES]} required onChange={(value) => { setDeliveryCountry(value); setDeliveryCity(''); setCityQuery(''); }} />
+                {errors.deliveryCountry && <p style={errorTextStyle}>{errors.deliveryCountry}</p>}
+              </label>
 
-          {step === 4 && (
-            <div className="rounded-3xl border border-amber-200/30 bg-gradient-to-br from-amber-100/15 via-white/10 to-transparent p-5">
-              <p className="text-xl font-black tracking-tight">{brand} {model} {year}</p>
-              <p className="mt-3 text-sm">🧩 {requestedParts.filter((item) => item.name.trim()).length} детали</p>
-              <p className="text-sm">🌍 Доставка: {deliveryCountry || '—'} {deliveryCity ? `(${deliveryCity})` : ''}</p>
-              <p className="text-sm">Контакт: {CONTACT_CHANNEL_LABELS[preferredContactChannel]}</p>
-              <p className="text-sm">VIN: {vin || 'VIN не указан'}</p>
-              <p className="text-sm">Приоритет: {PRIORITY_LABELS[orderPriority]}</p>
+              <label className="block mb-4">
+                <span style={labelStyle}>Город (опционально)</span>
+                <div className="rounded-[14px] p-3" style={{ background: '#1F2937', border: isCityInputFocused ? '1px solid #F59E0B' : '1px solid #374151', boxShadow: isCityInputFocused ? '0 0 0 3px rgba(245,158,11,0.18)' : 'none', transition: 'border-color 0.15s, box-shadow 0.15s' }}>
+                  <input
+                    value={cityQuery}
+                    onChange={(e) => { const query = e.target.value; setCityQuery(query); if (query.trim().length >= 3) setDeliveryCity(''); }}
+                    placeholder="Начните вводить минимум 3 буквы"
+                    className="w-full rounded-[10px] bg-transparent px-3 py-2 text-sm outline-none"
+                    style={{ color: '#F9FAFB' }}
+                    onFocus={() => setCityInputFocused(true)}
+                    onBlur={() => setCityInputFocused(false)}
+                  />
+                  {filteredCityOptions.length > 0 && (
+                    <div className="mt-2">
+                      {filteredCityOptions.map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => { setDeliveryCity(item); setCityQuery(item); }}
+                          className="block w-full rounded-[10px] px-3 py-2 text-left text-sm transition-colors hover:bg-white/10"
+                          style={{ color: deliveryCity === item ? '#F59E0B' : '#F9FAFB', background: deliveryCity === item ? 'rgba(245,158,11,0.1)' : 'transparent' }}
+                        >
+                          {item}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </label>
 
-              <div className="mt-4">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">Приоритет заявки</p>
+              <label className="block mb-4">
+                <span style={labelStyle}>Лучшее время для связи (опционально)</span>
+                <ButtonDropdown value={bestContactTime} placeholder="Выберите интервал" options={CONTACT_TIME_OPTIONS} onChange={setBestContactTime} />
+                {errors.bestContactTime && <p style={errorTextStyle}>{errors.bestContactTime}</p>}
+              </label>
+
+              <label className="block mb-4">
+                <span style={labelStyle}>Откуда вы пишете</span>
+                <select
+                  value={messageSource}
+                  onChange={(e) => { setMessageSourceTouched(true); setMessageSource(e.target.value as Source); }}
+                  style={{ ...inputStyle(), cursor: 'pointer' }}
+                  onFocus={onInputFocus}
+                  onBlur={onInputBlur(false)}
+                >
+                  {[Source.INSTAGRAM, Source.WHATSAPP, Source.TELEGRAM, Source.TIKTOK, Source.FACEBOOK, Source.OTHER].map((item) => (
+                    <option key={item} value={item} style={{ background: '#1F2937' }}>{item}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span style={labelStyle}>Комментарий (опционально)</span>
+                <textarea
+                  name="delivery-address-note"
+                  autoComplete="off"
+                  value={deliveryAddressNote}
+                  onChange={(e) => setDeliveryAddressNote(e.target.value)}
+                  rows={3}
+                  placeholder="Комментарий к заказу"
+                  style={{ width: '100%', borderRadius: '14px', border: '1px solid #374151', background: '#1F2937', padding: '14px 16px', fontSize: '16px', color: '#F9FAFB', outline: 'none', resize: 'vertical', transition: 'border-color 0.15s, box-shadow 0.15s' }}
+                  onFocus={onInputFocus}
+                  onBlur={onInputBlur(false)}
+                />
+              </label>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 4: ПОДТВЕРЖДЕНИЕ ── */}
+        {step === 4 && (
+          <>
+            {/* Summary card */}
+            <div style={cardStyle}>
+              <p className="text-xs font-semibold uppercase tracking-[0.1em] mb-4" style={{ color: '#9CA3AF' }}>Проверьте данные</p>
+
+              <div className="space-y-3">
+                <div className="flex items-start justify-between rounded-[12px] px-4 py-3" style={{ background: '#1F2937' }}>
+                  <div>
+                    <p className="text-xs mb-1" style={{ color: '#9CA3AF' }}>Автомобиль</p>
+                    <p className="text-base font-semibold" style={{ color: '#F9FAFB' }}>{[brand, model, year].filter(Boolean).join(' ') || '—'}</p>
+                    {vin && <p className="text-xs mt-0.5" style={{ color: '#6B7280' }}>VIN: {vin}</p>}
+                  </div>
+                  <button type="button" onClick={() => goToStep(1)} className="text-xs transition-opacity hover:opacity-70" style={{ color: '#F59E0B' }}>Изменить</button>
+                </div>
+
+                <div className="flex items-start justify-between rounded-[12px] px-4 py-3" style={{ background: '#1F2937' }}>
+                  <div>
+                    <p className="text-xs mb-1" style={{ color: '#9CA3AF' }}>Детали</p>
+                    <p className="text-base font-semibold" style={{ color: '#F9FAFB' }}>{requestedParts.filter((item) => item.name.trim()).length} {requestedParts.filter((item) => item.name.trim()).length === 1 ? 'деталь' : 'детали'}</p>
+                    <div className="mt-1 space-y-0.5">
+                      {requestedParts.filter((item) => item.name.trim()).map((part) => (
+                        <p key={part.id} className="text-xs" style={{ color: '#6B7280' }}>• {part.name.trim()}</p>
+                      ))}
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => goToStep(2)} className="text-xs transition-opacity hover:opacity-70" style={{ color: '#F59E0B' }}>Изменить</button>
+                </div>
+
+                <div className="flex items-start justify-between rounded-[12px] px-4 py-3" style={{ background: '#1F2937' }}>
+                  <div>
+                    <p className="text-xs mb-1" style={{ color: '#9CA3AF' }}>Доставка</p>
+                    <p className="text-base font-semibold" style={{ color: '#F9FAFB' }}>{[deliveryCountry, deliveryCity].filter(Boolean).join(', ') || '—'}</p>
+                  </div>
+                  <button type="button" onClick={() => goToStep(3)} className="text-xs transition-opacity hover:opacity-70" style={{ color: '#F59E0B' }}>Изменить</button>
+                </div>
+
+                <div className="flex items-start justify-between rounded-[12px] px-4 py-3" style={{ background: '#1F2937' }}>
+                  <div>
+                    <p className="text-xs mb-1" style={{ color: '#9CA3AF' }}>Контакт</p>
+                    <p className="text-base font-semibold" style={{ color: '#F9FAFB' }}>{CONTACT_CHANNEL_LABELS[preferredContactChannel]}</p>
+                  </div>
+                  <button type="button" onClick={() => goToStep(3)} className="text-xs transition-opacity hover:opacity-70" style={{ color: '#F59E0B' }}>Изменить</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Priority segmented control */}
+            <div style={cardStyle}>
+              <p className="text-xs font-semibold uppercase tracking-[0.1em] mb-3" style={{ color: '#9CA3AF' }}>Приоритет заявки</p>
+              <div className="grid grid-cols-3 rounded-[14px] p-1 gap-1" style={{ background: '#1F2937' }}>
+                {[Priority.LOW, Priority.MEDIUM, Priority.HIGH].map((priority) => (
+                  <button
+                    key={priority}
+                    type="button"
+                    onClick={() => setOrderPriority(priority)}
+                    className="h-11 rounded-[10px] text-sm font-semibold transition-all"
+                    style={{
+                      background: orderPriority === priority ? 'linear-gradient(135deg, #F59E0B, #FCD34D)' : 'transparent',
+                      color: orderPriority === priority ? '#0B1220' : '#9CA3AF',
+                      border: 'none'
+                    }}
+                  >
+                    {PRIORITY_LABELS[priority]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Photos preview */}
+            {(vinPhotoData || carPhotoData || requestedParts.some((item) => item.photoDataList.length > 0)) && (
+              <div style={cardStyle}>
+                <p className="text-xs font-semibold uppercase tracking-[0.1em] mb-3" style={{ color: '#9CA3AF' }}>Прикреплённые фото</p>
                 <div className="grid grid-cols-3 gap-2">
-                  {[Priority.LOW, Priority.MEDIUM, Priority.HIGH].map((priority) => (
-                    <button
-                      key={priority}
-                      type="button"
-                      onClick={() => setOrderPriority(priority)}
-                      className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${orderPriority === priority ? 'border-amber-200 bg-amber-200/20 text-amber-100' : 'border-white/20 text-slate-200 hover:bg-white/10'}`}
-                    >
-                      {PRIORITY_LABELS[priority]}
-                    </button>
+                  {vinPhotoData && <img src={vinPhotoData} alt="vin" className="rounded-[10px] object-cover" style={{ height: '80px', width: '100%' }} />}
+                  {carPhotoData && <img src={carPhotoData} alt="car" className="rounded-[10px] object-cover" style={{ height: '80px', width: '100%' }} />}
+                  {requestedParts.flatMap((item) => item.photoDataList).slice(0, 6).map((photo, idx) => (
+                    <img key={`confirm-photo-${idx}`} src={photo} alt="part" className="rounded-[10px] object-cover" style={{ height: '80px', width: '100%' }} />
                   ))}
                 </div>
               </div>
-
-              <div className="mt-4 space-y-2 text-xs text-slate-100">
-                <p className="font-semibold">Детали:</p>
-                {requestedParts.filter((item) => item.name.trim()).map((part) => (
-                  <div key={part.id} className="rounded-xl border border-white/15 bg-black/20 p-2">
-                    <p>{part.name.trim()}</p>
-                    <p className="text-slate-300">Комментарий: {part.comment?.trim() || '—'}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 space-y-2 text-xs text-slate-100">
-                <p className="font-semibold">Фото:</p>
-                <div>
-                  <p className="mb-1">VIN фото</p>
-                  {vinPhotoData ? <img src={vinPhotoData} alt="vin-preview" className="h-20 w-28 rounded-lg object-cover" /> : <p className="text-slate-300">Фото не добавлено</p>}
-                </div>
-                <div>
-                  <p className="mb-1">Фото авто</p>
-                  {carPhotoData ? <img src={carPhotoData} alt="car-preview" className="h-20 w-28 rounded-lg object-cover" /> : <p className="text-slate-300">Фото не добавлено</p>}
-                </div>
-                <div>
-                  <p className="mb-1">Фото деталей</p>
-                  {requestedParts.some((item) => (item.photoDataList || []).length > 0) ? (
-                    <div className="grid grid-cols-3 gap-2">
-                      {requestedParts.flatMap((item) => (item.photoDataList || []).map((photo, idx) => (
-                        <img key={`${item.id}-confirm-${idx}`} src={photo} alt="part-preview" className="h-16 w-full rounded-lg object-cover" />
-                      )))}
-                    </div>
-                  ) : <p className="text-slate-300">Фото не добавлено</p>}
-                </div>
-              </div>
-
-              <div className="mt-3 grid gap-2 text-xs text-slate-200">
-                <button type="button" onClick={() => goToStep(1)} className="rounded-xl border border-white/20 px-3 py-2 text-left">Редактировать автомобиль</button>
-                <button type="button" onClick={() => goToStep(2)} className="rounded-xl border border-white/20 px-3 py-2 text-left">Редактировать детали</button>
-                <button type="button" onClick={() => goToStep(3)} className="rounded-xl border border-white/20 px-3 py-2 text-left">Редактировать контакты</button>
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </>
+        )}
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3">
-          <button type="button" onClick={goBack} disabled={step === 1 || isSubmitting} className="flex h-12 min-w-[120px] items-center justify-center gap-2 rounded-full border border-white/20 px-4 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-35"><ChevronLeft className="h-4 w-4" />Назад</button>
+      {/* BOTTOM ACTION BAR */}
+      <div className="fixed inset-x-0 bottom-0 z-20" style={{ height: '88px', background: 'rgba(11,18,32,0.97)', borderTop: '1px solid rgba(255,255,255,0.07)', backdropFilter: 'blur(16px)' }}>
+        <div className="mx-auto flex h-full w-full max-w-[640px] items-center gap-3 px-6">
+          <button
+            type="button"
+            onClick={goBack}
+            disabled={step === 1 || isSubmitting}
+            className="flex items-center justify-center gap-2 rounded-[14px] text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-35 hover:bg-white/5"
+            style={{ height: '56px', minWidth: '100px', border: '1px solid rgba(255,255,255,0.15)', color: '#F9FAFB', background: 'transparent' }}
+          >
+            <ChevronLeft className="h-4 w-4" /> Назад
+          </button>
+
           {step < TOTAL_STEPS ? (
-          <button type="button" onClick={goNext} disabled={isSubmitting} aria-disabled={!canContinue} className={`flex h-12 min-w-[160px] items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold transition ${canContinue ? 'bg-white text-slate-950' : 'bg-white/70 text-slate-700'} disabled:cursor-not-allowed disabled:opacity-40`}>Далее<ArrowRight className="h-4 w-4" /></button>
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={isSubmitting}
+              aria-disabled={!canContinue}
+              className="flex flex-1 items-center justify-center gap-2 rounded-[14px] text-sm font-semibold transition-all disabled:cursor-not-allowed"
+              style={{ height: '56px', background: canContinue ? 'linear-gradient(135deg, #F59E0B, #FCD34D)' : 'rgba(245,158,11,0.35)', color: canContinue ? '#0B1220' : '#6B7280', opacity: isSubmitting ? 0.5 : 1 }}
+            >
+              Далее <ArrowRight className="h-4 w-4" />
+            </button>
           ) : (
             <>
-              <button type="button" onClick={() => setShowSubmitConfirm(true)} disabled={isSubmitting || submitLockedRef.current} className="flex h-12 min-w-[180px] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-200 to-white px-6 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40">{isSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" />Отправка... {submitProgress}%</>) : (<>Подтвердить заявку<Copy className="h-4 w-4" /></>)}</button>
-              {submitController && <button type="button" onClick={() => submitController.abort('user_cancelled')} className="flex h-12 min-w-[160px] items-center justify-center gap-2 rounded-full border border-white/40 px-6 text-sm font-semibold text-white">Отменить отправку</button>}
+              <button
+                type="button"
+                onClick={() => setShowSubmitConfirm(true)}
+                disabled={isSubmitting || submitLockedRef.current}
+                className="flex flex-1 items-center justify-center gap-2 rounded-[14px] text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ height: '56px', background: 'linear-gradient(135deg, #F59E0B, #FCD34D)', color: '#0B1220' }}
+              >
+                {isSubmitting ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Отправка… {submitProgress}%</>
+                ) : (
+                  <>Отправить заявку <ArrowRight className="h-4 w-4" /></>
+                )}
+              </button>
+              {submitController && (
+                <button
+                  type="button"
+                  onClick={() => submitController.abort('user_cancelled')}
+                  className="flex items-center justify-center gap-2 rounded-[14px] text-sm font-semibold transition-all hover:bg-white/5"
+                  style={{ height: '56px', minWidth: '120px', border: '1px solid rgba(255,255,255,0.2)', color: '#9CA3AF' }}
+                >
+                  Отменить
+                </button>
+              )}
             </>
           )}
         </div>
+
         {isSubmitting && (
-          <div className="mx-auto mt-3 w-full max-w-2xl rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-            <div className="mb-1 flex items-center justify-between text-[11px] text-slate-200">
-              <span>Отправляем заявку, пожалуйста подождите…</span>
-              <span>{submitProgress}%</span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-white/15">
-              <div className="h-full rounded-full bg-gradient-to-r from-amber-300 via-orange-300 to-yellow-100 transition-all duration-200" style={{ width: `${submitProgress}%` }} />
-            </div>
+          <div className="absolute bottom-0 left-0 right-0" style={{ height: '3px' }}>
+            <div style={{ height: '100%', background: 'linear-gradient(90deg, #F59E0B, #FCD34D)', width: `${submitProgress}%`, transition: 'width 0.2s ease' }} />
           </div>
         )}
       </div>
 
+      {/* SUBMIT CONFIRM MODAL */}
       {showSubmitConfirm && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-xl rounded-3xl border border-white/20 bg-slate-900 p-5">
-            <h3 className="text-lg font-bold">Подтвердите отправку заявки</h3>
-            <div className="mt-3 space-y-1 text-sm text-slate-200">
-              <p>Авто: {brand} {model} {year}</p>
-              <p>VIN: {vin || 'VIN не указан'}</p>
-              <p>Деталей: {requestedParts.filter((item) => item.name.trim()).length}</p>
-              <p>Канал: {CONTACT_CHANNEL_LABELS[preferredContactChannel]}</p>
-              <p>Страна/город: {deliveryCountry || '—'} {deliveryCity || ''}</p>
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }}>
+          <div className="w-full max-w-[520px] rounded-[24px] p-6" style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <h3 className="text-lg font-bold mb-1" style={{ color: '#F9FAFB' }}>Подтвердите отправку</h3>
+            <p className="text-sm mb-4" style={{ color: '#9CA3AF' }}>Проверьте данные перед отправкой заявки</p>
+            <div className="space-y-2 text-sm rounded-[14px] p-4 mb-4" style={{ background: '#1F2937', color: '#F9FAFB' }}>
+              <p>Авто: <span className="font-semibold">{brand} {model} {year}</span></p>
+              {vin && <p style={{ color: '#9CA3AF' }}>VIN: {vin}</p>}
+              <p>Деталей: <span className="font-semibold">{requestedParts.filter((item) => item.name.trim()).length}</span></p>
+              <p>Канал: <span className="font-semibold">{CONTACT_CHANNEL_LABELS[preferredContactChannel]}</span></p>
+              <p>Доставка: <span className="font-semibold">{[deliveryCountry, deliveryCity].filter(Boolean).join(', ') || '—'}</span></p>
             </div>
-            <label className="mt-4 flex items-start gap-2 text-xs text-slate-300">
-              <input type="checkbox" checked={consentAccepted} onChange={(e) => setConsentAccepted(e.target.checked)} className="mt-0.5" />
-              <span>Я согласен(на) на обработку персональных данных для связи и подбора запчастей.</span>
+            <label className="flex items-start gap-3 mb-5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={consentAccepted}
+                onChange={(e) => setConsentAccepted(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded"
+                style={{ accentColor: '#F59E0B' }}
+              />
+              <span className="text-xs" style={{ color: '#9CA3AF' }}>Я согласен(на) на обработку персональных данных для связи и подбора запчастей.</span>
             </label>
-            <div className="mt-4 flex gap-2">
-              <button type="button" onClick={() => setShowSubmitConfirm(false)} className="flex-1 rounded-2xl border border-white/20 px-3 py-2 text-sm">Отмена</button>
-              <button type="button" disabled={!consentAccepted || isSubmitting} onClick={() => { setShowSubmitConfirm(false); void submitOrder(); }} className="flex-1 rounded-2xl bg-amber-200 px-3 py-2 text-sm font-semibold text-slate-900 disabled:opacity-40">Отправить</button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowSubmitConfirm(false)}
+                className="flex-1 rounded-[14px] py-3 text-sm font-semibold transition-colors hover:bg-white/5"
+                style={{ border: '1px solid rgba(255,255,255,0.15)', color: '#F9FAFB' }}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={!consentAccepted || isSubmitting}
+                onClick={() => { setShowSubmitConfirm(false); void submitOrder(); }}
+                className="flex-1 rounded-[14px] py-3 text-sm font-semibold transition-all disabled:opacity-40"
+                style={{ background: 'linear-gradient(135deg, #F59E0B, #FCD34D)', color: '#0B1220' }}
+              >
+                Отправить
+              </button>
             </div>
           </div>
         </div>
