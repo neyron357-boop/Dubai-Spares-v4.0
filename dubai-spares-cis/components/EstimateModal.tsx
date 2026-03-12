@@ -39,9 +39,20 @@ const fetchLiveQuoteRates = async (): Promise<QuoteRates> => {
   };
 };
 
+const buildRatesFromOrder = (order: Order): QuoteRates => {
+  const usdRate = Number(order.exchangeRate || 0);
+  const usdFromAed = Number.isFinite(usdRate) && usdRate > 0 ? (1 / usdRate) : DEFAULT_QUOTE_RATES.USD;
+  return {
+    AED: 1,
+    USD: usdFromAed,
+    RUB: DEFAULT_QUOTE_RATES.RUB,
+    TJS: DEFAULT_QUOTE_RATES.TJS
+  };
+};
+
 const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const foundParts = order.parts.filter(p => p.isFound && p.variants.length > 0);
-  const [rates, setRates] = useState<QuoteRates>(DEFAULT_QUOTE_RATES);
+  const [rates, setRates] = useState<QuoteRates>(() => buildRatesFromOrder(order));
   const [currency, setCurrency] = useState<QuoteCurrency>('USD');
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
   const [rateNotice, setRateNotice] = useState('');
