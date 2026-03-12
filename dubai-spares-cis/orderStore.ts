@@ -148,8 +148,17 @@ const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | '
   return markupAed / (Number(order.exchangeRate || 0) || 3.67);
 };
 
-const normalizeLogistics = (raw: unknown): Order['logistics'] | undefined => {
-  if (!raw || typeof raw !== 'object') return undefined;
+const normalizeLogistics = (raw: unknown, row?: Record<string, unknown>): Order['logistics'] | undefined => {
+  if (!raw || typeof raw !== 'object') {
+    // Fall back to dedicated top-level columns when logistics JSONB is absent
+    if (!row) return undefined;
+    const hasAnyField = Number(row.delivery_aed) !== 0
+      || Number(row.packing_aed) !== 0
+      || Number(row.service_fee_aed) !== 0
+      || (typeof row.cargo_country === 'string' && row.cargo_country.trim() !== '');
+    if (!hasAnyField) return undefined;
+    raw = {};
+  }
   const src = raw as Record<string, unknown>;
   const toAmount = (...values: unknown[]) => {
     for (const value of values) {
@@ -161,10 +170,16 @@ const normalizeLogistics = (raw: unknown): Order['logistics'] | undefined => {
 
   return {
     deliveryType: src.deliveryType === 'export' || src.delivery_type === 'export' ? 'export' : 'uae',
-    deliveryAed: toAmount(src.deliveryAed, src.delivery_aed),
-    packingAed: toAmount(src.packingAed, src.packing_aed),
-    serviceFeeAed: toAmount(src.serviceFeeAed, src.service_fee_aed, src.commissionAed, src.commission_aed),
-    cargoCountry: typeof src.cargoCountry === 'string' ? src.cargoCountry : (typeof src.cargo_country === 'string' ? src.cargo_country : undefined),
+    deliveryAed: toAmount(src.deliveryAed, src.delivery_aed, row?.delivery_aed),
+    packingAed: toAmount(src.packingAed, src.packing_aed, row?.packing_aed),
+    serviceFeeAed: toAmount(src.serviceFeeAed, src.service_fee_aed, src.commissionAed, src.commission_aed, row?.service_fee_aed),
+    cargoCountry: (typeof src.cargoCountry === 'string' && src.cargoCountry)
+      ? src.cargoCountry
+      : (typeof src.cargo_country === 'string' && src.cargo_country)
+        ? src.cargo_country
+        : (typeof row?.cargo_country === 'string' && (row.cargo_country as string).trim()
+          ? (row.cargo_country as string).trim()
+          : undefined),
     cargoDeliveryType: src.cargoDeliveryType === 'container' || src.cargoDeliveryType === 'express_air' ? src.cargoDeliveryType : (src.cargo_delivery_type === 'container' || src.cargo_delivery_type === 'express_air' ? src.cargo_delivery_type : 'air'),
     cargoEtaDays: typeof src.cargoEtaDays === 'string' ? src.cargoEtaDays : (typeof src.cargo_eta_days === 'string' ? src.cargo_eta_days : undefined),
     cargoTotalWeightKg: toAmount(src.cargoTotalWeightKg, src.cargo_total_weight_kg),
@@ -987,7 +1002,7 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     useMarkupAsDefaultForNewParts: !!row.use_markup_as_default_for_new_parts,
     clientCurrency: row.client_currency || 'USD',
     fxUpdatedAt: Number.isFinite(Number(row.fx_updated_at)) ? Number(row.fx_updated_at) : undefined,
-    logistics: normalizeLogistics(row.logistics),
+    logistics: normalizeLogistics(row.logistics, row as unknown as Record<string, unknown>),
     exchangeRate: Number(row.exchange_rate || 0),
     createdAt: parseTimestamp(row.created_at),
     isArchived: !!row.is_archived,
@@ -1153,6 +1168,10 @@ const persistOrderGraph = async (order: Order) => {
     client_currency: uploadedOrder.clientCurrency || 'USD',
     fx_updated_at: uploadedOrder.fxUpdatedAt ? toIsoTimestamp(uploadedOrder.fxUpdatedAt) : null,
     logistics: uploadedOrder.logistics || null,
+    cargo_country: uploadedOrder.logistics?.cargoCountry ?? '',
+    delivery_aed: uploadedOrder.logistics?.deliveryAed ?? 0,
+    packing_aed: uploadedOrder.logistics?.packingAed ?? 0,
+    service_fee_aed: uploadedOrder.logistics?.serviceFeeAed ?? 0,
     exchange_rate: uploadedOrder.exchangeRate,
     created_at: toIsoTimestamp(uploadedOrder.createdAt),
     is_archived: uploadedOrder.isArchived,
@@ -1217,6 +1236,10 @@ const persistOrderGraph = async (order: Order) => {
       'client_currency',
       'fx_updated_at',
       'logistics',
+      'cargo_country',
+      'delivery_aed',
+      'packing_aed',
+      'service_fee_aed',
       'pricing_events',
       'vendor_contacts',
       'vendor_checklist',
@@ -1489,6 +1512,11 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   client_currency: patch.clientCurrency,
   fx_updated_at: patch.fxUpdatedAt ? toIsoTimestamp(patch.fxUpdatedAt) : undefined,
   logistics: patch.logistics,
+  // Dedicated columns mirror the logistics JSONB for reliable persistence
+  cargo_country: patch.logistics ? (patch.logistics.cargoCountry ?? '') : undefined,
+  delivery_aed: patch.logistics ? (patch.logistics.deliveryAed ?? 0) : undefined,
+  packing_aed: patch.logistics ? (patch.logistics.packingAed ?? 0) : undefined,
+  service_fee_aed: patch.logistics ? (patch.logistics.serviceFeeAed ?? 0) : undefined,
   pricing_events: patch.pricingEvents,
   vendor_contacts: patch.vendorContacts,
   vendor_checklist: patch.vendorChecklist,
