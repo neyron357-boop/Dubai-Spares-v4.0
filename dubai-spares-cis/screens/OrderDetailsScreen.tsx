@@ -35,7 +35,9 @@ import {
   FileAudio,
   Rocket,
   Share2,
-  Download
+  Download,
+  Eye,
+  Trash2
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
@@ -329,8 +331,10 @@ const OrderDetailsScreen: React.FC = () => {
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
   const [isPricingCargoExpanded, setIsPricingCargoExpanded] = useState(false);
   const [isSupplierIntelligenceExpanded, setIsSupplierIntelligenceExpanded] = useState(false);
+  const [isOrderDetailsExpanded, setIsOrderDetailsExpanded] = useState(false);
   const [expandedCargoPartIds, setExpandedCargoPartIds] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
+  const [partSwipeState, setPartSwipeState] = useState<Record<string, 'left' | 'right' | null>>({});
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
   const [logisticsDraft, setLogisticsDraft] = useState<Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string>>({
@@ -1032,6 +1036,20 @@ const OrderDetailsScreen: React.FC = () => {
     } catch {
       setToast({ message: 'Не удалось скопировать' });
     }
+  };
+
+  const copyPartsList = async () => {
+    const header = `${order.brand} ${order.model} ${order.year}`.trim();
+    const lines = (order.parts || []).map((part, i) => {
+      const qty = normalizePartQuantity(part.quantity);
+      const desc = part.comment?.trim();
+      let line = `${i + 1}. ${part.name}`;
+      if (qty && qty !== '1') line += ` × ${qty}`;
+      if (desc) line += `\n   ${desc}`;
+      return line;
+    });
+    const text = [header, '', ...lines].join('\n');
+    await copyText(text, 'Список скопирован');
   };
 
   const pasteVinFromClipboard = async () => {
@@ -1999,74 +2017,68 @@ const OrderDetailsScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] text-[#1E1F23]">
-      <div className="p-4 sticky top-0 z-20 backdrop-blur bg-white/95 border-b border-gray-100 space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
-        <div className="flex items-center justify-between gap-2">
-          <button type="button" onClick={() => navigate('/')} className="p-3 -ml-2 rounded-full transition-colors text-gray-600 active:bg-gray-100">
+      {/* ───── FIXED HEADER ───── */}
+      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+        {/* Row 1: back + menu */}
+        <div className="flex items-center justify-between px-3 pt-2 pb-1 gap-2">
+          <button type="button" onClick={() => navigate('/')} className="p-2 -ml-1 rounded-full text-gray-600 active:bg-gray-100">
             <ArrowLeft size={22} />
           </button>
-          <div className="text-left flex-1 mx-2 min-w-0">
-            <h1 className="text-[18px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model} <span className="text-slate-500">{order.year}</span></h1>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="text-[#667085]">ID <span className="font-mono font-bold text-gray-700">#{order.id.slice(0, 8).toUpperCase()}</span></span>
-              <button type="button" onClick={() => void copyText(order.id, 'ID скопирован')} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-gray-600"><Copy size={11} />Копировать</button>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700"><Cloud size={11} />Синхронизировано</span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="text-[#667085]">VIN: <span className="font-mono uppercase text-gray-700">{order.vin || 'Не добавлен'}</span></span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Возраст: {orderAgeDays} дн</span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Найдено: {foundPartsCount}/{partsCount}</span>
-            </div>
-            {vinIsIncomplete && <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-[10px] font-bold text-orange-700">⚠ VIN неполный</span>}
+          {/* Secondary info chips */}
+          <div className="flex-1 flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 overflow-x-auto no-scrollbar">
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 whitespace-nowrap">{foundPartsCount}/{partsCount} найдено</span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 whitespace-nowrap">{orderAgeDays} дн</span>
+            {order.vin && <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono whitespace-nowrap">{order.vin.slice(0, 8)}…</span>}
+            <span className={`rounded-full px-2 py-0.5 whitespace-nowrap ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-gray-600 bg-gray-100 border border-gray-200')}`}>
+              {order.salesStatus || 'Inquiry'}
+            </span>
+            <span className="rounded-full px-2 py-0.5 bg-blue-50 text-blue-700 whitespace-nowrap">{resolvedCustomerStatus}</span>
           </div>
-          <div className="relative">
-            <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-3 rounded-full text-gray-600 active:bg-gray-100">
+          <div className="relative shrink-0">
+            <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-2 rounded-full text-gray-600 active:bg-gray-100">
               <MoreVertical size={20} />
             </button>
             {showActionsMenu && (
               <div className="absolute right-0 mt-1 w-56 rounded-xl border border-gray-100 bg-white shadow-lg p-1 text-xs font-semibold z-30">
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEditMode((prev) => !prev)}>Edit order</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrder({ ...order, id: `${order.id}-copy-${Date.now()}` })}>Duplicate order</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrderField('isArchived', !order.isArchived)}>{order.isArchived ? 'Unarchive' : 'Archive'}</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => void copyText('Синхронизация активна', 'Синхронизация')}>Состояние синхронизации</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEstimateOpen(true)}>Export</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-red-600" onClick={() => setShowActionsMenu(false)}>Delete</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrder({ ...order, id: `${order.id}-copy-${Date.now()}` })}>Дублировать заказ</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrderField('isArchived', !order.isArchived)}>{order.isArchived ? 'Восстановить' : 'Архивировать'}</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEstimateOpen(true)}>Экспорт / Invoice</button>
               </div>
             )}
           </div>
         </div>
-        <div className="space-y-2 rounded-[14px] bg-white px-4 py-4 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
-          <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Pipeline</p>
-          <div className="flex items-center justify-between gap-3">
-          <div className="inline-flex rounded-[12px] bg-[#F6F7FB] border border-[#E7EAF3] p-1">
-            {CUSTOMER_STATUSES.map(status => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => updateCustomerStatus(status)}
-                className={`h-10 min-w-[84px] px-3 rounded-[10px] text-[13px] font-medium transition-all duration-150 active:scale-[0.97] ${resolvedCustomerStatus === status ? PIPELINE_STYLES[status] : 'text-gray-500'}`}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
-          <div className={`inline-flex items-center gap-1 text-xs font-bold ${isSlaBreached ? 'text-amber-700' : 'text-gray-500'}`}>
-            <Clock3 size={14} /> {orderAgeDays} дней
-          </div>
+
+        {/* Row 2: Car name + copy icon */}
+        <div className="px-4 pb-1 flex items-center gap-2">
+          <h1 className="text-[22px] font-bold leading-tight text-[#1E1F23] flex-1 min-w-0 truncate">
+            {order.brand} {order.model} <span className="text-slate-400">{order.year}</span>
+          </h1>
+          <button
+            type="button"
+            title="Скопировать список деталей"
+            onClick={() => void copyPartsList()}
+            className="shrink-0 p-2 rounded-full border border-gray-200 bg-white text-gray-500 active:bg-gray-100"
+          >
+            <Copy size={16} />
+          </button>
         </div>
+
+        {/* Row 3: Client price huge green */}
+        <div className="px-4 pb-2 flex items-baseline gap-2">
+          <span className="text-[38px] font-black text-emerald-600 leading-none">
+            {formatMoney(sellTotalAed, clientCurrency)}
+          </span>
         </div>
-        <div className="flex gap-2 items-center overflow-x-auto no-scrollbar">
-          <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white')}`}>
-            <span className="tracking-[0.04em]">Status</span>
-            <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="bg-transparent text-[12px] font-medium text-current outline-none">
-            {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </div>
-          <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} disabled={!isEditMode} className="text-[11px] font-bold px-3 py-1.5 rounded-full bg-red-50 border border-red-200 text-red-700 shrink-0">
-            <option value={Priority.HIGH}>HIGH</option>
-            <option value={Priority.MEDIUM}>MEDIUM</option>
-            <option value={Priority.LOW}>LOW</option>
-          </select>
-          <button type="button" onClick={() => void pasteVinFromClipboard()} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">Вставить VIN</button>
+
+        {/* Row 4: "Показать поставщику" button */}
+        <div className="px-4 pb-3">
+          <button
+            type="button"
+            onClick={() => navigate(`/order/${order.id}/show-supplier`)}
+            className="h-12 w-full rounded-[12px] bg-[#3B6AF7] text-white text-[15px] font-semibold shadow-[0_4px_12px_rgba(59,106,247,0.35)] active:scale-[0.98] transition-transform"
+          >
+            Показать поставщику
+          </button>
         </div>
       </div>
 
@@ -2082,7 +2094,329 @@ const OrderDetailsScreen: React.FC = () => {
       )}
 
       <div className="p-4 space-y-4">
-        
+
+        {/* ── 1. PARTS LIST (always visible, top) ── */}
+        <div ref={partsListRef} className="space-y-2">
+          <div className="flex items-center justify-between px-1 mb-1">
+            <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Parts List</h2>
+            {order.parts.length > 0 && (
+              <button type="button" onClick={() => void copyPartsList()} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600 inline-flex items-center gap-1">
+                <Copy size={10} /> Copy
+              </button>
+            )}
+          </div>
+          {order.parts.length === 0 && (
+            <div className="bg-white border border-dashed border-gray-200 rounded-2xl p-6 text-center">
+              <Package size={32} className="mx-auto text-gray-200 mb-2" />
+              <p className="text-[16px] font-medium text-[#1E1F23]">No parts yet</p>
+              <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-3 px-4 py-2 rounded-[12px] bg-[#3B6AF7] text-white text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Add first part</button>
+            </div>
+          )}
+          {order.parts.map(part => {
+            const displayPhotos = getPartPreviewPhotos(part);
+            const isGroupPart = part.partKind === 'group';
+            const groupItems = normalizeGroupItems(part.groupItems);
+            const partQuantity = normalizePartQuantity(part.quantity);
+            const isCommentExpanded = !!partCommentExpanded[part.id];
+            return (
+              <div key={part.id} className="relative overflow-hidden rounded-[14px] border border-[#E7EAF3] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
+                {/* Swipe-left: delete */}
+                {partSwipeState[part.id] === 'left' && (
+                  <div className="absolute inset-y-0 left-0 flex items-center px-4 bg-rose-500 rounded-l-[14px] z-10">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setDeletePartId(part.id); setPartSwipeState((p) => ({ ...p, [part.id]: null })); }}
+                      className="flex flex-col items-center gap-1 text-white"
+                    >
+                      <Trash2 size={20} />
+                      <span className="text-[10px] font-bold">Удалить</span>
+                    </button>
+                  </div>
+                )}
+                {/* Swipe-right: supplier variants */}
+                {partSwipeState[part.id] === 'right' && (
+                  <div className="absolute inset-y-0 right-0 flex items-center px-4 bg-blue-500 rounded-r-[14px] z-10">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); navigate(`/order/${order.id}/part/${part.id}`); }}
+                      className="flex flex-col items-center gap-1 text-white"
+                    >
+                      <Eye size={20} />
+                      <span className="text-[10px] font-bold">Офферы</span>
+                    </button>
+                  </div>
+                )}
+                {/* Main card row */}
+                <div
+                  onClick={() => navigate(`/order/${order.id}/part/${part.id}`)}
+                  className="flex items-center gap-3 px-3 py-3 min-h-[88px] cursor-pointer active:bg-gray-50 transition-colors"
+                >
+                  {/* Photo 64×64 */}
+                  <div className="w-16 h-16 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden shrink-0 border border-gray-100 relative">
+                    {displayPhotos.length > 0 ? (
+                      <>
+                        <img
+                          src={displayPhotos[0]}
+                          className="w-full h-full object-cover cursor-pointer"
+                          onClick={(e) => openGallery(e, part)}
+                        />
+                        {displayPhotos.length > 1 && (
+                          <div className="absolute bottom-0 right-0 bg-black/60 text-white text-[8px] font-bold px-1 rounded-tl-md">
+                            +{displayPhotos.length - 1}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <Package size={24} className="text-gray-200" />
+                    )}
+                  </div>
+                  {/* Center info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-[16px] text-gray-900 leading-tight truncate">{part.name}</p>
+                    <p className="text-[14px] text-gray-400 mt-0.5">{partQuantity} × {part.variants[0]?.shopName || '—'}</p>
+                    {isGroupPart && <p className="text-[11px] font-semibold text-violet-600 mt-0.5">Группа · {groupItems.length} позиций</p>}
+                  </div>
+                  {/* Right: price + delete toggle + chevron */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <div className="text-right">
+                      <p className="text-[16px] font-bold text-emerald-600">{part.variants[0] ? `${part.variants[0].priceAed} AED` : '—'}</p>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setPartSwipeState((p) => ({ ...p, [part.id]: p[part.id] === 'left' ? null : 'left' })); }}
+                        className="mt-0.5 rounded-lg border border-rose-200 bg-rose-50 p-1 text-rose-600"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                    <ChevronRight size={18} className="text-gray-300 ml-1" />
+                  </div>
+                </div>
+                {/* Comment area */}
+                <div className="px-3 pb-2" onClick={(e) => e.stopPropagation()}>
+                  {!isCommentExpanded ? (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: true }))}
+                        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-600"
+                      >
+                        {part.comment?.trim() ? 'Изменить описание' : 'Добавить описание'}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <textarea
+                        value={partCommentDrafts[part.id] ?? part.comment ?? ''}
+                        onChange={(e) => updatePartCommentDraft(part.id, e.target.value)}
+                        onBlur={() => savePartComment(part.id)}
+                        placeholder={isGroupPart ? 'Описание к группе' : 'Описание к детали'}
+                        className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-[11px] font-semibold text-slate-700 outline-none"
+                        rows={2}
+                      />
+                      <div className="mt-1 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: false }))}
+                          className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-600"
+                        >
+                          Отмена
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => savePartComment(part.id)}
+                          className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700"
+                        >
+                          Сохранить
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── 2. ADD PART FORM ── */}
+        <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-4 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
+          <h2 className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Add part</h2>
+          <form
+            onSubmit={(e) => { e.preventDefault(); addNewPart(); }}
+            className="flex flex-col gap-3"
+          >
+            <div className="grid grid-cols-[minmax(0,1fr)_118px] gap-2">
+              <div className="flex-1 flex gap-2 items-center bg-[#F6F7FB] border border-[#E7EAF3] px-3 rounded-[12px] h-12">
+                <input
+                  type="text"
+                  ref={partInputRef} value={newPartName}
+                  onChange={(e) => setNewPartName(e.target.value)}
+                  placeholder="Search part..."
+                  className="flex-1 bg-transparent outline-none p-1 text-[16px] font-medium text-[#1E1F23]"
+                />
+              </div>
+              <div className="flex w-[118px] shrink-0 items-center rounded-[12px] border border-[#E7EAF3] bg-white h-12 overflow-hidden">
+                <button type="button" className="h-12 w-9 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) - 1)))}>-</button>
+                <input
+                  type="number"
+                  min={1}
+                  value={newPartQuantity}
+                  onChange={(e) => setNewPartQuantity(e.target.value)}
+                  className="w-full min-w-0 bg-transparent text-center text-[16px] font-medium outline-none"
+                  placeholder="1"
+                />
+                <button type="button" className="h-12 w-9 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) + 1)))}>+</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setNewPartKind('single')}
+                className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-wide ${newPartKind === 'single' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500'}`}
+              >
+                Обычная деталь
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewPartKind('group');
+                  setNewPartGroupItems((prev) => prev.length > 0 ? prev : [createGroupItemDraft()]);
+                }}
+                className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-wide ${newPartKind === 'group' ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-gray-200 bg-white text-gray-500'}`}
+              >
+                Группа деталей
+              </button>
+            </div>
+            {newPartKind === 'group' && (
+              <div className="space-y-2 rounded-xl border border-violet-100 bg-violet-50/60 p-3">
+                <p className="text-[11px] font-black uppercase tracking-wide text-violet-700">Состав группы</p>
+                {newPartGroupItems.map((item, index) => (
+                  <div key={item.id} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      type="text"
+                      value={item.name}
+                      onChange={(e) => updateGroupItemRow(item.id, 'name', e.target.value)}
+                      placeholder={`Деталь #${index + 1}`}
+                      className="w-full flex-1 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm font-semibold outline-none"
+                    />
+                    <div className="flex items-center gap-2 sm:shrink-0">
+                      <input
+                        type="number"
+                        min={1}
+                        value={item.quantity}
+                        onChange={(e) => updateGroupItemRow(item.id, 'quantity', e.target.value)}
+                        className="w-20 rounded-lg border border-violet-100 bg-white px-2 py-2 text-center text-sm font-bold"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeGroupItemRow(item.id)}
+                        className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-600"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <button type="button" onClick={addGroupItemRow} className="w-full rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-black uppercase tracking-wide text-violet-700 sm:w-auto">
+                  + Добавить деталь в группу
+                </button>
+              </div>
+            )}
+            <textarea
+              value={newPartComment}
+              onChange={(e) => setNewPartComment(e.target.value)}
+              placeholder={newPartKind === 'group' ? 'Описание к группе (необязательно)' : 'Описание к детали (необязательно)'}
+              className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm font-semibold outline-none"
+              rows={2}
+            />
+            <div className="flex items-end justify-between gap-3">
+              <div className="flex flex-1 gap-2 items-center overflow-x-auto no-scrollbar">
+                <button
+                  type="button"
+                  onClick={() => partFileRef.current?.click()}
+                  className={`w-12 h-12 shrink-0 rounded-xl flex items-center justify-center border-2 border-dashed border-gray-200 transition-colors ${newPartPhotos.length > 0 ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-300'}`}
+                >
+                  <ImageIcon size={20} />
+                </button>
+                {newPartPhotos.map((p, i) => (
+                  <div key={i} className="relative w-12 h-12 shrink-0 rounded-xl overflow-hidden border border-gray-100">
+                    <img src={p} className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeNewPhoto(i)}
+                      className="absolute inset-0 bg-black/40 flex items-center justify-center text-white opacity-0 hover:opacity-100 transition-opacity"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+                <input type="file" ref={partFileRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
+              </div>
+              <button
+                type="submit"
+                className="h-12 w-full sm:w-auto shrink-0 rounded-[12px] bg-[#3B6AF7] px-6 text-[13px] font-semibold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(59,106,247,0.35)] active:scale-[0.97] transition-transform duration-200"
+              >
+                ADD
+              </button>
+            </div>
+          </form>
+          <p className="mt-3 text-xs font-semibold text-gray-600">
+            Добавлено деталей: <span className="font-black text-gray-800">{order.parts.length}</span>
+            {order.parts.length > 0 ? <span className="text-gray-500"> · Последняя: {order.parts[order.parts.length - 1]?.name || '—'}</span> : null}
+          </p>
+        </div>
+
+        {/* ── 3. SUPPLIER INTELLIGENCE (standalone collapsible, horizontal scroll) ── */}
+        <div className="bg-white rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setIsSupplierIntelligenceExpanded((prev) => !prev)}
+            className="flex w-full items-center justify-between px-4 py-3 text-left"
+          >
+            <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Supplier Intelligence</p>
+            {isSupplierIntelligenceExpanded ? <ChevronUp size={14} className="text-[#8B8F98]" /> : <ChevronDown size={14} className="text-[#8B8F98]" />}
+          </button>
+          {isSupplierIntelligenceExpanded && (
+            <div className="px-4 pb-4">
+              <div className="flex gap-3 overflow-x-auto no-scrollbar">
+                {orderWorkspaceSuppliers.slice(0, 5).map((supplier) => (
+                  <div
+                    key={supplier.name}
+                    className="shrink-0 flex items-center gap-3 rounded-[12px] bg-[#F6F7FB] border border-[#E7EAF3] px-3 h-[60px] min-w-[220px]"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-semibold text-[#1E1F23] truncate">{supplier.name}</p>
+                      <p className="text-[11px] text-[#8B8F98]">{supplier.avgPrice ? `Avg: ${supplier.avgPrice} AED` : 'No price data'}</p>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <button type="button" onClick={() => openSupplierCard(supplier.name)} className="rounded-lg border border-[#E7EAF3] bg-white px-2 h-8 text-[11px] font-semibold active:scale-[0.97]">👁</button>
+                      <button type="button" onClick={() => contactSupplier(supplier.name)} className="rounded-lg border border-[#E7EAF3] bg-white px-2 h-8 text-[11px] font-semibold active:scale-[0.97]">💬</button>
+                    </div>
+                  </div>
+                ))}
+                {!orderWorkspaceSuppliers.length && (
+                  <p className="text-[12px] text-[#8B8F98] py-2">Добавьте офферы, чтобы увидеть аналитику поставщиков.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── 4. ДЕТАЛИ ЗАКАЗА ACCORDION (collapsed by default, everything else) ── */}
+        <div className="bg-white rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setIsOrderDetailsExpanded((prev) => !prev)}
+            className="flex w-full items-center justify-between px-4 py-3 text-left"
+          >
+            <div>
+              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Детали заказа</p>
+              <p className="text-[12px] text-gray-500">{order.brand} {order.model} · {String(order.clientName || 'Без имени')}</p>
+            </div>
+            {isOrderDetailsExpanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+          </button>
+          {isOrderDetailsExpanded && (
+            <div className="px-4 pb-4 space-y-4">
+
         {/* Client & Source Block */}
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsClientBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
@@ -2768,134 +3102,6 @@ const OrderDetailsScreen: React.FC = () => {
         )}
 
 
-        <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-4 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
-          <h2 className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Add part</h2>
-          <form 
-            onSubmit={(e) => { e.preventDefault(); addNewPart(); }}
-            className="flex flex-col gap-3"
-          >
-            <div className="grid grid-cols-[minmax(0,1fr)_118px] gap-2">
-              <div className="flex-1 flex gap-2 items-center bg-[#F6F7FB] border border-[#E7EAF3] px-3 rounded-[12px] h-12">
-                <input 
-                  type="text" 
-                  ref={partInputRef} value={newPartName} 
-                  onChange={(e) => setNewPartName(e.target.value)}
-                  placeholder="Search part..."
-                  className="flex-1 bg-transparent outline-none p-1 text-[16px] font-medium text-[#1E1F23]"
-                />
-              </div>
-              <div className="flex w-[118px] shrink-0 items-center rounded-[12px] border border-[#E7EAF3] bg-white h-12 overflow-hidden">
-                <button type="button" className="h-12 w-9 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) - 1)))}>-</button>
-                <input
-                  type="number"
-                  min={1}
-                  value={newPartQuantity}
-                  onChange={(e) => setNewPartQuantity(e.target.value)}
-                  className="w-full min-w-0 bg-transparent text-center text-[16px] font-medium outline-none"
-                  placeholder="1"
-                />
-                <button type="button" className="h-12 w-9 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) + 1)))}>+</button>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setNewPartKind('single')}
-                className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-wide ${newPartKind === 'single' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500'}`}
-              >
-                Обычная деталь
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setNewPartKind('group');
-                  setNewPartGroupItems((prev) => prev.length > 0 ? prev : [createGroupItemDraft()]);
-                }}
-                className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-wide ${newPartKind === 'group' ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-gray-200 bg-white text-gray-500'}`}
-              >
-                Группа деталей
-              </button>
-            </div>
-            {newPartKind === 'group' && (
-              <div className="space-y-2 rounded-xl border border-violet-100 bg-violet-50/60 p-3">
-                <p className="text-[11px] font-black uppercase tracking-wide text-violet-700">Состав группы</p>
-                {newPartGroupItems.map((item, index) => (
-                  <div key={item.id} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <input
-                      type="text"
-                      value={item.name}
-                      onChange={(e) => updateGroupItemRow(item.id, 'name', e.target.value)}
-                      placeholder={`Деталь #${index + 1}`}
-                      className="w-full flex-1 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm font-semibold outline-none"
-                    />
-                    <div className="flex items-center gap-2 sm:shrink-0">
-                      <input
-                        type="number"
-                        min={1}
-                        value={item.quantity}
-                        onChange={(e) => updateGroupItemRow(item.id, 'quantity', e.target.value)}
-                        className="w-20 rounded-lg border border-violet-100 bg-white px-2 py-2 text-center text-sm font-bold"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeGroupItemRow(item.id)}
-                        className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-600"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <button type="button" onClick={addGroupItemRow} className="w-full rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-black uppercase tracking-wide text-violet-700 sm:w-auto">
-                  + Добавить деталь в группу
-                </button>
-              </div>
-            )}
-            <textarea
-              value={newPartComment}
-              onChange={(e) => setNewPartComment(e.target.value)}
-              placeholder={newPartKind === 'group' ? 'Описание к группе (необязательно)' : 'Описание к детали (необязательно)'}
-              className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm font-semibold outline-none"
-              rows={2}
-            />
-
-            <div className="flex items-end justify-between gap-3">
-              <div className="flex flex-1 gap-2 items-center overflow-x-auto no-scrollbar">
-                <button
-                  type="button" 
-                  onClick={() => partFileRef.current?.click()}
-                  className={`w-12 h-12 shrink-0 rounded-xl flex items-center justify-center border-2 border-dashed border-gray-200 transition-colors ${newPartPhotos.length > 0 ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-300'}`}
-                >
-                  <ImageIcon size={20} />
-                </button>
-                {newPartPhotos.map((p, i) => (
-                    <div key={i} className="relative w-12 h-12 shrink-0 rounded-xl overflow-hidden border border-gray-100">
-                        <img src={p} className="w-full h-full object-cover" />
-                        <button 
-                            type="button"
-                            onClick={() => removeNewPhoto(i)}
-                            className="absolute inset-0 bg-black/40 flex items-center justify-center text-white opacity-0 hover:opacity-100 transition-opacity"
-                        >
-                            <X size={12} />
-                        </button>
-                    </div>
-                ))}
-                <input type="file" ref={partFileRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
-              </div>
-              <button
-                type="submit"
-                className="h-12 w-full sm:w-auto shrink-0 rounded-[12px] bg-[#3B6AF7] px-6 text-[13px] font-semibold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(59,106,247,0.35)] active:scale-[0.97] transition-transform duration-200"
-              >
-                ADD
-              </button>
-            </div>
-          </form>
-          <p className="mt-3 text-xs font-semibold text-gray-600">
-            Добавлено деталей: <span className="font-black text-gray-800">{order.parts.length}</span>
-            {order.parts.length > 0 ? <span className="text-gray-500"> · Последняя: {order.parts[order.parts.length - 1]?.name || '—'}</span> : null}
-          </p>
-        </div>
-
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Заметки</h2>
           <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
@@ -2991,6 +3197,10 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
+            </div>
+          )}
+        </div>
+
         {isRecording && (
           <div className="fixed inset-0 z-50 bg-slate-900/70 p-4">
             <div className="mx-auto mt-16 w-full max-w-md rounded-2xl border border-rose-100 bg-white p-4 shadow-xl space-y-3">
@@ -3027,113 +3237,6 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         )}
 
-        <div ref={partsListRef} className="space-y-2">
-          <h2 className="font-black text-gray-400 px-1 text-[10px] uppercase tracking-[0.2em] mb-1">Parts List</h2>
-          <p className="px-1 text-[11px] text-slate-500">После добавления детали она появляется в этом списке и доступна для редактирования.</p>
-          {order.parts.length === 0 && (
-            <div className="bg-white border border-dashed border-gray-200 rounded-2xl p-4 text-center">
-              <p className="text-[16px] font-medium text-[#1E1F23]">No parts yet</p>
-              <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 px-3 py-2 rounded-[12px] bg-[#3B6AF7] text-white text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Add first part</button>
-            </div>
-          )}
-          {order.parts.map(part => {
-             const displayPhotos = getPartPreviewPhotos(part);
-             const isGroupPart = part.partKind === 'group';
-             const groupItems = normalizeGroupItems(part.groupItems);
-             const partQuantity = normalizePartQuantity(part.quantity);
-             const isCommentExpanded = !!partCommentExpanded[part.id];
-             return (
-              <div key={part.id} onClick={() => navigate(`/order/${order.id}/part/${part.id}`)} className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-2 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01] active:scale-[0.99]">
-                <div className="flex items-center gap-3">
-                  <button 
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); togglePartFound(part.id); }} 
-                    className={`flex-shrink-0 p-1 rounded-full transition-colors ${part.isFound ? 'text-green-500 bg-green-50' : 'text-gray-200'}`}
-                  >
-                    {part.isFound ? <CheckCircle2 size={28} /> : <Circle size={28} />}
-                  </button>
-                  <div 
-                    className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden shrink-0 border border-gray-100 relative"
-                  >
-                    {displayPhotos.length > 0 ? (
-                      <>
-                        <img 
-                          src={displayPhotos[0]} 
-                          className="w-full h-full object-cover cursor-pointer" 
-                          onClick={(e) => openGallery(e, part)}
-                        />
-                        {displayPhotos.length > 1 && (
-                            <div className="absolute bottom-0 right-0 bg-black/60 text-white text-[8px] font-bold px-1 rounded-tl-md">
-                                +{displayPhotos.length - 1}
-                            </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center"><Package size={20} className="text-gray-200" /></div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-black text-[14px] text-gray-900 leading-tight mb-1 break-words whitespace-normal">{part.name}</h4>
-                    <p className="text-[12px] font-semibold text-slate-700">Qty: {partQuantity}</p>
-                    <p className="text-[11px] font-semibold text-slate-600">Best supplier: {part.variants[0]?.shopName || 'не выбран'}</p>
-                    <p className="text-[11px] font-black text-emerald-700">Price: {part.variants[0] ? `${part.variants[0].priceAed} AED` : '—'}</p>
-                    <p className="text-[11px] font-semibold text-[#8B8F98]">Margin: —</p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button 
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setDeletePartId(part.id); }}
-                      className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700"
-                    >
-                      Удалить
-                    </button>
-                    <ChevronRight size={18} className="text-gray-200" />
-                  </div>
-                </div>
-                <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-                  {!isCommentExpanded ? (
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: true }))}
-                        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700"
-                      >
-                        {part.comment?.trim() ? 'Изменить описание' : 'Добавить описание'}
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <textarea
-                        value={partCommentDrafts[part.id] ?? part.comment ?? ''}
-                        onChange={(e) => updatePartCommentDraft(part.id, e.target.value)}
-                        onBlur={() => savePartComment(part.id)}
-                        placeholder={isGroupPart ? 'Описание к группе' : 'Описание к детали'}
-                        className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-[11px] font-semibold text-slate-700 outline-none"
-                        rows={2}
-                      />
-                      <div className="mt-1 flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: false }))}
-                          className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-600"
-                        >
-                          Отмена
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => savePartComment(part.id)}
-                          className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700"
-                        >
-                          Сохранить
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-             );
-          })}
-        </div>
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-2.5 shadow-[0_-6px_16px_rgba(0,0,0,0.08)]">
