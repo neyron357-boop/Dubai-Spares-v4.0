@@ -2028,7 +2028,7 @@ const OrderDetailsScreen: React.FC = () => {
           <div className="flex-1 flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 overflow-x-auto no-scrollbar">
             <span className="rounded-full bg-slate-100 px-2 py-0.5 whitespace-nowrap">{foundPartsCount}/{partsCount} найдено</span>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 whitespace-nowrap">{orderAgeDays} дн</span>
-            {order.vin && <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono whitespace-nowrap">{order.vin.slice(0, 8)}…</span>}
+            {order.vin && <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono whitespace-nowrap">{order.vin.length > 8 ? `${order.vin.slice(0, 8)}…` : order.vin}</span>}
             <span className={`rounded-full px-2 py-0.5 whitespace-nowrap ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-gray-600 bg-gray-100 border border-gray-200')}`}>
               {order.salesStatus || 'Inquiry'}
             </span>

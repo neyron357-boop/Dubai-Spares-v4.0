@@ -49,12 +49,15 @@ const ShowSupplierScreen: React.FC = () => {
   const handleCopyText = async () => {
     try {
       await navigator.clipboard.writeText(buildTextList());
-      // Simple visual feedback via alert on mobile
-      const btn = document.getElementById('copy-btn');
+      const btn = document.getElementById('copy-btn') as HTMLButtonElement | null;
       if (btn) {
         const orig = btn.textContent;
         btn.textContent = '✓ Скопировано';
-        setTimeout(() => { if (btn) btn.textContent = orig; }, 1500);
+        setTimeout(() => {
+          if (btn && btn.isConnected && btn.textContent === '✓ Скопировано') {
+            btn.textContent = orig;
+          }
+        }, 1500);
       }
     } catch {
       // ignore
