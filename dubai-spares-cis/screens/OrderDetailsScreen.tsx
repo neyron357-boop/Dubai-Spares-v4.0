@@ -2173,13 +2173,13 @@ const OrderDetailsScreen: React.FC = () => {
                   {/* Center info */}
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-[16px] text-gray-900 leading-tight truncate">{part.name}</p>
-                    <p className="text-[14px] text-gray-400 mt-0.5">{partQuantity} × {part.variants[0]?.shopName || '—'}</p>
+                    <p className="text-[14px] text-gray-400 mt-0.5">{partQuantity} × {part.variants?.[0]?.shopName || '—'}</p>
                     {isGroupPart && <p className="text-[11px] font-semibold text-violet-600 mt-0.5">Группа · {groupItems.length} позиций</p>}
                   </div>
                   {/* Right: price + delete toggle + chevron */}
                   <div className="flex items-center gap-1 shrink-0">
                     <div className="text-right">
-                      <p className="text-[16px] font-bold text-emerald-600">{part.variants[0] ? `${part.variants[0].priceAed} AED` : '—'}</p>
+                      <p className="text-[16px] font-bold text-emerald-600">{part.variants?.[0] ? `${part.variants[0].priceAed} AED` : '—'}</p>
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); setPartSwipeState((p) => ({ ...p, [part.id]: p[part.id] === 'left' ? null : 'left' })); }}
