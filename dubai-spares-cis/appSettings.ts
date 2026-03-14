@@ -48,6 +48,10 @@ export interface AppSettings {
   publicContactsUpdatedAt: number;
   appSettingsUpdatedAt: number;
   cargoTariffs: CargoTariff[];
+  weeklyGoalAed: number;
+  morningNotificationTime: string;
+  eveningNotificationTime: string;
+  userName: string;
 }
 
 type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl' | 'publicManagerName' | 'publicTermsFileUrl' | 'publicTermsFileName'>;
@@ -86,7 +90,11 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   publicTermsFileName: '',
   publicContactsUpdatedAt: 0,
   appSettingsUpdatedAt: 0,
-  cargoTariffs: DEFAULT_CARGO_TARIFFS
+  cargoTariffs: DEFAULT_CARGO_TARIFFS,
+  weeklyGoalAed: 2000,
+  morningNotificationTime: '07:30',
+  eveningNotificationTime: '21:00',
+  userName: 'Руслан'
 };
 
 const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSettings => ({
@@ -116,7 +124,19 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
     : DEFAULT_APP_SETTINGS.defaultVendorChecklist,
   cargoTariffs: Array.isArray(raw?.cargoTariffs)
     ? raw.cargoTariffs.filter((item): item is CargoTariff => !!item && typeof item === 'object' && typeof (item as CargoTariff).country === 'string')
-    : DEFAULT_APP_SETTINGS.cargoTariffs
+    : DEFAULT_APP_SETTINGS.cargoTariffs,
+  weeklyGoalAed: Number.isFinite(Number(raw?.weeklyGoalAed)) && Number(raw?.weeklyGoalAed) > 0
+    ? Number(raw?.weeklyGoalAed)
+    : DEFAULT_APP_SETTINGS.weeklyGoalAed,
+  morningNotificationTime: typeof raw?.morningNotificationTime === 'string' && raw.morningNotificationTime
+    ? raw.morningNotificationTime
+    : DEFAULT_APP_SETTINGS.morningNotificationTime,
+  eveningNotificationTime: typeof raw?.eveningNotificationTime === 'string' && raw.eveningNotificationTime
+    ? raw.eveningNotificationTime
+    : DEFAULT_APP_SETTINGS.eveningNotificationTime,
+  userName: typeof raw?.userName === 'string' && raw.userName.trim()
+    ? raw.userName.trim()
+    : DEFAULT_APP_SETTINGS.userName
 });
 
 const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): PublicAppSettings => {

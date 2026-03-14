@@ -1243,6 +1243,49 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </div>
       </Section>
 
+      <Section title="Главный экран «Сегодня»">
+        <div className="space-y-3">
+          <Field label="Ваше имя (приветствие)">
+            <input
+              value={draftSettings.userName || ''}
+              onChange={(e) => updateDraft({ userName: e.target.value })}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              type="text"
+              placeholder="Руслан"
+            />
+          </Field>
+
+          <Field label="Цель по прибыли за неделю (AED)">
+            <input
+              value={draftSettings.weeklyGoalAed || 2000}
+              onChange={(e) => updateDraft({ weeklyGoalAed: Number(e.target.value.replace(/\D/g, '')) || 2000 })}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              type="text"
+              inputMode="numeric"
+              placeholder="2000"
+            />
+          </Field>
+
+          <Field label="Время утреннего уведомления">
+            <input
+              value={draftSettings.morningNotificationTime || '07:30'}
+              onChange={(e) => updateDraft({ morningNotificationTime: e.target.value })}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              type="time"
+            />
+          </Field>
+
+          <Field label="Время вечернего уведомления">
+            <input
+              value={draftSettings.eveningNotificationTime || '21:00'}
+              onChange={(e) => updateDraft({ eveningNotificationTime: e.target.value })}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              type="time"
+            />
+          </Field>
+        </div>
+      </Section>
+
       <Section title="Чек лист поиска поставщиков">
         <p className="text-xs text-gray-500">Эти задачи подставляются по умолчанию во все слайды Vendor. Можно добавлять индивидуальные задачи уже в конкретном заказе.</p>
         <div className="mt-3 space-y-2">
