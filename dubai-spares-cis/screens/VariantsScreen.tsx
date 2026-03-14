@@ -6,6 +6,7 @@ import {
   Heart,
   Link2,
   MapPin,
+  Menu,
   MessageCircle,
   Phone,
   Pin,
@@ -21,6 +22,7 @@ import { PriceVariant } from '../types';
 import { VariantLibraryItem } from '../variantLibraryStore';
 import { optimizeImageForUpload } from '../storage/photos';
 import { useNavigate } from 'react-router-dom';
+import { useDrawer } from '../DrawerContext';
 
 const priceTemplates = [150, 250, 450, 750, 1200, 1800];
 const supplierNamePrefixes = ['Desert', 'Falcon', 'Turbo', 'Prime', 'Royal', 'Emirates', 'Golden', 'Rapid', 'Metro', 'Pearl'];
@@ -52,6 +54,7 @@ const resolveVariantMapUrl = (variant: VariantLibraryItem) => {
 
 const VariantsScreen: React.FC = () => {
   const navigate = useNavigate();
+  const { openMenu } = useDrawer();
   const { variantLibrary, saveStandaloneVariant, removeStandaloneVariant, suppliers, updatePriceVariant, orders, updateOrder } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const randomSupplierCounterRef = useRef(1);
@@ -350,7 +353,10 @@ const VariantsScreen: React.FC = () => {
               <h1 className="text-[32px] font-bold leading-[38px]">Варианты</h1>
               <p className="mt-1 max-w-[280px] text-sm text-[#667085]">Все сохранённые варианты из заказов и отдельно созданные позиции.</p>
             </div>
-            <div className={`rounded-xl border px-3 py-1.5 text-[11px] font-semibold ${syncStateUi}`}>{syncLabel}</div>
+            <div className="flex items-center gap-2 pt-1">
+              <div className={`rounded-xl border px-3 py-1.5 text-[11px] font-semibold ${syncStateUi}`}>{syncLabel}</div>
+              <button type="button" onClick={openMenu} className="h-10 w-10 rounded-xl border border-[#E7EAF0] bg-white grid place-items-center" aria-label="Открыть меню"><Menu size={18} /></button>
+            </div>
           </div>
           <button type="button" onClick={() => setShowCreateModal(true)} className="mt-4 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-[#2563EB] text-sm font-bold text-white">
             <Plus size={18} />
