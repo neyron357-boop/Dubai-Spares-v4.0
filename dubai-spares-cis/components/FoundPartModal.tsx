@@ -93,7 +93,7 @@ const FoundPartModal: React.FC<FoundPartModalProps> = ({
       '',
       'Для подтверждения заказа, пожалуйста, ответьте на это сообщение.',
     ]
-      .filter((l) => l !== undefined)
+      .filter((l) => l !== '')
       .join('\n');
     return lines;
   };

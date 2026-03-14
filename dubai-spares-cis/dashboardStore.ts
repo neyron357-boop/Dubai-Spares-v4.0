@@ -21,8 +21,8 @@ const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: 'inbox_cleanup', visible: true },
 ];
 
-/** All known widget IDs in stable order (for merging saved configs) */
-const KNOWN_IDS: WidgetId[] = ['money_pulse', 'smart_route', 'vip_focus', 'inbox_cleanup'];
+/** All known widget IDs in stable order (derived from DEFAULT_WIDGETS) */
+const KNOWN_IDS: WidgetId[] = DEFAULT_WIDGETS.map((w) => w.id);
 
 /** Load widget config from localStorage, merging with defaults */
 export const loadDashboardWidgets = (): WidgetConfig[] => {
