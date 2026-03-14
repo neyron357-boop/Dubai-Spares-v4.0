@@ -318,6 +318,7 @@ const OrderDetailsScreen: React.FC = () => {
   const partFileRef = useRef<HTMLInputElement>(null);
   const partInputRef = useRef<HTMLInputElement>(null);
   const partsListRef = useRef<HTMLDivElement>(null);
+  const [showOnlyOpenParts, setShowOnlyOpenParts] = useState(false);
 
   // Exchange Rate Input State (Controlled)
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
@@ -2302,6 +2303,20 @@ const OrderDetailsScreen: React.FC = () => {
               className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
             />
           </div>
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Зона</label>
+            <select
+              value={order.zone || ''}
+              disabled={!isEditMode}
+              onChange={(e) => updateOrderField('zone', e.target.value || undefined)}
+              className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+            >
+              <option value="">Не выбрана</option>
+              {(settings.orderZones || []).map((z) => (
+                <option key={z} value={z}>{z}</option>
+              ))}
+            </select>
+          </div>
           </div>}
         </div>
 
@@ -3028,7 +3043,16 @@ const OrderDetailsScreen: React.FC = () => {
         )}
 
         <div ref={partsListRef} className="space-y-2">
-          <h2 className="font-black text-gray-400 px-1 text-[10px] uppercase tracking-[0.2em] mb-1">Parts List</h2>
+          <div className="flex items-center justify-between px-1 mb-1">
+            <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Parts List</h2>
+            <button
+              type="button"
+              onClick={() => setShowOnlyOpenParts((v) => !v)}
+              className={`rounded-lg border px-2 py-1 text-[10px] font-bold transition-colors ${showOnlyOpenParts ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500'}`}
+            >
+              {showOnlyOpenParts ? 'Только в поиске' : 'Все детали'}
+            </button>
+          </div>
           <p className="px-1 text-[11px] text-slate-500">После добавления детали она появляется в этом списке и доступна для редактирования.</p>
           {order.parts.length === 0 && (
             <div className="bg-white border border-dashed border-gray-200 rounded-2xl p-4 text-center">
@@ -3036,7 +3060,7 @@ const OrderDetailsScreen: React.FC = () => {
               <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 px-3 py-2 rounded-[12px] bg-[#3B6AF7] text-white text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Add first part</button>
             </div>
           )}
-          {order.parts.map(part => {
+          {order.parts.filter((part) => !showOnlyOpenParts || (!part.isFound && (part.variants || []).length === 0)).map(part => {
              const displayPhotos = getPartPreviewPhotos(part);
              const isGroupPart = part.partKind === 'group';
              const groupItems = normalizeGroupItems(part.groupItems);

@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { HashRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import TodayScreen from './screens/TodayScreen';
 import MorningBossScreen from './screens/MorningBossScreen';
@@ -14,7 +14,8 @@ import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
-import { BarChart3, Bell, CarFront, Database, Home, Layers, PlusCircle, Settings } from 'lucide-react';
+import VendorSlidesScreen from './screens/VendorSlidesScreen';
+import { BarChart3, Bell, CarFront, Database, Home, Layers, Menu, PlusCircle, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
@@ -62,9 +63,9 @@ const DrawerMenu: React.FC<{ isOpen: boolean; onClose: () => void; unreadCount: 
         className={`absolute inset-0 z-[82] bg-black/50 transition-opacity duration-300 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         onClick={onClose}
       />
-      {/* Drawer panel – slides in from the right */}
+      {/* Drawer panel – slides in from the left */}
       <div
-        className={`absolute top-0 right-0 h-full z-[83] bg-[#1E1E1E] w-4/5 max-w-xs transform transition-transform duration-300 ease-in-out flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`absolute top-0 left-0 h-full z-[83] bg-[#1E1E1E] w-4/5 max-w-xs transform transition-transform duration-300 ease-in-out flex flex-col ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className="px-4 pb-8" style={{ paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}>
           <h2 className="text-white text-lg font-black mb-6 px-2">Меню</h2>
@@ -96,6 +97,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
+  const scrollPositions = useRef<Record<string, number>>({});
+  const prevPathname = useRef(location.pathname);
 
   // Show bottom nav only on the 3 tab screens (and order details, which stays in Orders context)
   const hideNav = resolveBottomTab(location.pathname) === null;
@@ -106,6 +110,25 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     orders: '/orders',
     analytics: '/variants',
   });
+
+  // Save scroll position when navigating away, restore when coming back
+  useEffect(() => {
+    const prev = prevPathname.current;
+    const next = location.pathname;
+    if (prev === next) return;
+
+    if (mainRef.current) {
+      scrollPositions.current[prev] = mainRef.current.scrollTop;
+    }
+    prevPathname.current = next;
+
+    const savedPos = scrollPositions.current[next] ?? 0;
+    window.requestAnimationFrame(() => {
+      if (mainRef.current) {
+        mainRef.current.scrollTop = savedPos;
+      }
+    });
+  }, [location.pathname]);
 
   useEffect(() => {
     const tab = resolveBottomTab(location.pathname);
@@ -149,10 +172,21 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     <DrawerContext.Provider value={{ openMenu: () => setMenuOpen(true) }}>
       <div className="fixed inset-0 h-[100dvh] w-full bg-slate-100 flex justify-center overflow-hidden"><div className="h-full w-full max-w-md bg-gray-50 flex flex-col overflow-hidden shadow-sm relative">
         <DrawerMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} unreadCount={unreadCount} />
-        <div title="Cloud sync status" className="fixed top-3 right-3 z-[90] px-2.5 py-1 rounded-full bg-slate-700/85 text-white text-[10px] font-black uppercase tracking-wide shadow">
-          {LOCAL_MODE_LABEL}
+        {/* Top bar: cloud sync status on left, burger menu on right */}
+        <div className="fixed top-0 left-0 right-0 z-[89] flex items-center justify-between px-3 pointer-events-none" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
+          <div title="Cloud sync status" className="pointer-events-auto px-2.5 py-1 rounded-full bg-slate-700/85 text-white text-[10px] font-black uppercase tracking-wide shadow">
+            {LOCAL_MODE_LABEL}
+          </div>
+          <button
+            type="button"
+            aria-label="Открыть меню"
+            onClick={() => { playSound('tap'); setMenuOpen(true); }}
+            className="pointer-events-auto w-9 h-9 rounded-full bg-slate-700/85 flex items-center justify-center shadow text-white"
+          >
+            <Menu size={18} />
+          </button>
         </div>
-        <main className="flex-1 overflow-y-auto no-scrollbar relative">
+        <main ref={mainRef} className="flex-1 overflow-y-auto no-scrollbar relative">
           {children}
         </main>
         {!hideNav && (
@@ -191,7 +225,7 @@ const CachedRoutes: React.FC = () => {
               <Route path="/morning" element={<MorningBossScreen />} />
               <Route path="/orders" element={<OrdersScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />
-              <Route path="/vendor" element={<Navigate to="/vendor/slider" replace />} />
+              <Route path="/vendor" element={<VendorSlidesScreen />} />
               <Route path="/vendor/slider" element={<VendorSlider />} />
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
