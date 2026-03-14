@@ -7,6 +7,7 @@ import IncomeModal from '../components/IncomeModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
+import { getGreeting } from '../utils/greeting';
 
 type TabType = 'active' | 'vip' | 'lead' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -51,13 +52,6 @@ const formatAge = (ts: number) => {
   if (hours < 1) return 'NEW';
   if (hours < 24) return `${Math.floor(hours)}h`;
   return `${Math.floor(hours / 24)}d`;
-};
-
-const getGreeting = (): string => {
-  const hour = new Date().getHours();
-  if (hour >= 4 && hour < 11) return 'Доброе утро, Ахмад! ☀️';
-  if (hour >= 11 && hour < 17) return 'Добрый день!';
-  return 'Добрый вечер!';
 };
 
 type SwipeableOrderCardProps = {

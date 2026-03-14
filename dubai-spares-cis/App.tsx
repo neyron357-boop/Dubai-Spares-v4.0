@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { HashRouter, Routes, Route, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
+import MorningBossScreen from './screens/MorningBossScreen';
 import OrdersScreen from './screens/OrdersScreen';
 import NewOrderScreen from './screens/NewOrderScreen';
 import OrderDetailsScreen from './screens/OrderDetailsScreen';
@@ -28,7 +29,7 @@ const HashPublicQuoteRoute: React.FC = () => {
 type BottomTab = 'orders' | 'new' | 'database' | 'variants' | 'notifications' | 'settings' | null;
 
 const resolveBottomTab = (pathname: string): BottomTab => {
-  if (pathname === '/' || pathname.startsWith('/order/') || pathname.startsWith('/vendor')) return 'orders';
+  if (pathname === '/orders' || pathname.startsWith('/order/') || pathname.startsWith('/vendor')) return 'orders';
   if (pathname.startsWith('/new')) return 'new';
   if (pathname.startsWith('/database')) return 'database';
   if (pathname.startsWith('/variants')) return 'variants';
@@ -44,10 +45,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     || location.pathname.includes('/vendor')
     || location.pathname.includes('/request')
     || location.pathname.includes('/order-form')
-    || location.pathname.includes('/public-order-form');
+    || location.pathname.includes('/public-order-form')
+    || location.pathname === '/';
   const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
   const [tabPaths, setTabPaths] = useState<Record<Exclude<BottomTab, null>, string>>({
-    orders: '/',
+    orders: '/orders',
     new: '/new',
     database: '/database',
     variants: '/variants',
@@ -80,7 +82,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const handleTabNavigate = (tab: Exclude<BottomTab, null>) => {
     const rootByTab: Record<Exclude<BottomTab, null>, string> = {
-      orders: '/',
+      orders: '/orders',
       new: '/new',
       database: '/database',
       variants: '/variants',
@@ -138,12 +140,13 @@ const CachedRoutes: React.FC = () => {
     <>
       {stablePaths.map((pathname) => {
         const isActive = pathname === location.pathname;
-        const keepMountedWhenHidden = pathname !== '/vendor';
+        const keepMountedWhenHidden = pathname !== '/vendor' && pathname !== '/';
         if (!isActive && !keepMountedWhenHidden) return null;
         return (
           <div key={pathname} className={isActive ? 'h-full' : 'hidden'}>
             <Routes location={{ ...location, pathname }}>
-              <Route path="/" element={<OrdersScreen />} />
+              <Route path="/" element={<MorningBossScreen />} />
+              <Route path="/orders" element={<OrdersScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />
               <Route path="/vendor" element={<VendorSlider />} />
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
