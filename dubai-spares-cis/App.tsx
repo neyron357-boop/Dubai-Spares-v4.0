@@ -14,7 +14,7 @@ import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
-import { BarChart3, Bell, CarFront, Database, Home, Layers, Menu, PlusCircle, Settings } from 'lucide-react';
+import { BarChart3, Bell, CarFront, Database, Home, Layers, PlusCircle, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
@@ -62,9 +62,9 @@ const DrawerMenu: React.FC<{ isOpen: boolean; onClose: () => void; unreadCount: 
         className={`absolute inset-0 z-[82] bg-black/50 transition-opacity duration-300 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         onClick={onClose}
       />
-      {/* Drawer panel */}
+      {/* Drawer panel – slides in from the right */}
       <div
-        className={`absolute top-0 left-0 h-full z-[83] bg-[#1E1E1E] w-4/5 max-w-xs transform transition-transform duration-300 ease-in-out flex flex-col ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`absolute top-0 right-0 h-full z-[83] bg-[#1E1E1E] w-4/5 max-w-xs transform transition-transform duration-300 ease-in-out flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
         <div className="px-4 pb-8" style={{ paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}>
           <h2 className="text-white text-lg font-black mb-6 px-2">Меню</h2>
@@ -99,14 +99,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   // Show bottom nav only on the 3 tab screens (and order details, which stays in Orders context)
   const hideNav = resolveBottomTab(location.pathname) === null;
-
-  // Show hamburger on all screens except modal/public forms and public quote/debug screens
-  const showHamburger = !location.pathname.includes('/estimate')
-    && !location.pathname.includes('/request')
-    && !location.pathname.includes('/order-form')
-    && !location.pathname.includes('/public-order-form')
-    && !location.pathname.startsWith('/q/')
-    && !location.pathname.startsWith('/debug');
 
   const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
   const [tabPaths, setTabPaths] = useState<Record<Exclude<BottomTab, null>, string>>({
@@ -157,18 +149,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     <DrawerContext.Provider value={{ openMenu: () => setMenuOpen(true) }}>
       <div className="fixed inset-0 h-[100dvh] w-full bg-slate-100 flex justify-center overflow-hidden"><div className="h-full w-full max-w-md bg-gray-50 flex flex-col overflow-hidden shadow-sm relative">
         <DrawerMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} unreadCount={unreadCount} />
-        {/* Hamburger button for menu-accessed screens (non-tab screens without their own header hamburger) */}
-        {showHamburger && hideNav && (
-          <button
-            type="button"
-            aria-label="Открыть меню"
-            onClick={() => setMenuOpen(true)}
-            className="absolute left-3 z-[80] w-10 h-10 flex items-center justify-center rounded-xl bg-black/20 text-gray-700 active:bg-black/30"
-            style={{ top: 'max(0.75rem, env(safe-area-inset-top))' }}
-          >
-            <Menu size={22} />
-          </button>
-        )}
         <div title="Cloud sync status" className="fixed top-3 right-3 z-[90] px-2.5 py-1 rounded-full bg-slate-700/85 text-white text-[10px] font-black uppercase tracking-wide shadow">
           {LOCAL_MODE_LABEL}
         </div>

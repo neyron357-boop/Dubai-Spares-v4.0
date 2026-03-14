@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, Archive, BarChart3, Clock3, Cloud, Filter, Menu, MessageCircle, PenSquare, Pin, Search, Star, X } from 'lucide-react';
+import { Activity, Archive, BarChart3, Clock3, Cloud, Filter, MessageCircle, PenSquare, Pin, Search, Star, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
@@ -8,7 +8,6 @@ import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
 import { getGreeting } from '../utils/greeting';
-import { useDrawer } from '../DrawerContext';
 
 type TabType = 'active' | 'vip' | 'lead' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -318,7 +317,6 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
 const OrdersScreen: React.FC = () => {
   const { orders, isLoading, syncOrders, updateOrder, deleteOrder } = useStore();
   const navigate = useNavigate();
-  const { openMenu } = useDrawer();
 
   useLeadsPolling(true);
 
@@ -580,7 +578,6 @@ const OrdersScreen: React.FC = () => {
             <button type="button" disabled={isRefreshing} onClick={() => void refreshOrders()} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center disabled:opacity-50" aria-label="Обновить">
               <Clock3 size={18} className={isRefreshing ? 'animate-spin text-slate-500' : 'text-slate-700'} />
             </button>
-            <button type="button" onClick={openMenu} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Открыть меню"><Menu size={18} /></button>
           </div>
         </div>
 
