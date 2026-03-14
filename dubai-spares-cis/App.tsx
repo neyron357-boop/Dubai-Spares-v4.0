@@ -43,7 +43,7 @@ const DrawerMenu: React.FC<{ isOpen: boolean; onClose: () => void; unreadCount: 
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   const menuItems: Array<{ icon: React.ReactNode; label: string; path: string; badge?: string }> = [
-    { icon: <Layers size={20} />, label: 'Vendor Slides · Поставщики', path: '/vendor' },
+    { icon: <Layers size={20} />, label: 'Vendor Slides', path: '/vendor' },
     { icon: <PlusCircle size={20} />, label: 'Новый заказ', path: '/new' },
     { icon: <Bell size={20} />, label: 'Уведомления', path: '/notifications', badge: unreadCount > 0 ? badgeLabel : undefined },
     { icon: <Settings size={20} />, label: 'Настройки', path: '/settings' },
