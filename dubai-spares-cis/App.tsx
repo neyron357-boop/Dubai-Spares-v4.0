@@ -15,7 +15,7 @@ import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
-import { CarFront, PlusCircle, Database, Bell, Settings, Home } from 'lucide-react';
+import { BarChart3, Bell, CarFront, Database, Home, PlusCircle, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
@@ -28,12 +28,13 @@ const HashPublicQuoteRoute: React.FC = () => {
   return <PublicQuoteScreen orderId={orderId} />;
 };
 
-type BottomTab = 'today' | 'orders' | 'new' | 'database' | 'variants' | 'notifications' | 'settings' | null;
+type BottomTab = 'today' | 'orders' | 'new' | 'analytics' | 'database' | 'variants' | 'notifications' | 'settings' | null;
 
 const resolveBottomTab = (pathname: string): BottomTab => {
   if (pathname.startsWith('/today')) return 'today';
   if (pathname === '/' || pathname.startsWith('/order/') || pathname.startsWith('/vendor')) return 'orders';
   if (pathname.startsWith('/new')) return 'new';
+  if (pathname.startsWith('/analytics')) return 'analytics';
   if (pathname.startsWith('/database')) return 'database';
   if (pathname.startsWith('/variants')) return 'variants';
   if (pathname.startsWith('/notifications')) return 'notifications';
@@ -54,6 +55,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     today: '/today',
     orders: '/',
     new: '/new',
+    analytics: '/analytics',
     database: '/database',
     variants: '/variants',
     notifications: '/notifications',
@@ -88,6 +90,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       today: '/today',
       orders: '/',
       new: '/new',
+      analytics: '/analytics',
       database: '/database',
       variants: '/variants',
       notifications: '/notifications',
@@ -113,16 +116,43 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         {children}
       </main>
       {!hideNav && (
-        <nav className="h-16 bg-white border-t border-gray-200 flex items-center justify-around px-2 pb-safe shrink-0 z-50">
-          <NavLink to={tabPaths.orders} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('orders'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'orders' ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Orders</span></NavLink>
-          <NavLink to={tabPaths.new} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('new'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'new' ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">New Order</span></NavLink>
-          <NavLink to={tabPaths.database} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('database'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'database' ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">Suppliers</span></NavLink>
-          <NavLink to={tabPaths.today} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('today'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'today' ? 'text-blue-600' : 'text-gray-400'}`}><Home size={22} /><span className="text-[10px] font-medium">Сегодня</span></NavLink>
-          <NavLink to={tabPaths.notifications} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('notifications'); }} className={() => `relative flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'notifications' ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />
-            {unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{badgeLabel}</span>}
-            <span className="text-[10px] font-medium">Notifications</span>
+        <nav className="h-12 bg-white border-t border-gray-200 flex items-center justify-around px-1 pb-safe shrink-0 z-50">
+          {/* Today */}
+          <NavLink to={tabPaths.today} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('today'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'today' ? 'text-blue-600' : 'text-gray-400'}`}>
+            {resolveBottomTab(location.pathname) === 'today' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
+            <Home size={20} strokeWidth={resolveBottomTab(location.pathname) === 'today' ? 2.5 : 1.8} />
           </NavLink>
-          <NavLink to={tabPaths.settings} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('settings'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'settings' ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Settings</span></NavLink>
+          {/* Orders */}
+          <NavLink to={tabPaths.orders} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('orders'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'orders' ? 'text-blue-600' : 'text-gray-400'}`}>
+            {resolveBottomTab(location.pathname) === 'orders' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
+            <CarFront size={20} strokeWidth={resolveBottomTab(location.pathname) === 'orders' ? 2.5 : 1.8} />
+          </NavLink>
+          {/* New Order */}
+          <NavLink to={tabPaths.new} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('new'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'new' ? 'text-blue-600' : 'text-gray-400'}`}>
+            {resolveBottomTab(location.pathname) === 'new' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
+            <PlusCircle size={20} strokeWidth={resolveBottomTab(location.pathname) === 'new' ? 2.5 : 1.8} />
+          </NavLink>
+          {/* Analytics */}
+          <NavLink to={tabPaths.analytics} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('analytics'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'analytics' ? 'text-blue-600' : 'text-gray-400'}`}>
+            {resolveBottomTab(location.pathname) === 'analytics' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
+            <BarChart3 size={20} strokeWidth={resolveBottomTab(location.pathname) === 'analytics' ? 2.5 : 1.8} />
+          </NavLink>
+          {/* Suppliers */}
+          <NavLink to={tabPaths.database} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('database'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'database' ? 'text-blue-600' : 'text-gray-400'}`}>
+            {resolveBottomTab(location.pathname) === 'database' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
+            <Database size={19} strokeWidth={resolveBottomTab(location.pathname) === 'database' ? 2.5 : 1.8} />
+          </NavLink>
+          {/* Notifications */}
+          <NavLink to={tabPaths.notifications} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('notifications'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'notifications' ? 'text-blue-600' : 'text-gray-400'}`}>
+            {resolveBottomTab(location.pathname) === 'notifications' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
+            <Bell size={19} strokeWidth={resolveBottomTab(location.pathname) === 'notifications' ? 2.5 : 1.8} />
+            {unreadCount > 0 && <span className="absolute top-0.5 right-[calc(50%-14px)] min-w-[13px] h-[13px] px-0.5 rounded-full bg-rose-500 text-white text-[8px] font-black flex items-center justify-center">{badgeLabel}</span>}
+          </NavLink>
+          {/* Settings */}
+          <NavLink to={tabPaths.settings} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('settings'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'settings' ? 'text-blue-600' : 'text-gray-400'}`}>
+            {resolveBottomTab(location.pathname) === 'settings' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
+            <Settings size={19} strokeWidth={resolveBottomTab(location.pathname) === 'settings' ? 2.5 : 1.8} />
+          </NavLink>
         </nav>
       )}
       </div>
