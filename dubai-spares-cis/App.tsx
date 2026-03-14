@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
-import { HashRouter, Routes, Route, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { HashRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import TodayScreen from './screens/TodayScreen';
 import MorningBossScreen from './screens/MorningBossScreen';
 import OrdersScreen from './screens/OrdersScreen';
@@ -13,7 +13,6 @@ import VariantsScreen from './screens/VariantsScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
-import VendorSlidesScreen from './screens/VendorSlidesScreen';
 import VendorSlider from './components/VendorSlider';
 import { BarChart3, Bell, CarFront, Database, Home, Layers, PlusCircle, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
@@ -192,7 +191,7 @@ const CachedRoutes: React.FC = () => {
               <Route path="/morning" element={<MorningBossScreen />} />
               <Route path="/orders" element={<OrdersScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />
-              <Route path="/vendor" element={<VendorSlidesScreen />} />
+              <Route path="/vendor" element={<Navigate to="/vendor/slider" replace />} />
               <Route path="/vendor/slider" element={<VendorSlider />} />
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
