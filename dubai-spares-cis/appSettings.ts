@@ -52,6 +52,7 @@ export interface AppSettings {
   morningNotificationTime: string;
   eveningNotificationTime: string;
   userName: string;
+  orderZones: string[];
 }
 
 type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl' | 'publicManagerName' | 'publicTermsFileUrl' | 'publicTermsFileName'>;
@@ -94,7 +95,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   weeklyGoalAed: 2000,
   morningNotificationTime: '07:30',
   eveningNotificationTime: '21:00',
-  userName: 'Руслан'
+  userName: 'Руслан',
+  orderZones: ['Zone 2', 'Zone 3', 'Zone 4', 'Zone 6', 'Zone 7', 'Zone 8', 'Ajman', 'Sajah', 'Dubai']
 };
 
 const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSettings => ({
@@ -136,7 +138,10 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
     : DEFAULT_APP_SETTINGS.eveningNotificationTime,
   userName: typeof raw?.userName === 'string' && raw.userName.trim()
     ? raw.userName.trim()
-    : DEFAULT_APP_SETTINGS.userName
+    : DEFAULT_APP_SETTINGS.userName,
+  orderZones: Array.isArray(raw?.orderZones)
+    ? (raw.orderZones as unknown[]).filter((z): z is string => typeof z === 'string' && z.trim().length > 0).map((z) => z.trim())
+    : DEFAULT_APP_SETTINGS.orderZones
 });
 
 const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): PublicAppSettings => {

@@ -160,6 +160,7 @@ export interface Order {
   vendorContacts?: OrderVendorContact[];
   vendorChecklist?: VendorChecklistItem[];
   vehicleDetails?: VehicleDetails;
+  zone?: string;
 }
 
 export interface VehicleDetails {

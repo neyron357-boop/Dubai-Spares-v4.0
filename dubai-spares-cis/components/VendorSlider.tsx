@@ -104,7 +104,9 @@ const VendorSliderContent: React.FC = () => {
   const [recentCarIds, setRecentCarIds] = useState<string[]>(() => {
     try {
       const stored = localStorage.getItem(RECENT_CARS_KEY);
-      return stored ? (JSON.parse(stored) as string[]) : [];
+      const parsed = stored ? (JSON.parse(stored) as string[]) : [];
+      // Deduplicate on load to clean up any previously stored duplicates
+      return Array.from(new Set(Array.isArray(parsed) ? parsed : []));
     } catch { return []; }
   });
 

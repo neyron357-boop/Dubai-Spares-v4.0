@@ -338,6 +338,9 @@ const SettingsScreen: React.FC = () => {
   const [logoCrop, setLogoCrop] = useState<{ file: File; previewUrl: string } | null>(null);
   const [logoCropZoom, setLogoCropZoom] = useState(1);
   const [newDefaultChecklistTask, setNewDefaultChecklistTask] = useState('');
+  const [newZoneName, setNewZoneName] = useState('');
+  const [editingZoneIndex, setEditingZoneIndex] = useState<number | null>(null);
+  const [editingZoneValue, setEditingZoneValue] = useState('');
   const [lockedSnapshotIds, setLockedSnapshotIds] = useState<string[]>(() => loadLockedSnapshotIds());
   const [serverGalleryRows, setServerGalleryRows] = useState<GalleryRow[]>([]);
   const [serverGalleryLoading, setServerGalleryLoading] = useState(false);
@@ -427,6 +430,35 @@ const SettingsScreen: React.FC = () => {
 
   const removeDefaultChecklistTask = (index: number) => {
     updateDraft({ defaultVendorChecklist: (draftSettings.defaultVendorChecklist || []).filter((_, idx) => idx !== index) });
+  };
+
+  const addZone = () => {
+    const name = newZoneName.trim();
+    if (!name) return;
+    const zones = draftSettings.orderZones || [];
+    if (zones.some((z) => z.toLowerCase() === name.toLowerCase())) { setNewZoneName(''); return; }
+    updateDraft({ orderZones: [...zones, name] });
+    setNewZoneName('');
+  };
+
+  const removeZone = (index: number) => {
+    updateDraft({ orderZones: (draftSettings.orderZones || []).filter((_, idx) => idx !== index) });
+  };
+
+  const startEditZone = (index: number) => {
+    setEditingZoneIndex(index);
+    setEditingZoneValue((draftSettings.orderZones || [])[index] || '');
+  };
+
+  const saveEditZone = () => {
+    if (editingZoneIndex === null) return;
+    const name = editingZoneValue.trim();
+    if (!name) { setEditingZoneIndex(null); return; }
+    const zones = [...(draftSettings.orderZones || [])];
+    zones[editingZoneIndex] = name;
+    updateDraft({ orderZones: zones });
+    setEditingZoneIndex(null);
+    setEditingZoneValue('');
   };
 
   const cargoTariffs = useMemo(
@@ -1303,6 +1335,43 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               className="h-10 flex-1 rounded-xl border border-gray-300 bg-white px-3 text-sm"
             />
             <button type="button" onClick={addDefaultChecklistTask} className="rounded-xl bg-blue-600 px-3 text-xs font-bold text-white">Добавить</button>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Зоны заказов">
+        <p className="text-xs text-gray-500">Список зон, доступных для выбора в деталях заказа и в разделе Vendor Slides.</p>
+        <div className="mt-3 space-y-2">
+          {(draftSettings.orderZones || []).map((zone, idx) => (
+            <div key={`${zone}-${idx}`} className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
+              {editingZoneIndex === idx ? (
+                <>
+                  <input
+                    value={editingZoneValue}
+                    onChange={(e) => setEditingZoneValue(e.target.value)}
+                    className="h-8 flex-1 rounded-lg border border-gray-300 bg-white px-2 text-sm"
+                    autoFocus
+                  />
+                  <button type="button" onClick={saveEditZone} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">Сохранить</button>
+                  <button type="button" onClick={() => setEditingZoneIndex(null)} className="rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-bold text-gray-500">Отмена</button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-sm text-gray-800">{zone}</span>
+                  <button type="button" onClick={() => startEditZone(idx)} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">Изменить</button>
+                  <button type="button" onClick={() => removeZone(idx)} className="rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-bold text-rose-700">Удалить</button>
+                </>
+              )}
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <input
+              value={newZoneName}
+              onChange={(e) => setNewZoneName(e.target.value)}
+              placeholder="Новая зона (напр. Zone 5)"
+              className="h-10 flex-1 rounded-xl border border-gray-300 bg-white px-3 text-sm"
+            />
+            <button type="button" onClick={addZone} className="rounded-xl bg-blue-600 px-3 text-xs font-bold text-white">Добавить</button>
           </div>
         </div>
       </Section>

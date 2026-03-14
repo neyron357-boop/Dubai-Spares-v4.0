@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Pencil, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
+import { MapPin, Plus, Trash2, Pencil, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { ensureUuid } from '../id';
 import { Priority } from '../types';
+import { useAppSettings } from '../appSettings';
 
-type FilterField = 'brand' | 'model' | 'status' | 'tags' | 'hasSupplier' | 'country' | 'createdAt' | 'orderId' | 'vin';
+type FilterField = 'brand' | 'model' | 'status' | 'tags' | 'hasSupplier' | 'country' | 'createdAt' | 'orderId' | 'vin' | 'zone';
 type FilterOperator = 'equals' | 'contains' | 'not_equals' | 'between' | 'in';
 
 type FilterValue = string | string[] | { from?: string; to?: string };
@@ -34,6 +35,9 @@ const ORDER_STATUS_OPTIONS = ['Лиды', 'В работе', 'Ожидание �
 const TAG_OPTIONS = ['Срочно', 'VIP', 'Лид'] as const;
 const COLORS = ['#334155', '#1d4ed8', '#0f766e', '#7c3aed', '#be123c', '#c2410c'];
 
+const SHARJAH_ZONES = ['Zone 2', 'Zone 3', 'Zone 4', 'Zone 6', 'Zone 7', 'Zone 8'];
+const LOCATION_ZONES = ['Ajman', 'Sajah', 'Dubai'];
+
 const emptyFilter = (): CustomColumnFilter => ({ id: ensureUuid(), field: 'brand', operator: 'equals', value: '' });
 
 const getOrderTags = (order: { priority: Priority; isVip?: boolean; isLead?: boolean; customerStatus?: string; status?: string }) => {
@@ -57,6 +61,7 @@ const toOrderStatus = (order: { isArchived: boolean; isSold: boolean; isLead?: b
 const VendorSlidesScreen: React.FC = () => {
   const navigate = useNavigate();
   const { orders } = useStore();
+  const { settings } = useAppSettings();
   const [columns, setColumns] = useState<CustomColumn[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -65,6 +70,7 @@ const VendorSlidesScreen: React.FC = () => {
   });
   const [dragId, setDragId] = useState<string | null>(null);
   const [openedColumnId, setOpenedColumnId] = useState<string | null>(null);
+  const [zoneModalZone, setZoneModalZone] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -83,6 +89,7 @@ const VendorSlidesScreen: React.FC = () => {
   const brands = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
   const models = useMemo(() => Array.from(new Set(orders.map((o) => o.model))).sort((a, b) => a.localeCompare(b)), [orders]);
   const countries = useMemo(() => Array.from(new Set(orders.map((o) => o.logistics?.cargoCountry || '').filter(Boolean))).sort((a, b) => a.localeCompare(b)), [orders]);
+  const availableZones = useMemo(() => settings.orderZones || [], [settings.orderZones]);
 
   const applyFilter = (order: typeof orders[number], filter: CustomColumnFilter) => {
     if (filter.field === 'brand') {
@@ -124,6 +131,10 @@ const VendorSlidesScreen: React.FC = () => {
       if (filter.operator === 'equals') return current.toLowerCase() === String(filter.value).toLowerCase();
       if (filter.operator === 'not_equals') return current.toLowerCase() !== String(filter.value).toLowerCase();
       return current.toLowerCase().includes(String(filter.value).toLowerCase());
+    }
+    if (filter.field === 'zone') {
+      const current = (order.zone || '').toLowerCase();
+      return filter.operator === 'contains' ? current.includes(String(filter.value).toLowerCase()) : current === String(filter.value).toLowerCase();
     }
     return true;
   };
@@ -214,24 +225,90 @@ const VendorSlidesScreen: React.FC = () => {
 
   return (
     <div className="fixed inset-0 overflow-y-auto bg-[#0B1220] text-white">
-      <div className="mx-auto max-w-4xl px-4 py-4">
+      <div className="mx-auto max-w-4xl px-3 py-4">
         <div className="mb-4 flex items-center justify-between">
           <div>
             <p className="text-xl font-black">Vendor Slides</p>
             <p className="text-xs text-white/60">Кастомизируемые статусные колонки</p>
           </div>
-          <button type="button" onClick={openCreate} className="inline-flex items-center gap-1 rounded-xl border border-blue-500/60 bg-blue-700/30 px-3 py-2 text-xs font-bold">
-            <Plus size={14} /> Создать колонку
+          <button type="button" onClick={openCreate} className="inline-flex items-center gap-1 rounded-xl border border-blue-500/60 bg-blue-700/30 px-2.5 py-1.5 text-xs font-bold">
+            <Plus size={13} /> Создать
           </button>
         </div>
 
+        {/* Zone blocks – Sharjah */}
+        <div className="mb-4">
+          <div className="mb-2 flex items-center gap-2">
+            <MapPin size={12} className="text-emerald-400" />
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Sharjah · Зоны</p>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {SHARJAH_ZONES.map((zone) => {
+              const count = orders.filter((o) => (o.zone || '') === zone).length;
+              return (
+                <button
+                  key={zone}
+                  type="button"
+                  onClick={() => setZoneModalZone(zone)}
+                  className="rounded-xl border border-emerald-500/30 bg-emerald-900/20 px-2 py-2 text-left hover:bg-emerald-900/40 active:bg-emerald-900/60 transition-colors"
+                >
+                  <p className="text-xs font-black">{zone}</p>
+                  <p className="text-[10px] text-white/50 mt-0.5">{count} зак.</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Zone blocks – Locations */}
+        <div className="mb-5">
+          <div className="mb-2 flex items-center gap-2">
+            <MapPin size={12} className="text-sky-400" />
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Локации</p>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {LOCATION_ZONES.map((zone) => {
+              const count = orders.filter((o) => (o.zone || '') === zone).length;
+              return (
+                <button
+                  key={zone}
+                  type="button"
+                  onClick={() => setZoneModalZone(zone)}
+                  className="rounded-xl border border-sky-500/30 bg-sky-900/20 px-2 py-2 text-left hover:bg-sky-900/40 active:bg-sky-900/60 transition-colors"
+                >
+                  <p className="text-xs font-black">{zone}</p>
+                  <p className="text-[10px] text-white/50 mt-0.5">{count} зак.</p>
+                </button>
+              );
+            })}
+            {/* Extra zones from settings not in predefined lists */}
+            {availableZones
+              .filter((z) => !SHARJAH_ZONES.includes(z) && !LOCATION_ZONES.includes(z))
+              .map((zone) => {
+                const count = orders.filter((o) => (o.zone || '') === zone).length;
+                return (
+                  <button
+                    key={zone}
+                    type="button"
+                    onClick={() => setZoneModalZone(zone)}
+                    className="rounded-xl border border-slate-500/30 bg-slate-800/40 px-2 py-2 text-left hover:bg-slate-700/40 transition-colors"
+                  >
+                    <p className="text-xs font-black">{zone}</p>
+                    <p className="text-[10px] text-white/50 mt-0.5">{count} зак.</p>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+
+        {/* Custom columns */}
         {allStats.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/30 px-4 py-6 text-center">
             <p className="text-sm text-slate-300">У вас пока нет созданных колонок. Создайте первую, чтобы отслеживать нужные заказы.</p>
             <button type="button" onClick={openCreate} className="mt-3 rounded-xl border border-blue-500/60 bg-blue-700/30 px-3 py-2 text-xs font-bold">Создать колонку</button>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {allStats.map((column) => (
               <div
                 key={column.id}
@@ -260,30 +337,29 @@ const VendorSlidesScreen: React.FC = () => {
                   setDragId(null);
                 }}
                 onClick={() => setOpenedColumnId(column.id)}
-                className="cursor-pointer rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3"
-                style={{ borderLeftWidth: 4, borderLeftColor: column.color || '#334155' }}
+                className="cursor-pointer rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2.5"
+                style={{ borderLeftWidth: 3, borderLeftColor: column.color || '#334155' }}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-black">{column.name}</p>
-                    <p className="mt-1 text-3xl font-black leading-none">{column.ordersCount}</p>
-                    <p className="text-xs text-white/70">заказов · {column.partsCount} деталей</p>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-black truncate">{column.name}</p>
+                    <p className="text-xs text-white/60">{column.ordersCount} зак. · {column.partsCount} дет.</p>
                   </div>
                   {column.isDefault ? null : (
-                    <div className="flex items-center gap-1">
-                      <GripVertical size={14} className="text-white/40" />
-                      <button type="button" onClick={(e) => { e.stopPropagation(); moveColumn(column.id, -1); }} className="rounded-lg border border-slate-600 p-1.5"><ChevronUp size={13} /></button>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); moveColumn(column.id, 1); }} className="rounded-lg border border-slate-600 p-1.5"><ChevronDown size={13} /></button>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(column); }} className="rounded-lg border border-slate-600 p-1.5"><Pencil size={13} /></button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <GripVertical size={12} className="text-white/40" />
+                      <button type="button" onClick={(e) => { e.stopPropagation(); moveColumn(column.id, -1); }} className="rounded-lg border border-slate-600 p-1"><ChevronUp size={11} /></button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); moveColumn(column.id, 1); }} className="rounded-lg border border-slate-600 p-1"><ChevronDown size={11} /></button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(column); }} className="rounded-lg border border-slate-600 p-1"><Pencil size={11} /></button>
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setColumns((prev) => prev.filter((item) => item.id !== column.id).map((item, idx) => ({ ...item, order: idx })));
                         }}
-                        className="rounded-lg border border-rose-500/70 p-1.5 text-rose-200"
+                        className="rounded-lg border border-rose-500/70 p-1 text-rose-200"
                       >
-                        <Trash2 size={13} />
+                        <Trash2 size={11} />
                       </button>
                     </div>
                   )}
@@ -293,6 +369,42 @@ const VendorSlidesScreen: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Zone orders modal */}
+      {zoneModalZone && (
+        <div className="fixed inset-0 z-20 bg-black/70 p-4" onClick={() => setZoneModalZone(null)}>
+          <div className="mx-auto mt-6 max-w-3xl rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <p className="text-base font-black">{zoneModalZone}</p>
+                <p className="text-xs text-white/60">Заказы в этой зоне</p>
+              </div>
+              <button type="button" onClick={() => setZoneModalZone(null)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs font-bold">Закрыть</button>
+            </div>
+            {(() => {
+              const zoneOrders = orders.filter((o) => (o.zone || '') === zoneModalZone).sort((a, b) => b.createdAt - a.createdAt);
+              if (zoneOrders.length === 0) {
+                return <p className="rounded-xl border border-dashed border-slate-600 bg-slate-900/40 px-3 py-4 text-sm text-white/70">Нет заказов в этой зоне.</p>;
+              }
+              return (
+                <div className="max-h-[65vh] space-y-2 overflow-y-auto pr-1">
+                  {zoneOrders.map((order) => (
+                    <button
+                      key={order.id}
+                      type="button"
+                      onClick={() => { setZoneModalZone(null); navigate(`/vendor/slider?slide=${encodeURIComponent(order.id)}`); }}
+                      className="w-full rounded-2xl border border-slate-700 bg-slate-900/50 p-3 text-left transition hover:border-blue-500/60"
+                    >
+                      <p className="text-sm font-black">{order.brand} {order.model} · {order.year || '—'}</p>
+                      <p className="mt-0.5 text-xs text-white/70">Деталей: {order.parts.length}</p>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       {openedColumn && (
         <div className="fixed inset-0 z-20 bg-black/70 p-4" onClick={() => setOpenedColumnId(null)}>
@@ -340,12 +452,12 @@ const VendorSlidesScreen: React.FC = () => {
               {draft.filters.map((filter) => (
                 <div key={filter.id} className="grid grid-cols-1 gap-2 rounded-xl border border-slate-700 bg-slate-900/40 p-2 md:grid-cols-12">
                   <select value={filter.field} onChange={(e) => setDraft((p) => ({ ...p, filters: p.filters.map((f) => f.id === filter.id ? { ...f, field: e.target.value as FilterField, operator: e.target.value === 'createdAt' ? 'between' : 'equals', value: e.target.value === 'tags' ? [] : '' } : f) }))} className="rounded-lg bg-slate-800 px-2 py-2 text-xs md:col-span-3">
-                    <option value="brand">Марка автомобиля</option><option value="model">Модель автомобиля</option><option value="status">Статус заказа</option><option value="tags">Теги</option><option value="hasSupplier">Наличие поставщика</option><option value="country">Страна клиента</option><option value="createdAt">Дата создания</option><option value="orderId">Идентификатор заказа</option><option value="vin">VIN</option>
+                    <option value="brand">Марка автомобиля</option><option value="model">Модель автомобиля</option><option value="status">Статус заказа</option><option value="tags">Теги</option><option value="hasSupplier">Наличие поставщика</option><option value="country">Страна клиента</option><option value="createdAt">Дата создания</option><option value="orderId">Идентификатор заказа</option><option value="vin">VIN</option><option value="zone">Зона</option>
                   </select>
                   <select value={filter.operator} onChange={(e) => setDraft((p) => ({ ...p, filters: p.filters.map((f) => f.id === filter.id ? { ...f, operator: e.target.value as FilterOperator } : f) }))} className="rounded-lg bg-slate-800 px-2 py-2 text-xs md:col-span-2">
                     {filter.field === 'createdAt' ? <option value="between">между</option> : null}
                     {filter.field !== 'createdAt' ? <option value="equals">равно</option> : null}
-                    {(filter.field === 'brand' || filter.field === 'model' || filter.field === 'orderId' || filter.field === 'vin' || filter.field === 'country') ? <option value="contains">содержит</option> : null}
+                    {(filter.field === 'brand' || filter.field === 'model' || filter.field === 'orderId' || filter.field === 'vin' || filter.field === 'country' || filter.field === 'zone') ? <option value="contains">содержит</option> : null}
                     {(filter.field === 'orderId' || filter.field === 'vin') ? <option value="not_equals">не равно</option> : null}
                   </select>
                   <div className="md:col-span-6">
@@ -362,6 +474,8 @@ const VendorSlidesScreen: React.FC = () => {
                       <select value={String(filter.value || 'yes')} onChange={(e) => setDraft((p) => ({ ...p, filters: p.filters.map((f) => f.id === filter.id ? { ...f, value: e.target.value } : f) }))} className="w-full rounded-lg bg-slate-800 px-2 py-2 text-xs"><option value="yes">Да</option><option value="no">Нет</option></select>
                     ) : filter.field === 'tags' ? (
                       <div className="flex flex-wrap gap-1">{TAG_OPTIONS.map((tag) => { const selected = Array.isArray(filter.value) && filter.value.includes(tag); return <button key={tag} type="button" onClick={() => setDraft((p) => ({ ...p, filters: p.filters.map((f) => { if (f.id !== filter.id) return f; const curr = Array.isArray(f.value) ? f.value : []; return { ...f, operator: 'in', value: selected ? curr.filter((v) => v !== tag) : [...curr, tag] }; }) }))} className={`rounded-lg border px-2 py-1 text-[10px] ${selected ? 'border-blue-500 bg-blue-700/30' : 'border-slate-600'}`}>{tag}</button>; })}</div>
+                    ) : filter.field === 'zone' ? (
+                      <select value={String(filter.value || '')} onChange={(e) => setDraft((p) => ({ ...p, filters: p.filters.map((f) => f.id === filter.id ? { ...f, value: e.target.value } : f) }))} className="w-full rounded-lg bg-slate-800 px-2 py-2 text-xs"><option value="">Выберите</option>{availableZones.map((z) => <option key={z} value={z}>{z}</option>)}</select>
                     ) : (
                       filter.field === 'brand' ? <select value={String(filter.value || '')} onChange={(e) => setDraft((p) => ({ ...p, filters: p.filters.map((f) => f.id === filter.id ? { ...f, value: e.target.value } : f) }))} className="w-full rounded-lg bg-slate-800 px-2 py-2 text-xs"><option value="">Выберите</option>{brands.map((x) => <option key={x} value={x}>{x}</option>)}</select>
                       : filter.field === 'model' ? <select value={String(filter.value || '')} onChange={(e) => setDraft((p) => ({ ...p, filters: p.filters.map((f) => f.id === filter.id ? { ...f, value: e.target.value } : f) }))} className="w-full rounded-lg bg-slate-800 px-2 py-2 text-xs"><option value="">Выберите</option>{models.map((x) => <option key={x} value={x}>{x}</option>)}</select>

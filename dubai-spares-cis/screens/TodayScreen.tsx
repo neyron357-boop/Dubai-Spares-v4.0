@@ -1,53 +1,41 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Bell, Boxes, Lightbulb, Settings, ShoppingBag, Store } from 'lucide-react';
+import { useDrawer } from '../DrawerContext';
+import { Bell, Layers, Menu, Settings, ShoppingBag } from 'lucide-react';
 
 type HomeMenuItem = {
   label: string;
   description: string;
-  path: string;
+  onClick: () => void;
   icon: React.ReactNode;
 };
 
 const TodayScreen: React.FC = () => {
-  const navigate = useNavigate();
+  const { openMenu } = useDrawer();
 
   const menuItems: HomeMenuItem[] = [
     {
-      label: 'Vendors',
+      label: 'Vendor Slides',
       description: 'Слайдер поставщиков и витрина',
-      path: '/vendor/slider',
-      icon: <Store size={20} />,
-    },
-    {
-      label: 'Lights',
-      description: 'Раздел с вариантами и товарами',
-      path: '/variants',
-      icon: <Lightbulb size={20} />,
+      onClick: openMenu,
+      icon: <Layers size={20} />,
     },
     {
       label: 'Оповещения',
       description: 'Проверить новые уведомления',
-      path: '/notifications',
+      onClick: openMenu,
       icon: <Bell size={20} />,
     },
     {
       label: 'Настройки',
       description: 'Конфигурация приложения',
-      path: '/settings',
+      onClick: openMenu,
       icon: <Settings size={20} />,
     },
     {
       label: 'Поставщики',
       description: 'База поставщиков и каталоги',
-      path: '/database',
+      onClick: openMenu,
       icon: <ShoppingBag size={20} />,
-    },
-    {
-      label: 'Заказы',
-      description: 'Перейти к активным заказам',
-      path: '/orders',
-      icon: <Boxes size={20} />,
     },
   ];
 
@@ -56,15 +44,23 @@ const TodayScreen: React.FC = () => {
       <div className="space-y-4 mb-8">
         <div className="text-6xl">🚧</div>
         <h1 className="text-2xl font-black">В разработке</h1>
-        <p className="text-gray-400 text-sm">Этот раздел находится в разработке.<br />Пока можно перейти в другие разделы приложения.</p>
+        <p className="text-gray-400 text-sm">Этот раздел находится в разработке.<br />Используйте меню для навигации.</p>
+        <button
+          type="button"
+          onClick={openMenu}
+          className="inline-flex items-center gap-2 mx-auto rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-bold hover:bg-white/15 active:bg-white/20 transition-colors"
+        >
+          <Menu size={18} />
+          Открыть меню
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-3 text-left">
         {menuItems.map((item) => (
           <button
-            key={item.path}
+            key={item.label}
             type="button"
-            onClick={() => navigate(item.path)}
+            onClick={item.onClick}
             className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 hover:bg-white/10 active:bg-white/15 transition-colors"
           >
             <div className="flex items-start gap-3">
