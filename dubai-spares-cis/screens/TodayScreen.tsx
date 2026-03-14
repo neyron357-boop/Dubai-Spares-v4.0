@@ -9,7 +9,10 @@ const ZONE_LABELS: Record<string, string> = {
   Area6: 'Area 6', Area8: 'Area 8', Dubai: 'Dubai', Online: 'Online',
 };
 
-const formatTimer = (ms: number) => {
+const URGENT_THRESHOLD_MS = 2 * 3600000;   // 2 hours
+const PAUSED_THRESHOLD_MS = 24 * 3600000;  // 24 hours
+
+export const formatTimer = (ms: number) => {
   const h = Math.floor(ms / 3600000);
   if (h >= 48) return `${Math.floor(h / 24)} дн.`;
   return `${h}ч`;
@@ -44,7 +47,7 @@ const TodayScreen: React.FC = () => {
   const urgentOrders = useMemo(() => orders.filter((o) => {
     if (o.isArchived || o.isSold) return false;
     if (o.isUrgent) return true;
-    if (o.offerSentAt && (now - o.offerSentAt) > 2 * 3600000 && o.paidStatus !== 'paid') return true;
+    if (o.offerSentAt && (now - o.offerSentAt) > URGENT_THRESHOLD_MS && o.paidStatus !== 'paid') return true;
     return false;
   }), [orders, now]);
 
@@ -63,7 +66,7 @@ const TodayScreen: React.FC = () => {
   // Paused clients: offer sent > 24h, no payment
   const pausedOrders = useMemo(() => orders.filter((o) => {
     if (o.isArchived || o.isSold) return false;
-    if (o.salesStatus === 'Price Sent' && o.offerSentAt && (now - o.offerSentAt) > 24 * 3600000 && o.paidStatus !== 'paid') return true;
+    if (o.salesStatus === 'Price Sent' && o.offerSentAt && (now - o.offerSentAt) > PAUSED_THRESHOLD_MS && o.paidStatus !== 'paid') return true;
     return false;
   }), [orders, now]);
 
@@ -172,7 +175,7 @@ const TodayScreen: React.FC = () => {
             <div key={zone} className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-black text-blue-800">
-                  Сначала едь в {ZONE_LABELS[zone] || zone} ({zoneOrders.length} задач)
+                  Сначала езжай в {ZONE_LABELS[zone] || zone} ({zoneOrders.length} задач)
                 </p>
                 <button
                   type="button"

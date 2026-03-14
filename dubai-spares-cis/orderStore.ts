@@ -1047,7 +1047,7 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     offerSentAt: Number.isFinite(Number((row as any).offer_sent_at)) && Number((row as any).offer_sent_at) > 0 ? Number((row as any).offer_sent_at) : undefined,
     purchasePriceAed: Number.isFinite(Number((row as any).purchase_price_aed)) ? Number((row as any).purchase_price_aed) : undefined,
     clientPriceAed: Number.isFinite(Number((row as any).client_price_aed)) ? Number((row as any).client_price_aed) : undefined,
-    paidStatus: ((row as any).paid_status === 'partial' || (row as any).paid_status === 'paid') ? (row as any).paid_status : 'unpaid',
+    paidStatus: ((row as any).paid_status === 'partial' || (row as any).paid_status === 'paid' || (row as any).paid_status === 'unpaid') ? (row as any).paid_status : undefined,
   })
 });
 

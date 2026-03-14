@@ -24,13 +24,12 @@ const AnalyticsScreen: React.FC = () => {
     }, 0);
 
     let markupContributors = 0;
-    const avgMarkup = soldOrders.length > 0
-      ? soldOrders.reduce((sum, o) => {
-          if (!o.purchasePriceAed || !o.clientPriceAed) return sum;
-          markupContributors++;
-          return sum + ((o.clientPriceAed - o.purchasePriceAed) / o.purchasePriceAed) * 100;
-        }, 0) / (markupContributors || 1)
-      : 0;
+    const markupSum = soldOrders.reduce((sum, o) => {
+      if (!o.purchasePriceAed || !o.clientPriceAed) return sum;
+      markupContributors++;
+      return sum + ((o.clientPriceAed - o.purchasePriceAed) / o.purchasePriceAed) * 100;
+    }, 0);
+    const avgMarkup = markupContributors > 0 ? markupSum / markupContributors : 0;
 
     // Zone activity
     const zoneMap: Record<string, number> = {};

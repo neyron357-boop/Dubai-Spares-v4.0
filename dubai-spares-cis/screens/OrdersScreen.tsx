@@ -7,6 +7,7 @@ import IncomeModal from '../components/IncomeModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
+import { formatTimer } from './TodayScreen';
 
 type TabType = 'active' | 'vip' | 'lead' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -676,7 +677,7 @@ const OrdersScreen: React.FC = () => {
                   )}
                   {order.offerSentAt && !order.isSold && !order.isArchived && (
                     <span className="rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">
-                      ⏱ {(() => { const h = Math.floor((Date.now() - order.offerSentAt) / 3600000); return h >= 48 ? `${Math.floor(h / 24)} дн.` : `${h}ч`; })()}
+                      ⏱ {formatTimer(Date.now() - order.offerSentAt)}
                     </span>
                   )}
                   {activeTab === 'active' && (

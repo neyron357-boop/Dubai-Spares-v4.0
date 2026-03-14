@@ -2582,7 +2582,7 @@ const OrderDetailsScreen: React.FC = () => {
               type="button"
               onClick={() => {
                 updateOrderField('salesStatus', 'Price Sent');
-                updateOrderField('offerSentAt', Date.now());
+                if (!order.offerSentAt) updateOrderField('offerSentAt', Date.now());
               }}
               className="flex-1 h-9 rounded-xl bg-blue-600 text-white text-xs font-black"
             >
