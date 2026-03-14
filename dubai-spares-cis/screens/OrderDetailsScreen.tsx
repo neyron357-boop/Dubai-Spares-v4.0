@@ -2066,6 +2066,32 @@ const OrderDetailsScreen: React.FC = () => {
             <option value={Priority.MEDIUM}>MEDIUM</option>
             <option value={Priority.LOW}>LOW</option>
           </select>
+          <div className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] text-indigo-700 shrink-0">
+            <span className="font-medium">📍</span>
+            <select value={order.area || ''} onChange={(e) => updateOrderField('area', e.target.value || undefined)} disabled={!isEditMode} className="bg-transparent text-[11px] font-medium text-current outline-none">
+              <option value="">Зона —</option>
+              <option value="area2">Area 2</option>
+              <option value="area3">Area 3</option>
+              <option value="area4">Area 4</option>
+              <option value="area6">Area 6</option>
+              <option value="area8">Area 8</option>
+              <option value="dubai">Dubai</option>
+              <option value="online">Online</option>
+            </select>
+          </div>
+          <div className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-1.5 text-[11px] text-violet-700 shrink-0">
+            <span className="font-medium">⚡</span>
+            <select value={order.workflowStatus || ''} onChange={(e) => updateOrderField('workflowStatus', e.target.value || undefined)} disabled={!isEditMode} className="bg-transparent text-[11px] font-medium text-current outline-none">
+              <option value="">Шаг —</option>
+              <option value="lead">Лиды</option>
+              <option value="in_work">В работе</option>
+              <option value="waiting_client">Ожидание клиента</option>
+              <option value="paid">Оплачено</option>
+              <option value="found">Найден</option>
+              <option value="sent">Отправлен</option>
+              <option value="archive">Архив</option>
+            </select>
+          </div>
           <button type="button" onClick={() => void pasteVinFromClipboard()} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">Вставить VIN</button>
         </div>
       </div>
@@ -2506,6 +2532,52 @@ const OrderDetailsScreen: React.FC = () => {
           ) : (
             <p className="text-xs text-gray-400">Фотографии автомобиля не добавлены.</p>
           )}
+        </div>
+
+        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Маршрут и финансы</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Цена покупки (AED)</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={order.purchasePrice != null ? String(order.purchasePrice) : ''}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('purchasePrice', e.target.value ? Number(e.target.value.replace(/[^\d]/g, '')) : undefined)}
+                className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+                placeholder="0"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Цена клиенту (AED)</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={order.clientPriceAed != null ? String(order.clientPriceAed) : ''}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('clientPriceAed', e.target.value ? Number(e.target.value.replace(/[^\d]/g, '')) : undefined)}
+                className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+                placeholder="0"
+              />
+            </div>
+            <div className="col-span-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+              Прибыль: {order.clientPriceAed != null && order.purchasePrice != null
+                ? `${Math.round(order.clientPriceAed - order.purchasePrice)} AED`
+                : 'Нет расчёта'}
+            </div>
+            <div className="col-span-2">
+              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Поставщик</label>
+              <input
+                type="text"
+                value={order.supplierName || ''}
+                readOnly={!isEditMode}
+                onChange={(e) => updateOrderField('supplierName', e.target.value || undefined)}
+                className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+                placeholder="Имя поставщика / магазина"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">

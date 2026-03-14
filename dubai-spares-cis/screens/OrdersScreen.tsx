@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Activity, Archive, BarChart3, Clock3, Cloud, Filter, MessageCircle, PenSquare, Pin, Search, Star, X } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Activity, Archive, BarChart3, Clock3, Cloud, Filter, MapPin, MessageCircle, PenSquare, Pin, Search, Star, X } from 'lucide-react';
 import { useStore } from '../store';
-import { Order, Priority } from '../types';
+import { Order, OrderArea, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
@@ -52,6 +52,37 @@ const formatAge = (ts: number) => {
   if (hours < 24) return `${Math.floor(hours)}h`;
   return `${Math.floor(hours / 24)}d`;
 };
+
+const formatElapsedShort = (ts: number): string => {
+  const ms = Date.now() - ts;
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 60) return `${minutes}м назад`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}ч назад`;
+  return `${Math.floor(hours / 24)}д назад`;
+};
+
+const AREA_LABELS: Record<OrderArea, string> = {
+  area2: 'Area 2', area3: 'Area 3', area4: 'Area 4', area6: 'Area 6',
+  area8: 'Area 8', dubai: 'Dubai', online: 'Online',
+};
+
+const getNextStepHint = (order: Order): string => {
+  const wf = order.workflowStatus;
+  if (wf === 'lead' || order.isLead) return 'Требуется проверка детали';
+  if (wf === 'waiting_client' || order.salesStatus === 'Price Sent') return 'Ждём ответа клиента';
+  if (wf === 'paid' || order.salesStatus === 'Paid') return 'Выкупить деталь';
+  if (wf === 'found' || order.salesStatus === 'Completed') return 'Забрать деталь';
+  if (wf === 'sent') return 'Завершено ✓';
+  return 'Найти деталь / Спросить цену';
+};
+
+const calculateFallbackPurchasePrice = (order: Order): number =>
+  order.parts.reduce((acc, part) => acc + (part.variants || []).reduce((min, variant) => {
+    const p = Number(variant.priceAed || 0);
+    if (!p) return min;
+    return min === 0 ? p : Math.min(min, p);
+  }, 0), 0);
 
 type SwipeableOrderCardProps = {
   orderId: string;
@@ -316,10 +347,18 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
 const OrdersScreen: React.FC = () => {
   const { orders, isLoading, syncOrders, updateOrder, deleteOrder } = useStore();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useLeadsPolling(true);
 
-  const [activeTab, setActiveTab] = useState<TabType>('active');
+  const initialTab = useMemo<TabType>(() => {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab') as TabType | null;
+    if (tab && ['active', 'vip', 'lead', 'found', 'urgent', 'medium', 'low', 'sold', 'archive'].includes(tab)) return tab;
+    return 'active';
+  }, [location.search]);
+
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   const [sortBy, setSortBy] = useState<SortType>('date_desc');
   const [searchText, setSearchText] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -620,7 +659,9 @@ const OrdersScreen: React.FC = () => {
             const status = getCardSearchStatus(order);
             const contactLabel = order.clientName?.trim() || order.customerContact || 'Без контакта';
             const ageLabel = formatAge(order.updatedAt || order.createdAt);
-            const profitAed = order.soldProfitUsd === undefined ? null : Math.round(order.soldProfitUsd * (order.exchangeRate || 3.67));
+            const profitAed = order.clientPriceAed != null && order.purchasePrice != null
+              ? Math.round(order.clientPriceAed - order.purchasePrice)
+              : order.soldProfitUsd === undefined ? null : Math.round(order.soldProfitUsd * (order.exchangeRate || 3.67));
             const isVipOrder = order.isVip;
             const isUnreadLeadOrder = isUnreadPublicLead(order);
 
@@ -669,6 +710,11 @@ const OrdersScreen: React.FC = () => {
                   <span className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">{statusLabelMap[status]}</span>
                   {order.priority === Priority.HIGH && <span className="text-[10px] font-black text-rose-600 uppercase">Срочно</span>}
                   {order.salesStatus === 'Price Sent' && <span className="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">Оффер отправлен</span>}
+                  {order.area && (
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
+                      <MapPin size={10} /> {AREA_LABELS[order.area]}
+                    </span>
+                  )}
                   {activeTab === 'active' && (
                     <button
                       type="button"
@@ -683,18 +729,21 @@ const OrdersScreen: React.FC = () => {
                   )}
                 </div>
 
+                <div className="mt-1.5 flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-slate-400 truncate">→ {getNextStepHint(order)}</span>
+                  {(order.offerSentAt || order.updatedAt) && (
+                    <span className="shrink-0 text-[10px] text-slate-400">{formatElapsedShort(order.offerSentAt || order.updatedAt!)}</span>
+                  )}
+                </div>
+
                 <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                   <div className="rounded-xl bg-slate-50 px-2 py-1.5"><p className="text-slate-400">Детали</p><p className="font-bold text-slate-800">{totalParts}</p></div>
                   <div className="rounded-xl bg-slate-50 px-2 py-1.5"><p className="text-slate-400">Найдено</p><p className="font-bold text-slate-800">{foundParts} · {progress}%</p></div>
-                  <div className="rounded-xl bg-slate-50 px-2 py-1.5"><p className="text-slate-400">Поставщ.</p><p className="font-bold text-slate-800">{new Set(order.parts.flatMap((part) => part.variants?.map((variant) => variant.shopName || variant.supplierName) || []).filter(Boolean)).size}</p></div>
+                  <div className="rounded-xl bg-slate-50 px-2 py-1.5"><p className="text-slate-400">Поставщ.</p><p className="font-bold text-slate-800 truncate">{order.supplierName?.trim() || new Set(order.parts.flatMap((part) => part.variants?.map((variant) => variant.shopName || variant.supplierName) || []).filter(Boolean)).size}</p></div>
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-semibold">
-                  <span className="text-slate-500">Purchase: {Math.round(order.parts.reduce((acc, part) => acc + ((part.variants || []).reduce((min, variant) => {
-                    const p = Number(variant.priceAed || 0);
-                    if (!p) return min;
-                    return min === 0 ? p : Math.min(min, p);
-                  }, 0)), 0))} AED</span>
+                  <span className="text-slate-500">Purchase: {Math.round(order.purchasePrice ?? calculateFallbackPurchasePrice(order))} AED</span>
                   <span className="text-right text-slate-500">Client: {order.clientPriceAed ? `${Math.round(order.clientPriceAed)} AED` : '—'}</span>
                   <span className="text-slate-500">Margin: {order.markupPercent ? `${order.markupPercent}%` : '—'}</span>
                   <span className={`text-right ${profitAed === null ? 'text-slate-500' : profitAed >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>Profit: {profitAed === null ? 'Нет расчёта' : `${profitAed} AED`}</span>

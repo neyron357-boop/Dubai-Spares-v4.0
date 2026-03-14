@@ -16,6 +16,9 @@ export enum Source {
 export type OrderStatus = 'active' | 'archive' | 'sold' | 'vip' | 'lead' | 'new_inquiry' | 'in_progress';
 export type SalesStatus = 'Inquiry' | 'Price Sent' | 'Pending Approval' | 'Paid' | 'Completed';
 
+export type WorkflowStatus = 'lead' | 'in_work' | 'waiting_client' | 'paid' | 'found' | 'sent' | 'archive';
+export type OrderArea = 'area2' | 'area3' | 'area4' | 'area6' | 'area8' | 'dubai' | 'online';
+
 export interface Coordinates {
   lat: number;
   lng: number;
@@ -160,6 +163,12 @@ export interface Order {
   vendorContacts?: OrderVendorContact[];
   vendorChecklist?: VendorChecklistItem[];
   vehicleDetails?: VehicleDetails;
+  workflowStatus?: WorkflowStatus;
+  area?: OrderArea;
+  offerSentAt?: number;
+  purchasePrice?: number;
+  clientPriceAed?: number;
+  supplierName?: string;
 }
 
 export interface VehicleDetails {
