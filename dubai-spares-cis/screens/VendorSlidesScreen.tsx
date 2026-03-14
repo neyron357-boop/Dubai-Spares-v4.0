@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Pencil, GripVertical } from 'lucide-react';
+import { Plus, Trash2, Pencil, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { ensureUuid } from '../id';
@@ -26,6 +26,8 @@ interface CustomColumn {
   createdAt: number;
   updatedAt: number;
 }
+
+type ColumnStat = CustomColumn & { ordersCount: number; partsCount: number; isDefault?: boolean; brand?: string };
 
 const STORAGE_KEY = 'vendor_slides_custom_columns_v1';
 const ORDER_STATUS_OPTIONS = ['Лиды', 'В работе', 'Ожидание клиента', 'Оплачено', 'Найден/Выкуплен', 'Отправлен/Завершён', 'Архив/Отказ'] as const;
@@ -131,17 +133,61 @@ const VendorSlidesScreen: React.FC = () => {
     return { ...column, ordersCount: matches.length, partsCount: matches.reduce((sum, o) => sum + o.parts.length, 0) };
   }), [columns, orders]);
 
+  const defaultBrandStats = useMemo(() => {
+    const grouped = new Map<string, { ordersCount: number; partsCount: number }>();
+    orders.forEach((order) => {
+      const brand = (order.brand || 'Без марки').trim() || 'Без марки';
+      const current = grouped.get(brand) || { ordersCount: 0, partsCount: 0 };
+      current.ordersCount += 1;
+      current.partsCount += order.parts.length;
+      grouped.set(brand, current);
+    });
+    return Array.from(grouped.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([brand, info], index) => ({
+        id: `default-brand-${brand}`,
+        name: brand,
+        filters: [],
+        order: index,
+        createdAt: 0,
+        updatedAt: 0,
+        color: '#1d4ed8',
+        isDefault: true,
+        brand,
+        ...info
+      } as ColumnStat));
+  }, [orders]);
+
+  const allStats = useMemo(() => [...defaultBrandStats, ...stats], [defaultBrandStats, stats]);
+
   const openedColumn = useMemo(() => {
     if (!openedColumnId) return null;
-    return stats.find((column) => column.id === openedColumnId) || null;
-  }, [openedColumnId, stats]);
+    return allStats.find((column) => column.id === openedColumnId) || null;
+  }, [openedColumnId, allStats]);
 
   const openedOrders = useMemo(() => {
     if (!openedColumn) return [];
+    if (openedColumn.isDefault && openedColumn.brand) {
+      return orders
+        .filter((order) => (order.brand || 'Без марки').trim() === openedColumn.brand)
+        .sort((a, b) => b.createdAt - a.createdAt);
+    }
     return orders
       .filter((order) => openedColumn.filters.every((filter) => applyFilter(order, filter)))
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [openedColumn, orders]);
+
+  const moveColumn = (columnId: string, direction: -1 | 1) => {
+    setColumns((prev) => {
+      const arr = [...prev].sort((a, b) => a.order - b.order);
+      const from = arr.findIndex((item) => item.id === columnId);
+      const to = from + direction;
+      if (from < 0 || to < 0 || to >= arr.length) return prev;
+      const [moved] = arr.splice(from, 1);
+      arr.splice(to, 0, moved);
+      return arr.map((item, idx) => ({ ...item, order: idx, updatedAt: Date.now() }));
+    });
+  };
 
   const openCreate = () => {
     setEditingId(null);
@@ -179,18 +225,19 @@ const VendorSlidesScreen: React.FC = () => {
           </button>
         </div>
 
-        {stats.length === 0 ? (
+        {allStats.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/30 px-4 py-6 text-center">
             <p className="text-sm text-slate-300">У вас пока нет созданных колонок. Создайте первую, чтобы отслеживать нужные заказы.</p>
             <button type="button" onClick={openCreate} className="mt-3 rounded-xl border border-blue-500/60 bg-blue-700/30 px-3 py-2 text-xs font-bold">Создать колонку</button>
           </div>
         ) : (
           <div className="space-y-2">
-            {stats.map((column) => (
+            {allStats.map((column) => (
               <div
                 key={column.id}
-                draggable
+                draggable={!column.isDefault}
                 onDragStart={(e) => {
+                  if (column.isDefault) return;
                   setDragId(column.id);
                   e.dataTransfer.effectAllowed = 'move';
                   e.dataTransfer.setData('text/plain', column.id);
@@ -198,6 +245,7 @@ const VendorSlidesScreen: React.FC = () => {
                 onDragEnd={() => setDragId(null)}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
+                  if (column.isDefault) return;
                   const droppedId = e.dataTransfer.getData('text/plain') || dragId;
                   if (!droppedId || droppedId === column.id) return;
                   setColumns((prev) => {
@@ -221,20 +269,24 @@ const VendorSlidesScreen: React.FC = () => {
                     <p className="mt-1 text-3xl font-black leading-none">{column.ordersCount}</p>
                     <p className="text-xs text-white/70">заказов · {column.partsCount} деталей</p>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <GripVertical size={14} className="text-white/40" />
-                    <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(column); }} className="rounded-lg border border-slate-600 p-1.5"><Pencil size={13} /></button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setColumns((prev) => prev.filter((item) => item.id !== column.id).map((item, idx) => ({ ...item, order: idx })));
-                      }}
-                      className="rounded-lg border border-rose-500/70 p-1.5 text-rose-200"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+                  {column.isDefault ? null : (
+                    <div className="flex items-center gap-1">
+                      <GripVertical size={14} className="text-white/40" />
+                      <button type="button" onClick={(e) => { e.stopPropagation(); moveColumn(column.id, -1); }} className="rounded-lg border border-slate-600 p-1.5"><ChevronUp size={13} /></button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); moveColumn(column.id, 1); }} className="rounded-lg border border-slate-600 p-1.5"><ChevronDown size={13} /></button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(column); }} className="rounded-lg border border-slate-600 p-1.5"><Pencil size={13} /></button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setColumns((prev) => prev.filter((item) => item.id !== column.id).map((item, idx) => ({ ...item, order: idx })));
+                        }}
+                        className="rounded-lg border border-rose-500/70 p-1.5 text-rose-200"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -261,7 +313,7 @@ const VendorSlidesScreen: React.FC = () => {
                   <button
                     key={order.id}
                     type="button"
-                    onClick={() => navigate(`/order/${order.id}`)}
+                    onClick={() => navigate(`/vendor/slider?slide=${encodeURIComponent(order.id)}`)}
                     className="w-full rounded-2xl border border-slate-700 bg-slate-900/50 p-3 text-left transition hover:border-blue-500/60"
                   >
                     <p className="text-sm font-black">{order.brand} {order.model} · {order.year || '—'}</p>
