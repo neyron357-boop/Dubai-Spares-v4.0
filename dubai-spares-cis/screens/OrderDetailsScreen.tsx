@@ -40,6 +40,7 @@ import {
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
+import FoundPartModal from '../components/FoundPartModal';
 import { QuoteCurrency, QuoteRates, shareQuoteLink } from '../shareUtils';
 import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
@@ -313,6 +314,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [partCargoDrafts, setPartCargoDrafts] = useState<Record<string, PartCargoDraft>>({});
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
+  const [foundModalPartId, setFoundModalPartId] = useState<string | null>(null);
   // Multiple photos for new part
   const [newPartPhotos, setNewPartPhotos] = useState<string[]>([]);
   const partFileRef = useRef<HTMLInputElement>(null);
@@ -1298,12 +1300,55 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const togglePartFound = (partId: string) => {
+    const part = order.parts.find((p) => p.id === partId);
+    if (!part) return;
+    // If not yet found, open the FoundPartModal for rich capture
+    if (!part.isFound) {
+      setFoundModalPartId(partId);
+      return;
+    }
+    // If already found, toggle off
     const updatedParts = order.parts.map(p => {
       if (p.id !== partId) return p;
-      const nextFound = !p.isFound;
-      return { ...p, isFound: nextFound, status: nextFound ? 'found' : 'searching' };
+      return { ...p, isFound: false, status: 'searching' as const };
     });
     updateOrder({ ...order, parts: updatedParts });
+  };
+
+  const handleFoundConfirm = ({ purchasePriceAed, sellPriceAed, photoDataUrl }: {
+    purchasePriceAed: number;
+    sellPriceAed: number;
+    photoDataUrl?: string;
+  }) => {
+    if (!foundModalPartId) return;
+    const updatedParts = order.parts.map((p) => {
+      if (p.id !== foundModalPartId) return p;
+      // Add a price variant with the purchase price
+      const newVariant = {
+        id: `found-${Date.now()}`,
+        priceAed: purchasePriceAed,
+        shopName: 'Найдено',
+        phone: '',
+        location: '',
+        photoUrl: photoDataUrl,
+        photos: photoDataUrl ? [photoDataUrl] : [],
+        condition: 'used' as const,
+        availability: 'in_stock' as const,
+        deliveryEta: 'today' as const,
+        isBest: true,
+        note: `Цена продажи: ${sellPriceAed} AED`,
+        createdAt: Date.now(),
+      };
+      return {
+        ...p,
+        isFound: true,
+        status: 'found' as const,
+        variants: [...(p.variants || []), newVariant],
+        photoUrl: photoDataUrl || p.photoUrl,
+      };
+    });
+    updateOrder({ ...order, parts: updatedParts });
+    setFoundModalPartId(null);
   };
 
   const updatePartComment = (partId: string, comment: string) => {
@@ -3182,6 +3227,20 @@ const OrderDetailsScreen: React.FC = () => {
           onClose={() => setGallery(null)}
         />
       )}
+      {foundModalPartId && (() => {
+        const foundPart = order.parts.find((p) => p.id === foundModalPartId);
+        if (!foundPart) return null;
+        return (
+          <FoundPartModal
+            order={order}
+            part={foundPart}
+            markupPercent={order.markupPercent}
+            markupFixedAed={Number(order.markupFixedAed) || 0}
+            onConfirm={handleFoundConfirm}
+            onClose={() => setFoundModalPartId(null)}
+          />
+        );
+      })()}
     </div>
   );
 };
