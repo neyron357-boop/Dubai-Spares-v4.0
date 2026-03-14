@@ -3060,7 +3060,7 @@ const OrderDetailsScreen: React.FC = () => {
               <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 px-3 py-2 rounded-[12px] bg-[#3B6AF7] text-white text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Add first part</button>
             </div>
           )}
-          {order.parts.filter((part) => !showOnlyOpenParts || (!(part.isFound) && (part.variants || []).length === 0)).map(part => {
+          {order.parts.filter((part) => !showOnlyOpenParts || (!part.isFound && (part.variants || []).length === 0)).map(part => {
              const displayPhotos = getPartPreviewPhotos(part);
              const isGroupPart = part.partKind === 'group';
              const groupItems = normalizeGroupItems(part.groupItems);

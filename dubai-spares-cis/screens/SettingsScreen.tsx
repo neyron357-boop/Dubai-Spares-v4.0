@@ -436,7 +436,11 @@ const SettingsScreen: React.FC = () => {
     const name = newZoneName.trim();
     if (!name) return;
     const zones = draftSettings.orderZones || [];
-    if (zones.some((z) => z.toLowerCase() === name.toLowerCase())) { setNewZoneName(''); return; }
+    if (zones.some((z) => z.toLowerCase() === name.toLowerCase())) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Такая зона уже существует', tone: 'info' } }));
+      setNewZoneName('');
+      return;
+    }
     updateDraft({ orderZones: [...zones, name] });
     setNewZoneName('');
   };

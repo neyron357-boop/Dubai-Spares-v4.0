@@ -134,6 +134,7 @@ const VendorSlidesScreen: React.FC = () => {
     }
     if (filter.field === 'zone') {
       const current = (order.zone || '').toLowerCase();
+      if (filter.operator === 'not_equals') return current !== String(filter.value).toLowerCase();
       return filter.operator === 'contains' ? current.includes(String(filter.value).toLowerCase()) : current === String(filter.value).toLowerCase();
     }
     return true;
