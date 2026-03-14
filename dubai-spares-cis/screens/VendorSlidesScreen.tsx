@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Pencil, GripVertical } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { ensureUuid } from '../id';
 import { Priority } from '../types';
@@ -52,6 +53,7 @@ const toOrderStatus = (order: { isArchived: boolean; isSold: boolean; isLead?: b
 };
 
 const VendorSlidesScreen: React.FC = () => {
+  const navigate = useNavigate();
   const { orders } = useStore();
   const [columns, setColumns] = useState<CustomColumn[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -60,6 +62,7 @@ const VendorSlidesScreen: React.FC = () => {
     name: '', color: COLORS[0], filters: [emptyFilter()]
   });
   const [dragId, setDragId] = useState<string | null>(null);
+  const [openedColumnId, setOpenedColumnId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -128,6 +131,18 @@ const VendorSlidesScreen: React.FC = () => {
     return { ...column, ordersCount: matches.length, partsCount: matches.reduce((sum, o) => sum + o.parts.length, 0) };
   }), [columns, orders]);
 
+  const openedColumn = useMemo(() => {
+    if (!openedColumnId) return null;
+    return stats.find((column) => column.id === openedColumnId) || null;
+  }, [openedColumnId, stats]);
+
+  const openedOrders = useMemo(() => {
+    if (!openedColumn) return [];
+    return orders
+      .filter((order) => openedColumn.filters.every((filter) => applyFilter(order, filter)))
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }, [openedColumn, orders]);
+
   const openCreate = () => {
     setEditingId(null);
     setDraft({ name: '', color: COLORS[0], filters: [emptyFilter()] });
@@ -175,21 +190,29 @@ const VendorSlidesScreen: React.FC = () => {
               <div
                 key={column.id}
                 draggable
-                onDragStart={() => setDragId(column.id)}
+                onDragStart={(e) => {
+                  setDragId(column.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', column.id);
+                }}
+                onDragEnd={() => setDragId(null)}
                 onDragOver={(e) => e.preventDefault()}
-                onDrop={() => {
-                  if (!dragId || dragId === column.id) return;
+                onDrop={(e) => {
+                  const droppedId = e.dataTransfer.getData('text/plain') || dragId;
+                  if (!droppedId || droppedId === column.id) return;
                   setColumns((prev) => {
                     const arr = [...prev].sort((a, b) => a.order - b.order);
-                    const from = arr.findIndex((x) => x.id === dragId);
+                    const from = arr.findIndex((x) => x.id === droppedId);
                     const to = arr.findIndex((x) => x.id === column.id);
                     if (from < 0 || to < 0) return prev;
                     const [moved] = arr.splice(from, 1);
                     arr.splice(to, 0, moved);
                     return arr.map((item, idx) => ({ ...item, order: idx, updatedAt: Date.now() }));
                   });
+                  setDragId(null);
                 }}
-                className="rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3"
+                onClick={() => setOpenedColumnId(column.id)}
+                className="cursor-pointer rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3"
                 style={{ borderLeftWidth: 4, borderLeftColor: column.color || '#334155' }}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -200,10 +223,13 @@ const VendorSlidesScreen: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-1">
                     <GripVertical size={14} className="text-white/40" />
-                    <button type="button" onClick={() => openEdit(column)} className="rounded-lg border border-slate-600 p-1.5"><Pencil size={13} /></button>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(column); }} className="rounded-lg border border-slate-600 p-1.5"><Pencil size={13} /></button>
                     <button
                       type="button"
-                      onClick={() => setColumns((prev) => prev.filter((item) => item.id !== column.id).map((item, idx) => ({ ...item, order: idx })))}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setColumns((prev) => prev.filter((item) => item.id !== column.id).map((item, idx) => ({ ...item, order: idx })));
+                      }}
                       className="rounded-lg border border-rose-500/70 p-1.5 text-rose-200"
                     >
                       <Trash2 size={13} />
@@ -215,6 +241,39 @@ const VendorSlidesScreen: React.FC = () => {
           </div>
         )}
       </div>
+
+      {openedColumn && (
+        <div className="fixed inset-0 z-20 bg-black/70 p-4" onClick={() => setOpenedColumnId(null)}>
+          <div className="mx-auto mt-6 max-w-3xl rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <p className="text-base font-black">{openedColumn.name}</p>
+                <p className="text-xs text-white/60">Слайды заказов по выбранной колонке</p>
+              </div>
+              <button type="button" onClick={() => setOpenedColumnId(null)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs font-bold">Закрыть</button>
+            </div>
+
+            {openedOrders.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-slate-600 bg-slate-900/40 px-3 py-4 text-sm text-white/70">Нет заказов, подходящих под фильтры этой колонки.</p>
+            ) : (
+              <div className="max-h-[65vh] space-y-2 overflow-y-auto pr-1">
+                {openedOrders.map((order) => (
+                  <button
+                    key={order.id}
+                    type="button"
+                    onClick={() => navigate(`/order/${order.id}`)}
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-900/50 p-3 text-left transition hover:border-blue-500/60"
+                  >
+                    <p className="text-sm font-black">{order.brand} {order.model} · {order.year || '—'}</p>
+                    <p className="mt-0.5 text-xs text-white/70">ID: {order.id}</p>
+                    <p className="mt-0.5 text-xs text-white/70">Деталей: {order.parts.length}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {editorOpen && (
         <div className="fixed inset-0 z-20 bg-black/70 p-4" onClick={() => setEditorOpen(false)}>
