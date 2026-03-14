@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckSquare, ChevronDown, Clock, ExternalLink, Filter, ImageOff, MapPin, MessageCircle, Phone, Plus, Search, Users, X, Zap } from 'lucide-react';
+import { ArrowLeft, CheckSquare, ChevronDown, Clock, ExternalLink, Filter, ImageOff, MapPin, MessageCircle, Phone, Plus, Search, Users, X, Zap } from 'lucide-react';
 import { useStore } from '../store';
 import { Priority, type OrderVendorContact, type Part, type Supplier, type VendorChecklistItem } from '../types';
 import { vibrate } from '../feedback';
@@ -725,9 +725,19 @@ const VendorSliderContent: React.FC = () => {
       <div className="fixed inset-0 z-50 flex min-h-screen flex-col overflow-hidden bg-[#0B1220] text-white">
         {/* HEADER */}
         <div className="flex shrink-0 items-center justify-between px-4 pb-2 pt-4">
-          <div>
-            <p className="text-xl font-black">Vendor Slides</p>
-            <p className="text-[11px] text-white/50">Управление поставщиками</p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white/80"
+              aria-label="Назад в главное меню"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <div>
+              <p className="text-xl font-black">Vendor Slides</p>
+              <p className="text-[11px] text-white/50">Управление поставщиками</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
