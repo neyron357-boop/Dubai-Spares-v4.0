@@ -15,7 +15,7 @@ import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
 import VendorSlidesScreen from './screens/VendorSlidesScreen';
-import { BarChart3, Bell, CarFront, Database, Home, Layers, Menu, PlusCircle, Settings } from 'lucide-react';
+import { BarChart3, Bell, CarFront, Home, Layers, Menu, PlusCircle, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
@@ -45,7 +45,6 @@ const DrawerMenu: React.FC<{ isOpen: boolean; onClose: () => void; unreadCount: 
   const menuItems: Array<{ icon: React.ReactNode; label: string; path: string; badge?: string }> = [
     { icon: <Layers size={20} />, label: 'Vendor Slides', path: '/vendor' },
     { icon: <PlusCircle size={20} />, label: 'Новый заказ', path: '/new' },
-    { icon: <Database size={20} />, label: 'Поставщики', path: '/database' },
     { icon: <Bell size={20} />, label: 'Уведомления', path: '/notifications', badge: unreadCount > 0 ? badgeLabel : undefined },
     { icon: <Settings size={20} />, label: 'Настройки', path: '/settings' },
   ];

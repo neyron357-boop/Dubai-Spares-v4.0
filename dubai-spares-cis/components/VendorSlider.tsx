@@ -75,11 +75,13 @@ const VendorSliderContent: React.FC = () => {
 
   const initialBrand = searchParams.get('brand');
   const initialSlideId = searchParams.get('slide');
+  const initialZone = searchParams.get('zone');
 
   const [transientDragIndex, setTransientDragIndex] = useState(0);
   const [committedIndex, setCommittedIndex] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [brandFilter, setBrandFilter] = useState<string>(initialBrand || 'all');
+  const [zoneFilter, setZoneFilter] = useState<string>(initialZone || 'all');
   const [selectedBrand, setSelectedBrand] = useState<string | null>(initialBrand || null);
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | NonNullable<Part['status']>>('all');
@@ -129,6 +131,7 @@ const VendorSliderContent: React.FC = () => {
     const effectiveBrand = selectedBrand || brandFilter;
     return orders
       .filter((o) => !o.isArchived && !o.isSold)
+      .filter((o) => zoneFilter === 'all' || (o.zone || '') === zoneFilter)
       .filter((o) => {
         if (effectiveBrand === 'all') return true;
         if (effectiveBrand === LEAD_SLIDES_KEY) return o.isLead || o.customerStatus === 'LEAD' || o.status === 'lead';
@@ -168,7 +171,7 @@ const VendorSliderContent: React.FC = () => {
         }
         return (priorityWeight[b.priority] - priorityWeight[a.priority]) || (b.createdAt - a.createdAt);
       });
-  }, [orders, brandFilter, selectedBrand, priorityFilter, statusFilter, sortBy]);
+  }, [orders, zoneFilter, brandFilter, selectedBrand, priorityFilter, statusFilter, sortBy]);
 
   const current = orderSlides[transientDragIndex];
   const committedSlide = orderSlides[committedIndex];
@@ -207,6 +210,9 @@ const VendorSliderContent: React.FC = () => {
     if (nextSlide) next.set('slide', nextSlide);
     else next.delete('slide');
 
+    if (zoneFilter !== 'all') next.set('zone', zoneFilter);
+    else next.delete('zone');
+
     const nextQuery = next.toString();
     if (nextQuery === currentQuery) return;
 
@@ -224,7 +230,7 @@ const VendorSliderContent: React.FC = () => {
     return () => {
       clearPendingUrlSync();
     };
-  }, [selectedBrand, committedSlide?.id, location.search, searchParams, setSearchParams]);
+  }, [selectedBrand, committedSlide?.id, zoneFilter, location.search, searchParams, setSearchParams]);
 
   useEffect(() => () => {
     clearPendingUrlSync();
@@ -258,6 +264,7 @@ const VendorSliderContent: React.FC = () => {
   }, [pendingNavigateId, orderSlides]);
 
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
+  const zoneOptions = useMemo(() => Array.from(new Set(orders.map((o) => (o.zone || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [orders]);
 
   const leadActiveNeedCount = useMemo(
     () => orders
@@ -1031,6 +1038,7 @@ const VendorSliderContent: React.FC = () => {
             <p className="truncate text-2xl font-black leading-tight">{current.brand} {current.model}</p>
             <p className="mt-1 text-lg font-black text-amber-200">{current.year} · {current.bodyType || '—'}</p>
           </div>
+          {zoneFilter !== 'all' && <p className="mt-1 text-xs font-black uppercase tracking-[0.2em] text-emerald-200">Зона: {zoneFilter}</p>}
           {(selectedBrand || brandFilter) === LEAD_SLIDES_KEY && <p className="mt-1 text-xs font-black uppercase tracking-[0.2em] text-rose-200">Режим: ЛИД</p>}
 
           <div className="pointer-events-auto mt-2 flex flex-wrap items-center gap-2">
@@ -1146,6 +1154,14 @@ const VendorSliderContent: React.FC = () => {
           <div className="mt-20 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}>
             <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Фильтры</p>
             <div className="space-y-3 text-sm">
+              <div>
+                <p className="mb-1 text-xs text-white/70">Зона</p>
+                <select value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)} className="w-full rounded-xl bg-slate-800 px-3 py-2">
+                  <option value="all">Все зоны</option>
+                  {zoneOptions.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+                </select>
+              </div>
+
               <div>
                 <p className="mb-1 text-xs text-white/70">Марки</p>
                 <select
