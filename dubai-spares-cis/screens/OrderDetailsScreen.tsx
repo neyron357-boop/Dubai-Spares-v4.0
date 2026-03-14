@@ -2535,7 +2535,7 @@ const OrderDetailsScreen: React.FC = () => {
                 inputMode="decimal"
                 value={order.purchasePriceAed ?? ''}
                 onChange={(e) => {
-                  const v = parseFloat(e.target.value);
+                  const v = e.target.value === '' ? undefined : parseFloat(e.target.value);
                   updateOrderField('purchasePriceAed', Number.isFinite(v) ? v : undefined);
                 }}
                 className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-gray-800 outline-none"
@@ -2549,7 +2549,7 @@ const OrderDetailsScreen: React.FC = () => {
                 inputMode="decimal"
                 value={order.clientPriceAed ?? ''}
                 onChange={(e) => {
-                  const v = parseFloat(e.target.value);
+                  const v = e.target.value === '' ? undefined : parseFloat(e.target.value);
                   updateOrderField('clientPriceAed', Number.isFinite(v) ? v : undefined);
                 }}
                 className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-gray-800 outline-none"

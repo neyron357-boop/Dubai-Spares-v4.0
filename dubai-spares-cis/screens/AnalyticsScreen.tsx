@@ -23,11 +23,13 @@ const AnalyticsScreen: React.FC = () => {
       return sum + Math.max(0, (o.clientPriceAed || 0) - (o.purchasePriceAed || 0));
     }, 0);
 
+    let markupContributors = 0;
     const avgMarkup = soldOrders.length > 0
       ? soldOrders.reduce((sum, o) => {
           if (!o.purchasePriceAed || !o.clientPriceAed) return sum;
+          markupContributors++;
           return sum + ((o.clientPriceAed - o.purchasePriceAed) / o.purchasePriceAed) * 100;
-        }, 0) / soldOrders.length
+        }, 0) / (markupContributors || 1)
       : 0;
 
     // Zone activity

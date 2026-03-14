@@ -17,7 +17,7 @@ const formatTimer = (ms: number) => {
 
 const TodayScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { orders, updateOrder } = useStore();
+  const { orders } = useStore();
   const { settings } = useAppSettings();
 
   const now = Date.now();
@@ -78,9 +78,16 @@ const TodayScreen: React.FC = () => {
     const order = orders.find((o) => o.id === orderId);
     if (!order) return;
     const phone = order.contactLinks?.phone || order.customerContact || '';
-    const text = encodeURIComponent(`Здравствуйте! Напоминаю по вашему запросу ${order.brand} ${order.model}. Актуально предложение?`);
+    const reminderTemplate = settings?.messageTemplates?.find((t) => t.id === 'reminder');
+    const rawText = reminderTemplate?.text || 'Здравствуйте! Напоминаю по вашему запросу {brand} {model} {part}. Актуально предложение?';
+    const partName = order.parts[0]?.name || '';
+    const message = rawText
+      .replace('{brand}', order.brand)
+      .replace('{model}', order.model)
+      .replace('{part}', partName)
+      .replace('{price}', String(order.clientPriceAed || ''));
     if (phone) {
-      window.open(`https://wa.me/${phone.replace(/\D/g, '')}?text=${text}`, '_blank');
+      window.open(`https://wa.me/${phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank');
     }
   };
 
@@ -99,9 +106,6 @@ const TodayScreen: React.FC = () => {
     if (o.parts.some((p) => p.isFound)) return 'Деталь найдена';
     return 'Найти и сфоткать';
   };
-
-  // suppress unused warning
-  void updateOrder;
 
   return (
     <div className="p-3 space-y-3 pb-6">
