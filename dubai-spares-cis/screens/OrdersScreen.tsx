@@ -7,6 +7,7 @@ import IncomeModal from '../components/IncomeModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
+import { getGreeting } from '../utils/greeting';
 
 type TabType = 'active' | 'vip' | 'lead' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -339,6 +340,36 @@ const OrdersScreen: React.FC = () => {
   const [yearFrom, setYearFrom] = useState('');
   const [yearTo, setYearTo] = useState('');
 
+  // Morning Boss state
+  const [streakBounce, setStreakBounce] = useState(false);
+  const dailyGoalOrders = 8;
+  const dailyGoalParts = 20;
+  const streakDays = 12;
+
+  const urgentOrdersList = useMemo(
+    () => orders.filter((o) => !o.isArchived && !o.isSold && o.priority === Priority.HIGH),
+    [orders]
+  );
+
+  const todayEarnings = useMemo(() => {
+    return orders
+      .filter((o) => !o.isArchived && !o.isSold)
+      .reduce((sum, order) => {
+        const totalCostAed = order.parts.reduce((acc, part) => {
+          const variants = part.variants || [];
+          if (!part.isFound && variants.length === 0) return acc;
+          const bestPrice = variants.reduce((min, v) => {
+            const p = Number(v.priceAed || 0);
+            if (!p) return min;
+            return min === 0 ? p : Math.min(min, p);
+          }, 0);
+          return acc + bestPrice;
+        }, 0);
+        if (totalCostAed <= 0) return sum;
+        return sum + totalCostAed * (order.markupPercent || 0) / 100;
+      }, 0);
+  }, [orders]);
+
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(searchText.trim().toLowerCase()), 300);
@@ -549,6 +580,85 @@ const OrdersScreen: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* Morning Boss Block */}
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 space-y-2.5">
+          <p className="text-sm font-black text-slate-800">{getGreeting()}</p>
+
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Цель на сегодня</p>
+              <div className="flex items-baseline gap-1 mt-0.5">
+                <span className="text-2xl font-black text-slate-900">{Math.min(tabCounts.active, dailyGoalOrders)}</span>
+                <span className="text-sm text-slate-400 font-semibold">/{dailyGoalOrders} зак.</span>
+                <span className="text-slate-300 mx-1">·</span>
+                <span className="text-2xl font-black text-slate-900">{Math.min(tabCounts.found, dailyGoalParts)}</span>
+                <span className="text-sm text-slate-400 font-semibold">/{dailyGoalParts} дет.</span>
+              </div>
+              <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                <div
+                  className="h-1.5 rounded-full bg-blue-500 transition-all duration-500"
+                  style={{ width: dailyGoalOrders > 0 ? `${Math.min(100, (Math.min(tabCounts.active, dailyGoalOrders) / dailyGoalOrders) * 100)}%` : '0%' }}
+                />
+              </div>
+              <p className="text-[10px] text-slate-400 mt-0.5">{Math.min(tabCounts.active, dailyGoalOrders)}/{dailyGoalOrders}</p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Маржа</p>
+              <p className="text-2xl font-black text-emerald-600">+{Math.round(todayEarnings).toLocaleString('ru-RU')}</p>
+              <p className="text-[10px] font-semibold text-emerald-600">AED</p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+            <p className="text-xs font-bold text-slate-700">Стрик: {streakDays} дней подряд 🔥</p>
+            <button
+              type="button"
+              onClick={() => {
+                setStreakBounce(true);
+                window.setTimeout(() => setStreakBounce(false), 600);
+              }}
+              className={`text-[10px] font-semibold text-slate-400 transition-transform active:scale-95 ${streakBounce ? 'scale-110 text-amber-500' : 'scale-100'}`}
+            >
+              Не сломать стрик
+            </button>
+          </div>
+        </div>
+
+        {/* Urgent Today horizontal scroll */}
+        {urgentOrdersList.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-[10px] font-black uppercase tracking-wide text-rose-600">🚨 Срочно сегодня</p>
+            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 -mx-4 px-4">
+              {urgentOrdersList.slice(0, 4).map((order) => (
+                <div
+                  key={order.id}
+                  className="shrink-0 w-40 rounded-2xl border border-rose-200 bg-rose-50 p-2.5 space-y-1.5"
+                >
+                  {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? (
+                    <img
+                      src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl}
+                      alt={`${order.brand} ${order.model}`}
+                      className="h-14 w-full rounded-xl object-cover"
+                    />
+                  ) : (
+                    <div className="h-14 w-full rounded-xl bg-rose-100 flex items-center justify-center">
+                      <span className="text-rose-400 text-sm font-black">{order.brand?.[0] || '?'}</span>
+                    </div>
+                  )}
+                  <p className="text-[11px] font-black text-slate-800 truncate">{order.brand} {order.model}</p>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/order/${order.id}`)}
+                    className="w-full rounded-xl bg-rose-500 py-1.5 text-[10px] font-black text-white active:scale-95 transition-transform"
+                  >
+                    Отправить
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs">
           <span className="inline-flex items-center gap-2 font-semibold text-emerald-700"><Cloud size={14} /> Синхронизировано</span>
