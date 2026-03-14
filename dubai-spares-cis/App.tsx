@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
-import { HashRouter, Routes, Route, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { HashRouter, Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom';
 import OrdersScreen from './screens/OrdersScreen';
 import NewOrderScreen from './screens/NewOrderScreen';
 import OrderDetailsScreen from './screens/OrderDetailsScreen';
@@ -15,7 +15,7 @@ import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
-import { BarChart3, Bell, CarFront, Database, Home, PlusCircle, Settings } from 'lucide-react';
+import { BarChart3, Bell, CarFront, MapPin, MoreHorizontal, Package, Plus, Settings, Store } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
@@ -51,6 +51,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     || location.pathname.includes('/order-form')
     || location.pathname.includes('/public-order-form');
   const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
+  const [moreOpen, setMoreOpen] = useState(false);
   const [tabPaths, setTabPaths] = useState<Record<Exclude<BottomTab, null>, string>>({
     today: '/today',
     orders: '/',
@@ -83,6 +84,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     };
   }, []);
 
+  // Close "more" sheet whenever route changes
+  useEffect(() => { setMoreOpen(false); }, [location.pathname]);
+
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   const handleTabNavigate = (tab: Exclude<BottomTab, null>) => {
@@ -107,6 +111,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     navigate(destination);
   };
 
+  const activeTab = resolveBottomTab(location.pathname);
+  // "Ещё" button is highlighted when on a sheet-screen
+  const isMoreActive = activeTab === 'analytics' || activeTab === 'notifications' || activeTab === 'settings';
+
+  const tabCls = (active: boolean) =>
+    `flex-1 flex flex-col items-center justify-center gap-[3px] h-full transition-colors ${active ? 'text-blue-600' : 'text-gray-400'}`;
+
   return (
     <div className="fixed inset-0 h-[100dvh] w-full bg-slate-100 flex justify-center overflow-hidden"><div className="h-full w-full max-w-md bg-gray-50 flex flex-col overflow-hidden shadow-sm">
       <main className="flex-1 overflow-y-auto no-scrollbar relative">
@@ -115,45 +126,108 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </div>
         {children}
       </main>
+
       {!hideNav && (
-        <nav className="h-12 bg-white border-t border-gray-200 flex items-center justify-around px-1 pb-safe shrink-0 z-50">
-          {/* Today */}
-          <NavLink to={tabPaths.today} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('today'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'today' ? 'text-blue-600' : 'text-gray-400'}`}>
-            {resolveBottomTab(location.pathname) === 'today' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
-            <Home size={20} strokeWidth={resolveBottomTab(location.pathname) === 'today' ? 2.5 : 1.8} />
-          </NavLink>
-          {/* Orders */}
-          <NavLink to={tabPaths.orders} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('orders'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'orders' ? 'text-blue-600' : 'text-gray-400'}`}>
-            {resolveBottomTab(location.pathname) === 'orders' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
-            <CarFront size={20} strokeWidth={resolveBottomTab(location.pathname) === 'orders' ? 2.5 : 1.8} />
-          </NavLink>
-          {/* New Order */}
-          <NavLink to={tabPaths.new} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('new'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'new' ? 'text-blue-600' : 'text-gray-400'}`}>
-            {resolveBottomTab(location.pathname) === 'new' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
-            <PlusCircle size={20} strokeWidth={resolveBottomTab(location.pathname) === 'new' ? 2.5 : 1.8} />
-          </NavLink>
-          {/* Analytics */}
-          <NavLink to={tabPaths.analytics} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('analytics'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'analytics' ? 'text-blue-600' : 'text-gray-400'}`}>
-            {resolveBottomTab(location.pathname) === 'analytics' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
-            <BarChart3 size={20} strokeWidth={resolveBottomTab(location.pathname) === 'analytics' ? 2.5 : 1.8} />
-          </NavLink>
-          {/* Suppliers */}
-          <NavLink to={tabPaths.database} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('database'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'database' ? 'text-blue-600' : 'text-gray-400'}`}>
-            {resolveBottomTab(location.pathname) === 'database' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
-            <Database size={19} strokeWidth={resolveBottomTab(location.pathname) === 'database' ? 2.5 : 1.8} />
-          </NavLink>
-          {/* Notifications */}
-          <NavLink to={tabPaths.notifications} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('notifications'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'notifications' ? 'text-blue-600' : 'text-gray-400'}`}>
-            {resolveBottomTab(location.pathname) === 'notifications' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
-            <Bell size={19} strokeWidth={resolveBottomTab(location.pathname) === 'notifications' ? 2.5 : 1.8} />
-            {unreadCount > 0 && <span className="absolute top-0.5 right-[calc(50%-14px)] min-w-[13px] h-[13px] px-0.5 rounded-full bg-rose-500 text-white text-[8px] font-black flex items-center justify-center">{badgeLabel}</span>}
-          </NavLink>
-          {/* Settings */}
-          <NavLink to={tabPaths.settings} onClick={(e) => { e.preventDefault(); playSound('navigate'); handleTabNavigate('settings'); }} className={() => `relative flex flex-col items-center justify-center w-full h-full ${resolveBottomTab(location.pathname) === 'settings' ? 'text-blue-600' : 'text-gray-400'}`}>
-            {resolveBottomTab(location.pathname) === 'settings' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-blue-600" />}
-            <Settings size={19} strokeWidth={resolveBottomTab(location.pathname) === 'settings' ? 2.5 : 1.8} />
-          </NavLink>
-        </nav>
+        <>
+          {/* ── FAB ── fixed, centered; bottom-[42px] = overlaps ~22px into h-16 tab bar (Uber style) */}
+          <button
+            onClick={() => { playSound('navigate'); handleTabNavigate('new'); }}
+            className="fixed bottom-[42px] left-1/2 -translate-x-1/2 z-[55] w-14 h-14 rounded-full bg-blue-600 shadow-xl active:scale-95 transition-transform flex items-center justify-center"
+            aria-label="Новый заказ"
+          >
+            <Plus size={26} color="white" strokeWidth={2.5} />
+          </button>
+
+          {/* ── Tab bar ── */}
+          <nav className="h-16 bg-white border-t border-gray-200 flex items-stretch pb-safe shrink-0 z-50">
+
+            {/* Заказы */}
+            <button onClick={() => { playSound('navigate'); handleTabNavigate('orders'); }} className={tabCls(activeTab === 'orders')}>
+              <CarFront size={22} strokeWidth={activeTab === 'orders' ? 2.5 : 1.8} />
+              <span className="text-[9px] font-semibold">Заказы</span>
+            </button>
+
+            {/* Разборки */}
+            <button onClick={() => { playSound('navigate'); handleTabNavigate('today'); }} className={tabCls(activeTab === 'today')}>
+              <MapPin size={22} strokeWidth={activeTab === 'today' ? 2.5 : 1.8} />
+              <span className="text-[9px] font-semibold">Разборки</span>
+            </button>
+
+            {/* Center spacer — FAB floats above this slot */}
+            <div className="w-16 shrink-0 flex flex-col items-center justify-end pb-[5px]">
+              <span className="text-[10px] font-semibold text-blue-600 leading-none">Новый заказ</span>
+            </div>
+
+            {/* Поставщики */}
+            <button onClick={() => { playSound('navigate'); handleTabNavigate('database'); }} className={tabCls(activeTab === 'database')}>
+              <Store size={22} strokeWidth={activeTab === 'database' ? 2.5 : 1.8} />
+              <span className="text-[9px] font-semibold">Поставщики</span>
+            </button>
+
+            {/* Варианты */}
+            <button onClick={() => { playSound('navigate'); handleTabNavigate('variants'); }} className={tabCls(activeTab === 'variants')}>
+              <Package size={22} strokeWidth={activeTab === 'variants' ? 2.5 : 1.8} />
+              <span className="text-[9px] font-semibold">Варианты</span>
+            </button>
+
+            {/* Ещё */}
+            <button onClick={() => { playSound('tap'); setMoreOpen(true); }} className={tabCls(isMoreActive || moreOpen)}>
+              <MoreHorizontal size={22} strokeWidth={(isMoreActive || moreOpen) ? 2.5 : 1.8} />
+              <span className="text-[9px] font-semibold">Ещё</span>
+            </button>
+
+          </nav>
+
+          {/* ── "Ещё" bottom sheet ── */}
+          {moreOpen && (
+            <>
+              {/* Backdrop */}
+              <div
+                className="fixed inset-0 z-[65] bg-black/40"
+                onClick={() => setMoreOpen(false)}
+              />
+              {/* Sheet */}
+              <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[70] bg-white rounded-t-2xl shadow-2xl">
+                {/* Drag handle */}
+                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mt-3 mb-1" />
+
+                {/* Уведомления */}
+                <button
+                  onClick={() => { playSound('navigate'); handleTabNavigate('notifications'); setMoreOpen(false); }}
+                  className="relative flex items-center gap-3 w-full px-5 py-4 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                >
+                  <Bell size={20} className={activeTab === 'notifications' ? 'text-blue-600' : 'text-gray-500'} />
+                  <span className={`text-sm font-medium ${activeTab === 'notifications' ? 'text-blue-600' : 'text-gray-800'}`}>Уведомления</span>
+                  {unreadCount > 0 && (
+                    <span className="ml-auto min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center">
+                      {badgeLabel}
+                    </span>
+                  )}
+                </button>
+
+                {/* Аналитика */}
+                <button
+                  onClick={() => { playSound('navigate'); handleTabNavigate('analytics'); setMoreOpen(false); }}
+                  className="flex items-center gap-3 w-full px-5 py-4 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                >
+                  <BarChart3 size={20} className={activeTab === 'analytics' ? 'text-blue-600' : 'text-gray-500'} />
+                  <span className={`text-sm font-medium ${activeTab === 'analytics' ? 'text-blue-600' : 'text-gray-800'}`}>Аналитика</span>
+                </button>
+
+                {/* Настройки */}
+                <button
+                  onClick={() => { playSound('navigate'); handleTabNavigate('settings'); setMoreOpen(false); }}
+                  className="flex items-center gap-3 w-full px-5 py-4 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                >
+                  <Settings size={20} className={activeTab === 'settings' ? 'text-blue-600' : 'text-gray-500'} />
+                  <span className={`text-sm font-medium ${activeTab === 'settings' ? 'text-blue-600' : 'text-gray-800'}`}>Настройки</span>
+                </button>
+
+                <div className="h-4 pb-safe" />
+              </div>
+            </>
+          )}
+        </>
       )}
       </div>
     </div>
