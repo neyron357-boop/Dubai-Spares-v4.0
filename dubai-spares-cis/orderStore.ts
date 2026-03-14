@@ -554,6 +554,13 @@ const hotFieldKeys: Array<keyof Order> = [
   'isVip',
   'isLead',
   'isPinned',
+  'locationZone',
+  'isUrgent',
+  'nextStep',
+  'offerSentAt',
+  'purchasePriceAed',
+  'clientPriceAed',
+  'paidStatus',
   'customerStatus',
   'statusChangedAt',
   'statusChangedBy',
@@ -1033,7 +1040,14 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     vendorChecklist: Array.isArray((row as any).vendor_checklist) ? (row as any).vendor_checklist : [],
     vehicleDetails: (row as any).vehicle_details && typeof (row as any).vehicle_details === 'object'
       ? (row as any).vehicle_details
-      : undefined
+      : undefined,
+    locationZone: typeof (row as any).location_zone === 'string' ? (row as any).location_zone : undefined,
+    isUrgent: !!(row as any).is_urgent,
+    nextStep: typeof (row as any).next_step === 'string' ? (row as any).next_step : undefined,
+    offerSentAt: Number.isFinite(Number((row as any).offer_sent_at)) && Number((row as any).offer_sent_at) > 0 ? Number((row as any).offer_sent_at) : undefined,
+    purchasePriceAed: Number.isFinite(Number((row as any).purchase_price_aed)) ? Number((row as any).purchase_price_aed) : undefined,
+    clientPriceAed: Number.isFinite(Number((row as any).client_price_aed)) ? Number((row as any).client_price_aed) : undefined,
+    paidStatus: ((row as any).paid_status === 'partial' || (row as any).paid_status === 'paid') ? (row as any).paid_status : 'unpaid',
   })
 });
 
@@ -1442,6 +1456,13 @@ const hasCriticalFinancialPatch = (patch: Partial<Order>) => {
     || patch.markupFixedAed !== undefined
     || patch.logistics !== undefined
     || patch.pricingEvents !== undefined
+    || patch.locationZone !== undefined
+    || patch.isUrgent !== undefined
+    || patch.nextStep !== undefined
+    || patch.offerSentAt !== undefined
+    || patch.purchasePriceAed !== undefined
+    || patch.clientPriceAed !== undefined
+    || patch.paidStatus !== undefined
   );
 };
 
@@ -1524,6 +1545,13 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   is_vip: typeof patch.isVip === 'boolean' ? patch.isVip : undefined,
   is_lead: typeof patch.isLead === 'boolean' ? patch.isLead : undefined,
   is_pinned: typeof patch.isPinned === 'boolean' ? patch.isPinned : undefined,
+  location_zone: patch.locationZone,
+  is_urgent: patch.isUrgent,
+  next_step: patch.nextStep,
+  offer_sent_at: typeof patch.offerSentAt === 'number' ? patch.offerSentAt : undefined,
+  purchase_price_aed: typeof patch.purchasePriceAed === 'number' ? patch.purchasePriceAed : undefined,
+  client_price_aed: typeof patch.clientPriceAed === 'number' ? patch.clientPriceAed : undefined,
+  paid_status: patch.paidStatus,
   status: patch.status,
   brand: patch.brand,
   model: patch.model,

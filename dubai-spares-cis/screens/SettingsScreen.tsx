@@ -1165,6 +1165,26 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
 
       <Section title="Основные настройки">
         <div className="space-y-3">
+          <Field label="Имя пользователя">
+            <input
+              value={draftSettings.userName ?? ''}
+              onChange={(e) => updateDraft({ userName: e.target.value })}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              placeholder="Руслан"
+            />
+          </Field>
+
+          <Field label="Цель на неделю (AED)">
+            <input
+              value={draftSettings.weeklyGoalAed ?? 2000}
+              onChange={(e) => updateDraft({ weeklyGoalAed: Number(e.target.value) || 0 })}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              type="text"
+              inputMode="numeric"
+              placeholder="2000"
+            />
+          </Field>
+
           <Field label="Язык приложения">
             <select value={draftSettings.appLanguage} onChange={(e) => {
               const nextLang = e.target.value as 'ru' | 'en';

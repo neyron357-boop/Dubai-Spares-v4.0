@@ -2068,6 +2068,23 @@ const OrderDetailsScreen: React.FC = () => {
           </select>
           <button type="button" onClick={() => void pasteVinFromClipboard()} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">Вставить VIN</button>
         </div>
+
+        {/* Location zone selector */}
+        <div className="px-4 pt-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">📍 Зона</p>
+          <div className="flex flex-wrap gap-1.5">
+            {['Area2', 'Area3', 'Area4', 'Area6', 'Area8', 'Dubai', 'Online'].map((zone) => (
+              <button
+                key={zone}
+                type="button"
+                onClick={() => updateOrderField('locationZone', order.locationZone === zone ? undefined : zone)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-bold border ${order.locationZone === zone ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
+              >
+                {zone.startsWith('Area') ? zone.replace('Area', 'Area ') : zone}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {toast && (
@@ -2506,6 +2523,82 @@ const OrderDetailsScreen: React.FC = () => {
           ) : (
             <p className="text-xs text-gray-400">Фотографии автомобиля не добавлены.</p>
           )}
+        </div>
+
+        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">💵 Финансы</p>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Закупка (AED)</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={order.purchasePriceAed ?? ''}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  updateOrderField('purchasePriceAed', Number.isFinite(v) ? v : undefined);
+                }}
+                className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-gray-800 outline-none"
+                placeholder="0"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Цена клиенту (AED)</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={order.clientPriceAed ?? ''}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  updateOrderField('clientPriceAed', Number.isFinite(v) ? v : undefined);
+                }}
+                className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-gray-800 outline-none"
+                placeholder="0"
+              />
+            </label>
+          </div>
+          {order.purchasePriceAed !== undefined && order.clientPriceAed !== undefined && (
+            <div className={`rounded-xl px-3 py-2 text-sm font-black ${(order.clientPriceAed - order.purchasePriceAed) >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+              Прибыль: {(order.clientPriceAed - order.purchasePriceAed).toFixed(0)} AED
+            </div>
+          )}
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 mb-1.5">Статус оплаты</p>
+            <div className="flex gap-1.5">
+              {([['unpaid', 'Не оплачено'], ['partial', 'Предоплата'], ['paid', 'Полная оплата']] as const).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => updateOrderField('paidStatus', val)}
+                  className={`flex-1 py-1.5 rounded-xl text-[10px] font-black border ${(order.paidStatus || 'unpaid') === val ? (val === 'paid' ? 'bg-emerald-500 text-white border-emerald-500' : val === 'partial' ? 'bg-amber-400 text-white border-amber-400' : 'bg-rose-500 text-white border-rose-500') : 'bg-white text-gray-500 border-gray-200'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                updateOrderField('salesStatus', 'Price Sent');
+                updateOrderField('offerSentAt', Date.now());
+              }}
+              className="flex-1 h-9 rounded-xl bg-blue-600 text-white text-xs font-black"
+            >
+              📤 Оффер отправлен
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                updateOrderField('paidStatus', 'paid');
+                updateOrderField('salesStatus', 'Paid');
+              }}
+              className="flex-1 h-9 rounded-xl bg-emerald-500 text-white text-xs font-black"
+            >
+              ✅ Оплачено
+            </button>
+          </div>
         </div>
 
         <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">

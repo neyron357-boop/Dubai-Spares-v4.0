@@ -8,11 +8,14 @@ import SuppliersScreen from './screens/SuppliersScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import VariantsScreen from './screens/VariantsScreen';
+import TodayScreen from './screens/TodayScreen';
+import AnalyticsScreen from './screens/AnalyticsScreen';
+import RouteScreen from './screens/RouteScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
-import { CarFront, PlusCircle, Database, Bell, Settings, Layers } from 'lucide-react';
+import { CarFront, PlusCircle, Database, Bell, Settings, Home } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
@@ -25,9 +28,10 @@ const HashPublicQuoteRoute: React.FC = () => {
   return <PublicQuoteScreen orderId={orderId} />;
 };
 
-type BottomTab = 'orders' | 'new' | 'database' | 'variants' | 'notifications' | 'settings' | null;
+type BottomTab = 'today' | 'orders' | 'new' | 'database' | 'variants' | 'notifications' | 'settings' | null;
 
 const resolveBottomTab = (pathname: string): BottomTab => {
+  if (pathname.startsWith('/today')) return 'today';
   if (pathname === '/' || pathname.startsWith('/order/') || pathname.startsWith('/vendor')) return 'orders';
   if (pathname.startsWith('/new')) return 'new';
   if (pathname.startsWith('/database')) return 'database';
@@ -47,6 +51,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     || location.pathname.includes('/public-order-form');
   const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
   const [tabPaths, setTabPaths] = useState<Record<Exclude<BottomTab, null>, string>>({
+    today: '/today',
     orders: '/',
     new: '/new',
     database: '/database',
@@ -80,6 +85,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const handleTabNavigate = (tab: Exclude<BottomTab, null>) => {
     const rootByTab: Record<Exclude<BottomTab, null>, string> = {
+      today: '/today',
       orders: '/',
       new: '/new',
       database: '/database',
@@ -111,7 +117,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <NavLink to={tabPaths.orders} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('orders'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'orders' ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Orders</span></NavLink>
           <NavLink to={tabPaths.new} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('new'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'new' ? 'text-blue-600' : 'text-gray-400'}`}><PlusCircle size={24} /><span className="text-[10px] font-medium">New Order</span></NavLink>
           <NavLink to={tabPaths.database} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('database'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'database' ? 'text-blue-600' : 'text-gray-400'}`}><Database size={22} /><span className="text-[10px] font-medium">Suppliers</span></NavLink>
-          <NavLink to={tabPaths.variants} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('variants'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'variants' ? 'text-blue-600' : 'text-gray-400'}`}><Layers size={22} /><span className="text-[10px] font-medium">Variants</span></NavLink>
+          <NavLink to={tabPaths.today} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('today'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'today' ? 'text-blue-600' : 'text-gray-400'}`}><Home size={22} /><span className="text-[10px] font-medium">Сегодня</span></NavLink>
           <NavLink to={tabPaths.notifications} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('notifications'); }} className={() => `relative flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'notifications' ? 'text-blue-600' : 'text-gray-400'}`}><Bell size={21} />
             {unreadCount > 0 && <span className="absolute -top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">{badgeLabel}</span>}
             <span className="text-[10px] font-medium">Notifications</span>
@@ -144,6 +150,9 @@ const CachedRoutes: React.FC = () => {
           <div key={pathname} className={isActive ? 'h-full' : 'hidden'}>
             <Routes location={{ ...location, pathname }}>
               <Route path="/" element={<OrdersScreen />} />
+              <Route path="/today" element={<TodayScreen />} />
+              <Route path="/analytics" element={<AnalyticsScreen />} />
+              <Route path="/route/:zone" element={<RouteScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />
               <Route path="/vendor" element={<VendorSlider />} />
               <Route path="/order/:id" element={<OrderDetailsScreen />} />

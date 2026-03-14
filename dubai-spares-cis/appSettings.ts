@@ -35,6 +35,9 @@ export interface AppSettings {
   fieldFocusMode: boolean;
   soundsEnabled: boolean;
   hideSchemaWarningUntil: number;
+  weeklyGoalAed: number;
+  userName: string;
+  messageTemplates: Array<{ id: string; name: string; text: string }>;
   publicWhatsappNumber: string;
   publicTelegramUrl: string;
   publicInstagramUrl: string;
@@ -74,6 +77,13 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   fieldFocusMode: false,
   soundsEnabled: true,
   hideSchemaWarningUntil: 0,
+  weeklyGoalAed: 2000,
+  userName: 'Руслан',
+  messageTemplates: [
+    { id: 'offer', name: 'Оффер', text: '{brand} {model} {part} — {price} AED. Фото прикреплено. Жду подтверждения и предоплаты.' },
+    { id: 'reminder', name: 'Напоминание', text: 'Здравствуйте! Напоминаю по вашему запросу {brand} {model} {part}. Актуально предложение?' },
+    { id: 'ready', name: 'Готово к отправке', text: 'Ваша деталь {brand} {model} {part} готова. Подтвердите адрес доставки.' },
+  ],
   publicWhatsappNumber: '971000000000',
   publicTelegramUrl: '',
   publicInstagramUrl: '',

@@ -102,6 +102,13 @@ export interface Order {
   soldProfitUsd?: number;
   isVip?: boolean;
   isPinned?: boolean;
+  locationZone?: string;       // e.g. 'Area2', 'Area3', 'Area4', 'Area6', 'Area8', 'Dubai', 'Online'
+  isUrgent?: boolean;
+  nextStep?: string;
+  offerSentAt?: number;        // timestamp (ms) when salesStatus became 'Price Sent'
+  purchasePriceAed?: number;   // purchase cost AED
+  clientPriceAed?: number;     // price offered to client AED
+  paidStatus?: 'unpaid' | 'partial' | 'paid';
   isLead?: boolean;
   localOnlyPhotos?: boolean;
   notes?: OrderNote[];

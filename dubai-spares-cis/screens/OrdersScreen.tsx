@@ -669,6 +669,16 @@ const OrdersScreen: React.FC = () => {
                   <span className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">{statusLabelMap[status]}</span>
                   {order.priority === Priority.HIGH && <span className="text-[10px] font-black text-rose-600 uppercase">Срочно</span>}
                   {order.salesStatus === 'Price Sent' && <span className="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">Оффер отправлен</span>}
+                  {order.locationZone && (
+                    <span className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">
+                      📍 {order.locationZone.startsWith('Area') ? order.locationZone.replace('Area', 'Area ') : order.locationZone}
+                    </span>
+                  )}
+                  {order.offerSentAt && !order.isSold && !order.isArchived && (
+                    <span className="rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">
+                      ⏱ {(() => { const h = Math.floor((Date.now() - order.offerSentAt) / 3600000); return h >= 48 ? `${Math.floor(h / 24)} дн.` : `${h}ч`; })()}
+                    </span>
+                  )}
                   {activeTab === 'active' && (
                     <button
                       type="button"

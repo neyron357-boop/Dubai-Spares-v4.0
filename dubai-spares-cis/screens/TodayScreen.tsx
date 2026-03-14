@@ -1,80 +1,258 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AlertTriangle, CheckSquare, Clock, MapPin, MessageCircle, Plus, Star } from 'lucide-react';
 import { useStore } from '../store';
-import { findActiveRadarSession, getRadarTargetItems, getRadarTargets, getRadarSession } from '../radarSessionService';
+import { useAppSettings } from '../appSettings';
+
+const ZONE_LABELS: Record<string, string> = {
+  Area2: 'Area 2', Area3: 'Area 3', Area4: 'Area 4',
+  Area6: 'Area 6', Area8: 'Area 8', Dubai: 'Dubai', Online: 'Online',
+};
+
+const formatTimer = (ms: number) => {
+  const h = Math.floor(ms / 3600000);
+  if (h >= 48) return `${Math.floor(h / 24)} дн.`;
+  return `${h}ч`;
+};
 
 const TodayScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { orders } = useStore();
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [targets, setTargets] = useState<any[]>([]);
-  const [targetItems, setTargetItems] = useState<any[]>([]);
-  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const { orders, updateOrder } = useStore();
+  const { settings } = useAppSettings();
 
-  useEffect(() => {
-    const load = async () => {
-      const active = await findActiveRadarSession();
-      setActiveSessionId(active?.id || null);
-      setActiveOrderId(active?.order_id || null);
-      if (!active?.id) return;
-      const targetRows = await getRadarTargets(active.id);
-      setTargets(targetRows);
-      setTargetItems(await getRadarTargetItems(targetRows.map((item) => item.id)));
-      const session = await getRadarSession(active.id);
-      setActiveOrderId(session?.order_id || null);
-    };
-    void load();
-  }, []);
+  const now = Date.now();
+  const userName = settings?.userName || 'Руслан';
+  const weeklyGoal = settings?.weeklyGoalAed || 2000;
 
-  const kpi = useMemo(() => {
-    const found = targetItems.filter((item) => item.item_status === 'found').length;
-    const notFound = targetItems.filter((item) => item.item_status === 'not_found').length;
-    const followUp = targetItems.filter((item) => item.item_status === 'partial').length;
-    const visited = targets.filter((item) => item.status === 'done' || item.status === 'at_shop').length;
-    const profitAed = targetItems.reduce((sum, item) => sum + (Number(item.price_aed) || 0), 0);
-    const bySupplier: Record<string, number> = {};
-    targetItems.forEach((item) => {
-      if (item.item_status !== 'found') return;
-      const target = targets.find((entry) => entry.id === item.radar_target_id);
-      if (!target?.shop_id) return;
-      bySupplier[target.shop_id] = (bySupplier[target.shop_id] || 0) + 1;
+  // Calculate this week's earnings from sold orders
+  const weekStart = (() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - d.getDay());
+    return d.getTime();
+  })();
+  const weekEarnings = useMemo(() => {
+    return orders
+      .filter((o) => o.isSold && (o.updatedAt || o.createdAt) >= weekStart)
+      .reduce((sum, o) => {
+        const profit = (o.clientPriceAed || 0) - (o.purchasePriceAed || 0);
+        return sum + Math.max(0, profit);
+      }, 0);
+  }, [orders, weekStart]);
+  const progressPct = Math.min(100, Math.round((weekEarnings / weeklyGoal) * 100));
+
+  // Urgent orders: isUrgent OR offer sent > 2h ago with no payment
+  const urgentOrders = useMemo(() => orders.filter((o) => {
+    if (o.isArchived || o.isSold) return false;
+    if (o.isUrgent) return true;
+    if (o.offerSentAt && (now - o.offerSentAt) > 2 * 3600000 && o.paidStatus !== 'paid') return true;
+    return false;
+  }), [orders, now]);
+
+  // Route: active orders grouped by zone
+  const routeByZone = useMemo(() => {
+    const active = orders.filter((o) => !o.isArchived && !o.isSold && o.locationZone && o.locationZone !== 'Online');
+    const map: Record<string, typeof active> = {};
+    active.forEach((o) => {
+      const z = o.locationZone!;
+      if (!map[z]) map[z] = [];
+      map[z].push(o);
     });
-    const bestSupplierId = Object.entries(bySupplier).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-    return { visited, found, notFound, followUp, profitAed, bestSupplierId };
-  }, [targetItems, targets]);
+    return Object.entries(map).sort((a, b) => b[1].length - a[1].length);
+  }, [orders]);
 
-  const activeOrder = orders.find((order) => order.id === activeOrderId) || null;
+  // Paused clients: offer sent > 24h, no payment
+  const pausedOrders = useMemo(() => orders.filter((o) => {
+    if (o.isArchived || o.isSold) return false;
+    if (o.salesStatus === 'Price Sent' && o.offerSentAt && (now - o.offerSentAt) > 24 * 3600000 && o.paidStatus !== 'paid') return true;
+    return false;
+  }), [orders, now]);
+
+  // New leads
+  const newLeads = useMemo(() => orders.filter((o) => o.isLead && !o.isArchived), [orders]);
+
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+  const dateCapitalized = dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
+
+  const sendReminder = (orderId: string) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+    const phone = order.contactLinks?.phone || order.customerContact || '';
+    const text = encodeURIComponent(`Здравствуйте! Напоминаю по вашему запросу ${order.brand} ${order.model}. Актуально предложение?`);
+    if (phone) {
+      window.open(`https://wa.me/${phone.replace(/\D/g, '')}?text=${text}`, '_blank');
+    }
+  };
+
+  const getUrgencyReason = (o: typeof orders[0]) => {
+    if (o.isUrgent) return 'Помечено срочным';
+    if (o.offerSentAt) {
+      const elapsed = now - o.offerSentAt;
+      return `Ждёт ответа (просрочено ${formatTimer(elapsed)})`;
+    }
+    return 'Требует внимания';
+  };
+
+  const getTaskAction = (o: typeof orders[0]) => {
+    if (o.paidStatus === 'paid') return 'Забрать (оплачено)';
+    if (o.salesStatus === 'Price Sent') return 'Ожидать ответ';
+    if (o.parts.some((p) => p.isFound)) return 'Деталь найдена';
+    return 'Найти и сфоткать';
+  };
+
+  // suppress unused warning
+  void updateOrder;
 
   return (
-    <div className="p-3 space-y-3">
-      <div className="rounded-2xl border border-gray-200 bg-white p-3">
-        <h1 className="text-lg font-black">Сегодня</h1>
-        <p className="text-xs text-gray-500">Фокус дня без лишних экранов.</p>
+    <div className="p-3 space-y-3 pb-6">
+      {/* Header */}
+      <div className="rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 text-white p-4 space-y-3">
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-xl font-black">Привет, {userName}! 👋</h1>
+            <p className="text-slate-300 text-xs mt-0.5">{dateCapitalized}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/new')}
+            className="flex items-center gap-1 bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-full"
+          >
+            <Plus size={14} /> Заказ
+          </button>
+        </div>
+        <div>
+          <div className="flex justify-between text-xs mb-1">
+            <span className="text-slate-300">💰 Заработано за неделю</span>
+            <span className="font-bold">{weekEarnings.toFixed(0)} / {weeklyGoal} AED</span>
+          </div>
+          <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-emerald-400 rounded-full transition-all"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <p className="text-right text-slate-400 text-[10px] mt-0.5">{progressPct}%</p>
+        </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-3 space-y-2">
-        <p className="text-xs font-black uppercase text-gray-400">🧭 Активная сессия</p>
-        <p className="text-sm font-bold">{activeSessionId ? `Radar ${activeSessionId.slice(0, 8)}` : 'Нет активной сессии'}</p>
-        <p className="text-xs text-gray-500">🧾 {activeOrder ? `${activeOrder.brand} ${activeOrder.model}` : 'Активный заказ не выбран'}</p>
-        <p className="text-xs text-gray-500">📌 План: закрыть приоритетные детали и сохранить цены.</p>
-      </div>
+      {/* Urgent */}
+      {urgentOrders.length > 0 && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={16} className="text-rose-500 shrink-0" />
+            <span className="text-sm font-black text-rose-700 uppercase tracking-wide">🚨 Срочно</span>
+          </div>
+          {urgentOrders.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => navigate(`/order/${o.id}`)}
+              className="w-full text-left bg-white border border-rose-100 rounded-xl p-2.5 space-y-0.5"
+            >
+              <p className="text-sm font-bold text-gray-800">{o.brand} {o.model} {o.year}</p>
+              <p className="text-xs text-rose-600">{getUrgencyReason(o)}</p>
+              {o.parts[0] && <p className="text-xs text-gray-400">{o.parts[0].name}</p>}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <div className="grid grid-cols-2 gap-2 text-xs font-bold">
-        <div className="rounded-xl bg-white border border-gray-200 p-2">Посетил: {kpi.visited}</div>
-        <div className="rounded-xl bg-white border border-gray-200 p-2">Found: {kpi.found}</div>
-        <div className="rounded-xl bg-white border border-gray-200 p-2">Not found: {kpi.notFound}</div>
-        <div className="rounded-xl bg-white border border-gray-200 p-2">Follow-up: {kpi.followUp}</div>
-        <div className="rounded-xl bg-white border border-gray-200 p-2 col-span-2">Потенциал прибыли: AED {kpi.profitAed}</div>
-        <div className="rounded-xl bg-white border border-gray-200 p-2 col-span-2">Лучший поставщик дня: {kpi.bestSupplierId || '—'}</div>
-      </div>
+      {/* Route */}
+      {routeByZone.length > 0 ? (
+        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 space-y-3">
+          <div className="flex items-center gap-2">
+            <MapPin size={16} className="text-blue-500 shrink-0" />
+            <span className="text-sm font-black text-blue-700 uppercase tracking-wide">🗺 Маршрут на сегодня</span>
+          </div>
+          {routeByZone.map(([zone, zoneOrders]) => (
+            <div key={zone} className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-black text-blue-800">
+                  Сначала едь в {ZONE_LABELS[zone] || zone} ({zoneOrders.length} задач)
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/route/${zone}`)}
+                  className="text-[10px] font-bold text-blue-600 bg-white border border-blue-200 px-2 py-0.5 rounded-full"
+                >
+                  Детали
+                </button>
+              </div>
+              {zoneOrders.slice(0, 3).map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => navigate(`/order/${o.id}`)}
+                  className="w-full text-left flex items-start gap-2 bg-white border border-blue-100 rounded-lg p-2"
+                >
+                  <CheckSquare size={14} className="text-blue-300 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-gray-800 truncate">
+                      {o.parts[0]?.name || 'Деталь'} {o.brand} {o.model}
+                    </p>
+                    <p className="text-[10px] text-gray-500">{getTaskAction(o)}</p>
+                  </div>
+                </button>
+              ))}
+              {zoneOrders.length > 3 && (
+                <p className="text-[10px] text-blue-500 pl-6">+ ещё {zoneOrders.length - 3}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 text-center">
+          <MapPin size={24} className="text-gray-300 mx-auto mb-1" />
+          <p className="text-sm text-gray-500">Нет активных заказов с зоной</p>
+          <p className="text-xs text-gray-400">Назначьте локацию в карточке заказа</p>
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 gap-2">
-        {activeSessionId ? (
-          <button type="button" onClick={() => navigate(`/radar/${activeSessionId}`)} className="h-11 rounded-xl bg-slate-900 text-white text-sm font-black">🚀 Continue Radar</button>
-        ) : (
-          <button type="button" onClick={() => navigate('/radar')} className="h-11 rounded-xl bg-emerald-600 text-white text-sm font-black">➕ Start New Radar</button>
-        )}
-        <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-xl border border-gray-300 bg-white text-sm font-black">📦 Open Suppliers</button>
+      {/* Paused clients */}
+      {pausedOrders.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Clock size={16} className="text-amber-500 shrink-0" />
+            <span className="text-sm font-black text-amber-700 uppercase tracking-wide">
+              ⏳ Клиенты на паузе ({pausedOrders.length})
+            </span>
+          </div>
+          {pausedOrders.map((o) => (
+            <div key={o.id} className="flex items-center gap-2 bg-white border border-amber-100 rounded-xl p-2.5">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-gray-800 truncate">{o.brand} {o.model}</p>
+                <p className="text-[10px] text-amber-600">
+                  {o.salesStatus} · {o.offerSentAt ? formatTimer(now - o.offerSentAt) : '?'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => sendReminder(o.id)}
+                className="shrink-0 flex items-center gap-1 text-[10px] font-bold bg-emerald-500 text-white px-2.5 py-1 rounded-full"
+              >
+                <MessageCircle size={11} /> Напомнить
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* New leads */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Star size={16} className="text-violet-500" />
+          <div>
+            <p className="text-sm font-black">✉️ Новые заявки</p>
+            <p className="text-xs text-gray-500">{newLeads.length} лидов ожидают обработки</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate('/?tab=lead')}
+          className="text-xs font-bold bg-violet-500 text-white px-3 py-1.5 rounded-full"
+        >
+          Проверить
+        </button>
       </div>
     </div>
   );
