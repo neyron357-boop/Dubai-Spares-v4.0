@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Bell, ChevronDown, ChevronRight, ChevronUp, Clock, Mail, MapPin, Play, RefreshCw, Settings, User } from 'lucide-react';
+import { AlertCircle, Bell, ChevronDown, ChevronRight, ChevronUp, Clock, Mail, MapPin, Menu, Play, RefreshCw } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import { loadAppSettings, saveAppSettings } from '../appSettings';
 import { toast } from '../feedback';
+import { useDrawer } from '../DrawerContext';
 
 /* ─────────────────── helpers ─────────────────── */
 
@@ -326,6 +327,7 @@ const saveChecked = (ids: Set<string>) => {
 
 const TodayScreen: React.FC = () => {
   const navigate = useNavigate();
+  const { openMenu } = useDrawer();
   const { orders } = useStore();
   const [settings, setSettings] = useState(() => loadAppSettings());
   const [checkedTasks, setCheckedTasks] = useState<Set<string>>(loadChecked);
@@ -507,11 +509,11 @@ const TodayScreen: React.FC = () => {
               </button>
               <button
                 type="button"
-                aria-label="Настройки профиля"
-                onClick={() => navigate('/settings')}
+                aria-label="Открыть меню"
+                onClick={openMenu}
                 className="w-9 h-9 rounded-xl bg-[#1E1E1E] flex items-center justify-center text-gray-400"
               >
-                <User size={18} />
+                <Menu size={20} />
               </button>
             </div>
           </div>
