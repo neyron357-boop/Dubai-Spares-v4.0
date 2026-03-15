@@ -56,6 +56,8 @@ const resolveMapValue = (value?: string) => {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(normalized)}`;
 };
 
+const normalizeZone = (value?: string) => (value || '').trim().toLowerCase();
+
 const SUPPLIER_STATUS_OPTIONS: Array<{ value: NonNullable<OrderVendorContact['orderStatus']>; label: string }> = [
   { value: 'searching', label: 'Поиск' },
   { value: 'found', label: 'Нашел' },
@@ -129,9 +131,10 @@ const VendorSliderContent: React.FC = () => {
 
   const orderSlides = useMemo(() => {
     const effectiveBrand = selectedBrand || brandFilter;
+    const normalizedZoneFilter = normalizeZone(zoneFilter);
     return orders
       .filter((o) => !o.isArchived && !o.isSold)
-      .filter((o) => zoneFilter === 'all' || (o.zone || '') === zoneFilter)
+      .filter((o) => normalizedZoneFilter === 'all' || normalizeZone(o.zone) === normalizedZoneFilter)
       .filter((o) => {
         if (effectiveBrand === 'all') return true;
         if (effectiveBrand === LEAD_SLIDES_KEY) return o.isLead || o.customerStatus === 'LEAD' || o.status === 'lead';
@@ -264,7 +267,16 @@ const VendorSliderContent: React.FC = () => {
   }, [pendingNavigateId, orderSlides]);
 
   const brandOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
-  const zoneOptions = useMemo(() => Array.from(new Set(orders.map((o) => (o.zone || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [orders]);
+  const zoneOptions = useMemo(() => {
+    const deduped = new Map<string, string>();
+    orders.forEach((order) => {
+      const zone = (order.zone || '').trim();
+      if (!zone) return;
+      const key = normalizeZone(zone);
+      if (!deduped.has(key)) deduped.set(key, zone);
+    });
+    return Array.from(deduped.values()).sort((a, b) => a.localeCompare(b));
+  }, [orders]);
 
   const leadActiveNeedCount = useMemo(
     () => orders
