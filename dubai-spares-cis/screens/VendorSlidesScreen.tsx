@@ -6,13 +6,50 @@ import { useAppSettings } from '../appSettings';
 
 const SHARJAH_ZONES = ['Zone 2', 'Zone 3', 'Zone 4', 'Zone 6', 'Zone 7', 'Zone 8'];
 const LOCATION_ZONES = ['Ajman', 'Sajah', 'Dubai'];
+const normalizeZone = (zone?: string) => (zone || '').trim().toLowerCase();
 
 const VendorSlidesScreen: React.FC = () => {
   const navigate = useNavigate();
   const { orders } = useStore();
   const { settings } = useAppSettings();
 
-  const availableZones = useMemo(() => settings.orderZones || [], [settings.orderZones]);
+  const activeOrders = useMemo(
+    () => orders.filter((order) => !order.isArchived && !order.isSold),
+    [orders]
+  );
+
+  const zoneCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    activeOrders.forEach((order) => {
+      const zone = (order.zone || '').trim();
+      if (!zone) return;
+      map.set(zone, (map.get(zone) || 0) + 1);
+    });
+    return map;
+  }, [activeOrders]);
+
+  const availableZones = useMemo(() => {
+    const mergedZones = [...SHARJAH_ZONES, ...LOCATION_ZONES, ...(settings.orderZones || [])]
+      .map((zone) => zone.trim())
+      .filter(Boolean);
+
+    const deduped = new Map<string, string>();
+    mergedZones.forEach((zone) => {
+      const key = normalizeZone(zone);
+      if (!deduped.has(key)) deduped.set(key, zone);
+    });
+
+    return Array.from(deduped.values());
+  }, [settings.orderZones]);
+
+  const getZoneCount = (zone: string) => {
+    const key = normalizeZone(zone);
+    let count = 0;
+    zoneCounts.forEach((zoneCount, zoneName) => {
+      if (normalizeZone(zoneName) === key) count += zoneCount;
+    });
+    return count;
+  };
 
   return (
     <div className="fixed inset-0 overflow-y-auto bg-[#0B1220] text-white">
@@ -39,7 +76,7 @@ const VendorSlidesScreen: React.FC = () => {
           </div>
           <div className="grid grid-cols-3 gap-1.5">
             {SHARJAH_ZONES.map((zone) => {
-              const count = orders.filter((o) => (o.zone || '') === zone).length;
+              const count = getZoneCount(zone);
               return (
                 <button
                   key={zone}
@@ -62,7 +99,7 @@ const VendorSlidesScreen: React.FC = () => {
           </div>
           <div className="grid grid-cols-3 gap-1.5">
             {LOCATION_ZONES.map((zone) => {
-              const count = orders.filter((o) => (o.zone || '') === zone).length;
+              const count = getZoneCount(zone);
               return (
                 <button
                   key={zone}
@@ -76,9 +113,10 @@ const VendorSlidesScreen: React.FC = () => {
               );
             })}
             {availableZones
-              .filter((z) => !SHARJAH_ZONES.includes(z) && !LOCATION_ZONES.includes(z))
+              .filter((z) => !SHARJAH_ZONES.some((base) => normalizeZone(base) === normalizeZone(z))
+                && !LOCATION_ZONES.some((base) => normalizeZone(base) === normalizeZone(z)))
               .map((zone) => {
-                const count = orders.filter((o) => (o.zone || '') === zone).length;
+                const count = getZoneCount(zone);
                 return (
                   <button
                     key={zone}
