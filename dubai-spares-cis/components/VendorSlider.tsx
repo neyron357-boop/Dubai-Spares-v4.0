@@ -84,7 +84,7 @@ const VendorSliderContent: React.FC = () => {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [brandFilter, setBrandFilter] = useState<string>(initialBrand || 'all');
   const [zoneFilter, setZoneFilter] = useState<string>(initialZone || 'all');
-  const [selectedBrand, setSelectedBrand] = useState<string | null>(initialBrand || null);
+  const [selectedBrand, setSelectedBrand] = useState<string | null>(initialBrand || (initialZone ? 'all' : null));
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | NonNullable<Part['status']>>('all');
   const [sortBy, setSortBy] = useState<'priority' | 'year_asc' | 'year_desc'>('priority');
@@ -134,7 +134,7 @@ const VendorSliderContent: React.FC = () => {
     const normalizedZoneFilter = normalizeZone(zoneFilter);
     return orders
       .filter((o) => !o.isArchived && !o.isSold)
-      .filter((o) => normalizedZoneFilter === 'all' || normalizeZone(o.zone) === normalizedZoneFilter)
+      .filter((o) => normalizedZoneFilter === 'all' || normalizeZone(o.zone) === normalizedZoneFilter || (o.zones || []).some((z) => normalizeZone(z) === normalizedZoneFilter))
       .filter((o) => {
         if (effectiveBrand === 'all') return true;
         if (effectiveBrand === LEAD_SLIDES_KEY) return o.isLead || o.customerStatus === 'LEAD' || o.status === 'lead';
@@ -271,9 +271,16 @@ const VendorSliderContent: React.FC = () => {
     const deduped = new Map<string, string>();
     orders.forEach((order) => {
       const zone = (order.zone || '').trim();
-      if (!zone) return;
-      const key = normalizeZone(zone);
-      if (!deduped.has(key)) deduped.set(key, zone);
+      if (zone) {
+        const key = normalizeZone(zone);
+        if (!deduped.has(key)) deduped.set(key, zone);
+      }
+      (order.zones || []).forEach((z) => {
+        const trimmed = z.trim();
+        if (!trimmed) return;
+        const key = normalizeZone(trimmed);
+        if (!deduped.has(key)) deduped.set(key, trimmed);
+      });
     });
     return Array.from(deduped.values()).sort((a, b) => a.localeCompare(b));
   }, [orders]);
@@ -749,7 +756,7 @@ const VendorSliderContent: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/vendor')}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white/80"
               aria-label="Назад в главное меню"
             >
@@ -1090,8 +1097,8 @@ const VendorSliderContent: React.FC = () => {
 
         <div className="absolute right-3 top-3 z-10 flex gap-2">
           <button type="button" onClick={() => setFiltersOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Filter size={18} /></button>
-          <button type="button" onClick={() => setSelectedBrand(null)} className="rounded-full bg-black/45 px-3 text-[11px] font-bold">Марки</button>
-          <button type="button" onClick={() => setSelectedBrand(null)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><X size={20} /></button>
+          <button type="button" onClick={() => navigate('/vendor')} className="rounded-full bg-black/45 px-3 text-[11px] font-bold">Поставщики</button>
+          <button type="button" onClick={() => navigate('/vendor')} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><X size={20} /></button>
         </div>
       </div>
 
@@ -1181,11 +1188,11 @@ const VendorSliderContent: React.FC = () => {
                   onChange={(e) => {
                     const value = e.target.value;
                     if (value === '__choose') {
-                      setSelectedBrand(null);
+                      navigate('/vendor');
                       return;
                     }
                     setBrandFilter(value);
-                    setSelectedBrand(value === 'all' ? null : value);
+                    setSelectedBrand(value);
                   }}
                   className="w-full rounded-xl bg-slate-800 px-3 py-2"
                 >
