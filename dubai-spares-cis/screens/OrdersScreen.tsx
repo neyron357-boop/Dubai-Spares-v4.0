@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, Archive, BarChart3, Clock3, Cloud, Filter, MessageCircle, PenSquare, Pin, Search, Star, X } from 'lucide-react';
+import { Activity, Archive, BarChart3, CheckSquare, Clock3, Cloud, Filter, MessageCircle, PenSquare, Pin, Search, Square, Star, Trash2, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
@@ -331,6 +331,8 @@ const OrdersScreen: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
@@ -424,6 +426,14 @@ const OrdersScreen: React.FC = () => {
     toast('Заказ восстановлен', 'success');
   };
 
+  const toggleOrderSelection = (orderId: string) => {
+    setSelectedOrderIds((current) => current.includes(orderId)
+      ? current.filter((id) => id !== orderId)
+      : [...current, orderId]);
+  };
+
+  const clearSelection = () => setSelectedOrderIds([]);
+
   const getOrderContactAction = (order: Order) => {
     const source = String(order.source || '').toLowerCase();
     const social = String(order.socialNickname || '').trim();
@@ -459,14 +469,14 @@ const OrdersScreen: React.FC = () => {
 
   const tabCounts = useMemo(() => ({
     active: orders.filter((o) => !o.isArchived && !o.isSold).length,
-    vip: orders.filter((o) => o.isVip && !o.isSold).length,
-    lead: orders.filter((o) => o.isLead && !o.isSold).length,
-    found: orders.filter((o) => !o.isSold && isOrderFound(o)).length,
-    urgent: orders.filter((o) => !o.isSold && o.priority === Priority.HIGH).length,
-    medium: orders.filter((o) => !o.isSold && o.priority === Priority.MEDIUM).length,
-    low: orders.filter((o) => !o.isSold && o.priority === Priority.LOW).length,
-    sold: orders.filter((o) => o.isSold).length,
-    archive: orders.filter((o) => o.isArchived && !o.isSold).length
+    vip: orders.filter((o) => o.isVip && !o.isArchived && !o.isSold).length,
+    lead: orders.filter((o) => o.isLead && !o.isArchived && !o.isSold).length,
+    found: orders.filter((o) => !o.isArchived && !o.isSold && isOrderFound(o)).length,
+    urgent: orders.filter((o) => !o.isArchived && !o.isSold && o.priority === Priority.HIGH).length,
+    medium: orders.filter((o) => !o.isArchived && !o.isSold && o.priority === Priority.MEDIUM).length,
+    low: orders.filter((o) => !o.isArchived && !o.isSold && o.priority === Priority.LOW).length,
+    sold: orders.filter((o) => !o.isArchived && o.isSold).length,
+    archive: orders.filter((o) => o.isArchived).length
   }), [orders]);
 
   const openOrderPreview = (order: Order) => {
@@ -481,14 +491,14 @@ const OrdersScreen: React.FC = () => {
 
   const filteredOrders = useMemo(() => {
     let list = orders.filter((order) => {
-      if (activeTab === 'sold') return order.isSold;
-      if (activeTab === 'archive') return order.isArchived && !order.isSold;
-      if (activeTab === 'vip') return order.isVip && !order.isSold;
-      if (activeTab === 'lead') return order.isLead && !order.isSold;
-      if (activeTab === 'found') return !order.isSold && isOrderFound(order);
-      if (activeTab === 'urgent') return !order.isSold && order.priority === Priority.HIGH;
-      if (activeTab === 'medium') return !order.isSold && order.priority === Priority.MEDIUM;
-      if (activeTab === 'low') return !order.isSold && order.priority === Priority.LOW;
+      if (activeTab === 'archive') return order.isArchived;
+      if (activeTab === 'vip') return order.isVip && !order.isArchived && !order.isSold;
+      if (activeTab === 'lead') return order.isLead && !order.isArchived && !order.isSold;
+      if (activeTab === 'found') return !order.isArchived && !order.isSold && isOrderFound(order);
+      if (activeTab === 'urgent') return !order.isArchived && !order.isSold && order.priority === Priority.HIGH;
+      if (activeTab === 'medium') return !order.isArchived && !order.isSold && order.priority === Priority.MEDIUM;
+      if (activeTab === 'low') return !order.isArchived && !order.isSold && order.priority === Priority.LOW;
+      if (activeTab === 'sold') return !order.isArchived && order.isSold;
       return !order.isArchived && !order.isSold;
     });
 
@@ -561,6 +571,35 @@ const OrdersScreen: React.FC = () => {
   };
 
   const activeFiltersCount = brandFilters.length + statusFilters.length + (priorityFilter !== 'all' ? 1 : 0) + (noResponseHours > 0 ? 1 : 0) + (issueFilter !== 'all' ? 1 : 0) + (yearFrom ? 1 : 0) + (yearTo ? 1 : 0);
+
+  useEffect(() => {
+    setSelectedOrderIds((current) => current.filter((id) => orders.some((order) => order.id === id)));
+  }, [orders]);
+  const allFilteredSelected = filteredOrders.length > 0 && filteredOrders.every((order) => selectedOrderIds.includes(order.id));
+  const isSelectionMode = selectedOrderIds.length > 0;
+
+  const handleBulkArchive = async () => {
+    if (selectedOrderIds.length === 0) return;
+    const selectedOrders = orders.filter((order) => selectedOrderIds.includes(order.id));
+    if (selectedOrders.length === 0) return;
+    setIsBulkProcessing(true);
+    await Promise.all(selectedOrders.map((order) => updateOrder({ ...order, isArchived: true })));
+    setIsBulkProcessing(false);
+    clearSelection();
+    toast(`В архив перемещено: ${selectedOrders.length}`, 'success');
+    setOpenSwipeId(null);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedOrderIds.length === 0) return;
+    setIsBulkProcessing(true);
+    const results = await Promise.all(selectedOrderIds.map((orderId) => deleteOrder(orderId)));
+    setIsBulkProcessing(false);
+    clearSelection();
+    const deletedCount = results.filter(Boolean).length;
+    toast(`Удалено заказов: ${deletedCount}`, deletedCount > 0 ? 'success' : 'error');
+    setOpenSwipeId(null);
+  };
 
   return (
     <div className="space-y-4 px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))] overflow-x-hidden">
@@ -705,6 +744,41 @@ const OrdersScreen: React.FC = () => {
             </button>
           ))}
         </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedOrderIds(allFilteredSelected ? [] : filteredOrders.map((order) => order.id))}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700"
+            >
+              {allFilteredSelected ? <CheckSquare size={14} /> : <Square size={14} />}
+              {allFilteredSelected ? 'Снять выделение' : 'Выбрать все'}
+            </button>
+            <span className="text-xs font-semibold text-slate-500">Выбрано: {selectedOrderIds.length}</span>
+          </div>
+
+          {isSelectionMode && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={isBulkProcessing}
+                onClick={() => void handleBulkArchive()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-800 px-3 py-2 text-xs font-black text-white disabled:opacity-60"
+              >
+                <Archive size={14} /> В архив
+              </button>
+              <button
+                type="button"
+                disabled={isBulkProcessing}
+                onClick={() => void handleBulkDelete()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2 text-xs font-black text-white disabled:opacity-60"
+              >
+                <Trash2 size={14} /> Удалить
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
       <div className="space-y-4">
@@ -748,11 +822,22 @@ const OrdersScreen: React.FC = () => {
                 }}
                 onLongPressDelete={() => setDeleteId(order.id)}
                 onCardTap={() => openOrderPreview(order)}
-                disableCardTap={!!deleteId || isDeleting}
+                disableCardTap={!!deleteId || isDeleting || isBulkProcessing}
               >
                 <div className={`rounded-2xl p-1 -m-1 ${isVipOrder ? 'bg-amber-50/70 border border-amber-200' : isUnreadLeadOrder ? 'bg-amber-50/60 border border-amber-200/70' : ''}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-start gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleOrderSelection(order.id);
+                      }}
+                      className={`mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${selectedOrderIds.includes(order.id) ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-500'}`}
+                      aria-label={selectedOrderIds.includes(order.id) ? 'Снять выбор' : 'Выбрать заказ'}
+                    >
+                      {selectedOrderIds.includes(order.id) ? <CheckSquare size={13} /> : <Square size={13} />}
+                    </button>
                     {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) && (
                       <img src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl} alt={`${order.brand} ${order.model}`} className="h-14 w-14 shrink-0 rounded-2xl object-cover border border-slate-200" />
                     )}
