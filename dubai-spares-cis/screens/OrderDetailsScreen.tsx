@@ -254,6 +254,9 @@ const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const backTo = typeof (location.state as { backTo?: unknown } | null)?.backTo === 'string'
+    ? String((location.state as { backTo?: unknown }).backTo)
+    : '/orders';
   const { orders, isLoading, updateOrder, removePart, suppliers, fetchOrderDetails } = useStore();
   const { settings } = useAppSettings();
   const order = orders.find(o => o.id === id);
@@ -634,7 +637,7 @@ const OrderDetailsScreen: React.FC = () => {
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => navigate('/')}
+            onClick={handleBackNavigation}
             className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm"
           >
             ← Назад к заказам
@@ -1020,6 +1023,28 @@ const OrderDetailsScreen: React.FC = () => {
     syncPerf.recordTypingSample(Math.round((performance.now() - keyStart) * 100) / 100);
   };
 
+
+
+  const handleBackNavigation = useCallback(() => {
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate(backTo);
+  }, [backTo, navigate]);
+
+  const updateOrderZones = useCallback((zones: string[]) => {
+    if (!isEditMode) return;
+    const currentOrder = orderRef.current;
+    if (!currentOrder) return;
+
+    const nextZones = Array.from(new Set(zones.map((zone) => zone.trim()).filter(Boolean)));
+    updateOrder({
+      ...currentOrder,
+      zones: nextZones.length > 0 ? nextZones : undefined,
+      zone: nextZones[0] || undefined
+    });
+  }, [isEditMode, updateOrder]);
 
   const updatePriority = (nextPriority: Priority) => {
     if (!isEditMode) return;
@@ -1440,7 +1465,7 @@ const OrderDetailsScreen: React.FC = () => {
         soldProfitUsd: finalProfit 
       });
       setShowSellConfirm(false);
-      if (ok) navigate('/');
+      if (ok) navigate('/orders');
     }
   };
 
@@ -2013,7 +2038,7 @@ const OrderDetailsScreen: React.FC = () => {
     <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] text-[#1E1F23]">
       <div className="p-4 sticky top-0 z-20 backdrop-blur bg-white/95 border-b border-gray-100 space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
         <div className="flex items-center justify-between gap-2">
-          <button type="button" onClick={() => navigate('/')} className="p-3 -ml-2 rounded-full transition-colors text-gray-600 active:bg-gray-100">
+          <button type="button" onClick={handleBackNavigation} className="p-3 -ml-2 rounded-full transition-colors text-gray-600 active:bg-gray-100">
             <ArrowLeft size={22} />
           </button>
           <div className="text-left flex-1 mx-2 min-w-0">
@@ -2098,17 +2123,18 @@ const OrderDetailsScreen: React.FC = () => {
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Зона заказа</p>
           <div className="flex flex-wrap gap-1 min-h-[28px]">
-            {(order.zones && order.zones.length > 0 ? order.zones : order.zone ? [order.zone] : []).map((z) => (
-              <span key={z} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700">
+            {(order.zones && order.zones.length > 0 ? order.zones : order.zone ? [order.zone] : []).map((z, index) => (
+              <span key={`${z}-${index}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700">
                 {z}
                 <button
                   type="button"
                   aria-label={`Удалить зону ${z}`}
                   onClick={() => {
                     const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
-                    const next = current.filter((zz) => zz !== z);
-                    updateOrderField('zones', next.length > 0 ? next : undefined);
-                    updateOrderField('zone', next[0] || undefined);
+                    const targetIndex = current.findIndex((_, currentIndex) => currentIndex === index);
+                    if (targetIndex < 0) return;
+                    const next = current.filter((_, currentIndex) => currentIndex !== targetIndex);
+                    updateOrderZones(next);
                   }}
                   className="text-blue-400 hover:text-red-500 leading-none"
                 >×</button>
@@ -2123,8 +2149,7 @@ const OrderDetailsScreen: React.FC = () => {
               const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
               if (current.includes(selected)) return;
               const next = [...current, selected];
-              updateOrderField('zones', next);
-              updateOrderField('zone', next[0]);
+              updateOrderZones(next);
             }}
             className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
           >

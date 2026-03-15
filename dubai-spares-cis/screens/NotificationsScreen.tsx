@@ -15,6 +15,7 @@ import {
   clearAllNotifications
 } from '../notificationCenter';
 import { useStore } from '../store';
+import ConfirmModal from '../components/ConfirmModal';
 
 const FILTERS: Array<{ label: string; id: 'all' | 'orders' | 'radar' | 'followup' | 'actions' | 'system' | 'sync' }> = [
   { label: 'Все', id: 'all' },
@@ -65,6 +66,7 @@ const NotificationsScreen: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullStart, setPullStart] = useState<number | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const { orders } = useStore();
   const navigate = useNavigate();
 
@@ -73,12 +75,6 @@ const NotificationsScreen: React.FC = () => {
     window.addEventListener('notifications:changed', update);
     return () => window.removeEventListener('notifications:changed', update);
   }, []);
-
-  useEffect(() => {
-    const hasUnread = notifications.some((item) => !item.readAt);
-    if (!hasUnread) return;
-    markAllNotificationsRead();
-  }, [notifications]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim().toLowerCase()), 250);
@@ -236,7 +232,7 @@ const NotificationsScreen: React.FC = () => {
             <button type="button" onClick={handleMarkAllRead} className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-gray-600 disabled:opacity-50" disabled={unreadCount <= 0}>
               <CheckCheck size={14} /> Прочитано
             </button>
-            <button type="button" onClick={() => clearAllNotifications(tab)} className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-black uppercase text-rose-700">
+            <button type="button" onClick={() => setClearConfirmOpen(true)} className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-black uppercase text-rose-700">
               Стереть все
             </button>
           </div>
@@ -381,6 +377,17 @@ const NotificationsScreen: React.FC = () => {
           )}
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={clearConfirmOpen}
+        message={tab === 'archive' ? 'Удалить все уведомления из архива?' : 'Удалить все активные уведомления?'}
+        onCancel={() => setClearConfirmOpen(false)}
+        onConfirm={() => {
+          clearAllNotifications(tab);
+          setClearConfirmOpen(false);
+        }}
+        confirmLabel="Да, стереть"
+      />
     </div>
   );
 };
