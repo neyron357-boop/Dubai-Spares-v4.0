@@ -14,6 +14,16 @@ const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');
 
 const root = ReactDOM.createRoot(rootElement);
+const hideSplashScreen = () => {
+  const splashScreen = document.getElementById('app-splash-screen');
+  if (!splashScreen) return;
+
+  splashScreen.classList.add('is-hidden');
+  window.setTimeout(() => {
+    splashScreen.remove();
+  }, 200);
+};
+
 const normalizedHash = window.location.hash.toLowerCase();
 const isHashPublicOrderFormRoute = normalizedHash === '#/request' || normalizedHash === '#/order-form';
 const normalizedPath = window.location.pathname.toLowerCase().replace(/\/+$/, '');
@@ -86,6 +96,10 @@ void (async () => {
       {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : hashQuoteToken ? <PublicQuoteScreen orderId={hashQuoteToken} /> : publicQuotePathParam ? <PublicQuoteScreen orderId={publicQuotePathParam} /> : <App />}
     </React.StrictMode>
   );
+
+  window.requestAnimationFrame(() => {
+    hideSplashScreen();
+  });
 })();
 
 let audioContext: AudioContext | null = null;
