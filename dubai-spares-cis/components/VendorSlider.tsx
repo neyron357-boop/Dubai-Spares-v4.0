@@ -134,7 +134,7 @@ const VendorSliderContent: React.FC = () => {
     const normalizedZoneFilter = normalizeZone(zoneFilter);
     return orders
       .filter((o) => !o.isArchived && !o.isSold)
-      .filter((o) => normalizedZoneFilter === 'all' || normalizeZone(o.zone) === normalizedZoneFilter)
+      .filter((o) => normalizedZoneFilter === 'all' || normalizeZone(o.zone) === normalizedZoneFilter || (o.zones || []).some((z) => normalizeZone(z) === normalizedZoneFilter))
       .filter((o) => {
         if (effectiveBrand === 'all') return true;
         if (effectiveBrand === LEAD_SLIDES_KEY) return o.isLead || o.customerStatus === 'LEAD' || o.status === 'lead';
@@ -271,9 +271,16 @@ const VendorSliderContent: React.FC = () => {
     const deduped = new Map<string, string>();
     orders.forEach((order) => {
       const zone = (order.zone || '').trim();
-      if (!zone) return;
-      const key = normalizeZone(zone);
-      if (!deduped.has(key)) deduped.set(key, zone);
+      if (zone) {
+        const key = normalizeZone(zone);
+        if (!deduped.has(key)) deduped.set(key, zone);
+      }
+      (order.zones || []).forEach((z) => {
+        const trimmed = z.trim();
+        if (!trimmed) return;
+        const key = normalizeZone(trimmed);
+        if (!deduped.has(key)) deduped.set(key, trimmed);
+      });
     });
     return Array.from(deduped.values()).sort((a, b) => a.localeCompare(b));
   }, [orders]);

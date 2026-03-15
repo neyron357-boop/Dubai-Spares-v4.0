@@ -161,6 +161,7 @@ export interface Order {
   vendorChecklist?: VendorChecklistItem[];
   vehicleDetails?: VehicleDetails;
   zone?: string;
+  zones?: string[];
 }
 
 export interface VehicleDetails {

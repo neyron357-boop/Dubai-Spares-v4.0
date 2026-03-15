@@ -2303,19 +2303,52 @@ const OrderDetailsScreen: React.FC = () => {
               className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
             />
           </div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Зона</label>
-            <select
-              value={order.zone || ''}
-              disabled={!isEditMode}
-              onChange={(e) => updateOrderField('zone', e.target.value || undefined)}
-              className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-            >
-              <option value="">Не выбрана</option>
-              {(settings.orderZones || []).map((z) => (
-                <option key={z} value={z}>{z}</option>
+          <div className="col-span-2">
+            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Зоны</label>
+            {/* Multi-zone display */}
+            <div className="flex flex-wrap gap-1 mb-1 min-h-[28px]">
+              {(order.zones && order.zones.length > 0
+                ? order.zones
+                : order.zone ? [order.zone] : []
+              ).map((z) => (
+                <span key={z} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700">
+                  {z}
+                  {isEditMode && (
+                    <button
+                      type="button"
+                      aria-label={`Удалить зону ${z}`}
+                      onClick={() => {
+                        const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
+                        const next = current.filter((zz) => zz !== z);
+                        updateOrderField('zones', next.length > 0 ? next : undefined);
+                        updateOrderField('zone', next[0] || undefined);
+                      }}
+                      className="text-blue-400 hover:text-red-500 leading-none"
+                    >×</button>
+                  )}
+                </span>
               ))}
-            </select>
+            </div>
+            {isEditMode && (
+              <select
+                value=""
+                onChange={(e) => {
+                  const selected = e.target.value;
+                  if (!selected) return;
+                  const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
+                  if (current.includes(selected)) return;
+                  const next = [...current, selected];
+                  updateOrderField('zones', next);
+                  updateOrderField('zone', next[0]);
+                }}
+                className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+              >
+                <option value="">+ Добавить зону</option>
+                {(settings.orderZones || []).map((z) => (
+                  <option key={z} value={z}>{z}</option>
+                ))}
+              </select>
+            )}
           </div>
           </div>}
         </div>

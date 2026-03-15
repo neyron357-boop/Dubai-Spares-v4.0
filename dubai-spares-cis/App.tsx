@@ -1,6 +1,5 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { HashRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
-import TodayScreen from './screens/TodayScreen';
 import MorningBossScreen from './screens/MorningBossScreen';
 import OrdersScreen from './screens/OrdersScreen';
 import NewOrderScreen from './screens/NewOrderScreen';
@@ -15,7 +14,7 @@ import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
 import VendorSlidesScreen from './screens/VendorSlidesScreen';
-import { BarChart3, Bell, CarFront, Home, Layers, Menu, PlusCircle, Settings } from 'lucide-react';
+import { Bell, CarFront, Layers, Menu, PlusCircle, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
@@ -29,24 +28,21 @@ const HashPublicQuoteRoute: React.FC = () => {
   return <PublicQuoteScreen orderId={orderId} />;
 };
 
-type BottomTab = 'today' | 'orders' | 'analytics' | null;
+type BottomTab = 'orders' | 'vendors' | 'notifications' | 'settings' | null;
 
 const resolveBottomTab = (pathname: string): BottomTab => {
-  if (pathname === '/') return 'today';
   if (pathname === '/orders' || pathname.startsWith('/order/')) return 'orders';
-  if (pathname.startsWith('/variants')) return 'analytics';
+  if (pathname.startsWith('/vendor')) return 'vendors';
+  if (pathname.startsWith('/notifications')) return 'notifications';
+  if (pathname.startsWith('/settings')) return 'settings';
   return null;
 };
 
-const DrawerMenu: React.FC<{ isOpen: boolean; onClose: () => void; unreadCount: number }> = ({ isOpen, onClose, unreadCount }) => {
+const DrawerMenu: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
-  const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   const menuItems: Array<{ icon: React.ReactNode; label: string; path: string; badge?: string }> = [
-    { icon: <Layers size={20} />, label: 'Vendor Slides', path: '/vendor' },
     { icon: <PlusCircle size={20} />, label: 'Новый заказ', path: '/new' },
-    { icon: <Bell size={20} />, label: 'Уведомления', path: '/notifications', badge: unreadCount > 0 ? badgeLabel : undefined },
-    { icon: <Settings size={20} />, label: 'Настройки', path: '/settings' },
   ];
 
   const handleNavigate = (path: string) => {
@@ -100,14 +96,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const scrollPositions = useRef<Record<string, number>>({});
   const prevPathname = useRef(location.pathname);
 
-  // Show bottom nav only on the 3 tab screens (and order details, which stays in Orders context)
+  // Show bottom nav only on the 4 tab screens (and order details, which stays in Orders context)
   const hideNav = resolveBottomTab(location.pathname) === null;
 
   const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
   const [tabPaths, setTabPaths] = useState<Record<Exclude<BottomTab, null>, string>>({
-    today: '/',
     orders: '/orders',
-    analytics: '/variants',
+    vendors: '/vendor',
+    notifications: '/notifications',
+    settings: '/settings',
   });
 
   // Save scroll position when navigating away, restore when coming back
@@ -152,9 +149,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const handleTabNavigate = (tab: Exclude<BottomTab, null>) => {
     const rootByTab: Record<Exclude<BottomTab, null>, string> = {
-      today: '/',
       orders: '/orders',
-      analytics: '/variants',
+      vendors: '/vendor',
+      notifications: '/notifications',
+      settings: '/settings',
     };
 
     const activeTab = resolveBottomTab(location.pathname);
@@ -170,7 +168,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
     <DrawerContext.Provider value={{ openMenu: () => setMenuOpen(true) }}>
       <div className="fixed inset-0 h-[100dvh] w-full bg-slate-100 flex justify-center overflow-hidden"><div className="h-full w-full max-w-md bg-gray-50 flex flex-col overflow-hidden shadow-sm relative">
-        <DrawerMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} unreadCount={unreadCount} />
+        <DrawerMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
         {/* Top bar: cloud sync status on left, burger menu on right */}
         <div className="fixed top-0 left-0 right-0 z-[89] flex items-center justify-between px-3 pointer-events-none" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
           <div title="Cloud sync status" className="pointer-events-auto px-2.5 py-1 rounded-full bg-slate-700/85 text-white text-[10px] font-black uppercase tracking-wide shadow">
@@ -190,9 +188,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </main>
         {!hideNav && (
           <nav className="h-16 bg-white border-t border-gray-200 flex items-center justify-around px-2 pb-safe shrink-0 z-50">
-            <NavLink to={tabPaths.today} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('today'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'today' ? 'text-blue-600' : 'text-gray-400'}`}><Home size={22} /><span className="text-[10px] font-medium">Главная</span></NavLink>
             <NavLink to={tabPaths.orders} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('orders'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'orders' ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
-            <NavLink to={tabPaths.analytics} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('analytics'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'analytics' ? 'text-blue-600' : 'text-gray-400'}`}><BarChart3 size={22} /><span className="text-[10px] font-medium">Варианты</span></NavLink>
+            <NavLink to={tabPaths.vendors} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('vendors'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'vendors' ? 'text-blue-600' : 'text-gray-400'}`}><Layers size={22} /><span className="text-[10px] font-medium">Поставщики</span></NavLink>
+            <NavLink to={tabPaths.notifications} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('notifications'); }} className={() => `flex flex-col items-center gap-1 relative ${resolveBottomTab(location.pathname) === 'notifications' ? 'text-blue-600' : 'text-gray-400'}`}>
+              <span className="relative"><Bell size={22} />{unreadCount > 0 && <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full bg-rose-500 text-white text-[8px] font-black flex items-center justify-center">{unreadCount > 99 ? '99+' : unreadCount}</span>}</span>
+              <span className="text-[10px] font-medium">Оповещения</span>
+            </NavLink>
+            <NavLink to={tabPaths.settings} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('settings'); }} className={() => `flex flex-col items-center gap-1 ${resolveBottomTab(location.pathname) === 'settings' ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настройки</span></NavLink>
           </nav>
         )}
         </div>
@@ -220,7 +222,7 @@ const CachedRoutes: React.FC = () => {
         return (
           <div key={pathname} className={isActive ? 'h-full' : 'hidden'}>
             <Routes location={{ ...location, pathname }}>
-              <Route path="/" element={<TodayScreen />} />
+              <Route path="/" element={<Navigate to="/orders" replace />} />
               <Route path="/morning" element={<MorningBossScreen />} />
               <Route path="/orders" element={<OrdersScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />
