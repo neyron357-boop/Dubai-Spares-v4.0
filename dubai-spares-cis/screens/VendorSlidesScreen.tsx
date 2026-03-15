@@ -214,7 +214,7 @@ const VendorSlidesScreen: React.FC = () => {
         <div className="mb-4">
           <button
             type="button"
-            onClick={() => navigate('/vendor/slider')}
+            onClick={() => navigate('/vendor/slider?brand=all')}
             className="w-full rounded-xl border border-blue-500/50 bg-blue-900/25 px-3 py-2 text-left transition-colors hover:bg-blue-900/45"
           >
             <span className="flex items-center gap-2 text-xs font-bold"><Layers3 size={14} /> Открыть все слайды</span>
