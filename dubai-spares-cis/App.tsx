@@ -30,7 +30,7 @@ const HashPublicQuoteRoute: React.FC = () => {
 type BottomTab = 'orders' | 'vendors' | 'notifications' | 'settings' | null;
 
 const resolveBottomTab = (pathname: string): BottomTab => {
-  if (pathname === '/orders' || pathname.startsWith('/order/')) return 'orders';
+  if (pathname === '/orders' || pathname.startsWith('/order/') || pathname === '/new') return 'orders';
   if (pathname.startsWith('/database') || pathname.startsWith('/variants')) return 'vendors';
   if (pathname.startsWith('/notifications')) return 'notifications';
   if (pathname.startsWith('/settings')) return 'settings';

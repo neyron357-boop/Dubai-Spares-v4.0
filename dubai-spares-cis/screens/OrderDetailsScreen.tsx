@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, OrderPricingEvent, Part, Priority, OrderNote, Shop, VoiceNoteAudio } from '../types';
 import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationDiagnostics, getShopRecommendationLevel, isBrandMatch, isShopCompatibleWithOrder } from '../shopMatching';
@@ -253,6 +253,7 @@ const createGroupItemDraft = (suffix = ''): GroupItemDraft => ({
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { orders, isLoading, updateOrder, removePart, suppliers, fetchOrderDetails } = useStore();
   const { settings } = useAppSettings();
   const order = orders.find(o => o.id === id);
@@ -328,8 +329,8 @@ const OrderDetailsScreen: React.FC = () => {
   const [isClientBlockExpanded, setIsClientBlockExpanded] = useState(false);
   const [isVehicleBlockExpanded, setIsVehicleBlockExpanded] = useState(false);
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
-  const [isPricingCargoExpanded, setIsPricingCargoExpanded] = useState(false);
-  const [isSupplierIntelligenceExpanded, setIsSupplierIntelligenceExpanded] = useState(false);
+  const [isPricingCargoExpanded, setIsPricingCargoExpanded] = useState(true);
+  const [isSupplierIntelligenceExpanded, setIsSupplierIntelligenceExpanded] = useState(true);
   const [expandedCargoPartIds, setExpandedCargoPartIds] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState('');
@@ -1998,6 +1999,16 @@ const OrderDetailsScreen: React.FC = () => {
     [order.parts]
   );
 
+  useEffect(() => {
+    const restoreScrollTop = (location.state as { restoreScrollTop?: unknown } | null)?.restoreScrollTop;
+    if (typeof restoreScrollTop !== 'number' || restoreScrollTop < 0) return;
+    const mainScroller = document.querySelector('main');
+    if (!(mainScroller instanceof HTMLElement)) return;
+    window.requestAnimationFrame(() => {
+      mainScroller.scrollTop = restoreScrollTop;
+    });
+  }, [location.state]);
+
   return (
     <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] text-[#1E1F23]">
       <div className="p-4 sticky top-0 z-20 backdrop-blur bg-white/95 border-b border-gray-100 space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
@@ -2083,7 +2094,47 @@ const OrderDetailsScreen: React.FC = () => {
       )}
 
       <div className="p-4 space-y-4">
-        
+
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Зона заказа</p>
+          <div className="flex flex-wrap gap-1 min-h-[28px]">
+            {(order.zones && order.zones.length > 0 ? order.zones : order.zone ? [order.zone] : []).map((z) => (
+              <span key={z} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700">
+                {z}
+                <button
+                  type="button"
+                  aria-label={`Удалить зону ${z}`}
+                  onClick={() => {
+                    const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
+                    const next = current.filter((zz) => zz !== z);
+                    updateOrderField('zones', next.length > 0 ? next : undefined);
+                    updateOrderField('zone', next[0] || undefined);
+                  }}
+                  className="text-blue-400 hover:text-red-500 leading-none"
+                >×</button>
+              </span>
+            ))}
+          </div>
+          <select
+            value=""
+            onChange={(e) => {
+              const selected = e.target.value;
+              if (!selected) return;
+              const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
+              if (current.includes(selected)) return;
+              const next = [...current, selected];
+              updateOrderField('zones', next);
+              updateOrderField('zone', next[0]);
+            }}
+            className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
+          >
+            <option value="">+ Добавить зону</option>
+            {(settings.orderZones || []).map((z) => (
+              <option key={z} value={z}>{z}</option>
+            ))}
+          </select>
+        </div>
+
         {/* Client & Source Block */}
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsClientBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
@@ -2261,7 +2312,6 @@ const OrderDetailsScreen: React.FC = () => {
           <button type="button" onClick={() => setIsVehicleBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
               <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Данные автомобиля</p>
-              <p className="text-sm font-bold text-gray-800">{String(draftFields.model ?? order.model ?? '—')} · {String(draftFields.year ?? order.year ?? '—')} · {String(draftFields.bodyType ?? order.bodyType ?? '—')}</p>
             </div>
             {isVehicleBlockExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
           </button>
@@ -2303,54 +2353,8 @@ const OrderDetailsScreen: React.FC = () => {
               className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
             />
           </div>
-          <div className="col-span-2">
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Зоны</label>
-            {/* Multi-zone display */}
-            <div className="flex flex-wrap gap-1 mb-1 min-h-[28px]">
-              {(order.zones && order.zones.length > 0
-                ? order.zones
-                : order.zone ? [order.zone] : []
-              ).map((z) => (
-                <span key={z} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700">
-                  {z}
-                  {isEditMode && (
-                    <button
-                      type="button"
-                      aria-label={`Удалить зону ${z}`}
-                      onClick={() => {
-                        const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
-                        const next = current.filter((zz) => zz !== z);
-                        updateOrderField('zones', next.length > 0 ? next : undefined);
-                        updateOrderField('zone', next[0] || undefined);
-                      }}
-                      className="text-blue-400 hover:text-red-500 leading-none"
-                    >×</button>
-                  )}
-                </span>
-              ))}
-            </div>
-            {isEditMode && (
-              <select
-                value=""
-                onChange={(e) => {
-                  const selected = e.target.value;
-                  if (!selected) return;
-                  const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
-                  if (current.includes(selected)) return;
-                  const next = [...current, selected];
-                  updateOrderField('zones', next);
-                  updateOrderField('zone', next[0]);
-                }}
-                className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              >
-                <option value="">+ Добавить зону</option>
-                {(settings.orderZones || []).map((z) => (
-                  <option key={z} value={z}>{z}</option>
-                ))}
-              </select>
-            )}
-          </div>
-          </div>}
+                    </div>
+          }
         </div>
 
 
@@ -3100,7 +3104,7 @@ const OrderDetailsScreen: React.FC = () => {
              const partQuantity = normalizePartQuantity(part.quantity);
              const isCommentExpanded = !!partCommentExpanded[part.id];
              return (
-              <div key={part.id} onClick={() => navigate(`/order/${order.id}/part/${part.id}`)} className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-2 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01] active:scale-[0.99]">
+              <div key={part.id} onClick={() => { const mainScroller = document.querySelector('main'); const orderScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : 0; navigate(`/order/${order.id}/part/${part.id}`, { state: { backTo: `/order/${order.id}`, orderScrollTop } }); }} className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-2 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01] active:scale-[0.99]">
                 <div className="flex items-center gap-3">
                   <button 
                     type="button"

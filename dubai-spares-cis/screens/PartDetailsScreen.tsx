@@ -247,11 +247,13 @@ const PartDetailsScreen: React.FC = () => {
   if (!order || !part) return <div className="p-10 text-center text-gray-400 font-bold">ДЕТАЛЬ НЕ НАЙДЕНА</div>;
 
   const goBack = () => {
+    const restoreScrollTop = (location.state as { orderScrollTop?: unknown } | null)?.orderScrollTop;
+    const backState = typeof restoreScrollTop === 'number' ? { restoreScrollTop } : undefined;
     if (window.history.length > 1) {
-      navigate(backTo);
+      navigate(backTo, { state: backState });
       return;
     }
-    navigate('/vendor');
+    navigate('/vendor', { state: backState });
   };
 
   const isPhotoVisible = (url: string) => !!String(url || '').trim() && !brokenPhotoUrls[url];

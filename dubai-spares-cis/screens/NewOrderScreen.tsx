@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, ChevronDown, Mic, Square, Play, Pause, UserRound, Wrench, CarFront, ImagePlus, NotebookPen, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Camera, ChevronDown, Mic, Square, Play, Pause, UserRound, Wrench, CarFront, ImagePlus, NotebookPen, Save, Trash2 } from 'lucide-react';
 import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE } from '../constants';
 import { CHASSIS_BODY_TYPES_BY_BRAND } from '../carDatabase';
 import { useStore } from '../store';
@@ -819,7 +819,16 @@ const NewOrderScreen: React.FC = () => {
   return (
     <form onSubmit={submit} className="mx-auto max-w-2xl space-y-4 p-4 pb-[210px]">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-black text-slate-900">Создать заказ</h1>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="inline-flex h-10 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"
+          >
+            <ArrowLeft size={14} /> Назад
+          </button>
+          <h1 className="text-xl font-black text-slate-900">Создать заказ</h1>
+        </div>
         <button type="button" onClick={saveDraft} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700" aria-label="Сохранить черновик"><Save size={14} />Сохранить черновик</button>
       </div>
 

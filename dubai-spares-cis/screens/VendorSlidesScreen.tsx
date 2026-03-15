@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Car, MapPin, Layers3, Zap } from 'lucide-react';
+import { ArrowLeft, Car, MapPin, Layers3, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { useAppSettings } from '../appSettings';
@@ -97,6 +97,13 @@ const VendorSlidesScreen: React.FC = () => {
     <div className="fixed inset-0 overflow-y-auto bg-[#0B1220] text-white">
       <div className="mx-auto max-w-4xl px-3 py-4" style={{ paddingTop: 'max(1rem, calc(env(safe-area-inset-top) + 0.5rem))' }}>
         <div className="mb-4 rounded-2xl border border-slate-700/80 bg-slate-900/50 px-3 py-3">
+          <button
+            type="button"
+            onClick={() => navigate('/orders')}
+            className="mb-3 inline-flex items-center gap-2 rounded-lg border border-slate-600/80 bg-slate-800/70 px-3 py-1.5 text-xs font-bold text-white/90 transition-colors hover:bg-slate-700/80"
+          >
+            <ArrowLeft size={14} /> Назад
+          </button>
           <p className="text-xl font-black">Vendor Slides</p>
           <p className="mt-1 text-xs text-white/70">Управление слайдами поставщиков</p>
         </div>
