@@ -31,7 +31,7 @@ type BottomTab = 'orders' | 'vendors' | 'notifications' | 'settings' | null;
 
 const resolveBottomTab = (pathname: string): BottomTab => {
   if (pathname === '/orders' || pathname.startsWith('/order/')) return 'orders';
-  if (pathname.startsWith('/vendor')) return 'vendors';
+  if (pathname.startsWith('/database') || pathname.startsWith('/variants')) return 'vendors';
   if (pathname.startsWith('/notifications')) return 'notifications';
   if (pathname.startsWith('/settings')) return 'settings';
   return null;
@@ -50,7 +50,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
   const [tabPaths, setTabPaths] = useState<Record<Exclude<BottomTab, null>, string>>({
     orders: '/orders',
-    vendors: '/vendor',
+    vendors: '/database',
     notifications: '/notifications',
     settings: '/settings',
   });
@@ -98,7 +98,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const handleTabNavigate = (tab: Exclude<BottomTab, null>) => {
     const rootByTab: Record<Exclude<BottomTab, null>, string> = {
       orders: '/orders',
-      vendors: '/vendor',
+      vendors: '/database',
       notifications: '/notifications',
       settings: '/settings',
     };
