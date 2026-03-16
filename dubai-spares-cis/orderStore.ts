@@ -2115,35 +2115,46 @@ export const updateOrderItem = async (order: Order) => {
 };
 
 export const deleteOrderItem = async (orderId: string) => {
-  const orderToDelete = state.orders.find((o) => o.id === orderId);
-  if (orderToDelete) {
-    pushActivityNotification({
-      title: 'Удалён заказ',
-      message: `${orderToDelete.brand} ${orderToDelete.model} · ${orderToDelete.vin}`,
-      orderId: orderToDelete.id,
-      entityType: 'order',
-      entityId: orderToDelete.id
-    });
-  }
-  rememberLeadDeleted(orderId);
-  const next = state.orders.filter((o) => o.id !== orderId);
-  setState({ orders: next, error: null });
-  await offlineDb.deleteOrder(orderId);
-  window.dispatchEvent(new CustomEvent('cloud-save-success'));
+  const previousOrders = state.orders;
+  const orderToDelete = previousOrders.find((o) => o.id === orderId);
 
-  if (orderToDelete?.leadSource === 'public_form' || orderToDelete?.isLead) {
-    const purgeResult = await purgePublicLeadArtifacts(orderId);
-    if (!purgeResult.ok) {
-      await logger.warn('order:delete', 'Failed to purge public lead artifacts after lead deletion', {
-        orderId,
-        code: purgeResult.code,
-        error: purgeResult.error
+  try {
+    if (orderToDelete) {
+      pushActivityNotification({
+        title: 'Удалён заказ',
+        message: `${orderToDelete.brand} ${orderToDelete.model} · ${orderToDelete.vin}`,
+        orderId: orderToDelete.id,
+        entityType: 'order',
+        entityId: orderToDelete.id
       });
     }
-  }
+    rememberLeadDeleted(orderId);
+    const next = previousOrders.filter((o) => o.id !== orderId);
+    setState({ orders: next, error: null });
+    await offlineDb.deleteOrder(orderId);
+    window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
-  await queueMutation('delete', undefined, orderId);
-  return true;
+    if (orderToDelete?.leadSource === 'public_form' || orderToDelete?.isLead) {
+      const purgeResult = await purgePublicLeadArtifacts(orderId);
+      if (!purgeResult.ok) {
+        await logger.warn('order:delete', 'Failed to purge public lead artifacts after lead deletion', {
+          orderId,
+          code: purgeResult.code,
+          error: purgeResult.error
+        });
+      }
+    }
+
+    await queueMutation('delete', undefined, orderId);
+    return true;
+  } catch (error) {
+    await logger.error('order:delete', 'Failed to delete order locally', {
+      orderId,
+      error: serializeError(error)
+    });
+    setState({ orders: previousOrders, error: getErrorMessage(error, 'Не удалось удалить заказ') });
+    return false;
+  }
 };
 
 export const updatePartItem = async (orderId: string, part: Part) => {
