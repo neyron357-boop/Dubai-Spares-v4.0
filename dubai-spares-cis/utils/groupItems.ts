@@ -33,3 +33,29 @@ export const normalizeGroupItems = (raw: unknown): NormalizedGroupItem[] => {
     })
     .filter((item): item is NormalizedGroupItem => item !== null);
 };
+
+type PartDisplaySource = {
+  name?: unknown;
+  partKind?: unknown;
+  groupItems?: unknown;
+};
+
+export const buildGroupItemsLabel = (raw: unknown, delimiter = ', '): string => {
+  const items = normalizeGroupItems(raw);
+  return items
+    .map((item) => `${item.name} ×${item.quantity}`)
+    .join(delimiter);
+};
+
+export const getPartDisplayName = (part: PartDisplaySource, fallback = 'Группа деталей'): string => {
+  const explicitName = String(part?.name || '').trim();
+  if (explicitName) return explicitName;
+
+  if (part?.partKind === 'group') {
+    const groupLabel = buildGroupItemsLabel(part.groupItems);
+    if (groupLabel) return groupLabel;
+    return fallback;
+  }
+
+  return 'Без названия';
+};

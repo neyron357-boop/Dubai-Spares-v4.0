@@ -10,6 +10,7 @@ import { SupplierSlidesErrorBoundary } from './SupplierSlidesErrorBoundary';
 import { ensureUuid } from '../id';
 import { getShopOrderMatchScore, isBrandMatch } from '../shopMatching';
 import { useAppSettings } from '../appSettings';
+import { getPartDisplayName } from '../utils/groupItems';
 
 const priorityWeight = {
   [Priority.HIGH]: 3,
@@ -118,6 +119,15 @@ const VendorSliderContent: React.FC = () => {
   const syncTimerRef = useRef<number | null>(null);
   const supplierDeletePressTimerRef = useRef<number | null>(null);
   const lastUrlSyncAtRef = useRef(0);
+
+  const copyText = async (value: string) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      // ignore clipboard errors in vendor slides
+    }
+  };
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const clearPendingUrlSync = () => {
@@ -1118,6 +1128,7 @@ const VendorSliderContent: React.FC = () => {
         }}
       >
         {current.visibleParts.map((part) => {
+          const partDisplayName = getPartDisplayName(part);
           const images = sanitizeImages([...(Array.isArray(part.photos) ? part.photos : []), part.photoUrl]);
           const availableImages = images.filter((image) => !brokenImages[image]);
           const isFound = part.isFound || part.status === 'found' || part.variants.some((variant) => Number(variant.priceAed) > 0);
@@ -1131,7 +1142,7 @@ const VendorSliderContent: React.FC = () => {
                 {availableImages[0] ? (
                   <SafeImage
                     src={availableImages[0]}
-                    alt={part.name}
+                    alt={partDisplayName}
                     className="h-full w-full object-cover"
                     onError={() => setBrokenImages((prev) => ({ ...prev, [availableImages[0]]: true }))}
                   />
@@ -1141,7 +1152,7 @@ const VendorSliderContent: React.FC = () => {
               </button>
 
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-black">{part.name}</p>
+                <p className="truncate text-sm font-black">{partDisplayName}</p>
                 <p className="text-[11px] text-white/70">Вариантов: {part.variants.length}</p>
                 {part.comment?.trim() && <p className="mt-0.5 line-clamp-2 text-[10px] text-white/55">Описание: {part.comment.trim()}</p>}
               </div>
@@ -1483,7 +1494,10 @@ const VendorSliderContent: React.FC = () => {
               <p><span className="text-amber-200/70">Марка/модель:</span> {current.brand} {current.model}</p>
               <p><span className="text-amber-200/70">Год:</span> {current.year || '—'}</p>
               <p><span className="text-amber-200/70">Тип кузова:</span> {current.bodyType || '—'}</p>
-              <p><span className="text-amber-200/70">VIN:</span> {current.vin || '—'}</p>
+              <div className="flex items-center gap-2">
+                <p><span className="text-amber-200/70">VIN:</span> {current.vin || '—'}</p>
+                <button type="button" onClick={() => void copyText(current.vin || '')} disabled={!current.vin} className="rounded-md border border-amber-500/40 px-2 py-0.5 text-[10px] font-bold text-amber-100 disabled:opacity-40">Копировать VIN</button>
+              </div>
               <p><span className="text-amber-200/70">Клиент:</span> {current.clientName || '—'}</p>
               <p><span className="text-amber-200/70">Контакт:</span> {current.customerContact || '—'}</p>
               <p><span className="text-amber-200/70">Тип двигателя:</span> {current.vehicleDetails?.engineType || '—'}</p>
