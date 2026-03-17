@@ -707,6 +707,15 @@ const PartDetailsScreen: React.FC = () => {
     });
   };
 
+  const copyText = async (value: string) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      // ignore clipboard errors
+    }
+  };
+
   const submitPartName = () => {
     const nextName = partNameDraft.trim();
     if (!nextName || nextName === part.name) {
@@ -747,7 +756,10 @@ const PartDetailsScreen: React.FC = () => {
                 {part.name}
               </button>
             )}
-            <p className="text-[11px] text-gray-600 font-bold">{order.brand} {order.model} · {order.year || '—'} {order.vin ? `· VIN ${order.vin}` : ''}</p>
+            <div className="flex items-center justify-center gap-2">
+              <p className="text-[11px] text-gray-600 font-bold">{order.brand} {order.model} · {order.year || '—'} {order.vin ? `· VIN ${order.vin}` : ''}</p>
+              <button type="button" onClick={() => void copyText(order.vin || '')} disabled={!order.vin} className="rounded-md border border-gray-200 px-2 py-0.5 text-[10px] font-bold text-gray-600 disabled:opacity-40">VIN</button>
+            </div>
           </div>
           <div className="relative">
             <button onClick={() => setShowMenu((prev) => !prev)} className="p-3 text-gray-600 rounded-full active:bg-gray-100"><MoreHorizontal size={20} /></button>

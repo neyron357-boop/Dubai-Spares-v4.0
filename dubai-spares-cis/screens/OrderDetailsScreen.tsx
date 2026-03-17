@@ -48,7 +48,7 @@ import { syncPerf } from '../syncPerf';
 import { optimizeImageForUpload } from '../storage/photos';
 import { FEATURE_RADAR_V2 } from '../featureFlags';
 import { ensureRadarSessionForOrder } from '../radarSessionService';
-import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
+import { getPartDisplayName, normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 import { useAppSettings } from '../appSettings';
 import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 
@@ -2050,6 +2050,7 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
               <span className="text-[#667085]">VIN: <span className="font-mono uppercase text-gray-700">{order.vin || 'Не добавлен'}</span></span>
+              <button type="button" onClick={() => void copyText(order.vin || '', 'VIN скопирован')} disabled={!order.vin} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-gray-600 disabled:opacity-40"><Copy size={11} />VIN</button>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Возраст: {orderAgeDays} дн</span>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Найдено: {foundPartsCount}/{partsCount}</span>
             </div>
@@ -3126,6 +3127,7 @@ const OrderDetailsScreen: React.FC = () => {
              const displayPhotos = getPartPreviewPhotos(part);
              const isGroupPart = part.partKind === 'group';
              const groupItems = normalizeGroupItems(part.groupItems);
+             const partDisplayName = getPartDisplayName(part);
              const partQuantity = normalizePartQuantity(part.quantity);
              const isCommentExpanded = !!partCommentExpanded[part.id];
              return (
@@ -3159,7 +3161,7 @@ const OrderDetailsScreen: React.FC = () => {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-black text-[14px] text-gray-900 leading-tight mb-1 break-words whitespace-normal">{part.name}</h4>
+                    <h4 className="font-black text-[14px] text-gray-900 leading-tight mb-1 break-words whitespace-normal">{partDisplayName}</h4>
                     <p className="text-[12px] font-semibold text-slate-700">Qty: {partQuantity}</p>
                     <p className="text-[11px] font-semibold text-slate-600">Best supplier: {part.variants[0]?.shopName || 'не выбран'}</p>
                     <p className="text-[11px] font-black text-emerald-700">Price: {part.variants[0] ? `${part.variants[0].priceAed} AED` : '—'}</p>
