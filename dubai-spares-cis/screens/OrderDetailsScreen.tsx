@@ -3163,6 +3163,9 @@ const OrderDetailsScreen: React.FC = () => {
                   <div className="flex-1 min-w-0">
                     <h4 className="font-black text-[14px] text-gray-900 leading-tight mb-1 break-words whitespace-normal">{partDisplayName}</h4>
                     <p className="text-[12px] font-semibold text-slate-700">Qty: {partQuantity}</p>
+                    {groupItems.length > 0 && (
+                      <p className="text-[11px] font-semibold text-violet-700 break-words">Состав: {groupItems.map((item) => `${item.name} ×${item.quantity}`).join(', ')}</p>
+                    )}
                     <p className="text-[11px] font-semibold text-slate-600">Best supplier: {part.variants[0]?.shopName || 'не выбран'}</p>
                     <p className="text-[11px] font-black text-emerald-700">Price: {part.variants[0] ? `${part.variants[0].priceAed} AED` : '—'}</p>
                     <p className="text-[11px] font-semibold text-[#8B8F98]">Margin: —</p>
