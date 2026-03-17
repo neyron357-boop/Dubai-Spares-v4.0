@@ -10,7 +10,7 @@ import { SupplierSlidesErrorBoundary } from './SupplierSlidesErrorBoundary';
 import { ensureUuid } from '../id';
 import { getShopOrderMatchScore, isBrandMatch } from '../shopMatching';
 import { useAppSettings } from '../appSettings';
-import { getPartDisplayName } from '../utils/groupItems';
+import { getPartDisplayName, normalizeGroupItems } from '../utils/groupItems';
 
 const priorityWeight = {
   [Priority.HIGH]: 3,
@@ -1113,7 +1113,7 @@ const VendorSliderContent: React.FC = () => {
       </div>
 
       <div
-        className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3"
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 pb-24"
         onTouchStart={(e) => {
           const t = e.targetTouches[0];
           touchStart.current = { x: t.clientX, y: t.clientY };
@@ -1129,6 +1129,7 @@ const VendorSliderContent: React.FC = () => {
       >
         {current.visibleParts.map((part) => {
           const partDisplayName = getPartDisplayName(part);
+          const groupItems = normalizeGroupItems(part.groupItems);
           const images = sanitizeImages([...(Array.isArray(part.photos) ? part.photos : []), part.photoUrl]);
           const availableImages = images.filter((image) => !brokenImages[image]);
           const isFound = part.isFound || part.status === 'found' || part.variants.some((variant) => Number(variant.priceAed) > 0);
@@ -1154,6 +1155,11 @@ const VendorSliderContent: React.FC = () => {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-black">{partDisplayName}</p>
                 <p className="text-[11px] text-white/70">Вариантов: {part.variants.length}</p>
+                {groupItems.length > 0 && (
+                  <p className="mt-0.5 line-clamp-2 text-[10px] text-violet-200/90">
+                    Состав: {groupItems.map((item) => `${item.name} ×${item.quantity}`).join(', ')}
+                  </p>
+                )}
                 {part.comment?.trim() && <p className="mt-0.5 line-clamp-2 text-[10px] text-white/55">Описание: {part.comment.trim()}</p>}
               </div>
 
