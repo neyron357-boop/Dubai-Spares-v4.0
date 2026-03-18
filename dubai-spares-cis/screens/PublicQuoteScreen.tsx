@@ -29,6 +29,7 @@ import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems'
 import { calculateCargoEstimates } from '../utils/cargo';
 import { SUPABASE_URL } from '../cloudConfig';
 import { getPublicHuntData } from '../huntSessionApi';
+import { supabase } from '../supabase';
 import { appendCustomerLog, confirmRelevance, ensureTelegramSubscriptionState, markRelevancePromptShown, maybeOpenRelevancePrompt, pauseOrderSearchFromTracking } from '../customerEngagement';
 
 type Language = 'en' | 'ru';
@@ -645,6 +646,24 @@ const GIT_SHA = (import.meta as any).env?.VITE_GIT_SHA || 'local';
 const BUILD_TIME = (import.meta as any).env?.VITE_BUILD_TIME || 'unknown';
 
 const fetchPublicSnapshot = (token: string, signal?: AbortSignal, snapshotId?: string | null) => publicQuoteGetSnapshot(token, { signal, timeoutMs: 20_000, snapshotId });
+
+const HUNT_STATUS_PRIORITY: Record<Order['huntStatus'], number> = {
+  data_gathering: 0,
+  live_hunt: 1,
+  final_offer: 2
+};
+
+const mergeOrderWithLiveHuntStatus = (incoming: Order, current: Order | null, liveStatus?: Order['huntStatus']): Order => {
+  const candidates = [incoming.huntStatus, current?.huntStatus, liveStatus].filter(Boolean) as Order['huntStatus'][];
+  const resolvedStatus = candidates.reduce<Order['huntStatus']>((best, status) => (
+    HUNT_STATUS_PRIORITY[status] > HUNT_STATUS_PRIORITY[best] ? status : best
+  ), incoming.huntStatus || 'data_gathering');
+
+  return {
+    ...incoming,
+    huntStatus: resolvedStatus
+  };
+};
 
 const mapDbOrder = (row: any): Order => ({
   id: String(row.id),
@@ -1532,6 +1551,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [showPauseConfirm, setShowPauseConfirm] = useState(false);
   const huntPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const snapshotPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const liveHuntStatusRef = useRef<Order['huntStatus']>('data_gathering');
 
   const t = i18n[lang];
   const params = useMemo(() => {
@@ -1774,7 +1794,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         setLoading(false);
         return false;
       }
-      setOrder(sharedSnapshot.order);
+      setOrder((prev) => mergeOrderWithLiveHuntStatus(sharedSnapshot.order as Order, prev, liveHuntStatusRef.current));
       setIsPayloadCorrupted(sharedSnapshot.corrupted);
       setErrorType(null);
       setLoading(false);
@@ -1853,6 +1873,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             ? 'live_hunt'
             : 'final_offer';
 
+        liveHuntStatusRef.current = derivedStatus;
         if (derivedStatus !== order.huntStatus) {
           setOrder((prev) => prev ? { ...prev, huntStatus: derivedStatus } : null);
         }
@@ -1878,6 +1899,62 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       }
     };
   }, [order?.id, order?.huntStatus]);
+
+  useEffect(() => {
+    if (!order?.id || !supabase) return;
+
+    const refreshLiveTracking = () => {
+      void loadQuote();
+    };
+
+    const channel = supabase
+      .channel(`public-tracking-${order.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${order.id}` }, refreshLiveTracking)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_hunt_sessions', filter: `order_id=eq.${order.id}` }, refreshLiveTracking)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_hunt_waypoints', filter: `order_id=eq.${order.id}` }, () => { void getPublicHuntData(order.id).then((data) => {
+        const derivedStatus: Order['huntStatus'] = !data.session
+          ? 'data_gathering'
+          : data.session.status === 'active'
+            ? 'live_hunt'
+            : 'final_offer';
+        liveHuntStatusRef.current = derivedStatus;
+        setHuntWaypoints(data.waypoints);
+        setHuntLatestPing(data.latestPing);
+        setHuntTrack(data.track);
+        setOrder((prev) => prev ? { ...prev, huntStatus: derivedStatus } : prev);
+      }).catch((err) => console.debug('Realtime hunt waypoint refresh failed:', err)); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_hunt_gps_pings' }, (payload) => {
+        const sessionId = (payload.new as { session_id?: string } | null)?.session_id ?? (payload.old as { session_id?: string } | null)?.session_id;
+        if (!sessionId) return;
+        void getPublicHuntData(order.id).then((data) => {
+          if (data.session?.id !== sessionId) return;
+          const derivedStatus: Order['huntStatus'] = !data.session
+            ? 'data_gathering'
+            : data.session.status === 'active'
+              ? 'live_hunt'
+              : 'final_offer';
+          liveHuntStatusRef.current = derivedStatus;
+          setHuntWaypoints(data.waypoints);
+          setHuntLatestPing(data.latestPing);
+          setHuntTrack(data.track);
+          setOrder((prev) => prev ? { ...prev, huntStatus: derivedStatus } : prev);
+        }).catch((err) => console.debug('Realtime GPS refresh failed:', err));
+      })
+      .subscribe();
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void loadQuote();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      void supabase.removeChannel(channel);
+    };
+  }, [loadQuote, order?.id]);
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
