@@ -3105,125 +3105,65 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         )}
 
-        <div ref={partsListRef} className="space-y-2">
-          <div className="flex items-center justify-between px-1 mb-1">
-            <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Parts List</h2>
-            <button
-              type="button"
-              onClick={() => setShowOnlyOpenParts((v) => !v)}
-              className={`rounded-lg border px-2 py-1 text-[10px] font-bold transition-colors ${showOnlyOpenParts ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500'}`}
-            >
-              {showOnlyOpenParts ? 'Только в поиске' : 'Все детали'}
-            </button>
-          </div>
-          <p className="px-1 text-[11px] text-slate-500">После добавления детали она появляется в этом списке и доступна для редактирования.</p>
-          {order.parts.length === 0 && (
-            <div className="bg-white border border-dashed border-gray-200 rounded-2xl p-4 text-center">
-              <p className="text-[16px] font-medium text-[#1E1F23]">No parts yet</p>
-              <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 px-3 py-2 rounded-[12px] bg-[#3B6AF7] text-white text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Add first part</button>
-            </div>
-          )}
-          {order.parts.filter((part) => !showOnlyOpenParts || (!part.isFound && (part.variants || []).length === 0)).map(part => {
-             const displayPhotos = getPartPreviewPhotos(part);
-             const isGroupPart = part.partKind === 'group';
-             const groupItems = normalizeGroupItems(part.groupItems);
-             const partDisplayName = getPartDisplayName(part);
-             const partQuantity = normalizePartQuantity(part.quantity);
-             const isCommentExpanded = !!partCommentExpanded[part.id];
-             return (
-              <div key={part.id} onClick={() => { const mainScroller = document.querySelector('main'); const orderScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : 0; navigate(`/order/${order.id}/part/${part.id}`, { state: { backTo: `/order/${order.id}`, orderScrollTop } }); }} className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-2 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01] active:scale-[0.99]">
-                <div className="flex items-center gap-3">
-                  <button 
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); togglePartFound(part.id); }} 
-                    className={`flex-shrink-0 p-1 rounded-full transition-colors ${part.isFound ? 'text-green-500 bg-green-50' : 'text-gray-200'}`}
-                  >
-                    {part.isFound ? <CheckCircle2 size={28} /> : <Circle size={28} />}
-                  </button>
-                  <div 
-                    className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden shrink-0 border border-gray-100 relative"
-                  >
-                    {displayPhotos.length > 0 ? (
-                      <>
-                        <img 
-                          src={displayPhotos[0]} 
-                          className="w-full h-full object-cover cursor-pointer" 
-                          onClick={(e) => openGallery(e, part)}
-                        />
-                        {displayPhotos.length > 1 && (
-                            <div className="absolute bottom-0 right-0 bg-black/60 text-white text-[8px] font-bold px-1 rounded-tl-md">
-                                +{displayPhotos.length - 1}
-                            </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center"><Package size={20} className="text-gray-200" /></div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-black text-[14px] text-gray-900 leading-tight mb-1 break-words whitespace-normal">{partDisplayName}</h4>
-                    <p className="text-[12px] font-semibold text-slate-700">Qty: {partQuantity}</p>
-                    {groupItems.length > 0 && (
-                      <p className="text-[11px] font-semibold text-violet-700 break-words">Состав: {groupItems.map((item) => `${item.name} ×${item.quantity}`).join(', ')}</p>
-                    )}
-                    <p className="text-[11px] font-semibold text-slate-600">Best supplier: {part.variants[0]?.shopName || 'не выбран'}</p>
-                    <p className="text-[11px] font-black text-emerald-700">Price: {part.variants[0] ? `${part.variants[0].priceAed} AED` : '—'}</p>
-                    <p className="text-[11px] font-semibold text-[#8B8F98]">Margin: —</p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button 
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setDeletePartId(part.id); }}
-                      className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700"
-                    >
-                      Удалить
-                    </button>
-                    <ChevronRight size={18} className="text-gray-200" />
-                  </div>
-                </div>
-                <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-                  {!isCommentExpanded ? (
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: true }))}
-                        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700"
-                      >
-                        {part.comment?.trim() ? 'Изменить описание' : 'Добавить описание'}
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <textarea
-                        value={partCommentDrafts[part.id] ?? part.comment ?? ''}
-                        onChange={(e) => updatePartCommentDraft(part.id, e.target.value)}
-                        onBlur={() => savePartComment(part.id)}
-                        placeholder={isGroupPart ? 'Описание к группе' : 'Описание к детали'}
-                        className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-[11px] font-semibold text-slate-700 outline-none"
-                        rows={2}
-                      />
-                      <div className="mt-1 flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: false }))}
-                          className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-600"
-                        >
-                          Отмена
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => savePartComment(part.id)}
-                          className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700"
-                        >
-                          Сохранить
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
+        <div ref={partsListRef} className="space-y-3">
+          <div className="rounded-[20px] border border-[#E7EAF3] bg-white p-4 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="font-black text-gray-900 text-sm uppercase tracking-[0.16em]">Экран деталей заказа</h2>
+                <p className="mt-2 text-[12px] font-semibold text-slate-500">Вынесли список деталей в отдельный экран: там удобнее открывать каждую деталь, выбирать несколько позиций и формировать общую картинку с ценами.</p>
               </div>
-             );
-          })}
+              <div className="rounded-2xl bg-blue-50 px-3 py-2 text-right">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-blue-700">Детали</p>
+                <p className="text-lg font-black text-blue-900">{order.parts.length}</p>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setShowOnlyOpenParts((v) => !v)}
+                className={`rounded-xl border px-3 py-2 text-[11px] font-bold transition-colors ${showOnlyOpenParts ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500'}`}
+              >
+                {showOnlyOpenParts ? 'Только в поиске' : 'Все детали'}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/order/${order.id}/parts`)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-[11px] font-black text-white"
+              >
+                Открыть экран деталей <ChevronRight size={14} />
+              </button>
+            </div>
+            {order.parts.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {order.parts.filter((part) => !showOnlyOpenParts || (!part.isFound && (part.variants || []).length === 0)).slice(0, 3).map((part) => {
+                  const partDisplayName = getPartDisplayName(part);
+                  const groupItems = normalizeGroupItems(part.groupItems);
+                  const partQuantity = normalizePartQuantity(part.quantity);
+                  return (
+                    <button
+                      key={part.id}
+                      type="button"
+                      onClick={() => navigate(`/order/${order.id}/part/${part.id}`)}
+                      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-left"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-black text-slate-900">{partDisplayName}</p>
+                        <p className="mt-1 text-[11px] font-semibold text-slate-500">Qty: {partQuantity}{groupItems.length > 0 ? ` · ${groupItems.length} в группе` : ''}</p>
+                      </div>
+                      <ChevronRight size={16} className="shrink-0 text-slate-300" />
+                    </button>
+                  );
+                })}
+                {order.parts.length > 3 && <p className="px-1 text-[11px] font-semibold text-slate-400">И ещё {order.parts.length - 3} деталей на отдельном экране.</p>}
+              </div>
+            )}
+            {order.parts.length === 0 && (
+              <div className="mt-4 rounded-2xl border border-dashed border-gray-200 p-4 text-center">
+                <p className="text-[16px] font-medium text-[#1E1F23]">No parts yet</p>
+                <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 px-3 py-2 rounded-[12px] bg-[#3B6AF7] text-white text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Add first part</button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

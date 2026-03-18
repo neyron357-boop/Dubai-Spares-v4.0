@@ -5,6 +5,7 @@ import OrdersScreen from './screens/OrdersScreen';
 import NewOrderScreen from './screens/NewOrderScreen';
 import OrderDetailsScreen from './screens/OrderDetailsScreen';
 import PartDetailsScreen from './screens/PartDetailsScreen';
+import OrderPartsScreen from './screens/OrderPartsScreen';
 import SuppliersScreen from './screens/SuppliersScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import SettingsScreen from './screens/SettingsScreen';
@@ -178,6 +179,7 @@ const CachedRoutes: React.FC = () => {
               <Route path="/vendor" element={<VendorSlidesScreen />} />
               <Route path="/vendor/slider" element={<VendorSlider />} />
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
+              <Route path="/order/:orderId/parts" element={<OrderPartsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
               <Route path="/database" element={<SuppliersScreen />} />
               <Route path="/variants" element={<VariantsScreen />} />
