@@ -8,6 +8,8 @@ export interface VariantLibraryItem extends PriceVariant {
   sourcePartId?: string;
   sourcePartName?: string;
   sourceOrderLabel?: string;
+  vehicleInfo?: string;
+  customerOrderRef?: string;
 }
 
 let standaloneVariants: VariantLibraryItem[] = [];
@@ -38,6 +40,8 @@ const normalizeStandaloneVariant = (item: VariantLibraryItem): VariantLibraryIte
   location: typeof item.location === 'string' ? item.location.trim() : '',
   locationText: typeof item.locationText === 'string' ? item.locationText.trim() : '',
   mapsUrl: typeof item.mapsUrl === 'string' ? item.mapsUrl.trim() : '',
+  vehicleInfo: typeof item.vehicleInfo === 'string' ? item.vehicleInfo.trim() : '',
+  customerOrderRef: typeof item.customerOrderRef === 'string' ? item.customerOrderRef.trim() : '',
   photos: Array.isArray(item.photos) ? item.photos.filter(Boolean) : [],
   createdAt: Number.isFinite(Number(item.createdAt)) ? Number(item.createdAt) : Date.now(),
   updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : Date.now()
@@ -83,7 +87,9 @@ export const getVariantLibraryItems = (orders: Order[]): VariantLibraryItem[] =>
         sourceOrderId: order.id,
         sourcePartId: part.id,
         sourcePartName: part.name,
-        sourceOrderLabel: `${order.brand} ${order.model} • ${order.vin}`
+        sourceOrderLabel: `${order.brand} ${order.model} • ${order.vin}`,
+        vehicleInfo: `${order.brand} ${order.model} • ${order.vin}`,
+        customerOrderRef: order.id
       }))
     )
   );

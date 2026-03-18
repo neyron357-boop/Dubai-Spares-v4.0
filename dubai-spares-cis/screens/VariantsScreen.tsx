@@ -11,6 +11,7 @@ import {
   Pin,
   Plus,
   Search,
+  Send,
   Sparkles,
   StickyNote,
   X
@@ -42,6 +43,7 @@ const filterOptions: Array<{ key: FilterKey; label: string }> = [
 
 const formatPrice = (price: number) => `${new Intl.NumberFormat('ru-RU').format(Number(price || 0))} AED`;
 const formatDate = (value?: number) => new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(value || Date.now()));
+const COMPANY_LOGO_PATH = '/icon-192.png';
 const normalizePhone = (value: string) => value.replace(/\s+/g, '');
 const trimVin = (value: string) => (value.length > 13 ? `${value.slice(0, 13)}…` : value);
 const resolveVariantMapUrl = (variant: VariantLibraryItem) => {
@@ -67,6 +69,8 @@ const VariantsScreen: React.FC = () => {
   const [note, setNote] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [supplierId, setSupplierId] = useState('');
+  const [vehicleInfo, setVehicleInfo] = useState('');
+  const [customerOrderRef, setCustomerOrderRef] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('updated');
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -98,6 +102,8 @@ const VariantsScreen: React.FC = () => {
     setNote('');
     setPhotos([]);
     setSupplierId('');
+    setVehicleInfo('');
+    setCustomerOrderRef('');
   };
 
   const syncState = useMemo<SyncVisualStatus>(() => {
@@ -124,6 +130,124 @@ const VariantsScreen: React.FC = () => {
   const miniPhotos = (variant: PriceVariant) => {
     const merged = [variant.photoUrl, ...(variant.photos || [])].filter((item): item is string => !!item);
     return Array.from(new Set(merged));
+  };
+
+  const loadCanvasImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    if (!src.startsWith('data:')) image.crossOrigin = 'anonymous';
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Image load failed'));
+    image.src = src;
+  });
+
+  const generateVariantPreview = async (variant: VariantLibraryItem) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200;
+    canvas.height = 700;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas недоступен');
+
+    context.fillStyle = '#F3F6FB';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    context.fillStyle = '#FFFFFF';
+    context.fillRect(20, 20, canvas.width - 40, canvas.height - 40);
+
+    const imageX = 60;
+    const imageY = 140;
+    const imageW = 520;
+    const imageH = 460;
+    context.fillStyle = '#E9EEF6';
+    context.fillRect(imageX, imageY, imageW, imageH);
+
+    const firstPhoto = miniPhotos(variant)[0];
+    if (firstPhoto) {
+      try {
+        const photo = await loadCanvasImage(firstPhoto);
+        const ratio = Math.max(imageW / photo.width, imageH / photo.height);
+        const drawW = photo.width * ratio;
+        const drawH = photo.height * ratio;
+        const drawX = imageX + (imageW - drawW) / 2;
+        const drawY = imageY + (imageH - drawH) / 2;
+        context.drawImage(photo, drawX, drawY, drawW, drawH);
+      } catch {
+        context.fillStyle = '#94A3B8';
+        context.font = 'bold 34px Inter, Arial, sans-serif';
+        context.fillText('Фото недоступно', imageX + 90, imageY + imageH / 2);
+      }
+    } else {
+      context.fillStyle = '#94A3B8';
+      context.font = 'bold 34px Inter, Arial, sans-serif';
+      context.fillText('Нет фото детали', imageX + 110, imageY + imageH / 2);
+    }
+
+    try {
+      const logo = await loadCanvasImage(COMPANY_LOGO_PATH);
+      context.drawImage(logo, 60, 50, 96, 96);
+    } catch {
+      context.fillStyle = '#2563EB';
+      context.fillRect(60, 50, 96, 96);
+      context.fillStyle = '#FFFFFF';
+      context.font = 'bold 16px Inter, Arial, sans-serif';
+      context.fillText('LOGO', 84, 104);
+    }
+
+    const startX = 630;
+    context.fillStyle = '#0F1728';
+    context.font = '700 42px Inter, Arial, sans-serif';
+    const partName = variant.sourcePartName || 'Деталь не указана';
+    context.fillText(partName.slice(0, 34), startX, 190);
+
+    context.fillStyle = '#2563EB';
+    context.font = '700 58px Inter, Arial, sans-serif';
+    context.fillText(formatPrice(variant.priceAed), startX, 280);
+
+    context.fillStyle = '#334155';
+    context.font = '500 30px Inter, Arial, sans-serif';
+    const vehicleLine = variant.vehicleInfo || variant.sourceOrderLabel || 'Авто: не указано';
+    context.fillText(`Авто: ${vehicleLine}`.slice(0, 46), startX, 360);
+    const orderLine = variant.customerOrderRef ? `Заказ: ${variant.customerOrderRef}` : 'Заказ: —';
+    context.fillText(orderLine.slice(0, 46), startX, 410);
+
+    context.fillStyle = '#64748B';
+    context.font = '500 24px Inter, Arial, sans-serif';
+    context.fillText(`Поставщик: ${variant.shopName || '—'}`.slice(0, 54), startX, 470);
+
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error('Не удалось сформировать изображение'));
+          return;
+        }
+        resolve(blob);
+      }, 'image/png', 0.95);
+    });
+  };
+
+  const handleSendVariant = async (variant: VariantLibraryItem) => {
+    try {
+      const blob = await generateVariantPreview(variant);
+      const file = new File([blob], `variant-${variant.id}.png`, { type: 'image/png' });
+      const text = `${variant.sourcePartName || 'Деталь'} — ${formatPrice(variant.priceAed)}`;
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          title: 'Предложение по детали',
+          text,
+          files: [file]
+        });
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.name;
+      link.click();
+      URL.revokeObjectURL(url);
+      window.alert('Картинка сформирована и скачана. Можно отправить клиенту.');
+    } catch (error) {
+      console.error(error);
+      window.alert('Не удалось сформировать картинку для отправки.');
+    }
   };
 
   const filteredAndSorted = useMemo(() => {
@@ -206,6 +330,8 @@ const VariantsScreen: React.FC = () => {
       locationText: location.trim(),
       mapsUrl: mapsUrl.trim(),
       note: note.trim(),
+      vehicleInfo: vehicleInfo.trim(),
+      customerOrderRef: customerOrderRef.trim(),
       photos,
       photoUrl: photos[0],
       condition: 'used',
@@ -485,6 +611,8 @@ const VariantsScreen: React.FC = () => {
                   <div className="flex h-[52px] items-center rounded-2xl border border-[#E7EAF0] px-3 text-sm text-[#667085]">AED</div>
                 </div>
                 <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Комментарий" className="min-h-[120px] w-full rounded-2xl border border-[#E7EAF0] px-3 py-2 text-sm outline-none" />
+                <input value={vehicleInfo} onChange={(event) => setVehicleInfo(event.target.value)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" placeholder="Данные автомобиля (марка/модель/VIN)" />
+                <input value={customerOrderRef} onChange={(event) => setCustomerOrderRef(event.target.value)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" placeholder="Номер/ссылка заказа (необязательно)" />
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => setShopName(generateUniqueSupplierName())} className="rounded-xl bg-[#F2F4F7] px-3 py-1.5 text-xs font-semibold text-[#475467]">Случайное имя</button>
                   <button type="button" onClick={() => setPriceAed(String(priceTemplates[Math.floor(Math.random() * priceTemplates.length)]))} className="rounded-xl bg-[#F2F4F7] px-3 py-1.5 text-xs font-semibold text-[#475467]">Быстрая цена</button>
@@ -552,6 +680,8 @@ const VariantsScreen: React.FC = () => {
                 <input value={selectedVariant.phone || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, phone: event.target.value.replace(/[^\d+]/g, '') } : prev)} inputMode="numeric" type="tel" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Телефон" />
                 <input value={selectedVariant.locationText || selectedVariant.location || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, locationText: event.target.value, location: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Локация" />
                 <button type="button" onClick={() => void applyCurrentLocationToSelected()} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-[#D0D5DD] px-3 text-sm font-semibold text-[#475467] disabled:opacity-50" disabled={isResolvingLocation}>{isResolvingLocation ? 'Определяем GPS...' : '📍 Текущее местоположение'}</button>
+                <input value={selectedVariant.vehicleInfo || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, vehicleInfo: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Данные автомобиля" />
+                <input value={selectedVariant.customerOrderRef || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, customerOrderRef: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Номер/ссылка заказа" />
                 <textarea value={selectedVariant.note || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, note: event.target.value } : prev)} className="min-h-[120px] w-full rounded-2xl border border-[#E7EAF0] px-3 py-2 text-sm" placeholder="Комментарий" />
               </div>
             ) : (
@@ -570,6 +700,8 @@ const VariantsScreen: React.FC = () => {
                   <p><span className="text-[#667085]">Телефон:</span> {selectedVariant.phone || 'Не указан'}</p>
                   <p className="mt-1"><span className="text-[#667085]">Локация:</span> {selectedVariant.locationText || selectedVariant.location || 'Не указана'}</p>
                   <p className="mt-1"><span className="text-[#667085]">Комментарий:</span> {selectedVariant.note || 'Комментарий не добавлен'}</p>
+                  <p className="mt-1"><span className="text-[#667085]">Авто:</span> {selectedVariant.vehicleInfo || selectedVariant.sourceOrderLabel || 'Не указано'}</p>
+                  <p className="mt-1"><span className="text-[#667085]">Заказ:</span> {selectedVariant.customerOrderRef || 'Не указан'}</p>
                 </div>
                 {miniPhotos(selectedVariant).length > 0 && (
                   <div className="rounded-2xl border border-[#E7EAF0] p-3">
@@ -591,6 +723,7 @@ const VariantsScreen: React.FC = () => {
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button type="button" onClick={() => quickToggle('isFavorite')} className={`h-11 rounded-xl border text-xs font-bold active:scale-[0.98] ${selectedVariant.isFavorite ? 'border-pink-300 bg-pink-50 text-pink-700' : 'border-[#E7EAF0] text-[#475467]'}`}><span className="inline-flex items-center gap-1"><Heart size={14} />Избранное</span></button>
               <button type="button" onClick={() => quickToggle('isPinned')} className={`h-11 rounded-xl border text-xs font-bold active:scale-[0.98] ${selectedVariant.isPinned ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-[#E7EAF0] text-[#475467]'}`}><span className="inline-flex items-center gap-1"><Pin size={14} />Закрепить</span></button>
+              <button type="button" onClick={() => void handleSendVariant(selectedVariant)} className="col-span-2 h-11 rounded-xl bg-[#2563EB] text-xs font-bold text-white"><span className="inline-flex items-center gap-1"><Send size={14} />Отправить</span></button>
             </div>
 
             {isEditMode && (
