@@ -336,30 +336,31 @@ const buildQuoteSnapshot = (order: Pick<Order,
 export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
   const slug = typeof order === 'string' ? encodeURIComponent(order) : encodeURIComponent(buildPublicQuoteSlug(order));
   const token = options?.snapshotToken || createQuoteToken();
-  const url = new URL(`${window.location.origin}/quote/${slug}`);
-  url.searchParams.set('token', token);
+  const url = new URL(window.location.origin);
+  const params = new URLSearchParams();
+  params.set('token', token);
   const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
-  url.searchParams.set('exp', String(expiresAt));
+  params.set('exp', String(expiresAt));
   if (typeof order !== 'string') {
-    url.searchParams.set('oid', order.id);
+    params.set('oid', order.id);
   }
 
   if (options?.rates) {
-    url.searchParams.set('rates', serializeQuoteRates(options.rates));
+    params.set('rates', serializeQuoteRates(options.rates));
   }
   if (options?.currency) {
-    url.searchParams.set('currency', options.currency);
+    params.set('currency', options.currency);
   }
-
 
   if (options?.embedSnapshotInUrl && options?.snapshot) {
     const encodedSnapshot = encodeSnapshot(options.snapshot);
-    if (encodedSnapshot) url.searchParams.set('data', encodedSnapshot);
+    if (encodedSnapshot) params.set('data', encodedSnapshot);
   } else if (options?.embedSnapshotInUrl && typeof order !== 'string') {
     const encodedSnapshot = encodeSnapshot(buildQuoteSnapshot(order as Order));
-    if (encodedSnapshot) url.searchParams.set('data', encodedSnapshot);
+    if (encodedSnapshot) params.set('data', encodedSnapshot);
   }
 
+  url.hash = `#/q/${slug}?${params.toString()}`;
   return url.toString();
 };
 

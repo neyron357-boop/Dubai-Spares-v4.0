@@ -78,7 +78,7 @@ const normalizeBotUsername = (url: string) => {
   return match?.[1] || 'DubaiSparesBot';
 };
 
-export const buildTrackingUrl = (orderId: string) => `${window.location.origin}/quote/${encodeURIComponent(orderId)}`;
+export const buildTrackingUrl = (orderId: string) => `${window.location.origin}/#/q/${encodeURIComponent(orderId)}`;
 
 export const getOrderCustomerLogs = (orderId: string) =>
   readJson<CustomerActivityLogEntry[]>(CUSTOMER_LOGS_KEY, []).filter((entry) => entry.orderId === orderId).sort((a, b) => b.createdAt - a.createdAt);
