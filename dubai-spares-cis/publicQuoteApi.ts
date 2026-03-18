@@ -996,7 +996,7 @@ export const publicQuoteCreateSnapshot = async (
       quoteUrl.searchParams.set('k', `${created.token}.${effectiveSnapshotId}`);
 
       const originalUrl = quoteUrl.toString();
-      const shortUrl = await shortenPublicQuoteUrl(originalUrl, request.controller.signal);
+      const shortUrl = await shortenPublicQuoteUrl(originalUrl, request.signal);
       const finalUrl = shortUrl || originalUrl;
 
       if (created.id) {
