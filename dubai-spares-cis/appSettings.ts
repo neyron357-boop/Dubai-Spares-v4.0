@@ -45,6 +45,8 @@ export interface AppSettings {
   publicManagerName: string;
   publicTermsFileUrl: string;
   publicTermsFileName: string;
+  executorPhotoUrl: string;
+  executorRole: string;
   publicContactsUpdatedAt: number;
   appSettingsUpdatedAt: number;
   cargoTariffs: CargoTariff[];
@@ -55,7 +57,7 @@ export interface AppSettings {
   orderZones: string[];
 }
 
-type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl' | 'publicManagerName' | 'publicTermsFileUrl' | 'publicTermsFileName'>;
+type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl' | 'publicManagerName' | 'publicTermsFileUrl' | 'publicTermsFileName' | 'executorPhotoUrl' | 'executorRole'>;
 type CloudPublicSettings = PublicAppSettings & Pick<AppSettings, 'publicContactsUpdatedAt'>;
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -89,6 +91,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   publicManagerName: '',
   publicTermsFileUrl: '',
   publicTermsFileName: '',
+  executorPhotoUrl: '',
+  executorRole: '',
   publicContactsUpdatedAt: 0,
   appSettingsUpdatedAt: 0,
   cargoTariffs: DEFAULT_CARGO_TARIFFS,
@@ -116,6 +120,8 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
   publicManagerName: typeof raw?.publicManagerName === 'string' ? raw.publicManagerName.trim() : '',
   publicTermsFileUrl: typeof raw?.publicTermsFileUrl === 'string' ? raw.publicTermsFileUrl : '',
   publicTermsFileName: typeof raw?.publicTermsFileName === 'string' ? raw.publicTermsFileName : '',
+  executorPhotoUrl: typeof raw?.executorPhotoUrl === 'string' ? raw.executorPhotoUrl : '',
+  executorRole: typeof raw?.executorRole === 'string' ? raw.executorRole.trim() : '',
   publicContactsUpdatedAt: Number.isFinite(Number(raw?.publicContactsUpdatedAt)) ? Number(raw?.publicContactsUpdatedAt) : 0,
   appSettingsUpdatedAt: Number.isFinite(Number(raw?.appSettingsUpdatedAt)) ? Number(raw?.appSettingsUpdatedAt) : 0,
   defaultVendorChecklist: Array.isArray(raw?.defaultVendorChecklist)
@@ -156,7 +162,9 @@ const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): Publi
     publicInvoiceSignatureUrl: normalized.publicInvoiceSignatureUrl,
     publicManagerName: normalized.publicManagerName,
     publicTermsFileUrl: normalized.publicTermsFileUrl,
-    publicTermsFileName: normalized.publicTermsFileName
+    publicTermsFileName: normalized.publicTermsFileName,
+    executorPhotoUrl: normalized.executorPhotoUrl,
+    executorRole: normalized.executorRole
   };
 };
 
@@ -259,7 +267,7 @@ export const loadAppSettings = (): AppSettings => {
 };
 
 export const saveAppSettings = (patch: Partial<AppSettings>): AppSettings => {
-  const touchesPublicContacts = ['publicWhatsappNumber', 'publicTelegramUrl', 'publicInstagramUrl', 'publicDeliveryTerms', 'publicWorkTerms', 'publicCompanyLogoUrl', 'publicInvoiceSignatureUrl', 'publicManagerName', 'publicTermsFileUrl', 'publicTermsFileName']
+  const touchesPublicContacts = ['publicWhatsappNumber', 'publicTelegramUrl', 'publicInstagramUrl', 'publicDeliveryTerms', 'publicWorkTerms', 'publicCompanyLogoUrl', 'publicInvoiceSignatureUrl', 'publicManagerName', 'publicTermsFileUrl', 'publicTermsFileName', 'executorPhotoUrl', 'executorRole']
     .some((field) => Object.prototype.hasOwnProperty.call(patch, field));
   const next = normalizeSettings({
     ...loadAppSettings(),

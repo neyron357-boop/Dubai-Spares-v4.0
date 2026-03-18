@@ -667,6 +667,8 @@ const buildSnapshotPayload = (
     publicCompanyLogoUrl?: string;
     publicInvoiceSignatureUrl?: string;
     publicManagerName?: string;
+    executorPhotoUrl?: string;
+    executorRole?: string;
   },
   rates?: QuoteRates
 ): PublicQuotePayloadV1 => {
@@ -872,6 +874,9 @@ const buildSnapshotPayload = (
       publicWorkTerms: publicSettings?.publicWorkTerms || '',
       publicCompanyLogoUrl: publicSettings?.publicCompanyLogoUrl || '',
       publicInvoiceSignatureUrl: publicSettings?.publicInvoiceSignatureUrl || '',
+      publicManagerName: publicSettings?.publicManagerName || '',
+      executorPhotoUrl: publicSettings?.executorPhotoUrl || '',
+      executorRole: publicSettings?.executorRole || '',
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone)
     },
     hunt_status: order.huntStatus || 'data_gathering'
@@ -880,7 +885,7 @@ const buildSnapshotPayload = (
 
 export const publicQuoteCreateSnapshot = async (
   order: Order,
-  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; publicSettings?: { publicWhatsappNumber?: string; publicTelegramUrl?: string; publicInstagramUrl?: string; publicDeliveryTerms?: string; publicWorkTerms?: string; publicCompanyLogoUrl?: string; publicInvoiceSignatureUrl?: string }; signal?: AbortSignal; timeoutMs?: number; token?: string; snapshotId?: string }
+  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; publicSettings?: { publicWhatsappNumber?: string; publicTelegramUrl?: string; publicInstagramUrl?: string; publicDeliveryTerms?: string; publicWorkTerms?: string; publicCompanyLogoUrl?: string; publicInvoiceSignatureUrl?: string; executorPhotoUrl?: string; executorRole?: string }; signal?: AbortSignal; timeoutMs?: number; token?: string; snapshotId?: string; upsertByToken?: boolean }
 ) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
   const key = order.id;
@@ -931,10 +936,13 @@ export const publicQuoteCreateSnapshot = async (
 
       if (!supabase) throw new Error('Supabase client is not initialized');
 
+      const useUpsert = !!(options?.upsertByToken && options?.token);
+      const dbOperation = useUpsert
+        ? (data: Record<string, unknown>) => supabase!.from('public_quote_snapshots').upsert(data, { onConflict: 'token' })
+        : (data: Record<string, unknown>) => supabase!.from('public_quote_snapshots').insert(data);
+
       // Attempt 1: full schema (snapshot_id + payload columns present)
-      let insertResult = await supabase
-        .from('public_quote_snapshots')
-        .insert({
+      let insertResult = await dbOperation({
           token: quoteToken,
           snapshot: snapshotToken,
           snapshot_id: snapshotToken,
@@ -949,9 +957,7 @@ export const publicQuoteCreateSnapshot = async (
       // Attempt 2: schema may be missing id/payload_json columns — keep snapshot/snapshot_id to satisfy any NOT NULL constraint
       if (insertResult.error && (insertResult.error.code === 'PGRST204' || insertResult.error.code === '42703' || String(insertResult.error.message).includes('Could not find'))) {
         void logger.info('public-quote:create', 'Retrying insert with snapshot_id but without id/payload_json in select', { orderId: order.id, error: insertResult.error.message });
-        insertResult = await supabase
-          .from('public_quote_snapshots')
-          .insert({
+        insertResult = await dbOperation({
             token: quoteToken,
             snapshot: snapshotToken,
             snapshot_id: snapshotToken,
@@ -966,9 +972,7 @@ export const publicQuoteCreateSnapshot = async (
       // Attempt 3: snapshot_id column also missing — absolute minimal insert
       if (insertResult.error && (insertResult.error.code === 'PGRST204' || insertResult.error.code === '42703' || String(insertResult.error.message).includes('Could not find'))) {
         void logger.info('public-quote:create', 'Retrying insert without snapshot_id', { orderId: order.id, error: insertResult.error.message });
-        insertResult = await supabase
-          .from('public_quote_snapshots')
-          .insert({
+        insertResult = await dbOperation({
             token: quoteToken,
             order_id: order.id,
             expires_at: expiresAt,
