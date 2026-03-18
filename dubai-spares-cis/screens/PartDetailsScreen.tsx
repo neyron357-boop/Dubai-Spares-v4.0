@@ -23,7 +23,8 @@ import {
   ChevronDown,
   Check,
   ExternalLink,
-  Images
+  Images,
+  Send
 } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
