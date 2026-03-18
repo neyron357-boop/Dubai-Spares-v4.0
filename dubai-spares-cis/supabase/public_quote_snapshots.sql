@@ -10,6 +10,8 @@ create table if not exists public.public_quote_snapshots (
   payload_b64    text,
   payload_codec  text,
   image_manifest jsonb       not null default '[]'::jsonb,
+  original_url   text,
+  short_url      text,
   expires_at     timestamptz,
   created_at     timestamptz not null default now()
 );
@@ -24,6 +26,8 @@ alter table public.public_quote_snapshots
   add column if not exists payload_b64    text,
   add column if not exists payload_codec  text,
   add column if not exists image_manifest jsonb       default '[]'::jsonb,
+  add column if not exists original_url   text,
+  add column if not exists short_url      text,
   add column if not exists expires_at     timestamptz;
 
 create index if not exists idx_public_quote_snapshots_token

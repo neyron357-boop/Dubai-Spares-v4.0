@@ -64,6 +64,19 @@ export const sharePublicOrderForm = async () => {
   return payload;
 };
 
+const buildPublicQuoteShareMessage = (order: Order, link: string) => {
+  const carName = [order.brand, order.model, order.year].filter(Boolean).join(' ').trim() || `автомобиля ${order.id}`;
+  const clientName = (order.clientName || '').trim();
+  const intro = clientName ? `Здравствуйте, ${clientName}!` : 'Здравствуйте!';
+  return [
+    intro,
+    `Подготовили для вас публичную смету по автомобилю ${carName}.`,
+    'Пожалуйста, переходите по этой ссылке, чтобы посмотреть смету, фотографии деталей и актуальные условия:',
+    link,
+    'Если понадобится помощь или уточнение по позициям, пожалуйста, напишите нам — мы с удовольствием подскажем.'
+  ].join('\n\n');
+};
+
 export const shareMessage = async (text: string) => {
   if (navigator.share) {
     await navigator.share({ text });
@@ -372,21 +385,24 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
     rates: options?.rates
   });
   const link = snapshot.url;
+  const shareText = buildPublicQuoteShareMessage(order, link);
 
   if (navigator.share) {
     await navigator.share({
+      title: `Смета для ${order.brand} ${order.model} ${order.year}`.trim(),
+      text: shareText,
       url: link
     });
-    return { method: 'native' as const, link };
+    return { method: 'native' as const, link, shareText };
   }
 
-  const copied = await copyToClipboard(link);
+  const copied = await copyToClipboard(shareText);
   if (copied) {
-    return { method: 'clipboard' as const, link };
+    return { method: 'clipboard' as const, link, shareText };
   }
 
-  await shareMessage(link);
-  return { method: 'fallback' as const, link };
+  await shareMessage(shareText);
+  return { method: 'fallback' as const, link, shareText };
 };
 
 export const copyToClipboard = async (text: string) => {

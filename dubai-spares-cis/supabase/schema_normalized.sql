@@ -229,9 +229,13 @@ create table if not exists public.public_quote_snapshots (
   token text primary key,
   order_id text not null,
   payload jsonb not null,
+  original_url text,
+  short_url text,
   expires_at timestamptz not null,
   created_at timestamptz not null default now()
 );
+alter table public.public_quote_snapshots add column if not exists original_url text;
+alter table public.public_quote_snapshots add column if not exists short_url text;
 
 create index if not exists idx_public_quote_snapshots_order_id
   on public.public_quote_snapshots (order_id);
