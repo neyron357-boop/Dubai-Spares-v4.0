@@ -23,9 +23,10 @@ const publicQuotePathParam = publicQuoteMatch ? decodeURIComponent((publicQuoteM
 const hashQuoteMatch = window.location.hash.match(/^#\/q\/([^/?#]+).*$/i);
 const hashQuoteToken = hashQuoteMatch ? decodeURIComponent(hashQuoteMatch[1].trim()) : null;
 const publicQuoteOrderId = publicQuotePathParam ? extractOrderIdFromQuoteSlug(publicQuotePathParam) : null;
-const isPublicScrollableRoute = isPublicOrderFormRoute || !!publicQuoteOrderId || !!hashQuoteToken;
+const isPublicQuoteRoute = !!publicQuoteOrderId || !!hashQuoteToken;
+const isPublicScrollableRoute = isPublicOrderFormRoute || isPublicQuoteRoute;
 
-const BOOT_RESET_MARKER = 'dubai-spares-public-form-hard-reset-done';
+const BOOT_RESET_MARKER = 'dubai-spares-public-route-hard-reset-done';
 
 const deleteIndexedDbByName = (name: string) => new Promise<void>((resolve) => {
   const request = indexedDB.deleteDatabase(name);
@@ -61,8 +62,8 @@ const clearApplicationStorage = async () => {
   window.sessionStorage.clear();
 };
 
-const hardResetPublicFormOnBoot = async (): Promise<void> => {
-  if (!isPublicOrderFormRoute) return;
+const hardResetPublicRouteOnBoot = async (): Promise<void> => {
+  if (!isPublicOrderFormRoute && !isPublicQuoteRoute) return;
   if (window.sessionStorage.getItem(BOOT_RESET_MARKER) === '1') return;
 
   await clearApplicationStorage();
@@ -73,7 +74,7 @@ const hardResetPublicFormOnBoot = async (): Promise<void> => {
 };
 
 void (async () => {
-  await hardResetPublicFormOnBoot();
+  await hardResetPublicRouteOnBoot();
 
   if (isPublicScrollableRoute) {
     document.documentElement.classList.add('public-order-form');
@@ -115,7 +116,7 @@ const playLeadAlertSound = () => {
   osc.stop(now + 0.65);
 };
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && !isPublicQuoteRoute) {
   window.addEventListener('load', () => {
     void navigator.serviceWorker.register('/sw.js').then(async (registration) => {
 
