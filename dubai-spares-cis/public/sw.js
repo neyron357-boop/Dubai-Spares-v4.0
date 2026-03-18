@@ -1,4 +1,4 @@
-const APP_SHELL_CACHE = 'dubai-spares-shell-v8';
+const APP_SHELL_CACHE = 'dubai-spares-shell-v9';
 const RUNTIME_IMAGE_CACHE = 'dubai-spares-runtime-images-v1';
 const APP_SHELL_FILES = ['/', '/index.html', '/manifest.json', '/icon-32.png', '/icon-180.png', '/icon-192.png', '/icon-512.png'];
 
@@ -45,6 +45,12 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
+  const isPublicTrackingRoute = request.mode === 'navigate' && (url.pathname.startsWith('/quote/') || url.pathname.startsWith('/order/') || url.hash.startsWith('#/q/'));
+
+  if (isPublicTrackingRoute) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
 
   const isSupabaseStorage = url.pathname.includes('/storage/v1/object/');
   if (isSupabaseStorage && request.destination === 'image') {
