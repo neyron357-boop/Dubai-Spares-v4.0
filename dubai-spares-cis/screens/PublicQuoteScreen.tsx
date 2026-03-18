@@ -1534,7 +1534,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const snapshotPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const t = i18n[lang];
-  const params = useMemo(() => new URLSearchParams(window.location.search), []);
+  const params = useMemo(() => {
+    // In HashRouter the query string lives inside window.location.hash (e.g. "#/q/ID?k=token"),
+    // so window.location.search is always empty.  Extract the search portion from the hash first
+    // and fall back to window.location.search for any non-hash deployments.
+    const hashStr = window.location.hash;
+    const qIdx = hashStr.indexOf('?');
+    const hashSearch = qIdx >= 0 ? hashStr.slice(qIdx) : '';
+    return new URLSearchParams(hashSearch || window.location.search);
+  }, []);
   const embeddedSnapshot = useMemo(() => parseEmbeddedSnapshot(params.get('data')), [params]);
   const publicQuoteKey = useMemo(() => parsePublicQuoteKey(params, orderId), [params, orderId]);
   const hasSecurityToken = (publicQuoteKey?.value || '').length === 32;
@@ -2069,11 +2077,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const canOpenWhatsapp = Boolean(whatsappPhoneDigits);
   const showDebug = useMemo(() => {
     try {
-      return new URLSearchParams(window.location.search).get('debug') === '1';
+      return params.get('debug') === '1';
     } catch {
       return false;
     }
-  }, []);
+  }, [params]);
 
   const whatsappConfirmUrl = useMemo(() => {
     if (!canOpenWhatsapp) return '';
