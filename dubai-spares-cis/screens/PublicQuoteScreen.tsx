@@ -1528,6 +1528,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [huntTrack, setHuntTrack] = useState<HuntGpsPingRow[]>([]);
   const [showSearchHistory, setShowSearchHistory] = useState(false);
   const huntPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const snapshotPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const t = i18n[lang];
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
@@ -1792,8 +1793,36 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   useEffect(() => {
     void loadQuote();
-    return () => loadControllerRef.current?.abort();
+    return () => {
+      loadControllerRef.current?.abort();
+      if (snapshotPollRef.current) {
+        clearInterval(snapshotPollRef.current);
+        snapshotPollRef.current = null;
+      }
+    };
   }, [loadQuote]);
+
+  useEffect(() => {
+    if (!publicQuoteKey?.value) return;
+
+    const pollSnapshot = () => {
+      if (document.visibilityState === 'hidden') return;
+      void loadQuote();
+    };
+
+    const currentStatus = order?.huntStatus || 'data_gathering';
+    const intervalMs = currentStatus === 'live_hunt' ? 10_000 : currentStatus === 'final_offer' ? 20_000 : 8_000;
+
+    if (snapshotPollRef.current) clearInterval(snapshotPollRef.current);
+    snapshotPollRef.current = setInterval(pollSnapshot, intervalMs);
+
+    return () => {
+      if (snapshotPollRef.current) {
+        clearInterval(snapshotPollRef.current);
+        snapshotPollRef.current = null;
+      }
+    };
+  }, [loadQuote, order?.huntStatus, publicQuoteKey?.value]);
 
   // ── Hunt data polling ─────────────────────────────────────────────────────
   useEffect(() => {
