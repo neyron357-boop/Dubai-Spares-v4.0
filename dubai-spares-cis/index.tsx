@@ -7,6 +7,7 @@ import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import { extractOrderIdFromQuoteSlug } from './shareUtils';
 import { installRuntimeDiagnostics } from './runtimeDiagnostics';
 import { offlineDb } from './storage/offlineDb';
+import { logger } from './logging';
 
 installRuntimeDiagnostics();
 
@@ -36,39 +37,91 @@ const deleteIndexedDbByName = (name: string) => new Promise<void>((resolve) => {
 });
 
 const clearApplicationStorage = async () => {
+  const bootCleanupErrors: Array<{ step: string; message: string }> = [];
+  const recordCleanupError = (step: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    bootCleanupErrors.push({ step, message });
+  };
+
   if ('serviceWorker' in navigator) {
-    const registrations = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(registrations.map((registration) => registration.unregister()));
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    } catch (error) {
+      recordCleanupError('service_worker_unregister', error);
+    }
   }
 
   if ('caches' in window) {
-    const keys = await caches.keys();
-    await Promise.all(keys.map((key) => caches.delete(key)));
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    } catch (error) {
+      recordCleanupError('cache_storage_clear', error);
+    }
   }
 
   if ('indexedDB' in window) {
-    await offlineDb.rebuildIndex();
+    try {
+      await offlineDb.rebuildIndex();
+    } catch (error) {
+      recordCleanupError('offline_db_rebuild', error);
+    }
   }
 
   if ('indexedDB' in window && typeof indexedDB.databases === 'function') {
-    const databases = await indexedDB.databases();
-    const names = (databases || [])
-      .map((database) => database?.name)
-      .filter((name): name is string => typeof name === 'string' && name.length > 0);
-    await Promise.all(names.map((name) => deleteIndexedDbByName(name)));
+    try {
+      const databases = await indexedDB.databases();
+      const names = (databases || [])
+        .map((database) => database?.name)
+        .filter((name): name is string => typeof name === 'string' && name.length > 0);
+      await Promise.all(names.map((name) => deleteIndexedDbByName(name)));
+    } catch (error) {
+      recordCleanupError('indexeddb_delete_databases', error);
+    }
   }
 
-  window.localStorage.clear();
-  window.sessionStorage.clear();
+  try {
+    window.localStorage.clear();
+  } catch (error) {
+    recordCleanupError('local_storage_clear', error);
+  }
+
+  try {
+    window.sessionStorage.clear();
+  } catch (error) {
+    recordCleanupError('session_storage_clear', error);
+  }
+
+  if (bootCleanupErrors.length > 0) {
+    void logger.warn('public-route:boot', 'Public route storage reset completed with recoverable errors', {
+      errors: bootCleanupErrors
+    });
+  }
 };
 
 const hardResetPublicRouteOnBoot = async (): Promise<void> => {
   if (!isPublicOrderFormRoute && !isPublicQuoteRoute) return;
-  if (window.sessionStorage.getItem(BOOT_RESET_MARKER) === '1') return;
+  try {
+    if (window.sessionStorage.getItem(BOOT_RESET_MARKER) === '1') return;
+  } catch (error) {
+    void logger.warn('public-route:boot', 'Unable to read hard-reset session marker', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return;
+  }
 
   await clearApplicationStorage();
 
-  window.sessionStorage.setItem(BOOT_RESET_MARKER, '1');
+  try {
+    window.sessionStorage.setItem(BOOT_RESET_MARKER, '1');
+  } catch (error) {
+    void logger.warn('public-route:boot', 'Unable to persist hard-reset session marker, skipping reload to avoid blank screen loop', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return;
+  }
+
   window.location.replace(`${window.location.pathname}${window.location.search}${window.location.hash}`);
   await new Promise<never>(() => undefined);
 };
