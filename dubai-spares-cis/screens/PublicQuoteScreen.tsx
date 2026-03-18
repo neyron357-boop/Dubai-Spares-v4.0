@@ -1786,7 +1786,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       return false;
     }
 
-    const sharedSnapshot = await loadQuoteFromSharedSnapshot();
+    // Run snapshot fetch and live hunt data fetch in parallel (using `oid` URL param
+    // if available) to eliminate the race condition where loadQuote would call
+    // setOrder before fetchHunt had a chance to update liveHuntStatusRef.current.
+    const oidFromUrl = params.get('oid') || '';
+    const [sharedSnapshot, parallelHuntData] = await Promise.all([
+      loadQuoteFromSharedSnapshot(),
+      oidFromUrl ? getPublicHuntData(oidFromUrl).catch((err) => { console.debug('Parallel hunt data fetch failed:', err); return null; }) : Promise.resolve(null)
+    ]);
+
     if (sharedSnapshot.order) {
       if (sharedSnapshot.expired) {
         setOrder(null);
@@ -1794,6 +1802,22 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         setLoading(false);
         return false;
       }
+
+      // Resolve live hunt data: use parallel result if we had the oid, otherwise
+      // fetch now (sequential fallback for legacy links without `oid` param).
+      const huntData = parallelHuntData ??
+        await getPublicHuntData(sharedSnapshot.order.id).catch((err) => { console.debug('Sequential hunt data fetch failed:', err); return null; });
+
+      if (huntData) {
+        const derivedStatus: Order['huntStatus'] = !huntData.session
+          ? 'data_gathering'
+          : huntData.session.status === 'active' ? 'live_hunt' : 'final_offer';
+        liveHuntStatusRef.current = derivedStatus;
+        setHuntWaypoints(huntData.waypoints);
+        setHuntLatestPing(huntData.latestPing);
+        setHuntTrack(huntData.track);
+      }
+
       setOrder((prev) => mergeOrderWithLiveHuntStatus(sharedSnapshot.order as Order, prev, liveHuntStatusRef.current));
       setIsPayloadCorrupted(sharedSnapshot.corrupted);
       setErrorType(null);
