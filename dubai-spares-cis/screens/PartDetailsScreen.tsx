@@ -37,7 +37,8 @@ import { generatePartPriceCard, resolveBestVariant, shareGeneratedPriceImage } f
 import { logger } from '../logging';
 
 interface OfferFormState {
-  priceAed: string;
+  purchasePriceAed: string;
+  salePriceAed: string;
   shopName: string;
   supplierId?: string;
   phone: string;
@@ -52,7 +53,8 @@ interface OfferFormState {
 }
 
 const DEFAULT_FORM: OfferFormState = {
-  priceAed: '',
+  purchasePriceAed: '',
+  salePriceAed: '',
   shopName: '',
   supplierId: undefined,
   phone: '+971',
@@ -186,20 +188,23 @@ const PartDetailsScreen: React.FC = () => {
     return latest;
   }, [order]);
 
-  const numericPrice = Number(form.priceAed.replace(/\s+/g, ''));
-  const isPriceValid = Number.isFinite(numericPrice) && numericPrice > 0;
-  const canSave = isPriceValid && !!form.shopName.trim();
+  const numericPurchasePrice = Number(form.purchasePriceAed.replace(/\s+/g, ''));
+  const numericSalePrice = Number(form.salePriceAed.replace(/\s+/g, ''));
+  const isPurchasePriceValid = Number.isFinite(numericPurchasePrice) && numericPurchasePrice > 0;
+  const isSalePriceValid = Number.isFinite(numericSalePrice) && numericSalePrice > 0;
+  const variantMarginAed = isPurchasePriceValid && isSalePriceValid ? numericSalePrice - numericPurchasePrice : 0;
+  const canSave = isPurchasePriceValid && isSalePriceValid && !!form.shopName.trim();
 
-  const historyPrices = useMemo(() => partVariants.map((v) => v.priceAed).filter(Boolean), [partVariants]);
+  const historyPrices = useMemo(() => partVariants.map((v) => Number((v.salePriceAed ?? v.priceAed) || 0)).filter(Boolean), [partVariants]);
   const avgHistoryPrice = historyPrices.length ? historyPrices.reduce((a, b) => a + b, 0) / historyPrices.length : 0;
-  const isPriceOutlier = avgHistoryPrice > 0 && isPriceValid && (numericPrice < avgHistoryPrice * 0.6 || numericPrice > avgHistoryPrice * 1.6);
+  const isPriceOutlier = avgHistoryPrice > 0 && isSalePriceValid && (numericSalePrice < avgHistoryPrice * 0.6 || numericSalePrice > avgHistoryPrice * 1.6);
 
   const approxClientPrice = useMemo(() => {
-    if (!isPriceValid || !order?.exchangeRate) return null;
+    if (!isSalePriceValid || !order?.exchangeRate) return null;
     const currency = order.clientCurrency || 'USD';
-    if (currency === 'AED') return `${numericPrice.toFixed(0)} AED`;
-    return `${(numericPrice / order.exchangeRate).toFixed(0)} ${currency}`;
-  }, [isPriceValid, numericPrice, order?.exchangeRate, order?.clientCurrency]);
+    if (currency === 'AED') return `${numericSalePrice.toFixed(0)} AED`;
+    return `${(numericSalePrice / order.exchangeRate).toFixed(0)} ${currency}`;
+  }, [isSalePriceValid, numericSalePrice, order?.exchangeRate, order?.clientCurrency]);
 
   useEffect(() => {
     if (part && partVariants.length === 0 && !isAdding) {
@@ -221,7 +226,8 @@ const PartDetailsScreen: React.FC = () => {
       const editable = partVariants.find((v) => v.id === editingVariantId);
       if (!editable) return;
       setForm({
-        priceAed: String(editable.priceAed || ''),
+        purchasePriceAed: String((editable.purchasePriceAed ?? editable.priceAed) || ''),
+        salePriceAed: String((editable.salePriceAed ?? editable.priceAed) || ''),
         shopName: editable.shopName || '',
         phone: editable.phone || '+971',
         locationText: editable.locationText || editable.location || '',
@@ -370,7 +376,7 @@ const PartDetailsScreen: React.FC = () => {
 
   const saveVariant = async () => {
     if (!canSave) {
-      alert('Введите цену и магазин');
+      alert('Введите цену покупки, цену продажи и магазин');
       return;
     }
 
@@ -420,7 +426,7 @@ const PartDetailsScreen: React.FC = () => {
             partName: part.name,
             status: 'found',
             source: 'variant',
-            priceAed: Number(form.priceAed.replace(/\s+/g, '')),
+            priceAed: Number(form.salePriceAed.replace(/\s+/g, '')),
             updatedAt: Date.now()
           }],
           photoUrl: '',
@@ -455,7 +461,7 @@ const PartDetailsScreen: React.FC = () => {
             partName: part.name,
             status: 'found',
             source: 'variant',
-            priceAed: Number(form.priceAed.replace(/\s+/g, '')),
+            priceAed: Number(form.salePriceAed.replace(/\s+/g, '')),
             updatedAt: Date.now()
           }),
           photoUrl: existingSupplier.photoUrl || '',
@@ -494,7 +500,9 @@ const PartDetailsScreen: React.FC = () => {
       const newVariant: PriceVariant = {
         id: variantId,
         partId: part.id,
-        priceAed: Number(form.priceAed.replace(/\s+/g, '')),
+        priceAed: Number(form.salePriceAed.replace(/\s+/g, '')),
+        purchasePriceAed: Number(form.purchasePriceAed.replace(/\s+/g, '')),
+        salePriceAed: Number(form.salePriceAed.replace(/\s+/g, '')),
         currency: 'AED',
         shopName: resolvedShopName,
         shopId: targetSupplierId,
@@ -616,7 +624,7 @@ const PartDetailsScreen: React.FC = () => {
     return `+${cleaned}`;
   };
 
-  const pasteFromClipboard = async (target: 'priceAed' | 'phone' | 'locationText' | 'mapsUrl') => {
+  const pasteFromClipboard = async (target: 'purchasePriceAed' | 'salePriceAed' | 'phone' | 'locationText' | 'mapsUrl') => {
     try {
       const text = await navigator.clipboard.readText();
       if (!text) return;
@@ -633,7 +641,8 @@ const PartDetailsScreen: React.FC = () => {
     setIsAdding(true);
     setEditingVariantId(null);
     setForm({
-      priceAed: String(source.priceAed || ''),
+      purchasePriceAed: String((source.purchasePriceAed ?? source.priceAed) || ''),
+      salePriceAed: String((source.salePriceAed ?? source.priceAed) || ''),
       shopName: source.shopName || '',
       phone: source.phone || '+971',
       locationText: source.locationText || source.location || '',
@@ -734,7 +743,7 @@ const PartDetailsScreen: React.FC = () => {
     }
     try {
       const blob = await generatePartPriceCard(order, part, variant);
-      const result = await shareGeneratedPriceImage(blob, `part-${part.id}.png`, 'Цена по детали', `${part.name} — ${variant.priceAed} AED`);
+      const result = await shareGeneratedPriceImage(blob, `part-${part.id}.png`, 'Цена по детали', `${part.name} — ${variant.salePriceAed ?? variant.priceAed} AED`);
       if (result === 'downloaded') alert('Картинка сохранена. Теперь её можно отправить клиенту.');
     } catch (error) {
       console.error(error);
@@ -862,19 +871,32 @@ const PartDetailsScreen: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs font-black text-gray-700">Цена (AED)</label>
-                <div className="flex items-center gap-2">
-                  <input type="text" autoFocus value={form.priceAed} onChange={(e) => handleFormPatch('priceAed', e.target.value.replace(/[^\d]/g, ''))} placeholder="1250" className="h-12 px-4 text-2xl font-black text-blue-700 w-full border border-gray-200 rounded-xl" />
-                  <button type="button" onClick={() => pasteFromClipboard('priceAed')} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><ClipboardPaste size={16} /></button>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label className="text-xs font-black text-gray-700">Цена покупки (AED)</label>
+                  <div className="flex items-center gap-2">
+                    <input type="text" autoFocus value={form.purchasePriceAed} onChange={(e) => handleFormPatch('purchasePriceAed', e.target.value.replace(/[^\d]/g, ''))} placeholder="200" className="h-12 px-4 text-2xl font-black text-slate-700 w-full border border-gray-200 rounded-xl" />
+                    <button type="button" onClick={() => pasteFromClipboard('purchasePriceAed')} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><ClipboardPaste size={16} /></button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Не отображается клиенту.</p>
                 </div>
-                <div className="flex gap-2 mt-2">
-                  {[50, 100, 200].map((delta) => (
-                    <button key={delta} type="button" onClick={() => handleFormPatch('priceAed', String((Number(form.priceAed || 0) + delta)))} className="px-3 h-8 rounded-lg bg-gray-100 text-xs font-black">+{delta}</button>
-                  ))}
+                <div>
+                  <label className="text-xs font-black text-gray-700">Цена продажи (AED)</label>
+                  <div className="flex items-center gap-2">
+                    <input type="text" value={form.salePriceAed} onChange={(e) => handleFormPatch('salePriceAed', e.target.value.replace(/[^\d]/g, ''))} placeholder="250" className="h-12 px-4 text-2xl font-black text-blue-700 w-full border border-gray-200 rounded-xl" />
+                    <button type="button" onClick={() => pasteFromClipboard('salePriceAed')} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><ClipboardPaste size={16} /></button>
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    {[50, 100, 200].map((delta) => (
+                      <button key={delta} type="button" onClick={() => handleFormPatch('salePriceAed', String((Number(form.salePriceAed || 0) + delta)))} className="px-3 h-8 rounded-lg bg-gray-100 text-xs font-black">+{delta}</button>
+                    ))}
+                  </div>
+                  {approxClientPrice && <p className="text-xs text-gray-600 mt-1">≈ {approxClientPrice}</p>}
+                  {isPriceOutlier && <p className="text-xs text-amber-700 mt-1">Проверь цену ⚠️ относительно истории.</p>}
                 </div>
-                {approxClientPrice && <p className="text-xs text-gray-600 mt-1">≈ {approxClientPrice}</p>}
-                {isPriceOutlier && <p className="text-xs text-amber-700 mt-1">Проверь цену ⚠️ относительно истории.</p>}
+                <div className="md:col-span-2 rounded-2xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+                  Маржа по детали: <span className={variantMarginAed >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{variantMarginAed.toFixed(0)} AED</span>
+                </div>
               </div>
 
               <div>
@@ -933,7 +955,7 @@ const PartDetailsScreen: React.FC = () => {
                   </div>
                   <button type="button" onClick={() => pasteFromClipboard('phone')} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><ClipboardPaste size={16} /></button>
                   <button type="button" onClick={() => navigator.clipboard.writeText(form.phone)} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><Copy size={16} /></button>
-                  <button type="button" onClick={() => openWhatsapp({ ...DEFAULT_FORM, ...form, id: 'tmp', priceAed: numericPrice, location: form.locationText, createdAt: Date.now() } as PriceVariant)} className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center"><MessageCircle size={16} /></button>
+                  <button type="button" onClick={() => openWhatsapp({ ...DEFAULT_FORM, ...form, id: 'tmp', priceAed: numericSalePrice, purchasePriceAed: numericPurchasePrice, salePriceAed: numericSalePrice, location: form.locationText, createdAt: Date.now() } as PriceVariant)} className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center"><MessageCircle size={16} /></button>
                 </div>
               </div>
 
@@ -999,7 +1021,8 @@ const PartDetailsScreen: React.FC = () => {
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex justify-between items-start gap-2">
                       <div>
-                        <p className="text-2xl font-black text-blue-700 leading-none">{variant.priceAed} AED</p>
+                        <p className="text-2xl font-black text-blue-700 leading-none">{variant.salePriceAed ?? variant.priceAed} AED</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500">Покупка: {variant.purchasePriceAed ?? variant.priceAed} AED · Маржа: {Number((variant.salePriceAed ?? variant.priceAed) - (variant.purchasePriceAed ?? variant.priceAed))} AED</p>
                         <p className="text-xs text-gray-500 font-bold">{variant.shopName}</p>
                       </div>
                       <div className="flex items-center gap-1">
@@ -1065,7 +1088,7 @@ const PartDetailsScreen: React.FC = () => {
             </div>
             {(variantLibrary as VariantLibraryItem[]).filter((item) => item.sourcePartId !== part.id).slice(0, 60).map((item) => (
               <button type="button" key={`${item.origin}-${item.id}-${item.sourceOrderId || 'n'}`} onClick={() => attachVariantFromLibrary(item)} className="w-full text-left p-3 rounded-xl border border-gray-200">
-                <p className="text-sm font-bold text-gray-900">{item.shopName || 'Без названия'} · {Number(item.priceAed || 0)} AED</p>
+                <p className="text-sm font-bold text-gray-900">{item.shopName || 'Без названия'} · {Number((item.salePriceAed ?? item.priceAed) || 0)} AED</p>
                 <p className="text-xs text-gray-500">{item.origin === 'standalone' ? 'Отдельный вариант' : `Из заказа: ${item.sourceOrderLabel || '—'}`}</p>
               </button>
             ))}

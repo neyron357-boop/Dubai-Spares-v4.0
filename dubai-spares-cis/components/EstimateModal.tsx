@@ -7,6 +7,9 @@ import { useAppSettings } from '../appSettings';
 import { toast } from '../feedback';
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 
+const getVariantSalePriceAed = (variant: any) => Number(variant?.salePriceAed ?? variant?.priceAed ?? 0);
+
+
 interface Props {
   order: Order;
   onClose: () => void;
@@ -66,7 +69,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
 
   const totalAed = foundParts.reduce((sum, p) => {
     const qty = normalizePartQuantity((p as any).quantity);
-    const costAed = p.variants[0].priceAed;
+    const costAed = getVariantSalePriceAed(p.variants[0]);
     const sellAed = isFixedMarkup
       ? costAed + fixedMarkupPerPart
       : costAed * (1 + order.markupPercent / 100);
@@ -99,7 +102,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
       const qty = normalizePartQuantity((part as any).quantity);
       const cheapestVariant = part.variants[0];
       const variantWithPhoto = part.variants.find((variant) => [variant.photoUrl || '', ...(variant.photos || [])].some(Boolean)) || cheapestVariant;
-      const costAed = cheapestVariant.priceAed;
+      const costAed = getVariantSalePriceAed(cheapestVariant);
       const sellAed = isFixedMarkup
         ? costAed + fixedMarkupPerPart
         : costAed * (1 + order.markupPercent / 100);

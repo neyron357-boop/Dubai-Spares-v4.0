@@ -1,5 +1,8 @@
 import { Order, Part, PriceVariant } from '../types';
 
+const getVariantSalePriceAed = (variant: PriceVariant) => Number(variant.salePriceAed ?? variant.priceAed ?? 0);
+
+
 const COMPANY_LOGO_PATH = '/icon-192.png';
 const formatPrice = (price: number) => `${new Intl.NumberFormat('ru-RU').format(Number(price || 0))} AED`;
 
@@ -62,11 +65,11 @@ export const resolveBestVariant = (part: Part) => {
   if (!Array.isArray(part.variants) || part.variants.length === 0) return null;
   if (part.bestOfferId) {
     const best = part.variants.find((variant) => variant.id === part.bestOfferId);
-    if (best && Number(best.priceAed) > 0) return best;
+    if (best && getVariantSalePriceAed(best) > 0) return best;
   }
-  const priced = part.variants.filter((variant) => Number(variant.priceAed) > 0);
+  const priced = part.variants.filter((variant) => getVariantSalePriceAed(variant) > 0);
   if (priced.length > 0) {
-    return [...priced].sort((a, b) => Number(a.priceAed) - Number(b.priceAed))[0];
+    return [...priced].sort((a, b) => getVariantSalePriceAed(a) - getVariantSalePriceAed(b))[0];
   }
   return part.variants[0] || null;
 };
@@ -148,7 +151,7 @@ export const generatePartPriceCard = async (order: Order, part: Part, variant: P
   const startX = 550;
   context.fillStyle = '#2563EB';
   context.font = '700 62px Inter, Arial, sans-serif';
-  context.fillText(formatPrice(variant.priceAed), startX, 242);
+  context.fillText(formatPrice(getVariantSalePriceAed(variant)), startX, 242);
 
   context.fillStyle = '#334155';
   context.font = '600 28px Inter, Arial, sans-serif';
@@ -168,7 +171,7 @@ export const generatePartPriceCard = async (order: Order, part: Part, variant: P
 export const generatePartsPriceSheet = async (order: Order, entries: ShareablePart[]) => {
   const safeEntries = entries.slice(0, 6);
   const rowHeight = 220;
-  const totalPrice = safeEntries.reduce((sum, entry) => sum + Number(entry.variant.priceAed || 0), 0);
+  const totalPrice = safeEntries.reduce((sum, entry) => sum + getVariantSalePriceAed(entry.variant), 0);
   const canvas = document.createElement('canvas');
   canvas.width = 1200;
   canvas.height = 180 + safeEntries.length * rowHeight + 160;
@@ -194,7 +197,7 @@ export const generatePartsPriceSheet = async (order: Order, entries: ShareablePa
 
     context.fillStyle = '#2563EB';
     context.font = '700 38px Inter, Arial, sans-serif';
-    context.fillText(formatPrice(entry.variant.priceAed), 270, top + 116);
+    context.fillText(formatPrice(getVariantSalePriceAed(entry.variant)), 270, top + 116);
 
     context.fillStyle = '#475569';
     context.font = '500 20px Inter, Arial, sans-serif';
