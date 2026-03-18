@@ -150,6 +150,7 @@ const PartDetailsScreen: React.FC = () => {
 
   const order = orders.find((o) => o.id === orderId);
   const part = order?.parts.find((p) => p.id === partId);
+  const partVariants = useMemo(() => (Array.isArray(part?.variants) ? part.variants : []), [part?.variants]);
   const backTo = typeof (location.state as { backTo?: unknown } | null)?.backTo === 'string'
     ? String((location.state as { backTo?: unknown }).backTo)
     : `/order/${orderId}`;
@@ -177,7 +178,7 @@ const PartDetailsScreen: React.FC = () => {
     if (!order) return null;
     let latest: PriceVariant | null = null;
     order.parts.forEach((p) => {
-      p.variants.forEach((v) => {
+      (Array.isArray(p.variants) ? p.variants : []).forEach((v) => {
         if (!latest || v.createdAt > latest.createdAt) latest = v;
       });
     });
@@ -188,7 +189,7 @@ const PartDetailsScreen: React.FC = () => {
   const isPriceValid = Number.isFinite(numericPrice) && numericPrice > 0;
   const canSave = isPriceValid && !!form.shopName.trim();
 
-  const historyPrices = useMemo(() => part?.variants.map((v) => v.priceAed).filter(Boolean) || [], [part?.variants]);
+  const historyPrices = useMemo(() => partVariants.map((v) => v.priceAed).filter(Boolean), [partVariants]);
   const avgHistoryPrice = historyPrices.length ? historyPrices.reduce((a, b) => a + b, 0) / historyPrices.length : 0;
   const isPriceOutlier = avgHistoryPrice > 0 && isPriceValid && (numericPrice < avgHistoryPrice * 0.6 || numericPrice > avgHistoryPrice * 1.6);
 
@@ -198,6 +199,12 @@ const PartDetailsScreen: React.FC = () => {
     if (currency === 'AED') return `${numericPrice.toFixed(0)} AED`;
     return `${(numericPrice / order.exchangeRate).toFixed(0)} ${currency}`;
   }, [isPriceValid, numericPrice, order?.exchangeRate, order?.clientCurrency]);
+
+  useEffect(() => {
+    if (part && partVariants.length === 0 && !isAdding) {
+      setIsAdding(true);
+    }
+  }, [part, partVariants.length, isAdding]);
 
   useEffect(() => {
     if (!isAdding) {
@@ -210,7 +217,7 @@ const PartDetailsScreen: React.FC = () => {
     formSessionRef.current = nextSession;
 
     if (isEditing && part) {
-      const editable = part.variants.find((v) => v.id === editingVariantId);
+      const editable = partVariants.find((v) => v.id === editingVariantId);
       if (!editable) return;
       setForm({
         priceAed: String(editable.priceAed || ''),
@@ -243,7 +250,7 @@ const PartDetailsScreen: React.FC = () => {
       setForm(DEFAULT_FORM);
     }
     setLocationParseNotice(null);
-  }, [isAdding, isEditing, part, editingVariantId, latestOrderVariant]);
+  }, [isAdding, isEditing, part, partVariants, editingVariantId, latestOrderVariant]);
 
   if (!order || !part) return <div className="p-10 text-center text-gray-400 font-bold">ДЕТАЛЬ НЕ НАЙДЕНА</div>;
 
@@ -505,16 +512,17 @@ const PartDetailsScreen: React.FC = () => {
         isBest: form.isBest,
         syncStatus: navigator.onLine ? 'synced' : 'pending',
         note: form.note.trim(),
-        createdAt: editingVariantId ? part.variants.find((v) => v.id === editingVariantId)?.createdAt || Date.now() : Date.now(),
+        createdAt: editingVariantId ? partVariants.find((v) => v.id === editingVariantId)?.createdAt || Date.now() : Date.now(),
         updatedAt: Date.now()
       };
 
       const updatedParts = order.parts.map((p) => {
         if (p.id !== partId) return p;
-        const exists = p.variants.some((v) => v.id === variantId);
+        const currentVariants = Array.isArray(p.variants) ? p.variants : [];
+        const exists = currentVariants.some((v) => v.id === variantId);
         const variants = exists
-          ? p.variants.map((v) => (v.id === variantId ? newVariant : v))
-          : [newVariant, ...p.variants];
+          ? currentVariants.map((v) => (v.id === variantId ? newVariant : v))
+          : [newVariant, ...currentVariants];
 
         const bestOfferId = form.isBest ? variantId : p.bestOfferId === variantId ? undefined : p.bestOfferId;
         return {
@@ -577,7 +585,7 @@ const PartDetailsScreen: React.FC = () => {
   const generateShopName = () => {
     const usedNames = new Set([
       ...suppliers.map((supplier) => supplier.name.toLowerCase()),
-      ...orders.flatMap((entry) => entry.parts.flatMap((entryPart) => entryPart.variants.map((variant) => variant.shopName.toLowerCase()))),
+      ...orders.flatMap((entry) => entry.parts.flatMap((entryPart) => (Array.isArray(entryPart.variants) ? entryPart.variants : []).map((variant) => variant.shopName.toLowerCase()))),
       ...generatedSupplierNamesRef.current
     ]);
     const name = createRandomSupplierName(usedNames);
@@ -619,7 +627,7 @@ const PartDetailsScreen: React.FC = () => {
   };
 
   const duplicateTopVariant = () => {
-    const source = part.variants[0];
+    const source = partVariants[0];
     if (!source) return;
     setIsAdding(true);
     setEditingVariantId(null);
@@ -958,7 +966,7 @@ const PartDetailsScreen: React.FC = () => {
               <button type="button" onClick={() => handleFormPatch('isBest', !form.isBest)} className={`w-full h-11 rounded-xl border font-black text-sm flex items-center justify-center gap-2 ${form.isBest ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-600'}`}><Star size={16} /> Лучший вариант</button>
 
               {isEditing && (
-                <p className="text-xs text-gray-500">Создан: {new Date(part.variants.find((v) => v.id === editingVariantId)?.createdAt || Date.now()).toLocaleString()}</p>
+                <p className="text-xs text-gray-500">Создан: {new Date(partVariants.find((v) => v.id === editingVariantId)?.createdAt || Date.now()).toLocaleString()}</p>
               )}
             </div>
 
@@ -971,12 +979,12 @@ const PartDetailsScreen: React.FC = () => {
         )}
 
         <div className="space-y-3 pt-2" ref={variantsListRef}>
-          <h2 className="font-black text-gray-500 uppercase text-[11px] tracking-[0.18em]">Варианты ({part.variants.length})</h2>
-          {part.variants.length === 0 ? (
+          <h2 className="font-black text-gray-500 uppercase text-[11px] tracking-[0.18em]">Варианты ({partVariants.length})</h2>
+          {partVariants.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center">
               <p className="text-sm font-black text-gray-700">Пока нет вариантов.</p>
             </div>
-          ) : part.variants.map((variant) => {
+          ) : partVariants.map((variant) => {
             const displayPhotos = getVariantPhotos(variant);
             const isBest = part.bestOfferId === variant.id || !!variant.isBest;
             return (
@@ -995,7 +1003,7 @@ const PartDetailsScreen: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-1">
                         <button type="button" onClick={() => {
-                          const updatedParts = order.parts.map((p) => p.id === part.id ? { ...p, bestOfferId: p.bestOfferId === variant.id ? undefined : variant.id, variants: p.variants.map((v) => ({ ...v, isBest: v.id === variant.id && p.bestOfferId !== variant.id })) } : p);
+                          const updatedParts = order.parts.map((p) => p.id === part.id ? { ...p, bestOfferId: p.bestOfferId === variant.id ? undefined : variant.id, variants: (Array.isArray(p.variants) ? p.variants : []).map((v) => ({ ...v, isBest: v.id === variant.id && p.bestOfferId !== variant.id })) } : p);
                           updateOrder({ ...order, parts: updatedParts });
                         }} className={`p-2 rounded-lg ${isBest ? 'text-emerald-600 bg-emerald-50' : 'text-gray-300'}`}><Star size={16} fill={isBest ? 'currentColor' : 'none'} /></button>
                         <button type="button" onClick={() => { setIsAdding(true); setEditingVariantId(variant.id); }} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"><ChevronDown size={16} /></button>
@@ -1026,13 +1034,13 @@ const PartDetailsScreen: React.FC = () => {
           <div className="w-full bg-white rounded-t-3xl p-4 space-y-2" onClick={(e) => e.stopPropagation()}>
             <p className="text-sm font-black text-gray-900">✅ Вариант добавлен</p>
             <button type="button" onClick={() => {
-              const newest = part.variants[0];
+              const newest = partVariants[0];
               if (!newest) return;
               const updatedParts = order.parts.map((p) => p.id === part.id ? { ...p, bestOfferId: newest.id } : p);
               updateOrder({ ...order, parts: updatedParts });
               setShowAfterSaveSheet(false);
             }} className="w-full h-11 rounded-xl border border-gray-200 text-sm font-bold">Сделать лучшим</button>
-            <button type="button" onClick={() => { if (part.variants[0]) openWhatsapp(part.variants[0]); }} className="w-full h-11 rounded-xl border border-gray-200 text-sm font-bold">Открыть WhatsApp магазина</button>
+            <button type="button" onClick={() => { if (partVariants[0]) openWhatsapp(partVariants[0]); }} className="w-full h-11 rounded-xl border border-gray-200 text-sm font-bold">Открыть WhatsApp магазина</button>
             <button type="button" onClick={() => { setIsAdding(true); setShowAfterSaveSheet(false); }} className="w-full h-11 rounded-xl border border-gray-200 text-sm font-bold">Добавить ещё вариант</button>
             <button type="button" onClick={() => navigate(`/order/${order.id}`)} className="w-full h-11 rounded-xl bg-blue-600 text-white text-sm font-black">Вернуться к деталям</button>
           </div>
