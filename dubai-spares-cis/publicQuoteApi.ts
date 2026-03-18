@@ -186,27 +186,27 @@ const isDevBuild = typeof import.meta !== 'undefined' && Boolean(import.meta.env
 
 const createInFlight = new Map<string, Promise<{ id: string | null | undefined; token: string; snapshotId: string; expiresAt: string; url: string; originalUrl: string; shortUrl: string | null }>>();
 
-const TINY_URL_API = 'https://tinyurl.com/api-create.php';
+const ISGD_API = 'https://is.gd/create.php';
 
 const shortenPublicQuoteUrl = async (url: string, signal?: AbortSignal): Promise<string | null> => {
   const encodedUrl = encodeURIComponent(url);
   try {
-    const response = await fetch(`${TINY_URL_API}?url=${encodedUrl}`, {
+    const response = await fetch(`${ISGD_API}?format=simple&url=${encodedUrl}`, {
       method: 'GET',
       signal
     });
     if (!response.ok) {
-      void logger.warn('public-quote:shorten', 'TinyURL request failed', { status: response.status, url });
+      void logger.warn('public-quote:shorten', 'is.gd request failed', { status: response.status, url });
       return null;
     }
     const shortUrl = String(await response.text()).trim();
     if (!shortUrl || !/^https?:\/\//i.test(shortUrl)) {
-      void logger.warn('public-quote:shorten', 'TinyURL returned invalid body', { shortUrl, url });
+      void logger.warn('public-quote:shorten', 'is.gd returned invalid body', { shortUrl, url });
       return null;
     }
     return shortUrl;
   } catch (error) {
-    void logger.warn('public-quote:shorten', 'TinyURL request threw', {
+    void logger.warn('public-quote:shorten', 'is.gd request threw', {
       url,
       error: error instanceof Error ? error.message : 'unknown'
     });
@@ -996,7 +996,7 @@ export const publicQuoteCreateSnapshot = async (
       quoteUrl.searchParams.set('k', `${created.token}.${effectiveSnapshotId}`);
 
       const originalUrl = quoteUrl.toString();
-      const shortUrl = await shortenPublicQuoteUrl(originalUrl, request.controller.signal);
+      const shortUrl = await shortenPublicQuoteUrl(originalUrl, request.signal);
       const finalUrl = shortUrl || originalUrl;
 
       if (created.id) {
