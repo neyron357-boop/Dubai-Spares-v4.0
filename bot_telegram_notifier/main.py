@@ -17,6 +17,7 @@ SUPABASE_KEY = "sb_publishable_LBtkQ3o98MWr0GCSi-ImTw_N5pMpk7V"
 
 # Все подписчики получают уведомления (без владельца)
 SUBSCRIBERS_FILE = Path(__file__).with_name("telegram_subscribers.json")
+CUSTOMER_LINKS_FILE = Path(__file__).with_name("telegram_customer_links.json")
 POLL_INTERVAL_SECONDS = 2
 LIMIT = 30
 
@@ -38,6 +39,7 @@ subscribers: set[int] = set()
 last_seen_per_source: dict[str, tuple[str, str]] = {}
 offset = 0
 last_supabase_error = ""
+customer_links: dict[str, dict] = {}
 
 
 def load_subscribers() -> set[int]:
@@ -62,6 +64,25 @@ def save_subscribers():
     except Exception as e:
         print(f"[WARN] cannot save subscribers: {e}")
 
+
+
+
+def load_customer_links() -> dict[str, dict]:
+    if not CUSTOMER_LINKS_FILE.exists():
+        return {}
+    try:
+        raw = json.loads(CUSTOMER_LINKS_FILE.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except Exception as e:
+        print(f"[WARN] cannot load customer links: {e}")
+        return {}
+
+
+def save_customer_links():
+    try:
+        CUSTOMER_LINKS_FILE.write_text(json.dumps(customer_links, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[WARN] cannot save customer links: {e}")
 
 def http_json(url: str, method: str = "GET", headers=None, data=None, timeout: int = 30):
     req = urllib.request.Request(url=url, method=method, headers=headers or {}, data=data)
@@ -371,7 +392,21 @@ def supabase_poll_loop():
         time.sleep(POLL_INTERVAL_SECONDS)
 
 
-def cmd_start(chat_id: int):
+def cmd_start(chat_id: int, payload: str | None = None):
+    tracking_match = re.search(r"track_([^\s]+)", payload or "")
+    if tracking_match:
+        code = urllib.parse.unquote(tracking_match.group(1))
+        order_id = code.split(":", 1)[0]
+        customer_links[str(chat_id)] = {
+            "chat_id": chat_id,
+            "order_id": order_id,
+            "code": code,
+            "linked_at": datetime.now(timezone.utc).isoformat(),
+        }
+        save_customer_links()
+        send_message(chat_id, f"✅ Telegram-уведомления по заказу {order_id} подключены. Мы связали ваш chat_id с order_id.")
+        return
+
     is_new = chat_id not in subscribers
     subscribers.add(chat_id)
     save_subscribers()
@@ -410,11 +445,14 @@ def handle_update(upd: dict):
     chat_id = int(chat_id)
 
     if text.startswith("/start"):
-        cmd_start(chat_id)
+        payload = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else None
+        cmd_start(chat_id, payload)
     elif text.startswith("/stop"):
         cmd_stop(chat_id)
     elif text.startswith("/status"):
         cmd_status(chat_id)
+    elif not text.startswith("/") and re.match(r"^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$", text):
+        cmd_start(chat_id, f'track_{text}')
     elif text.startswith("/"):
         send_message(
             chat_id,
@@ -449,13 +487,15 @@ def telegram_updates_loop():
 
 
 def main():
-    global subscribers
+    global subscribers, customer_links
     subscribers = load_subscribers()
+    customer_links = load_customer_links()
 
     print("[START] Telegram notifier started")
     me = tg_api("getMe")
     print(f"[BOT] @{me.get('result', {}).get('username', 'unknown')}")
     print(f"[SUBSCRIBERS] loaded: {len(subscribers)}")
+    print(f"[CUSTOMER LINKS] loaded: {len(customer_links)}")
 
     bootstrap_last_seen()
 

@@ -16,6 +16,7 @@ import { CloudLeadRow, leadsSync, purgePublicLeadArtifacts } from './serverApi';
 import { refreshSupabaseSchemaCache } from './schemaCache';
 import { isBrokenImageUrl, markBrokenImageUrl, shouldBlacklistByStatus } from './storage/brokenImageBlacklist';
 import { scheduleLivePublicQuoteSync } from './publicQuoteSync';
+import { enqueueCustomerNotificationEvent } from './customerEngagement';
 
 type OrderState = {
   orders: Order[];
@@ -2117,6 +2118,24 @@ export const updateOrderItem = async (order: Order) => {
       entityId: normalized.id,
       route: `/order/${normalized.id}`
     });
+  }
+  if (previousOrder) {
+    if (JSON.stringify(previousOrder.pricingEvents || []) !== JSON.stringify(normalized.pricingEvents || [])) {
+      enqueueCustomerNotificationEvent(normalized, 'quote_updated', `Обновлена смета по заказу ${normalized.brand} ${normalized.model}`);
+    }
+    if (JSON.stringify(previousOrder.logistics || {}) !== JSON.stringify(normalized.logistics || {})) {
+      enqueueCustomerNotificationEvent(normalized, 'logistics_updated', `Обновлена логистика по заказу ${normalized.brand} ${normalized.model}`);
+    }
+    if ((previousOrder.status || '') !== (normalized.status || '')) {
+      enqueueCustomerNotificationEvent(normalized, 'status_changed', `Статус заказа изменён: ${previousOrder.status || '—'} → ${normalized.status || '—'}`);
+    }
+    if ((previousOrder.huntStatus || '') !== (normalized.huntStatus || '')) {
+      enqueueCustomerNotificationEvent(normalized, 'hunt_history', `Обновился прогресс поиска по заказу ${normalized.brand} ${normalized.model}`);
+    }
+    const shipmentChanged = JSON.stringify(previousOrder.vendorContacts || []) !== JSON.stringify(normalized.vendorContacts || []);
+    if (shipmentChanged) {
+      enqueueCustomerNotificationEvent(normalized, 'shipment_updated', `Есть обновление по отправке/исполнителям для заказа ${normalized.brand} ${normalized.model}`);
+    }
   }
   const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
   setState({ orders: next, error: null });
