@@ -31,7 +31,9 @@ import {
 import { toast, vibrate } from '../feedback';
 import { uploadImageToStorage } from '../storage/photos';
 
-// GPS ping interval: every 2 minutes
+// GPS ping interval: every 2 minutes — balances battery impact vs. tracking granularity.
+// Operators travel between scrapyards (avg 10–20 min per leg), so 2-min resolution
+// gives clients a useful map without draining the phone battery on a long field day.
 const GPS_PING_INTERVAL_MS = 2 * 60 * 1000;
 
 const RESULT_LABELS: Record<HuntWaypointResult, string> = {
@@ -134,8 +136,9 @@ const HuntModeScreen: React.FC = () => {
       const { latitude, longitude, accuracy } = pos.coords;
       setCurrentPos({ lat: latitude, lng: longitude });
       await sendGpsPing(sid, latitude, longitude, accuracy);
-    } catch {
-      // Silently ignore GPS errors (device may be indoors)
+    } catch (err) {
+      // Silently ignore GPS errors for UX (device may be indoors / permission denied)
+      console.debug('GPS ping failed:', err);
     }
   }, []);
 

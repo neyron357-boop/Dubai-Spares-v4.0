@@ -1803,7 +1803,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         setHuntWaypoints(data.waypoints);
         setHuntLatestPing(data.latestPing);
         setHuntTrack(data.track);
-      } catch { /* silent */ }
+      } catch (err) { console.debug('Hunt data fetch failed:', err); /* silent */ }
     };
 
     void fetchHunt();
