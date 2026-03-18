@@ -998,7 +998,7 @@ export const publicQuoteCreateSnapshot = async (
       }
       const effectiveSnapshotId = (created.snapshot_id || created.id || '').trim();
 
-      const quoteUrl = new URL(`${window.location.origin}/#/q/${encodeURIComponent(buildPublicQuoteSlug(order))}`);
+      const quoteUrl = new URL(`${window.location.origin}/quote/${encodeURIComponent(buildPublicQuoteSlug(order))}`);
       quoteUrl.searchParams.set('k', `${created.token}.${effectiveSnapshotId}`);
 
       const originalUrl = quoteUrl.toString();

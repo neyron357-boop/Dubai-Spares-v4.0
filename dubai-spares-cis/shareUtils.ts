@@ -70,8 +70,9 @@ const buildPublicQuoteShareMessage = (order: Order, link: string) => {
   const intro = clientName ? `Здравствуйте, ${clientName}!` : 'Здравствуйте!';
   return [
     intro,
-    `Подготовили для вас публичную смету по автомобилю ${carName}.`,
-    'Пожалуйста, переходите по этой ссылке, чтобы посмотреть смету, фотографии деталей и актуальные условия:',
+    `Подготовили для вас актуальную tracking-ссылку по автомобилю ${carName}.`,
+    'По этой ссылке всегда отображается текущее состояние заказа: статус заявки, ход поиска, добавленные варианты, цены, фотографии и другие обновления по заказу.',
+    'Открывайте ту же самую ссылку в любое время, чтобы видеть самую свежую информацию:',
     link,
     'Если понадобится помощь или уточнение по позициям, пожалуйста, напишите нам — мы с удовольствием подскажем.'
   ].join('\n\n');
@@ -335,7 +336,7 @@ const buildQuoteSnapshot = (order: Pick<Order,
 export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
   const slug = typeof order === 'string' ? encodeURIComponent(order) : encodeURIComponent(buildPublicQuoteSlug(order));
   const token = options?.snapshotToken || createQuoteToken();
-  const url = new URL(`${window.location.origin}/#/q/${slug}`);
+  const url = new URL(`${window.location.origin}/quote/${slug}`);
   url.searchParams.set('token', token);
   const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
   url.searchParams.set('exp', String(expiresAt));
