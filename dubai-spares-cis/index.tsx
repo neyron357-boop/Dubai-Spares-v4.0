@@ -100,15 +100,15 @@ const clearApplicationStorage = async () => {
   }
 };
 
-const hardResetPublicRouteOnBoot = async (): Promise<void> => {
-  if (!isPublicOrderFormRoute && !isPublicQuoteRoute) return;
+const hardResetPublicRouteOnBoot = async (): Promise<boolean> => {
+  if (!isPublicOrderFormRoute && !isPublicQuoteRoute) return false;
   try {
-    if (window.sessionStorage.getItem(BOOT_RESET_MARKER) === '1') return;
+    if (window.sessionStorage.getItem(BOOT_RESET_MARKER) === '1') return false;
   } catch (error) {
     void logger.warn('public-route:boot', 'Unable to read hard-reset session marker', {
       error: error instanceof Error ? error.message : String(error)
     });
-    return;
+    return false;
   }
 
   await clearApplicationStorage();
@@ -119,15 +119,21 @@ const hardResetPublicRouteOnBoot = async (): Promise<void> => {
     void logger.warn('public-route:boot', 'Unable to persist hard-reset session marker, skipping reload to avoid blank screen loop', {
       error: error instanceof Error ? error.message : String(error)
     });
-    return;
+    return false;
   }
 
-  window.location.replace(`${window.location.pathname}${window.location.search}${window.location.hash}`);
-  await new Promise<never>(() => undefined);
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  window.setTimeout(() => {
+    if (document.visibilityState === 'hidden') return;
+    window.location.reload();
+  }, 800);
+  window.location.replace(currentUrl);
+  return true;
 };
 
 void (async () => {
-  await hardResetPublicRouteOnBoot();
+  const isHardResetReloading = await hardResetPublicRouteOnBoot();
+  if (isHardResetReloading) return;
 
   if (isPublicScrollableRoute) {
     document.documentElement.classList.add('public-order-form');
