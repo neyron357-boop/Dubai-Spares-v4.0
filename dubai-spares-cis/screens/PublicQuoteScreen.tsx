@@ -29,6 +29,7 @@ import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems'
 import { calculateCargoEstimates } from '../utils/cargo';
 import { SUPABASE_URL } from '../cloudConfig';
 import { getPublicHuntData } from '../huntSessionApi';
+import { appendCustomerLog, confirmRelevance, ensureTelegramSubscriptionState, markRelevancePromptShown, maybeOpenRelevancePrompt, pauseOrderSearchFromTracking } from '../customerEngagement';
 
 type Language = 'en' | 'ru';
 
@@ -1527,6 +1528,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [huntLatestPing, setHuntLatestPing] = useState<HuntGpsPingRow | null>(null);
   const [huntTrack, setHuntTrack] = useState<HuntGpsPingRow[]>([]);
   const [showSearchHistory, setShowSearchHistory] = useState(false);
+  const [showRelevancePrompt, setShowRelevancePrompt] = useState(false);
+  const [showPauseConfirm, setShowPauseConfirm] = useState(false);
   const huntPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const snapshotPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -2086,6 +2089,24 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   }, [whatsappConfirmUrl]);
 
   const isQuoteExpired = Boolean(expiresAtIso && Date.parse(expiresAtIso) < Date.now());
+  const telegramSubscription = useMemo(() => order ? ensureTelegramSubscriptionState(order.id, settings.publicTelegramUrl || quoteContact?.telegram || '') : null, [order, settings.publicTelegramUrl, quoteContact?.telegram]);
+
+  useEffect(() => {
+    if (!order?.id) return;
+    appendCustomerLog({ orderId: order.id, type: 'tracking_opened', actor: 'customer', channel: 'tracking_page', summary: 'Клиент открыл tracking page.', meta: { quoteId: orderId } });
+    const interval = window.setInterval(() => {
+      appendCustomerLog({ orderId: order.id, type: 'tracking_view_heartbeat', actor: 'customer', channel: 'tracking_page', summary: 'Клиент продолжает просмотр tracking page.' });
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, [order?.id, orderId]);
+
+  useEffect(() => {
+    if (!order?.id) return;
+    if (!maybeOpenRelevancePrompt(order.id)) return;
+    markRelevancePromptShown(order.id);
+    setShowRelevancePrompt(true);
+  }, [order?.id]);
+
   const stickyStatusLabel = isQuoteExpired
     ? t.statusExpired
     : isOpeningWhatsapp
@@ -2713,9 +2734,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                     <MessageCircle size={15} /> WhatsApp
                   </a>
                 )}
-                {settings.publicTelegramUrl && (
-                  <a href={settings.publicTelegramUrl} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100">
-                    <Send size={15} /> Telegram
+                {telegramSubscription?.deepLink && (
+                  <a href={telegramSubscription.deepLink} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100">
+                    <Send size={15} /> Telegram updates
                   </a>
                 )}
                 {settings.publicInstagramUrl && (
@@ -2724,6 +2745,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                   </a>
                 )}
               </div>
+              {telegramSubscription?.code && (
+                <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 text-xs text-slate-600">
+                  <div className="font-black uppercase tracking-wide text-sky-700">Telegram subscription</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-900">Код подключения: {telegramSubscription.code}</div>
+                  <div className="mt-1">Откройте Telegram по deep link или отправьте этот код боту, чтобы связать chat_id с заказом и получать обновления с кнопкой открытия tracking page.</div>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -2780,6 +2808,30 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       </div>
 
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
+      {showRelevancePrompt && order && (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/50 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-[28px] bg-white p-5 shadow-2xl">
+            <h3 className="text-xl font-bold text-slate-900">Поиск деталей всё ещё актуален?</h3>
+            <p className="mt-2 text-sm text-slate-600">Каждые 24 часа мы уточняем актуальность заказа, чтобы не держать лишние поиски в работе.</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => { confirmRelevance(order.id, true); setShowRelevancePrompt(false); }} className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white">Да, актуально</button>
+              <button type="button" onClick={() => { confirmRelevance(order.id, false); setShowRelevancePrompt(false); setShowPauseConfirm(true); }} className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">Нет</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showPauseConfirm && order && (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/50 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-[28px] bg-white p-5 shadow-2xl">
+            <h3 className="text-xl font-bold text-slate-900">Приостановить поиск?</h3>
+            <p className="mt-2 text-sm text-slate-600">Если поиск больше не нужен, мы зафиксируем паузу и уведомим менеджера по заказу.</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setShowPauseConfirm(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700">Вернуться</button>
+              <button type="button" onClick={() => { pauseOrderSearchFromTracking(order); setShowPauseConfirm(false); }} className="rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white">Приостановить</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

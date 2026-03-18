@@ -38,7 +38,9 @@ import {
   Download,
   Flag,
   Radio,
-  Trophy
+  Trophy,
+  MessageSquareMore,
+  History
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
@@ -54,6 +56,7 @@ import { ensureRadarSessionForOrder } from '../radarSessionService';
 import { getPartDisplayName, normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 import { useAppSettings } from '../appSettings';
 import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
+import { ensureTelegramSubscriptionState, getOrderCustomerLogs } from '../customerEngagement';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -341,6 +344,10 @@ const OrderDetailsScreen: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
+  const [showCustomerLogs, setShowCustomerLogs] = useState(false);
+  const [customerLogs, setCustomerLogs] = useState(() => getOrderCustomerLogs(order?.id || ''));
+  const telegramSubscription = useMemo(() => order ? ensureTelegramSubscriptionState(order.id, settings.publicTelegramUrl || '') : null, [order, settings.publicTelegramUrl]);
+
   const [logisticsDraft, setLogisticsDraft] = useState<Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string>>({
     deliveryAed: String(Number(order?.logistics?.deliveryAed || 0)),
     packingAed: String(Number(order?.logistics?.packingAed || 0)),
@@ -377,6 +384,17 @@ const OrderDetailsScreen: React.FC = () => {
       serviceFeeAed: String(Number(order.logistics?.serviceFeeAed || 0))
     });
   }, [order?.id, order?.logistics?.deliveryAed, order?.logistics?.packingAed, order?.logistics?.serviceFeeAed]);
+  useEffect(() => {
+    if (!order?.id) return;
+    setCustomerLogs(getOrderCustomerLogs(order.id));
+    const handleLogsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ orderId?: string }>).detail;
+      if (!detail?.orderId || detail.orderId === order.id) setCustomerLogs(getOrderCustomerLogs(order.id));
+    };
+    window.addEventListener('customer-logs:changed', handleLogsChanged);
+    return () => window.removeEventListener('customer-logs:changed', handleLogsChanged);
+  }, [order?.id]);
+
 
   useEffect(() => {
     const nextDrafts = (order.parts || []).reduce((acc, part) => {
@@ -2176,13 +2194,18 @@ const OrderDetailsScreen: React.FC = () => {
 
         {/* Client & Source Block */}
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <button type="button" onClick={() => setIsClientBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Клиент</p>
-              <p className="text-sm font-bold text-gray-800">{String(draftFields.clientName ?? order.clientName ?? 'Без имени')}</p>
-            </div>
-            {isClientBlockExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setIsClientBlockExpanded((prev) => !prev)} className="flex flex-1 items-center justify-between text-left">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Клиент</p>
+                <p className="text-sm font-bold text-gray-800">{String(draftFields.clientName ?? order.clientName ?? 'Без имени')}</p>
+              </div>
+              {isClientBlockExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+            </button>
+            <button type="button" onClick={() => setShowCustomerLogs(true)} className="h-10 shrink-0 rounded-xl border border-gray-200 bg-gray-50 px-3 text-[11px] font-black text-gray-700 inline-flex items-center gap-1">
+              <History size={14} /> Логи
+            </button>
+          </div>
           {isClientBlockExpanded && (
             <>
           <div className="grid grid-cols-1 gap-3">
@@ -2214,6 +2237,24 @@ const OrderDetailsScreen: React.FC = () => {
               </div>
             </div>
           </div>
+          <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-3 space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-sky-700">Telegram tracking</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800">Подключение клиентских уведомлений по заказу</p>
+              </div>
+              <MessageSquareMore size={16} className="text-sky-600" />
+            </div>
+            <p className="text-xs text-slate-600">Код: <span className="font-black text-slate-900">{telegramSubscription?.code || '—'}</span></p>
+            <div className="flex flex-wrap gap-2">
+              {telegramSubscription?.deepLink && (
+                <a href={telegramSubscription.deepLink} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-xl bg-sky-600 px-3 py-2 text-xs font-black text-white">Открыть deep link</a>
+              )}
+              <button type="button" onClick={() => void copyText(telegramSubscription?.code || '', 'Код Telegram скопирован')} className="rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs font-black text-sky-700">Скопировать код</button>
+            </div>
+            <p className="text-[11px] text-slate-500">После старта бота chat_id клиента должен быть связан с order_id через код или deep link.</p>
+          </div>
+
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Источник</label>
@@ -3272,6 +3313,33 @@ const OrderDetailsScreen: React.FC = () => {
           shareText={carPhotoShareText || 'Vehicle details'}
           onClose={() => setGallery(null)}
         />
+      )}
+      {showCustomerLogs && (
+        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/45 p-3 sm:items-center">
+          <div className="w-full max-w-lg rounded-[24px] bg-white p-4 shadow-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Customer activity logs</p>
+                <h3 className="text-lg font-black text-slate-900">Логи клиента по заказу</h3>
+              </div>
+              <button type="button" onClick={() => setShowCustomerLogs(false)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-600">Закрыть</button>
+            </div>
+            <div className="mt-4 max-h-[70vh] space-y-2 overflow-y-auto">
+              {customerLogs.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">Логи взаимодействия клиента пока пустые.</div>
+              ) : customerLogs.map((entry) => (
+                <div key={entry.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">{entry.channel}</span>
+                    <span className="text-[11px] text-slate-400">{new Date(entry.createdAt).toLocaleString()}</span>
+                  </div>
+                  <p className="mt-1 text-sm font-semibold text-slate-800">{entry.summary}</p>
+                  <p className="mt-1 text-[11px] text-slate-500">Тип: {entry.type} · Actor: {entry.actor}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
