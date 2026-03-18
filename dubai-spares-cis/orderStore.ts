@@ -1052,7 +1052,10 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
       : undefined,
     huntStatus: (['data_gathering', 'live_hunt', 'final_offer'] as const).includes((row as any).hunt_status)
       ? (row as any).hunt_status
-      : 'data_gathering'
+      : 'data_gathering',
+    publicQuoteToken: typeof (row as any).public_quote_token === 'string' && (row as any).public_quote_token.trim()
+      ? (row as any).public_quote_token.trim()
+      : undefined
   })
 });
 
@@ -1225,7 +1228,8 @@ const persistOrderGraph = async (order: Order) => {
     vehicle_details: uploadedOrder.vehicleDetails && typeof uploadedOrder.vehicleDetails === 'object'
       ? uploadedOrder.vehicleDetails
       : {},
-    hunt_status: uploadedOrder.huntStatus || 'data_gathering'
+    hunt_status: uploadedOrder.huntStatus || 'data_gathering',
+    public_quote_token: uploadedOrder.publicQuoteToken || null
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -1264,7 +1268,8 @@ const persistOrderGraph = async (order: Order) => {
       'vendor_contacts',
       'vendor_checklist',
       'vehicle_details',
-      'hunt_status'
+      'hunt_status',
+      'public_quote_token'
     ]);
 
     let payload: Record<string, unknown> = { ...fallbackOrderPayload };

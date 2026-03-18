@@ -199,6 +199,7 @@ export interface Order {
   vendorChecklist?: VendorChecklistItem[];
   vehicleDetails?: VehicleDetails;
   huntStatus?: HuntStatus;
+  publicQuoteToken?: string;
   zone?: string;
   zones?: string[];
 }

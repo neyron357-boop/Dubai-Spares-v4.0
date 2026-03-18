@@ -800,7 +800,9 @@ const normalizePublicSettings = (raw: unknown) => {
     publicInvoiceSignatureUrl: read('publicInvoiceSignatureUrl', 'public_invoice_signature_url', 'invoiceSignatureUrl', 'signature', 'signatureUrl'),
     publicManagerName: read('publicManagerName', 'public_manager_name', 'managerName', 'manager_name', 'ownerName', 'owner_name'),
     publicTermsFileUrl: read('publicTermsFileUrl', 'public_terms_file_url', 'termsFileUrl', 'terms_file_url'),
-    publicTermsFileName: read('publicTermsFileName', 'public_terms_file_name', 'termsFileName', 'terms_file_name')
+    publicTermsFileName: read('publicTermsFileName', 'public_terms_file_name', 'termsFileName', 'terms_file_name'),
+    executorPhotoUrl: read('executorPhotoUrl', 'executor_photo_url'),
+    executorRole: read('executorRole', 'executor_role')
   };
 };
 
@@ -927,7 +929,9 @@ const mergePublicSettings = (
   publicInvoiceSignatureUrl: preferred.publicInvoiceSignatureUrl || fallback?.publicInvoiceSignatureUrl || '',
   publicManagerName: preferred.publicManagerName || fallback?.publicManagerName || '',
   publicTermsFileUrl: preferred.publicTermsFileUrl || fallback?.publicTermsFileUrl || '',
-  publicTermsFileName: preferred.publicTermsFileName || fallback?.publicTermsFileName || ''
+  publicTermsFileName: preferred.publicTermsFileName || fallback?.publicTermsFileName || '',
+  executorPhotoUrl: preferred.executorPhotoUrl || fallback?.executorPhotoUrl || '',
+  executorRole: preferred.executorRole || fallback?.executorRole || ''
 });
 
 const normalizePayloadOwner = (raw: unknown) => {
@@ -1794,8 +1798,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   // ── Hunt data polling ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!order?.id) return;
-    const hs = order.huntStatus;
-    if (hs !== 'live_hunt' && hs !== 'final_offer') return;
 
     const fetchHunt = async () => {
       try {
@@ -1803,16 +1805,31 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         setHuntWaypoints(data.waypoints);
         setHuntLatestPing(data.latestPing);
         setHuntTrack(data.track);
+
+        // Derive live hunt status from session to detect changes without page refresh
+        const derivedStatus: 'data_gathering' | 'live_hunt' | 'final_offer' = !data.session
+          ? 'data_gathering'
+          : data.session.status === 'active'
+            ? 'live_hunt'
+            : 'final_offer';
+
+        if (derivedStatus !== order.huntStatus) {
+          setOrder((prev) => prev ? { ...prev, huntStatus: derivedStatus } : null);
+        }
       } catch (err) { console.debug('Hunt data fetch failed:', err); /* silent */ }
     };
 
     void fetchHunt();
 
-    // Poll every 60 seconds during live_hunt
-    if (hs === 'live_hunt') {
-      if (huntPollRef.current) clearInterval(huntPollRef.current);
-      huntPollRef.current = setInterval(() => void fetchHunt(), 60_000);
-    }
+    // Poll continuously so the client page updates in real-time:
+    // – 8 s while waiting for hunt to start (data_gathering)
+    // – 12 s while hunt is live (GPS + waypoints)
+    // – 30 s after hunt ends (final_offer) — just to catch late waypoint updates
+    const hs = order.huntStatus;
+    const intervalMs = hs === 'live_hunt' ? 12_000 : hs === 'final_offer' ? 30_000 : 8_000;
+
+    if (huntPollRef.current) clearInterval(huntPollRef.current);
+    huntPollRef.current = setInterval(() => void fetchHunt(), intervalMs);
 
     return () => {
       if (huntPollRef.current) {
@@ -2185,6 +2202,21 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               </p>
             )}
           </div>
+          {(managerName || settings.executorPhotoUrl) && (
+            <div className="rounded-2xl bg-white/10 border border-white/15 p-4 flex items-center gap-3">
+              {settings.executorPhotoUrl ? (
+                <img src={settings.executorPhotoUrl} alt={managerName} className="w-12 h-12 rounded-full object-cover border-2 border-blue-400/40 flex-shrink-0" />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-blue-600/60 flex items-center justify-center flex-shrink-0 border-2 border-blue-400/40">
+                  <span className="text-white text-lg font-bold">{(managerName || '?')[0].toUpperCase()}</span>
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-white font-semibold text-sm leading-tight truncate">{managerName || 'Специалист'}</p>
+                {settings.executorRole && <p className="text-blue-200/80 text-xs mt-0.5 truncate">{settings.executorRole}</p>}
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-2 justify-center text-blue-300/80 text-xs">
             <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" />
             <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:0.15s]" />
@@ -2232,6 +2264,24 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               выбирая лучшую деталь для вашего авто.
             </p>
           </div>
+
+          {/* Executor card */}
+          {(managerName || settings.executorPhotoUrl) && (
+            <div className="rounded-2xl bg-white/8 border border-white/12 p-4 flex items-center gap-3">
+              {settings.executorPhotoUrl ? (
+                <img src={settings.executorPhotoUrl} alt={managerName} className="w-12 h-12 rounded-full object-cover border-2 border-blue-400/40 flex-shrink-0" />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-blue-600/60 flex items-center justify-center flex-shrink-0 border-2 border-blue-400/40">
+                  <span className="text-white text-lg font-bold">{(managerName || '?')[0].toUpperCase()}</span>
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-white font-semibold text-sm leading-tight truncate">{managerName || 'Специалист'}</p>
+                {settings.executorRole && <p className="text-blue-200/80 text-xs mt-0.5 truncate">{settings.executorRole}</p>}
+                <p className="text-emerald-400 text-xs mt-0.5">● В поиске сейчас</p>
+              </div>
+            </div>
+          )}
 
           {/* Live map */}
           <div className="rounded-2xl overflow-hidden border border-white/10 shadow-lg">

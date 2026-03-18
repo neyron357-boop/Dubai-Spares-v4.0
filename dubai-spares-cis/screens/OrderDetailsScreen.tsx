@@ -613,7 +613,11 @@ const OrderDetailsScreen: React.FC = () => {
     if (hasPendingPricingChanges) {
       await updateOrder(quoteOrder);
     }
-    await shareQuoteLink(quoteOrder, options);
+    const shareResult = await shareQuoteLink(quoteOrder, options);
+    // Persist the public quote token so future shares reuse the same link
+    if (shareResult.token && !quoteOrder.publicQuoteToken) {
+      await updateOrder({ ...quoteOrder, publicQuoteToken: shareResult.token });
+    }
   };
 
   if (!order) {

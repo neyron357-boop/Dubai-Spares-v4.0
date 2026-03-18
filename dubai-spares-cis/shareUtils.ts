@@ -364,6 +364,7 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
 
 export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
   const settings = loadAppSettings();
+  const persistentToken = (order.publicQuoteToken || '').trim() || undefined;
   const snapshot = await publicQuoteCreateSnapshot(order, {
     currency: options?.currency,
     exchangeRate: options?.rates?.[options?.currency || 'USD'],
@@ -380,9 +381,12 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
       publicCompanyLogoUrl: settings.publicCompanyLogoUrl,
       publicInvoiceSignatureUrl: settings.publicInvoiceSignatureUrl,
       publicTermsFileUrl: settings.publicTermsFileUrl,
-      publicTermsFileName: settings.publicTermsFileName
+      publicTermsFileName: settings.publicTermsFileName,
+      executorPhotoUrl: settings.executorPhotoUrl,
+      executorRole: settings.executorRole
     },
-    rates: options?.rates
+    rates: options?.rates,
+    ...(persistentToken ? { token: persistentToken, upsertByToken: true } : {})
   });
   const link = snapshot.url;
   const shareText = buildPublicQuoteShareMessage(order, link);
@@ -393,16 +397,16 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
       text: shareText,
       url: link
     });
-    return { method: 'native' as const, link, shareText };
+    return { method: 'native' as const, link, shareText, token: snapshot.token };
   }
 
   const copied = await copyToClipboard(shareText);
   if (copied) {
-    return { method: 'clipboard' as const, link, shareText };
+    return { method: 'clipboard' as const, link, shareText, token: snapshot.token };
   }
 
   await shareMessage(shareText);
-  return { method: 'fallback' as const, link, shareText };
+  return { method: 'fallback' as const, link, shareText, token: snapshot.token };
 };
 
 export const copyToClipboard = async (text: string) => {
