@@ -30,6 +30,34 @@ const getPartPhotos = (part: Part, variant?: PriceVariant) => {
   return Array.from(new Set(merged));
 };
 
+const calculateCoverFrame = (
+  sourceWidth: number,
+  sourceHeight: number,
+  targetWidth: number,
+  targetHeight: number
+) => {
+  const sourceRatio = sourceWidth / sourceHeight;
+  const targetRatio = targetWidth / targetHeight;
+
+  if (sourceRatio > targetRatio) {
+    const cropWidth = sourceHeight * targetRatio;
+    return {
+      sx: (sourceWidth - cropWidth) / 2,
+      sy: 0,
+      sw: cropWidth,
+      sh: sourceHeight
+    };
+  }
+
+  const cropHeight = sourceWidth / targetRatio;
+  return {
+    sx: 0,
+    sy: (sourceHeight - cropHeight) / 2,
+    sw: sourceWidth,
+    sh: cropHeight
+  };
+};
+
 export const resolveBestVariant = (part: Part) => {
   if (!Array.isArray(part.variants) || part.variants.length === 0) return null;
   if (part.bestOfferId) {
@@ -56,12 +84,8 @@ const drawCoverPhoto = async (context: CanvasRenderingContext2D, x: number, y: n
 
   try {
     const photo = await loadCanvasImage(firstPhoto);
-    const ratio = Math.max(width / photo.width, height / photo.height);
-    const drawW = photo.width * ratio;
-    const drawH = photo.height * ratio;
-    const drawX = x + (width - drawW) / 2;
-    const drawY = y + (height - drawH) / 2;
-    context.drawImage(photo, drawX, drawY, drawW, drawH);
+    const frame = calculateCoverFrame(photo.width, photo.height, width, height);
+    context.drawImage(photo, frame.sx, frame.sy, frame.sw, frame.sh, x, y, width, height);
   } catch {
     context.fillStyle = '#94A3B8';
     context.font = 'bold 28px Inter, Arial, sans-serif';
@@ -144,9 +168,10 @@ export const generatePartPriceCard = async (order: Order, part: Part, variant: P
 export const generatePartsPriceSheet = async (order: Order, entries: ShareablePart[]) => {
   const safeEntries = entries.slice(0, 6);
   const rowHeight = 220;
+  const totalPrice = safeEntries.reduce((sum, entry) => sum + Number(entry.variant.priceAed || 0), 0);
   const canvas = document.createElement('canvas');
   canvas.width = 1200;
-  canvas.height = 180 + safeEntries.length * rowHeight + 40;
+  canvas.height = 180 + safeEntries.length * rowHeight + 160;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Canvas недоступен');
 
@@ -161,7 +186,7 @@ export const generatePartsPriceSheet = async (order: Order, entries: ShareablePa
     const top = 160 + index * rowHeight;
     context.fillStyle = '#F8FAFC';
     context.fillRect(40, top, canvas.width - 80, rowHeight - 20);
-    await drawCoverPhoto(context, 60, top + 20, 180, 150, getPartPhotos(entry.part, entry.variant));
+    await drawCoverPhoto(context, 60, top + 20, 180, 180, getPartPhotos(entry.part, entry.variant));
 
     context.fillStyle = '#0F1728';
     context.font = '700 28px Inter, Arial, sans-serif';
@@ -177,6 +202,15 @@ export const generatePartsPriceSheet = async (order: Order, entries: ShareablePa
     const locationLine = entry.variant.locationText || entry.variant.location || 'Локация не указана';
     context.fillText(`Локация: ${locationLine}`.slice(0, 58), 270, top + 184);
   }
+
+  const summaryTop = 170 + safeEntries.length * rowHeight;
+  context.fillStyle = '#0F1728';
+  context.fillRect(40, summaryTop, canvas.width - 80, 90);
+  context.fillStyle = '#FFFFFF';
+  context.font = '600 24px Inter, Arial, sans-serif';
+  context.fillText(`Итог по ${safeEntries.length} позициям`, 70, summaryTop + 38);
+  context.font = '700 44px Inter, Arial, sans-serif';
+  context.fillText(formatPrice(totalPrice), 70, summaryTop + 74);
 
   return createCanvasBlob(canvas);
 };
