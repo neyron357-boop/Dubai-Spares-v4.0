@@ -578,6 +578,7 @@ const hotFieldKeys: Array<keyof Order> = [
   'customerContact',
   'socialNickname',
   'contactLinks',
+  'huntStatus',
   'updatedAt'
 ];
 let cachedQueueLength = 0;
@@ -1048,7 +1049,10 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     vendorChecklist: Array.isArray((row as any).vendor_checklist) ? (row as any).vendor_checklist : [],
     vehicleDetails: (row as any).vehicle_details && typeof (row as any).vehicle_details === 'object'
       ? (row as any).vehicle_details
-      : undefined
+      : undefined,
+    huntStatus: (['data_gathering', 'live_hunt', 'final_offer'] as const).includes((row as any).hunt_status)
+      ? (row as any).hunt_status
+      : 'data_gathering'
   })
 });
 
@@ -1220,7 +1224,8 @@ const persistOrderGraph = async (order: Order) => {
     vendor_checklist: uploadedOrder.vendorChecklist || [],
     vehicle_details: uploadedOrder.vehicleDetails && typeof uploadedOrder.vehicleDetails === 'object'
       ? uploadedOrder.vehicleDetails
-      : {}
+      : {},
+    hunt_status: uploadedOrder.huntStatus || 'data_gathering'
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -1258,7 +1263,8 @@ const persistOrderGraph = async (order: Order) => {
       'pricing_events',
       'vendor_contacts',
       'vendor_checklist',
-      'vehicle_details'
+      'vehicle_details',
+      'hunt_status'
     ]);
 
     let payload: Record<string, unknown> = { ...fallbackOrderPayload };
@@ -1569,6 +1575,7 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
         telegram_url: patch.contactLinks.telegramUrl
       }
     : undefined,
+  hunt_status: patch.huntStatus,
   updated_at: toIsoTimestamp(patch.updatedAt || Date.now())
 });
 

@@ -15,6 +15,7 @@ import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
 import VendorSlider from './components/VendorSlider';
 import VendorSlidesScreen from './screens/VendorSlidesScreen';
+import HuntModeScreen from './screens/HuntModeScreen';
 import { Bell, CarFront, Layers, PlusCircle, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
 import { LOCAL_MODE_LABEL } from './localMode';
@@ -181,6 +182,7 @@ const CachedRoutes: React.FC = () => {
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/parts" element={<OrderPartsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
+              <Route path="/order/:orderId/hunt" element={<HuntModeScreen />} />
               <Route path="/database" element={<SuppliersScreen />} />
               <Route path="/variants" element={<VariantsScreen />} />
               <Route path="/notifications" element={<NotificationsScreen />} />

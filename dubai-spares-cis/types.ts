@@ -16,6 +16,42 @@ export enum Source {
 export type OrderStatus = 'active' | 'archive' | 'sold' | 'vip' | 'lead' | 'new_inquiry' | 'in_progress';
 export type SalesStatus = 'Inquiry' | 'Price Sent' | 'Pending Approval' | 'Paid' | 'Completed';
 
+/** Transparent Pipeline lifecycle status */
+export type HuntStatus = 'data_gathering' | 'live_hunt' | 'final_offer';
+
+export interface HuntSessionRow {
+  id: string;
+  order_id: string;
+  status: 'active' | 'ended';
+  started_at: string;
+  ended_at?: string | null;
+}
+
+export type HuntWaypointResult = 'found' | 'not_found' | 'high_price' | 'visited';
+
+export interface HuntWaypointRow {
+  id: string;
+  session_id: string;
+  order_id: string;
+  shop_name: string;
+  result: HuntWaypointResult;
+  price_aed?: number | null;
+  note?: string | null;
+  photo_urls: string[];
+  lat?: number | null;
+  lng?: number | null;
+  created_at: string;
+}
+
+export interface HuntGpsPingRow {
+  id: string;
+  session_id: string;
+  lat: number;
+  lng: number;
+  accuracy_m?: number | null;
+  ts: string;
+}
+
 export interface Coordinates {
   lat: number;
   lng: number;
@@ -162,6 +198,7 @@ export interface Order {
   vendorContacts?: OrderVendorContact[];
   vendorChecklist?: VendorChecklistItem[];
   vehicleDetails?: VehicleDetails;
+  huntStatus?: HuntStatus;
   zone?: string;
   zones?: string[];
 }

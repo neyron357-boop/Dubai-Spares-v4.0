@@ -873,7 +873,8 @@ const buildSnapshotPayload = (
       publicCompanyLogoUrl: publicSettings?.publicCompanyLogoUrl || '',
       publicInvoiceSignatureUrl: publicSettings?.publicInvoiceSignatureUrl || '',
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone)
-    }
+    },
+    hunt_status: order.huntStatus || 'data_gathering'
   };
 };
 

@@ -13,9 +13,14 @@ import {
   MessageCircle,
   RefreshCcw,
   Send,
-  ShieldCheck
+  ShieldCheck,
+  MapPin,
+  Navigation,
+  Flag,
+  TrendingUp,
+  XCircle
 } from 'lucide-react';
-import { Order, Part, PriceVariant } from '../types';
+import { HuntGpsPingRow, HuntWaypointRow, Order, Part, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
 import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { logger } from '../logging';
@@ -23,6 +28,7 @@ import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot, resolveCli
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 import { calculateCargoEstimates } from '../utils/cargo';
 import { SUPABASE_URL } from '../cloudConfig';
+import { getPublicHuntData } from '../huntSessionApi';
 
 type Language = 'en' | 'ru';
 
@@ -690,6 +696,9 @@ const mapDbOrder = (row: any): Order => ({
   createdAt: parseTimestamp(row.created_at),
   isArchived: !!row.is_archived,
   isSold: !!row.is_sold,
+  huntStatus: (['data_gathering', 'live_hunt', 'final_offer'] as const).includes(row.hunt_status)
+    ? row.hunt_status
+    : 'data_gathering',
   pricingEvents: Array.isArray(row.pricing_events) ? row.pricing_events : []
 });
 
@@ -760,6 +769,11 @@ const mapSnapshotOrder = (row: any): Order => {
   createdAt: parseTimestamp(row?.createdAt ?? row?.created_at),
   isArchived: !!row?.isArchived || !!row?.is_archived,
   isSold: !!row?.isSold || !!row?.is_sold,
+  huntStatus: (['data_gathering', 'live_hunt', 'final_offer'] as const).includes(
+    row?.huntStatus ?? row?.hunt_status ?? header?.huntStatus ?? header?.hunt_status
+  )
+    ? (row?.huntStatus ?? row?.hunt_status ?? header?.huntStatus ?? header?.hunt_status)
+    : 'data_gathering',
   pricingEvents: Array.isArray(row?.pricingEvents || row?.pricing_events) ? (row?.pricingEvents || row?.pricing_events) : [],
   payloadOwner,
   public_settings: publicSettingsRaw
@@ -1504,6 +1518,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const errorCardRef = useRef<HTMLDivElement | null>(null);
   const errorIconRef = useRef<HTMLDivElement | null>(null);
 
+  // ── Hunt pipeline state ───────────────────────────────────────────────────
+  const [huntWaypoints, setHuntWaypoints] = useState<HuntWaypointRow[]>([]);
+  const [huntLatestPing, setHuntLatestPing] = useState<HuntGpsPingRow | null>(null);
+  const [huntTrack, setHuntTrack] = useState<HuntGpsPingRow[]>([]);
+  const [showSearchHistory, setShowSearchHistory] = useState(false);
+  const huntPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const t = i18n[lang];
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const embeddedSnapshot = useMemo(() => parseEmbeddedSnapshot(params.get('data')), [params]);
@@ -1769,6 +1790,38 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     void loadQuote();
     return () => loadControllerRef.current?.abort();
   }, [loadQuote]);
+
+  // ── Hunt data polling ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!order?.id) return;
+    const hs = order.huntStatus;
+    if (hs !== 'live_hunt' && hs !== 'final_offer') return;
+
+    const fetchHunt = async () => {
+      try {
+        const data = await getPublicHuntData(order.id);
+        setHuntWaypoints(data.waypoints);
+        setHuntLatestPing(data.latestPing);
+        setHuntTrack(data.track);
+      } catch (err) { console.debug('Hunt data fetch failed:', err); /* silent */ }
+    };
+
+    void fetchHunt();
+
+    // Poll every 60 seconds during live_hunt
+    if (hs === 'live_hunt') {
+      if (huntPollRef.current) clearInterval(huntPollRef.current);
+      huntPollRef.current = setInterval(() => void fetchHunt(), 60_000);
+    }
+
+    return () => {
+      if (huntPollRef.current) {
+        clearInterval(huntPollRef.current);
+        huntPollRef.current = null;
+      }
+    };
+  }, [order?.id, order?.huntStatus]);
+  // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!errorType) return;
@@ -2100,6 +2153,168 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     );
   }
 
+  // ── Lifecycle rendering ───────────────────────────────────────────────────
+  const huntStatus = order.huntStatus || 'data_gathering';
+
+  if (huntStatus === 'data_gathering') {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 via-blue-950 to-slate-900 text-white flex flex-col items-center justify-center px-5 py-12">
+        <div className="w-full max-w-sm text-center space-y-6">
+          <div className="relative mx-auto w-24 h-24">
+            <div className="absolute inset-0 rounded-full bg-blue-500/20 animate-ping" />
+            <div className="absolute inset-2 rounded-full bg-blue-500/30 animate-pulse" />
+            <div className="absolute inset-4 rounded-full bg-blue-600 flex items-center justify-center shadow-lg">
+              <Navigation size={32} className="text-white" />
+            </div>
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold">Заявка принята</h1>
+            <p className="mt-2 text-blue-200/90 text-sm leading-relaxed">
+              Анализируем рынок Шарджи.<br />
+              Подбираем оптимальный маршрут<br />
+              по разборкам и магазинам.
+            </p>
+          </div>
+          <div className="rounded-2xl bg-white/10 border border-white/15 p-4 space-y-2.5 text-left">
+            <p className="text-xs font-bold text-blue-200 uppercase tracking-wide mb-1">Ваш заказ</p>
+            <p className="text-white font-semibold">{order.brand} {order.model} {order.year}</p>
+            {order.vin && <p className="text-blue-200 text-xs">VIN: {order.vin}</p>}
+            {order.parts.length > 0 && (
+              <p className="text-blue-200 text-xs">
+                {order.parts.length} {order.parts.length === 1 ? 'позиция' : order.parts.length < 5 ? 'позиции' : 'позиций'}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2 justify-center text-blue-300/80 text-xs">
+            <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" />
+            <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:0.15s]" />
+            <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:0.3s]" />
+            <span className="ml-1">Специалист скоро выедет на поиск</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (huntStatus === 'live_hunt') {
+    const mapsEmbedUrl = huntLatestPing
+      ? `https://www.google.com/maps?q=${huntLatestPing.lat},${huntLatestPing.lng}&output=embed&z=14`
+      : null;
+
+    const WAYPOINT_RESULT_LABELS: Record<string, string> = {
+      found: '✅ Найдена',
+      not_found: '❌ Нет в наличии',
+      high_price: '⚠️ Цена высокая',
+      visited: '📍 Посещено'
+    };
+
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-blue-950 text-white">
+        {/* Header */}
+        <div className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 py-3">
+          <div className="flex items-center justify-between max-w-lg mx-auto">
+            <div>
+              <h1 className="text-sm font-bold">🔍 Активный поиск</h1>
+              <p className="text-xs text-blue-200/70">{order.brand} {order.model} {order.year}</p>
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/20 border border-emerald-500/30 rounded-full">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] font-bold text-emerald-300 uppercase">Live</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-lg mx-auto px-4 py-5 space-y-4">
+          {/* Explanation card */}
+          <div className="rounded-2xl bg-white/8 border border-white/12 p-4">
+            <p className="text-sm text-blue-100/90 leading-relaxed">
+              Наш специалист сейчас объезжает разборки Шарджи,<br/>
+              выбирая лучшую деталь для вашего авто.
+            </p>
+          </div>
+
+          {/* Live map */}
+          <div className="rounded-2xl overflow-hidden border border-white/10 shadow-lg">
+            <div className="bg-white/8 border-b border-white/10 px-4 py-2.5 flex items-center gap-2">
+              <Navigation size={14} className="text-blue-300" />
+              <span className="text-xs font-bold text-blue-200">Позиция специалиста</span>
+              {huntLatestPing && (
+                <span className="ml-auto text-[10px] text-blue-300/60">
+                  {new Date(huntLatestPing.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+            {mapsEmbedUrl ? (
+              <iframe
+                title="Позиция специалиста"
+                src={mapsEmbedUrl}
+                className="w-full h-56"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            ) : (
+              <div className="h-40 flex items-center justify-center bg-slate-800/60">
+                <div className="text-center text-blue-300/70 space-y-1">
+                  <Navigation size={24} className="mx-auto opacity-50" />
+                  <p className="text-xs">GPS активируется при старте выезда</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Shop visits */}
+          {huntWaypoints.length > 0 && (
+            <div className="space-y-2.5">
+              <p className="text-xs font-bold text-blue-200/80 uppercase tracking-wide px-1">
+                Посещённые точки ({huntWaypoints.length})
+              </p>
+              {huntWaypoints.map((wp, idx) => (
+                <div key={wp.id} className="rounded-xl bg-white/8 border border-white/12 p-3 flex gap-3">
+                  <span className="text-[10px] font-bold text-blue-300/50 mt-0.5 w-4 text-right shrink-0">{idx + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white">{wp.shop_name}</p>
+                    <p className="text-xs text-blue-200/70 mt-0.5">{WAYPOINT_RESULT_LABELS[wp.result] || wp.result}</p>
+                    {wp.price_aed != null && (
+                      <p className="text-xs text-emerald-300 mt-0.5">💰 {wp.price_aed} AED</p>
+                    )}
+                    {wp.note && <p className="text-xs text-blue-200/60 mt-0.5 italic">{wp.note}</p>}
+                    {wp.photo_urls.length > 0 && (
+                      <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                        {wp.photo_urls.map((url) => (
+                          <img key={url} src={url} alt="фото" className="w-11 h-11 object-cover rounded-lg border border-white/10" />
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-blue-300/40 mt-1 flex items-center gap-1">
+                      <Clock3 size={9} />
+                      {new Date(wp.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                      {wp.lat != null && wp.lng != null && (
+                        <a href={`https://maps.google.com/?q=${wp.lat},${wp.lng}`} target="_blank" rel="noopener noreferrer" className="ml-1 text-blue-400 underline">map</a>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {huntWaypoints.length === 0 && (
+            <div className="rounded-2xl bg-white/6 border border-white/10 p-5 text-center">
+              <div className="text-3xl mb-2">🛵</div>
+              <p className="text-sm text-blue-200/80">Специалист только выехал.</p>
+              <p className="text-xs text-blue-300/50 mt-1">Точки посещений появятся здесь.</p>
+            </div>
+          )}
+
+          <p className="text-center text-[10px] text-blue-300/40 pb-6">
+            Обновляется автоматически каждую минуту
+          </p>
+        </div>
+      </div>
+    );
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-[#eef2f7] text-slate-900">
       <div className="sticky top-0 z-40 border-b border-slate-200/80 bg-[#f8f9fc]/90 backdrop-blur-md">
@@ -2172,6 +2387,81 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-1.5"><Clock3 size={12} /> {t.fastResponseBadge}</span>
               {expiresAtIso && <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-100 px-3 py-1.5 text-[11px] font-semibold text-amber-800"><Clock3 size={12} /> {t.validUntil}: {new Date(expiresAtIso).toLocaleDateString()}</span>}
             </div>
+
+            {/* Search History button — visible only in final_offer phase */}
+            {huntWaypoints.length > 0 && (
+              <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setShowSearchHistory((prev) => !prev)}
+                  className="w-full flex items-center justify-between text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <Flag size={15} className="text-blue-600" />
+                    <span className="text-sm font-bold text-slate-800">
+                      {lang === 'ru' ? 'История поиска' : 'Search History'}
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                      {huntWaypoints.length}
+                    </span>
+                  </div>
+                  <ChevronRight size={16} className={`text-slate-400 transition-transform ${showSearchHistory ? 'rotate-90' : ''}`} />
+                </button>
+                {showSearchHistory && (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-xs text-slate-500 mb-3">
+                      {lang === 'ru'
+                        ? 'Мы объехали эти точки, чтобы найти лучшую деталь для вас:'
+                        : 'We visited these locations to find the best part for you:'}
+                    </p>
+                    {huntWaypoints.map((wp, idx) => {
+                      const RESULT_LABELS_EN: Record<string, string> = {
+                        found: '✅ Found',
+                        not_found: '❌ Not available',
+                        high_price: '⚠️ High price',
+                        visited: '📍 Visited'
+                      };
+                      const RESULT_LABELS_RU: Record<string, string> = {
+                        found: '✅ Найдена',
+                        not_found: '❌ Нет в наличии',
+                        high_price: '⚠️ Высокая цена',
+                        visited: '📍 Посещено'
+                      };
+                      const labels = lang === 'ru' ? RESULT_LABELS_RU : RESULT_LABELS_EN;
+                      return (
+                        <div key={wp.id} className="flex gap-3 rounded-xl border border-slate-100 bg-white p-3">
+                          <span className="text-[10px] font-bold text-slate-400 mt-0.5 w-5 text-right shrink-0">{idx + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-sm font-semibold text-slate-800">{wp.shop_name}</span>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-0.5">{labels[wp.result] || wp.result}</p>
+                            {wp.price_aed != null && (
+                              <p className="text-xs text-emerald-700 mt-0.5">💰 {wp.price_aed} AED</p>
+                            )}
+                            {wp.note && <p className="text-xs text-slate-400 mt-0.5 italic">{wp.note}</p>}
+                            {wp.photo_urls.length > 0 && (
+                              <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                                {wp.photo_urls.map((url) => (
+                                  <img key={url} src={url} alt="photo" className="w-12 h-12 object-cover rounded-lg border border-slate-100 shadow-sm" />
+                                ))}
+                              </div>
+                            )}
+                            <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                              <Clock3 size={9} />
+                              {new Date(wp.created_at).toLocaleTimeString(lang === 'ru' ? 'ru-RU' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                              {wp.lat != null && wp.lng != null && (
+                                <a href={`https://maps.google.com/?q=${wp.lat},${wp.lng}`} target="_blank" rel="noopener noreferrer" className="ml-1 text-blue-500 underline">map</a>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </header>
