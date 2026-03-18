@@ -15,6 +15,7 @@ import { mergeCloudLeadsWithOrders } from './leadSync';
 import { CloudLeadRow, leadsSync, purgePublicLeadArtifacts } from './serverApi';
 import { refreshSupabaseSchemaCache } from './schemaCache';
 import { isBrokenImageUrl, markBrokenImageUrl, shouldBlacklistByStatus } from './storage/brokenImageBlacklist';
+import { scheduleLivePublicQuoteSync } from './publicQuoteSync';
 
 type OrderState = {
   orders: Order[];
@@ -2123,6 +2124,7 @@ export const updateOrderItem = async (order: Order) => {
   const patch = structuralDiff ? {} : pickHotFieldPatch(previousOrder, normalized);
   const shouldPrioritizeSync = structuralDiff || hasCriticalFinancialPatch(patch);
   scheduleLocalCommit(normalized, structuralDiff ? undefined : patch);
+  scheduleLivePublicQuoteSync(normalized);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
   if (shouldPurgeLeadArtifacts) {
