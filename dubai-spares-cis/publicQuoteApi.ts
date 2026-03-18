@@ -140,6 +140,8 @@ type SnapshotRow = {
   id: string;
   token: string;
   snapshot_id?: string | null;
+  original_url?: string | null;
+  short_url?: string | null;
   expires_at: string;
   payload?: unknown;
   payload_json?: unknown;
@@ -182,7 +184,35 @@ const IMAGE_QUALITY = 0.72;
 
 const isDevBuild = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
 
-const createInFlight = new Map<string, Promise<{ id: string | null | undefined; token: string; snapshotId: string; expiresAt: string; url: string }>>();
+const createInFlight = new Map<string, Promise<{ id: string | null | undefined; token: string; snapshotId: string; expiresAt: string; url: string; originalUrl: string; shortUrl: string | null }>>();
+
+const TINY_URL_API = 'https://tinyurl.com/api-create.php';
+
+const shortenPublicQuoteUrl = async (url: string, signal?: AbortSignal): Promise<string | null> => {
+  const encodedUrl = encodeURIComponent(url);
+  try {
+    const response = await fetch(`${TINY_URL_API}?url=${encodedUrl}`, {
+      method: 'GET',
+      signal
+    });
+    if (!response.ok) {
+      void logger.warn('public-quote:shorten', 'TinyURL request failed', { status: response.status, url });
+      return null;
+    }
+    const shortUrl = String(await response.text()).trim();
+    if (!shortUrl || !/^https?:\/\//i.test(shortUrl)) {
+      void logger.warn('public-quote:shorten', 'TinyURL returned invalid body', { shortUrl, url });
+      return null;
+    }
+    return shortUrl;
+  } catch (error) {
+    void logger.warn('public-quote:shorten', 'TinyURL request threw', {
+      url,
+      error: error instanceof Error ? error.message : 'unknown'
+    });
+    return null;
+  }
+};
 
 const parseMoney = (...values: Array<unknown>) => {
   for (const value of values) {
@@ -952,7 +982,7 @@ export const publicQuoteCreateSnapshot = async (
         throw new Error(insertResult.error.message || 'Server unavailable, try again');
       }
 
-      const created = insertResult.data as { id?: string | null; token: string; snapshot_id?: string | null; expires_at: string; payload_json?: unknown };
+      const created = insertResult.data as { id?: string | null; token: string; snapshot_id?: string | null; original_url?: string | null; short_url?: string | null; expires_at: string; payload_json?: unknown };
       if (!created?.token || !created?.expires_at) {
         void logger.warn('public-quote:create', 'Snapshot insert returned incomplete data', { orderId: order.id, created });
         throw new Error('Share quote created, but response is missing token/expires_at');
@@ -965,6 +995,38 @@ export const publicQuoteCreateSnapshot = async (
       const quoteUrl = new URL(`${window.location.origin}/#/q/${encodeURIComponent(buildPublicQuoteSlug(order))}`);
       quoteUrl.searchParams.set('k', `${created.token}.${effectiveSnapshotId}`);
 
+      const originalUrl = quoteUrl.toString();
+      const shortUrl = await shortenPublicQuoteUrl(originalUrl, request.controller.signal);
+      const finalUrl = shortUrl || originalUrl;
+
+      if (created.id) {
+        const updatePayload = {
+          original_url: originalUrl,
+          short_url: shortUrl
+        };
+        let updateError = (await supabase
+          .from('public_quote_snapshots')
+          .update(updatePayload)
+          .eq('id', created.id)).error;
+
+        if (updateError && (updateError.code === 'PGRST204' || updateError.code === '42703' || String(updateError.message).includes('Could not find'))) {
+          void logger.info('public-quote:create', 'Skipping short/original url persistence because columns are unavailable', {
+            orderId: order.id,
+            snapshotId: created.id,
+            error: updateError.message
+          });
+          updateError = null;
+        }
+
+        if (updateError) {
+          void logger.warn('public-quote:create', 'Unable to persist short/original url fields', {
+            orderId: order.id,
+            snapshotId: created.id,
+            error: updateError.message
+          });
+        }
+      }
+
       if (isDevBuild) {
         console.info('[public-quote] snapshot inserted', {
           urlToken: created.token,
@@ -974,7 +1036,10 @@ export const publicQuoteCreateSnapshot = async (
           dbRowToken: created.token,
           matches: {
             packedKeyMatches: quoteUrl.searchParams.get('k') === `${created.token}.${effectiveSnapshotId}`
-          }
+          },
+          originalUrl,
+          shortUrl,
+          finalUrl
         });
       }
 
@@ -990,7 +1055,9 @@ export const publicQuoteCreateSnapshot = async (
         token: created.token,
         snapshotId: effectiveSnapshotId,
         expiresAt: created.expires_at,
-        url: quoteUrl.toString()
+        url: finalUrl,
+        originalUrl,
+        shortUrl
       };
     } finally {
       request.cleanup();
