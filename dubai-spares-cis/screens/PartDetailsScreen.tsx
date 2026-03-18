@@ -32,6 +32,7 @@ import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
 import { optimizeImageForUpload, uploadImageToStorage } from '../storage/photos';
 import { cloneVariantForPart, VariantLibraryItem } from '../variantLibraryStore';
+import { generatePartPriceCard, resolveBestVariant, shareGeneratedPriceImage } from '../utils/partPriceShare';
 import { logger } from '../logging';
 
 interface OfferFormState {
@@ -716,6 +717,22 @@ const PartDetailsScreen: React.FC = () => {
     }
   };
 
+  const handleSharePartPrice = async () => {
+    const variant = resolveBestVariant(part);
+    if (!variant) {
+      alert('Сначала добавьте вариант с ценой.');
+      return;
+    }
+    try {
+      const blob = await generatePartPriceCard(order, part, variant);
+      const result = await shareGeneratedPriceImage(blob, `part-${part.id}.png`, 'Цена по детали', `${part.name} — ${variant.priceAed} AED`);
+      if (result === 'downloaded') alert('Картинка сохранена. Теперь её можно отправить клиенту.');
+    } catch (error) {
+      console.error(error);
+      alert('Не удалось сформировать картинку по детали.');
+    }
+  };
+
   const submitPartName = () => {
     const nextName = partNameDraft.trim();
     if (!nextName || nextName === part.name) {
@@ -806,6 +823,7 @@ const PartDetailsScreen: React.FC = () => {
             </div>
 
             <button type="button" onClick={() => { setIsAdding(true); setEditingVariantId(null); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg uppercase text-xs"><Plus size={20} /> Добавить вариант</button>
+            <button type="button" onClick={() => void handleSharePartPrice()} disabled={!resolveBestVariant(part)} className="w-full py-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-2xl font-black flex items-center justify-center gap-2 text-xs disabled:opacity-50"><Send size={16} /> Сгенерировать ценник</button>
             <button type="button" onClick={() => setShowLibraryPicker(true)} className="w-full py-3 bg-white border border-gray-200 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-2 text-xs"><ClipboardPaste size={16} /> Прикрепить из Вариантов</button>
             {latestOrderVariant && (
               <button type="button" onClick={() => setForm((prev) => ({ ...prev, shopName: latestOrderVariant.shopName || '', phone: latestOrderVariant.phone || prev.phone, locationText: latestOrderVariant.locationText || latestOrderVariant.location || '' }))} className="w-full px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-black">Последний магазин: {latestOrderVariant.shopName}</button>
