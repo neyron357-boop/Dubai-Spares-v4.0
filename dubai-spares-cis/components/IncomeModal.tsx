@@ -16,9 +16,15 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
     .map(o => {
       let profitAed = Number(o.soldProfitUsd || 0) * Number(o.exchangeRate || 3.67);
       
-      const totalCostAed = o.parts.reduce((sum, p) => (p.isFound && p.variants.length > 0) ? sum + p.variants[0].priceAed : sum, 0);
+      const totals = o.parts.reduce((sum, p) => {
+        if (!(p.isFound && p.variants.length > 0)) return sum;
+        const variant = p.variants[0];
+        const purchase = Number(variant.purchasePriceAed ?? variant.priceAed ?? 0);
+        const sale = Number(variant.salePriceAed ?? variant.priceAed ?? 0);
+        return { purchase: sum.purchase + purchase, sale: sum.sale + sale };
+      }, { purchase: 0, sale: 0 });
       if (!Number.isFinite(profitAed) || profitAed === 0) {
-        profitAed = totalCostAed > 0 ? ((totalCostAed * (1 + o.markupPercent / 100)) - totalCostAed) : 0;
+        profitAed = (totals.sale - totals.purchase) + (o.markupType === 'fixed' ? Number(o.markupFixedAed || 0) : totals.sale * (Number(o.markupPercent || 0) / 100));
       }
       const commissionAed = Number(o.logistics?.serviceFeeAed || 0);
       return { ...o, profitAed, commissionAed, totalIncomeAed: profitAed + commissionAed };

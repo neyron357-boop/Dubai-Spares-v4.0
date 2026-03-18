@@ -32,7 +32,7 @@ const OrderPartsScreen: React.FC = () => {
     setIsGenerating(true);
     try {
       const blob = await generatePartPriceCard(order, part, variant);
-      const result = await shareGeneratedPriceImage(blob, `part-${part.id}.png`, 'Цена по детали', `${part.name} — ${variant.priceAed} AED`);
+      const result = await shareGeneratedPriceImage(blob, `part-${part.id}.png`, 'Цена по детали', `${part.name} — ${variant.salePriceAed ?? variant.priceAed} AED`);
       if (result === 'downloaded') window.alert('Картинка сохранена. Теперь её можно отправить клиенту.');
     } catch (error) {
       console.error(error);
@@ -139,7 +139,7 @@ const OrderPartsScreen: React.FC = () => {
                   <div className="mt-3 rounded-2xl bg-slate-50 p-3">
                     {variant ? (
                       <>
-                        <p className="text-lg font-black text-emerald-700">{variant.priceAed} AED</p>
+                        <p className="text-lg font-black text-emerald-700">{variant.salePriceAed ?? variant.priceAed} AED</p>
                         <p className="text-xs font-semibold text-slate-600">{variant.shopName || 'Поставщик не указан'}</p>
                         <button
                           type="button"

@@ -665,14 +665,19 @@ const OrderDetailsScreen: React.FC = () => {
   }
 
 
-  const selectedOfferTotal = useMemo(() => order.parts.reduce((sum, part) => {
-    const pricedVariants = (part.variants || []).filter((variant) => Number(variant.priceAed) > 0);
-    const bestPrice = pricedVariants.length > 0
-      ? Math.min(...pricedVariants.map((variant) => Number(variant.priceAed) || 0))
-      : 0;
+  const selectedOfferTotals = useMemo(() => order.parts.reduce((sum, part) => {
+    const pricedVariants = (part.variants || []).filter((variant) => Number(variant.salePriceAed ?? variant.priceAed) > 0);
     const quantity = Math.max(1, Number(part.quantity || 1));
-    return sum + (bestPrice * quantity);
-  }, 0), [order.parts]);
+    if (pricedVariants.length === 0) return sum;
+    const bestSale = Math.min(...pricedVariants.map((variant) => Number(variant.salePriceAed ?? variant.priceAed) || 0));
+    const matchingVariant = pricedVariants.find((variant) => Number(variant.salePriceAed ?? variant.priceAed) === bestSale) || pricedVariants[0];
+    const bestPurchase = Number(matchingVariant.purchasePriceAed ?? matchingVariant.priceAed ?? 0);
+    return {
+      sale: sum.sale + (bestSale * quantity),
+      purchase: sum.purchase + (bestPurchase * quantity)
+    };
+  }, { sale: 0, purchase: 0 }), [order.parts]);
+  const selectedOfferTotal = selectedOfferTotals.sale;
   const logistics = useMemo(() => ({
     deliveryType: order.logistics?.deliveryType || 'uae',
     deliveryAed: Number(logisticsDraft.deliveryAed || 0),
@@ -692,7 +697,8 @@ const OrderDetailsScreen: React.FC = () => {
     : selectedOfferTotal * (order.markupPercent / 100)), [markupType, markupFixedInput, selectedOfferTotal, order.markupPercent]);
   const sellTotalAed = selectedOfferTotal + logisticsWithCargoTotal + markupAed;
   const canComputeProfit = selectedOfferTotal > 0;
-  const netProfitAed = canComputeProfit ? sellTotalAed - selectedOfferTotal - logisticsWithCargoTotal : null;
+  const baseMarginAed = canComputeProfit ? selectedOfferTotals.sale - selectedOfferTotals.purchase : 0;
+  const netProfitAed = canComputeProfit ? baseMarginAed + markupAed : null;
   const isMarkupMissing = canComputeProfit && markupAed <= 0;
   const lowMargin = canComputeProfit && selectedOfferTotal > 0 && markupAed > 0 && markupAed / selectedOfferTotal < 0.03;
   const isLoss = canComputeProfit && sellTotalAed < selectedOfferTotal + logisticsWithCargoTotal;

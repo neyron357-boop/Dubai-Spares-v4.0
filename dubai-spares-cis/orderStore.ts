@@ -136,16 +136,29 @@ const normalizePhotoList = (photos: string[] = []): string[] => {
   return normalized;
 };
 
+const getVariantPurchasePriceAed = (variant: Pick<PriceVariant, 'purchasePriceAed' | 'priceAed'> | null | undefined) => Number(variant?.purchasePriceAed ?? variant?.priceAed ?? 0);
+const getVariantSalePriceAed = (variant: Pick<PriceVariant, 'salePriceAed' | 'priceAed'> | null | undefined) => Number(variant?.salePriceAed ?? variant?.priceAed ?? 0);
+const getVariantBaseMarginAed = (variant: Pick<PriceVariant, 'purchasePriceAed' | 'salePriceAed' | 'priceAed'> | null | undefined) => {
+  const sale = getVariantSalePriceAed(variant as any);
+  const purchase = getVariantPurchasePriceAed(variant as any);
+  return sale - purchase;
+};
+
 const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | 'markupType' | 'markupFixedAed' | 'exchangeRate'>): number => {
-  const totalCostAed = (order.parts || []).reduce((sum, part) => {
-    if (!part.isFound || (part.variants || []).length === 0) return sum;
-    return sum + Number(part.variants[0].priceAed || 0);
-  }, 0);
-  if (totalCostAed <= 0) return 0;
+  let totalSaleAed = 0;
+  let totalBaseMarginAed = 0;
+  (order.parts || []).forEach((part) => {
+    if (!part.isFound || (part.variants || []).length === 0) return;
+    const qty = Math.max(1, Number(part.quantity || 1));
+    const variant = part.variants[0];
+    totalSaleAed += getVariantSalePriceAed(variant) * qty;
+    totalBaseMarginAed += getVariantBaseMarginAed(variant) * qty;
+  });
+  if (totalSaleAed <= 0 && totalBaseMarginAed <= 0) return 0;
   const markupAed = (order.markupType || 'percent') === 'fixed'
     ? Number(order.markupFixedAed || 0)
-    : totalCostAed * (Number(order.markupPercent || 0) / 100);
-  return markupAed / (Number(order.exchangeRate || 0) || 3.67);
+    : totalSaleAed * (Number(order.markupPercent || 0) / 100);
+  return (totalBaseMarginAed + markupAed) / (Number(order.exchangeRate || 0) || 3.67);
 };
 
 const normalizeLogistics = (raw: unknown, row?: Record<string, unknown>): Order['logistics'] | undefined => {
@@ -238,7 +251,7 @@ const normalizeOrder = (order: Order): Order => {
       const variants = Array.isArray(part.variants)
         ? part.variants.map((variant) => {
           const variantPhotos = normalizePhotoList(variant.photos || [variant.photoUrl || '']);
-          return { ...variant, photos: variantPhotos, photoUrl: variantPhotos[0] || '' };
+          return { ...variant, purchasePriceAed: Number(variant.purchasePriceAed ?? variant.priceAed ?? 0), salePriceAed: Number(variant.salePriceAed ?? variant.priceAed ?? 0), priceAed: Number(variant.salePriceAed ?? variant.priceAed ?? 0), photos: variantPhotos, photoUrl: variantPhotos[0] || '' };
         })
         : [];
       const groupItems = Array.isArray((part as any).groupItems)
@@ -986,7 +999,9 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
       variants: (part.price_variants || []).map((v): PriceVariant => ({
         id: String(v.id),
         partId: String(v.part_id),
-        priceAed: Number(v.price_aed || 0),
+        priceAed: Number((v.sale_price_aed ?? v.price_aed) || 0),
+        purchasePriceAed: Number((v.purchase_price_aed ?? v.price_aed) || 0),
+        salePriceAed: Number((v.sale_price_aed ?? v.price_aed) || 0),
         shopName: v.shop_name || '',
         shopId: v.shop_id ? String(v.shop_id) : undefined,
         phone: v.phone || '',
@@ -1368,7 +1383,9 @@ const persistOrderGraph = async (order: Order) => {
     (part.variants || []).map((variant) => ({
       id: variant.id,
       part_id: part.id,
-      price_aed: variant.priceAed,
+      price_aed: variant.salePriceAed ?? variant.priceAed,
+      purchase_price_aed: variant.purchasePriceAed ?? variant.priceAed,
+      sale_price_aed: variant.salePriceAed ?? variant.priceAed,
       shop_name: variant.shopName,
       shop_id: variant.shopId || null,
       phone: variant.phone,
@@ -2209,7 +2226,7 @@ export const updatePriceVariantItem = async (partId: string, variant: PriceVaria
   await updateOrderItem({ ...order, parts });
   pushActivityNotification({
     title: variantExists ? 'Обновлён вариант цены' : 'Добавлен вариант цены',
-    message: `${part?.name || 'Деталь'} · ${variant.shopName || 'Магазин'} · ${variant.priceAed} AED`,
+    message: `${part?.name || 'Деталь'} · ${variant.shopName || 'Магазин'} · ${variant.salePriceAed ?? variant.priceAed} AED`,
     orderId: order.id,
     partId,
     supplierId: variant.shopId,

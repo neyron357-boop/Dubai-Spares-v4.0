@@ -30,6 +30,8 @@ export interface PriceVariant {
   id: string;
   partId?: string;
   priceAed: number;
+  purchasePriceAed?: number;
+  salePriceAed?: number;
   currency?: 'AED';
   condition?: OfferCondition;
   availability?: OfferAvailability;
@@ -349,6 +351,8 @@ export interface DbPriceVariantRow {
   id: string;
   part_id: string;
   price_aed: number;
+  purchase_price_aed?: number | null;
+  sale_price_aed?: number | null;
   shop_name: string;
   shop_id?: string | null;
   phone: string;

@@ -244,6 +244,8 @@ export const resolveClientUnitPriceAed = (
   if (clientPrice !== null) return round2(clientPrice);
 
   const basePrice = pickNumeric(
+    variantLike.salePriceAed,
+    variantLike.sale_price_aed,
     variantLike.priceAed,
     variantLike.price_aed,
     variantLike.supplier_price_aed,
@@ -668,7 +670,7 @@ const buildSnapshotPayload = (
   const pricedParts = readyPartsForMarkup
     .map((part) => {
       const variant = part.variants[0];
-      const supplierAed = parseMoney(variant?.priceAed);
+      const supplierAed = parseMoney(variant?.salePriceAed ?? variant?.priceAed);
       const clientAed = isFixedMarkup
         ? round2(supplierAed + fixedMarkupPerPart)
         : resolveClientUnitPriceAed(variant as unknown as Record<string, unknown>, {

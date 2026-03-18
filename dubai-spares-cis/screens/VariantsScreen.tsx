@@ -60,7 +60,8 @@ const VariantsScreen: React.FC = () => {
   const longPressTimerRef = useRef<number | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [priceAed, setPriceAed] = useState('');
+  const [purchasePriceAed, setPurchasePriceAed] = useState('');
+  const [salePriceAed, setSalePriceAed] = useState('');
   const [shopName, setShopName] = useState('');
   const [partName, setPartName] = useState('');
   const [phone, setPhone] = useState('');
@@ -93,7 +94,8 @@ const VariantsScreen: React.FC = () => {
   }, []);
 
   const resetForm = () => {
-    setPriceAed('');
+    setPurchasePriceAed('');
+    setSalePriceAed('');
     setShopName('');
     setPartName('');
     setPhone('');
@@ -200,7 +202,7 @@ const VariantsScreen: React.FC = () => {
 
     context.fillStyle = '#2563EB';
     context.font = '700 58px Inter, Arial, sans-serif';
-    context.fillText(formatPrice(variant.priceAed), startX, 280);
+    context.fillText(formatPrice(Number((variant.salePriceAed ?? variant.priceAed) || 0)), startX, 280);
 
     context.fillStyle = '#334155';
     context.font = '500 30px Inter, Arial, sans-serif';
@@ -228,7 +230,7 @@ const VariantsScreen: React.FC = () => {
     try {
       const blob = await generateVariantPreview(variant);
       const file = new File([blob], `variant-${variant.id}.png`, { type: 'image/png' });
-      const text = `${variant.sourcePartName || 'Деталь'} — ${formatPrice(variant.priceAed)}`;
+      const text = `${variant.sourcePartName || 'Деталь'} — ${formatPrice(Number((variant.salePriceAed ?? variant.priceAed) || 0))}`;
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
         await navigator.share({
           title: 'Предложение по детали',
@@ -276,8 +278,8 @@ const VariantsScreen: React.FC = () => {
     return list.sort((a, b) => {
       if (sortKey === 'supplier') return (a.shopName || '').localeCompare(b.shopName || '', 'ru');
       if (sortKey === 'created') return Number(b.createdAt || 0) - Number(a.createdAt || 0);
-      if (sortKey === 'price_asc') return Number(a.priceAed || 0) - Number(b.priceAed || 0);
-      if (sortKey === 'price_desc') return Number(b.priceAed || 0) - Number(a.priceAed || 0);
+      if (sortKey === 'price_asc') return Number((a.salePriceAed ?? a.priceAed) || 0) - Number((b.salePriceAed ?? b.priceAed) || 0);
+      if (sortKey === 'price_desc') return Number((b.salePriceAed ?? b.priceAed) || 0) - Number((a.salePriceAed ?? a.priceAed) || 0);
       if (sortKey === 'pinned') return Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
       return Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0);
     });
@@ -311,7 +313,7 @@ const VariantsScreen: React.FC = () => {
     event.target.value = '';
   };
 
-  const isCreateValid = shopName.trim() && partName.trim() && Number(priceAed) > 0;
+  const isCreateValid = shopName.trim() && partName.trim() && Number(purchasePriceAed) > 0 && Number(salePriceAed) > 0;
 
   const handleCreateVariant = () => {
     if (!isCreateValid) return;
@@ -320,7 +322,9 @@ const VariantsScreen: React.FC = () => {
       id: createUuid(),
       partId: undefined,
       origin: 'standalone',
-      priceAed: Number(priceAed),
+      priceAed: Number(salePriceAed),
+      purchasePriceAed: Number(purchasePriceAed),
+      salePriceAed: Number(salePriceAed),
       currency: 'AED',
       shopName: shopName.trim(),
       shopNameManual: shopName.trim(),
@@ -550,7 +554,7 @@ const VariantsScreen: React.FC = () => {
                       <p className="mt-1 line-clamp-2 text-sm text-[#667085]">{variant.sourcePartName || 'Деталь не указана'}</p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="text-[21px] font-bold leading-6 text-[#0F1728]">{formatPrice(Number(variant.priceAed || 0))}</p>
+                      <p className="text-[21px] font-bold leading-6 text-[#0F1728]">{formatPrice(Number((variant.salePriceAed ?? variant.priceAed) || 0))}</p>
                       <p className="mt-1 text-xs text-[#667085]">{formatDate(variant.updatedAt || variant.createdAt)}</p>
                     </div>
                   </div>
@@ -607,7 +611,10 @@ const VariantsScreen: React.FC = () => {
                 <input value={shopName} onChange={(event) => setShopName(event.target.value)} placeholder="Поставщик" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
                 <input value={partName} onChange={(event) => setPartName(event.target.value)} placeholder="Деталь / название варианта" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
                 <div className="grid grid-cols-2 gap-2">
-                  <input value={priceAed} type="number" onChange={(event) => setPriceAed(event.target.value)} placeholder="Цена" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+                  <input value={purchasePriceAed} type="number" onChange={(event) => setPurchasePriceAed(event.target.value)} placeholder="Цена покупки" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input value={salePriceAed} type="number" onChange={(event) => setSalePriceAed(event.target.value)} placeholder="Цена продажи" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
                   <div className="flex h-[52px] items-center rounded-2xl border border-[#E7EAF0] px-3 text-sm text-[#667085]">AED</div>
                 </div>
                 <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Комментарий" className="min-h-[120px] w-full rounded-2xl border border-[#E7EAF0] px-3 py-2 text-sm outline-none" />
@@ -615,7 +622,7 @@ const VariantsScreen: React.FC = () => {
                 <input value={customerOrderRef} onChange={(event) => setCustomerOrderRef(event.target.value)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" placeholder="Номер/ссылка заказа (необязательно)" />
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => setShopName(generateUniqueSupplierName())} className="rounded-xl bg-[#F2F4F7] px-3 py-1.5 text-xs font-semibold text-[#475467]">Случайное имя</button>
-                  <button type="button" onClick={() => setPriceAed(String(priceTemplates[Math.floor(Math.random() * priceTemplates.length)]))} className="rounded-xl bg-[#F2F4F7] px-3 py-1.5 text-xs font-semibold text-[#475467]">Быстрая цена</button>
+                  <button type="button" onClick={() => { const next = String(priceTemplates[Math.floor(Math.random() * priceTemplates.length)]); setPurchasePriceAed(next); setSalePriceAed(next); }} className="rounded-xl bg-[#F2F4F7] px-3 py-1.5 text-xs font-semibold text-[#475467]">Быстрая цена</button>
                 </div>
               </section>
 
@@ -676,7 +683,8 @@ const VariantsScreen: React.FC = () => {
             {isEditMode ? (
               <div className="mt-4 space-y-2">
                 <input value={selectedVariant.shopName || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, shopName: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Поставщик" />
-                <input value={String(selectedVariant.priceAed || '')} type="number" onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, priceAed: Number(event.target.value || 0) } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Цена" />
+                <input value={String((selectedVariant.purchasePriceAed ?? selectedVariant.priceAed) || '')} type="number" onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, purchasePriceAed: Number(event.target.value || 0) } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Цена покупки" />
+                <input value={String((selectedVariant.salePriceAed ?? selectedVariant.priceAed) || '')} type="number" onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, priceAed: Number(event.target.value || 0), salePriceAed: Number(event.target.value || 0) } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Цена продажи" />
                 <input value={selectedVariant.phone || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, phone: event.target.value.replace(/[^\d+]/g, '') } : prev)} inputMode="numeric" type="tel" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Телефон" />
                 <input value={selectedVariant.locationText || selectedVariant.location || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, locationText: event.target.value, location: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Локация" />
                 <button type="button" onClick={() => void applyCurrentLocationToSelected()} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-[#D0D5DD] px-3 text-sm font-semibold text-[#475467] disabled:opacity-50" disabled={isResolvingLocation}>{isResolvingLocation ? 'Определяем GPS...' : '📍 Текущее местоположение'}</button>
@@ -689,7 +697,8 @@ const VariantsScreen: React.FC = () => {
                 <div className="rounded-2xl border border-[#E7EAF0] p-3">
                   <p className="text-xs text-[#667085]">Главная информация</p>
                   <p className="mt-1 text-sm font-semibold">{selectedVariant.sourcePartName || 'Деталь не указана'}</p>
-                  <p className="mt-1 text-[22px] font-bold">{formatPrice(selectedVariant.priceAed)}</p>
+                  <p className="mt-1 text-[22px] font-bold">{formatPrice(Number((selectedVariant.salePriceAed ?? selectedVariant.priceAed) || 0))}</p>
+                  <p className="mt-1 text-xs text-[#667085]">Покупка: {formatPrice(Number((selectedVariant.purchasePriceAed ?? selectedVariant.priceAed) || 0))} · Маржа: {formatPrice(Number(((selectedVariant.salePriceAed ?? selectedVariant.priceAed) || 0) - ((selectedVariant.purchasePriceAed ?? selectedVariant.priceAed) || 0)))}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="rounded-xl bg-[#F2F4F7] px-2 py-1 text-[11px] font-semibold">{selectedVariant.origin === 'order' ? 'Из заказа' : 'Без заказа'}</span>
                     {selectedVariant.isPinned && <span className="rounded-xl bg-[#FEF3C7] px-2 py-1 text-[11px] font-semibold">Закреплён</span>}
