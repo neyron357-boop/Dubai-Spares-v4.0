@@ -14,16 +14,13 @@ import {
   Send,
 } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
-import { copyToClipboard, DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, type QuoteCurrency } from '../shareUtils';
-import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot, resolveClientUnitPriceAed } from '../publicQuoteApi';
-import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
+import { copyToClipboard, parsePublicQuoteKey } from '../shareUtils';
+import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot } from '../publicQuoteApi';
+import { normalizePublicQuoteSnapshotPayload } from '../utils/publicQuoteSnapshot';
 import { calculateCargoEstimates } from '../utils/cargo';
 import type { Order } from '../types';
 
 type Language = 'ru' | 'en';
-type QuoteContact = { whatsapp: string; telegram: string; instagram: string; managerName: string; logoUrl: string; signatureUrl: string; workTerms: string; deliveryTerms: string };
-type QuoteItem = { id: string; name: string; qty: number; unitPriceAed: number; totalAed: number; photos: string[]; note?: string; };
-
 type PublicQuoteScreenProps = { orderId: string };
 
 const i18n = {
@@ -89,37 +86,7 @@ const i18n = {
   }
 } as const;
 
-const digits = (value: string | null | undefined) => (value || '').replace(/\D/g, '');
 const money = (value: number, currency: string) => `${value.toFixed(2)} ${currency}`;
-const firstString = (...values: unknown[]) => values.find((value) => typeof value === 'string' && value.trim()) as string | undefined;
-const firstNumber = (...values: unknown[]) => {
-  for (const value of values) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return 0;
-};
-
-const normalizeItems = (payload: Record<string, any>): QuoteItem[] => {
-  const parts = Array.isArray(payload.parts) ? payload.parts : [];
-  return parts.map((part: any, index: number) => {
-    const qty = normalizePartQuantity(part.qty ?? part.quantity ?? 1);
-    const groupItems = normalizeGroupItems(part.group_items || part.groupItems || []);
-    const displayName = part.part_kind === 'group' && groupItems.length
-      ? `${part.name || 'Group'}: ${groupItems.map((item) => `${item.name} ×${item.quantity}`).join(', ')}`
-      : (part.name || `Part ${index + 1}`);
-    const unitPriceAed = resolveClientUnitPriceAed(part, { markupPercent: 0 });
-    return {
-      id: String(part.id || `part-${index}`),
-      name: displayName,
-      qty,
-      unitPriceAed,
-      totalAed: unitPriceAed * qty,
-      photos: Array.isArray(part.photo_urls) ? part.photo_urls.filter(Boolean) : Array.isArray(part.photos) ? part.photos.filter(Boolean) : [],
-      note: firstString(part.note, part.comment),
-    };
-  }).filter((item) => item.totalAed > 0 || item.photos.length > 0 || item.name);
-};
 
 const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const [lang, setLang] = useState<Language>('ru');
@@ -153,19 +120,13 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
         publicQuoteGetSnapshot(token, { snapshotId: publicKey?.snapshotId || publicKey?.urlSnapshot || null }),
         publicQuoteGetPublicContactSettings(),
       ]);
-      if (!snapshot?.payload || typeof snapshot.payload !== 'object') {
+      const normalizedPayload = normalizePublicQuoteSnapshotPayload(snapshot?.payload, settings || {});
+      if (!normalizedPayload?.hasRenderableContent) {
         setSnapshotPayload(null);
         setError(snapshot?.isPayloadCorrupted ? 'Не удалось загрузить смету' : t.notFound);
       } else {
-        const payload = {
-          ...(snapshot.payload as Record<string, any>),
-          public_settings: {
-            ...((snapshot.payload as Record<string, any>).public_settings || {}),
-            ...(settings || {})
-          }
-        };
-        setSnapshotPayload(payload);
-        setExpiresAt(snapshot.expires_at || '');
+        setSnapshotPayload(normalizedPayload.raw);
+        setExpiresAt(snapshot?.expires_at || '');
       }
     } catch (err) {
       setSnapshotPayload(null);
@@ -177,61 +138,26 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
 
   useEffect(() => { void loadQuote(); }, [loadQuote]);
 
-  const order = useMemo(() => {
-    const raw = snapshotPayload?.order || {};
-    return {
-      brand: raw.brand || '—',
-      model: raw.model || '',
-      year: raw.year || '',
-      vin: raw.vin || '—',
-      bodyType: raw.body_type || raw.bodyType || '',
-      logistics: snapshotPayload?.logistics || {},
-    } as Partial<Order>;
-  }, [snapshotPayload]);
-
-  const rates = useMemo(() => {
-    const payloadRates = snapshotPayload?.pricing?.rates || snapshotPayload?.breakdown?.rates || {};
-    const parsed = parseQuoteRates(payloadRates, DEFAULT_QUOTE_RATES);
-    return parsed;
-  }, [snapshotPayload]);
-
-  const currency = useMemo<QuoteCurrency>(() => {
-    const raw = String(snapshotPayload?.pricing?.currency || snapshotPayload?.breakdown?.currency || 'USD').toUpperCase();
-    return (['AED', 'USD', 'RUB', 'TJS'].includes(raw) ? raw : 'USD') as QuoteCurrency;
-  }, [snapshotPayload]);
-
-  const items = useMemo(() => snapshotPayload ? normalizeItems(snapshotPayload) : [], [snapshotPayload]);
-  const subtotalAed = useMemo(() => items.reduce((sum, item) => sum + item.totalAed, 0), [items]);
-  const deliveryAed = firstNumber(snapshotPayload?.breakdown?.delivery, snapshotPayload?.fees?.logistics, snapshotPayload?.logistics?.deliveryAed, snapshotPayload?.totals?.logistics_aed);
-  const packingAed = firstNumber(snapshotPayload?.breakdown?.packaging, snapshotPayload?.fees?.packaging, snapshotPayload?.logistics?.packingAed, snapshotPayload?.totals?.packing_aed);
-  const commissionAed = firstNumber(snapshotPayload?.breakdown?.commission, snapshotPayload?.fees?.commission, snapshotPayload?.logistics?.serviceFeeAed, snapshotPayload?.totals?.commission_aed);
-  const grandTotalAed = firstNumber(snapshotPayload?.breakdown?.total, snapshotPayload?.totals?.grand_total_aed, subtotalAed + deliveryAed + packingAed + commissionAed);
+  const normalizedSnapshot = useMemo(() => normalizePublicQuoteSnapshotPayload(snapshotPayload), [snapshotPayload]);
+  const order = normalizedSnapshot?.order || { brand: '—', model: '', year: '', vin: '—', bodyType: '' };
+  const rates = normalizedSnapshot?.rates || { AED: 1, USD: 0.27, RUB: 21, TJS: 2.6 };
+  const currency = normalizedSnapshot?.currency || 'USD';
+  const items = normalizedSnapshot?.items || [];
+  const subtotalAed = normalizedSnapshot?.subtotalAed || 0;
+  const deliveryAed = normalizedSnapshot?.deliveryAed || 0;
+  const packingAed = normalizedSnapshot?.packingAed || 0;
+  const commissionAed = normalizedSnapshot?.commissionAed || 0;
+  const grandTotalAed = normalizedSnapshot?.grandTotalAed || 0;
   const fx = rates[currency] || 1;
-
-  const contact = useMemo<QuoteContact>(() => ({
-    whatsapp: digits(firstString(snapshotPayload?.contact?.whatsapp_phone, snapshotPayload?.contacts?.whatsapp, snapshotPayload?.public_contact?.whatsapp, snapshotPayload?.public_settings?.publicWhatsappNumber)),
-    telegram: firstString(snapshotPayload?.contact?.telegram, snapshotPayload?.contacts?.telegram, snapshotPayload?.public_contact?.telegram, snapshotPayload?.public_settings?.publicTelegramUrl) || '',
-    instagram: firstString(snapshotPayload?.contact?.instagram, snapshotPayload?.contacts?.instagram, snapshotPayload?.public_contact?.instagram, snapshotPayload?.public_settings?.publicInstagramUrl) || '',
-    managerName: firstString(snapshotPayload?.public_settings?.publicManagerName, snapshotPayload?.contact?.display_name, snapshotPayload?.owner?.display_name) || 'Dubai Spares UAE',
-    logoUrl: firstString(snapshotPayload?.public_settings?.publicCompanyLogoUrl) || '',
-    signatureUrl: firstString(snapshotPayload?.public_settings?.publicInvoiceSignatureUrl) || '',
-    workTerms: firstString(snapshotPayload?.public_settings?.publicWorkTerms) || '',
-    deliveryTerms: firstString(snapshotPayload?.public_settings?.publicDeliveryTerms) || '',
-  }), [snapshotPayload]);
+  const contact = normalizedSnapshot?.contact || { whatsapp: '', telegram: '', instagram: '', managerName: 'Dubai Spares UAE', logoUrl: '', signatureUrl: '', workTerms: '', deliveryTerms: '' };
 
   const cargoEstimate = useMemo(() => calculateCargoEstimates({
-    logistics: snapshotPayload?.logistics,
-    parts: (snapshotPayload?.parts || []).map((part: any) => ({
-      quantity: Number(part.qty || part.quantity || 1),
-      weightKg: Number(part.weight_kg || part.weightKg || 0),
-      places: Number(part.places || 0),
-      cargoPlaceGroup: part.cargo_place_group || part.cargoPlaceGroup,
-      isOversized: Boolean(part.is_oversized || part.isOversized),
-    })),
-  } as any, {}), [snapshotPayload]);
+    logistics: normalizedSnapshot?.cargoInput.logistics,
+    parts: normalizedSnapshot?.cargoInput.parts || [],
+  } as Order, {}), [normalizedSnapshot]);
 
   const whatsappHref = contact.whatsapp ? `https://wa.me/${contact.whatsapp}` : '';
-  const pdfHref = firstString(snapshotPayload?.pdf_url, snapshotPayload?.invoice_url, snapshotPayload?.documents?.pdf, snapshotPayload?.documents?.invoice) || '';
+  const pdfHref = normalizedSnapshot?.pdfHref || '';
 
   const copyLink = async () => {
     await copyToClipboard(window.location.href);
