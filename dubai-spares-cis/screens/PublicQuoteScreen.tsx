@@ -19,12 +19,15 @@ import {
   Navigation,
   Flag,
   TrendingUp,
-  XCircle
+  XCircle,
+  Copy,
+  Bot,
+  Link2
 } from 'lucide-react';
 import { HuntGpsPingRow, HuntWaypointResult, HuntWaypointRow, Order, Part, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
 import HuntLiveMap from '../components/HuntLiveMap';
-import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
+import { copyToClipboard, DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { logger } from '../logging';
 import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot, resolveClientUnitPriceAed } from '../publicQuoteApi';
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
@@ -2205,6 +2208,16 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
   const isQuoteExpired = Boolean(expiresAtIso && Date.parse(expiresAtIso) < Date.now());
   const telegramSubscription = useMemo(() => order ? ensureTelegramSubscriptionState(order.id, settings.publicTelegramUrl || quoteContact?.telegram || '') : null, [order, settings.publicTelegramUrl, quoteContact?.telegram]);
+  const copyTelegramCode = useCallback(async () => {
+    if (!telegramSubscription?.code) return;
+    const copied = await copyToClipboard(telegramSubscription.code);
+    if (copied) {
+      window.alert(lang === 'ru' ? 'Код Telegram скопирован' : 'Telegram code copied');
+    } else {
+      window.alert(lang === 'ru' ? 'Не удалось скопировать код' : 'Unable to copy Telegram code');
+    }
+  }, [lang, telegramSubscription?.code]);
+
 
   useEffect(() => {
     if (!order?.id) return;
@@ -2891,7 +2904,39 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 <p className="inline-flex items-center gap-2 font-bold text-slate-800"><Building2 size={16} /> {t.companyProfile}: Dubai Spares UAE</p>
                 {logoUrl && <img src={logoUrl} alt="Company logo" className="h-20 w-auto max-w-[360px] object-contain" />}
               </div>
-              <div className="flex flex-wrap gap-2">
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="inline-flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-sky-700"><Bot size={14} /> {lang === 'ru' ? 'Экосистема клиента' : 'Client ecosystem'}</p>
+              <h2 className="mt-2 text-xl font-bold text-[#0f1f3d]">{lang === 'ru' ? 'Смета, трекинг и Telegram работают как одна система.' : 'Quote, tracking, and Telegram work as one system.'}</h2>
+              <p className="mt-2 text-sm text-slate-600">{lang === 'ru' ? 'Клиент видит текущий статус поиска, историю посещений, может подключить Telegram-бота и вернуться в tracking page по одной ссылке.' : 'The customer sees live search status, visit history, can connect the Telegram bot, and return to the tracking page from one connected flow.'}</p>
+            </div>
+            <div className="grid min-w-[260px] gap-2 sm:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Tracking' : 'Tracking'}</p><p className="mt-1 text-sm font-bold text-slate-900">{order.huntStatus === 'live_hunt' ? (lang === 'ru' ? 'Активен' : 'Live now') : order.huntStatus === 'final_offer' ? (lang === 'ru' ? 'Завершён' : 'Finished') : (lang === 'ru' ? 'Ожидается' : 'Waiting')}</p></div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Точки' : 'Waypoints'}</p><p className="mt-1 text-sm font-bold text-slate-900">{huntWaypoints.length}</p></div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Telegram</p><p className="mt-1 text-sm font-bold text-slate-900">{telegramSubscription?.code ? (lang === 'ru' ? 'Готов к подключению' : 'Ready to connect') : (lang === 'ru' ? 'Не настроен' : 'Not configured')}</p></div>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {huntWaypoints.length > 0 && (
+              <button type="button" onClick={() => setShowSearchHistory((prev) => !prev)} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">
+                <Flag size={15} /> {lang === 'ru' ? 'История поиска' : 'Search history'}
+              </button>
+            )}
+            {telegramSubscription?.code && (
+              <button type="button" onClick={() => void copyTelegramCode()} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100">
+                <Link2 size={15} /> {lang === 'ru' ? 'Скопировать код Telegram' : 'Copy Telegram code'}
+              </button>
+            )}
+            {telegramSubscription?.deepLink && (
+              <a href={telegramSubscription.deepLink} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-2xl bg-sky-600 px-4 text-sm font-semibold text-white transition hover:bg-sky-500">
+                <Send size={15} /> {lang === 'ru' ? 'Открыть Telegram-бота' : 'Open Telegram bot'}
+              </a>
+            )}
+          </div>
+        </section>
+
+        <div className="flex flex-wrap gap-2">
                 {whatsappPhoneDigits && (
                   <a href={`https://wa.me/${whatsappPhoneDigits}`} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(16,185,129,0.28)] transition hover:bg-emerald-400">
                     <MessageCircle size={15} /> WhatsApp
@@ -2910,8 +2955,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               </div>
               {telegramSubscription?.code && (
                 <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 text-xs text-slate-600">
-                  <div className="font-black uppercase tracking-wide text-sky-700">Telegram subscription</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">Код подключения: {telegramSubscription.code}</div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-black uppercase tracking-wide text-sky-700">Telegram subscription</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">Код подключения: {telegramSubscription.code}</div>
+                    </div>
+                    <button type="button" onClick={() => void copyTelegramCode()} className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-white px-3 py-2 text-[11px] font-black text-sky-700">
+                      <Copy size={13} /> {lang === 'ru' ? 'Скопировать' : 'Copy'}
+                    </button>
+                  </div>
                   <div className="mt-1">Откройте Telegram по deep link или отправьте этот код боту, чтобы связать chat_id с заказом и получать обновления с кнопкой открытия tracking page.</div>
                 </div>
               )}
