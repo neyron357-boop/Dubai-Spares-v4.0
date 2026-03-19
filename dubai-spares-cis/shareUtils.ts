@@ -2,14 +2,15 @@ import { Order, Part } from './types';
 import { publicQuoteCreateSnapshot } from './publicQuoteApi';
 import { loadAppSettings } from './appSettings';
 
-export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS';
+export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT';
 export type QuoteRates = Record<QuoteCurrency, number>;
 
 export const DEFAULT_QUOTE_RATES: QuoteRates = {
   AED: 1,
   USD: 0.27,
   RUB: 21,
-  TJS: 2.60
+  TJS: 2.60,
+  KZT: 125,
 };
 
 const firstHttpPhoto = (images: string[]) => images.find((item) => item.startsWith('http'));

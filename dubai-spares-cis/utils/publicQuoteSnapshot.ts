@@ -21,6 +21,7 @@ export type QuoteItem = {
   totalAed: number;
   photos: string[];
   note?: string;
+  status?: string;
 };
 
 export type QuoteDocument = {
@@ -37,6 +38,7 @@ export type NormalizedPublicQuoteSnapshot = {
     year: string | number;
     vin: string;
     bodyType: string;
+    carPhotoUrl: string;
   };
   rates: QuoteRates;
   currency: QuoteCurrency;
@@ -84,6 +86,26 @@ const normalizeRates = (value: unknown): QuoteRates => {
   return next;
 };
 
+const normalizeItemStatus = (part: { status?: unknown; part_status?: unknown; condition?: unknown; availability?: unknown }): string | undefined => {
+  const raw = firstString(part.status, part.part_status, part.condition, part.availability);
+  if (!raw) return undefined;
+  const map: Record<string, string> = {
+    in_stock: 'В наличии',
+    by_order: 'Под заказ',
+    '1d': 'Под заказ (1 д)',
+    '2_3d': 'Под заказ (2–3 д)',
+    new: 'Новая',
+    used: 'Б/У',
+    scrapyard: 'Б/У',
+    found: 'Найдено',
+    searching: 'Поиск',
+    ordered: 'Заказана',
+    not_found: 'Не найдено',
+    original: 'Оригинал',
+  };
+  return map[raw.toLowerCase()] || raw;
+};
+
 const normalizeItems = (payload: Record<string, any>): QuoteItem[] => {
   const rawParts = asArray(payload.parts);
   const rawItems = asArray(payload.items);
@@ -102,6 +124,7 @@ const normalizeItems = (payload: Record<string, any>): QuoteItem[] => {
       totalAed: unitPriceAed * qty,
       photos: asArray(part.photo_urls).filter(Boolean).length ? asArray(part.photo_urls).filter(Boolean) : asArray(part.photos).filter(Boolean),
       note: firstString(part.note, part.comment),
+      status: normalizeItemStatus(part),
     };
   }).filter((item) => item.totalAed > 0 || item.photos.length > 0 || item.name);
 
@@ -118,6 +141,7 @@ const normalizeItems = (payload: Record<string, any>): QuoteItem[] => {
       totalAed: firstNumber(item.line_total, item.lineTotal, unitPriceAed * qty),
       photos: asArray(item.photo_urls).filter(Boolean).length ? asArray(item.photo_urls).filter(Boolean) : asArray(item.photos).filter(Boolean),
       note: firstString(item.note, item.comment),
+      status: normalizeItemStatus(item),
     };
   }).filter((item) => item.totalAed > 0 || item.photos.length > 0 || item.name);
 };
@@ -143,7 +167,7 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
   const grandTotalAed = totalsGrand > 0 ? totalsGrand : subtotalAed + deliveryAed + packingAed + commissionAed;
   const rates = normalizeRates(pricing.rates || breakdown.rates);
   const rawCurrency = String(pricing.currency || breakdown.currency || 'USD').toUpperCase();
-  const currency = (['AED', 'USD', 'RUB', 'TJS'].includes(rawCurrency) ? rawCurrency : 'USD') as QuoteCurrency;
+  const currency = (['AED', 'USD', 'RUB', 'TJS', 'KZT'].includes(rawCurrency) ? rawCurrency : 'USD') as QuoteCurrency;
 
   const documentsRaw = asObject(raw.documents);
   const documents: QuoteDocument[] = [];
@@ -186,6 +210,16 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
       year: order.year || '',
       vin: firstString(order.vin) || '—',
       bodyType: firstString(order.body_type, order.bodyType) || '',
+      carPhotoUrl: firstString(
+        order.carPhotos?.[0],
+        order.carPhotoUrl,
+        order.car_photos?.[0],
+        order.car_photo_url,
+        raw.carPhotos?.[0],
+        raw.carPhotoUrl,
+        raw.car_photos?.[0],
+        raw.car_photo_url,
+      ) || '',
     },
     rates,
     currency,
