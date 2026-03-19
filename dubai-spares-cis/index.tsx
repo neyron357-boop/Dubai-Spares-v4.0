@@ -22,9 +22,11 @@ const isPublicOrderFormRoute = normalizedPath.endsWith('/request') || normalized
 const publicQuoteMatch = window.location.pathname.match(/^\/(?:order\/([^/]+)\/quote|quote\/([^/]+))\/?$/i);
 const publicQuotePathParam = publicQuoteMatch ? decodeURIComponent((publicQuoteMatch[2] || publicQuoteMatch[1] || '').trim()) : null;
 const hashQuoteMatch = window.location.hash.match(/^#\/q\/([^/?#]+).*$/i);
+const hashTrackingMatch = window.location.hash.match(/^#\/tracking\/([^/?#]+).*$/i);
 const hashQuoteToken = hashQuoteMatch ? decodeURIComponent(hashQuoteMatch[1].trim()) : null;
+const hashTrackingOrderId = hashTrackingMatch ? decodeURIComponent(hashTrackingMatch[1].trim()) : null;
 const publicQuoteOrderId = publicQuotePathParam ? extractOrderIdFromQuoteSlug(publicQuotePathParam) : null;
-const isPublicQuoteRoute = !!publicQuoteOrderId || !!hashQuoteToken;
+const isPublicQuoteRoute = !!publicQuoteOrderId || !!hashQuoteToken || !!hashTrackingOrderId;
 const isPublicScrollableRoute = isPublicOrderFormRoute || isPublicQuoteRoute;
 
 const BOOT_RESET_MARKER = 'dubai-spares-public-route-hard-reset-done';
@@ -143,7 +145,7 @@ void (async () => {
 
   root.render(
     <React.StrictMode>
-      {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : hashQuoteToken ? <PublicQuoteScreen orderId={hashQuoteToken} /> : publicQuotePathParam ? <PublicQuoteScreen orderId={publicQuotePathParam} /> : <App />}
+      {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : hashTrackingOrderId ? <PublicQuoteScreen orderId={hashTrackingOrderId} mode="tracking" /> : hashQuoteToken ? <PublicQuoteScreen orderId={hashQuoteToken} mode="quote" /> : publicQuotePathParam ? <PublicQuoteScreen orderId={publicQuotePathParam} mode="quote" /> : <App />}
     </React.StrictMode>
   );
 })();

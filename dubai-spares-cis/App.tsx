@@ -26,7 +26,12 @@ const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
 
 const HashPublicQuoteRoute: React.FC = () => {
   const { orderId = '' } = useParams();
-  return <PublicQuoteScreen orderId={orderId} />;
+  return <PublicQuoteScreen orderId={orderId} mode="quote" />;
+};
+
+const HashPublicTrackingRoute: React.FC = () => {
+  const { orderId = '' } = useParams();
+  return <PublicQuoteScreen orderId={orderId} mode="tracking" />;
 };
 
 type BottomTab = 'orders' | 'vendors' | 'notifications' | 'settings' | null;
@@ -201,6 +206,7 @@ const CachedRoutes: React.FC = () => {
               <Route path="/order-form" element={<PublicOrderFormScreen />} />
               <Route path="/public-order-form" element={<PublicOrderFormScreen />} />
               <Route path="/q/:orderId" element={<HashPublicQuoteRoute />} />
+              <Route path="/tracking/:orderId" element={<HashPublicTrackingRoute />} />
               <Route path="*" element={<NotFoundScreen />} />
             </Routes>
           </div>

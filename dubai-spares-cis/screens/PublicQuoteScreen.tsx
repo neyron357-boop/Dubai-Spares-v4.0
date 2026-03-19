@@ -1555,7 +1555,7 @@ const openCargoLogisticsPrintWindow = ({
   return true;
 };
 
-const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
+const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking' }> = ({ orderId, mode = 'quote' }) => {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorType, setErrorType] = useState<EstimateErrorType | null>(null);
@@ -2975,14 +2975,18 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="inline-flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-sky-700"><Bot size={14} /> {lang === 'ru' ? 'Экосистема клиента' : 'Client ecosystem'}</p>
-              <h2 className="mt-2 text-xl font-bold text-[#0f1f3d]">{lang === 'ru' ? 'Смета, трекинг и Telegram работают как одна система.' : 'Quote, tracking, and Telegram work as one system.'}</h2>
-              <p className="mt-2 text-sm text-slate-600">{lang === 'ru' ? 'Клиент видит текущий статус поиска, историю посещений, может подключить Telegram-бота и вернуться в tracking page по одной ссылке.' : 'The customer sees live search status, visit history, can connect the Telegram bot, and return to the tracking page from one connected flow.'}</p>
+              <p className="inline-flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-sky-700"><Bot size={14} /> {mode === 'tracking' ? (lang === 'ru' ? 'Tracking site' : 'Tracking site') : (lang === 'ru' ? 'Публичная смета' : 'Public estimate')}</p>
+              <h2 className="mt-2 text-xl font-bold text-[#0f1f3d]">{mode === 'tracking'
+                ? (lang === 'ru' ? 'Клиентский tracking показывает весь процесс поиска в реальном времени.' : 'The client tracking page shows the full search process in real time.')
+                : (lang === 'ru' ? 'Публичная смета показывает только итоговое предложение.' : 'The public estimate shows only the final offer.')}</h2>
+              <p className="mt-2 text-sm text-slate-600">{mode === 'tracking'
+                ? (lang === 'ru' ? 'Отдельная tracking-ссылка отображает статусы, точки, фотографии, детали заказа и историю поиска.' : 'A separate tracking link shows statuses, waypoints, photos, order details, and search history.')
+                : (lang === 'ru' ? 'В итоговой смете оставлена только кнопка истории поиска без Telegram-привязки.' : 'The final estimate keeps only the search history button without Telegram binding.')}</p>
             </div>
-            <div className="grid min-w-[260px] gap-2 sm:grid-cols-3">
+            <div className={`grid min-w-[260px] gap-2 ${mode === 'tracking' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Tracking' : 'Tracking'}</p><p className="mt-1 text-sm font-bold text-slate-900">{order.huntStatus === 'live_hunt' ? (lang === 'ru' ? 'Активен' : 'Live now') : order.huntStatus === 'final_offer' ? (lang === 'ru' ? 'Завершён' : 'Finished') : (lang === 'ru' ? 'Ожидается' : 'Waiting')}</p></div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Точки' : 'Waypoints'}</p><p className="mt-1 text-sm font-bold text-slate-900">{huntWaypoints.length}</p></div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Telegram</p><p className="mt-1 text-sm font-bold text-slate-900">{telegramSubscription?.code ? (lang === 'ru' ? 'Готов к подключению' : 'Ready to connect') : (lang === 'ru' ? 'Не настроен' : 'Not configured')}</p></div>
+              {mode === 'tracking' && <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Telegram</p><p className="mt-1 text-sm font-bold text-slate-900">{telegramSubscription?.code ? (lang === 'ru' ? 'Готов к подключению' : 'Ready to connect') : (lang === 'ru' ? 'Не настроен' : 'Not configured')}</p></div>}
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -2991,12 +2995,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 <Flag size={15} /> {lang === 'ru' ? 'История поиска' : 'Search history'}
               </button>
             )}
-            {telegramSubscription?.code && (
+            {mode === 'tracking' && telegramSubscription?.code && (
               <button type="button" onClick={() => void copyTelegramCode()} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100">
                 {copiedTelegram ? <><CheckCircle2 size={15} className="text-emerald-500" /> {lang === 'ru' ? 'Скопировано!' : 'Copied!'}</> : <><Link2 size={15} /> {lang === 'ru' ? 'Скопировать код Telegram' : 'Copy Telegram code'}</>}
               </button>
             )}
-            {telegramSubscription?.deepLink && (
+            {mode === 'tracking' && telegramSubscription?.deepLink && (
               <a href={telegramSubscription.deepLink} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-2xl bg-sky-600 px-4 text-sm font-semibold text-white transition hover:bg-sky-500">
                 <Send size={15} /> {lang === 'ru' ? 'Открыть Telegram-бота' : 'Open Telegram bot'}
               </a>
@@ -3010,7 +3014,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                     <MessageCircle size={15} /> WhatsApp
                   </a>
                 )}
-                {telegramSubscription?.deepLink && (
+                {mode === 'tracking' && telegramSubscription?.deepLink && (
                   <a href={telegramSubscription.deepLink} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100">
                     <Send size={15} /> Telegram updates
                   </a>
@@ -3021,7 +3025,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                   </a>
                 )}
               </div>
-              {telegramSubscription?.code && (
+              {mode === 'tracking' && telegramSubscription?.code && (
                 <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 text-xs text-slate-600">
                   <div className="flex items-start justify-between gap-3">
                     <div>
