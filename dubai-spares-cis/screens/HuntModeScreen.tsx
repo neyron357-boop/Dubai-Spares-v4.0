@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
+  AlertTriangle,
   ArrowLeft,
   Camera,
   CheckCircle2,
@@ -31,30 +32,32 @@ import {
 import { toast, vibrate } from '../feedback';
 import { uploadImageToStorage } from '../storage/photos';
 
-// GPS ping interval: every 2 minutes — balances battery impact vs. tracking granularity.
-// Operators travel between scrapyards (avg 10–20 min per leg), so 2-min resolution
-// gives clients a useful map without draining the phone battery on a long field day.
-const GPS_PING_INTERVAL_MS = 2 * 60 * 1000;
+// GPS ping interval: every 30 seconds — provides a "live" feel on the client tracking
+// page (similar to food-delivery / taxi apps) while remaining reasonable for battery.
+const GPS_PING_INTERVAL_MS = 30 * 1000;
 
 const RESULT_LABELS: Record<HuntWaypointResult, string> = {
   found: 'Найдена',
   not_found: 'Не найдена',
   high_price: 'Цена высокая',
-  visited: 'Посещено'
+  visited: 'Посещено',
+  defect: 'Дефект'
 };
 
 const RESULT_ICONS: Record<HuntWaypointResult, React.ReactNode> = {
   found: <CheckCircle2 size={16} className="text-emerald-500" />,
   not_found: <XCircle size={16} className="text-red-400" />,
   high_price: <TrendingUp size={16} className="text-amber-500" />,
-  visited: <MapPin size={16} className="text-blue-400" />
+  visited: <MapPin size={16} className="text-blue-400" />,
+  defect: <AlertTriangle size={16} className="text-orange-500" />
 };
 
 const RESULT_COLORS: Record<HuntWaypointResult, string> = {
   found: 'bg-emerald-50 border-emerald-200',
   not_found: 'bg-red-50 border-red-200',
   high_price: 'bg-amber-50 border-amber-200',
-  visited: 'bg-blue-50 border-blue-200'
+  visited: 'bg-blue-50 border-blue-200',
+  defect: 'bg-orange-50 border-orange-200'
 };
 
 interface WaypointFormState {
@@ -363,7 +366,7 @@ const HuntModeScreen: React.FC = () => {
           </div>
           <p className={`text-xs ${isHunting ? 'text-blue-600' : 'text-amber-600'}`}>
             {isHunting
-              ? `GPS обновляется каждые 2 мин · Добавлено точек: ${waypoints.length}`
+              ? `GPS обновляется каждые 30 сек · Добавлено точек: ${waypoints.length}`
               : 'Нажмите "Начать охоту" чтобы клиент видел вас на карте в реальном времени'}
           </p>
           <div className="mt-3 grid grid-cols-3 gap-2">
@@ -424,7 +427,7 @@ const HuntModeScreen: React.FC = () => {
             <p className="text-xs font-bold text-gray-700 uppercase tracking-wide">Как это работает</p>
             {[
               { icon: '🛵', text: 'Нажми "Начать охоту" перед выездом' },
-              { icon: '📍', text: 'GPS отправляется каждые 2 мин — клиент видит тебя на карте' },
+              { icon: '📍', text: 'GPS отправляется каждые 30 сек — клиент видит тебя на карте' },
               { icon: '📸', text: 'На каждой разборке делай фото и добавляй точку' },
               { icon: '🏆', text: 'Нажми "Завершить" — клиент получит смету + историю поиска' }
             ].map(({ icon, text }) => (
