@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   AlertCircle,
   Building2,
@@ -122,6 +123,7 @@ const normalizeItems = (payload: Record<string, any>): QuoteItem[] => {
 };
 
 const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
+  const location = useLocation();
   const [lang, setLang] = useState<Language>('ru');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +133,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const [copied, setCopied] = useState(false);
 
   const t = i18n[lang];
-  const publicKey = useMemo(() => parsePublicQuoteKey(orderId), [orderId]);
+  const publicKey = useMemo(() => parsePublicQuoteKey(new URLSearchParams(location.search), orderId), [location.search, orderId]);
   const token = publicKey?.value || orderId;
 
   const loadQuote = useCallback(async () => {
@@ -145,15 +147,20 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
     setError(null);
     try {
       const [snapshot, settings] = await Promise.all([
-        publicQuoteGetSnapshot(token, { snapshotId: publicKey?.snapshotId || null }),
+        publicQuoteGetSnapshot(token, { snapshotId: publicKey?.snapshotId || publicKey?.urlSnapshot || null }),
         publicQuoteGetPublicContactSettings(),
       ]);
-      if (!snapshot?.payload) {
+      if (!snapshot?.payload || typeof snapshot.payload !== 'object') {
         setSnapshotPayload(null);
-        setError(t.notFound);
+        setError(snapshot?.isPayloadCorrupted ? 'Не удалось загрузить смету' : t.notFound);
       } else {
-        const payload = snapshot.payload as Record<string, any>;
-        payload.public_settings = { ...(payload.public_settings || {}), ...(settings || {}) };
+        const payload = {
+          ...(snapshot.payload as Record<string, any>),
+          public_settings: {
+            ...((snapshot.payload as Record<string, any>).public_settings || {}),
+            ...(settings || {})
+          }
+        };
         setSnapshotPayload(payload);
         setExpiresAt(snapshot.expires_at || '');
       }
@@ -163,7 +170,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [token, publicKey?.snapshotId, t.invalid, t.notFound]);
+  }, [token, publicKey?.snapshotId, publicKey?.urlSnapshot, t.invalid, t.notFound]);
 
   useEffect(() => { void loadQuote(); }, [loadQuote]);
 
