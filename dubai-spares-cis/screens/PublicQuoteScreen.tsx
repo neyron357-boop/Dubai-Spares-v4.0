@@ -1809,9 +1809,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         await getPublicHuntData(sharedSnapshot.order.id).catch((err) => { console.debug('Sequential hunt data fetch failed:', err); return null; });
 
       if (huntData) {
-        const derivedStatus: Order['huntStatus'] = !huntData.session
-          ? 'data_gathering'
-          : huntData.session.status === 'active' ? 'live_hunt' : 'final_offer';
+        const derivedStatus = huntData.resolvedStatus;
         liveHuntStatusRef.current = derivedStatus;
         setHuntWaypoints(huntData.waypoints);
         setHuntLatestPing(huntData.latestPing);
@@ -1891,11 +1889,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         setHuntTrack(data.track);
 
         // Derive live hunt status from session to detect changes without page refresh
-        const derivedStatus: 'data_gathering' | 'live_hunt' | 'final_offer' = !data.session
-          ? 'data_gathering'
-          : data.session.status === 'active'
-            ? 'live_hunt'
-            : 'final_offer';
+        const derivedStatus = data.resolvedStatus;
 
         liveHuntStatusRef.current = derivedStatus;
         if (derivedStatus !== order.huntStatus) {
@@ -1936,11 +1930,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${order.id}` }, refreshLiveTracking)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_hunt_sessions', filter: `order_id=eq.${order.id}` }, refreshLiveTracking)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_hunt_waypoints', filter: `order_id=eq.${order.id}` }, () => { void getPublicHuntData(order.id).then((data) => {
-        const derivedStatus: Order['huntStatus'] = !data.session
-          ? 'data_gathering'
-          : data.session.status === 'active'
-            ? 'live_hunt'
-            : 'final_offer';
+        const derivedStatus = data.resolvedStatus;
         liveHuntStatusRef.current = derivedStatus;
         setHuntWaypoints(data.waypoints);
         setHuntLatestPing(data.latestPing);
@@ -1952,11 +1942,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
         if (!sessionId) return;
         void getPublicHuntData(order.id).then((data) => {
           if (data.session?.id !== sessionId) return;
-          const derivedStatus: Order['huntStatus'] = !data.session
-            ? 'data_gathering'
-            : data.session.status === 'active'
-              ? 'live_hunt'
-              : 'final_offer';
+          const derivedStatus = data.resolvedStatus;
           liveHuntStatusRef.current = derivedStatus;
           setHuntWaypoints(data.waypoints);
           setHuntLatestPing(data.latestPing);
