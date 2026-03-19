@@ -1,4 +1,5 @@
-import { Order } from './types';
+import type { Order } from './types';
+import { publishDomainEvent } from './domainEvents';
 import { logger } from './logging';
 import { pushActivityNotification } from './notificationCenter';
 
@@ -38,7 +39,7 @@ export interface TelegramSubscriptionState {
   lastNotificationAt?: number;
 }
 
-type NotificationEventType = 'hunt_history' | 'quote_updated' | 'status_changed' | 'logistics_updated' | 'shipment_updated' | 'order_paused';
+export type NotificationEventType = 'hunt_history' | 'quote_updated' | 'status_changed' | 'logistics_updated' | 'shipment_updated' | 'order_paused';
 
 interface NotificationEventRow {
   id: string;
@@ -90,6 +91,16 @@ export const appendCustomerLog = (entry: Omit<CustomerActivityLogEntry, 'id' | '
   writeJson(CUSTOMER_LOGS_KEY, next);
   window.dispatchEvent(new CustomEvent('customer-logs:changed', { detail: { orderId: entry.orderId } }));
   void logger.info('customer-engagement', entry.summary, { orderId: entry.orderId, type: entry.type, channel: entry.channel, ...entry.meta });
+  void publishDomainEvent('CUSTOMER_ACTIVITY_RECORDED', {
+    entityType: 'customer_activity',
+    entityId: nextEntry.id,
+    aggregateId: entry.orderId,
+    dedupeKey: `customer-activity:${nextEntry.id}`,
+    idempotencyKey: `customer-activity:${nextEntry.id}`,
+    replaySafe: true,
+    source: 'system',
+    payload: { orderId: entry.orderId, activity: nextEntry }
+  });
   return nextEntry;
 };
 
@@ -111,6 +122,16 @@ export const ensureTelegramSubscriptionState = (orderId: string, telegramUrl: st
     channel: 'tracking_page',
     summary: 'Подготовлена Telegram-подписка для клиента.',
     meta: { code, deepLink }
+  });
+  void publishDomainEvent('TELEGRAM_SUBSCRIPTION_LINKED', {
+    entityType: 'telegram_subscription',
+    entityId: orderId,
+    aggregateId: orderId,
+    dedupeKey: `telegram-subscription:${orderId}:${code}`,
+    idempotencyKey: `telegram-subscription:${orderId}:${code}`,
+    replaySafe: true,
+    source: 'system',
+    payload: { orderId, subscription: state }
   });
   return state;
 };

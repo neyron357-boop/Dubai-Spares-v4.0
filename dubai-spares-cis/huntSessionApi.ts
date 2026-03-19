@@ -1,3 +1,4 @@
+import { publishDomainEvent } from './domainEvents';
 import { supabase } from './supabase';
 import { HuntGpsPingRow, HuntSessionRow, HuntStatus, HuntWaypointResult, HuntWaypointRow } from './types';
 
@@ -46,6 +47,16 @@ export const createHuntSession = async (orderId: string): Promise<HuntSessionRow
       if (!error && data) {
         const session = data as HuntSessionRow;
         writeLocalSession(session);
+        void publishDomainEvent('HUNT_SESSION_STARTED', {
+          entityType: 'hunt_session',
+          entityId: session.id,
+          aggregateId: orderId,
+          dedupeKey: `hunt-session-started:${session.id}`,
+          idempotencyKey: `hunt-session-started:${session.id}`,
+          replaySafe: true,
+          source: 'cloud',
+          payload: { orderId, session }
+        });
         return session;
       }
       console.warn('[hunt] createHuntSession DB error, using local fallback:', error);
@@ -63,10 +74,20 @@ export const createHuntSession = async (orderId: string): Promise<HuntSessionRow
     ended_at: null
   };
   writeLocalSession(localSession);
+  void publishDomainEvent('HUNT_SESSION_STARTED', {
+    entityType: 'hunt_session',
+    entityId: localSession.id,
+    aggregateId: orderId,
+    dedupeKey: `hunt-session-started:${localSession.id}`,
+    idempotencyKey: `hunt-session-started:${localSession.id}`,
+    replaySafe: true,
+    source: 'local_cache',
+    payload: { orderId, session: localSession }
+  });
   return localSession;
 };
 
-export const endHuntSession = async (sessionId: string): Promise<void> => {
+export const endHuntSession = async (sessionId: string, orderId?: string): Promise<void> => {
   if (supabase) {
     try {
       const { error } = await supabase
@@ -98,6 +119,17 @@ export const endHuntSession = async (sessionId: string): Promise<void> => {
       } catch { /* ignore */ }
     }
   } catch { /* ignore */ }
+
+  void publishDomainEvent('HUNT_SESSION_ENDED', {
+    entityType: 'hunt_session',
+    entityId: sessionId,
+    aggregateId: orderId || sessionId,
+    dedupeKey: `hunt-session-ended:${sessionId}:${Date.now()}`,
+    idempotencyKey: `hunt-session-ended:${sessionId}`,
+    replaySafe: true,
+    source: 'system',
+    payload: { orderId: orderId || sessionId, sessionId, endedAt: new Date().toISOString() }
+  });
 };
 
 export const getActiveHuntSession = async (orderId: string): Promise<HuntSessionRow | null> => {
@@ -174,6 +206,7 @@ export const sendGpsPing = async (
   // GPS pings are fire-and-forget; we never throw so the caller is unaffected
   if (!supabase) return;
   try {
+    const ping: HuntGpsPingRow = { id: `gps-${Date.now()}`, session_id: sessionId, lat, lng, accuracy_m: accuracyM ?? null, ts: new Date().toISOString() };
     await supabase
       .from('order_hunt_gps_pings')
       .insert({
@@ -181,8 +214,18 @@ export const sendGpsPing = async (
         lat,
         lng,
         accuracy_m: accuracyM ?? null,
-        ts: new Date().toISOString()
+        ts: ping.ts
       });
+    void publishDomainEvent('HUNT_GPS_UPDATED', {
+      entityType: 'gps_ping',
+      entityId: ping.id,
+      aggregateId: sessionId,
+      dedupeKey: `hunt-gps:${sessionId}:${ping.ts}`,
+      idempotencyKey: `hunt-gps:${sessionId}:${ping.ts}`,
+      replaySafe: true,
+      source: 'cloud',
+      payload: { sessionId, ping }
+    });
   } catch (err) {
     console.debug('[hunt] sendGpsPing failed (non-fatal):', err);
   }
@@ -254,6 +297,16 @@ export const addHuntWaypoint = async (payload: AddWaypointPayload): Promise<Hunt
         // Mirror to localStorage so getHuntWaypoints fallback stays in sync
         const existing = readLocalWaypoints(payload.sessionId);
         writeLocalWaypoints(payload.sessionId, [...existing, row]);
+        void publishDomainEvent('HUNT_WAYPOINT_ADDED', {
+          entityType: 'hunt_waypoint',
+          entityId: row.id,
+          aggregateId: payload.orderId,
+          dedupeKey: `hunt-waypoint:${row.id}`,
+          idempotencyKey: `hunt-waypoint:${row.id}`,
+          replaySafe: true,
+          source: 'cloud',
+          payload: { orderId: payload.orderId, sessionId: payload.sessionId, waypoint: row }
+        });
         return row;
       }
       console.warn('[hunt] addHuntWaypoint DB error, using local fallback:', error);
@@ -278,6 +331,16 @@ export const addHuntWaypoint = async (payload: AddWaypointPayload): Promise<Hunt
   };
   const existing = readLocalWaypoints(payload.sessionId);
   writeLocalWaypoints(payload.sessionId, [...existing, localRow]);
+  void publishDomainEvent('HUNT_WAYPOINT_ADDED', {
+    entityType: 'hunt_waypoint',
+    entityId: localRow.id,
+    aggregateId: payload.orderId,
+    dedupeKey: `hunt-waypoint:${localRow.id}`,
+    idempotencyKey: `hunt-waypoint:${localRow.id}`,
+    replaySafe: true,
+    source: 'local_cache',
+    payload: { orderId: payload.orderId, sessionId: payload.sessionId, waypoint: localRow }
+  });
   return localRow;
 };
 

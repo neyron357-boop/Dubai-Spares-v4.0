@@ -15,8 +15,13 @@ import { mergeCloudLeadsWithOrders } from './leadSync';
 import { CloudLeadRow, leadsSync, purgePublicLeadArtifacts } from './serverApi';
 import { refreshSupabaseSchemaCache } from './schemaCache';
 import { isBrokenImageUrl, markBrokenImageUrl, shouldBlacklistByStatus } from './storage/brokenImageBlacklist';
-import { scheduleLivePublicQuoteSync } from './publicQuoteSync';
-import { enqueueCustomerNotificationEvent } from './customerEngagement';
+import { publishDomainEvent } from './domainEvents';
+import { diffOrderFields, getOrderProjectionReason } from './orderDomain';
+import { createOrderMutationIntent } from './orderMutationQueue';
+import { installOrderProjectionDispatcher } from './orderProjectionDispatcher';
+import { orderRepository } from './orderRepository';
+import { installReactiveDiagnostics } from './reactiveDiagnostics';
+import { decideSyncMode } from './reactiveSyncCoordinator';
 
 type OrderState = {
   orders: Order[];
@@ -588,11 +593,20 @@ let syncPausedUntil = 0;
 let syncMutex: Promise<void> = Promise.resolve();
 let lifecycleHydrationStarted = false;
 let lifecycleEventsBound = false;
+let architectureInstalled = false;
 let lastFullFetchAt = 0;
 let lastLeadRefreshAt = 0;
 
 const MIN_FULL_FETCH_INTERVAL_MS = 45_000;
 const MIN_LEAD_REFRESH_INTERVAL_MS = 30_000;
+
+const ensureReactiveArchitectureInstalled = () => {
+  if (architectureInstalled) return;
+  architectureInstalled = true;
+  installReactiveDiagnostics();
+  installOrderProjectionDispatcher();
+  decideSyncMode({ pendingQueue: cachedQueueLength > 0 });
+};
 
 const runWithSyncMutex = async <T>(task: () => Promise<T>): Promise<T> => {
   const previous = syncMutex;
@@ -1807,7 +1821,9 @@ export const flushOfflineMutations = async (options?: { force?: boolean }) => ru
 
 export const subscribeOrderStore = (listener: () => void) => {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 };
 
 export const getOrderState = () => state;
@@ -1953,7 +1969,7 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
     await queueMutation('upsert', recoveredOrder, recoveredOrder.id);
   }
 
-  await offlineDb.saveOrders(mergedOrders);
+  await orderRepository.saveOrders(mergedOrders);
   setSyncStatus('online');
   setState({ orders: mergedOrders, isLoading: false, isHydrated: true, error: null });
   enqueueExistingImagesForCompression(mergedOrders);
@@ -1987,7 +2003,7 @@ const refreshLeadsOnly = async () => {
     if (signature(mergedOrders) === signature(previousOrders)) return;
     setState({ orders: mergedOrders });
     enqueueExistingImagesForCompression(mergedOrders);
-    await offlineDb.saveOrders(mergedOrders);
+    await orderRepository.saveOrders(mergedOrders);
     if (wasCloudHydratedAtLeastOnce) {
       notifyAboutIncomingLeads(previousOrders, mergedOrders);
     }
@@ -2015,7 +2031,7 @@ export const fetchOrderDetails = async (orderId: string) => {
   const next = state.orders.map((order) => (order.id === details.id ? normalizeOrder({ ...order, ...details }) : order));
   setState({ orders: next });
   enqueueExistingImagesForCompression(next);
-  await offlineDb.saveOrder(details);
+  await orderRepository.saveOrder(details);
 };
 
 
@@ -2076,10 +2092,22 @@ export const addOrderItem = async (order: Order) => {
   });
   const next = [localOrder, ...state.orders.filter((o) => o.id !== localOrder.id)];
   setState({ orders: next, error: null });
-  await offlineDb.saveOrder(localOrder);
+  await orderRepository.saveOrder(localOrder);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
+  void publishDomainEvent(localOrder.leadSource === 'public_form' ? 'LEAD_CREATED' : 'ORDER_CREATED', {
+    entityType: localOrder.leadSource === 'public_form' ? 'lead' : 'order',
+    entityId: localOrder.id,
+    aggregateId: localOrder.id,
+    dedupeKey: `order-created:${localOrder.id}:${localOrder.createdAt}`,
+    idempotencyKey: `order-created:${localOrder.id}:${localOrder.createdAt}`,
+    replaySafe: true,
+    source: 'ui',
+    payload: { order: localOrder }
+  });
 
+  createOrderMutationIntent('upsert', localOrder.id, localOrder);
   await queueMutation('upsert', localOrder, localOrder.id);
+  decideSyncMode({ pendingQueue: true });
   if (navigator.onLine) {
     await flushOfflineMutations({ force: true });
   }
@@ -2119,32 +2147,63 @@ export const updateOrderItem = async (order: Order) => {
       route: `/order/${normalized.id}`
     });
   }
-  if (previousOrder) {
-    if (JSON.stringify(previousOrder.pricingEvents || []) !== JSON.stringify(normalized.pricingEvents || [])) {
-      enqueueCustomerNotificationEvent(normalized, 'quote_updated', `Обновлена смета по заказу ${normalized.brand} ${normalized.model}`);
-    }
-    if (JSON.stringify(previousOrder.logistics || {}) !== JSON.stringify(normalized.logistics || {})) {
-      enqueueCustomerNotificationEvent(normalized, 'logistics_updated', `Обновлена логистика по заказу ${normalized.brand} ${normalized.model}`);
-    }
-    if ((previousOrder.status || '') !== (normalized.status || '')) {
-      enqueueCustomerNotificationEvent(normalized, 'status_changed', `Статус заказа изменён: ${previousOrder.status || '—'} → ${normalized.status || '—'}`);
-    }
-    if ((previousOrder.huntStatus || '') !== (normalized.huntStatus || '')) {
-      enqueueCustomerNotificationEvent(normalized, 'hunt_history', `Обновился прогресс поиска по заказу ${normalized.brand} ${normalized.model}`);
-    }
-    const shipmentChanged = JSON.stringify(previousOrder.vendorContacts || []) !== JSON.stringify(normalized.vendorContacts || []);
-    if (shipmentChanged) {
-      enqueueCustomerNotificationEvent(normalized, 'shipment_updated', `Есть обновление по отправке/исполнителям для заказа ${normalized.brand} ${normalized.model}`);
-    }
-  }
   const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
   setState({ orders: next, error: null });
   const structuralDiff = hasStructuralDiff(previousOrder, normalized);
   const patch = structuralDiff ? {} : pickHotFieldPatch(previousOrder, normalized);
   const shouldPrioritizeSync = structuralDiff || hasCriticalFinancialPatch(patch);
   scheduleLocalCommit(normalized, structuralDiff ? undefined : patch);
-  scheduleLivePublicQuoteSync(normalized);
   window.dispatchEvent(new CustomEvent('cloud-save-success'));
+
+  const changedFields = diffOrderFields(previousOrder, normalized);
+  const projectionReason = getOrderProjectionReason(previousOrder, normalized);
+  void publishDomainEvent(previousOrder ? 'ORDER_UPDATED' : 'ORDER_CREATED', {
+    entityType: 'order',
+    entityId: normalized.id,
+    aggregateId: normalized.id,
+    dedupeKey: `order:${normalized.id}:${normalized.updatedAt || normalized.createdAt || Date.now()}`,
+    idempotencyKey: `order:${normalized.id}:${normalized.updatedAt || normalized.createdAt || Date.now()}`,
+    replaySafe: true,
+    source: 'ui',
+    payload: { order: normalized, previousOrder, changedFields }
+  });
+  if (normalized.leadSource === 'public_form' && !previousOrder) {
+    void publishDomainEvent('LEAD_CREATED', {
+      entityType: 'lead',
+      entityId: normalized.id,
+      aggregateId: normalized.id,
+      dedupeKey: `lead:${normalized.id}:${normalized.createdAt}`,
+      idempotencyKey: `lead:${normalized.id}:${normalized.createdAt}`,
+      replaySafe: true,
+      source: 'ui',
+      payload: { order: normalized }
+    });
+  }
+  if (projectionReason === 'pricing_changed') {
+    void publishDomainEvent('ORDER_PRICING_CHANGED', {
+      entityType: 'order',
+      entityId: normalized.id,
+      aggregateId: normalized.id,
+      dedupeKey: `order-pricing:${normalized.id}:${normalized.updatedAt || 0}`,
+      idempotencyKey: `order-pricing:${normalized.id}:${normalized.updatedAt || 0}`,
+      replaySafe: true,
+      source: 'ui',
+      payload: { order: normalized, previousPricingEvents: previousOrder?.pricingEvents, nextPricingEvents: normalized.pricingEvents }
+    });
+  }
+  if (projectionReason === 'logistics_changed') {
+    void publishDomainEvent('ORDER_LOGISTICS_CHANGED', {
+      entityType: 'order',
+      entityId: normalized.id,
+      aggregateId: normalized.id,
+      dedupeKey: `order-logistics:${normalized.id}:${normalized.updatedAt || 0}`,
+      idempotencyKey: `order-logistics:${normalized.id}:${normalized.updatedAt || 0}`,
+      replaySafe: true,
+      source: 'ui',
+      payload: { order: normalized, previousLogistics: previousOrder?.logistics, nextLogistics: normalized.logistics }
+    });
+  }
+  decideSyncMode({ pendingQueue: cachedQueueLength > 0 });
 
   if (shouldPurgeLeadArtifacts) {
     const purgeResult = await purgePublicLeadArtifacts(normalized.id);
@@ -2157,7 +2216,9 @@ export const updateOrderItem = async (order: Order) => {
     }
   }
 
+  createOrderMutationIntent('upsert', normalized.id, structuralDiff ? normalized : undefined, patch);
   await queueMutation('upsert', structuralDiff ? normalized : undefined, normalized.id, patch);
+  decideSyncMode({ pendingQueue: true });
   if (shouldPrioritizeSync && navigator.onLine) {
     await flushOfflineMutations({ force: true });
   }
@@ -2181,7 +2242,7 @@ export const deleteOrderItem = async (orderId: string) => {
     rememberLeadDeleted(orderId);
     const next = previousOrders.filter((o) => o.id !== orderId);
     setState({ orders: next, error: null });
-    await offlineDb.deleteOrder(orderId);
+    await orderRepository.deleteOrder(orderId);
     window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
     if (orderToDelete?.leadSource === 'public_form' || orderToDelete?.isLead) {
@@ -2195,7 +2256,19 @@ export const deleteOrderItem = async (orderId: string) => {
       }
     }
 
+    createOrderMutationIntent('delete', orderId);
     await queueMutation('delete', undefined, orderId);
+    void publishDomainEvent('ORDER_DELETED', {
+      entityType: 'order',
+      entityId: orderId,
+      aggregateId: orderId,
+      dedupeKey: `order-deleted:${orderId}:${Date.now()}`,
+      idempotencyKey: `order-deleted:${orderId}`,
+      replaySafe: true,
+      source: 'ui',
+      payload: { orderId, previousOrder: orderToDelete }
+    });
+    decideSyncMode({ pendingQueue: cachedQueueLength > 0 });
     return true;
   } catch (error) {
     await logger.error('order:delete', 'Failed to delete order locally', {
@@ -2212,8 +2285,19 @@ export const updatePartItem = async (orderId: string, part: Part) => {
   if (!order) return;
 
   const exists = order.parts.some((p) => p.id === part.id);
+  const previousPart = order.parts.find((p) => p.id === part.id);
   const parts = exists ? order.parts.map((p) => (p.id === part.id ? part : p)) : [...order.parts, part];
   await updateOrderItem({ ...order, parts });
+  void publishDomainEvent(exists ? 'PART_UPDATED' : 'PART_CREATED', {
+    entityType: 'part',
+    entityId: part.id,
+    aggregateId: order.id,
+    dedupeKey: `part:${part.id}:${Date.now()}`,
+    idempotencyKey: `part:${part.id}:${Date.now()}`,
+    replaySafe: true,
+    source: 'ui',
+    payload: { order: { ...order, parts }, part, previousPart }
+  });
   pushActivityNotification({
     title: exists ? 'Обновлена деталь' : 'Добавлена деталь',
     message: `${part.name} · ${order.brand} ${order.model}`,
@@ -2230,9 +2314,20 @@ export const removePartItem = async (orderId: string, partId: string) => {
   const order = state.orders.find((item) => item.id === orderId);
   if (!order) return;
 
-  const partName = order.parts.find((part) => part.id === partId)?.name || 'Деталь';
+  const previousPart = order.parts.find((part) => part.id === partId);
+  const partName = previousPart?.name || 'Деталь';
   const parts = order.parts.filter((part) => part.id !== partId);
   await updateOrderItem({ ...order, parts });
+  void publishDomainEvent('PART_DELETED', {
+    entityType: 'part',
+    entityId: partId,
+    aggregateId: order.id,
+    dedupeKey: `part-deleted:${partId}:${Date.now()}`,
+    idempotencyKey: `part-deleted:${partId}`,
+    replaySafe: true,
+    source: 'ui',
+    payload: { orderId: order.id, partId, previousPart }
+  });
   pushActivityNotification({
     title: 'Удалена деталь',
     message: `${partName} · ${order.brand} ${order.model}`,
@@ -2248,7 +2343,8 @@ export const updatePriceVariantItem = async (partId: string, variant: PriceVaria
   if (!order) return;
 
   const part = order.parts.find((item) => item.id === partId);
-  const variantExists = part?.variants.some((v) => v.id === variant.id);
+  const previousVariant = part?.variants.find((v) => v.id === variant.id);
+  const variantExists = !!previousVariant;
   const parts = order.parts.map((p) => {
     if (p.id !== partId) return p;
     const exists = p.variants.some((v) => v.id === variant.id);
@@ -2257,6 +2353,16 @@ export const updatePriceVariantItem = async (partId: string, variant: PriceVaria
   });
 
   await updateOrderItem({ ...order, parts });
+  void publishDomainEvent(variantExists ? 'VARIANT_UPDATED' : 'VARIANT_CREATED', {
+    entityType: 'variant',
+    entityId: variant.id,
+    aggregateId: order.id,
+    dedupeKey: `variant:${variant.id}:${Date.now()}`,
+    idempotencyKey: `variant:${variant.id}:${Date.now()}`,
+    replaySafe: true,
+    source: 'ui',
+    payload: { order: { ...order, parts }, partId, variant, previousVariant }
+  });
   pushActivityNotification({
     title: variantExists ? 'Обновлён вариант цены' : 'Добавлен вариант цены',
     message: `${part?.name || 'Деталь'} · ${variant.shopName || 'Магазин'} · ${variant.salePriceAed ?? variant.priceAed} AED`,
@@ -2272,7 +2378,7 @@ export const updatePriceVariantItem = async (partId: string, variant: PriceVaria
 export const restoreOrdersExternal = (orders: Order[]) => {
   const normalized = orders.map(normalizeOrder);
   setState({ orders: normalized, isHydrated: true });
-  void offlineDb.saveOrders(normalized);
+  void orderRepository.saveOrders(normalized);
 };
 
 // Compact change-detection key for a list of orders.
@@ -2291,7 +2397,17 @@ export const syncLeadsToState = async (cloudLeads: CloudLeadRow[]) => {
   if (ordersSignature(mergedOrders) === ordersSignature(previousOrders)) return;
 
   setState({ orders: mergedOrders });
-  await offlineDb.saveOrders(mergedOrders);
+  await orderRepository.saveOrders(mergedOrders);
+  void publishDomainEvent('LEAD_SYNCED', {
+    entityType: 'lead',
+    entityId: 'lead-sync',
+    aggregateId: 'lead-sync',
+    dedupeKey: `lead-sync:${Date.now()}:${cloudLeads.length}`,
+    idempotencyKey: `lead-sync:${cloudLeads.map((lead) => lead.id).join(',')}` ,
+    replaySafe: true,
+    source: 'cloud',
+    payload: { orderIds: cloudLeads.map((lead) => lead.id), total: cloudLeads.length }
+  });
 
   if (wasCloudHydratedAtLeastOnce) {
     notifyAboutIncomingLeads(previousOrders, mergedOrders);
@@ -2299,6 +2415,7 @@ export const syncLeadsToState = async (cloudLeads: CloudLeadRow[]) => {
 };
 
 export const useOrderStore = () => {
+  ensureReactiveArchitectureInstalled();
   const [, setVersion] = useState(0);
 
   useEffect(() => subscribeOrderStore(() => setVersion((v) => v + 1)), []);
@@ -2315,6 +2432,7 @@ export const useOrderStore = () => {
     lifecycleEventsBound = true;
 
     const onOnline = () => {
+      decideSyncMode({ pendingQueue: cachedQueueLength > 0 });
       void fetchOrders();
     };
 
@@ -2330,6 +2448,7 @@ export const useOrderStore = () => {
     };
 
     const onVisibilityChange = () => {
+      decideSyncMode({ pendingQueue: cachedQueueLength > 0 });
       if (document.visibilityState === 'visible') {
         void refreshLeadsOnly();
       } else {
