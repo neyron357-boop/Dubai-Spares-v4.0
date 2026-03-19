@@ -2336,8 +2336,13 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
   }
 
   if (huntStatus === 'live_hunt') {
+    const isPaused = trackingProjection?.operator_presence_state === 'paused';
     const lastWp = huntWaypoints.length > 0 ? huntWaypoints[huntWaypoints.length - 1] : null;
-    const dynamicStatus = lastWp
+    const dynamicStatus = isPaused
+      ? (lang === 'ru'
+          ? `${managerName || 'Специалист'} поставил поиск на паузу.`
+          : `${managerName || 'Specialist'} paused the search route.`)
+      : lastWp
       ? (lang === 'ru'
           ? `${managerName || 'Специалист'} проверяет ${lastWp.shop_name}…`
           : `${managerName || 'Specialist'} is at ${lastWp.shop_name}…`)
@@ -2353,9 +2358,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
               <p className="text-xs text-blue-200/70">{order.brand} {order.model} {order.year}</p>
             </div>
         {/* Red ● LIVE indicator */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 border border-red-500/40 rounded-full">
-              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-[11px] font-black text-red-400 uppercase tracking-wider">LIVE: ПРЯМОЙ ЭФИР ИЗ ШАРДЖИ</span>
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border ${isPaused ? 'bg-amber-500/20 border-amber-500/40' : 'bg-red-500/20 border-red-500/40'}`}>
+              <div className={`w-2 h-2 rounded-full ${isPaused ? 'bg-amber-400' : 'bg-red-500 animate-pulse'}`} />
+              <span className={`text-[11px] font-black uppercase tracking-wider ${isPaused ? 'text-amber-300' : 'text-red-400'}`}>
+                {isPaused ? 'PAUSED: ПОИСК НА ПАУЗЕ' : 'LIVE: ПРЯМОЙ ЭФИР ИЗ ШАРДЖИ'}
+              </span>
             </div>
           </div>
         </div>
@@ -2402,9 +2409,9 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
               <div className="min-w-0">
                 <p className="text-white font-semibold text-sm leading-tight truncate">{managerName || 'Специалист'}</p>
                 {settings.executorRole && <p className="text-blue-200/80 text-xs mt-0.5 truncate">{settings.executorRole}</p>}
-                <p className="text-red-400 text-xs mt-0.5 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse inline-block" />
-                  В поиске сейчас
+                <p className={`text-xs mt-0.5 flex items-center gap-1 ${isPaused ? 'text-amber-300' : 'text-red-400'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full inline-block ${isPaused ? 'bg-amber-400' : 'bg-red-500 animate-pulse'}`} />
+                  {isPaused ? 'Поиск на паузе' : 'В поиске сейчас'}
                 </p>
               </div>
             </div>
@@ -2432,7 +2439,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
               <div className="h-40 flex items-center justify-center bg-slate-800/60">
                 <div className="text-center text-blue-300/70 space-y-1">
                   <Navigation size={24} className="mx-auto opacity-50" />
-                  <p className="text-xs">GPS активируется при старте выезда</p>
+                  <p className="text-xs">{isPaused ? 'GPS временно остановлен до возобновления поиска' : 'GPS активируется при старте выезда'}</p>
                 </div>
               </div>
             )}
@@ -2879,6 +2886,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
                 <p className="inline-flex items-center gap-2 font-bold text-slate-800"><Building2 size={16} /> {t.companyProfile}: Dubai Spares UAE</p>
                 {logoUrl && <img src={logoUrl} alt="Company logo" className="h-20 w-auto max-w-[360px] object-contain" />}
               </div>
+              {mode === 'tracking' && (
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -2913,7 +2921,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
               </a>
             )}
           </div>
-        </section>
+              </section>
+              )}
 
         <div className="flex flex-wrap gap-2">
                 {whatsappPhoneDigits && (
