@@ -1,6 +1,6 @@
 import { publishDomainEvent } from './domainEvents';
 import { supabase } from './supabase';
-import { HuntGpsPingRow, HuntSessionRow, HuntStatus, HuntWaypointResult, HuntWaypointRow } from './types';
+import { HuntGpsPingRow, HuntSessionRow, HuntSessionStatus, HuntStatus, HuntWaypointResult, HuntWaypointRow } from './types';
 
 // ─── Local-storage helpers (fallback when DB tables are not yet created) ──────
 
@@ -12,15 +12,55 @@ const genId = (): string =>
     ? crypto.randomUUID()
     : `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
+
+const normalizeSessionStatus = (value: unknown): HuntSessionStatus => {
+  if (value === 'active' || value === 'paused' || value === 'completed' || value === 'idle') return value;
+  if (value === 'ended') return 'completed';
+  return 'idle';
+};
+
+const normalizeSessionRow = (session: HuntSessionRow | null | undefined): HuntSessionRow | null => {
+  if (!session) return null;
+  return {
+    ...session,
+    status: normalizeSessionStatus(session.status)
+  };
+};
+
+const resolveHuntStatusFromSession = (session: HuntSessionRow | null | undefined): HuntStatus => {
+  const status = normalizeSessionStatus(session?.status);
+  if (status === 'active' || status === 'paused') return 'live_hunt';
+  if (status === 'completed') return 'final_offer';
+  return 'data_gathering';
+};
+
+const sortWaypoints = (waypoints: HuntWaypointRow[]) => waypoints
+  .slice()
+  .sort((a, b) => {
+    const diff = Date.parse(a.created_at || '') - Date.parse(b.created_at || '');
+    if (diff !== 0) return diff;
+    return String(a.id).localeCompare(String(b.id));
+  });
+
+const mergeWaypoints = (primary: HuntWaypointRow[], secondary: HuntWaypointRow[]) => {
+  const merged = new Map<string, HuntWaypointRow>();
+  [...primary, ...secondary].forEach((waypoint) => {
+    if (!waypoint?.id) return;
+    merged.set(waypoint.id, waypoint);
+  });
+  return sortWaypoints(Array.from(merged.values()));
+};
+
+
 const readLocalSession = (orderId: string): HuntSessionRow | null => {
   try {
     const raw = localStorage.getItem(LS_SESSION(orderId));
-    return raw ? (JSON.parse(raw) as HuntSessionRow) : null;
+    return raw ? normalizeSessionRow(JSON.parse(raw) as HuntSessionRow) : null;
   } catch { return null; }
 };
 
 const writeLocalSession = (session: HuntSessionRow): void => {
-  try { localStorage.setItem(LS_SESSION(session.order_id), JSON.stringify(session)); } catch { /* ignore */ }
+  try { localStorage.setItem(LS_SESSION(session.order_id), JSON.stringify(normalizeSessionRow(session))); } catch { /* ignore */ }
 };
 
 const readLocalWaypoints = (sessionId: string): HuntWaypointRow[] => {
@@ -45,7 +85,7 @@ export const createHuntSession = async (orderId: string): Promise<HuntSessionRow
         .select('id, order_id, status, started_at, ended_at')
         .single();
       if (!error && data) {
-        const session = data as HuntSessionRow;
+        const session = normalizeSessionRow(data as HuntSessionRow)!;
         writeLocalSession(session);
         void publishDomainEvent('HUNT_SESSION_STARTED', {
           entityType: 'hunt_session',
@@ -92,7 +132,7 @@ export const endHuntSession = async (sessionId: string, orderId?: string): Promi
     try {
       const { error } = await supabase
         .from('order_hunt_sessions')
-        .update({ status: 'ended', ended_at: new Date().toISOString() })
+        .update({ status: 'completed', ended_at: new Date().toISOString() })
         .eq('id', sessionId);
       if (error) console.warn('[hunt] endHuntSession DB error, updating local only:', error);
     } catch (err) {
@@ -112,7 +152,7 @@ export const endHuntSession = async (sessionId: string, orderId?: string): Promi
         if (!raw) continue;
         const session = JSON.parse(raw) as HuntSessionRow;
         if (session.id === sessionId) {
-          session.status = 'ended';
+          session.status = 'completed';
           session.ended_at = new Date().toISOString();
           localStorage.setItem(key, JSON.stringify(session));
         }
@@ -139,12 +179,12 @@ export const getActiveHuntSession = async (orderId: string): Promise<HuntSession
         .from('order_hunt_sessions')
         .select('id, order_id, status, started_at, ended_at')
         .eq('order_id', orderId)
-        .eq('status', 'active')
+        .in('status', ['active', 'paused'])
         .order('started_at', { ascending: false })
         .limit(1)
         .maybeSingle();
       if (!error) {
-        const session = data as HuntSessionRow | null;
+        const session = normalizeSessionRow(data as HuntSessionRow | null);
         if (session) writeLocalSession(session);
         return session;
       }
@@ -156,7 +196,7 @@ export const getActiveHuntSession = async (orderId: string): Promise<HuntSession
 
   // Local fallback
   const local = readLocalSession(orderId);
-  return local?.status === 'active' ? local : null;
+  return local && (local.status === 'active' || local.status === 'paused') ? local : null;
 };
 
 export const getHuntSessionById = async (sessionId: string): Promise<HuntSessionRow | null> => {
@@ -167,7 +207,7 @@ export const getHuntSessionById = async (sessionId: string): Promise<HuntSession
         .select('id, order_id, status, started_at, ended_at')
         .eq('id', sessionId)
         .maybeSingle();
-      if (!error) return data as HuntSessionRow | null;
+      if (!error) return normalizeSessionRow(data as HuntSessionRow | null);
       console.warn('[hunt] getHuntSessionById DB error:', error);
     } catch (err) {
       console.warn('[hunt] getHuntSessionById threw:', err);
@@ -186,7 +226,7 @@ export const getLatestHuntSession = async (orderId: string): Promise<HuntSession
         .order('started_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (!error) return data as HuntSessionRow | null;
+      if (!error) return normalizeSessionRow(data as HuntSessionRow | null);
       console.warn('[hunt] getLatestHuntSession DB error, checking local:', error);
     } catch (err) {
       console.warn('[hunt] getLatestHuntSession threw, checking local:', err);
@@ -302,7 +342,7 @@ export const addHuntWaypoint = async (payload: AddWaypointPayload): Promise<Hunt
         const row = data as HuntWaypointRow;
         // Mirror to localStorage so getHuntWaypoints fallback stays in sync
         const existing = readLocalWaypoints(payload.sessionId);
-        writeLocalWaypoints(payload.sessionId, [...existing, row]);
+        writeLocalWaypoints(payload.sessionId, mergeWaypoints(existing, [row]));
         void publishDomainEvent('HUNT_WAYPOINT_ADDED', {
           entityType: 'hunt_waypoint',
           entityId: row.id,
@@ -336,7 +376,7 @@ export const addHuntWaypoint = async (payload: AddWaypointPayload): Promise<Hunt
     created_at: new Date().toISOString()
   };
   const existing = readLocalWaypoints(payload.sessionId);
-  writeLocalWaypoints(payload.sessionId, [...existing, localRow]);
+  writeLocalWaypoints(payload.sessionId, mergeWaypoints(existing, [localRow]));
   void publishDomainEvent('HUNT_WAYPOINT_ADDED', {
     entityType: 'hunt_waypoint',
     entityId: localRow.id,
@@ -359,10 +399,10 @@ export const getHuntWaypoints = async (sessionId: string): Promise<HuntWaypointR
         .eq('session_id', sessionId)
         .order('created_at', { ascending: true });
       if (!error) {
-        const rows = (data ?? []) as HuntWaypointRow[];
-        // Keep localStorage in sync so offline reads work later
-        if (rows.length > 0) writeLocalWaypoints(sessionId, rows);
-        return rows;
+        const rows = sortWaypoints((data ?? []) as HuntWaypointRow[]);
+        const mergedRows = mergeWaypoints(rows, readLocalWaypoints(sessionId));
+        if (mergedRows.length > 0) writeLocalWaypoints(sessionId, mergedRows);
+        return mergedRows;
       }
       console.warn('[hunt] getHuntWaypoints DB error, reading local:', error);
     } catch (err) {
@@ -419,7 +459,7 @@ export const getPublicHuntData = async (orderId: string): Promise<{
       waypoints,
       latestPing: null,
       track: [],
-      resolvedStatus: session ? (session.status === 'active' ? 'live_hunt' : 'final_offer') : 'data_gathering'
+      resolvedStatus: resolveHuntStatusFromSession(session)
     };
   }
 
@@ -438,7 +478,7 @@ export const getPublicHuntData = async (orderId: string): Promise<{
         .maybeSingle()
     ]);
 
-    const session = (sessionResult.data?.[0] as HuntSessionRow | undefined) ?? null;
+    const session = normalizeSessionRow((sessionResult.data?.[0] as HuntSessionRow | undefined) ?? null);
     const orderStatus = (['data_gathering', 'live_hunt', 'final_offer'] as const).includes((orderResult.data as any)?.hunt_status)
       ? ((orderResult.data as any).hunt_status as HuntStatus)
       : 'data_gathering';
@@ -447,9 +487,7 @@ export const getPublicHuntData = async (orderId: string): Promise<{
       // Fall back to localStorage if DB returned nothing (tables may not exist yet)
       const localSession = readLocalSession(orderId);
       const localWaypoints = localSession ? readLocalWaypoints(localSession.id) : [];
-      const localStatus: HuntStatus = localSession
-        ? (localSession.status === 'active' ? 'live_hunt' : 'final_offer')
-        : 'data_gathering';
+      const localStatus: HuntStatus = resolveHuntStatusFromSession(localSession);
       return {
         session: localSession,
         waypoints: localWaypoints,
@@ -479,15 +517,9 @@ export const getPublicHuntData = async (orderId: string): Promise<{
         .limit(300)
     ]);
 
-    const dbWaypoints = (wpResult.data ?? []) as HuntWaypointRow[];
+    const dbWaypoints = sortWaypoints((wpResult.data ?? []) as HuntWaypointRow[]);
     const localWaypoints = readLocalWaypoints(session.id);
-    const mergedWaypoints = [...dbWaypoints];
-    for (const localWaypoint of localWaypoints) {
-      if (!mergedWaypoints.some((item) => item.id === localWaypoint.id)) {
-        mergedWaypoints.push(localWaypoint);
-      }
-    }
-    mergedWaypoints.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const mergedWaypoints = mergeWaypoints(dbWaypoints, localWaypoints);
     if (mergedWaypoints.length > 0) writeLocalWaypoints(session.id, mergedWaypoints);
 
     return {
@@ -495,7 +527,7 @@ export const getPublicHuntData = async (orderId: string): Promise<{
       waypoints: mergedWaypoints,
       latestPing: (pingResult.data?.[0] as HuntGpsPingRow | undefined) ?? null,
       track: (trackResult.data ?? []) as HuntGpsPingRow[],
-      resolvedStatus: session.status === 'active' ? 'live_hunt' : 'final_offer'
+      resolvedStatus: resolveHuntStatusFromSession(session)
     };
   } catch (err) {
     console.warn('[hunt] getPublicHuntData failed, reading local:', err);
@@ -506,7 +538,40 @@ export const getPublicHuntData = async (orderId: string): Promise<{
       waypoints: localWaypoints,
       latestPing: null,
       track: [],
-      resolvedStatus: localSession ? (localSession.status === 'active' ? 'live_hunt' : 'final_offer') : 'data_gathering'
+      resolvedStatus: resolveHuntStatusFromSession(localSession)
     };
   }
+};
+
+
+export const updateHuntSessionStatus = async (sessionId: string, orderId: string, status: HuntSessionStatus): Promise<HuntSessionRow | null> => {
+  const endedAt = status === 'completed' ? new Date().toISOString() : null;
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('order_hunt_sessions')
+        .update({ status, ended_at: endedAt })
+        .eq('id', sessionId)
+        .select('id, order_id, status, started_at, ended_at')
+        .single();
+      if (!error && data) {
+        const session = normalizeSessionRow(data as HuntSessionRow)!;
+        writeLocalSession(session);
+        return session;
+      }
+      console.warn('[hunt] updateHuntSessionStatus DB error, updating local only:', error);
+    } catch (err) {
+      console.warn('[hunt] updateHuntSessionStatus threw, updating local only:', err);
+    }
+  }
+
+  const localSession = readLocalSession(orderId);
+  if (!localSession || localSession.id !== sessionId) return null;
+  const nextSession = normalizeSessionRow({
+    ...localSession,
+    status,
+    ended_at: status === 'completed' ? endedAt : null
+  })!;
+  writeLocalSession(nextSession);
+  return nextSession;
 };

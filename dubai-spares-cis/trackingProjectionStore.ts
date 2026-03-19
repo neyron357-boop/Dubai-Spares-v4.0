@@ -19,6 +19,23 @@ type TrackingSeed = {
 const listeners = new Set<() => void>();
 const projections = new Map<string, TrackingProjection>();
 
+const sortWaypoints = (waypoints: HuntWaypointRow[]) => waypoints.slice().sort((a, b) => {
+  const diff = Date.parse(a.created_at || '') - Date.parse(b.created_at || '');
+  if (diff !== 0) return diff;
+  return String(a.id).localeCompare(String(b.id));
+});
+
+const dedupeWaypoints = (waypoints: HuntWaypointRow[]) => sortWaypoints(Array.from(new Map(waypoints.filter(Boolean).map((waypoint) => [waypoint.id, waypoint])).values()));
+
+const dedupeTrack = (track: HuntGpsPingRow[]) => track
+  .filter(Boolean)
+  .sort((a, b) => Date.parse(a.ts || '') - Date.parse(b.ts || ''))
+  .reduce<HuntGpsPingRow[]>((acc, ping) => {
+    if (acc.some((existing) => existing.id === ping.id)) return acc;
+    acc.push(ping);
+    return acc;
+  }, []);
+
 const summarize = (waypoints: HuntWaypointRow[]) => ({
   total: waypoints.length,
   found: waypoints.filter((item) => item.result === 'found').length,
@@ -29,9 +46,11 @@ const summarize = (waypoints: HuntWaypointRow[]) => ({
 });
 
 export const createTrackingProjection = (seed: TrackingSeed): TrackingProjection => {
+  const normalizedWaypoints = dedupeWaypoints(seed.waypoints);
+  const normalizedTrack = dedupeTrack(seed.track);
   const projection_updated_at = new Date().toISOString();
-  const source_updated_at = seed.sourceUpdatedAt || seed.latestPing?.ts || seed.waypoints[seed.waypoints.length - 1]?.created_at || seed.session?.started_at || null;
-  const last_live_event_at = seed.latestPing?.ts || seed.waypoints[seed.waypoints.length - 1]?.created_at || seed.session?.started_at || null;
+  const source_updated_at = seed.sourceUpdatedAt || seed.latestPing?.ts || normalizedWaypoints[normalizedWaypoints.length - 1]?.created_at || seed.session?.started_at || null;
+  const last_live_event_at = seed.latestPing?.ts || normalizedWaypoints[normalizedWaypoints.length - 1]?.created_at || seed.session?.started_at || null;
   const live_channel_state = seed.liveChannelState || 'connected';
   const live_freshness_state = resolveTrackingFreshnessState({
     projectionUpdatedAt: projection_updated_at,
@@ -43,7 +62,7 @@ export const createTrackingProjection = (seed: TrackingSeed): TrackingProjection
   const freshness = describeTrackingFreshness(live_freshness_state);
   const timeline_items = buildTrackingTimeline({
     session: seed.session,
-    waypoints: seed.waypoints,
+    waypoints: normalizedWaypoints,
     latestPing: seed.latestPing,
     huntStatus: seed.huntStatus
   });
@@ -53,12 +72,12 @@ export const createTrackingProjection = (seed: TrackingSeed): TrackingProjection
     public_token: seed.publicToken || '',
     hunt_status: seed.huntStatus,
     tracking_phase: buildTrackingPhase(seed.huntStatus),
-    operator_presence_state: seed.latestPing ? 'moving' : seed.session ? 'active' : 'idle',
+    operator_presence_state: seed.session?.status === 'paused' ? 'paused' : seed.latestPing ? 'moving' : seed.session?.status === 'active' ? 'active' : 'idle',
     latest_operator_position: seed.latestPing,
-    route_points: seed.track,
+    route_points: normalizedTrack,
     timeline_items,
-    waypoint_rows: seed.waypoints,
-    waypoints_summary: summarize(seed.waypoints),
+    waypoint_rows: normalizedWaypoints,
+    waypoints_summary: summarize(normalizedWaypoints),
     last_client_safe_update_at: timeline_items[timeline_items.length - 1]?.timestamp || null,
     projection_version: seed.projectionVersion || Date.now(),
     source_updated_at,

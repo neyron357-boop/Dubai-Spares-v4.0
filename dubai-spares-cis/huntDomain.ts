@@ -1,4 +1,4 @@
-import { createHuntSession, endHuntSession, sendGpsPing, addHuntWaypoint, type AddWaypointPayload } from './huntSessionApi';
+import { createHuntSession, endHuntSession, sendGpsPing, addHuntWaypoint, updateHuntSessionStatus, type AddWaypointPayload } from './huntSessionApi';
 import { publishDomainEvent } from './domainEvents';
 
 export const startHunt = async (orderId: string) => {
@@ -44,32 +44,56 @@ export const syncGpsPing = async (orderId: string, sessionId: string, lat: numbe
   await sendGpsPing(sessionId, lat, lng, accuracyM);
 };
 
-export const createWaypoint = async (payload: AddWaypointPayload) => {
-  await publishDomainEvent('HUNT_WAYPOINT_ADDED', {
-    entityType: 'hunt_waypoint',
-    entityId: `pending:${Date.now()}`,
-    aggregateId: payload.orderId,
-    dedupeKey: `waypoint-request:${payload.orderId}:${Date.now()}`,
-    idempotencyKey: `waypoint-request:${payload.orderId}:${Date.now()}`,
+export const createWaypoint = async (payload: AddWaypointPayload) => addHuntWaypoint(payload);
+
+
+
+export const pauseHunt = async (orderId: string, sessionId: string) => {
+  const session = await updateHuntSessionStatus(sessionId, orderId, 'paused');
+  await publishDomainEvent('ORDER_HUNT_STATUS_CHANGED', {
+    entityType: 'order',
+    entityId: orderId,
+    aggregateId: orderId,
+    dedupeKey: `hunt-paused:${orderId}:${sessionId}`,
+    idempotencyKey: `hunt-paused:${orderId}:${sessionId}`,
     replaySafe: true,
     source: 'ui',
-    payload: {
-      orderId: payload.orderId,
-      sessionId: payload.sessionId,
-      waypoint: {
-        id: `pending:${Date.now()}`,
-        session_id: payload.sessionId,
-        order_id: payload.orderId,
-        shop_name: payload.shopName,
-        result: payload.result,
-        price_aed: payload.priceAed ?? null,
-        note: payload.note ?? null,
-        photo_urls: payload.photoUrls ?? [],
-        lat: payload.lat ?? null,
-        lng: payload.lng ?? null,
-        created_at: new Date().toISOString()
-      }
-    }
+    payload: { order: { id: orderId, huntStatus: 'live_hunt' } as any, previousHuntStatus: 'live_hunt', nextHuntStatus: 'live_hunt' }
   });
-  return addHuntWaypoint(payload);
+  await publishDomainEvent('HUNT_SESSION_STATUS_CHANGED', {
+    entityType: 'hunt_session',
+    entityId: sessionId,
+    aggregateId: orderId,
+    dedupeKey: `hunt-session-paused:${sessionId}`,
+    idempotencyKey: `hunt-session-paused:${sessionId}`,
+    replaySafe: true,
+    source: 'ui',
+    payload: { orderId, sessionId, session }
+  });
+  return session;
+};
+
+export const resumeHunt = async (orderId: string, sessionId: string) => {
+  const session = await updateHuntSessionStatus(sessionId, orderId, 'active');
+  await publishDomainEvent('ORDER_HUNT_STATUS_CHANGED', {
+    entityType: 'order',
+    entityId: orderId,
+    aggregateId: orderId,
+    dedupeKey: `hunt-resumed:${orderId}:${sessionId}`,
+    idempotencyKey: `hunt-resumed:${orderId}:${sessionId}`,
+    replaySafe: true,
+    source: 'ui',
+    payload: { order: { id: orderId, huntStatus: 'live_hunt' } as any, previousHuntStatus: 'live_hunt', nextHuntStatus: 'live_hunt' }
+  });
+  await publishDomainEvent('HUNT_SESSION_STATUS_CHANGED', {
+    entityType: 'hunt_session',
+    entityId: sessionId,
+    aggregateId: orderId,
+    dedupeKey: `hunt-session-resumed:${sessionId}`,
+    idempotencyKey: `hunt-session-resumed:${sessionId}`,
+    replaySafe: true,
+    source: 'ui',
+    payload: { orderId, sessionId, session }
+  });
+  return session;
 };

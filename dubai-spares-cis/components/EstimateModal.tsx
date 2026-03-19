@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Order } from '../types';
-import { X, Share2, RefreshCcw, Images, CheckCircle2, Flag, Sparkles } from 'lucide-react';
+import { X, Share2, RefreshCcw, Images, CheckCircle2 } from 'lucide-react';
 import { copyToClipboard, DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
 import ImagePreview from './ImagePreview';
 import { useAppSettings } from '../appSettings';
@@ -62,11 +62,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const { settings } = useAppSettings();
-  const huntSummary = useMemo(() => ({
-    status: order.huntStatus || 'data_gathering',
-    found: order.parts.filter((part) => part.isFound && part.variants.length > 0).length,
-    total: order.parts.length
-  }), [order.huntStatus, order.parts]);
 
   const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
   const fixedMarkupTotal = Number(order.markupFixedAed || 0);
@@ -131,12 +126,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     if (!Number.isFinite(parsed) || parsed <= 0) return;
     setRates((current) => ({ ...current, [code]: parsed }));
   };
-
-  const openSearchHistory = () => {
-    window.location.hash = `#/order/${order.id}/hunt`;
-  };
-
-
 
   const runShare = async () => {
     setIsSharing(true);
@@ -314,25 +303,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
               ))}
             </div>
             {rateNotice && <p className="px-4 py-2 text-[10px] font-semibold text-blue-600">{rateNotice}</p>}
-          </div>
-
-          <div className="mx-4 mb-4 rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-slate-50 p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-sky-700"><Sparkles size={12} /> Public estimate</p>
-                <p className="mt-1 text-sm font-bold text-slate-900">Публичная смета отделена от live-tracking и показывает только итоговое предложение.</p>
-              </div>
-              <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[10px] font-bold text-sky-700">{huntSummary.status === 'live_hunt' ? 'LIVE' : huntSummary.status === 'final_offer' ? 'FINAL' : 'READY'}</span>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className="rounded-xl bg-white px-3 py-2 border border-slate-100"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Статус</p><p className="mt-1 text-xs font-bold text-slate-800">{huntSummary.status === 'live_hunt' ? 'Активный поиск' : huntSummary.status === 'final_offer' ? 'Финальная смета' : 'Подготовка'}</p></div>
-              <div className="rounded-xl bg-white px-3 py-2 border border-slate-100"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Найдено</p><p className="mt-1 text-xs font-bold text-emerald-700">{huntSummary.found}/{huntSummary.total}</p></div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={openSearchHistory} className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs font-black text-sky-700">
-                <Flag size={13} /> История поиска
-              </button>
-            </div>
           </div>
 
           {settings.publicWorkTerms.trim() && (

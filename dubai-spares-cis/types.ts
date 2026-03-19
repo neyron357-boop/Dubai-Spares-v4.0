@@ -18,11 +18,12 @@ export type SalesStatus = 'Inquiry' | 'Price Sent' | 'Pending Approval' | 'Paid'
 
 /** Transparent Pipeline lifecycle status */
 export type HuntStatus = 'data_gathering' | 'live_hunt' | 'final_offer';
+export type HuntSessionStatus = 'idle' | 'active' | 'paused' | 'completed';
 
 export interface HuntSessionRow {
   id: string;
   order_id: string;
-  status: 'active' | 'ended';
+  status: HuntSessionStatus;
   started_at: string;
   ended_at?: string | null;
 }

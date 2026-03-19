@@ -22,6 +22,7 @@ export type DomainEventName =
   | 'PUBLIC_QUOTE_REFRESHED'
   | 'HUNT_SESSION_STARTED'
   | 'HUNT_SESSION_ENDED'
+  | 'HUNT_SESSION_STATUS_CHANGED'
   | 'HUNT_WAYPOINT_ADDED'
   | 'HUNT_GPS_UPDATED'
   | 'SETTINGS_PUBLIC_CHANGED'
@@ -76,6 +77,7 @@ type EventPayloadMap = {
   PUBLIC_QUOTE_REFRESHED: { orderId: string; reason: string; projectedAt: number; sourceOrderUpdatedAt: number; projectionVersion: number };
   HUNT_SESSION_STARTED: { orderId: string; session: HuntSessionRow };
   HUNT_SESSION_ENDED: { orderId: string; sessionId: string; endedAt: string };
+  HUNT_SESSION_STATUS_CHANGED: { orderId: string; sessionId: string; session: HuntSessionRow | null };
   HUNT_WAYPOINT_ADDED: { orderId: string; sessionId: string; waypoint: HuntWaypointRow };
   HUNT_GPS_UPDATED: { orderId?: string; sessionId: string; ping: HuntGpsPingRow };
   SETTINGS_PUBLIC_CHANGED: { settings: AppSettings; changedKeys: Array<keyof AppSettings> };

@@ -19,11 +19,11 @@ import {
   XCircle
 } from 'lucide-react';
 import { useStore } from '../store';
-import { HuntWaypointResult, HuntWaypointRow } from '../types';
+import { HuntSessionStatus, HuntWaypointResult, HuntWaypointRow } from '../types';
 import { deriveHuntSyncSnapshot } from '../huntSyncCoordinator';
 import { getTrackingProjection, subscribeTrackingProjectionStore } from '../trackingProjectionStore';
 import { installHuntProjectionDispatcher } from '../huntProjectionDispatcher';
-import { createWaypoint, finishHunt, startHunt, syncGpsPing } from '../huntDomain';
+import { createWaypoint, finishHunt, pauseHunt, resumeHunt, startHunt, syncGpsPing } from '../huntDomain';
 import {
   deleteHuntWaypoint,
   getActiveHuntSession,
@@ -91,6 +91,8 @@ const HuntModeScreen: React.FC = () => {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
+  const [isPausing, setIsPausing] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
   const [waypoints, setWaypoints] = useState<HuntWaypointRow[]>([]);
   const [pendingWaypoints, setPendingWaypoints] = useState<Record<string, 'uploading' | 'projection_pending' | 'published_to_client' | 'failed'>>({});
   const [showAddForm, setShowAddForm] = useState(false);
@@ -98,7 +100,7 @@ const HuntModeScreen: React.FC = () => {
   const [isSavingWaypoint, setIsSavingWaypoint] = useState(false);
   const [currentPos, setCurrentPos] = useState<{ lat: number; lng: number } | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
-  const [actionPulse, setActionPulse] = useState<'start' | 'waypoint' | 'finish' | null>(null);
+  const [actionPulse, setActionPulse] = useState<'start' | 'waypoint' | 'pause' | 'resume' | 'finish' | null>(null);
 
   const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -117,6 +119,9 @@ const HuntModeScreen: React.FC = () => {
         setSessionId(session.id);
         const wps = await getHuntWaypoints(session.id);
         setWaypoints(wps);
+      } else {
+        setSessionId(null);
+        setWaypoints([]);
       }
     } catch (err) {
       console.error('HuntModeScreen: failed to load session', err);
@@ -165,10 +170,22 @@ const HuntModeScreen: React.FC = () => {
     }
   }, []);
 
+  const sessionStatus: HuntSessionStatus = projection?.operator_presence_state === 'paused'
+    ? 'paused'
+    : order?.huntStatus === 'final_offer'
+      ? 'completed'
+      : sessionId
+        ? 'active'
+        : 'idle';
+
   useEffect(() => {
-    if (sessionId) startGpsInterval(sessionId);
+    if (sessionId && sessionStatus === 'active') {
+      startGpsInterval(sessionId);
+    } else {
+      stopGpsInterval();
+    }
     return stopGpsInterval;
-  }, [sessionId, startGpsInterval, stopGpsInterval]);
+  }, [sessionId, sessionStatus, startGpsInterval, stopGpsInterval]);
 
   // ── Session controls ───────────────────────────────────────────────────────
 
@@ -179,6 +196,7 @@ const HuntModeScreen: React.FC = () => {
       const session = await startHunt(orderId);
       setSessionId(session.id);
       setWaypoints([]);
+      setPendingWaypoints({});
       setActionPulse('start');
       await updateOrder({ ...order, huntStatus: 'live_hunt' });
       vibrate([50, 30, 80]);
@@ -191,6 +209,38 @@ const HuntModeScreen: React.FC = () => {
     }
   };
 
+  const handlePauseHunt = async () => {
+    if (!order || !sessionId) return;
+    setIsPausing(true);
+    try {
+      await pauseHunt(orderId, sessionId);
+      stopGpsInterval();
+      setActionPulse('pause');
+      toast('Охота поставлена на паузу. Клиент видит paused status.', 'success');
+    } catch (err) {
+      console.error('HuntModeScreen: failed to pause hunt', err);
+      toast('Не удалось поставить охоту на паузу', 'error');
+    } finally {
+      setIsPausing(false);
+    }
+  };
+
+  const handleResumeHunt = async () => {
+    if (!order || !sessionId) return;
+    setIsResuming(true);
+    try {
+      await resumeHunt(orderId, sessionId);
+      startGpsInterval(sessionId);
+      setActionPulse('resume');
+      toast('Охота продолжена. Live-tracking снова активен.', 'success');
+    } catch (err) {
+      console.error('HuntModeScreen: failed to resume hunt', err);
+      toast('Не удалось продолжить охоту', 'error');
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
   const handleEndHunt = async () => {
     if (!order || !sessionId) return;
     setIsEnding(true);
@@ -198,9 +248,9 @@ const HuntModeScreen: React.FC = () => {
       await finishHunt(orderId, sessionId);
       setActionPulse('finish');
       stopGpsInterval();
+      setSessionId(null);
       await updateOrder({ ...order, huntStatus: 'final_offer' });
       toast('Охота завершена. Клиент видит финальное предложение.', 'success');
-      navigate(`/order/${orderId}`);
     } catch (err) {
       console.error('HuntModeScreen: failed to end hunt', err);
       toast('Не удалось завершить охоту', 'error');
@@ -272,6 +322,7 @@ const HuntModeScreen: React.FC = () => {
         lng: form.lng
       });
 
+      setPendingWaypoints((prev) => ({ ...prev, [tempKey]: 'projection_pending' }));
       setPendingWaypoints((prev) => ({ ...prev, [tempKey]: 'published_to_client' }));
       setWaypoints((prev) => [...prev.filter((item) => item.id !== waypoint.id), waypoint]);
       setActionPulse('waypoint');
@@ -299,9 +350,33 @@ const HuntModeScreen: React.FC = () => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const isHunting = !!sessionId;
+  const isHunting = !!sessionId && sessionStatus !== 'completed';
   const effectiveWaypoints = projection?.waypoint_rows?.length ? projection.waypoint_rows : waypoints;
   const sync = deriveHuntSyncSnapshot(projection, Object.values(pendingWaypoints).filter((state) => state !== 'published_to_client').length);
+  const sessionStatusLabel = sessionStatus === 'active'
+    ? 'Активная охота'
+    : sessionStatus === 'paused'
+      ? 'Пауза'
+      : sessionStatus === 'completed'
+        ? 'Завершено'
+        : 'Готов к старту';
+  const sessionStatusHint = sessionStatus === 'active'
+    ? `${sync.label} · Точек: ${effectiveWaypoints.length}`
+    : sessionStatus === 'paused'
+      ? 'Поиск на паузе. GPS остановлен, tracking показывает paused state.'
+      : sessionStatus === 'completed'
+        ? 'Поиск завершён. Можно начать новую hunt session без потери истории.'
+        : 'Нажмите "Начать охоту" чтобы клиент видел вас на карте в реальном времени';
+  const waypointDeliveryLabels = Object.entries(pendingWaypoints).map(([key, value]) => ({
+    key,
+    label: value === 'uploading'
+      ? 'Точка сохраняется'
+      : value === 'projection_pending'
+        ? 'Точка сохранена, публикуем в tracking'
+        : value === 'published_to_client'
+          ? 'Точка опубликована в tracking'
+          : 'Ошибка публикации точки'
+  }));
   const lastWaypoint = effectiveWaypoints[effectiveWaypoints.length - 1] || null;
   const huntStats = useMemo(() => ({
     found: effectiveWaypoints.filter((wp) => wp.result === 'found').length,
@@ -372,14 +447,12 @@ const HuntModeScreen: React.FC = () => {
             {isHunting
               ? <Radio size={18} className="text-blue-600 animate-pulse" />
               : <Navigation size={18} className="text-amber-600" />}
-            <span className={`text-sm font-bold ${isHunting ? 'text-blue-800' : 'text-amber-800'}`}>
-              {isHunting ? 'Активная охота' : 'Готов к старту'}
+            <span className={`text-sm font-bold ${sessionStatus === 'active' ? 'text-blue-800' : sessionStatus === 'paused' ? 'text-amber-800' : sessionStatus === 'completed' ? 'text-slate-800' : 'text-amber-800'}`}>
+              {sessionStatusLabel}
             </span>
           </div>
-          <p className={`text-xs ${isHunting ? 'text-blue-600' : 'text-amber-600'}`}>
-            {isHunting
-              ? `${sync.label} · Точек: ${effectiveWaypoints.length}`
-              : 'Нажмите "Начать охоту" чтобы клиент видел вас на карте в реальном времени'}
+          <p className={`text-xs ${sessionStatus === 'active' ? 'text-blue-600' : sessionStatus === 'paused' ? 'text-amber-600' : sessionStatus === 'completed' ? 'text-slate-600' : 'text-amber-600'}`}>
+            {sessionStatusHint}
           </p>
           <div className="mt-3 grid grid-cols-3 gap-2">
             <div className="rounded-2xl bg-white/80 px-3 py-2">
@@ -408,11 +481,18 @@ const HuntModeScreen: React.FC = () => {
               </div>
             </div>
             {isHunting && currentPos && <p className="text-[10px] text-blue-400 mt-1">{currentPos.lat.toFixed(5)}, {currentPos.lng.toFixed(5)}</p>}
+            {waypointDeliveryLabels.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {waypointDeliveryLabels.slice(-3).map((item) => (
+                  <p key={item.key} className="text-[10px] text-gray-600">{item.label}</p>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
         {/* Main action buttons */}
-        {!isHunting ? (
+        {sessionStatus === 'idle' ? (
           <button
             onClick={handleStartHunt}
             disabled={isStarting}
@@ -422,8 +502,17 @@ const HuntModeScreen: React.FC = () => {
             {isStarting ? <Loader2 size={20} className="animate-spin" /> : <Flag size={20} />}
             {isStarting ? 'Запускаем...' : 'Начать охоту'}
           </button>
+        ) : sessionStatus === 'completed' ? (
+          <button
+            onClick={handleStartHunt}
+            disabled={isStarting}
+            className="group relative w-full overflow-hidden py-4 rounded-2xl text-white font-bold text-base flex items-center justify-center gap-2 shadow-lg transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed bg-gradient-to-r from-slate-700 via-slate-600 to-slate-500 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98]"
+          >
+            {isStarting ? <Loader2 size={20} className="animate-spin" /> : <Flag size={20} />}
+            {isStarting ? 'Запускаем...' : 'Начать заново'}
+          </button>
         ) : (
-          <div className="flex gap-3">
+          <div className="flex gap-3 flex-wrap">
             <button
               onClick={openAddWaypoint}
               className={`flex-1 py-3.5 rounded-2xl text-white font-semibold text-sm flex items-center justify-center gap-2 shadow transition-all duration-300 ${actionPulse === 'waypoint' ? 'bg-emerald-500 scale-[1.02] shadow-emerald-200' : 'bg-gradient-to-r from-blue-600 to-sky-500 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98]'}`}
@@ -431,6 +520,25 @@ const HuntModeScreen: React.FC = () => {
               <Plus size={18} />
               Добавить точку
             </button>
+            {sessionStatus === 'active' ? (
+              <button
+                onClick={handlePauseHunt}
+                disabled={isPausing}
+                className="flex-1 py-3.5 rounded-2xl bg-amber-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow transition-all duration-300 disabled:opacity-60"
+              >
+                {isPausing ? <Loader2 size={18} className="animate-spin" /> : <Clock3 size={18} />}
+                {isPausing ? 'Ставим на паузу...' : 'Пауза'}
+              </button>
+            ) : (
+              <button
+                onClick={handleResumeHunt}
+                disabled={isResuming}
+                className="flex-1 py-3.5 rounded-2xl bg-emerald-600 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow transition-all duration-300 disabled:opacity-60"
+              >
+                {isResuming ? <Loader2 size={18} className="animate-spin" /> : <Radio size={18} />}
+                {isResuming ? 'Возобновляем...' : 'Продолжить'}
+              </button>
+            )}
             <button
               onClick={handleEndHunt}
               disabled={isEnding}
@@ -443,7 +551,7 @@ const HuntModeScreen: React.FC = () => {
         )}
 
         {/* How it works (when not hunting) */}
-        {!isHunting && (
+        {sessionStatus === 'idle' && (
           <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
             <p className="text-xs font-bold text-gray-700 uppercase tracking-wide">Как это работает</p>
             {[
