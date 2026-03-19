@@ -28,11 +28,6 @@ const HashPublicQuoteRoute: React.FC = () => {
   return <PublicQuoteScreen orderId={orderId} />;
 };
 
-const HashPublicTrackingRoute: React.FC = () => {
-  const { orderId = '' } = useParams();
-  return <Navigate to={`/q/${encodeURIComponent(orderId)}`} replace />;
-};
-
 type BottomTab = 'orders' | 'vendors' | 'notifications' | 'settings' | null;
 
 const resolveBottomTab = (pathname: string): BottomTab => {
@@ -204,7 +199,6 @@ const CachedRoutes: React.FC = () => {
               <Route path="/order-form" element={<PublicOrderFormScreen />} />
               <Route path="/public-order-form" element={<PublicOrderFormScreen />} />
               <Route path="/q/:orderId" element={<HashPublicQuoteRoute />} />
-              <Route path="/tracking/:orderId" element={<HashPublicTrackingRoute />} />
               <Route path="*" element={<NotFoundScreen />} />
             </Routes>
           </div>
