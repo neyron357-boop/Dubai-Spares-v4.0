@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { HuntGpsPingRow, HuntSessionRow, HuntWaypointResult, HuntWaypointRow } from './types';
+import { HuntGpsPingRow, HuntSessionRow, HuntStatus, HuntWaypointResult, HuntWaypointRow } from './types';
 
 // ─── Local-storage helpers (fallback when DB tables are not yet created) ──────
 
@@ -340,28 +340,54 @@ export const getPublicHuntData = async (orderId: string): Promise<{
   waypoints: HuntWaypointRow[];
   latestPing: HuntGpsPingRow | null;
   track: HuntGpsPingRow[];
+  resolvedStatus: HuntStatus;
 }> => {
   if (!supabase) {
     const session = readLocalSession(orderId);
     const waypoints = session ? readLocalWaypoints(session.id) : [];
-    return { session, waypoints, latestPing: null, track: [] };
+    return {
+      session,
+      waypoints,
+      latestPing: null,
+      track: [],
+      resolvedStatus: session ? (session.status === 'active' ? 'live_hunt' : 'final_offer') : 'data_gathering'
+    };
   }
 
   try {
-    const { data: sessions } = await supabase
-      .from('order_hunt_sessions')
-      .select('id, order_id, status, started_at, ended_at')
-      .eq('order_id', orderId)
-      .order('started_at', { ascending: false })
-      .limit(1);
+    const [sessionResult, orderResult] = await Promise.all([
+      supabase
+        .from('order_hunt_sessions')
+        .select('id, order_id, status, started_at, ended_at')
+        .eq('order_id', orderId)
+        .order('started_at', { ascending: false })
+        .limit(1),
+      supabase
+        .from('orders')
+        .select('hunt_status')
+        .eq('id', orderId)
+        .maybeSingle()
+    ]);
 
-    const session = (sessions?.[0] as HuntSessionRow | undefined) ?? null;
+    const session = (sessionResult.data?.[0] as HuntSessionRow | undefined) ?? null;
+    const orderStatus = (['data_gathering', 'live_hunt', 'final_offer'] as const).includes((orderResult.data as any)?.hunt_status)
+      ? ((orderResult.data as any).hunt_status as HuntStatus)
+      : 'data_gathering';
 
     if (!session) {
       // Fall back to localStorage if DB returned nothing (tables may not exist yet)
       const localSession = readLocalSession(orderId);
       const localWaypoints = localSession ? readLocalWaypoints(localSession.id) : [];
-      return { session: localSession, waypoints: localWaypoints, latestPing: null, track: [] };
+      const localStatus: HuntStatus = localSession
+        ? (localSession.status === 'active' ? 'live_hunt' : 'final_offer')
+        : 'data_gathering';
+      return {
+        session: localSession,
+        waypoints: localWaypoints,
+        latestPing: null,
+        track: [],
+        resolvedStatus: orderStatus === 'data_gathering' ? localStatus : orderStatus
+      };
     }
 
     const [wpResult, pingResult, trackResult] = await Promise.all([
@@ -388,13 +414,19 @@ export const getPublicHuntData = async (orderId: string): Promise<{
       session,
       waypoints: (wpResult.data ?? []) as HuntWaypointRow[],
       latestPing: (pingResult.data?.[0] as HuntGpsPingRow | undefined) ?? null,
-      track: (trackResult.data ?? []) as HuntGpsPingRow[]
+      track: (trackResult.data ?? []) as HuntGpsPingRow[],
+      resolvedStatus: session.status === 'active' ? 'live_hunt' : 'final_offer'
     };
   } catch (err) {
     console.warn('[hunt] getPublicHuntData failed, reading local:', err);
     const localSession = readLocalSession(orderId);
     const localWaypoints = localSession ? readLocalWaypoints(localSession.id) : [];
-    return { session: localSession, waypoints: localWaypoints, latestPing: null, track: [] };
+    return {
+      session: localSession,
+      waypoints: localWaypoints,
+      latestPing: null,
+      track: [],
+      resolvedStatus: localSession ? (localSession.status === 'active' ? 'live_hunt' : 'final_offer') : 'data_gathering'
+    };
   }
 };
-
