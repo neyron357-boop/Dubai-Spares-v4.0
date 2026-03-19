@@ -70,9 +70,9 @@ const buildPublicQuoteShareMessage = (order: Order, link: string) => {
   const intro = clientName ? `Здравствуйте, ${clientName}!` : 'Здравствуйте!';
   return [
     intro,
-    `Подготовили для вас актуальную tracking-ссылку по автомобилю ${carName}.`,
-    'По этой ссылке всегда отображается текущее состояние заказа: статус заявки, ход поиска, добавленные варианты, цены, фотографии и другие обновления по заказу.',
-    'Открывайте ту же самую ссылку в любое время, чтобы видеть самую свежую информацию:',
+    `Подготовили для вас итоговую смету по автомобилю ${carName}.`,
+    'По ссылке открывается сохранённая версия сметы с позициями, ценами, фотографиями и итоговой суммой.',
+    'Откройте ссылку, чтобы посмотреть именно эту версию предложения:',
     link,
     'Если понадобится помощь или уточнение по позициям, пожалуйста, напишите нам — мы с удовольствием подскажем.'
   ].join('\n\n');
@@ -136,9 +136,22 @@ export type PublicQuoteKey = {
   source: 'token';
   urlToken: string | null;
   urlSnapshot: string | null;
+  snapshotId: string | null;
 };
 
-export const parsePublicQuoteKey = (params: URLSearchParams, _pathParam: string): PublicQuoteKey | null => {
+const normalizeQuoteParams = (paramsOrPath?: URLSearchParams | string | null, maybePathParam?: string) => {
+  if (paramsOrPath instanceof URLSearchParams) {
+    return { params: paramsOrPath, pathParam: maybePathParam || '' };
+  }
+
+  return {
+    params: new URLSearchParams(typeof window !== 'undefined' ? window.location.search : ''),
+    pathParam: String(paramsOrPath || '')
+  };
+};
+
+export const parsePublicQuoteKey = (paramsOrPath?: URLSearchParams | string | null, maybePathParam?: string): PublicQuoteKey | null => {
+  const { params, pathParam: rawPathParam } = normalizeQuoteParams(paramsOrPath, maybePathParam);
   const packedKey = (params.get('k') || '').trim();
   if (packedKey) {
     const [token, snapshot] = packedKey.split('.');
@@ -147,7 +160,8 @@ export const parsePublicQuoteKey = (params: URLSearchParams, _pathParam: string)
         value: token,
         source: 'token',
         urlToken: token,
-        urlSnapshot: (snapshot || '').trim() || null
+        urlSnapshot: (snapshot || '').trim() || null,
+        snapshotId: (snapshot || '').trim() || null
       };
     }
   }
@@ -159,11 +173,12 @@ export const parsePublicQuoteKey = (params: URLSearchParams, _pathParam: string)
       value: tokenFromQuery,
       source: 'token',
       urlToken: tokenFromQuery || null,
-      urlSnapshot: snapshotFromQuery || null
+      urlSnapshot: snapshotFromQuery || null,
+      snapshotId: snapshotFromQuery || null
     };
   }
 
-  const pathParam = decodeURIComponent(String(_pathParam || '').trim());
+  const pathParam = decodeURIComponent(String(rawPathParam || '').trim());
   if (!pathParam) return null;
 
   if (pathParam.includes('.')) {
@@ -173,7 +188,8 @@ export const parsePublicQuoteKey = (params: URLSearchParams, _pathParam: string)
         value: pathToken,
         source: 'token',
         urlToken: pathToken,
-        urlSnapshot: (pathSnapshot || '').trim() || null
+        urlSnapshot: (pathSnapshot || '').trim() || null,
+        snapshotId: (pathSnapshot || '').trim() || null
       };
     }
   }
@@ -185,7 +201,8 @@ export const parsePublicQuoteKey = (params: URLSearchParams, _pathParam: string)
     value: pathParam,
     source: 'token',
     urlToken: pathParam,
-    urlSnapshot: null
+    urlSnapshot: null,
+    snapshotId: null
   };
 };
 
@@ -366,7 +383,6 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
 
 export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
   const settings = loadAppSettings();
-  const persistentToken = (order.publicQuoteToken || '').trim() || undefined;
   const snapshot = await publicQuoteCreateSnapshot(order, {
     currency: options?.currency,
     exchangeRate: options?.rates?.[options?.currency || 'USD'],
@@ -387,8 +403,7 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
       executorPhotoUrl: settings.executorPhotoUrl,
       executorRole: settings.executorRole
     },
-    rates: options?.rates,
-    ...(persistentToken ? { token: persistentToken, upsertByToken: true } : {})
+    rates: options?.rates
   });
   const link = snapshot.url;
   const shareText = buildPublicQuoteShareMessage(order, link);
