@@ -227,15 +227,12 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
 <style>
   @page { size: A4 portrait; margin: 0; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #c9c9c9; font-family: Montserrat, Poppins, Arial, sans-serif; color: ${BLUE}; }
-  body { padding: 24px; }
+  html, body { margin: 0; padding: 0; background: #eef2f7; font-family: Montserrat, Poppins, Arial, sans-serif; color: ${BLUE}; }
+  body { padding: 12px; }
   .sheet-wrap { display: flex; justify-content: center; }
   .sheet {
-    position: relative; width: min(210mm, calc((100vh - 48px) * ${SHEET_RATIO})); min-height: 297mm; background: #fcfcfb;
-    border: 16px solid ${BLUE}; box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18); overflow: hidden;
-  }
-  .sheet::before {
-    content: ''; position: absolute; inset: 12px; border: 1.5px solid ${BLUE}; pointer-events: none;
+    position: relative; width: min(210mm, calc(100vw - 24px)); min-height: 297mm; background: #fcfcfb;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12); overflow: hidden;
   }
   .sheet::after {
     content: ''; position: absolute; inset: 0;
@@ -247,68 +244,78 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
     background-size: 48px 48px, 48px 48px, 12px 12px, 12px 12px;
     pointer-events: none;
   }
-  .content { position: relative; z-index: 1; padding: 44px 54px 38px; }
-  .brand-row, .meta-row, .bottom-grid, .footer { display: flex; justify-content: space-between; gap: 24px; }
-  .brand { display: flex; align-items: center; gap: 16px; }
-  .logo-image { width: 64px; height: 64px; object-fit: contain; }
-  .logo-mark { display:flex; gap:8px; align-items:flex-end; width:64px; height:64px; }
-  .logo-mark span:first-child{ width:16px; height:48px; background:${YELLOW}; clip-path: polygon(35% 0,100% 0,65% 100%,0 100%); }
-  .logo-mark span:last-child{ width:20px; height:56px; background:${BLUE}; clip-path: polygon(35% 0,100% 0,65% 100%,0 100%); }
+  .content { position: relative; z-index: 1; padding: 22mm 16mm 18mm; }
+  .brand-row, .meta-row, .bottom-grid, .footer { display: flex; justify-content: space-between; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo-image { width: 48px; height: 48px; object-fit: contain; }
+  .logo-mark { display:flex; gap:6px; align-items:flex-end; width:48px; height:48px; }
+  .logo-mark span:first-child{ width:12px; height:36px; background:${YELLOW}; clip-path: polygon(35% 0,100% 0,65% 100%,0 100%); }
+  .logo-mark span:last-child{ width:16px; height:42px; background:${BLUE}; clip-path: polygon(35% 0,100% 0,65% 100%,0 100%); }
   .brand-text { line-height: 0.92; }
-  .brand-text .name { font-size: 26px; font-weight: 800; letter-spacing: 0.16em; color: ${YELLOW}; }
-  .brand-text .sub { font-size: 24px; font-weight: 800; letter-spacing: 0.16em; }
+  .brand-text .name { font-size: 20px; font-weight: 800; letter-spacing: 0.14em; color: ${YELLOW}; }
+  .brand-text .sub { font-size: 18px; font-weight: 800; letter-spacing: 0.14em; }
   .dots, .dots-bottom { display:grid; grid-template-columns: repeat(9, 8px); gap: 8px; }
   .dots span, .dots-bottom span { width: 4px; height: 4px; border-radius: 999px; background: ${BLUE}; display:block; }
-  .hero { margin-top: 34px; display:flex; justify-content: space-between; align-items:flex-start; gap: 24px; }
-  .invoice-title { font-size: 62px; line-height: 0.95; letter-spacing: 0.05em; font-weight: 800; margin: 0; }
-  .meta { min-width: 255px; padding-top: 22px; }
-  .meta-line { display:grid; grid-template-columns: 92px 1fr; gap: 14px; font-size: 16px; margin-bottom: 10px; }
+  .hero { margin-top: 18px; display:flex; justify-content: space-between; align-items:flex-start; gap: 16px; }
+  .invoice-title { font-size: 42px; line-height: 0.95; letter-spacing: 0.04em; font-weight: 800; margin: 0; }
+  .meta { min-width: 220px; padding-top: 10px; }
+  .meta-line { display:grid; grid-template-columns: 72px 1fr; gap: 10px; font-size: 13px; margin-bottom: 6px; }
   .meta-line strong { font-weight: 700; }
-  .arrow-left, .arrow-right { color: ${BLUE}; font-size: 54px; line-height: 1; font-weight: 300; letter-spacing: -10px; }
-  .arrow-left { margin: 28px 0 18px; }
-  table { width: 100%; border-collapse: separate; border-spacing: 0 12px; font-size: 15px; }
-  thead th { background: ${YELLOW}; color: ${BLUE}; text-align: left; font-size: 18px; padding: 12px 18px; font-weight: 800; }
-  tbody td { border: 1.5px solid ${BLUE}; padding: 13px 18px; vertical-align: top; background: rgba(255,255,255,0.92); }
+  .arrow-left, .arrow-right { color: ${BLUE}; font-size: 34px; line-height: 1; font-weight: 300; letter-spacing: -7px; }
+  .arrow-left { margin: 12px 0 10px; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0 8px; font-size: 12px; }
+  thead th { background: ${YELLOW}; color: ${BLUE}; text-align: left; font-size: 13px; padding: 9px 12px; font-weight: 800; }
+  tbody td { border: 1px solid rgba(43, 100, 141, 0.32); padding: 9px 12px; vertical-align: top; background: rgba(255,255,255,0.96); }
   tbody td + td { border-left: none; }
   tbody td.num { text-align: right; white-space: nowrap; width: 16%; }
   tbody td.total-cell { font-weight: 700; }
   .desc-main { font-weight: 600; }
-  .desc-sub { font-size: 11px; margin-top: 4px; color: rgba(43, 100, 141, 0.76); }
-  .bottom-grid { margin-top: 18px; align-items: flex-start; }
-  .section-title { color: ${YELLOW}; font-size: 19px; font-weight: 800; margin: 0 0 12px; }
+  .desc-sub { font-size: 10px; margin-top: 3px; color: rgba(43, 100, 141, 0.76); }
+  .bottom-grid { margin-top: 12px; align-items: flex-start; }
+  .section-title { color: ${YELLOW}; font-size: 15px; font-weight: 800; margin: 0 0 8px; }
   .info-block { width: 52%; }
   .totals { width: 34%; margin-left: auto; }
-  .info-line, .total-line { display:flex; justify-content:space-between; gap:16px; font-size: 16px; margin-bottom: 8px; }
-  .info-line span:first-child, .total-line span:first-child { min-width: 120px; }
-  .total-line strong { font-size: 17px; }
-  .total-line.grand { font-weight: 800; font-size: 18px; margin-top: 8px; }
-  .terms { margin-top: 18px; max-width: 56%; }
+  .info-line, .total-line { display:flex; justify-content:space-between; gap:12px; font-size: 13px; margin-bottom: 6px; }
+  .info-line span:first-child, .total-line span:first-child { min-width: 96px; }
+  .total-line strong { font-size: 14px; }
+  .total-line.grand { font-weight: 800; font-size: 15px; margin-top: 6px; }
+  .terms { margin-top: 12px; max-width: 58%; }
   .terms ul { margin: 0; padding-left: 18px; }
-  .terms li { margin-bottom: 6px; font-size: 14px; }
-  .invoice-to { margin-top: 18px; font-size: 14px; }
-  .invoice-to strong { display:block; margin-bottom: 6px; color: ${YELLOW}; font-size: 18px; }
-  .signature-zone { margin-top: 26px; max-width: 260px; }
-  .signature-image { max-width: 180px; max-height: 56px; object-fit: contain; display:block; margin-bottom: 8px; }
-  .signature-placeholder { width: 180px; height: 38px; }
-  .signature-line { border-bottom: 2px solid ${BLUE}; width: 180px; margin-bottom: 8px; }
-  .footer { align-items: flex-end; margin-top: 28px; }
-  .contacts { font-size: 15px; display:grid; gap: 10px; }
-  .contact-line { display:flex; align-items:center; gap:10px; }
-  .icon { width: 24px; text-align:center; }
+  .terms li { margin-bottom: 4px; font-size: 12px; }
+  .invoice-to { margin-top: 12px; font-size: 12px; }
+  .invoice-to strong { display:block; margin-bottom: 4px; color: ${YELLOW}; font-size: 15px; }
+  .signature-zone { margin-top: 18px; max-width: 220px; }
+  .signature-image { max-width: 150px; max-height: 42px; object-fit: contain; display:block; margin-bottom: 6px; }
+  .signature-placeholder { width: 150px; height: 28px; }
+  .signature-line { border-bottom: 1.5px solid ${BLUE}; width: 150px; margin-bottom: 6px; }
+  .footer { align-items: flex-end; margin-top: 18px; }
+  .contacts { font-size: 12px; display:grid; gap: 6px; }
+  .contact-line { display:flex; align-items:center; gap:8px; }
+  .icon { width: 18px; text-align:center; }
   .ring-top, .ring-bottom {
     position:absolute; border:1.4px solid ${LIGHT_RING}; border-radius:999px; pointer-events:none;
   }
-  .ring-top { width: 208px; height: 208px; top: 18px; right: 48px; }
-  .ring-top::before, .ring-bottom::before { content:''; position:absolute; inset: 18px; border:1.2px solid ${LIGHT_RING}; border-radius:999px; }
-  .ring-bottom { width: 260px; height: 260px; right: 40px; bottom: 22px; }
+  .ring-top { width: 148px; height: 148px; top: 12px; right: 20px; }
+  .ring-top::before, .ring-bottom::before { content:''; position:absolute; inset: 14px; border:1px solid ${LIGHT_RING}; border-radius:999px; }
+  .ring-bottom { width: 180px; height: 180px; right: 18px; bottom: 18px; }
   .ring-bottom::after { content:''; position:absolute; left:50%; top:50%; width:1px; height:100%; background:${LIGHT_RING}; transform:translate(-50%,-50%) rotate(42deg); transform-origin:center; box-shadow: 0 0 0 0 ${LIGHT_RING}, 0 0 0 0 ${LIGHT_RING}; }
-  .dots-top { position:absolute; top: 118px; left: 52%; }
-  .dots-bottom-wrap { position:absolute; right: 122px; bottom: 188px; }
-  .arrow-right { position:absolute; right: 54px; bottom: 92px; }
-  .sheet-note { font-size: 12px; opacity: 0.85; margin-top: 6px; }
+  .dots-top { position:absolute; top: 92px; left: 55%; }
+  .dots-bottom-wrap { position:absolute; right: 84px; bottom: 126px; }
+  .arrow-right { position:absolute; right: 24px; bottom: 54px; }
+  .sheet-note { font-size: 11px; opacity: 0.85; margin-top: 6px; }
+  @media screen and (max-width: 900px) {
+    body { padding: 0; }
+    .content { padding: 16mm 12mm 14mm; }
+    .brand-row, .hero, .bottom-grid, .footer { gap: 12px; }
+    .invoice-title { font-size: 32px; }
+    .meta { min-width: 180px; }
+    .terms { max-width: 100%; }
+  }
   @media print {
-    body { padding: 0; background: white; }
+    html, body { background: white; }
+    body { padding: 0; }
     .sheet { width: 210mm; min-height: 297mm; box-shadow: none; }
+    .sheet::after { opacity: 0.9; }
   }
 </style>
 </head>
