@@ -23,6 +23,12 @@ export type QuoteItem = {
   note?: string;
 };
 
+export type QuoteDocument = {
+  href: string;
+  label: string;
+  kind: 'invoice' | 'cargo' | 'pdf' | 'document';
+};
+
 export type NormalizedPublicQuoteSnapshot = {
   raw: Record<string, any>;
   order: {
@@ -46,6 +52,7 @@ export type NormalizedPublicQuoteSnapshot = {
     parts: Array<Record<string, any>>;
   };
   pdfHref: string;
+  documents: QuoteDocument[];
   hasRenderableContent: boolean;
 };
 
@@ -59,6 +66,11 @@ const firstNumber = (...values: unknown[]) => {
     if (Number.isFinite(parsed)) return parsed;
   }
   return 0;
+};
+
+const pushDocument = (docs: QuoteDocument[], href: unknown, label: string, kind: QuoteDocument['kind']) => {
+  if (typeof href !== 'string' || !href.trim()) return;
+  docs.push({ href: href.trim(), label, kind });
 };
 
 const normalizeRates = (value: unknown): QuoteRates => {
@@ -133,6 +145,28 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
   const rawCurrency = String(pricing.currency || breakdown.currency || 'USD').toUpperCase();
   const currency = (['AED', 'USD', 'RUB', 'TJS'].includes(rawCurrency) ? rawCurrency : 'USD') as QuoteCurrency;
 
+  const documentsRaw = asObject(raw.documents);
+  const documents: QuoteDocument[] = [];
+  pushDocument(documents, raw.pdf_url, 'PDF invoice', 'invoice');
+  pushDocument(documents, raw.invoice_url, 'PDF invoice', 'invoice');
+  pushDocument(documents, documentsRaw.pdf, 'PDF invoice', 'invoice');
+  pushDocument(documents, documentsRaw.invoice, 'PDF invoice', 'invoice');
+  pushDocument(documents, raw.cargo_pdf_url, 'Cargo & Logistics', 'cargo');
+  pushDocument(documents, raw.cargo_url, 'Cargo & Logistics', 'cargo');
+  pushDocument(documents, raw.logistics_url, 'Cargo & Logistics', 'cargo');
+  pushDocument(documents, raw.logistics_pdf_url, 'Cargo & Logistics', 'cargo');
+  pushDocument(documents, documentsRaw.cargo, 'Cargo & Logistics', 'cargo');
+  pushDocument(documents, documentsRaw.cargo_pdf, 'Cargo & Logistics', 'cargo');
+  pushDocument(documents, documentsRaw.logistics, 'Cargo & Logistics', 'cargo');
+  pushDocument(documents, documentsRaw.logistics_pdf, 'Cargo & Logistics', 'cargo');
+  asArray(documentsRaw.files).forEach((file: any, index: number) => {
+    const fileObj = asObject(file);
+    const href = firstString(fileObj.url, fileObj.href, fileObj.link, typeof file === 'string' ? file : '');
+    const label = firstString(fileObj.label, fileObj.title, fileObj.name) || `Document ${index + 1}`;
+    const kind = /cargo|logistic|delivery|shipment|transport/i.test(label) ? 'cargo' : /invoice|pdf/i.test(label) ? 'invoice' : 'document';
+    pushDocument(documents, href, label, kind as QuoteDocument['kind']);
+  });
+
   const contact: QuoteContact = {
     whatsapp: digits(firstString(raw.contact?.whatsapp_phone, raw.contacts?.whatsapp, raw.public_contact?.whatsapp, mergedSettings.publicWhatsappNumber)),
     telegram: firstString(raw.contact?.telegram, raw.contacts?.telegram, raw.public_contact?.telegram, mergedSettings.publicTelegramUrl) || '',
@@ -173,6 +207,7 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
       })),
     },
     pdfHref: firstString(raw.pdf_url, raw.invoice_url, raw.documents?.pdf, raw.documents?.invoice) || '',
+    documents,
     hasRenderableContent: Boolean(
       items.length
       || firstString(order.brand, order.model, order.vin, raw.brand?.name)
