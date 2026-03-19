@@ -20,7 +20,7 @@ import {
   TrendingUp,
   XCircle
 } from 'lucide-react';
-import { HuntGpsPingRow, HuntWaypointRow, Order, Part, PriceVariant } from '../types';
+import { HuntGpsPingRow, HuntWaypointResult, HuntWaypointRow, Order, Part, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
 import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { logger } from '../logging';
@@ -35,6 +35,22 @@ import { appendCustomerLog, confirmRelevance, ensureTelegramSubscriptionState, m
 type Language = 'en' | 'ru';
 
 const CURRENCY_LABELS: Record<QuoteCurrency, string> = { AED: 'Dirham', USD: 'Dollar', RUB: 'Ruble', TJS: 'Somoni' };
+
+
+const PUBLIC_HISTORY_LABELS: Record<Language, Record<HuntWaypointResult, string>> = {
+  ru: {
+    found: '✅ Найдена',
+    not_found: '❌ Нет в наличии',
+    high_price: '⚠️ Высокая цена',
+    visited: '📍 Посещено'
+  },
+  en: {
+    found: '✅ Found',
+    not_found: '❌ Not available',
+    high_price: '⚠️ High price',
+    visited: '📍 Visited'
+  }
+};
 
 enum EstimateErrorType {
   INVALID_LINK = 'INVALID_LINK',
@@ -2202,6 +2218,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     setShowRelevancePrompt(true);
   }, [order?.id]);
 
+  const historyLabels = PUBLIC_HISTORY_LABELS[lang];
+
   const stickyStatusLabel = isQuoteExpired
     ? t.statusExpired
     : isOpeningWhatsapp
@@ -2378,15 +2396,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
       ? `https://www.google.com/maps?q=${huntLatestPing.lat},${huntLatestPing.lng}&output=embed&z=14`
       : null;
 
-    const WAYPOINT_RESULT_LABELS: Record<string, string> = {
-      found: '✅ Найдена',
-      not_found: '❌ Нет в наличии',
-      high_price: '⚠️ Цена высокая',
-      visited: '📍 Посещено'
-    };
-
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-blue-950 text-white">
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.18),_transparent_30%),linear-gradient(180deg,#020617_0%,#0f172a_35%,#172554_100%)] text-white">
         {/* Header */}
         <div className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 py-3">
           <div className="flex items-center justify-between max-w-lg mx-auto">
@@ -2403,11 +2414,26 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
 
         <div className="max-w-lg mx-auto px-4 py-5 space-y-4">
           {/* Explanation card */}
-          <div className="rounded-2xl bg-white/8 border border-white/12 p-4">
-            <p className="text-sm text-blue-100/90 leading-relaxed">
+          <div className="relative overflow-hidden rounded-3xl border border-cyan-400/20 bg-white/10 p-4 shadow-[0_20px_60px_rgba(14,165,233,0.12)]">
+            <div className="absolute inset-y-0 -left-1/3 w-1/2 bg-gradient-to-r from-transparent via-cyan-300/10 to-transparent animate-[pulse_4s_ease-in-out_infinite]" />
+            <p className="text-sm text-blue-100/90 leading-relaxed relative">
               Наш специалист сейчас объезжает разборки Шарджи,<br/>
               выбирая лучшую деталь для вашего авто.
             </p>
+            <div className="mt-3 grid grid-cols-3 gap-2 relative">
+              <div className="rounded-2xl bg-slate-950/35 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-blue-200/55">Точки</p>
+                <p className="mt-1 text-lg font-black text-white">{huntWaypoints.length}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-950/35 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-blue-200/55">Найдено</p>
+                <p className="mt-1 text-lg font-black text-emerald-300">{huntWaypoints.filter((wp) => wp.result === 'found').length}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-950/35 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-blue-200/55">Фото</p>
+                <p className="mt-1 text-lg font-black text-cyan-300">{huntWaypoints.filter((wp) => wp.photo_urls.length > 0).length}</p>
+              </div>
+            </div>
           </div>
 
           {/* Executor card */}
@@ -2468,7 +2494,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                   <span className="text-[10px] font-bold text-blue-300/50 mt-0.5 w-4 text-right shrink-0">{idx + 1}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-white">{wp.shop_name}</p>
-                    <p className="text-xs text-blue-200/70 mt-0.5">{WAYPOINT_RESULT_LABELS[wp.result] || wp.result}</p>
+                    <p className="text-xs text-blue-200/70 mt-0.5">{historyLabels[wp.result] || wp.result}</p>
                     {wp.price_aed != null && (
                       <p className="text-xs text-emerald-300 mt-0.5">💰 {wp.price_aed} AED</p>
                     )}
@@ -2500,6 +2526,46 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <p className="text-xs text-blue-300/50 mt-1">Точки посещений появятся здесь.</p>
             </div>
           )}
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+            <button
+              type="button"
+              onClick={() => setShowSearchHistory((prev) => !prev)}
+              className="flex w-full items-center justify-between gap-3 text-left"
+            >
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-200">История поиска</p>
+                <p className="mt-1 text-xs text-blue-200/65">Подробный журнал визитов, фотографий и результатов поиска.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-cyan-400/15 px-2 py-1 text-[10px] font-bold text-cyan-200">{huntWaypoints.length}</span>
+                <ChevronRight size={16} className={`text-cyan-200 transition-transform ${showSearchHistory ? 'rotate-90' : ''}`} />
+              </div>
+            </button>
+            {showSearchHistory && huntWaypoints.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {huntWaypoints.map((wp, idx) => (
+                  <div key={`live-history-${wp.id}`} className="rounded-2xl border border-white/10 bg-slate-950/30 p-3">
+                    <div className="flex items-start gap-3">
+                      <span className="mt-0.5 w-5 shrink-0 text-right text-[10px] font-black text-cyan-200/55">{idx + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-white">{wp.shop_name}</p>
+                          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-blue-100">{historyLabels[wp.result] || wp.result}</span>
+                        </div>
+                        {wp.note && <p className="mt-1 text-xs text-blue-100/70">{wp.note}</p>}
+                        <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-blue-200/60">
+                          <span>{new Date(wp.created_at).toLocaleTimeString(lang === 'ru' ? 'ru-RU' : 'en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                          {wp.price_aed != null && <span>💰 {wp.price_aed} AED</span>}
+                          <span>📷 {wp.photo_urls.length}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <p className="text-center text-[10px] text-blue-300/40 pb-6">
             Обновляется автоматически каждую минуту
@@ -2610,19 +2676,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                         : 'We visited these locations to find the best part for you:'}
                     </p>
                     {huntWaypoints.map((wp, idx) => {
-                      const RESULT_LABELS_EN: Record<string, string> = {
-                        found: '✅ Found',
-                        not_found: '❌ Not available',
-                        high_price: '⚠️ High price',
-                        visited: '📍 Visited'
-                      };
-                      const RESULT_LABELS_RU: Record<string, string> = {
-                        found: '✅ Найдена',
-                        not_found: '❌ Нет в наличии',
-                        high_price: '⚠️ Высокая цена',
-                        visited: '📍 Посещено'
-                      };
-                      const labels = lang === 'ru' ? RESULT_LABELS_RU : RESULT_LABELS_EN;
                       return (
                         <div key={wp.id} className="flex gap-3 rounded-xl border border-slate-100 bg-white p-3">
                           <span className="text-[10px] font-bold text-slate-400 mt-0.5 w-5 text-right shrink-0">{idx + 1}</span>
@@ -2630,7 +2683,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-sm font-semibold text-slate-800">{wp.shop_name}</span>
                             </div>
-                            <p className="text-xs text-slate-500 mt-0.5">{labels[wp.result] || wp.result}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{historyLabels[wp.result] || wp.result}</p>
                             {wp.price_aed != null && (
                               <p className="text-xs text-emerald-700 mt-0.5">💰 {wp.price_aed} AED</p>
                             )}

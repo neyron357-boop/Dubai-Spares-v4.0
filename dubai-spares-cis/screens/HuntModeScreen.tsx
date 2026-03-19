@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -95,6 +95,7 @@ const HuntModeScreen: React.FC = () => {
   const [isSavingWaypoint, setIsSavingWaypoint] = useState(false);
   const [currentPos, setCurrentPos] = useState<{ lat: number; lng: number } | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
+  const [actionPulse, setActionPulse] = useState<'start' | 'waypoint' | 'finish' | null>(null);
 
   const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -168,6 +169,8 @@ const HuntModeScreen: React.FC = () => {
     try {
       const session = await createHuntSession(orderId);
       setSessionId(session.id);
+      setWaypoints([]);
+      setActionPulse('start');
       await updateOrder({ ...order, huntStatus: 'live_hunt' });
       vibrate([50, 30, 80]);
       toast('Охота начата! GPS активирован.', 'success');
@@ -184,6 +187,7 @@ const HuntModeScreen: React.FC = () => {
     setIsEnding(true);
     try {
       await endHuntSession(sessionId);
+      setActionPulse('finish');
       stopGpsInterval();
       await updateOrder({ ...order, huntStatus: 'final_offer' });
       toast('Охота завершена. Клиент видит финальное предложение.', 'success');
@@ -258,6 +262,7 @@ const HuntModeScreen: React.FC = () => {
       });
 
       setWaypoints((prev) => [...prev, waypoint]);
+      setActionPulse('waypoint');
       setShowAddForm(false);
       setForm(DEFAULT_FORM);
       vibrate(30);
@@ -281,6 +286,20 @@ const HuntModeScreen: React.FC = () => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  const isHunting = !!sessionId;
+  const lastWaypoint = waypoints[waypoints.length - 1] || null;
+  const huntStats = useMemo(() => ({
+    found: waypoints.filter((wp) => wp.result === 'found').length,
+    visited: waypoints.length,
+    withPhotos: waypoints.filter((wp) => wp.photo_urls.length > 0).length
+  }), [waypoints]);
+
+  useEffect(() => {
+    if (!actionPulse) return undefined;
+    const timeout = window.setTimeout(() => setActionPulse(null), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [actionPulse]);
+
   if (!order) {
     return (
       <div className="p-6 text-center text-gray-500">
@@ -297,8 +316,6 @@ const HuntModeScreen: React.FC = () => {
       </div>
     );
   }
-
-  const isHunting = !!sessionId;
 
   return (
     <div className="flex flex-col min-h-full bg-gray-50 pb-24">
@@ -332,9 +349,9 @@ const HuntModeScreen: React.FC = () => {
       <div className="p-4 space-y-4">
 
         {/* Status card */}
-        <div className={`rounded-2xl p-4 border ${isHunting
-          ? 'bg-blue-50 border-blue-200'
-          : 'bg-amber-50 border-amber-200'}`}
+        <div className={`rounded-3xl p-4 border shadow-sm transition-all duration-300 ${isHunting
+          ? 'bg-gradient-to-br from-sky-50 via-white to-blue-100 border-blue-200 shadow-blue-100/70'
+          : 'bg-gradient-to-br from-amber-50 via-white to-orange-50 border-amber-200'} ${actionPulse ? 'scale-[1.01] shadow-lg' : ''}`}
         >
           <div className="flex items-center gap-2 mb-1">
             {isHunting
@@ -349,6 +366,20 @@ const HuntModeScreen: React.FC = () => {
               ? `GPS обновляется каждые 2 мин · Добавлено точек: ${waypoints.length}`
               : 'Нажмите "Начать охоту" чтобы клиент видел вас на карте в реальном времени'}
           </p>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="rounded-2xl bg-white/80 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Точки</p>
+              <p className="mt-1 text-lg font-black text-gray-900">{huntStats.visited}</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Найдено</p>
+              <p className="mt-1 text-lg font-black text-emerald-600">{huntStats.found}</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Фото</p>
+              <p className="mt-1 text-lg font-black text-blue-600">{huntStats.withPhotos}</p>
+            </div>
+          </div>
           {isHunting && currentPos && (
             <p className="text-[10px] text-blue-400 mt-1">
               {currentPos.lat.toFixed(5)}, {currentPos.lng.toFixed(5)}
@@ -361,8 +392,9 @@ const HuntModeScreen: React.FC = () => {
           <button
             onClick={handleStartHunt}
             disabled={isStarting}
-            className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold text-base flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-transform disabled:opacity-60"
+            className={`group relative w-full overflow-hidden py-4 rounded-2xl text-white font-bold text-base flex items-center justify-center gap-2 shadow-lg transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed ${isStarting ? 'bg-blue-500 scale-[0.99]' : 'bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 hover:-translate-y-0.5 hover:shadow-[0_18px_40px_rgba(14,116,214,0.35)] active:scale-[0.98]'}`}
           >
+            <span className="absolute inset-0 opacity-0 transition-all duration-500 group-hover:opacity-100 bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.24),transparent)] -translate-x-full group-hover:translate-x-full" />
             {isStarting ? <Loader2 size={20} className="animate-spin" /> : <Flag size={20} />}
             {isStarting ? 'Запускаем...' : 'Начать охоту'}
           </button>
@@ -370,7 +402,7 @@ const HuntModeScreen: React.FC = () => {
           <div className="flex gap-3">
             <button
               onClick={openAddWaypoint}
-              className="flex-1 py-3.5 rounded-2xl bg-blue-600 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow active:scale-95 transition-transform"
+              className={`flex-1 py-3.5 rounded-2xl text-white font-semibold text-sm flex items-center justify-center gap-2 shadow transition-all duration-300 ${actionPulse === 'waypoint' ? 'bg-emerald-500 scale-[1.02] shadow-emerald-200' : 'bg-gradient-to-r from-blue-600 to-sky-500 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98]'}`}
             >
               <Plus size={18} />
               Добавить точку
@@ -378,7 +410,7 @@ const HuntModeScreen: React.FC = () => {
             <button
               onClick={handleEndHunt}
               disabled={isEnding}
-              className="flex-1 py-3.5 rounded-2xl bg-rose-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow active:scale-95 transition-transform disabled:opacity-60"
+              className={`flex-1 py-3.5 rounded-2xl text-white font-semibold text-sm flex items-center justify-center gap-2 shadow transition-all duration-300 disabled:opacity-60 ${isEnding ? 'bg-rose-400 scale-[0.99]' : actionPulse === 'finish' ? 'bg-amber-500 scale-[1.01]' : 'bg-gradient-to-r from-rose-500 to-red-500 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98]'}`}
             >
               {isEnding ? <Loader2 size={18} className="animate-spin" /> : <Square size={18} />}
               {isEnding ? 'Завершаем...' : 'Завершить'}
@@ -407,6 +439,20 @@ const HuntModeScreen: React.FC = () => {
         {/* Waypoints list */}
         {waypoints.length > 0 && (
           <div className="space-y-2">
+            {lastWaypoint && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-600">Последнее обновление</p>
+                <div className="mt-1 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-emerald-950 truncate">{lastWaypoint.shop_name}</p>
+                    <p className="text-xs text-emerald-700">{RESULT_LABELS[lastWaypoint.result]} · {new Date(lastWaypoint.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</p>
+                  </div>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-sm">
+                    {RESULT_ICONS[lastWaypoint.result]}
+                  </div>
+                </div>
+              </div>
+            )}
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wide px-1">
               История посещений ({waypoints.length})
             </p>
