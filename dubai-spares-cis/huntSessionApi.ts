@@ -203,9 +203,15 @@ export const sendGpsPing = async (
   lng: number,
   accuracyM?: number
 ): Promise<void> => {
-  // GPS pings are fire-and-forget; we never throw so the caller is unaffected
+  // GPS pings are fire-and-forget; dedupe near-identical samples to avoid noisy map jitter.
   if (!supabase) return;
   try {
+    const previousPing = await getLatestGpsPing(sessionId).catch(() => null);
+    if (previousPing) {
+      const drift = Math.hypot(previousPing.lat - lat, previousPing.lng - lng);
+      const ageMs = Date.now() - Date.parse(previousPing.ts);
+      if (drift < 0.00005 && ageMs < 15_000) return;
+    }
     const ping: HuntGpsPingRow = { id: `gps-${Date.now()}`, session_id: sessionId, lat, lng, accuracy_m: accuracyM ?? null, ts: new Date().toISOString() };
     await supabase
       .from('order_hunt_gps_pings')

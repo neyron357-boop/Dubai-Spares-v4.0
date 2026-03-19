@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -20,21 +20,20 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store';
 import { HuntWaypointResult, HuntWaypointRow } from '../types';
+import { deriveHuntSyncSnapshot } from '../huntSyncCoordinator';
+import { getTrackingProjection, subscribeTrackingProjectionStore } from '../trackingProjectionStore';
+import { installHuntProjectionDispatcher } from '../huntProjectionDispatcher';
+import { createWaypoint, finishHunt, startHunt, syncGpsPing } from '../huntDomain';
 import {
-  addHuntWaypoint,
-  createHuntSession,
   deleteHuntWaypoint,
-  endHuntSession,
   getActiveHuntSession,
-  getHuntWaypoints,
-  sendGpsPing
+  getHuntWaypoints
 } from '../huntSessionApi';
 import { toast, vibrate } from '../feedback';
 import { uploadImageToStorage } from '../storage/photos';
 
-// GPS ping interval: every 30 seconds — provides a "live" feel on the client tracking
-// page (similar to food-delivery / taxi apps) while remaining reasonable for battery.
-const GPS_PING_INTERVAL_MS = 30 * 1000;
+const GPS_PING_MOVING_INTERVAL_MS = 20 * 1000;
+const GPS_PING_IDLE_INTERVAL_MS = 60 * 1000;
 
 const RESULT_LABELS: Record<HuntWaypointResult, string> = {
   found: 'Найдена',
@@ -93,6 +92,7 @@ const HuntModeScreen: React.FC = () => {
   const [isStarting, setIsStarting] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [waypoints, setWaypoints] = useState<HuntWaypointRow[]>([]);
+  const [pendingWaypoints, setPendingWaypoints] = useState<Record<string, 'uploading' | 'projection_pending' | 'published_to_client' | 'failed'>>({});
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState<WaypointFormState>(DEFAULT_FORM);
   const [isSavingWaypoint, setIsSavingWaypoint] = useState(false);
@@ -102,8 +102,11 @@ const HuntModeScreen: React.FC = () => {
 
   const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const projection = useSyncExternalStore(subscribeTrackingProjectionStore, () => (orderId ? getTrackingProjection(orderId) : null), () => null);
 
   // ── Load existing active session ──────────────────────────────────────────
+
+  useEffect(() => { installHuntProjectionDispatcher(); }, []);
 
   const loadSession = useCallback(async () => {
     if (!orderId) return;
@@ -139,17 +142,20 @@ const HuntModeScreen: React.FC = () => {
       const pos = await getCurrentPosition();
       const { latitude, longitude, accuracy } = pos.coords;
       setCurrentPos({ lat: latitude, lng: longitude });
-      await sendGpsPing(sid, latitude, longitude, accuracy);
+      const distanceFromPrevious = currentPos ? Math.hypot(latitude - currentPos.lat, longitude - currentPos.lng) : 1;
+      await syncGpsPing(orderId, sid, latitude, longitude, accuracy);
+      if (gpsIntervalRef.current) clearInterval(gpsIntervalRef.current);
+      gpsIntervalRef.current = setInterval(() => void pingGps(sid), distanceFromPrevious > 0.0008 ? GPS_PING_MOVING_INTERVAL_MS : GPS_PING_IDLE_INTERVAL_MS);
     } catch (err) {
       // Silently ignore GPS errors for UX (device may be indoors / permission denied)
       console.debug('GPS ping failed:', err);
     }
-  }, []);
+  }, [currentPos, orderId]);
 
   const startGpsInterval = useCallback((sid: string) => {
     if (gpsIntervalRef.current) clearInterval(gpsIntervalRef.current);
-    void pingGps(sid); // immediate first ping
-    gpsIntervalRef.current = setInterval(() => void pingGps(sid), GPS_PING_INTERVAL_MS);
+    void pingGps(sid);
+    gpsIntervalRef.current = setInterval(() => void pingGps(sid), GPS_PING_MOVING_INTERVAL_MS);
   }, [pingGps]);
 
   const stopGpsInterval = useCallback(() => {
@@ -170,7 +176,7 @@ const HuntModeScreen: React.FC = () => {
     if (!order) return;
     setIsStarting(true);
     try {
-      const session = await createHuntSession(orderId);
+      const session = await startHunt(orderId);
       setSessionId(session.id);
       setWaypoints([]);
       setActionPulse('start');
@@ -189,7 +195,7 @@ const HuntModeScreen: React.FC = () => {
     if (!order || !sessionId) return;
     setIsEnding(true);
     try {
-      await endHuntSession(sessionId);
+      await finishHunt(orderId, sessionId);
       setActionPulse('finish');
       stopGpsInterval();
       await updateOrder({ ...order, huntStatus: 'final_offer' });
@@ -238,6 +244,7 @@ const HuntModeScreen: React.FC = () => {
     }
     setIsSavingWaypoint(true);
     setForm((prev) => ({ ...prev, isUploading: true }));
+    const tempKey = `pending-${Date.now()}`;
     try {
       // Upload photos to Supabase Storage
       const uploadedUrls: string[] = [];
@@ -252,7 +259,8 @@ const HuntModeScreen: React.FC = () => {
         } catch { /* skip failed photos */ }
       }
 
-      const waypoint = await addHuntWaypoint({
+      setPendingWaypoints((prev) => ({ ...prev, [tempKey]: 'uploading' }));
+      const waypoint = await createWaypoint({
         sessionId,
         orderId,
         shopName: form.shopName.trim(),
@@ -264,14 +272,16 @@ const HuntModeScreen: React.FC = () => {
         lng: form.lng
       });
 
-      setWaypoints((prev) => [...prev, waypoint]);
+      setPendingWaypoints((prev) => ({ ...prev, [tempKey]: 'published_to_client' }));
+      setWaypoints((prev) => [...prev.filter((item) => item.id !== waypoint.id), waypoint]);
       setActionPulse('waypoint');
       setShowAddForm(false);
       setForm(DEFAULT_FORM);
       vibrate(30);
-      toast('Точка добавлена!', 'success');
+      toast('Точка добавлена и опубликована в tracking.', 'success');
     } catch (err) {
       console.error('HuntModeScreen: failed to save waypoint', err);
+      setPendingWaypoints((prev) => ({ ...prev, [tempKey]: 'failed' }));
       toast('Не удалось сохранить точку', 'error');
     } finally {
       setIsSavingWaypoint(false);
@@ -290,12 +300,14 @@ const HuntModeScreen: React.FC = () => {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const isHunting = !!sessionId;
-  const lastWaypoint = waypoints[waypoints.length - 1] || null;
+  const effectiveWaypoints = projection?.waypoint_rows?.length ? projection.waypoint_rows : waypoints;
+  const sync = deriveHuntSyncSnapshot(projection, Object.values(pendingWaypoints).filter((state) => state !== 'published_to_client').length);
+  const lastWaypoint = effectiveWaypoints[effectiveWaypoints.length - 1] || null;
   const huntStats = useMemo(() => ({
-    found: waypoints.filter((wp) => wp.result === 'found').length,
-    visited: waypoints.length,
-    withPhotos: waypoints.filter((wp) => wp.photo_urls.length > 0).length
-  }), [waypoints]);
+    found: effectiveWaypoints.filter((wp) => wp.result === 'found').length,
+    visited: effectiveWaypoints.length,
+    withPhotos: effectiveWaypoints.filter((wp) => wp.photo_urls.length > 0).length
+  }), [effectiveWaypoints]);
 
   useEffect(() => {
     if (!actionPulse) return undefined;
@@ -366,7 +378,7 @@ const HuntModeScreen: React.FC = () => {
           </div>
           <p className={`text-xs ${isHunting ? 'text-blue-600' : 'text-amber-600'}`}>
             {isHunting
-              ? `GPS обновляется каждые 30 сек · Добавлено точек: ${waypoints.length}`
+              ? `${sync.label} · Точек: ${effectiveWaypoints.length}`
               : 'Нажмите "Начать охоту" чтобы клиент видел вас на карте в реальном времени'}
           </p>
           <div className="mt-3 grid grid-cols-3 gap-2">
@@ -383,11 +395,20 @@ const HuntModeScreen: React.FC = () => {
               <p className="mt-1 text-lg font-black text-blue-600">{huntStats.withPhotos}</p>
             </div>
           </div>
-          {isHunting && currentPos && (
-            <p className="text-[10px] text-blue-400 mt-1">
-              {currentPos.lat.toFixed(5)}, {currentPos.lng.toFixed(5)}
-            </p>
-          )}
+          <div className="mt-3 rounded-2xl border border-white/60 bg-white/70 px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-500">Sync state</p>
+                <p className="text-sm font-semibold text-gray-900">{sync.label}</p>
+                <p className="text-xs text-gray-500">{sync.detail}</p>
+              </div>
+              <div className="text-right text-[11px] text-gray-500">
+                <div>Client: {sync.lastClientUpdateAt ? new Date(sync.lastClientUpdateAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '—'}</div>
+                <div>Pending: {sync.pendingWaypoints}</div>
+              </div>
+            </div>
+            {isHunting && currentPos && <p className="text-[10px] text-blue-400 mt-1">{currentPos.lat.toFixed(5)}, {currentPos.lng.toFixed(5)}</p>}
+          </div>
         </div>
 
         {/* Main action buttons */}
@@ -440,7 +461,7 @@ const HuntModeScreen: React.FC = () => {
         )}
 
         {/* Waypoints list */}
-        {waypoints.length > 0 && (
+        {effectiveWaypoints.length > 0 && (
           <div className="space-y-2">
             {lastWaypoint && (
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 shadow-sm">
@@ -457,9 +478,9 @@ const HuntModeScreen: React.FC = () => {
               </div>
             )}
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wide px-1">
-              История посещений ({waypoints.length})
+              Операционная timeline ({effectiveWaypoints.length})
             </p>
-            {waypoints.map((wp, idx) => (
+            {effectiveWaypoints.map((wp, idx) => (
               <div
                 key={wp.id}
                 className={`rounded-xl border p-3 ${RESULT_COLORS[wp.result]} relative`}

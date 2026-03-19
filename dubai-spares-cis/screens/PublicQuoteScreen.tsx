@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
@@ -33,8 +33,9 @@ import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot, resolveCli
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 import { calculateCargoEstimates } from '../utils/cargo';
 import { SUPABASE_URL } from '../cloudConfig';
-import { getPublicHuntData } from '../huntSessionApi';
 import { supabase } from '../supabase';
+import { createTrackingLiveCoordinator } from '../trackingLiveCoordinator';
+import { getTrackingProjection, subscribeTrackingProjectionStore } from '../trackingLiveStore';
 import { appendCustomerLog, confirmRelevance, ensureTelegramSubscriptionState, markRelevancePromptShown, maybeOpenRelevancePrompt, pauseOrderSearchFromTracking } from '../customerEngagement';
 
 type Language = 'en' | 'ru';
@@ -688,15 +689,15 @@ const BUILD_TIME = (import.meta as any).env?.VITE_BUILD_TIME || 'unknown';
 
 const fetchPublicSnapshot = (token: string, signal?: AbortSignal, snapshotId?: string | null) => publicQuoteGetSnapshot(token, { signal, timeoutMs: 20_000, snapshotId });
 
-const HUNT_STATUS_PRIORITY: Record<Order['huntStatus'], number> = {
+const HUNT_STATUS_PRIORITY: Record<NonNullable<Order['huntStatus']>, number> = {
   data_gathering: 0,
   live_hunt: 1,
   final_offer: 2
 };
 
 const mergeOrderWithLiveHuntStatus = (incoming: Order, current: Order | null, liveStatus?: Order['huntStatus']): Order => {
-  const candidates = [incoming.huntStatus, current?.huntStatus, liveStatus].filter(Boolean) as Order['huntStatus'][];
-  const resolvedStatus = candidates.reduce<Order['huntStatus']>((best, status) => (
+  const candidates = [incoming.huntStatus, current?.huntStatus, liveStatus].filter(Boolean) as NonNullable<Order['huntStatus']>[];
+  const resolvedStatus = candidates.reduce<NonNullable<Order['huntStatus']>>((best, status) => (
     HUNT_STATUS_PRIORITY[status] > HUNT_STATUS_PRIORITY[best] ? status : best
   ), incoming.huntStatus || 'data_gathering');
 
@@ -1584,14 +1585,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
   const errorIconRef = useRef<HTMLDivElement | null>(null);
 
   // ── Hunt pipeline state ───────────────────────────────────────────────────
-  const [huntWaypoints, setHuntWaypoints] = useState<HuntWaypointRow[]>([]);
-  const [huntLatestPing, setHuntLatestPing] = useState<HuntGpsPingRow | null>(null);
-  const [huntTrack, setHuntTrack] = useState<HuntGpsPingRow[]>([]);
+  const trackingProjection = useSyncExternalStore(subscribeTrackingProjectionStore, () => (order?.id ? getTrackingProjection(order.id) : null), () => null);
+  const huntWaypoints = trackingProjection?.waypoint_rows || [];
+  const huntLatestPing = trackingProjection?.latest_operator_position || null;
+  const huntTrack = trackingProjection?.route_points || [];
+  const trackingFreshness = trackingProjection?.sync_badge || 'Updating';
   const [showSearchHistory, setShowSearchHistory] = useState(false);
   const [showRelevancePrompt, setShowRelevancePrompt] = useState(false);
   const [showPauseConfirm, setShowPauseConfirm] = useState(false);
   const [copiedTelegram, setCopiedTelegram] = useState(false);
-  const huntPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const snapshotPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveHuntStatusRef = useRef<Order['huntStatus']>('data_gathering');
 
@@ -1831,11 +1833,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
     // Run snapshot fetch and live hunt data fetch in parallel (using `oid` URL param
     // if available) to eliminate the race condition where loadQuote would call
     // setOrder before fetchHunt had a chance to update liveHuntStatusRef.current.
-    const oidFromUrl = params.get('oid') || '';
-    const [sharedSnapshot, parallelHuntData] = await Promise.all([
-      loadQuoteFromSharedSnapshot(),
-      oidFromUrl ? getPublicHuntData(oidFromUrl).catch((err) => { console.debug('Parallel hunt data fetch failed:', err); return null; }) : Promise.resolve(null)
-    ]);
+    const sharedSnapshot = await loadQuoteFromSharedSnapshot();
 
     if (sharedSnapshot.order) {
       if (sharedSnapshot.expired) {
@@ -1845,20 +1843,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
         return false;
       }
 
-      // Resolve live hunt data: use parallel result if we had the oid, otherwise
-      // fetch now (sequential fallback for legacy links without `oid` param).
-      const huntData = parallelHuntData ??
-        await getPublicHuntData(sharedSnapshot.order.id).catch((err) => { console.debug('Sequential hunt data fetch failed:', err); return null; });
-
-      if (huntData) {
-        const derivedStatus = huntData.resolvedStatus;
-        liveHuntStatusRef.current = derivedStatus;
-        setHuntWaypoints(huntData.waypoints);
-        setHuntLatestPing(huntData.latestPing);
-        setHuntTrack(huntData.track);
-      }
-
-      setOrder((prev) => mergeOrderWithLiveHuntStatus(sharedSnapshot.order as Order, prev, liveHuntStatusRef.current));
+      setOrder((prev) => mergeOrderWithLiveHuntStatus(sharedSnapshot.order as Order, prev, trackingProjection?.hunt_status || liveHuntStatusRef.current));
       setIsPayloadCorrupted(sharedSnapshot.corrupted);
       setErrorType(null);
       setLoading(false);
@@ -1919,95 +1904,17 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
     };
   }, [loadQuote, order?.huntStatus, publicQuoteKey?.value]);
 
-  // ── Hunt data polling ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!order?.id) return;
+    const stop = createTrackingLiveCoordinator(order, () => {
+      const latestProjection = getTrackingProjection(order.id);
+      const derivedStatus = latestProjection?.hunt_status || order.huntStatus || 'data_gathering';
+      liveHuntStatusRef.current = derivedStatus;
+      setOrder((prev) => prev ? { ...prev, huntStatus: derivedStatus } : prev);
+    });
+    return stop;
+  }, [order?.id, order?.huntStatus, order?.publicQuoteToken]);
 
-    const fetchHunt = async () => {
-      try {
-        const data = await getPublicHuntData(order.id);
-        setHuntWaypoints(data.waypoints);
-        setHuntLatestPing(data.latestPing);
-        setHuntTrack(data.track);
-
-        // Derive live hunt status from session to detect changes without page refresh
-        const derivedStatus = data.resolvedStatus;
-
-        liveHuntStatusRef.current = derivedStatus;
-        if (derivedStatus !== order.huntStatus) {
-          setOrder((prev) => prev ? { ...prev, huntStatus: derivedStatus } : null);
-        }
-      } catch (err) { console.debug('Hunt data fetch failed:', err); /* silent */ }
-    };
-
-    void fetchHunt();
-
-    // Poll continuously so the client page updates in real-time:
-    // – 8 s while waiting for hunt to start (data_gathering)
-    // – 12 s while hunt is live (GPS + waypoints)
-    // – 30 s after hunt ends (final_offer) — just to catch late waypoint updates
-    const hs = order.huntStatus;
-    const intervalMs = hs === 'live_hunt' ? 12_000 : hs === 'final_offer' ? 30_000 : 8_000;
-
-    if (huntPollRef.current) clearInterval(huntPollRef.current);
-    huntPollRef.current = setInterval(() => void fetchHunt(), intervalMs);
-
-    return () => {
-      if (huntPollRef.current) {
-        clearInterval(huntPollRef.current);
-        huntPollRef.current = null;
-      }
-    };
-  }, [order?.id, order?.huntStatus]);
-
-  useEffect(() => {
-    if (!order?.id || !supabase) return;
-
-    const refreshLiveTracking = () => {
-      void loadQuote();
-    };
-
-    const channel = supabase
-      .channel(`public-tracking-${order.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${order.id}` }, refreshLiveTracking)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_hunt_sessions', filter: `order_id=eq.${order.id}` }, refreshLiveTracking)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_hunt_waypoints', filter: `order_id=eq.${order.id}` }, () => { void getPublicHuntData(order.id).then((data) => {
-        const derivedStatus = data.resolvedStatus;
-        liveHuntStatusRef.current = derivedStatus;
-        setHuntWaypoints(data.waypoints);
-        setHuntLatestPing(data.latestPing);
-        setHuntTrack(data.track);
-        setOrder((prev) => prev ? { ...prev, huntStatus: derivedStatus } : prev);
-      }).catch((err) => console.debug('Realtime hunt waypoint refresh failed:', err)); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_hunt_gps_pings' }, (payload) => {
-        const sessionId = (payload.new as { session_id?: string } | null)?.session_id ?? (payload.old as { session_id?: string } | null)?.session_id;
-        if (!sessionId) return;
-        void getPublicHuntData(order.id).then((data) => {
-          if (data.session?.id !== sessionId) return;
-          const derivedStatus = data.resolvedStatus;
-          liveHuntStatusRef.current = derivedStatus;
-          setHuntWaypoints(data.waypoints);
-          setHuntLatestPing(data.latestPing);
-          setHuntTrack(data.track);
-          setOrder((prev) => prev ? { ...prev, huntStatus: derivedStatus } : prev);
-        }).catch((err) => console.debug('Realtime GPS refresh failed:', err));
-      })
-      .subscribe();
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        void loadQuote();
-      }
-    };
-
-    document.addEventListener('visibilitychange', onVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      void supabase.removeChannel(channel);
-    };
-  }, [loadQuote, order?.id]);
-  // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!errorType) return;
@@ -2984,7 +2891,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
                 : (lang === 'ru' ? 'В итоговой смете оставлена только кнопка истории поиска без Telegram-привязки.' : 'The final estimate keeps only the search history button without Telegram binding.')}</p>
             </div>
             <div className={`grid min-w-[260px] gap-2 ${mode === 'tracking' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Tracking' : 'Tracking'}</p><p className="mt-1 text-sm font-bold text-slate-900">{order.huntStatus === 'live_hunt' ? (lang === 'ru' ? 'Активен' : 'Live now') : order.huntStatus === 'final_offer' ? (lang === 'ru' ? 'Завершён' : 'Finished') : (lang === 'ru' ? 'Ожидается' : 'Waiting')}</p></div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Tracking' : 'Tracking'}</p><p className="mt-1 text-sm font-bold text-slate-900">{order.huntStatus === 'live_hunt' ? (lang === 'ru' ? 'Активен' : 'Live now') : order.huntStatus === 'final_offer' ? (lang === 'ru' ? 'Завершён' : 'Finished') : (lang === 'ru' ? 'Ожидается' : 'Waiting')} · {trackingFreshness}</p></div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Точки' : 'Waypoints'}</p><p className="mt-1 text-sm font-bold text-slate-900">{huntWaypoints.length}</p></div>
               {mode === 'tracking' && <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Telegram</p><p className="mt-1 text-sm font-bold text-slate-900">{telegramSubscription?.code ? (lang === 'ru' ? 'Готов к подключению' : 'Ready to connect') : (lang === 'ru' ? 'Не настроен' : 'Not configured')}</p></div>}
             </div>
