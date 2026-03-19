@@ -2277,305 +2277,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
     );
   }
 
-  // ── Lifecycle rendering ───────────────────────────────────────────────────
   const huntStatus = order.huntStatus || 'data_gathering';
-
-  if (huntStatus === 'data_gathering') {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 via-blue-950 to-slate-900 text-white flex flex-col items-center justify-center px-5 py-12">
-        <div className="w-full max-w-sm text-center space-y-6">
-          <div className="relative mx-auto w-24 h-24">
-            <div className="absolute inset-0 rounded-full bg-blue-500/20 animate-ping" />
-            <div className="absolute inset-2 rounded-full bg-blue-500/30 animate-pulse" />
-            <div className="absolute inset-4 rounded-full bg-blue-600 flex items-center justify-center shadow-lg">
-              <Navigation size={32} className="text-white" />
-            </div>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Заявка принята</h1>
-            <p className="mt-2 text-blue-200/90 text-sm leading-relaxed">
-              Анализируем рынок Шарджи.<br />
-              Подбираем оптимальный маршрут<br />
-              по разборкам и магазинам.
-            </p>
-          </div>
-          <div className="rounded-2xl bg-white/10 border border-white/15 p-4 space-y-2.5 text-left">
-            <p className="text-xs font-bold text-blue-200 uppercase tracking-wide mb-1">Ваш заказ</p>
-            <p className="text-white font-semibold">{order.brand} {order.model} {order.year}</p>
-            {order.vin && <p className="text-blue-200 text-xs">VIN: {order.vin}</p>}
-            {order.parts.length > 0 && (
-              <p className="text-blue-200 text-xs">
-                {order.parts.length} {order.parts.length === 1 ? 'позиция' : order.parts.length < 5 ? 'позиции' : 'позиций'}
-              </p>
-            )}
-          </div>
-          {(managerName || settings.executorPhotoUrl) && (
-            <div className="rounded-2xl bg-white/10 border border-white/15 p-4 flex items-center gap-3">
-              {settings.executorPhotoUrl ? (
-                <img src={settings.executorPhotoUrl} alt={managerName} className="w-12 h-12 rounded-full object-cover border-2 border-blue-400/40 flex-shrink-0" />
-              ) : (
-                <div className="w-12 h-12 rounded-full bg-blue-600/60 flex items-center justify-center flex-shrink-0 border-2 border-blue-400/40">
-                  <span className="text-white text-lg font-bold">{(managerName || '?')[0].toUpperCase()}</span>
-                </div>
-              )}
-              <div className="min-w-0">
-                <p className="text-white font-semibold text-sm leading-tight truncate">{managerName || 'Специалист'}</p>
-                {settings.executorRole && <p className="text-blue-200/80 text-xs mt-0.5 truncate">{settings.executorRole}</p>}
-              </div>
-            </div>
-          )}
-          <div className="flex items-center gap-2 justify-center text-blue-300/80 text-xs">
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" />
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:0.15s]" />
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:0.3s]" />
-            <span className="ml-1">Специалист скоро выедет на поиск</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (huntStatus === 'live_hunt') {
-    const isPaused = trackingProjection?.operator_presence_state === 'paused';
-    const lastWp = huntWaypoints.length > 0 ? huntWaypoints[huntWaypoints.length - 1] : null;
-    const dynamicStatus = isPaused
-      ? (lang === 'ru'
-          ? `${managerName || 'Специалист'} поставил поиск на паузу.`
-          : `${managerName || 'Specialist'} paused the search route.`)
-      : lastWp
-      ? (lang === 'ru'
-          ? `${managerName || 'Специалист'} проверяет ${lastWp.shop_name}…`
-          : `${managerName || 'Specialist'} is at ${lastWp.shop_name}…`)
-      : (lang === 'ru' ? `${managerName || 'Специалист'} выехал на поиск` : `${managerName || 'Specialist'} is on the way`);
-
-    return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.18),_transparent_30%),linear-gradient(180deg,#020617_0%,#0f172a_35%,#172554_100%)] text-white">
-        {/* Header */}
-        <div className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 py-3">
-          <div className="flex items-center justify-between max-w-lg mx-auto">
-            <div>
-              <h1 className="text-sm font-bold">🔍 Активный поиск</h1>
-              <p className="text-xs text-blue-200/70">{order.brand} {order.model} {order.year}</p>
-            </div>
-        {/* Red ● LIVE indicator */}
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border ${isPaused ? 'bg-amber-500/20 border-amber-500/40' : 'bg-red-500/20 border-red-500/40'}`}>
-              <div className={`w-2 h-2 rounded-full ${isPaused ? 'bg-amber-400' : 'bg-red-500 animate-pulse'}`} />
-              <span className={`text-[11px] font-black uppercase tracking-wider ${isPaused ? 'text-amber-300' : 'text-red-400'}`}>
-                {isPaused ? 'PAUSED: ПОИСК НА ПАУЗЕ' : 'LIVE: ПРЯМОЙ ЭФИР ИЗ ШАРДЖИ'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Dynamic status bar */}
-        <div className="bg-gradient-to-r from-sky-950/80 to-blue-950/80 border-b border-white/10 px-4 py-2.5">
-          <p className="max-w-lg mx-auto text-xs text-sky-300 font-medium truncate">{dynamicStatus}</p>
-        </div>
-
-        <div className="max-w-lg mx-auto px-4 py-5 space-y-4">
-          {/* Explanation card */}
-          <div className="relative overflow-hidden rounded-3xl border border-cyan-400/20 bg-white/10 p-4 shadow-[0_20px_60px_rgba(14,165,233,0.12)]">
-            <div className="absolute inset-y-0 -left-1/3 w-1/2 bg-gradient-to-r from-transparent via-cyan-300/10 to-transparent animate-[pulse_4s_ease-in-out_infinite]" />
-            <p className="text-sm text-blue-100/90 leading-relaxed relative">
-              Наш специалист сейчас объезжает разборки Шарджи,<br/>
-              выбирая лучшую деталь для вашего авто.
-            </p>
-            <div className="mt-3 grid grid-cols-3 gap-2 relative">
-              <div className="rounded-2xl bg-slate-950/35 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-blue-200/55">Магазины</p>
-                <p className="mt-1 text-lg font-black text-white">{huntWaypoints.length}</p>
-              </div>
-              <div className="rounded-2xl bg-slate-950/35 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-blue-200/55">Найдено</p>
-                <p className="mt-1 text-lg font-black text-emerald-300">{huntWaypoints.filter((wp) => wp.result === 'found').length}</p>
-              </div>
-              <div className="rounded-2xl bg-slate-950/35 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-blue-200/55">Пройдено км</p>
-                <p className="mt-1 text-lg font-black text-cyan-300">{trackDistanceKm(huntTrack).toFixed(1)}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Executor card */}
-          {(managerName || settings.executorPhotoUrl) && (
-            <div className="rounded-2xl bg-white/8 border border-white/12 p-4 flex items-center gap-3">
-              {settings.executorPhotoUrl ? (
-                <img src={settings.executorPhotoUrl} alt={managerName} className="w-12 h-12 rounded-full object-cover border-2 border-blue-400/40 flex-shrink-0" />
-              ) : (
-                <div className="w-12 h-12 rounded-full bg-blue-600/60 flex items-center justify-center flex-shrink-0 border-2 border-blue-400/40">
-                  <span className="text-white text-lg font-bold">{(managerName || '?')[0].toUpperCase()}</span>
-                </div>
-              )}
-              <div className="min-w-0">
-                <p className="text-white font-semibold text-sm leading-tight truncate">{managerName || 'Специалист'}</p>
-                {settings.executorRole && <p className="text-blue-200/80 text-xs mt-0.5 truncate">{settings.executorRole}</p>}
-                <p className={`text-xs mt-0.5 flex items-center gap-1 ${isPaused ? 'text-amber-300' : 'text-red-400'}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full inline-block ${isPaused ? 'bg-amber-400' : 'bg-red-500 animate-pulse'}`} />
-                  {isPaused ? 'Поиск на паузе' : 'В поиске сейчас'}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Live map — Leaflet (track + current position + waypoints) */}
-          <div className="rounded-2xl overflow-hidden border border-white/10 shadow-lg">
-            <div className="bg-white/8 border-b border-white/10 px-4 py-2.5 flex items-center gap-2">
-              <Navigation size={14} className="text-blue-300" />
-              <span className="text-xs font-bold text-blue-200">Позиция специалиста</span>
-              {huntLatestPing && (
-                <span className="ml-auto text-[10px] text-blue-300/60">
-                  {new Date(huntLatestPing.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              )}
-            </div>
-            {(huntLatestPing || huntTrack.length > 0) ? (
-              <HuntLiveMap
-                track={huntTrack}
-                latestPing={huntLatestPing}
-                waypoints={huntWaypoints}
-                heightClass="h-56"
-              />
-            ) : (
-              <div className="h-40 flex items-center justify-center bg-slate-800/60">
-                <div className="text-center text-blue-300/70 space-y-1">
-                  <Navigation size={24} className="mx-auto opacity-50" />
-                  <p className="text-xs">{isPaused ? 'GPS временно остановлен до возобновления поиска' : 'GPS активируется при старте выезда'}</p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Shop visits */}
-          {huntWaypoints.length > 0 && (
-            <div className="space-y-2.5">
-              <p className="text-xs font-bold text-blue-200/80 uppercase tracking-wide px-1">
-                Посещённые точки ({huntWaypoints.length})
-              </p>
-              {huntWaypoints.map((wp, idx) => (
-                <div key={wp.id} className="rounded-xl bg-white/8 border border-white/12 p-3 flex gap-3">
-                  <span className="text-[10px] font-bold text-blue-300/50 mt-0.5 w-4 text-right shrink-0">{idx + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-white">{wp.shop_name}</p>
-                    <p className="text-xs text-blue-200/70 mt-0.5">{historyLabels[wp.result] || wp.result}</p>
-                    {wp.price_aed != null && (
-                      <p className="text-xs text-emerald-300 mt-0.5">💰 {wp.price_aed} AED</p>
-                    )}
-                    {wp.note && <p className="text-xs text-blue-200/60 mt-0.5 italic">{wp.note}</p>}
-                    {wp.photo_urls.length > 0 && (
-                      <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                        {wp.photo_urls.map((url) => (
-                          <img key={url} src={url} alt="фото" className="w-11 h-11 object-cover rounded-lg border border-white/10" />
-                        ))}
-                      </div>
-                    )}
-                    <p className="text-[10px] text-blue-300/40 mt-1 flex items-center gap-1">
-                      <Clock3 size={9} />
-                      {new Date(wp.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                      {wp.lat != null && wp.lng != null && (
-                        <a href={`https://maps.google.com/?q=${wp.lat},${wp.lng}`} target="_blank" rel="noopener noreferrer" className="ml-1 text-blue-400 underline">map</a>
-                      )}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {huntWaypoints.length === 0 && (
-            <div className="rounded-2xl bg-white/6 border border-white/10 p-5 text-center">
-              <div className="text-3xl mb-2">🛵</div>
-              <p className="text-sm text-blue-200/80">Специалист только выехал.</p>
-              <p className="text-xs text-blue-300/50 mt-1">Точки посещений появятся здесь.</p>
-            </div>
-          )}
-
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-            <button
-              type="button"
-              onClick={() => setShowSearchHistory((prev) => !prev)}
-              className="flex w-full items-center justify-between gap-3 text-left"
-            >
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-200">История поиска</p>
-                <p className="mt-1 text-xs text-blue-200/65">Подробный журнал визитов, фотографий и результатов поиска.</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="rounded-full bg-cyan-400/15 px-2 py-1 text-[10px] font-bold text-cyan-200">{huntWaypoints.length}</span>
-                <ChevronRight size={16} className={`text-cyan-200 transition-transform ${showSearchHistory ? 'rotate-90' : ''}`} />
-              </div>
-            </button>
-            {showSearchHistory && huntWaypoints.length > 0 && (
-              <div className="mt-3 space-y-2">
-                {huntWaypoints.map((wp, idx) => (
-                  <div key={`live-history-${wp.id}`} className="rounded-2xl border border-white/10 bg-slate-950/30 p-3">
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 w-5 shrink-0 text-right text-[10px] font-black text-cyan-200/55">{idx + 1}</span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-semibold text-white">{wp.shop_name}</p>
-                          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-blue-100">{historyLabels[wp.result] || wp.result}</span>
-                        </div>
-                        {wp.note && <p className="mt-1 text-xs text-blue-100/70">{wp.note}</p>}
-                        <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-blue-200/60">
-                          <span>{new Date(wp.created_at).toLocaleTimeString(lang === 'ru' ? 'ru-RU' : 'en-US', { hour: '2-digit', minute: '2-digit' })}</span>
-                          {wp.price_aed != null && <span>💰 {wp.price_aed} AED</span>}
-                          <span>📷 {wp.photo_urls.length}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <p className="text-center text-[10px] text-blue-300/40 pb-6">
-            Обновляется автоматически каждую минуту
-          </p>
-
-          {/* Telegram follow button */}
-          {telegramSubscription?.deepLink && (
-            <div className="rounded-2xl border border-sky-500/30 bg-sky-900/30 p-4 flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <Send size={16} className="text-sky-300 shrink-0" />
-                <div>
-                  <p className="text-sm font-bold text-sky-200">Следить за заказом в Telegram</p>
-                  <p className="text-xs text-blue-300/70 mt-0.5">Бот пришлёт уведомление, как только статус изменится</p>
-                </div>
-              </div>
-              <a
-                href={telegramSubscription.deepLink}
-                target="_blank"
-                rel="noreferrer"
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-sky-500 px-4 py-3 text-sm font-bold text-white shadow-[0_8px_20px_rgba(14,165,233,0.35)] transition hover:bg-sky-400 active:scale-[0.98]"
-              >
-                <Send size={16} /> Открыть Telegram-бота
-              </a>
-              {telegramSubscription.code && (
-                <button
-                  type="button"
-                  onClick={() => void copyTelegramCode()}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-sky-400/30 bg-white/5 px-4 py-2.5 text-sm font-semibold text-sky-300 transition hover:bg-white/10 active:scale-[0.98]"
-                >
-                  {copiedTelegram ? (
-                    <>
-                      <CheckCircle2 size={15} className="text-emerald-400" />
-                      <span className="text-emerald-400">Скопировано!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy size={15} /> Скопировать код подключения
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-  // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-[#eef2f7] text-slate-900">
@@ -2825,53 +2527,24 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
                 <p className="inline-flex items-center gap-2 font-bold text-slate-800"><Building2 size={16} /> {t.companyProfile}: Dubai Spares UAE</p>
                 {logoUrl && <img src={logoUrl} alt="Company logo" className="h-20 w-auto max-w-[360px] object-contain" />}
               </div>
-              {mode === 'tracking' && (
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="inline-flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-sky-700"><Bot size={14} /> {mode === 'tracking' ? (lang === 'ru' ? 'Tracking site' : 'Tracking site') : (lang === 'ru' ? 'Публичная смета' : 'Public estimate')}</p>
-              <h2 className="mt-2 text-xl font-bold text-[#0f1f3d]">{mode === 'tracking'
-                ? (lang === 'ru' ? 'Клиентский tracking показывает весь процесс поиска в реальном времени.' : 'The client tracking page shows the full search process in real time.')
-                : (lang === 'ru' ? 'Публичная смета показывает только итоговое предложение.' : 'The public estimate shows only the final offer.')}</h2>
-              <p className="mt-2 text-sm text-slate-600">{mode === 'tracking'
-                ? (lang === 'ru' ? 'Отдельная tracking-ссылка отображает статусы, точки, фотографии, детали заказа и историю поиска.' : 'A separate tracking link shows statuses, waypoints, photos, order details, and search history.')
-                : (lang === 'ru' ? 'В итоговой смете оставлена только кнопка истории поиска без Telegram-привязки.' : 'The final estimate keeps only the search history button without Telegram binding.')}</p>
-            </div>
-            <div className={`grid min-w-[260px] gap-2 ${mode === 'tracking' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Tracking' : 'Tracking'}</p><p className="mt-1 text-sm font-bold text-slate-900">{order.huntStatus === 'live_hunt' ? (lang === 'ru' ? 'Активен' : 'Live now') : order.huntStatus === 'final_offer' ? (lang === 'ru' ? 'Завершён' : 'Finished') : (lang === 'ru' ? 'Ожидается' : 'Waiting')} · {trackingFreshness}</p></div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Точки' : 'Waypoints'}</p><p className="mt-1 text-sm font-bold text-slate-900">{huntWaypoints.length}</p></div>
-              {mode === 'tracking' && <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Telegram</p><p className="mt-1 text-sm font-bold text-slate-900">{telegramSubscription?.code ? (lang === 'ru' ? 'Готов к подключению' : 'Ready to connect') : (lang === 'ru' ? 'Не настроен' : 'Not configured')}</p></div>}
-            </div>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {huntWaypoints.length > 0 && (
-              <button type="button" onClick={() => setShowSearchHistory((prev) => !prev)} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">
-                <Flag size={15} /> {lang === 'ru' ? 'История поиска' : 'Search history'}
-              </button>
-            )}
-            {mode === 'tracking' && telegramSubscription?.code && (
-              <button type="button" onClick={() => void copyTelegramCode()} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100">
-                {copiedTelegram ? <><CheckCircle2 size={15} className="text-emerald-500" /> {lang === 'ru' ? 'Скопировано!' : 'Copied!'}</> : <><Link2 size={15} /> {lang === 'ru' ? 'Скопировать код Telegram' : 'Copy Telegram code'}</>}
-              </button>
-            )}
-            {mode === 'tracking' && telegramSubscription?.deepLink && (
-              <a href={telegramSubscription.deepLink} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-2xl bg-sky-600 px-4 text-sm font-semibold text-white transition hover:bg-sky-500">
-                <Send size={15} /> {lang === 'ru' ? 'Открыть Telegram-бота' : 'Open Telegram bot'}
-              </a>
-            )}
-          </div>
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="inline-flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-sky-700"><Bot size={14} /> {lang === 'ru' ? 'Публичная смета' : 'Public estimate'}</p>
+                    <h2 className="mt-2 text-xl font-bold text-[#0f1f3d]">{lang === 'ru' ? 'Публичная смета показывает только итоговое предложение.' : 'The public estimate shows only the final offer.'}</h2>
+                    <p className="mt-2 text-sm text-slate-600">{lang === 'ru' ? 'В смете показаны цены, фотографии и финальные детали заказа без режима live-tracking.' : 'The estimate shows prices, photos, and final order details without live tracking.'}</p>
+                  </div>
+                  <div className="grid min-w-[260px] gap-2 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Статус сметы' : 'Estimate status'}</p><p className="mt-1 text-sm font-bold text-slate-900">{huntStatus === 'final_offer' ? (lang === 'ru' ? 'Готова' : 'Ready') : (lang === 'ru' ? 'Обновляется' : 'Updating')}</p></div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Позиции' : 'Items'}</p><p className="mt-1 text-sm font-bold text-slate-900">{foundParts.length}</p></div>
+                  </div>
+                </div>
               </section>
-              )}
 
         <div className="flex flex-wrap gap-2">
                 {whatsappPhoneDigits && (
                   <a href={`https://wa.me/${whatsappPhoneDigits}`} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(16,185,129,0.28)] transition hover:bg-emerald-400">
                     <MessageCircle size={15} /> WhatsApp
-                  </a>
-                )}
-                {mode === 'tracking' && telegramSubscription?.deepLink && (
-                  <a href={telegramSubscription.deepLink} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100">
-                    <Send size={15} /> Telegram updates
                   </a>
                 )}
                 {settings.publicInstagramUrl && (
@@ -2880,24 +2553,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
                   </a>
                 )}
               </div>
-              {mode === 'tracking' && telegramSubscription?.code && (
-                <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 text-xs text-slate-600">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-black uppercase tracking-wide text-sky-700">Telegram subscription</div>
-                      <div className="mt-1 text-sm font-semibold text-slate-900">Код подключения: {telegramSubscription.code}</div>
-                    </div>
-                    <button type="button" onClick={() => void copyTelegramCode()} className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-white px-3 py-2 text-[11px] font-black text-sky-700">
-                      {copiedTelegram ? (
-                        <><CheckCircle2 size={13} className="text-emerald-500" /> {lang === 'ru' ? 'Скопировано!' : 'Copied!'}</>
-                      ) : (
-                        <><Copy size={13} /> {lang === 'ru' ? 'Скопировать' : 'Copy'}</>
-                      )}
-                    </button>
-                  </div>
-                  <div className="mt-1">Откройте Telegram по deep link или отправьте этот код боту, чтобы связать chat_id с заказом и получать обновления с кнопкой открытия tracking page.</div>
-                </div>
-              )}
             </div>
           </div>
         </section>
@@ -2954,30 +2609,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
       </div>
 
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
-      {showRelevancePrompt && order && (
-        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/50 p-4 sm:items-center">
-          <div className="w-full max-w-md rounded-[28px] bg-white p-5 shadow-2xl">
-            <h3 className="text-xl font-bold text-slate-900">Поиск деталей всё ещё актуален?</h3>
-            <p className="mt-2 text-sm text-slate-600">Каждые 24 часа мы уточняем актуальность заказа, чтобы не держать лишние поиски в работе.</p>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => { confirmRelevance(order.id, true); setShowRelevancePrompt(false); }} className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white">Да, актуально</button>
-              <button type="button" onClick={() => { confirmRelevance(order.id, false); setShowRelevancePrompt(false); setShowPauseConfirm(true); }} className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">Нет</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {showPauseConfirm && order && (
-        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/50 p-4 sm:items-center">
-          <div className="w-full max-w-md rounded-[28px] bg-white p-5 shadow-2xl">
-            <h3 className="text-xl font-bold text-slate-900">Приостановить поиск?</h3>
-            <p className="mt-2 text-sm text-slate-600">Если поиск больше не нужен, мы зафиксируем паузу и уведомим менеджера по заказу.</p>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setShowPauseConfirm(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700">Вернуться</button>
-              <button type="button" onClick={() => { pauseOrderSearchFromTracking(order); setShowPauseConfirm(false); }} className="rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white">Приостановить</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
