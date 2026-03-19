@@ -20,7 +20,8 @@ const CURRENCY_META: Record<QuoteCurrency, { label: string; symbol: string }> = 
   AED: { label: 'Дирхам', symbol: 'AED' },
   USD: { label: 'Доллар', symbol: 'USD' },
   RUB: { label: 'Рубль', symbol: 'RUB' },
-  TJS: { label: 'Сомони', symbol: 'TJS' }
+  TJS: { label: 'Сомони', symbol: 'TJS' },
+  KZT: { label: 'Тенге', symbol: 'KZT' },
 };
 
 const pickRate = (code: QuoteCurrency, apiRates: Record<string, number>) => {
@@ -38,7 +39,8 @@ const fetchLiveQuoteRates = async (): Promise<QuoteRates> => {
     AED: 1,
     USD: pickRate('USD', apiRates),
     RUB: pickRate('RUB', apiRates),
-    TJS: pickRate('TJS', apiRates)
+    TJS: pickRate('TJS', apiRates),
+    KZT: pickRate('KZT', apiRates),
   };
 };
 
@@ -49,7 +51,8 @@ const buildRatesFromOrder = (order: Order): QuoteRates => {
     AED: 1,
     USD: usdFromAed,
     RUB: DEFAULT_QUOTE_RATES.RUB,
-    TJS: DEFAULT_QUOTE_RATES.TJS
+    TJS: DEFAULT_QUOTE_RATES.TJS,
+    KZT: DEFAULT_QUOTE_RATES.KZT,
   };
 };
 
