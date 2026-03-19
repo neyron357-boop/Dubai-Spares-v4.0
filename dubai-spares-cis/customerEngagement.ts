@@ -78,7 +78,7 @@ const normalizeBotUsername = (url: string) => {
   return match?.[1] || 'notifier_cis_bot';
 };
 
-export const buildTrackingUrl = (orderId: string) => `${window.location.origin}/#/q/${encodeURIComponent(orderId)}`;
+export const buildTrackingUrl = (orderId: string) => `${window.location.origin}/#/tracking/${encodeURIComponent(orderId)}`;
 
 export const getOrderCustomerLogs = (orderId: string) =>
   readJson<CustomerActivityLogEntry[]>(CUSTOMER_LOGS_KEY, []).filter((entry) => entry.orderId === orderId).sort((a, b) => b.createdAt - a.createdAt);

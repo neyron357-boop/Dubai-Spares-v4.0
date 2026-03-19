@@ -1,12 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { Order } from '../types';
-import { X, Share2, RefreshCcw, Images, CheckCircle2, Copy, Flag, MessageSquareMore, Sparkles } from 'lucide-react';
+import { X, Share2, RefreshCcw, Images, CheckCircle2, Flag, Sparkles } from 'lucide-react';
 import { copyToClipboard, DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
 import ImagePreview from './ImagePreview';
 import { useAppSettings } from '../appSettings';
 import { toast } from '../feedback';
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
-import { ensureTelegramSubscriptionState } from '../customerEngagement';
 
 const getVariantSalePriceAed = (variant: any) => Number(variant?.salePriceAed ?? variant?.priceAed ?? 0);
 
@@ -63,7 +62,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const { settings } = useAppSettings();
-  const telegramSubscription = useMemo(() => ensureTelegramSubscriptionState(order.id, settings.publicTelegramUrl || ''), [order.id, settings.publicTelegramUrl]);
   const huntSummary = useMemo(() => ({
     status: order.huntStatus || 'data_gathering',
     found: order.parts.filter((part) => part.isFound && part.variants.length > 0).length,
@@ -138,14 +136,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     window.location.hash = `#/order/${order.id}/hunt`;
   };
 
-  const copyTelegramCode = async () => {
-    if (!telegramSubscription?.code) {
-      toast('Сначала настройте Telegram ссылку в настройках.', 'error');
-      return;
-    }
-    const copied = await copyToClipboard(telegramSubscription.code);
-    toast(copied ? 'Код Telegram скопирован' : 'Не удалось скопировать код', copied ? 'success' : 'error');
-  };
+
 
   const runShare = async () => {
     setIsSharing(true);
@@ -328,32 +319,20 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
           <div className="mx-4 mb-4 rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-slate-50 p-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-sky-700"><Sparkles size={12} /> Smart ecosystem</p>
-                <p className="mt-1 text-sm font-bold text-slate-900">Смета связана с live-tracking, историей поиска и Telegram ботом.</p>
+                <p className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-sky-700"><Sparkles size={12} /> Public estimate</p>
+                <p className="mt-1 text-sm font-bold text-slate-900">Публичная смета отделена от live-tracking и показывает только итоговое предложение.</p>
               </div>
               <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[10px] font-bold text-sky-700">{huntSummary.status === 'live_hunt' ? 'LIVE' : huntSummary.status === 'final_offer' ? 'FINAL' : 'READY'}</span>
             </div>
-            <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2">
               <div className="rounded-xl bg-white px-3 py-2 border border-slate-100"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Статус</p><p className="mt-1 text-xs font-bold text-slate-800">{huntSummary.status === 'live_hunt' ? 'Активный поиск' : huntSummary.status === 'final_offer' ? 'Финальная смета' : 'Подготовка'}</p></div>
               <div className="rounded-xl bg-white px-3 py-2 border border-slate-100"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Найдено</p><p className="mt-1 text-xs font-bold text-emerald-700">{huntSummary.found}/{huntSummary.total}</p></div>
-              <div className="rounded-xl bg-white px-3 py-2 border border-slate-100"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Telegram</p><p className="mt-1 text-xs font-bold text-slate-800">{telegramSubscription?.code ? 'Подключён' : 'Не настроен'}</p></div>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" onClick={openSearchHistory} className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs font-black text-sky-700">
                 <Flag size={13} /> История поиска
               </button>
-              <button type="button" onClick={() => void copyTelegramCode()} disabled={!telegramSubscription?.code} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:cursor-not-allowed disabled:opacity-50">
-                <Copy size={13} /> Код Telegram
-              </button>
-              {telegramSubscription?.deepLink && (
-                <a href={telegramSubscription.deepLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-xs font-black text-white">
-                  <MessageSquareMore size={13} /> Открыть бота
-                </a>
-              )}
             </div>
-            {telegramSubscription?.code && (
-              <p className="mt-3 text-[11px] text-slate-600">Код подключения: <span className="font-black text-slate-900">{telegramSubscription.code}</span></p>
-            )}
           </div>
 
           {settings.publicWorkTerms.trim() && (
