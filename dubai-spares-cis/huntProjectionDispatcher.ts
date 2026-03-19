@@ -35,6 +35,15 @@ const refreshProjection = async (orderId: string, sessionId: string, reason: str
     track,
     sourceUpdatedAt: latestPing?.ts || mergedWaypoints[mergedWaypoints.length - 1]?.created_at || session?.started_at || null
   });
+  if (projection?.public_token) {
+    scheduleLivePublicQuoteSync(
+      { id: orderId, publicQuoteToken: projection.public_token } as any,
+      {
+        reason: `tracking_${reason}`,
+        sourceOrderUpdatedAt: projection.projection_version || Date.now()
+      }
+    );
+  }
   await publishDomainEvent('PUBLIC_QUOTE_REFRESH_REQUIRED', {
     entityType: 'public_quote',
     entityId: publicToken || orderId,
@@ -62,8 +71,7 @@ export const installHuntProjectionDispatcher = () => {
   });
 
   subscribeDomainEvent('HUNT_SESSION_ENDED', async (event) => {
-    const projection = await refreshProjection(event.payload.orderId, event.payload.sessionId, 'ended');
-    if (projection) scheduleLivePublicQuoteSync({ id: event.payload.orderId, publicQuoteToken: projection.public_token } as any, { reason: 'hunt_ended', sourceOrderUpdatedAt: Date.now() });
+    await refreshProjection(event.payload.orderId, event.payload.sessionId, 'ended');
   });
 
   subscribeDomainEvent('HUNT_SESSION_STATUS_CHANGED', async (event) => {
