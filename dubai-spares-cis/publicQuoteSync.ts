@@ -105,3 +105,11 @@ export const scheduleLivePublicQuoteSync = (order: Order, options?: { reason?: s
   }, DEBOUNCE_MS);
   timers.set(order.id, timer);
 };
+
+
+export const scheduleTrackingProjectionSync = (order: Order, projectionVersion?: number) => {
+  scheduleLivePublicQuoteSync(order, {
+    reason: 'tracking_projection_refreshed',
+    sourceOrderUpdatedAt: projectionVersion || Date.now()
+  });
+};

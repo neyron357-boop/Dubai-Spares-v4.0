@@ -52,6 +52,89 @@ export interface HuntGpsPingRow {
   ts: string;
 }
 
+export type HuntWaypointDeliveryState = 'draft_captured' | 'media_processing' | 'media_uploading' | 'server_persisting' | 'projection_refresh_pending' | 'tracking_published' | 'client_visible' | 'failed' | 'retrying';
+
+export type HuntWaypointSyncState = 'local_pending' | 'uploading' | 'persisted' | 'projection_pending' | 'published_to_client' | 'failed' | 'retrying';
+
+export type TrackingFreshnessState = 'live' | 'syncing' | 'projection_pending' | 'delayed' | 'offline_buffering' | 'degraded_live' | 'reconnecting' | 'restored' | 'stale';
+
+export interface TrackingTimelineItem {
+  id: string;
+  type:
+    | 'hunt_started'
+    | 'operator_on_the_way'
+    | 'operator_arrived'
+    | 'inspection_started'
+    | 'item_found'
+    | 'item_not_found'
+    | 'item_defect_found'
+    | 'item_price_too_high'
+    | 'photos_added'
+    | 'offer_preparing'
+    | 'hunt_finished'
+    | 'final_offer_ready'
+    | 'published_to_client';
+  timestamp: string;
+  title: string;
+  client_safe_description: string;
+  shop_label?: string;
+  price_optional?: number | null;
+  media_optional?: string[];
+  status_badge: string;
+  display_order: number;
+  delivery_state: 'pending' | 'published' | 'delayed';
+}
+
+export interface TrackingProjection {
+  order_id: string;
+  public_token: string;
+  hunt_status: HuntStatus;
+  tracking_phase: 'awaiting_hunt' | 'live_hunt' | 'offer_preparation' | 'final_offer';
+  operator_presence_state: 'idle' | 'active' | 'moving' | 'paused' | 'offline';
+  latest_operator_position: HuntGpsPingRow | null;
+  route_points: HuntGpsPingRow[];
+  timeline_items: TrackingTimelineItem[];
+  waypoint_rows: HuntWaypointRow[];
+  waypoints_summary: {
+    total: number;
+    found: number;
+    not_found: number;
+    defect: number;
+    high_price: number;
+    with_media: number;
+  };
+  last_client_safe_update_at: string | null;
+  projection_version: number;
+  source_updated_at: string | null;
+  projection_updated_at: string;
+  last_live_event_at: string | null;
+  last_position_at: string | null;
+  live_freshness_state: TrackingFreshnessState;
+  sync_state: TrackingFreshnessState;
+  live_channel_state: 'connected' | 'degraded' | 'reconnecting' | 'offline';
+  sync_badge: string;
+}
+
+export interface HuntOperatorSyncSnapshot {
+  state: TrackingFreshnessState;
+  label: string;
+  detail: string;
+  liveChannel: 'connected' | 'degraded' | 'reconnecting' | 'offline';
+  pendingWaypoints: number;
+  lastSyncedAt: string | null;
+  lastClientUpdateAt: string | null;
+}
+
+export interface HuntOperatorLiveState {
+  orderId: string;
+  session: HuntSessionRow | null;
+  waypoints: HuntWaypointRow[];
+  latestPing: HuntGpsPingRow | null;
+  track: HuntGpsPingRow[];
+  projection: TrackingProjection | null;
+  sync: HuntOperatorSyncSnapshot;
+}
+
 export interface Coordinates {
   lat: number;
   lng: number;
