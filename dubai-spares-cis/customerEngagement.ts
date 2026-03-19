@@ -75,7 +75,7 @@ const writeJson = (key: string, value: unknown) => {
 
 const normalizeBotUsername = (url: string) => {
   const match = String(url || '').match(/t\.me\/([A-Za-z0-9_]+)/i);
-  return match?.[1] || 'DubaiSparesBot';
+  return match?.[1] || 'notifier_cis_bot';
 };
 
 export const buildTrackingUrl = (orderId: string) => `${window.location.origin}/#/q/${encodeURIComponent(orderId)}`;
