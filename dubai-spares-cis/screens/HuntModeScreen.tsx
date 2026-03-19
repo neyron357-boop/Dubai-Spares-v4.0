@@ -23,7 +23,7 @@ import { HuntSessionStatus, HuntWaypointResult, HuntWaypointRow } from '../types
 import { deriveHuntSyncSnapshot } from '../huntSyncCoordinator';
 import { getTrackingProjection, subscribeTrackingProjectionStore } from '../trackingProjectionStore';
 import { installHuntProjectionDispatcher } from '../huntProjectionDispatcher';
-import { createWaypoint, finishHunt, pauseHunt, resumeHunt, startHunt, syncGpsPing } from '../huntDomain';
+import { createWaypoint, finishHunt, pauseHunt, resetHuntSession, resumeHunt, startHunt, syncGpsPing, triggerTrackingUpdate, updateHuntStatus } from '../huntDomain';
 import {
   deleteHuntWaypoint,
   getActiveHuntSession,
@@ -100,7 +100,7 @@ const HuntModeScreen: React.FC = () => {
   const [isSavingWaypoint, setIsSavingWaypoint] = useState(false);
   const [currentPos, setCurrentPos] = useState<{ lat: number; lng: number } | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
-  const [actionPulse, setActionPulse] = useState<'start' | 'waypoint' | 'pause' | 'resume' | 'finish' | null>(null);
+  const [actionPulse, setActionPulse] = useState<'start' | 'waypoint' | 'pause' | 'resume' | 'finish' | 'restart' | null>(null);
 
   const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -198,6 +198,8 @@ const HuntModeScreen: React.FC = () => {
       setWaypoints([]);
       setPendingWaypoints({});
       setActionPulse('start');
+      await updateHuntStatus(orderId, 'active');
+      await triggerTrackingUpdate(orderId);
       await updateOrder({ ...order, huntStatus: 'live_hunt' });
       vibrate([50, 30, 80]);
       toast('Охота начата! GPS активирован.', 'success');
@@ -214,6 +216,9 @@ const HuntModeScreen: React.FC = () => {
     setIsPausing(true);
     try {
       await pauseHunt(orderId, sessionId);
+      await updateHuntStatus(orderId, 'paused');
+      await triggerTrackingUpdate(orderId);
+      await updateOrder({ ...order, huntStatus: 'live_hunt' });
       stopGpsInterval();
       setActionPulse('pause');
       toast('Охота поставлена на паузу. Клиент видит paused status.', 'success');
@@ -230,6 +235,9 @@ const HuntModeScreen: React.FC = () => {
     setIsResuming(true);
     try {
       await resumeHunt(orderId, sessionId);
+      await updateHuntStatus(orderId, 'active');
+      await triggerTrackingUpdate(orderId);
+      await updateOrder({ ...order, huntStatus: 'live_hunt' });
       startGpsInterval(sessionId);
       setActionPulse('resume');
       toast('Охота продолжена. Live-tracking снова активен.', 'success');
@@ -246,6 +254,8 @@ const HuntModeScreen: React.FC = () => {
     setIsEnding(true);
     try {
       await finishHunt(orderId, sessionId);
+      await updateHuntStatus(orderId, 'completed');
+      await triggerTrackingUpdate(orderId);
       setActionPulse('finish');
       stopGpsInterval();
       setSessionId(null);
@@ -256,6 +266,30 @@ const HuntModeScreen: React.FC = () => {
       toast('Не удалось завершить охоту', 'error');
     } finally {
       setIsEnding(false);
+    }
+  };
+
+
+
+  const handleRestartHunt = async () => {
+    if (!order) return;
+    setIsStarting(true);
+    try {
+      await resetHuntSession(orderId);
+      const session = await startHunt(orderId);
+      await updateHuntStatus(orderId, 'active');
+      await triggerTrackingUpdate(orderId);
+      setSessionId(session.id);
+      setWaypoints([]);
+      setPendingWaypoints({});
+      setActionPulse('restart');
+      await updateOrder({ ...order, huntStatus: 'live_hunt' });
+      toast('Охота начата заново. Клиент видит новую live-сессию.', 'success');
+    } catch (err) {
+      console.error('HuntModeScreen: failed to restart hunt', err);
+      toast('Не удалось начать охоту заново', 'error');
+    } finally {
+      setIsStarting(false);
     }
   };
 
@@ -504,14 +538,14 @@ const HuntModeScreen: React.FC = () => {
           </button>
         ) : sessionStatus === 'completed' ? (
           <button
-            onClick={handleStartHunt}
+            onClick={handleRestartHunt}
             disabled={isStarting}
             className="group relative w-full overflow-hidden py-4 rounded-2xl text-white font-bold text-base flex items-center justify-center gap-2 shadow-lg transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed bg-gradient-to-r from-slate-700 via-slate-600 to-slate-500 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98]"
           >
             {isStarting ? <Loader2 size={20} className="animate-spin" /> : <Flag size={20} />}
             {isStarting ? 'Запускаем...' : 'Начать заново'}
           </button>
-        ) : (
+        ) : sessionStatus === 'active' ? (
           <div className="flex gap-3 flex-wrap">
             <button
               onClick={openAddWaypoint}
@@ -520,25 +554,33 @@ const HuntModeScreen: React.FC = () => {
               <Plus size={18} />
               Добавить точку
             </button>
-            {sessionStatus === 'active' ? (
-              <button
-                onClick={handlePauseHunt}
-                disabled={isPausing}
-                className="flex-1 py-3.5 rounded-2xl bg-amber-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow transition-all duration-300 disabled:opacity-60"
-              >
-                {isPausing ? <Loader2 size={18} className="animate-spin" /> : <Clock3 size={18} />}
-                {isPausing ? 'Ставим на паузу...' : 'Пауза'}
-              </button>
-            ) : (
-              <button
-                onClick={handleResumeHunt}
-                disabled={isResuming}
-                className="flex-1 py-3.5 rounded-2xl bg-emerald-600 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow transition-all duration-300 disabled:opacity-60"
-              >
-                {isResuming ? <Loader2 size={18} className="animate-spin" /> : <Radio size={18} />}
-                {isResuming ? 'Возобновляем...' : 'Продолжить'}
-              </button>
-            )}
+            <button
+              onClick={handlePauseHunt}
+              disabled={isPausing}
+              className="flex-1 py-3.5 rounded-2xl bg-amber-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow transition-all duration-300 disabled:opacity-60"
+            >
+              {isPausing ? <Loader2 size={18} className="animate-spin" /> : <Clock3 size={18} />}
+              {isPausing ? 'Ставим на паузу...' : 'Пауза'}
+            </button>
+            <button
+              onClick={handleEndHunt}
+              disabled={isEnding}
+              className={`flex-1 py-3.5 rounded-2xl text-white font-semibold text-sm flex items-center justify-center gap-2 shadow transition-all duration-300 disabled:opacity-60 ${isEnding ? 'bg-rose-400 scale-[0.99]' : actionPulse === 'finish' ? 'bg-amber-500 scale-[1.01]' : 'bg-gradient-to-r from-rose-500 to-red-500 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98]'}`}
+            >
+              {isEnding ? <Loader2 size={18} className="animate-spin" /> : <Square size={18} />}
+              {isEnding ? 'Завершаем...' : 'Завершить'}
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-3 flex-wrap">
+            <button
+              onClick={handleResumeHunt}
+              disabled={isResuming}
+              className="flex-1 py-3.5 rounded-2xl bg-emerald-600 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow transition-all duration-300 disabled:opacity-60"
+            >
+              {isResuming ? <Loader2 size={18} className="animate-spin" /> : <Radio size={18} />}
+              {isResuming ? 'Возобновляем...' : 'Продолжить'}
+            </button>
             <button
               onClick={handleEndHunt}
               disabled={isEnding}

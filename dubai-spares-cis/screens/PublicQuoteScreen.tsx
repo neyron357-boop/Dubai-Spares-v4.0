@@ -2650,67 +2650,6 @@ const PublicQuoteScreen: React.FC<{ orderId: string; mode?: 'quote' | 'tracking'
               {expiresAtIso && <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-100 px-3 py-1.5 text-[11px] font-semibold text-amber-800"><Clock3 size={12} /> {t.validUntil}: {new Date(expiresAtIso).toLocaleDateString()}</span>}
             </div>
 
-            {/* Search History button — visible only in final_offer phase */}
-            {huntWaypoints.length > 0 && (
-              <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 space-y-3">
-                <button
-                  type="button"
-                  onClick={() => setShowSearchHistory((prev) => !prev)}
-                  className="w-full flex items-center justify-between text-left"
-                >
-                  <div className="flex items-center gap-2">
-                    <Flag size={15} className="text-blue-600" />
-                    <span className="text-sm font-bold text-slate-800">
-                      {lang === 'ru' ? 'История поиска' : 'Search History'}
-                    </span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                      {huntWaypoints.length}
-                    </span>
-                  </div>
-                  <ChevronRight size={16} className={`text-slate-400 transition-transform ${showSearchHistory ? 'rotate-90' : ''}`} />
-                </button>
-                {showSearchHistory && (
-                  <div className="space-y-2 pt-1">
-                    <p className="text-xs text-slate-500 mb-3">
-                      {lang === 'ru'
-                        ? 'Мы объехали эти точки, чтобы найти лучшую деталь для вас:'
-                        : 'We visited these locations to find the best part for you:'}
-                    </p>
-                    {huntWaypoints.map((wp, idx) => {
-                      return (
-                        <div key={wp.id} className="flex gap-3 rounded-xl border border-slate-100 bg-white p-3">
-                          <span className="text-[10px] font-bold text-slate-400 mt-0.5 w-5 text-right shrink-0">{idx + 1}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-sm font-semibold text-slate-800">{wp.shop_name}</span>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-0.5">{historyLabels[wp.result] || wp.result}</p>
-                            {wp.price_aed != null && (
-                              <p className="text-xs text-emerald-700 mt-0.5">💰 {wp.price_aed} AED</p>
-                            )}
-                            {wp.note && <p className="text-xs text-slate-400 mt-0.5 italic">{wp.note}</p>}
-                            {wp.photo_urls.length > 0 && (
-                              <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                                {wp.photo_urls.map((url) => (
-                                  <img key={url} src={url} alt="photo" className="w-12 h-12 object-cover rounded-lg border border-slate-100 shadow-sm" />
-                                ))}
-                              </div>
-                            )}
-                            <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                              <Clock3 size={9} />
-                              {new Date(wp.created_at).toLocaleTimeString(lang === 'ru' ? 'ru-RU' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
-                              {wp.lat != null && wp.lng != null && (
-                                <a href={`https://maps.google.com/?q=${wp.lat},${wp.lng}`} target="_blank" rel="noopener noreferrer" className="ml-1 text-blue-500 underline">map</a>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </header>
