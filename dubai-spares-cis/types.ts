@@ -27,7 +27,7 @@ export interface HuntSessionRow {
   ended_at?: string | null;
 }
 
-export type HuntWaypointResult = 'found' | 'not_found' | 'high_price' | 'visited';
+export type HuntWaypointResult = 'found' | 'not_found' | 'high_price' | 'visited' | 'defect';
 
 export interface HuntWaypointRow {
   id: string;

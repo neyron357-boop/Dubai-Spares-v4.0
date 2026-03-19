@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  AlertTriangle,
   Building2,
   CheckCircle2,
   Clock3,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import { HuntGpsPingRow, HuntWaypointResult, HuntWaypointRow, Order, Part, PriceVariant } from '../types';
 import ImagePreview from '../components/ImagePreview';
+import HuntLiveMap from '../components/HuntLiveMap';
 import { DEFAULT_QUOTE_RATES, parsePublicQuoteKey, parseQuoteRates, QuoteCurrency, QuoteRates } from '../shareUtils';
 import { logger } from '../logging';
 import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot, resolveClientUnitPriceAed } from '../publicQuoteApi';
@@ -42,13 +44,15 @@ const PUBLIC_HISTORY_LABELS: Record<Language, Record<HuntWaypointResult, string>
     found: '✅ Найдена',
     not_found: '❌ Нет в наличии',
     high_price: '⚠️ Высокая цена',
-    visited: '📍 Посещено'
+    visited: '📍 Посещено',
+    defect: '🔧 Дефект'
   },
   en: {
     found: '✅ Found',
     not_found: '❌ Not available',
     high_price: '⚠️ High price',
-    visited: '📍 Visited'
+    visited: '📍 Visited',
+    defect: '🔧 Defect'
   }
 };
 
@@ -2392,9 +2396,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   }
 
   if (huntStatus === 'live_hunt') {
-    const mapsEmbedUrl = huntLatestPing
-      ? `https://www.google.com/maps?q=${huntLatestPing.lat},${huntLatestPing.lng}&output=embed&z=14`
-      : null;
+    const lastWp = huntWaypoints.length > 0 ? huntWaypoints[huntWaypoints.length - 1] : null;
+    const dynamicStatus = lastWp
+      ? (lang === 'ru'
+          ? `${managerName || 'Специалист'} проверяет ${lastWp.shop_name}…`
+          : `${managerName || 'Specialist'} is at ${lastWp.shop_name}…`)
+      : (lang === 'ru' ? `${managerName || 'Специалист'} выехал на поиск` : `${managerName || 'Specialist'} is on the way`);
 
     return (
       <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.18),_transparent_30%),linear-gradient(180deg,#020617_0%,#0f172a_35%,#172554_100%)] text-white">
@@ -2405,11 +2412,17 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <h1 className="text-sm font-bold">🔍 Активный поиск</h1>
               <p className="text-xs text-blue-200/70">{order.brand} {order.model} {order.year}</p>
             </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/20 border border-emerald-500/30 rounded-full">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[10px] font-bold text-emerald-300 uppercase">Live</span>
+            {/* Red ● LIVE indicator */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500/20 border border-red-500/30 rounded-full">
+              <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-[10px] font-bold text-red-400 uppercase">Live</span>
             </div>
           </div>
+        </div>
+
+        {/* Dynamic status bar */}
+        <div className="bg-gradient-to-r from-sky-950/80 to-blue-950/80 border-b border-white/10 px-4 py-2.5">
+          <p className="max-w-lg mx-auto text-xs text-sky-300 font-medium truncate">{dynamicStatus}</p>
         </div>
 
         <div className="max-w-lg mx-auto px-4 py-5 space-y-4">
@@ -2449,12 +2462,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <div className="min-w-0">
                 <p className="text-white font-semibold text-sm leading-tight truncate">{managerName || 'Специалист'}</p>
                 {settings.executorRole && <p className="text-blue-200/80 text-xs mt-0.5 truncate">{settings.executorRole}</p>}
-                <p className="text-emerald-400 text-xs mt-0.5">● В поиске сейчас</p>
+                <p className="text-red-400 text-xs mt-0.5 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse inline-block" />
+                  В поиске сейчас
+                </p>
               </div>
             </div>
           )}
 
-          {/* Live map */}
+          {/* Live map — Leaflet (track + current position + waypoints) */}
           <div className="rounded-2xl overflow-hidden border border-white/10 shadow-lg">
             <div className="bg-white/8 border-b border-white/10 px-4 py-2.5 flex items-center gap-2">
               <Navigation size={14} className="text-blue-300" />
@@ -2465,13 +2481,12 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 </span>
               )}
             </div>
-            {mapsEmbedUrl ? (
-              <iframe
-                title="Позиция специалиста"
-                src={mapsEmbedUrl}
-                className="w-full h-56"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
+            {(huntLatestPing || huntTrack.length > 0) ? (
+              <HuntLiveMap
+                track={huntTrack}
+                latestPing={huntLatestPing}
+                waypoints={huntWaypoints}
+                heightClass="h-56"
               />
             ) : (
               <div className="h-40 flex items-center justify-center bg-slate-800/60">
