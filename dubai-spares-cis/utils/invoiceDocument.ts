@@ -407,10 +407,25 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
 };
 
 export const openInvoicePrintWindow = (payload: InvoicePayload) => {
-  const printWindow = window.open('', '_blank', 'noopener,noreferrer');
-  if (!printWindow) return false;
-  printWindow.document.open();
-  printWindow.document.write(buildInvoiceHtml(payload));
-  printWindow.document.close();
+  const html = buildInvoiceHtml(payload);
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+
+  const printWindow = window.open(objectUrl, '_blank');
+  if (!printWindow) {
+    URL.revokeObjectURL(objectUrl);
+    return false;
+  }
+
+  let revoked = false;
+  const revokeUrl = () => {
+    if (revoked) return;
+    revoked = true;
+    URL.revokeObjectURL(objectUrl);
+  };
+
+  printWindow.opener = null;
+  printWindow.addEventListener('load', revokeUrl, { once: true });
+  window.setTimeout(revokeUrl, 60_000);
   return true;
 };
