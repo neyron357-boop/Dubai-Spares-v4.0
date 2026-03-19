@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
 import {
   AlertCircle,
   Building2,
@@ -123,7 +122,6 @@ const normalizeItems = (payload: Record<string, any>): QuoteItem[] => {
 };
 
 const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
-  const location = useLocation();
   const [lang, setLang] = useState<Language>('ru');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -133,7 +131,12 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const [copied, setCopied] = useState(false);
 
   const t = i18n[lang];
-  const publicKey = useMemo(() => parsePublicQuoteKey(new URLSearchParams(location.search), orderId), [location.search, orderId]);
+  const publicKey = useMemo(() => {
+    const hash = window.location.hash;
+    const queryIdx = hash.indexOf('?');
+    const searchStr = queryIdx !== -1 ? hash.slice(queryIdx) : window.location.search;
+    return parsePublicQuoteKey(new URLSearchParams(searchStr), orderId);
+  }, [orderId]);
   const token = publicKey?.value || orderId;
 
   const loadQuote = useCallback(async () => {
