@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { publishDomainEvent } from './domainEvents';
 import { supabase } from './supabase';
 import { CargoTariff, DEFAULT_CARGO_TARIFFS } from './utils/cargo';
 
@@ -277,6 +278,18 @@ export const saveAppSettings = (patch: Partial<AppSettings>): AppSettings => {
   });
   localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(next));
   window.dispatchEvent(new CustomEvent('app-settings-updated', { detail: next }));
+  if (touchesPublicContacts) {
+    void publishDomainEvent('SETTINGS_PUBLIC_CHANGED', {
+      entityType: 'settings',
+      entityId: 'public_settings',
+      aggregateId: 'public_settings',
+      dedupeKey: `settings-public:${next.publicContactsUpdatedAt}`,
+      idempotencyKey: `settings-public:${next.publicContactsUpdatedAt}`,
+      replaySafe: true,
+      source: 'ui',
+      payload: { settings: next, changedKeys: Object.keys(patch) as Array<keyof AppSettings> }
+    });
+  }
   return next;
 };
 
