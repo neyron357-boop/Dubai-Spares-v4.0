@@ -145,7 +145,7 @@ void (async () => {
 
   root.render(
     <React.StrictMode>
-      {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : hashTrackingOrderId ? <PublicQuoteScreen orderId={hashTrackingOrderId} mode="tracking" /> : hashQuoteToken ? <PublicQuoteScreen orderId={hashQuoteToken} mode="quote" /> : publicQuotePathParam ? <PublicQuoteScreen orderId={publicQuotePathParam} mode="quote" /> : <App />}
+      {isPublicOrderFormRoute ? <PublicOrderFormScreen /> : hashTrackingOrderId ? <PublicQuoteScreen orderId={hashTrackingOrderId} /> : hashQuoteToken ? <PublicQuoteScreen orderId={hashQuoteToken} /> : publicQuotePathParam ? <PublicQuoteScreen orderId={publicQuotePathParam} /> : <App />}
     </React.StrictMode>
   );
 })();

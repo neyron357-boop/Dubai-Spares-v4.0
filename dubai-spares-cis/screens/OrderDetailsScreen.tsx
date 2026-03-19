@@ -36,10 +36,6 @@ import {
   Rocket,
   Share2,
   Download,
-  Flag,
-  Radio,
-  Trophy,
-  MessageSquareMore,
   History
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
@@ -56,7 +52,7 @@ import { ensureRadarSessionForOrder } from '../radarSessionService';
 import { getPartDisplayName, normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 import { useAppSettings } from '../appSettings';
 import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
-import { ensureTelegramSubscriptionState, getOrderCustomerLogs } from '../customerEngagement';
+import { getOrderCustomerLogs } from '../customerEngagement';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -346,7 +342,6 @@ const OrderDetailsScreen: React.FC = () => {
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
   const [showCustomerLogs, setShowCustomerLogs] = useState(false);
   const [customerLogs, setCustomerLogs] = useState(() => getOrderCustomerLogs(order?.id || ''));
-  const telegramSubscription = useMemo(() => order ? ensureTelegramSubscriptionState(order.id, settings.publicTelegramUrl || '') : null, [order, settings.publicTelegramUrl]);
 
   const [logisticsDraft, setLogisticsDraft] = useState<Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string>>({
     deliveryAed: String(Number(order?.logistics?.deliveryAed || 0)),
@@ -2237,23 +2232,6 @@ const OrderDetailsScreen: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-3 space-y-2">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-sky-700">Telegram tracking</p>
-                <p className="mt-1 text-sm font-semibold text-slate-800">Подключение клиентских уведомлений по заказу</p>
-              </div>
-              <MessageSquareMore size={16} className="text-sky-600" />
-            </div>
-            <p className="text-xs text-slate-600">Код: <span className="font-black text-slate-900">{telegramSubscription?.code || '—'}</span></p>
-            <div className="flex flex-wrap gap-2">
-              {telegramSubscription?.deepLink && (
-                <a href={telegramSubscription.deepLink} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-xl bg-sky-600 px-3 py-2 text-xs font-black text-white">Открыть deep link</a>
-              )}
-              <button type="button" onClick={() => void copyText(telegramSubscription?.code || '', 'Код Telegram скопирован')} className="rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs font-black text-sky-700">Скопировать код</button>
-            </div>
-            <p className="text-[11px] text-slate-500">После старта бота chat_id клиента должен быть связан с order_id через код или deep link.</p>
-          </div>
 
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -2366,53 +2344,6 @@ const OrderDetailsScreen: React.FC = () => {
               )}
             </div>
             <div className="rounded-[16px] bg-gradient-to-r from-[#5A6CF8] to-[#6C7CFF] p-4 text-white space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.12)]">
-              {/* ── Hunt Pipeline / Transparent Pipeline card ── */}
-              <div className="rounded-[12px] bg-white/10 border border-white/20 p-3 mb-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    {order.huntStatus === 'live_hunt'
-                      ? <Radio size={14} className="text-white animate-pulse" />
-                      : order.huntStatus === 'final_offer'
-                        ? <Trophy size={14} className="text-yellow-300" />
-                        : <Flag size={14} className="text-white/80" />}
-                    <span className="text-[11px] font-bold text-white/90 uppercase tracking-wide">
-                      {order.huntStatus === 'live_hunt'
-                        ? 'Охота в процессе'
-                        : order.huntStatus === 'final_offer'
-                          ? 'Финальное предложение'
-                          : 'Сбор данных'}
-                    </span>
-                  </div>
-                  <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide ${
-                    order.huntStatus === 'live_hunt'
-                      ? 'bg-emerald-400/80 text-white'
-                      : order.huntStatus === 'final_offer'
-                        ? 'bg-yellow-400/80 text-yellow-900'
-                        : 'bg-white/20 text-white/80'
-                  }`}>
-                    {order.huntStatus === 'live_hunt' ? 'Live' : order.huntStatus === 'final_offer' ? 'Done' : 'Pending'}
-                  </span>
-                </div>
-                <p className="text-[10px] text-white/70 mb-2.5">
-                  {order.huntStatus === 'live_hunt'
-                    ? 'Клиент видит вас на карте в реальном времени.'
-                    : order.huntStatus === 'final_offer'
-                      ? 'Клиент видит смету и историю поиска.'
-                      : 'Клиент ожидает начала поиска.'}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/order/${order.id}/hunt`)}
-                  className="w-full py-1.5 rounded-[8px] bg-white text-[#3B6AF7] text-[11px] font-bold flex items-center justify-center gap-1.5 active:scale-[0.97] transition-transform"
-                >
-                  <Flag size={12} />
-                  {order.huntStatus === 'live_hunt'
-                    ? 'Открыть режим охоты'
-                    : order.huntStatus === 'final_offer'
-                      ? 'Просмотр истории поиска'
-                      : 'Начать охоту'}
-                </button>
-              </div>
               <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-white/90">Quote клиенту</p>
               <div className="space-y-1 text-[13px] leading-[20px]">
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">

@@ -878,9 +878,7 @@ const buildSnapshotPayload = (
       executorPhotoUrl: publicSettings?.executorPhotoUrl || '',
       executorRole: publicSettings?.executorRole || '',
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone)
-    },
-    hunt_status: order.huntStatus || 'data_gathering'
-  };
+    }  };
 };
 
 export const publicQuoteCreateSnapshot = async (
@@ -905,8 +903,7 @@ export const publicQuoteCreateSnapshot = async (
       options?.rates
     );
     const hasPricedItems = Array.isArray(payload.items) && payload.items.some((item) => computeLineTotal(item as unknown as Record<string, unknown>) > 0);
-    const allowsLivePipelinePreview = (order.huntStatus || 'data_gathering') !== 'final_offer';
-    if (!hasPricedItems && !allowsLivePipelinePreview) {
+    if (!hasPricedItems) {
       throw new Error('Нет цен по позициям');
     }
     const payloadWithCompressedImages = await mapImagesInPayload(payload) as PublicQuotePayloadV1;
