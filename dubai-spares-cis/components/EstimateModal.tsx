@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { Order } from '../types';
-import { X, Share2, RefreshCcw, Images, CheckCircle2 } from 'lucide-react';
+import { X, Share2, RefreshCcw, Images, CheckCircle2, FileText } from 'lucide-react';
 import { copyToClipboard, DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
 import ImagePreview from './ImagePreview';
 import { useAppSettings } from '../appSettings';
 import { toast } from '../feedback';
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
+import { buildInvoicePayloadFromOrder, openInvoicePrintWindow } from '../utils/invoiceDocument';
 
 const getVariantSalePriceAed = (variant: any) => Number(variant?.salePriceAed ?? variant?.priceAed ?? 0);
 
@@ -128,6 +129,11 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     const parsed = Number(value.replace(',', '.'));
     if (!Number.isFinite(parsed) || parsed <= 0) return;
     setRates((current) => ({ ...current, [code]: parsed }));
+  };
+
+  const handleOpenInvoice = () => {
+    const opened = openInvoicePrintWindow(buildInvoicePayloadFromOrder(order, settings));
+    if (!opened) toast('Не удалось открыть invoice. Проверьте блокировку всплывающих окон.', 'error');
   };
 
   const runShare = async () => {
@@ -315,10 +321,17 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
 
         {/* Footer actions */}
         <div className="p-4 bg-white border-t border-slate-100 space-y-2 pb-[calc(16px+env(safe-area-inset-bottom))]">
-          <button type="button" onClick={() => void runShare()} disabled={isSharing}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
-            <Share2 size={16} /> {isSharing ? 'Создаём ссылку...' : 'Отправить смету'}
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={handleOpenInvoice}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#2b648d]/20 bg-[#f5f9fc] px-4 py-3 text-sm font-bold text-[#2b648d]">
+              <FileText size={16} /> Invoice
+            </button>
+            <button type="button" onClick={() => void runShare()} disabled={isSharing}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
+              <Share2 size={16} /> {isSharing ? 'Создаём ссылку...' : 'Отправить смету'}
+            </button>
+          </div>
+          <p className="text-center text-[11px] font-medium text-slate-400">Invoice opens as an A4 print-ready PDF document in a new tab.</p>
         </div>
       </div>
 

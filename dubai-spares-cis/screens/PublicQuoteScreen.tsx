@@ -7,6 +7,7 @@ import {
   Clock3,
   Copy,
   Download,
+  FileText,
   Images,
   Info,
   Instagram,
@@ -19,6 +20,7 @@ import ImagePreview from '../components/ImagePreview';
 import { copyToClipboard, parsePublicQuoteKey } from '../shareUtils';
 import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot } from '../publicQuoteApi';
 import { normalizePublicQuoteSnapshotPayload } from '../utils/publicQuoteSnapshot';
+import { buildInvoicePayloadFromSnapshot, openInvoicePrintWindow } from '../utils/invoiceDocument';
 import { calculateCargoEstimates } from '../utils/cargo';
 import type { Order } from '../types';
 
@@ -237,6 +239,12 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
     setDisplayCurrency((normalizedSnapshot?.currency || 'USD') as 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT');
   }, [normalizedSnapshot?.currency]);
 
+  const handleOpenInvoice = () => {
+    if (!normalizedSnapshot) return;
+    const opened = openInvoicePrintWindow(buildInvoicePayloadFromSnapshot(normalizedSnapshot));
+    if (!opened) window.alert(lang === 'ru' ? 'Не удалось открыть invoice. Проверьте блокировку всплывающих окон.' : 'Unable to open invoice. Please check your pop-up blocker.');
+  };
+
   const copyLink = async () => {
     await copyToClipboard(window.location.href);
     setCopied(true);
@@ -422,6 +430,13 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
           <div className="space-y-4 p-5">
             {contact.workTerms ? <p className="text-sm whitespace-pre-line text-slate-700">{contact.workTerms}</p> : <p className="text-sm text-slate-500">—</p>}
             <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleOpenInvoice}
+                className="inline-flex h-11 items-center gap-2 self-start rounded-2xl border border-[#2b648d]/20 bg-[#f4f8fb] px-4 text-sm font-semibold text-[#2b648d] shadow-sm transition hover:bg-[#edf5fa] active:scale-[0.99]"
+              >
+                <FileText size={15} /> Invoice A4
+              </button>
               {documentButtons.map((doc) => (
                 <a key={`${doc.kind}-${doc.href}`} href={doc.href} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 self-start rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 active:scale-[0.99]">
                   <Download size={15} /> {doc.label}
