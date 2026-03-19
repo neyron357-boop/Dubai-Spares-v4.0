@@ -39,21 +39,6 @@ export const installOrderProjectionDispatcher = () => {
         payload: { order, previousStatus: previousOrder?.status, nextStatus: order.status }
       });
     }
-    if ((previousOrder?.huntStatus || '') !== (order.huntStatus || '')) {
-      projections.push('hunt_public_tracking_state', 'customer_activity_log', 'telegram_notification_queue');
-      reason = 'hunt_status_changed';
-      enqueueCustomerNotificationEvent(order, 'hunt_history', `Обновился прогресс поиска по заказу ${order.brand} ${order.model}`);
-      await publishDomainEvent('ORDER_HUNT_STATUS_CHANGED', {
-        entityType: 'order',
-        entityId: order.id,
-        aggregateId: order.id,
-        dedupeKey: `order-hunt:${order.id}:${order.updatedAt || 0}`,
-        idempotencyKey: `order-hunt:${order.id}:${order.updatedAt || 0}`,
-        replaySafe: true,
-        source: 'system',
-        payload: { order, previousHuntStatus: previousOrder?.huntStatus, nextHuntStatus: order.huntStatus }
-      });
-    }
     if (JSON.stringify(previousOrder?.vendorContacts || []) !== JSON.stringify(order.vendorContacts || [])) {
       projections.push('customer_activity_log', 'telegram_notification_queue');
       reason = 'shipment_updated';
@@ -88,7 +73,7 @@ export const installOrderProjectionDispatcher = () => {
 
   subscribeDomainEvent('SETTINGS_PUBLIC_CHANGED', async (event) => {
     recordReactiveEvent(event, {
-      projections: ['settings_derived_public_payload', 'public_quote_snapshot', 'tracking_page_branding', 'telegram_deep_link_payload'],
+      projections: ['settings_derived_public_payload', 'public_quote_snapshot'],
       subscribers: ['order_projection_dispatcher'],
       cloudTargets: ['app_state']
     });
