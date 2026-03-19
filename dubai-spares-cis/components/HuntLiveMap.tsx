@@ -186,6 +186,8 @@ const HuntLiveMap: React.FC<HuntLiveMapProps> = ({
   }, [latestPing?.lat, latestPing?.lng]);
 
   // ── Sync waypoints when they change ──────────────────────────────────────
+  const waypointSignature = waypoints.map((wp) => `${wp.id}:${wp.lat ?? 'na'}:${wp.lng ?? 'na'}:${wp.result}:${wp.created_at}`).join('|');
+
   useEffect(() => {
     if (!mapRef.current) return;
     import('leaflet').then((L) => {
@@ -193,7 +195,7 @@ const HuntLiveMap: React.FC<HuntLiveMapProps> = ({
       renderWaypoints(L, mapRef.current);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waypoints.length]);
+  }, [waypointSignature]);
 
   return (
     <div
