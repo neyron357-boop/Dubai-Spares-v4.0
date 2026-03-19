@@ -410,9 +410,20 @@ export const getPublicHuntData = async (orderId: string): Promise<{
         .limit(300)
     ]);
 
+    const dbWaypoints = (wpResult.data ?? []) as HuntWaypointRow[];
+    const localWaypoints = readLocalWaypoints(session.id);
+    const mergedWaypoints = [...dbWaypoints];
+    for (const localWaypoint of localWaypoints) {
+      if (!mergedWaypoints.some((item) => item.id === localWaypoint.id)) {
+        mergedWaypoints.push(localWaypoint);
+      }
+    }
+    mergedWaypoints.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    if (mergedWaypoints.length > 0) writeLocalWaypoints(session.id, mergedWaypoints);
+
     return {
       session,
-      waypoints: (wpResult.data ?? []) as HuntWaypointRow[],
+      waypoints: mergedWaypoints,
       latestPing: (pingResult.data?.[0] as HuntGpsPingRow | undefined) ?? null,
       track: (trackResult.data ?? []) as HuntGpsPingRow[],
       resolvedStatus: session.status === 'active' ? 'live_hunt' : 'final_offer'
