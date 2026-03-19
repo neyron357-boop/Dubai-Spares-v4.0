@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Building2,
   CheckCircle2,
   ChevronRight,
+  Clock3,
   Copy,
   Download,
   Images,
@@ -12,6 +13,7 @@ import {
   MessageCircle,
   RefreshCcw,
   Send,
+  ShieldCheck,
 } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
 import { copyToClipboard, parsePublicQuoteKey } from '../shareUtils';
@@ -23,6 +25,12 @@ import type { Order } from '../types';
 type Language = 'ru' | 'en';
 type PublicQuoteScreenProps = { orderId: string };
 
+type QuoteDocument = {
+  href: string;
+  label: string;
+  kind: 'invoice' | 'cargo' | 'pdf' | 'document';
+};
+
 const i18n = {
   ru: {
     loading: 'Загрузка сметы…',
@@ -30,9 +38,9 @@ const i18n = {
     invalid: 'Публичная ссылка недействительна.',
     notFound: 'Итоговая смета не найдена или срок ссылки истёк.',
     finalOffer: 'Итоговая публичная смета',
-    quoteTotal: 'Итого',
+    quoteTotal: 'Итоговая цена',
     commercialOffer: 'Коммерческое предложение',
-    parts: 'Детали',
+    parts: 'Галерея деталей',
     logistics: 'Логистика',
     priceBreakdown: 'Разбивка цены',
     partsSubtotal: 'Сумма деталей',
@@ -41,18 +49,36 @@ const i18n = {
     commission: 'Комиссия',
     total: 'Итого',
     qty: 'Кол-во',
-    noPhotos: 'Фото пока не добавлены.',
+    noPhotos: 'Фотографии для этой детали пока недоступны.',
     workTerms: 'Условия и документы',
     cargo: 'Оценка логистики',
     policyTitle: 'Условия оплаты',
     policyBody: 'Перед оплатой подтвердите все позиции, сроки и логистику с менеджером.',
-    downloadPdf: 'Скачать PDF',
-    contactManager: 'Связаться с менеджером',
+    downloadPdf: 'Скачать PDF смету',
+    downloadCargoPdf: 'Карго и логистика',
+    downloadFile: 'Скачать документ',
+    contactManager: 'Подтвердить в WhatsApp',
     refresh: 'Обновить',
     copied: 'Ссылка скопирована',
     share: 'Скопировать ссылку',
     contacts: 'Контакты',
     noPositions: 'В смете пока нет позиций с ценами.',
+    viewParts: 'Перейти к галерее деталей',
+    trustedSupplierBadge: 'Проверенный поставщик UAE',
+    fastResponseBadge: 'Ответ 5–15 мин',
+    validUntil: 'Цена действует до',
+    companyProfile: 'Профиль компании',
+    trustNote: 'Dubai Spares показывает здесь только финальную смету: позиции, фото, суммы, логистику и контакты.',
+    signature: 'Подпись',
+    signatureMissing: 'Подпись не настроена',
+    officialSignature: 'Официальная подпись',
+    cargoHelper: 'Информационный расчёт для понимания сроков и бюджета доставки.',
+    country: 'Страна',
+    weight: 'Вес',
+    totalPlaces: 'Мест',
+    air: 'Авиа',
+    container: 'Контейнер',
+    eta: 'Срок',
   },
   en: {
     loading: 'Loading quote…',
@@ -60,9 +86,9 @@ const i18n = {
     invalid: 'This public link is invalid.',
     notFound: 'Final quote was not found or the link has expired.',
     finalOffer: 'Final public quote',
-    quoteTotal: 'Total',
+    quoteTotal: 'Quote total',
     commercialOffer: 'Commercial offer',
-    parts: 'Parts',
+    parts: 'Parts gallery',
     logistics: 'Logistics',
     priceBreakdown: 'Price breakdown',
     partsSubtotal: 'Parts subtotal',
@@ -71,22 +97,52 @@ const i18n = {
     commission: 'Commission',
     total: 'Total',
     qty: 'Qty',
-    noPhotos: 'Photos are not available yet.',
+    noPhotos: 'Photos are not available for this part yet.',
     workTerms: 'Terms and documents',
-    cargo: 'Cargo estimate',
+    cargo: 'Cargo estimates',
     policyTitle: 'Payment policy',
     policyBody: 'Please confirm all positions, timeline, and logistics with your manager before payment.',
-    downloadPdf: 'Download PDF',
-    contactManager: 'Contact manager',
+    downloadPdf: 'Download PDF Quote',
+    downloadCargoPdf: 'Cargo & Logistics',
+    downloadFile: 'Download document',
+    contactManager: 'Confirm & WhatsApp',
     refresh: 'Refresh',
     copied: 'Link copied',
     share: 'Copy link',
     contacts: 'Contacts',
     noPositions: 'There are no priced items in this quote yet.',
+    viewParts: 'Go to Parts Gallery',
+    trustedSupplierBadge: 'Verified UAE supplier',
+    fastResponseBadge: 'Reply in 5–15 min',
+    validUntil: 'Price valid until',
+    companyProfile: 'Company profile',
+    trustNote: 'Dubai Spares shows only the final quote here: parts, photos, totals, logistics, and contacts.',
+    signature: 'Signature',
+    signatureMissing: 'Signature is not configured',
+    officialSignature: 'Official signature',
+    cargoHelper: 'Informational estimate for planning delivery timeline and budget.',
+    country: 'Country',
+    weight: 'Weight',
+    totalPlaces: 'Total places',
+    air: 'Air',
+    container: 'Container',
+    eta: 'ETA',
   }
 } as const;
 
 const money = (value: number, currency: string) => `${value.toFixed(2)} ${currency}`;
+
+const isCargoDocument = (value: string) => /cargo|logistic|delivery|shipment|transport/i.test(value);
+
+const dedupeDocuments = (docs: QuoteDocument[]) => {
+  const seen = new Set<string>();
+  return docs.filter((doc) => {
+    const key = `${doc.kind}:${doc.href}`;
+    if (!doc.href || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const [lang, setLang] = useState<Language>('ru');
@@ -96,6 +152,8 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const [expiresAt, setExpiresAt] = useState<string>('');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [displayCurrency, setDisplayCurrency] = useState<'AED' | 'USD' | 'RUB' | 'TJS'>('USD');
+  const detailRef = useRef<HTMLDivElement | null>(null);
 
   const t = i18n[lang];
   const publicKey = useMemo(() => {
@@ -148,7 +206,8 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const packingAed = normalizedSnapshot?.packingAed || 0;
   const commissionAed = normalizedSnapshot?.commissionAed || 0;
   const grandTotalAed = normalizedSnapshot?.grandTotalAed || 0;
-  const fx = rates[currency] || 1;
+  const activeCurrency = (displayCurrency || currency) as keyof typeof rates;
+  const fx = rates[activeCurrency] || 1;
   const contact = normalizedSnapshot?.contact || { whatsapp: '', telegram: '', instagram: '', managerName: 'Dubai Spares UAE', logoUrl: '', signatureUrl: '', workTerms: '', deliveryTerms: '' };
 
   const cargoEstimate = useMemo(() => calculateCargoEstimates({
@@ -157,7 +216,22 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   } as Order, {}), [normalizedSnapshot]);
 
   const whatsappHref = contact.whatsapp ? `https://wa.me/${contact.whatsapp}` : '';
-  const pdfHref = normalizedSnapshot?.pdfHref || '';
+  const documentButtons = useMemo(() => {
+    const docs = normalizedSnapshot?.documents || [];
+    return dedupeDocuments(docs.map((doc) => {
+      if (doc.kind === 'cargo' || isCargoDocument(doc.label)) {
+        return { ...doc, label: doc.label || t.downloadCargoPdf, kind: 'cargo' as const };
+      }
+      if (doc.kind === 'invoice') {
+        return { ...doc, label: doc.label || t.downloadPdf, kind: 'invoice' as const };
+      }
+      return { ...doc, label: doc.label || t.downloadFile, kind: doc.kind };
+    }));
+  }, [normalizedSnapshot?.documents, t.downloadCargoPdf, t.downloadFile, t.downloadPdf]);
+
+  useEffect(() => {
+    setDisplayCurrency((normalizedSnapshot?.currency || 'USD') as 'AED' | 'USD' | 'RUB' | 'TJS');
+  }, [normalizedSnapshot?.currency]);
 
   const copyLink = async () => {
     await copyToClipboard(window.location.href);
@@ -191,32 +265,63 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   return (
     <div className="min-h-screen bg-slate-100 px-3 py-4 sm:px-6">
       <main className="mx-auto flex max-w-5xl flex-col gap-4 pb-24">
-        <section className="rounded-3xl bg-[#0f1f3d] p-6 text-white shadow-[0_16px_40px_rgba(15,31,61,0.24)]">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">{t.commercialOffer}</p>
-              <h1 className="mt-2 text-3xl font-black">{order.brand} {order.model} {order.year}</h1>
-              <p className="mt-3 text-sm text-blue-100">{t.finalOffer}</p>
-              <div className="mt-4 space-y-1 text-sm text-blue-100">
-                <p>VIN: {order.vin}</p>
-                {order.bodyType && <p>{order.bodyType}</p>}
-                {expiresAt && <p>Valid until: {new Date(expiresAt).toLocaleString()}</p>}
+        <section className="overflow-hidden rounded-3xl bg-[#0f1f3d] text-white shadow-[0_16px_40px_rgba(15,31,61,0.24)]">
+          <div className="p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">{t.commercialOffer}</p>
+                <h1 className="mt-2 text-3xl font-black">🚘 {order.brand} {order.model} {order.year}</h1>
+                <p className="mt-3 text-sm text-blue-100">{t.finalOffer}</p>
+                <div className="mt-4 space-y-1 text-sm text-blue-100">
+                  <p>VIN: {order.vin}</p>
+                  {order.bodyType && <p>{order.bodyType}</p>}
+                </div>
+              </div>
+              <div className="min-w-[220px] rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-900 shadow-none">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t.quoteTotal}</p>
+                <p className="mt-1 text-4xl font-black leading-none text-[#0f1f3d]">{(grandTotalAed * fx).toFixed(2)}</p>
+                <p className="mt-0.5 text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">{activeCurrency}</p>
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {(Object.keys(rates) as Array<keyof typeof rates>).map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => setDisplayCurrency(code)}
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${activeCurrency === code ? 'bg-[#0f1f3d] text-white' : 'bg-white text-slate-600 border border-slate-200'}`}
+                    >
+                      {code}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-            <div className="min-w-[220px] rounded-3xl bg-white/10 p-4 backdrop-blur-sm">
-              <p className="text-xs uppercase tracking-[0.18em] text-blue-200">{t.quoteTotal}</p>
-              <p className="mt-2 text-4xl font-black">{money(grandTotalAed * fx, currency)}</p>
-              <p className="mt-1 text-sm text-blue-100">AED {grandTotalAed.toFixed(2)}</p>
+
+            <div className="mt-5 flex flex-wrap gap-2.5">
+              {whatsappHref && (
+                <a href={whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-12 items-center gap-2 rounded-2xl bg-emerald-500 px-5 text-sm font-semibold text-white transition hover:bg-emerald-400 active:scale-[0.98]">
+                  <MessageCircle size={17} /> {t.contactManager} <ChevronRight size={14} />
+                </a>
+              )}
+              <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex h-12 items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-5 text-sm font-semibold text-white transition hover:bg-white/15 active:scale-[0.99]">
+                <Images size={16} /> {t.viewParts}
+              </button>
             </div>
-          </div>
-          <div className="mt-5 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setLang((prev) => prev === 'ru' ? 'en' : 'ru')} className="rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold">{lang === 'ru' ? 'EN' : 'RU'}</button>
-            <button type="button" onClick={() => void copyLink()} className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold"><Copy size={15} /> {copied ? t.copied : t.share}</button>
-            <button type="button" onClick={() => void loadQuote()} className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold"><RefreshCcw size={15} /> {t.refresh}</button>
+
+            <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-600">
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-white"><ShieldCheck size={12} /> {t.trustedSupplierBadge}</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-white"><Clock3 size={12} /> {t.fastResponseBadge}</span>
+              {expiresAt && <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-100 px-3 py-1.5 text-[11px] font-semibold text-amber-800"><Clock3 size={12} /> {t.validUntil}: {new Date(expiresAt).toLocaleDateString()}</span>}
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button type="button" onClick={() => setLang((prev) => prev === 'ru' ? 'en' : 'ru')} className="rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold">{lang === 'ru' ? 'EN' : 'RU'}</button>
+              <button type="button" onClick={() => void copyLink()} className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold"><Copy size={15} /> {copied ? t.copied : t.share}</button>
+              <button type="button" onClick={() => void loadQuote()} className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold"><RefreshCcw size={15} /> {t.refresh}</button>
+            </div>
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <section ref={detailRef} className="rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4">
             <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.parts}</h2>
           </div>
@@ -234,51 +339,91 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                     <div className="rounded-2xl bg-white p-3"><span className="block text-xs uppercase text-slate-400">{t.qty}</span><strong className="text-slate-900">{item.qty}</strong></div>
                     <div className="rounded-2xl bg-white p-3"><span className="block text-xs uppercase text-slate-400">AED</span><strong className="text-slate-900">{item.unitPriceAed.toFixed(2)}</strong></div>
                   </div>
-                  <div className="rounded-2xl bg-white p-3 text-sm"><span className="block text-xs uppercase text-slate-400">{t.total}</span><strong className="text-slate-900">{money(item.totalAed * fx, currency)}</strong></div>
+                  <div className="rounded-2xl bg-white p-3 text-sm"><span className="block text-xs uppercase text-slate-400">{t.total}</span><strong className="text-slate-900">{money(item.totalAed * fx, activeCurrency)}</strong></div>
                 </div>
               </article>
             ))}
           </div>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.priceBreakdown}</h2></div>
-            <div className="space-y-3 p-5 text-sm text-slate-700">
-              <div className="flex items-center justify-between"><span>{t.partsSubtotal}</span><strong>{money(subtotalAed * fx, currency)}</strong></div>
-              <div className="flex items-center justify-between"><span>{t.delivery}</span><strong>{money(deliveryAed * fx, currency)}</strong></div>
-              <div className="flex items-center justify-between"><span>{t.packing}</span><strong>{money(packingAed * fx, currency)}</strong></div>
-              <div className="flex items-center justify-between"><span>{t.commission}</span><strong>{money(commissionAed * fx, currency)}</strong></div>
-              <div className="flex items-center justify-between border-t border-slate-200 pt-3 text-base font-bold text-slate-900"><span>{t.total}</span><span>{money(grandTotalAed * fx, currency)}</span></div>
-            </div>
+        <section className="overflow-hidden rounded-3xl border border-amber-200/80 bg-gradient-to-b from-amber-50 to-white p-5 text-sm text-amber-900 shadow-[0_12px_26px_rgba(180,83,9,0.09)]">
+          <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em]"><Info size={14} /> {t.policyTitle}</p>
+          {contact.workTerms && <p className="mt-2 whitespace-pre-line">{contact.workTerms}</p>}
+          <p className="mt-2 text-amber-800/90">{t.policyBody}</p>
+        </section>
+
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+          <div className="border-b border-slate-100 px-5 py-3">
+            <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{t.cargo}</h2>
+            <p className="mt-1 text-xs text-slate-500">{t.cargoHelper}</p>
           </div>
-          <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.logistics}</h2></div>
-            <div className="space-y-3 p-5 text-sm text-slate-700">
-              <p>{contact.deliveryTerms || '—'}</p>
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{t.cargo}</p>
-                <div className="mt-2 space-y-1">
-                  <p>Air: {cargoEstimate.air.totalCostUsd.toFixed(2)} USD · ETA {cargoEstimate.air.eta}</p>
-                  <p>Container: {cargoEstimate.container.totalCostUsd.toFixed(2)} USD · ETA {cargoEstimate.container.eta}</p>
-                  <p>Weight: {cargoEstimate.air.realWeight.toFixed(2)} kg</p>
-                  <p>Places: {cargoEstimate.air.totalPlaces}</p>
+          <div className="divide-y divide-slate-100 px-5">
+            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.country}</span><strong className="text-slate-900">{cargoEstimate.country}</strong></div>
+            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.weight}</span><strong className="text-slate-900">{cargoEstimate.air.realWeight.toFixed(2)} kg</strong></div>
+            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.totalPlaces}</span><strong className="text-slate-900">{cargoEstimate.air.totalPlaces}</strong></div>
+            <div className="grid gap-3 py-4 md:grid-cols-2">
+              <div className="rounded-2xl bg-slate-50 p-4 text-sm">
+                <p className="font-semibold text-slate-900">{t.air}</p>
+                <div className="mt-2 space-y-1 text-slate-600">
+                  <p>{money(cargoEstimate.air.totalCostUsd, 'USD')}</p>
+                  <p>{t.eta}: {cargoEstimate.air.eta}</p>
+                </div>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4 text-sm">
+                <p className="font-semibold text-slate-900">{t.container}</p>
+                <div className="mt-2 space-y-1 text-slate-600">
+                  <p>{money(cargoEstimate.container.totalCostUsd, 'USD')}</p>
+                  <p>{t.eta}: {cargoEstimate.container.eta}</p>
                 </div>
               </div>
             </div>
+            {contact.deliveryTerms && <div className="py-4 text-sm whitespace-pre-line text-slate-600">{contact.deliveryTerms}</div>}
           </div>
         </section>
 
-        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950 shadow-sm">
-          <p className="inline-flex items-center gap-2 font-bold"><Info size={16} /> {t.policyTitle}</p>
-          <p className="mt-2">{t.policyBody}</p>
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+          <div className="border-b border-slate-100 px-5 py-3">
+            <h2 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-500">{t.priceBreakdown}</h2>
+          </div>
+          <div className="divide-y divide-slate-100 px-5">
+            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.partsSubtotal}</span><strong className="text-slate-900">{money(subtotalAed * fx, activeCurrency)}</strong></div>
+            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.delivery}</span><strong className="text-slate-900">{money(deliveryAed * fx, activeCurrency)}</strong></div>
+            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.packing}</span><strong className="text-slate-900">{money(packingAed * fx, activeCurrency)}</strong></div>
+            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.commission}</span><strong className="text-slate-900">{money(commissionAed * fx, activeCurrency)}</strong></div>
+            <div className="flex items-center justify-between py-3 text-base font-bold"><span className="text-slate-900">{t.total}</span><span className="text-[#0f1f3d]">{money(grandTotalAed * fx, activeCurrency)}</span></div>
+          </div>
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.workTerms}</h2></div>
           <div className="space-y-4 p-5">
-            {contact.workTerms ? <p className="text-sm text-slate-700 whitespace-pre-line">{contact.workTerms}</p> : <p className="text-sm text-slate-500">—</p>}
-            {pdfHref && <a href={pdfHref} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700"><Download size={15} /> {t.downloadPdf}</a>}
+            {contact.workTerms ? <p className="text-sm whitespace-pre-line text-slate-700">{contact.workTerms}</p> : <p className="text-sm text-slate-500">—</p>}
+            <div className="flex flex-wrap gap-2">
+              {documentButtons.map((doc) => (
+                <a key={`${doc.kind}-${doc.href}`} href={doc.href} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 self-start rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 active:scale-[0.99]">
+                  <Download size={15} /> {doc.label}
+                </a>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+          <div className="grid gap-6 p-5 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="space-y-4">
+              <ul className="space-y-2 text-sm text-slate-700">
+                <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> {lang === 'ru' ? 'Нам доверяют клиенты из СНГ' : 'Trusted by CIS customers'}</li>
+                <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> {lang === 'ru' ? 'Мы ежедневно работаем с авторазборками и магазинами Дубая.' : 'We work with Dubai scrap yards & shops daily.'}</li>
+                <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> {lang === 'ru' ? 'Скорость ответа: обычно 5–15 минут.' : 'Response time: usually 5–15 min.'}</li>
+              </ul>
+            </div>
+            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50 to-white p-5 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="inline-flex items-center gap-2 font-bold text-slate-800"><Building2 size={16} /> {t.companyProfile}: Dubai Spares UAE</p>
+                {contact.logoUrl && <img src={contact.logoUrl} alt="Company logo" className="h-20 w-auto max-w-[360px] object-contain" />}
+              </div>
+              <p className="text-sm text-slate-600">{t.trustNote}</p>
+            </div>
           </div>
         </section>
 
@@ -287,17 +432,36 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
             <div>
               <p className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.14em] text-slate-500"><Building2 size={15} /> {t.contacts}</p>
               <h2 className="mt-2 text-2xl font-bold text-slate-900">{contact.managerName}</h2>
-              {contact.logoUrl && <img src={contact.logoUrl} alt="Company logo" className="mt-4 h-16 w-auto object-contain" />}
-              {contact.signatureUrl && <img src={contact.signatureUrl} alt="Signature" className="mt-4 h-16 w-auto object-contain" />}
             </div>
             <div className="flex flex-wrap gap-2">
-              {whatsappHref && <a href={whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-2xl bg-emerald-500 px-4 text-sm font-semibold text-white shadow-sm"><MessageCircle size={15} /> {t.contactManager} <ChevronRight size={14} /></a>}
+              {whatsappHref && <a href={whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-2xl bg-emerald-500 px-4 text-sm font-semibold text-white shadow-sm"><MessageCircle size={15} /> WhatsApp</a>}
               {contact.telegram && <a href={contact.telegram} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800"><Send size={15} /> Telegram</a>}
               {contact.instagram && <a href={contact.instagram} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"><Instagram size={15} /> Instagram</a>}
             </div>
           </div>
-          <div className="mt-4 flex items-start gap-2 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> Dubai Spares показывает здесь только финальную смету: позиции, фото, суммы, логистику и контакты.</div>
         </section>
+
+        {(contact.signatureUrl || contact.managerName) && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+            <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-500">{t.officialSignature}</p>
+            <div className="mt-3 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-[1fr_auto] sm:items-end">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{lang === 'ru' ? 'Имя и фамилия' : 'Name'}</p>
+                <p className="mt-2 text-lg font-bold text-[#0f1f3d]">{contact.managerName || (lang === 'ru' ? 'Не указано' : 'Not specified')}</p>
+              </div>
+              <div className="sm:text-right">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{t.signature}</p>
+                <div className="mt-2 min-h-[74px]">
+                  {contact.signatureUrl ? (
+                    <img src={contact.signatureUrl} alt="Owner signature" className="h-20 w-auto object-contain sm:ml-auto" />
+                  ) : (
+                    <p className="text-sm text-slate-400">{t.signatureMissing}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
       </main>
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
     </div>
