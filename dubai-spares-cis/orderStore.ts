@@ -21,7 +21,6 @@ import { createOrderMutationIntent } from './orderMutationQueue';
 import { installOrderProjectionDispatcher } from './orderProjectionDispatcher';
 import { orderRepository } from './orderRepository';
 import { installReactiveDiagnostics } from './reactiveDiagnostics';
-import { installHuntProjectionDispatcher } from './huntProjectionDispatcher';
 import { decideSyncMode } from './reactiveSyncCoordinator';
 
 type OrderState = {
@@ -606,7 +605,6 @@ const ensureReactiveArchitectureInstalled = () => {
   architectureInstalled = true;
   installReactiveDiagnostics();
   installOrderProjectionDispatcher();
-  installHuntProjectionDispatcher();
   decideSyncMode({ pendingQueue: cachedQueueLength > 0 });
 };
 

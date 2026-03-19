@@ -36,9 +36,6 @@ import {
   Rocket,
   Share2,
   Download,
-  Flag,
-  Radio,
-  Trophy,
   MessageSquareMore,
   History
 } from 'lucide-react';
@@ -2366,53 +2363,6 @@ const OrderDetailsScreen: React.FC = () => {
               )}
             </div>
             <div className="rounded-[16px] bg-gradient-to-r from-[#5A6CF8] to-[#6C7CFF] p-4 text-white space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.12)]">
-              {/* ── Hunt Pipeline / Transparent Pipeline card ── */}
-              <div className="rounded-[12px] bg-white/10 border border-white/20 p-3 mb-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    {order.huntStatus === 'live_hunt'
-                      ? <Radio size={14} className="text-white animate-pulse" />
-                      : order.huntStatus === 'final_offer'
-                        ? <Trophy size={14} className="text-yellow-300" />
-                        : <Flag size={14} className="text-white/80" />}
-                    <span className="text-[11px] font-bold text-white/90 uppercase tracking-wide">
-                      {order.huntStatus === 'live_hunt'
-                        ? 'Охота в процессе'
-                        : order.huntStatus === 'final_offer'
-                          ? 'Финальное предложение'
-                          : 'Сбор данных'}
-                    </span>
-                  </div>
-                  <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide ${
-                    order.huntStatus === 'live_hunt'
-                      ? 'bg-emerald-400/80 text-white'
-                      : order.huntStatus === 'final_offer'
-                        ? 'bg-yellow-400/80 text-yellow-900'
-                        : 'bg-white/20 text-white/80'
-                  }`}>
-                    {order.huntStatus === 'live_hunt' ? 'Live' : order.huntStatus === 'final_offer' ? 'Done' : 'Pending'}
-                  </span>
-                </div>
-                <p className="text-[10px] text-white/70 mb-2.5">
-                  {order.huntStatus === 'live_hunt'
-                    ? 'Клиент видит вас на карте в реальном времени.'
-                    : order.huntStatus === 'final_offer'
-                      ? 'Клиент видит смету и историю поиска.'
-                      : 'Клиент ожидает начала поиска.'}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/order/${order.id}/hunt`)}
-                  className="w-full py-1.5 rounded-[8px] bg-white text-[#3B6AF7] text-[11px] font-bold flex items-center justify-center gap-1.5 active:scale-[0.97] transition-transform"
-                >
-                  <Flag size={12} />
-                  {order.huntStatus === 'live_hunt'
-                    ? 'Открыть режим охоты'
-                    : order.huntStatus === 'final_offer'
-                      ? 'Просмотр истории поиска'
-                      : 'Начать охоту'}
-                </button>
-              </div>
               <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-white/90">Quote клиенту</p>
               <div className="space-y-1 text-[13px] leading-[20px]">
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
