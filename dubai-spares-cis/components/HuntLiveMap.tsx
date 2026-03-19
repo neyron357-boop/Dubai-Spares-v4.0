@@ -76,8 +76,9 @@ const HuntLiveMap: React.FC<HuntLiveMapProps> = ({
         attributionControl: false
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap'
+      // Dark premium tile layer (CartoDB Dark Matter – no API key required)
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '© CartoDB'
       }).addTo(map);
 
       // Compact zoom control in bottom-right corner
@@ -114,9 +115,8 @@ const HuntLiveMap: React.FC<HuntLiveMapProps> = ({
     const latlngs = track.map((p) => [p.lat, p.lng] as [number, number]);
     trackLineRef.current = L.polyline(latlngs, {
       color: '#38bdf8',   // sky-400
-      weight: 3,
-      opacity: 0.8,
-      dashArray: '6, 4'
+      weight: 4,
+      opacity: 0.95
     }).addTo(map);
   };
 

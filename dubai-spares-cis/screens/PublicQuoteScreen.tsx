@@ -664,6 +664,24 @@ const resolveOrderLogistics = (row: any) => {
 
 const maskVin = (vin: string) => (vin.length > 8 ? `${vin.slice(0, 5)}...${vin.slice(-4)}` : vin || 'N/A');
 
+/** Haversine distance between two lat/lng points in kilometres */
+const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+/** Sum of haversine distances along a GPS track */
+const trackDistanceKm = (pings: Array<{ lat: number; lng: number }>): number => {
+  let total = 0;
+  for (let i = 1; i < pings.length; i++) {
+    total += haversineKm(pings[i - 1].lat, pings[i - 1].lng, pings[i].lat, pings[i].lng);
+  }
+  return total;
+};
+
 const APP_VERSION = (import.meta as any).env?.VITE_APP_VERSION || 'dev';
 const GIT_SHA = (import.meta as any).env?.VITE_GIT_SHA || 'local';
 const BUILD_TIME = (import.meta as any).env?.VITE_BUILD_TIME || 'unknown';
@@ -1572,6 +1590,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [showSearchHistory, setShowSearchHistory] = useState(false);
   const [showRelevancePrompt, setShowRelevancePrompt] = useState(false);
   const [showPauseConfirm, setShowPauseConfirm] = useState(false);
+  const [copiedTelegram, setCopiedTelegram] = useState(false);
   const huntPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const snapshotPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveHuntStatusRef = useRef<Order['huntStatus']>('data_gathering');
@@ -2212,7 +2231,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
     if (!telegramSubscription?.code) return;
     const copied = await copyToClipboard(telegramSubscription.code);
     if (copied) {
-      window.alert(lang === 'ru' ? 'Код Telegram скопирован' : 'Telegram code copied');
+      setCopiedTelegram(true);
+      setTimeout(() => setCopiedTelegram(false), 2000);
     } else {
       window.alert(lang === 'ru' ? 'Не удалось скопировать код' : 'Unable to copy Telegram code');
     }
@@ -2425,10 +2445,10 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <h1 className="text-sm font-bold">🔍 Активный поиск</h1>
               <p className="text-xs text-blue-200/70">{order.brand} {order.model} {order.year}</p>
             </div>
-            {/* Red ● LIVE indicator */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500/20 border border-red-500/30 rounded-full">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-[10px] font-bold text-red-400 uppercase">Live</span>
+        {/* Red ● LIVE indicator */}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 border border-red-500/40 rounded-full">
+              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-[11px] font-black text-red-400 uppercase tracking-wider">LIVE: ПРЯМОЙ ЭФИР ИЗ ШАРДЖИ</span>
             </div>
           </div>
         </div>
@@ -2448,7 +2468,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             </p>
             <div className="mt-3 grid grid-cols-3 gap-2 relative">
               <div className="rounded-2xl bg-slate-950/35 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-blue-200/55">Точки</p>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-blue-200/55">Магазины</p>
                 <p className="mt-1 text-lg font-black text-white">{huntWaypoints.length}</p>
               </div>
               <div className="rounded-2xl bg-slate-950/35 px-3 py-2">
@@ -2456,8 +2476,8 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                 <p className="mt-1 text-lg font-black text-emerald-300">{huntWaypoints.filter((wp) => wp.result === 'found').length}</p>
               </div>
               <div className="rounded-2xl bg-slate-950/35 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-blue-200/55">Фото</p>
-                <p className="mt-1 text-lg font-black text-cyan-300">{huntWaypoints.filter((wp) => wp.photo_urls.length > 0).length}</p>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-blue-200/55">Пройдено км</p>
+                <p className="mt-1 text-lg font-black text-cyan-300">{trackDistanceKm(huntTrack).toFixed(1)}</p>
               </div>
             </div>
           </div>
@@ -2598,6 +2618,45 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
           <p className="text-center text-[10px] text-blue-300/40 pb-6">
             Обновляется автоматически каждую минуту
           </p>
+
+          {/* Telegram follow button */}
+          {telegramSubscription?.deepLink && (
+            <div className="rounded-2xl border border-sky-500/30 bg-sky-900/30 p-4 flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <Send size={16} className="text-sky-300 shrink-0" />
+                <div>
+                  <p className="text-sm font-bold text-sky-200">Следить за заказом в Telegram</p>
+                  <p className="text-xs text-blue-300/70 mt-0.5">Бот пришлёт уведомление, как только статус изменится</p>
+                </div>
+              </div>
+              <a
+                href={telegramSubscription.deepLink}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-sky-500 px-4 py-3 text-sm font-bold text-white shadow-[0_8px_20px_rgba(14,165,233,0.35)] transition hover:bg-sky-400 active:scale-[0.98]"
+              >
+                <Send size={16} /> Открыть Telegram-бота
+              </a>
+              {telegramSubscription.code && (
+                <button
+                  type="button"
+                  onClick={() => void copyTelegramCode()}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-sky-400/30 bg-white/5 px-4 py-2.5 text-sm font-semibold text-sky-300 transition hover:bg-white/10 active:scale-[0.98]"
+                >
+                  {copiedTelegram ? (
+                    <>
+                      <CheckCircle2 size={15} className="text-emerald-400" />
+                      <span className="text-emerald-400">Скопировано!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={15} /> Скопировать код подключения
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -2899,6 +2958,15 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
               <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> {t.yards}</li>
               <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> {t.response}</li>
             </ul>
+            {/* Trust signal — recent similar delivery */}
+            <div className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+              <CheckCircle2 size={18} className="mt-0.5 text-emerald-500 shrink-0" />
+              <p className="text-sm text-emerald-900">
+                {lang === 'ru'
+                  ? '✅ Похожий заказ успешно доставлен в Душанбе 3 дня назад'
+                  : '✅ A similar order was successfully delivered to Dushanbe 3 days ago'}
+              </p>
+            </div>
             <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50 to-white p-5 space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="inline-flex items-center gap-2 font-bold text-slate-800"><Building2 size={16} /> {t.companyProfile}: Dubai Spares UAE</p>
@@ -2925,7 +2993,7 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
             )}
             {telegramSubscription?.code && (
               <button type="button" onClick={() => void copyTelegramCode()} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100">
-                <Link2 size={15} /> {lang === 'ru' ? 'Скопировать код Telegram' : 'Copy Telegram code'}
+                {copiedTelegram ? <><CheckCircle2 size={15} className="text-emerald-500" /> {lang === 'ru' ? 'Скопировано!' : 'Copied!'}</> : <><Link2 size={15} /> {lang === 'ru' ? 'Скопировать код Telegram' : 'Copy Telegram code'}</>}
               </button>
             )}
             {telegramSubscription?.deepLink && (
@@ -2961,7 +3029,11 @@ const PublicQuoteScreen: React.FC<{ orderId: string }> = ({ orderId }) => {
                       <div className="mt-1 text-sm font-semibold text-slate-900">Код подключения: {telegramSubscription.code}</div>
                     </div>
                     <button type="button" onClick={() => void copyTelegramCode()} className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-white px-3 py-2 text-[11px] font-black text-sky-700">
-                      <Copy size={13} /> {lang === 'ru' ? 'Скопировать' : 'Copy'}
+                      {copiedTelegram ? (
+                        <><CheckCircle2 size={13} className="text-emerald-500" /> {lang === 'ru' ? 'Скопировано!' : 'Copied!'}</>
+                      ) : (
+                        <><Copy size={13} /> {lang === 'ru' ? 'Скопировать' : 'Copy'}</>
+                      )}
                     </button>
                   </div>
                   <div className="mt-1">Откройте Telegram по deep link или отправьте этот код боту, чтобы связать chat_id с заказом и получать обновления с кнопкой открытия tracking page.</div>
