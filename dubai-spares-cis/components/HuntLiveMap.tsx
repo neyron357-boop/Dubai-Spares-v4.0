@@ -55,8 +55,10 @@ const HuntLiveMap: React.FC<HuntLiveMapProps> = ({
     import('leaflet').then((L) => {
       if (!containerRef.current || mapRef.current) return;
 
-      // Fix Leaflet default marker icon paths broken by bundlers
-      (L.Icon.Default.prototype as any)._getIconUrl = undefined;
+      // Fix Leaflet default marker icon paths broken by bundlers.
+      // _getIconUrl is an internal method not in the public typings; casting to Record
+      // is safer than `any` while still enabling the delete.
+      delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)['_getIconUrl'];
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
         iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
