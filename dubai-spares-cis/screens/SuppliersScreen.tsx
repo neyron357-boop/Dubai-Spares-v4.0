@@ -303,6 +303,14 @@ const SuppliersScreen: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickPhotoInputRef = useRef<HTMLInputElement>(null);
   const longPressTimerRef = useRef<number | null>(null);
+  const longPressGestureRef = useRef<{
+    supplierId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startScrollY: number;
+    triggered: boolean;
+  } | null>(null);
   const fullscreenMenuRef = useRef<HTMLDivElement>(null);
   const [deleteSupplierId, setDeleteSupplierId] = useState<string | null>(null);
   const [quickPhotoSupplierId, setQuickPhotoSupplierId] = useState<string | null>(null);
@@ -708,19 +716,63 @@ const SuppliersScreen: React.FC = () => {
     setOverflowSupplierId(null);
   };
 
-  const startLongPress = (supplierId: string) => {
-    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
-    longPressTimerRef.current = window.setTimeout(() => {
-      openSupplierActions(supplierId);
-      longPressTimerRef.current = null;
-    }, 500);
-  };
+  const LONG_PRESS_DELAY_MS = 550;
+  const LONG_PRESS_MOVE_THRESHOLD_PX = 10;
+  const LONG_PRESS_SCROLL_THRESHOLD_PX = 8;
 
   const cancelLongPress = () => {
     if (longPressTimerRef.current) {
       window.clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    longPressGestureRef.current = null;
+  };
+
+  const startLongPress = (supplierId: string, event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse') return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('button, input, textarea, select, a, [data-no-long-press="true"]')) return;
+
+    cancelLongPress();
+    longPressGestureRef.current = {
+      supplierId,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollY: window.scrollY,
+      triggered: false
+    };
+
+    longPressTimerRef.current = window.setTimeout(() => {
+      const gesture = longPressGestureRef.current;
+      if (!gesture || gesture.supplierId !== supplierId) return;
+      gesture.triggered = true;
+      openSupplierActions(supplierId);
+      longPressTimerRef.current = null;
+    }, LONG_PRESS_DELAY_MS);
+  };
+
+  const trackLongPressMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = longPressGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.triggered) return;
+
+    const movedX = Math.abs(event.clientX - gesture.startX);
+    const movedY = Math.abs(event.clientY - gesture.startY);
+    const scrolledY = Math.abs(window.scrollY - gesture.startScrollY);
+
+    if (movedX > LONG_PRESS_MOVE_THRESHOLD_PX || movedY > LONG_PRESS_MOVE_THRESHOLD_PX || scrolledY > LONG_PRESS_SCROLL_THRESHOLD_PX) {
+      cancelLongPress();
+    }
+  };
+
+  const finishLongPress = (event?: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = longPressGestureRef.current;
+    if (!gesture) {
+      cancelLongPress();
+      return;
+    }
+    if (event && gesture.pointerId !== event.pointerId) return;
+    cancelLongPress();
   };
 
   const fullscreenSupplier = useMemo(
@@ -1626,6 +1678,19 @@ const SuppliersScreen: React.FC = () => {
   useEffect(() => () => cancelLongPress(), []);
 
   useEffect(() => {
+    const handleScroll = () => {
+      const gesture = longPressGestureRef.current;
+      if (!gesture || gesture.triggered) return;
+      if (Math.abs(window.scrollY - gesture.startScrollY) > LONG_PRESS_SCROLL_THRESHOLD_PX) {
+        cancelLongPress();
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
     setBrandFilter(selectedBrandView || 'all');
   }, [selectedBrandView]);
 
@@ -2151,7 +2216,16 @@ const SuppliersScreen: React.FC = () => {
                 : { label: '?', classes: 'border-slate-200 bg-slate-100 text-slate-600' };
 
             return (
-              <div id={`supplier-card-${s.id}`} key={s.id} className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${s.whatsappFast === true ? 'ring-1 ring-emerald-200' : ''} ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}>
+              <div
+                id={`supplier-card-${s.id}`}
+                key={s.id}
+                onPointerDown={(event) => startLongPress(s.id, event)}
+                onPointerMove={trackLongPressMove}
+                onPointerUp={finishLongPress}
+                onPointerCancel={() => cancelLongPress()}
+                onPointerLeave={() => cancelLongPress()}
+                className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${s.whatsappFast === true ? 'ring-1 ring-emerald-200' : ''} ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}
+              >
                 <button type="button" onClick={() => setExpandedSupplierIds((prev) => { const next = new Set(prev); if (next.has(s.id)) next.delete(s.id); else next.add(s.id); return next; })} className="w-full text-left space-y-2">
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -2551,7 +2625,7 @@ const SuppliersScreen: React.FC = () => {
         const actionSupplier = suppliers.find((supplier) => supplier.id === actionModalSupplierId);
         if (!actionSupplier) return null;
         return (
-          <div className="fixed inset-0 z-[85] flex items-end justify-center bg-black/50 p-3 sm:items-center" onClick={() => setActionModalSupplierId(null)}>
+          <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/50 p-3" onClick={() => setActionModalSupplierId(null)}>
             <div className="w-full max-w-sm rounded-[28px] bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
               <p className="text-sm font-black text-slate-900">Действия с карточкой</p>
               <p className="mt-1 text-xs font-semibold text-slate-500">{actionSupplier.name}</p>
