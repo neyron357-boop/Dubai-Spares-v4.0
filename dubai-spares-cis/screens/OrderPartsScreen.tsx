@@ -7,6 +7,7 @@ import { getPartDisplayName, normalizeGroupItems, normalizePartQuantity } from '
 import { generatePartPriceCard, generatePartsPriceSheet, resolveBestVariant, shareGeneratedPriceImage } from '../utils/partPriceShare';
 import SafeImage from '../components/SafeImage';
 
+const getOrderPartsScrollStorageKey = (orderId: string) => `dubai_spares:order_parts_scroll:${orderId}`;
 
 
 const getPartPreviewPhotos = (part: Part): string[] => {
@@ -23,16 +24,39 @@ const OrderPartsScreen: React.FC = () => {
   const { orders } = useStore();
   const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const scrollStorageKey = useMemo(() => getOrderPartsScrollStorageKey(orderId), [orderId]);
 
   useEffect(() => {
     const restoreScrollTop = (location.state as { restoreScrollTop?: unknown } | null)?.restoreScrollTop;
-    if (typeof restoreScrollTop !== 'number' || restoreScrollTop < 0) return;
     const mainScroller = document.querySelector('main');
     if (!(mainScroller instanceof HTMLElement)) return;
+    const savedScrollTop = Number(window.sessionStorage.getItem(scrollStorageKey));
+    const nextScrollTop = typeof restoreScrollTop === 'number' && restoreScrollTop >= 0
+      ? restoreScrollTop
+      : Number.isFinite(savedScrollTop) && savedScrollTop >= 0
+        ? savedScrollTop
+        : null;
+    if (nextScrollTop === null) return;
     window.requestAnimationFrame(() => {
-      mainScroller.scrollTop = restoreScrollTop;
+      mainScroller.scrollTop = nextScrollTop;
     });
-  }, [location.state]);
+  }, [location.state, scrollStorageKey]);
+
+  useEffect(() => {
+    const mainScroller = document.querySelector('main');
+    if (!(mainScroller instanceof HTMLElement)) return undefined;
+
+    const persistScrollTop = () => {
+      window.sessionStorage.setItem(scrollStorageKey, String(mainScroller.scrollTop));
+    };
+
+    persistScrollTop();
+    mainScroller.addEventListener('scroll', persistScrollTop, { passive: true });
+    return () => {
+      persistScrollTop();
+      mainScroller.removeEventListener('scroll', persistScrollTop);
+    };
+  }, [scrollStorageKey]);
 
   const order = orders.find((item) => item.id === orderId);
   const shareableParts = useMemo(() => (
