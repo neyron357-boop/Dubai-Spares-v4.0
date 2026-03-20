@@ -25,7 +25,10 @@ import {
   MessageCircle,
   Pencil,
   Shuffle,
-  MoreHorizontal
+  MoreHorizontal,
+  Menu,
+  SlidersHorizontal,
+  Pin
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import ImagePreview from '../components/ImagePreview';
@@ -369,6 +372,7 @@ const SuppliersScreen: React.FC = () => {
   const [visitComment, setVisitComment] = useState('');
   const [visitPhotos, setVisitPhotos] = useState<string[]>([]);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+  const [isBrandsDrawerOpen, setIsBrandsDrawerOpen] = useState(false);
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [expandedAddedPartsIds, setExpandedAddedPartsIds] = useState<Set<string>>(new Set());
   const [overflowSupplierId, setOverflowSupplierId] = useState<string | null>(null);
@@ -675,22 +679,21 @@ const SuppliersScreen: React.FC = () => {
     ));
   }, [filteredSuppliers, selectedBrandView, selectedModelView]);
 
-  const fullscreenSupplier = useMemo(
-    () => suppliersForSelectedModel.find((supplier) => supplier.id === fullscreenSupplierId) || null,
-    [fullscreenSupplierId, suppliersForSelectedModel]
-  );
-
-
-  const displayedSuppliersForSelectedModel = useMemo(() => {
+  const displayedSuppliers = useMemo(() => {
     const query = supplierSearchQuery.trim().toLowerCase();
-    if (!query) return suppliersForSelectedModel;
-    return suppliersForSelectedModel.filter((supplier) => {
+    if (!query) return filteredSuppliers;
+    return filteredSuppliers.filter((supplier) => {
       const brands = pickSupplierBrands(supplier).join(' ').toLowerCase();
       const models = (supplier.models || []).join(' ').toLowerCase();
       const haystack = `${supplier.name} ${supplier.location || ''} ${brands} ${models}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [supplierSearchQuery, suppliersForSelectedModel]);
+  }, [filteredSuppliers, supplierSearchQuery]);
+
+  const fullscreenSupplier = useMemo(
+    () => displayedSuppliers.find((supplier) => supplier.id === fullscreenSupplierId) || filteredSuppliers.find((supplier) => supplier.id === fullscreenSupplierId) || null,
+    [displayedSuppliers, filteredSuppliers, fullscreenSupplierId]
+  );
 
   const fullscreenSupplierOrders = useMemo(() => {
     if (!fullscreenSupplier) return [] as typeof activeOrders;
@@ -1263,6 +1266,10 @@ const SuppliersScreen: React.FC = () => {
     updateSupplier({ ...supplier, isFavorite: !supplier.isFavorite, updatedAt: Date.now() });
   };
 
+  const togglePinned = (supplier: Supplier) => {
+    updateSupplier({ ...supplier, isPinned: !supplier.isPinned, updatedAt: Date.now() });
+  };
+
   const refreshManualSelections = () => {
     const selections = getRadarManualSelections();
     setManualSelections(selections);
@@ -1576,54 +1583,78 @@ const SuppliersScreen: React.FC = () => {
   }, [fullscreenSupplierId]);
 
   useEffect(() => {
-    if (!selectedBrandView) {
+    setBrandFilter(selectedBrandView || 'all');
+  }, [selectedBrandView]);
+
+  useEffect(() => {
+    if (brandFilter !== 'all' && !availableBrands.includes(brandFilter)) {
+      setSelectedBrandView(null);
       setBrandFilter('all');
-      setModelFilter('all');
-      setSelectedModelView(null);
-      return;
     }
-    setBrandFilter(selectedBrandView);
-    if (!selectedModelView) {
-      setModelFilter('all');
-      return;
-    }
-    setModelFilter(selectedModelView);
-  }, [selectedBrandView, selectedModelView]);
+  }, [availableBrands, brandFilter]);
 
   return (
     <div className="p-4 space-y-4 pb-32 overflow-x-hidden">
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h1 className="text-xl font-bold">База Поставщиков</h1>
-          <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">{filteredSuppliers.length} suppliers</span>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold">База Поставщиков</h1>
+            <p className="text-xs font-semibold text-slate-500">Стартовый экран показывает весь список мини-карточек поставщиков.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/variants')}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+            >
+              Варианты
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsFiltersOpen((prev) => !prev)}
+              className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${isFiltersOpen ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700'}`}
+              aria-label="Открыть фильтры"
+            >
+              <SlidersHorizontal size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBrandsDrawerOpen(true)}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700"
+              aria-label="Открыть список марок"
+            >
+              <Menu size={18} />
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => navigate('/variants')}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-        >
-          Варианты
-        </button>
-        <div className="grid grid-cols-3 rounded-2xl border border-slate-200 bg-white p-1 text-xs font-black">
-          <button type="button" onClick={() => { setSelectedBrandView(null); setSelectedModelView(null); }} className={`rounded-xl px-2 py-2 ${!selectedBrandView ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>All suppliers</button>
-          <button type="button" onClick={() => { if (!selectedBrandView) setSelectedBrandView(availableBrands[0] || null); setSelectedModelView(null); }} className={`rounded-xl px-2 py-2 ${selectedBrandView && !selectedModelView ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>Brands</button>
-          <button type="button" onClick={() => { if (selectedBrandView && modelsForSelectedBrand.length > 0) setSelectedModelView(modelsForSelectedBrand[0]); }} className={`rounded-xl px-2 py-2 ${selectedModelView ? 'bg-slate-900 text-white' : 'text-slate-600'} ${!selectedBrandView ? 'opacity-50' : ''}`}>Models</button>
+        <div className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">{displayedSuppliers.length} suppliers</span>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedBrandView(null);
+              setSupplierSearchQuery('');
+            }}
+            className={`rounded-xl px-3 py-2 text-xs font-black ${selectedBrandView ? 'border border-slate-200 text-slate-600' : 'bg-slate-900 text-white'}`}
+          >
+            {selectedBrandView ? `Марка: ${selectedBrandView}` : 'Все марки'}
+          </button>
         </div>
       </div>
 
-      {selectedModelView && <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => setIsFiltersOpen((prev) => !prev)}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black uppercase tracking-[0.14em] text-slate-600"
-          >
-            Filters {isFiltersOpen ? '▲' : '▼'}
-          </button>
+      <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <input
+            value={supplierSearchQuery}
+            onChange={(e) => setSupplierSearchQuery(e.target.value)}
+            placeholder="Поиск поставщика, локации, марки или модели..."
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold"
+          />
           <button
             type="button"
             onClick={() => {
               setSortByExtended('smart');
+              setSelectedBrandView(null);
               setBrandFilter('all');
               setModelFilter('all');
               setYearFilter('all');
@@ -1632,59 +1663,44 @@ const SuppliersScreen: React.FC = () => {
               setFastWhatsappFilter('all');
               setVisitTodayFilter('all');
             }}
-            className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600"
+            className="rounded-xl border border-slate-200 px-3 py-2 text-[10px] font-bold text-slate-600"
           >
             Reset
           </button>
         </div>
         {isFiltersOpen && (
-          <>
-            <div className="mb-2">
-              <select className="w-full rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
-                <option value="smart">Sort: smart</option>
-                <option value="fast">Fast first</option>
-                <option value="trust">Trust ↓</option>
-                <option value="heat">Heat ↓</option>
-                <option value="near">Nearest</option>
-                <option value="name">Name A→Z</option>
-              </select>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={fastWhatsappFilter} onChange={(e) => setFastWhatsappFilter(e.target.value as 'all' | 'fast')}>
-                <option value="all">Fast WhatsApp: all</option>
-                <option value="fast">Fast WhatsApp only</option>
-              </select>
-              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={favoriteFilter} onChange={(e) => setFavoriteFilter(e.target.value as 'all' | 'favorites')}>
-
-                <option value="all">Suppliers: all</option>
-                <option value="favorites">Избранные поставщики</option>
-              </select>
-              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={visitTodayFilter} onChange={(e) => setVisitTodayFilter(e.target.value as 'all' | 'visit_today')}>
-                <option value="all">VISIT TODAY: off</option>
-                <option value="visit_today">VISIT TODAY</option>
-              </select>
-              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
-                <option value="all">Brand: all</option>
-                {supplierFilterOptions.brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
-              </select>
-              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
-                <option value="all">Model: all</option>
-                {supplierFilterOptions.models.map((model) => <option key={model} value={model}>{model}</option>)}
-              </select>
-              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
-                <option value="all">Year: all</option>
-                {supplierFilterOptions.years.map((year) => <option key={year} value={year}>{year}</option>)}
-              </select>
-              <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={partCategoryFilter} onChange={(e) => setPartCategoryFilter(e.target.value)}>
-                <option value="all">Part category: all</option>
-                {supplierFilterOptions.partCategories.map((category) => <option key={category} value={category}>{category}</option>)}
-              </select>
-            </div>
-          </>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
+              <option value="smart">Sort: smart</option>
+              <option value="fast">Fast first</option>
+              <option value="trust">Trust ↓</option>
+              <option value="heat">Heat ↓</option>
+              <option value="near">Nearest</option>
+              <option value="name">Name A→Z</option>
+            </select>
+            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={favoriteFilter} onChange={(e) => setFavoriteFilter(e.target.value as 'all' | 'favorites')}>
+              <option value="all">Suppliers: all</option>
+              <option value="favorites">Избранные</option>
+            </select>
+            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={fastWhatsappFilter} onChange={(e) => setFastWhatsappFilter(e.target.value as 'all' | 'fast')}>
+              <option value="all">Fast WhatsApp: all</option>
+              <option value="fast">Fast WhatsApp only</option>
+            </select>
+            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={visitTodayFilter} onChange={(e) => setVisitTodayFilter(e.target.value as 'all' | 'visit_today')}>
+              <option value="all">VISIT TODAY: off</option>
+              <option value="visit_today">VISIT TODAY</option>
+            </select>
+            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
+              <option value="all">Year: all</option>
+              {supplierFilterOptions.years.map((year) => <option key={year} value={year}>{year}</option>)}
+            </select>
+            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={partCategoryFilter} onChange={(e) => setPartCategoryFilter(e.target.value)}>
+              <option value="all">Part category: all</option>
+              {supplierFilterOptions.partCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+            </select>
+          </div>
         )}
-      </div>}
-
-
+      </div>
 
       {importError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-red-100"><AlertTriangle size={16} />{importError}</div>}
       {showSuccess && <div className="bg-green-50 text-green-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-green-100"><CheckCircle2 size={16} />Данные успешно восстановлены!</div>}
@@ -1831,116 +1847,105 @@ const SuppliersScreen: React.FC = () => {
         </div>
       )}
 
-      {!selectedBrandView && (
-        <section className="grid grid-cols-2 gap-3">
-          {availableBrands.map((brand) => (
-            <button
-              key={brand}
-              type="button"
-              onClick={() => setSelectedBrandView(brand)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-8 text-center text-sm font-black text-slate-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
-            >
-              {brand}
-            </button>
-          ))}
-        </section>
-      )}
-
-      {selectedBrandView && !selectedModelView && (
-        <section className="space-y-2">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Модели {selectedBrandView}</p>
-          <div className="grid grid-cols-2 gap-3">
-            {modelsForSelectedBrand.map((model) => (
-              <button
-                key={model}
-                type="button"
-                onClick={() => setSelectedModelView(model)}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-6 text-center text-sm font-bold text-slate-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
-              >
-                {model}
-              </button>
+      <section className="space-y-3">
+        {isInitialSuppliersLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={`skeleton-supplier-${index}`} className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_6px_24px_rgba(15,23,42,0.08)]">
+                <div className="h-24 rounded-2xl bg-slate-100/80" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+                <div className="mt-3 h-4 w-2/3 rounded bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+                <div className="mt-2 h-3 w-1/2 rounded bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+              </div>
             ))}
           </div>
-        </section>
-      )}
-
-      {selectedBrandView && selectedModelView && (
-        <section className="space-y-3">
-          <input
-            value={supplierSearchQuery}
-            onChange={(e) => setSupplierSearchQuery(e.target.value)}
-            placeholder="Search supplier..."
-            className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold"
-          />
-          {isInitialSuppliersLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div key={`skeleton-supplier-${index}`} className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_6px_24px_rgba(15,23,42,0.08)]">
-                  <div className="h-24 rounded-2xl bg-slate-100/80" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
-                  <div className="mt-3 h-4 w-2/3 rounded bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
-                  <div className="mt-2 h-3 w-1/2 rounded bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
-                </div>
-              ))}
-            </div>
-          ) : displayedSuppliersForSelectedModel.map((supplier) => {
-            const isContacted = (supplier.interactions || []).some((item) => item.type === 'whatsapp');
-            const isReplied = (supplier.interactions || []).some((item) => item.type === 'whatsapp_reply');
-            const distanceKm = calcDistanceKm(supplier, sortByDistanceRef);
-            const brands = pickSupplierBrands(supplier);
-            return (
+        ) : displayedSuppliers.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center text-sm font-semibold text-slate-500">
+            Поставщики не найдены по текущим фильтрам.
+          </div>
+        ) : displayedSuppliers.map((supplier) => {
+          const isContacted = (supplier.interactions || []).some((item) => item.type === 'whatsapp');
+          const isReplied = (supplier.interactions || []).some((item) => item.type === 'whatsapp_reply');
+          const distanceKm = calcDistanceKm(supplier, sortByDistanceRef);
+          const brands = pickSupplierBrands(supplier);
+          return (
             <div key={supplier.id} role="button" tabIndex={0} onClick={() => setFullscreenSupplierId(supplier.id)} onKeyDown={(e) => { if (e.key === 'Enter') setFullscreenSupplierId(supplier.id); }} className="w-full rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-[0_8px_28px_rgba(15,23,42,0.08)] space-y-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(15,23,42,0.12)] active:scale-[0.99]">
-              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 via-blue-600 to-indigo-900 p-3 text-white shadow-inner">
-                <div className="pointer-events-none absolute inset-0 bg-white/10 mix-blend-overlay" />
-                <div className="pointer-events-none absolute -right-7 -top-8 h-20 w-20 rounded-full bg-white/20 blur-2xl" />
-                <div className="flex items-center gap-3">
-                {((supplier.photos && supplier.photos.length > 0) || supplier.photoUrl) ? (
-                  <img src={((supplier.photos && supplier.photos[0]) || supplier.photoUrl) as string} alt={supplier.name} className="h-12 w-12 rounded-2xl border border-slate-200 object-cover" />
-                ) : (
-                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/20 text-sm font-black text-white backdrop-blur-sm">{supplierInitials(supplier.name)}</div>
-                )}
+              <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-base font-black uppercase">{supplier.name}</p>
-                  <p className="truncate text-xs font-semibold text-blue-100">{supplier.location || 'Location not set'}</p>
-                  <p className="mt-1 truncate text-[11px] font-semibold text-white/90">{Number.isFinite(distanceKm) ? `📍 ${distanceKm.toFixed(1)} km away` : '📍 Distance unavailable'}</p>
+                  <div className="flex items-center gap-3">
+                    {((supplier.photos && supplier.photos.length > 0) || supplier.photoUrl) ? (
+                      <img src={((supplier.photos && supplier.photos[0]) || supplier.photoUrl) as string} alt={supplier.name} className="h-14 w-14 rounded-2xl border border-slate-200 object-cover" />
+                    ) : (
+                      <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-sm font-black text-white">{supplierInitials(supplier.name)}</div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-base font-black uppercase text-slate-900">{supplier.name}</p>
+                      <p className="truncate text-xs font-semibold text-slate-500">{supplier.location || 'Location not set'}</p>
+                      <p className="mt-1 text-[11px] font-semibold text-slate-500">{Number.isFinite(distanceKm) ? `📍 ${distanceKm.toFixed(1)} km away` : '📍 Distance unavailable'}</p>
+                    </div>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    openQuickPhotoPicker(supplier.id);
-                  }}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-white/15 text-sm backdrop-blur-sm"
-                  title="Добавить фото"
-                >
-                  📷
-                </button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={(event) => { event.stopPropagation(); togglePinned(supplier); }} className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border ${supplier.isPinned ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-500'}`} aria-label={supplier.isPinned ? 'Открепить поставщика' : 'Закрепить поставщика'}>
+                    <Pin size={16} className={supplier.isPinned ? 'fill-current' : ''} />
+                  </button>
+                  <button type="button" onClick={(event) => { event.stopPropagation(); toggleFavorite(supplier); }} className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border ${supplier.isFavorite ? 'border-rose-300 bg-rose-50 text-rose-600' : 'border-slate-200 bg-white text-slate-500'}`} aria-label={supplier.isFavorite ? 'Убрать из избранного' : 'Добавить в избранное'}>
+                    <Heart size={16} className={supplier.isFavorite ? 'fill-current' : ''} />
+                  </button>
+                  <button type="button" onClick={(event) => { event.stopPropagation(); openQuickPhotoPicker(supplier.id); }} className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500" title="Добавить фото">📷</button>
                 </div>
               </div>
-              <div className="flex items-center gap-2 text-[10px] font-black uppercase">
+              <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase">
+                {supplier.isPinned && <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-700">Pinned</span>}
+                {supplier.isFavorite && <span className="rounded-full bg-rose-50 px-2 py-1 text-rose-600">Favorite</span>}
                 <span className={`rounded-full px-2 py-1 ${isContacted ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>✓ Contacted</span>
                 <span className={`rounded-full px-2 py-1 ${isReplied ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>✓ Replied</span>
               </div>
               <div className="space-y-2">
-                <p className="text-[11px] font-black uppercase text-slate-500">Brands</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {(brands.length > 0 ? brands : ['N/A']).slice(0, 4).map((brand) => <span key={`${supplier.id}-brand-${brand}`} className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-black text-indigo-700">{brand.toUpperCase()}</span>)}
+                <div>
+                  <p className="text-[11px] font-black uppercase text-slate-500">Brands</p>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {(brands.length > 0 ? brands : ['N/A']).slice(0, 6).map((brand) => <span key={`${supplier.id}-brand-${brand}`} className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-black text-indigo-700">{brand.toUpperCase()}</span>)}
+                  </div>
                 </div>
-                <p className="pt-1 text-[11px] font-black uppercase text-slate-500">Models</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {((supplier.models || []).length > 0 ? (supplier.models || []) : ['N/A']).slice(0, 4).map((model) => <span key={`${supplier.id}-model-${model}`} className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-700">{model}</span>)}
+                <div>
+                  <p className="text-[11px] font-black uppercase text-slate-500">Models</p>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {((supplier.models || []).length > 0 ? (supplier.models || []) : ['N/A']).slice(0, 6).map((model) => <span key={`${supplier.id}-model-${model}`} className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-700">{model}</span>)}
+                  </div>
                 </div>
               </div>
-              <div className="sticky bottom-2 z-10 rounded-2xl border border-slate-200/90 bg-white/95 p-2 shadow-sm backdrop-blur">
-                <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsApp(supplier); }} className="w-full rounded-xl bg-emerald-500 px-2 py-2 text-xs font-black text-white">🟢 WhatsApp</button>
-                <div className="grid grid-cols-2 gap-2">
-                  <button type="button" onClick={(e) => { e.stopPropagation(); openPhone(supplier); }} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-center text-xs font-black text-slate-700">📞 Call</button>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); openMap(supplier.location || ''); }} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-black text-slate-700">📍 Map</button>
-                </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsApp(supplier); }} className="rounded-xl bg-emerald-500 px-2 py-2 text-xs font-black text-white">WhatsApp</button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); openPhone(supplier); }} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-center text-xs font-black text-slate-700">Call</button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); openMap(supplier.location || ''); }} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-black text-slate-700">Map</button>
               </div>
             </div>
-          );})}
-        </section>
+          );
+        })}
+      </section>
+
+      {isBrandsDrawerOpen && (
+        <div className="fixed inset-0 z-[75] bg-black/40" onClick={() => setIsBrandsDrawerOpen(false)}>
+          <div className="h-full w-[86%] max-w-xs rounded-r-3xl bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-black uppercase text-slate-900">Марки</p>
+                <p className="text-xs font-semibold text-slate-500">Выберите марку, чтобы показать её поставщиков.</p>
+              </div>
+              <button type="button" onClick={() => setIsBrandsDrawerOpen(false)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">Закрыть</button>
+            </div>
+            <div className="space-y-2 overflow-y-auto pb-6">
+              <button type="button" onClick={() => { setSelectedBrandView(null); setIsBrandsDrawerOpen(false); }} className={`w-full rounded-2xl px-3 py-3 text-left text-sm font-black ${!selectedBrandView ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>Все марки</button>
+              {availableBrands.map((brand) => (
+                <button key={brand} type="button" onClick={() => { setSelectedBrandView(brand); setIsBrandsDrawerOpen(false); }} className={`w-full rounded-2xl px-3 py-3 text-left text-sm font-black ${selectedBrandView === brand ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>
+                  {brand}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
+
 
       <div className="hidden space-y-3">
         {lastSuppliersSyncError && (
