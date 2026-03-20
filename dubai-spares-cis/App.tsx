@@ -17,7 +17,6 @@ import VendorSlider from './components/VendorSlider';
 import VendorSlidesScreen from './screens/VendorSlidesScreen';
 import { Bell, CarFront, Layers, PlusCircle, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
-import { LOCAL_MODE_LABEL } from './localMode';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
 import { playSound } from './utils/sounds';
 
@@ -116,12 +115,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   return (
       <div className="fixed inset-0 h-[100dvh] w-full bg-slate-100 flex justify-center overflow-hidden"><div className="h-full w-full max-w-md bg-gray-50 flex flex-col overflow-hidden shadow-sm relative">
-        {/* Top bar: cloud sync status */}
-        <div className="fixed top-0 left-0 right-0 z-[89] flex items-center px-3 pointer-events-none" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
-          <div title="Cloud sync status" className="pointer-events-auto px-2.5 py-1 rounded-full bg-slate-700/85 text-white text-[10px] font-black uppercase tracking-wide shadow">
-            {LOCAL_MODE_LABEL}
-          </div>
-        </div>
         <main ref={mainRef} className="flex-1 overflow-y-auto no-scrollbar relative">
           {children}
         </main>
