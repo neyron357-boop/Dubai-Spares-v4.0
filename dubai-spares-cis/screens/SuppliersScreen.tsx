@@ -312,6 +312,7 @@ const SuppliersScreen: React.FC = () => {
     triggered: boolean;
   } | null>(null);
   const fullscreenMenuRef = useRef<HTMLDivElement>(null);
+  const suppressClickSupplierIdRef = useRef<string | null>(null);
   const [deleteSupplierId, setDeleteSupplierId] = useState<string | null>(null);
   const [quickPhotoSupplierId, setQuickPhotoSupplierId] = useState<string | null>(null);
   const [isFullscreenMenuOpen, setIsFullscreenMenuOpen] = useState(false);
@@ -712,8 +713,22 @@ const SuppliersScreen: React.FC = () => {
   };
 
   const openSupplierActions = (supplierId: string) => {
+    suppressClickSupplierIdRef.current = supplierId;
     setActionModalSupplierId(supplierId);
     setOverflowSupplierId(null);
+  };
+
+  const toggleSupplierExpanded = (supplierId: string) => {
+    if (suppressClickSupplierIdRef.current === supplierId) {
+      suppressClickSupplierIdRef.current = null;
+      return;
+    }
+    setExpandedSupplierIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(supplierId)) next.delete(supplierId);
+      else next.add(supplierId);
+      return next;
+    });
   };
 
   const LONG_PRESS_DELAY_MS = 550;
@@ -731,7 +746,7 @@ const SuppliersScreen: React.FC = () => {
   const startLongPress = (supplierId: string, event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse') return;
     const target = event.target as HTMLElement | null;
-    if (target?.closest('button, input, textarea, select, a, [data-no-long-press="true"]')) return;
+    if (target?.closest('input, textarea, select, a, [data-no-long-press="true"]')) return;
 
     cancelLongPress();
     longPressGestureRef.current = {
@@ -2226,7 +2241,7 @@ const SuppliersScreen: React.FC = () => {
                 onPointerLeave={() => cancelLongPress()}
                 className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${s.whatsappFast === true ? 'ring-1 ring-emerald-200' : ''} ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}
               >
-                <button type="button" onClick={() => setExpandedSupplierIds((prev) => { const next = new Set(prev); if (next.has(s.id)) next.delete(s.id); else next.add(s.id); return next; })} className="w-full text-left space-y-2">
+                <button type="button" onClick={() => toggleSupplierExpanded(s.id)} className="w-full text-left space-y-2">
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       {((s.photos && s.photos.length > 0) || s.photoUrl) ? (
@@ -2238,6 +2253,7 @@ const SuppliersScreen: React.FC = () => {
                             if (images.length > 0) setGallery({ images, index: 0 });
                           }}
                           className="w-12 h-12 rounded-xl overflow-hidden border border-gray-200 shrink-0"
+                          data-no-long-press="true"
                         >
                           <img src={((s.photos && s.photos[0]) || s.photoUrl) as string} alt={s.name} className="h-full w-full object-cover" />
                         </button>
@@ -2256,7 +2272,8 @@ const SuppliersScreen: React.FC = () => {
                       <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
-                          onClick={() => setExpandedSupplierIds((prev) => { const next = new Set(prev); if (next.has(s.id)) next.delete(s.id); else next.add(s.id); return next; })}
+                          onClick={() => toggleSupplierExpanded(s.id)}
+                          data-no-long-press="true"
                           className="rounded-full border border-slate-200 p-1 text-slate-500"
                           aria-label={isExpanded ? 'Свернуть карточку' : 'Раскрыть карточку'}
                         >
@@ -2265,6 +2282,7 @@ const SuppliersScreen: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setOverflowSupplierId((prev) => prev === s.id ? null : s.id)}
+                          data-no-long-press="true"
                           className="rounded-full border border-slate-200 p-1 text-slate-500"
                           aria-label="Открыть меню действий"
                         >
