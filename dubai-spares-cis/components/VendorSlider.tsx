@@ -60,13 +60,13 @@ const resolveMapValue = (value?: string) => {
 const normalizeZone = (value?: string) => (value || '').trim().toLowerCase();
 
 const SUPPLIER_STATUS_OPTIONS: Array<{ value: NonNullable<OrderVendorContact['orderStatus']>; label: string }> = [
-  { value: 'searching', label: 'Поиск' },
-  { value: 'found', label: 'Нашел' },
-  { value: 'not_found', label: 'Не нашел' },
-  { value: 'visit_required', label: 'Надо посетить' },
-  { value: 'awaiting_reply', label: 'Ждем ответ' },
-  { value: 'ordered', label: 'Заказан' },
-  { value: 'other', label: 'Другое' }
+  { value: 'searching', label: 'Searching' },
+  { value: 'found', label: 'Found' },
+  { value: 'not_found', label: 'Not found' },
+  { value: 'visit_required', label: 'Visit required' },
+  { value: 'awaiting_reply', label: 'Awaiting reply' },
+  { value: 'ordered', label: 'Ordered' },
+  { value: 'other', label: 'Other' }
 ];
 
 const VendorSliderContent: React.FC = () => {
@@ -98,6 +98,7 @@ const VendorSliderContent: React.FC = () => {
   const [newChecklistTask, setNewChecklistTask] = useState('');
   const [addingSupplier, setAddingSupplier] = useState(false);
   const [suppliersTab, setSuppliersTab] = useState<'active' | 'recommendations'>('active');
+  const [partsTab, setPartsTab] = useState<'searching' | 'found'>('searching');
   const [sharingSupplierKey, setSharingSupplierKey] = useState<string | null>(null);
   const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
   const [supplierToDeleteId, setSupplierToDeleteId] = useState<string | null>(null);
@@ -253,6 +254,7 @@ const VendorSliderContent: React.FC = () => {
     setSupplierForm({ name: '', phone: '', whatsapp: '', mapUrl: '', note: '' });
     setAddingSupplier(false);
     setSuppliersTab('active');
+    setPartsTab('searching');
     setSharingSupplierKey(null);
     setNewChecklistTask('');
   }, [current?.id]);
@@ -325,11 +327,11 @@ const VendorSliderContent: React.FC = () => {
       return contacts.length > 0 && contacts.some((c) => !c.lastWhatsappAt);
     });
     return [
-      { key: URGENT_KEY, title: '🔥 Срочные', orders: urgentList.length, parts: countParts(urgentList), className: 'border-rose-500 bg-rose-900/45 shadow-[0_0_0_1px_rgba(251,113,133,0.18)]' },
-      { key: FOUND_SLIDES_KEY, title: '🟢 Есть варианты', orders: foundList.length, parts: countParts(foundList), className: 'border-emerald-600 bg-emerald-900/35' },
-      { key: NOT_FOUND_SLIDES_KEY, title: '🟡 Нет вариантов', orders: notFoundList.length, parts: countParts(notFoundList), className: 'border-amber-500 bg-amber-900/30' },
-      { key: SUPPLIER_SEARCH_KEY, title: '👥 Нет поставщиков', orders: noSupplierList.length, parts: countParts(noSupplierList), className: 'border-fuchsia-600 bg-fuchsia-900/35' },
-      { key: NEED_SEND_KEY, title: '📤 Нужно отправить', orders: needSendList.length, parts: countParts(needSendList), className: 'border-cyan-500 bg-cyan-900/35' }
+      { key: URGENT_KEY, title: '🔥 Urgent', orders: urgentList.length, parts: countParts(urgentList), className: 'border-rose-500 bg-rose-900/45 shadow-[0_0_0_1px_rgba(251,113,133,0.18)]' },
+      { key: FOUND_SLIDES_KEY, title: '🟢 Has variants', orders: foundList.length, parts: countParts(foundList), className: 'border-emerald-600 bg-emerald-900/35' },
+      { key: NOT_FOUND_SLIDES_KEY, title: '🟡 No variants', orders: notFoundList.length, parts: countParts(notFoundList), className: 'border-amber-500 bg-amber-900/30' },
+      { key: SUPPLIER_SEARCH_KEY, title: '👥 No suppliers', orders: noSupplierList.length, parts: countParts(noSupplierList), className: 'border-fuchsia-600 bg-fuchsia-900/35' },
+      { key: NEED_SEND_KEY, title: '📤 Need to send', orders: needSendList.length, parts: countParts(needSendList), className: 'border-cyan-500 bg-cyan-900/35' }
     ];
   }, [orders]);
 
@@ -394,7 +396,7 @@ const VendorSliderContent: React.FC = () => {
           phone,
           whatsapp,
           mapUrl,
-          note: `Из варианта: ${part.name}`,
+          note: `From variant: ${part.name}`,
           createdAt: variant.createdAt || Date.now(),
           updatedAt: variant.updatedAt || variant.createdAt || Date.now()
         });
@@ -589,7 +591,8 @@ const VendorSliderContent: React.FC = () => {
     if (!current) return '';
     const carLine = `${current.brand} ${current.model} ${current.year}`.trim();
     const neededParts = current.visibleParts
-      .map((part, idx) => `${idx + 1}. ${part.name}`)
+      .filter((part) => !(part.isFound || part.status === 'found' || part.variants.length > 0))
+      .map((part, idx) => `${idx + 1}. ${getPartDisplayName(part)}`)
       .join('\n');
 
     return [
@@ -598,7 +601,7 @@ const VendorSliderContent: React.FC = () => {
       `Car: ${carLine}`,
       `VIN: ${current.vin || '—'}`,
       '',
-      'Required parts (EN):',
+      'Required parts:',
       neededParts || '-'
     ].join('\n');
   };
@@ -768,13 +771,13 @@ const VendorSliderContent: React.FC = () => {
               type="button"
               onClick={() => navigate('/vendor')}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white/80"
-              aria-label="Назад в главное меню"
+              aria-label="Back to main menu"
             >
               <ArrowLeft size={16} />
             </button>
             <div>
               <p className="text-xl font-black">Vendor Slides</p>
-              <p className="text-[11px] text-white/50">Управление поставщиками</p>
+              <p className="text-[11px] text-white/50">Supplier workflow</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -782,7 +785,7 @@ const VendorSliderContent: React.FC = () => {
               type="button"
               onClick={() => { searchInputRef.current?.focus(); }}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white/70"
-              aria-label="Поиск"
+              aria-label="Search"
             >
               <Search size={16} />
             </button>
@@ -790,7 +793,7 @@ const VendorSliderContent: React.FC = () => {
               type="button"
               onClick={() => setQuickActionsOpen(true)}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-amber-300"
-              aria-label="Быстрые действия"
+              aria-label="Quick actions"
             >
               <Zap size={16} />
             </button>
@@ -805,7 +808,7 @@ const VendorSliderContent: React.FC = () => {
               ref={searchInputRef}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Поиск по марке, модели, VIN, детали или клиенту..."
+              placeholder="Search by brand, model, VIN, part, or client..."
               className="flex-1 bg-transparent text-sm text-white placeholder-white/35 outline-none"
             />
             {searchQuery && (
@@ -819,12 +822,12 @@ const VendorSliderContent: React.FC = () => {
         {/* QUICK FILTER BAR */}
         <div className="flex shrink-0 gap-2 overflow-x-auto px-4 pb-3 [scrollbar-width:none]">
           {([
-            { key: 'all', label: 'Все' },
-            { key: URGENT_KEY, label: '🔥 Срочно' },
-            { key: FOUND_SLIDES_KEY, label: '🟢 Найдено' },
-            { key: NOT_FOUND_SLIDES_KEY, label: '🔴 Нет вариантов' },
-            { key: SUPPLIER_SEARCH_KEY, label: '👥 Без поставщиков' },
-            { key: NEED_SEND_KEY, label: '📤 Нужно отправить' }
+            { key: 'all', label: 'All' },
+            { key: URGENT_KEY, label: '🔥 Urgent' },
+            { key: FOUND_SLIDES_KEY, label: '🟢 Found' },
+            { key: NOT_FOUND_SLIDES_KEY, label: '🔴 No variants' },
+            { key: SUPPLIER_SEARCH_KEY, label: '👥 No suppliers' },
+            { key: NEED_SEND_KEY, label: '📤 Need to send' }
           ] as const).map((filter) => (
             <button
               key={filter.key}
@@ -846,9 +849,9 @@ const VendorSliderContent: React.FC = () => {
           {/* SEARCH RESULTS */}
           {searchQuery.trim() && (
             <div>
-              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Результаты поиска</p>
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Search results</p>
               {searchResults.length === 0 ? (
-                <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-3 text-xs text-slate-400">Ничего не найдено</p>
+                <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-3 text-xs text-slate-400">Nothing found</p>
               ) : (
                 <div className="space-y-2">
                   {searchResults.map((order) => (
@@ -864,7 +867,7 @@ const VendorSliderContent: React.FC = () => {
                     >
                       <div>
                         <p className="text-sm font-black">{order.brand} {order.model} {order.year}</p>
-                        <p className="text-[11px] text-white/50">{order.parts.length} дет. · VIN: {order.vin || '—'}</p>
+                        <p className="text-[11px] text-white/50">{order.parts.length} parts · VIN: {order.vin || '—'}</p>
                       </div>
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${order.priority === Priority.HIGH ? 'bg-rose-700 text-white' : order.priority === Priority.MEDIUM ? 'bg-amber-700 text-white' : 'bg-slate-700 text-white/70'}`}>
                         {order.priority}
@@ -883,7 +886,7 @@ const VendorSliderContent: React.FC = () => {
                 <div>
                   <div className="mb-2 flex items-center gap-2">
                     <Clock size={12} className="text-white/40" />
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Недавние машины</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Recent cars</p>
                   </div>
                   <div className="space-y-2">
                     {recentCars.map((car) => (
@@ -900,7 +903,7 @@ const VendorSliderContent: React.FC = () => {
                         <Clock size={14} className="shrink-0 text-white/25" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-bold">{car.brand} {car.model}</p>
-                          <p className="text-[11px] text-white/50">{car.year} · {car.parts.length} дет.</p>
+                          <p className="text-[11px] text-white/50">{car.year} · {car.parts.length} parts</p>
                         </div>
                         {car.priority === Priority.HIGH && <span className="shrink-0 text-xs text-rose-400">🔥</span>}
                       </button>
@@ -932,8 +935,8 @@ const VendorSliderContent: React.FC = () => {
                         className={`rounded-xl border px-3 py-3 text-left ${card.className}`}
                       >
                         <p className="text-sm font-black leading-tight">{card.title}</p>
-                        <p className="mt-1.5 text-[11px] font-semibold text-white/80">{card.orders} заказов</p>
-                        <p className="text-[10px] text-white/60">{card.parts} деталей</p>
+                        <p className="mt-1.5 text-[11px] font-semibold text-white/80">{card.orders} orders</p>
+                        <p className="text-[10px] text-white/60">{card.parts} parts</p>
                       </button>
                     ))}
                   </div>
@@ -943,9 +946,9 @@ const VendorSliderContent: React.FC = () => {
               {/* BRANDS BLOCK */}
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">МАРКИ</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">BRANDS</p>
                   <div className="flex gap-0.5 rounded-lg border border-slate-700 bg-slate-900/60 p-0.5">
-                    {([['orders', 'заказы'], ['urgent', 'срочность'], ['updated', 'обновление']] as const).map(([key, label]) => (
+                    {([['orders', 'orders'], ['urgent', 'urgency'], ['updated', 'updated']] as const).map(([key, label]) => (
                       <button
                         key={key}
                         type="button"
@@ -969,8 +972,8 @@ const VendorSliderContent: React.FC = () => {
                       className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-4 text-left hover:border-[#2563EB]"
                     >
                       <p className="text-lg font-black">{brand}</p>
-                      <p className="mt-1 text-xs font-semibold text-white/65">{brandOrders} заказов</p>
-                      {urgent > 0 && <p className="mt-0.5 text-[11px] font-bold text-rose-400">{urgent} срочных</p>}
+                      <p className="mt-1 text-xs font-semibold text-white/65">{brandOrders} orders</p>
+                      {urgent > 0 && <p className="mt-0.5 text-[11px] font-bold text-rose-400">{urgent} urgent</p>}
                     </button>
                   ))}
                 </div>
@@ -985,12 +988,12 @@ const VendorSliderContent: React.FC = () => {
             <div className="mt-16 rounded-3xl border border-amber-700/40 bg-[#1a1510] p-4" onClick={(e) => e.stopPropagation()}>
               <div className="mb-3 flex items-center gap-2">
                 <Zap size={14} className="text-amber-300" />
-                <p className="text-sm font-bold uppercase tracking-[0.2em] text-amber-100">Быстрые действия</p>
+                <p className="text-sm font-bold uppercase tracking-[0.2em] text-amber-100">Quick actions</p>
               </div>
               <div className="space-y-2">
                 {[
                   {
-                    label: 'Открыть последний заказ',
+                    label: 'Open last order',
                     action: () => {
                       const lastId = recentCarIds[0];
                       if (lastId) {
@@ -1005,15 +1008,15 @@ const VendorSliderContent: React.FC = () => {
                     }
                   },
                   {
-                    label: 'Показать машины без вариантов',
+                    label: 'Show cars without variants',
                     action: () => { setSelectedBrand(NOT_FOUND_SLIDES_KEY); setBrandFilter(NOT_FOUND_SLIDES_KEY); setQuickActionsOpen(false); }
                   },
                   {
-                    label: 'Показать машины без поставщиков',
+                    label: 'Show cars without suppliers',
                     action: () => { setSelectedBrand(SUPPLIER_SEARCH_KEY); setBrandFilter(SUPPLIER_SEARCH_KEY); setQuickActionsOpen(false); }
                   },
                   {
-                    label: 'Показать срочные',
+                    label: 'Show urgent',
                     action: () => { setSelectedBrand(URGENT_KEY); setBrandFilter(URGENT_KEY); setQuickActionsOpen(false); }
                   }
                 ].map((action) => (
@@ -1037,14 +1040,17 @@ const VendorSliderContent: React.FC = () => {
   if (!current) {
     return (
       <div className="fixed inset-0 z-50 flex min-h-screen flex-col items-center justify-center gap-4 bg-[#0B1220] text-gray-300">
-        <p>Нет данных</p>
-        <button type="button" onClick={() => { clearPendingUrlSync(); navigate(-1); }} className="rounded-xl border border-gray-700 px-4 py-2">Назад</button>
+        <p>No data</p>
+        <button type="button" onClick={() => { clearPendingUrlSync(); navigate(-1); }} className="rounded-xl border border-gray-700 px-4 py-2">Back</button>
       </div>
     );
   }
 
   const carImages = sanitizeImages([...(Array.isArray(current.carPhotos) ? current.carPhotos : []), current.carPhotoUrl]);
   const availableCarImages = carImages.filter((image) => !brokenImages[image]);
+  const searchingParts = current.visibleParts.filter((part) => !(part.isFound || part.status === 'found' || part.variants.length > 0));
+  const foundParts = current.visibleParts.filter((part) => part.isFound || part.status === 'found' || part.variants.length > 0);
+  const visibleSlideParts = partsTab === 'searching' ? searchingParts : foundParts;
 
   return (
     <div className="fixed inset-0 z-50 flex min-h-screen w-full flex-col overflow-hidden bg-[#0B1220] text-white">
@@ -1067,8 +1073,8 @@ const VendorSliderContent: React.FC = () => {
             <p className="truncate text-2xl font-black leading-tight">{current.brand} {current.model}</p>
             <p className="mt-1 text-lg font-black text-amber-200">{current.year} · {current.bodyType || '—'}</p>
           </div>
-          {zoneFilter !== 'all' && <p className="mt-1 text-xs font-black uppercase tracking-[0.2em] text-emerald-200">Зона: {zoneFilter}</p>}
-          {(selectedBrand || brandFilter) === LEAD_SLIDES_KEY && <p className="mt-1 text-xs font-black uppercase tracking-[0.2em] text-rose-200">Режим: ЛИД</p>}
+          {zoneFilter !== 'all' && <p className="mt-1 text-xs font-black uppercase tracking-[0.2em] text-emerald-200">Zone: {zoneFilter}</p>}
+          {(selectedBrand || brandFilter) === LEAD_SLIDES_KEY && <p className="mt-1 text-xs font-black uppercase tracking-[0.2em] text-rose-200">Mode: LEAD</p>}
 
           <div className="pointer-events-auto mt-2 flex flex-wrap items-center gap-2">
             <button
@@ -1079,35 +1085,34 @@ const VendorSliderContent: React.FC = () => {
               }}
               className="rounded-xl border border-slate-500/90 bg-black/40 px-3 py-1 text-xs font-bold text-white"
             >
-              Открыть заказ
+              Open order
             </button>
             <button
               type="button"
               onClick={() => setSuppliersOpen(true)}
               className="inline-flex items-center gap-1 rounded-xl border border-cyan-400/70 bg-cyan-900/30 px-3 py-1 text-xs font-bold text-cyan-100"
             >
-              <Users size={13} /> Поставщики ({supplierContacts.length})
+              <Users size={13} /> Suppliers ({supplierContacts.length})
             </button>
             <button
               type="button"
               onClick={() => setChecklistOpen(true)}
               className="inline-flex items-center gap-1 rounded-xl border border-violet-400/70 bg-violet-900/30 px-3 py-1 text-xs font-bold text-violet-100"
             >
-              <CheckSquare size={13} /> Чек лист
+              <CheckSquare size={13} /> Checklist
             </button>
             <button
               type="button"
               onClick={() => setVehicleDetailsOpen(true)}
               className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-amber-300/70 bg-amber-900/30 px-2 py-1 text-[11px] font-bold text-amber-100"
             >
-              Авто
+              Vehicle
             </button>
           </div>
         </div>
 
         <div className="absolute right-3 top-3 z-10 flex gap-2">
           <button type="button" onClick={() => setFiltersOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Filter size={18} /></button>
-          <button type="button" onClick={() => navigate('/vendor')} className="rounded-full bg-black/45 px-3 text-[11px] font-bold">Поставщики</button>
           <button type="button" onClick={() => navigate('/vendor')} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><X size={20} /></button>
         </div>
       </div>
@@ -1127,7 +1132,30 @@ const VendorSliderContent: React.FC = () => {
           touchStart.current = null;
         }}
       >
-        {current.visibleParts.map((part) => {
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setPartsTab('searching')}
+            className={`rounded-xl border px-3 py-2 text-xs font-bold ${partsTab === 'searching' ? 'border-cyan-400 bg-cyan-900/30 text-cyan-100' : 'border-slate-700 bg-slate-900/60 text-slate-300'}`}
+          >
+            Searching ({searchingParts.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setPartsTab('found')}
+            className={`rounded-xl border px-3 py-2 text-xs font-bold ${partsTab === 'found' ? 'border-emerald-400 bg-emerald-900/30 text-emerald-100' : 'border-slate-700 bg-slate-900/60 text-slate-300'}`}
+          >
+            Found ({foundParts.length})
+          </button>
+        </div>
+
+        {visibleSlideParts.length === 0 && (
+          <div className="rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-6 text-center text-sm text-slate-300">
+            {partsTab === 'searching' ? 'No parts are currently in search.' : 'No found parts yet.'}
+          </div>
+        )}
+
+        {visibleSlideParts.map((part) => {
           const partDisplayName = getPartDisplayName(part);
           const groupItems = normalizeGroupItems(part.groupItems);
           const images = sanitizeImages([...(Array.isArray(part.photos) ? part.photos : []), part.photoUrl]);
@@ -1154,13 +1182,13 @@ const VendorSliderContent: React.FC = () => {
 
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-black">{partDisplayName}</p>
-                <p className="text-[11px] text-white/70">Вариантов: {part.variants.length}</p>
+                <p className="text-[11px] text-white/70">Variants: {part.variants.length}</p>
                 {groupItems.length > 0 && (
                   <p className="mt-0.5 line-clamp-2 text-[10px] text-violet-200/90">
-                    Состав: {groupItems.map((item) => `${item.name} ×${item.quantity}`).join(', ')}
+                    Bundle: {groupItems.map((item) => `${item.name} ×${item.quantity}`).join(', ')}
                   </p>
                 )}
-                {part.comment?.trim() && <p className="mt-0.5 line-clamp-2 text-[10px] text-white/55">Описание: {part.comment.trim()}</p>}
+                {part.comment?.trim() && <p className="mt-0.5 line-clamp-2 text-[10px] text-white/55">Notes: {part.comment.trim()}</p>}
               </div>
 
               <button
@@ -1170,7 +1198,7 @@ const VendorSliderContent: React.FC = () => {
                   navigate(`/order/${current.id}/part/${part.id}`, { replace: false, state: { backTo: '/vendor' } });
                 }}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-600 text-white/90"
-                title="Открыть карточку детали"
+                title="Open part details"
               >
                 <ExternalLink size={12} />
               </button>
@@ -1180,26 +1208,26 @@ const VendorSliderContent: React.FC = () => {
       </div>
 
       <div className="absolute inset-x-0 bottom-3 flex items-center justify-between px-4">
-        <button type="button" onClick={() => goTo(committedIndex - 1)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Назад</button>
-        <button type="button" onClick={() => setPartsSheetOpen(true)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Авто список</button>
-        <button type="button" onClick={() => goTo(committedIndex + 1)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Далее</button>
+        <button type="button" onClick={() => goTo(committedIndex - 1)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Back</button>
+        <button type="button" onClick={() => setPartsSheetOpen(true)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Vehicle list</button>
+        <button type="button" onClick={() => goTo(committedIndex + 1)} className="rounded-xl border border-slate-600 px-3 py-2 text-xs">Next</button>
       </div>
 
       {filtersOpen && (
         <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setFiltersOpen(false)}>
           <div className="mt-20 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}>
-            <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Фильтры</p>
+            <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Filters</p>
             <div className="space-y-3 text-sm">
               <div>
-                <p className="mb-1 text-xs text-white/70">Зона</p>
+                <p className="mb-1 text-xs text-white/70">Zone</p>
                 <select value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)} className="w-full rounded-xl bg-slate-800 px-3 py-2">
-                  <option value="all">Все зоны</option>
+                  <option value="all">All zones</option>
                   {zoneOptions.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
                 </select>
               </div>
 
               <div>
-                <p className="mb-1 text-xs text-white/70">Марки</p>
+                <p className="mb-1 text-xs text-white/70">Brands</p>
                 <select
                   value={brandFilter}
                   onChange={(e) => {
@@ -1213,23 +1241,23 @@ const VendorSliderContent: React.FC = () => {
                   }}
                   className="w-full rounded-xl bg-slate-800 px-3 py-2"
                 >
-                  <option value="all">Все марки</option>
-                  <option value={URGENT_KEY}>🔥 Срочные (HIGH приоритет)</option>
-                  <option value={LEAD_SLIDES_KEY}>Только ЛИД</option>
-                  <option value={FOUND_SLIDES_KEY}>🟢 Найденные (есть цена)</option>
-                  <option value={NOT_FOUND_SLIDES_KEY}>🟡 Ненайденные (без цен)</option>
-                  <option value={SUPPLIER_SEARCH_KEY}>👥 Нет поставщиков (0 контактов)</option>
-                  <option value={SUPPLIER_READY_KEY}>С поставщиками (1+ контакт)</option>
-                  <option value={NEED_SEND_KEY}>📤 Нужно отправить запрос</option>
-                  <option value="__choose">Выбрать экран марок</option>
+                  <option value="all">All brands</option>
+                  <option value={URGENT_KEY}>🔥 Urgent (HIGH priority)</option>
+                  <option value={LEAD_SLIDES_KEY}>Lead only</option>
+                  <option value={FOUND_SLIDES_KEY}>🟢 Found (has price)</option>
+                  <option value={NOT_FOUND_SLIDES_KEY}>🟡 Not found (no prices)</option>
+                  <option value={SUPPLIER_SEARCH_KEY}>👥 No suppliers (0 contacts)</option>
+                  <option value={SUPPLIER_READY_KEY}>With suppliers (1+ contacts)</option>
+                  <option value={NEED_SEND_KEY}>📤 Need to send request</option>
+                  <option value="__choose">Choose brand screen</option>
                   {brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
                 </select>
               </div>
 
               <div>
-                <p className="mb-1 text-xs text-white/70">Приоритет</p>
+                <p className="mb-1 text-xs text-white/70">Priority</p>
                 <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as 'all' | Priority)} className="w-full rounded-xl bg-slate-800 px-3 py-2">
-                  <option value="all">Любой</option>
+                  <option value="all">Any</option>
                   <option value={Priority.HIGH}>High</option>
                   <option value={Priority.MEDIUM}>Medium</option>
                   <option value={Priority.LOW}>Low</option>
@@ -1237,9 +1265,9 @@ const VendorSliderContent: React.FC = () => {
               </div>
 
               <div>
-                <p className="mb-1 text-xs text-white/70">Статус</p>
+                <p className="mb-1 text-xs text-white/70">Status</p>
                 <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | NonNullable<Part['status']>)} className="w-full rounded-xl bg-slate-800 px-3 py-2">
-                  <option value="all">Любой</option>
+                  <option value="all">Any</option>
                   <option value="searching">Searching</option>
                   <option value="found">Found</option>
                   <option value="ordered">Ordered</option>
@@ -1248,11 +1276,11 @@ const VendorSliderContent: React.FC = () => {
               </div>
 
               <div>
-                <p className="mb-1 text-xs text-white/70">Сортировка</p>
+                <p className="mb-1 text-xs text-white/70">Sort</p>
                 <select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'priority' | 'year_asc' | 'year_desc')} className="w-full rounded-xl bg-slate-800 px-3 py-2">
-                  <option value="priority">По приоритету</option>
-                  <option value="year_asc">По году (старые сначала)</option>
-                  <option value="year_desc">По году (новые сначала)</option>
+                  <option value="priority">By priority</option>
+                  <option value="year_asc">By year (oldest first)</option>
+                  <option value="year_desc">By year (newest first)</option>
                 </select>
               </div>
             </div>
@@ -1263,7 +1291,7 @@ const VendorSliderContent: React.FC = () => {
       {partsSheetOpen && (
         <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setPartsSheetOpen(false)}>
           <div className="mt-16 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}>
-            <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Автомобили</p>
+            <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Vehicles</p>
             <div className="max-h-[60vh] space-y-2 overflow-y-auto">
               {orderSlides.map((slide, idx) => (
                 <button
@@ -1277,7 +1305,7 @@ const VendorSliderContent: React.FC = () => {
                   className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left ${idx === committedIndex ? 'bg-[#2563EB]/25 text-white' : 'bg-slate-800 text-slate-200'}`}
                 >
                   <span className="font-semibold">{slide.brand} {slide.model}</span>
-                  <span className="text-xs opacity-70">{slide.visibleParts.length} деталей</span>
+                  <span className="text-xs opacity-70">{slide.visibleParts.length} parts</span>
                 </button>
               ))}
             </div>
@@ -1289,34 +1317,34 @@ const VendorSliderContent: React.FC = () => {
         <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setSuppliersOpen(false)}>
           <div className="mt-12 rounded-3xl border border-cyan-700/50 bg-[#0f1f35] p-4" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-cyan-100">Поставщики заказа</p>
+              <p className="text-sm font-bold uppercase tracking-[0.2em] text-cyan-100">Order suppliers</p>
               <button
                 type="button"
                 onClick={() => setAddingSupplier((prev) => !prev)}
                 className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/80 px-2 py-1 text-[11px] font-bold text-cyan-100"
               >
-                <Plus size={12} /> Добавить
+                <Plus size={12} /> Add
               </button>
             </div>
 
             <div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border border-slate-700 bg-slate-900/40 p-1">
-              <button type="button" onClick={() => setSuppliersTab('active')} className={`rounded-lg px-2 py-1.5 text-[11px] font-bold ${suppliersTab === 'active' ? 'bg-cyan-700 text-white' : 'text-cyan-100/80'}`}>Активные</button>
-              <button type="button" onClick={() => setSuppliersTab('recommendations')} className={`rounded-lg px-2 py-1.5 text-[11px] font-bold ${suppliersTab === 'recommendations' ? 'bg-cyan-700 text-white' : 'text-cyan-100/80'}`}>Рекомендации</button>
+              <button type="button" onClick={() => setSuppliersTab('active')} className={`rounded-lg px-2 py-1.5 text-[11px] font-bold ${suppliersTab === 'active' ? 'bg-cyan-700 text-white' : 'text-cyan-100/80'}`}>Active</button>
+              <button type="button" onClick={() => setSuppliersTab('recommendations')} className={`rounded-lg px-2 py-1.5 text-[11px] font-bold ${suppliersTab === 'recommendations' ? 'bg-cyan-700 text-white' : 'text-cyan-100/80'}`}>Recommendations</button>
             </div>
 
             {addingSupplier && (
               <div className="mb-3 space-y-2 rounded-xl border border-slate-700 bg-slate-900/60 p-3">
-                <input value={supplierForm.name} onChange={(e) => setSupplierForm((prev) => ({ ...prev, name: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-sm" placeholder="Название поставщика" />
+                <input value={supplierForm.name} onChange={(e) => setSupplierForm((prev) => ({ ...prev, name: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-sm" placeholder="Supplier name" />
                 <div className="grid grid-cols-2 gap-2">
-                  <input value={supplierForm.phone} onChange={(e) => setSupplierForm((prev) => ({ ...prev, phone: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Телефон" />
+                  <input value={supplierForm.phone} onChange={(e) => setSupplierForm((prev) => ({ ...prev, phone: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Phone" />
                   <input value={supplierForm.whatsapp} onChange={(e) => setSupplierForm((prev) => ({ ...prev, whatsapp: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="WhatsApp" />
                 </div>
-                <input value={supplierForm.mapUrl} onChange={(e) => setSupplierForm((prev) => ({ ...prev, mapUrl: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Ссылка карты" />
-                <input value={supplierForm.note} onChange={(e) => setSupplierForm((prev) => ({ ...prev, note: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Описание" />
-                <button type="button" onClick={() => void saveSupplier()} className="h-10 w-full rounded-lg bg-cyan-700 text-xs font-bold">Сохранить поставщика</button>
+                <input value={supplierForm.mapUrl} onChange={(e) => setSupplierForm((prev) => ({ ...prev, mapUrl: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Map link" />
+                <input value={supplierForm.note} onChange={(e) => setSupplierForm((prev) => ({ ...prev, note: e.target.value }))} className="h-10 w-full rounded-lg bg-slate-800 px-3 text-xs" placeholder="Notes" />
+                <button type="button" onClick={() => void saveSupplier()} className="h-10 w-full rounded-lg bg-cyan-700 text-xs font-bold">Save supplier</button>
 
                 <div className="space-y-2 border-t border-slate-700 pt-2">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-100/80">Добавить из базы поставщиков</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-100/80">Add from supplier database</p>
                   <div className="max-h-36 space-y-1 overflow-y-auto">
                     {suppliers.map((supplier) => (
                       <button
@@ -1326,7 +1354,7 @@ const VendorSliderContent: React.FC = () => {
                         className="flex w-full items-center justify-between rounded-lg border border-slate-700 bg-slate-800/80 px-2 py-1.5 text-left"
                       >
                         <span className="truncate text-xs">{supplier.name}</span>
-                        <span className="text-[10px] text-cyan-200">Прикрепить</span>
+                        <span className="text-[10px] text-cyan-200">Link</span>
                       </button>
                     ))}
                   </div>
@@ -1335,7 +1363,7 @@ const VendorSliderContent: React.FC = () => {
             )}
 
             <div className="max-h-[48vh] space-y-2 overflow-y-auto">
-              {suppliersTab === 'active' && supplierContacts.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">Пока нет добавленных поставщиков для этого заказа.</p>}
+              {suppliersTab === 'active' && supplierContacts.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">No suppliers added to this order yet.</p>}
 
               {suppliersTab === 'active' && supplierContacts.map((contact) => {
                 const whatsappMeta = getWhatsappMeta(contact);
@@ -1368,7 +1396,7 @@ const VendorSliderContent: React.FC = () => {
                   <p className="text-sm font-black text-white">{contact.name}</p>
                   {wasContacted && (
                     <span className="mt-1 inline-flex rounded-full border border-emerald-300/80 bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-100">
-                      WhatsApp отправлен
+                      WhatsApp sent
                     </span>
                   )}
                   {contact.note && <p className="mt-1 text-[11px] text-slate-300">{contact.note}</p>}
@@ -1397,7 +1425,7 @@ const VendorSliderContent: React.FC = () => {
                       }}
                       className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-600 text-[10px] font-bold"
                     >
-                      <MapPin size={12} /> Карта
+                      <MapPin size={12} /> Map
                     </button>
 
                     <button
@@ -1408,7 +1436,7 @@ const VendorSliderContent: React.FC = () => {
                       }}
                       className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-600 text-[10px] font-bold"
                     >
-                      <Phone size={12} /> Звонок
+                      <Phone size={12} /> Call
                     </button>
 
                     <button
@@ -1416,15 +1444,15 @@ const VendorSliderContent: React.FC = () => {
                       onClick={() => void openSupplierWhatsapp(contact)}
                       disabled={isSharing}
                       className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg text-[10px] font-bold text-white disabled:opacity-60 ${wasContacted ? 'border border-emerald-100 bg-emerald-400 text-emerald-950 shadow-[0_0_0_2px_rgba(16,185,129,0.45)]' : 'bg-emerald-700'}`}
-                      title={wasContacted ? `Последний контакт в WhatsApp: ${new Date(whatsappMeta?.lastWhatsappAt || 0).toLocaleString()}` : 'Отправить сообщение в WhatsApp'}
+                      title={wasContacted ? `Last WhatsApp contact: ${new Date(whatsappMeta?.lastWhatsappAt || 0).toLocaleString()}` : 'Send WhatsApp message'}
                     >
-                      <MessageCircle size={12} /> {isSharing ? 'Открываю...' : wasContacted ? 'Написали ✓' : 'WhatsApp'}
+                      <MessageCircle size={12} /> {isSharing ? 'Opening...' : wasContacted ? 'Messaged ✓' : 'WhatsApp'}
                     </button>
                   </div>
 
                   {wasContacted && (
                     <p className="mt-2 text-[10px] text-emerald-200/90">
-                      Уже писали: {new Date(whatsappMeta?.lastWhatsappAt || 0).toLocaleString()} {whatsappMeta?.whatsappMessageCount ? `(${whatsappMeta.whatsappMessageCount})` : ''}
+                      Already contacted: {new Date(whatsappMeta?.lastWhatsappAt || 0).toLocaleString()} {whatsappMeta?.whatsappMessageCount ? `(${whatsappMeta.whatsappMessageCount})` : ''}
                     </p>
                   )}
                 </div>
@@ -1432,14 +1460,14 @@ const VendorSliderContent: React.FC = () => {
 
               {suppliersTab === 'recommendations' && (
                 <>
-                  {recommendedSuppliers.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">Нет новых рекомендаций — все подходящие поставщики уже активны.</p>}
+                  {recommendedSuppliers.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">No new recommendations — all matching suppliers are already active.</p>}
                   {recommendedSuppliers.map((supplier) => (
                     <div key={supplier.id} className="rounded-xl border border-cyan-900/60 bg-slate-900/60 p-3">
                       <p className="text-sm font-black text-white">{supplier.name}</p>
-                      <p className="mt-1 truncate text-[11px] text-slate-300">{supplier.location || 'Локация не указана'}</p>
+                      <p className="mt-1 truncate text-[11px] text-slate-300">{supplier.location || 'Location not specified'}</p>
                       <div className="mt-2 flex gap-2">
-                        <button type="button" onClick={() => void linkExistingSupplier(supplier)} className="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-700 px-3 text-[10px] font-bold text-white">Добавить в активные</button>
-                        <button type="button" onClick={() => window.open(resolveMapValue(supplier.location), '_blank')} className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-600 px-3 text-[10px] font-bold">Карта</button>
+                        <button type="button" onClick={() => void linkExistingSupplier(supplier)} className="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-700 px-3 text-[10px] font-bold text-white">Add to active</button>
+                        <button type="button" onClick={() => window.open(resolveMapValue(supplier.location), '_blank')} className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-600 px-3 text-[10px] font-bold">Map</button>
                       </div>
                     </div>
                   ))}
@@ -1449,10 +1477,10 @@ const VendorSliderContent: React.FC = () => {
 
             {supplierToDeleteId && (
               <div className="mt-3 rounded-xl border border-rose-700/70 bg-rose-900/25 p-3">
-                <p className="text-xs text-rose-100">Удалить поставщика из этого заказа?</p>
+                <p className="text-xs text-rose-100">Remove supplier from this order?</p>
                 <div className="mt-2 flex gap-2">
-                  <button type="button" onClick={() => setSupplierToDeleteId(null)} className="h-8 rounded-lg border border-slate-600 px-3 text-xs">Отмена</button>
-                  <button type="button" onClick={() => void removeSupplierContact(supplierToDeleteId)} className="h-8 rounded-lg bg-rose-700 px-3 text-xs font-bold">Удалить</button>
+                  <button type="button" onClick={() => setSupplierToDeleteId(null)} className="h-8 rounded-lg border border-slate-600 px-3 text-xs">Cancel</button>
+                  <button type="button" onClick={() => void removeSupplierContact(supplierToDeleteId)} className="h-8 rounded-lg bg-rose-700 px-3 text-xs font-bold">Delete</button>
                 </div>
               </div>
             )}
@@ -1463,17 +1491,17 @@ const VendorSliderContent: React.FC = () => {
       {checklistOpen && (
         <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setChecklistOpen(false)}>
           <div className="mt-12 rounded-3xl border border-violet-700/50 bg-[#1a1733] p-4" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-violet-100">Чек лист поиска</p>
-            <p className="mt-1 text-[11px] text-violet-100/80">Задачи сохраняются для этого заказа и не теряются после перезагрузки.</p>
+            <p className="text-sm font-bold uppercase tracking-[0.2em] text-violet-100">Search checklist</p>
+            <p className="mt-1 text-[11px] text-violet-100/80">Tasks are saved for this order and stay after reload.</p>
 
             <div className="mt-3 space-y-2">
-              {mergedChecklistItems.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-3 text-xs text-slate-300">Нет задач. Добавьте первую задачу ниже.</p>}
+              {mergedChecklistItems.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-3 text-xs text-slate-300">No tasks yet. Add the first task below.</p>}
               <div className="max-h-[44vh] space-y-2 overflow-y-auto">
                 {mergedChecklistItems.map((item) => (
                   <label key={item.id} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/50 px-3 py-2">
                     <input type="checkbox" checked={item.completed} onChange={() => void toggleChecklistItem(item)} className="h-4 w-4" />
                     <span className={`flex-1 text-sm ${item.completed ? 'line-through text-slate-400' : 'text-white'}`}>{item.text}</span>
-                    <span className="text-[10px] uppercase text-violet-200/80">{item.source === 'order' ? 'заказ' : 'общий'}</span>
+                    <span className="text-[10px] uppercase text-violet-200/80">{item.source === 'order' ? 'order' : 'shared'}</span>
                   </label>
                 ))}
               </div>
@@ -1483,10 +1511,10 @@ const VendorSliderContent: React.FC = () => {
               <input
                 value={newChecklistTask}
                 onChange={(e) => setNewChecklistTask(e.target.value)}
-                placeholder="Добавить задачу для этого заказа"
+                placeholder="Add a task for this order"
                 className="h-10 flex-1 rounded-lg bg-slate-800 px-3 text-xs"
               />
-              <button type="button" onClick={() => void addOrderChecklistTask()} className="rounded-lg bg-violet-700 px-3 text-xs font-bold">Добавить</button>
+              <button type="button" onClick={() => void addOrderChecklistTask()} className="rounded-lg bg-violet-700 px-3 text-xs font-bold">Add</button>
             </div>
           </div>
         </div>
@@ -1495,27 +1523,27 @@ const VendorSliderContent: React.FC = () => {
       {vehicleDetailsOpen && (
         <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setVehicleDetailsOpen(false)}>
           <div className="mt-12 rounded-3xl border border-amber-700/40 bg-[#1f1a12] p-4" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-amber-100">Подробности автомобиля</p>
+            <p className="text-sm font-bold uppercase tracking-[0.2em] text-amber-100">Vehicle details</p>
             <div className="mt-3 space-y-2 text-sm text-amber-50/90">
-              <p><span className="text-amber-200/70">Марка/модель:</span> {current.brand} {current.model}</p>
-              <p><span className="text-amber-200/70">Год:</span> {current.year || '—'}</p>
-              <p><span className="text-amber-200/70">Тип кузова:</span> {current.bodyType || '—'}</p>
+              <p><span className="text-amber-200/70">Brand/model:</span> {current.brand} {current.model}</p>
+              <p><span className="text-amber-200/70">Year:</span> {current.year || '—'}</p>
+              <p><span className="text-amber-200/70">Body type:</span> {current.bodyType || '—'}</p>
               <div className="flex items-center gap-2">
                 <p><span className="text-amber-200/70">VIN:</span> {current.vin || '—'}</p>
-                <button type="button" onClick={() => void copyText(current.vin || '')} disabled={!current.vin} className="rounded-md border border-amber-500/40 px-2 py-0.5 text-[10px] font-bold text-amber-100 disabled:opacity-40">Копировать VIN</button>
+                <button type="button" onClick={() => void copyText(current.vin || '')} disabled={!current.vin} className="rounded-md border border-amber-500/40 px-2 py-0.5 text-[10px] font-bold text-amber-100 disabled:opacity-40">Copy VIN</button>
               </div>
-              <p><span className="text-amber-200/70">Клиент:</span> {current.clientName || '—'}</p>
-              <p><span className="text-amber-200/70">Контакт:</span> {current.customerContact || '—'}</p>
-              <p><span className="text-amber-200/70">Тип двигателя:</span> {current.vehicleDetails?.engineType || '—'}</p>
-              <p><span className="text-amber-200/70">Топливо:</span> {current.vehicleDetails?.fuelType || '—'}</p>
-              <p><span className="text-amber-200/70">Привод:</span> {current.vehicleDetails?.drivetrain || '—'}</p>
-              <p><span className="text-amber-200/70">Коробка:</span> {current.vehicleDetails?.transmission || '—'} {current.vehicleDetails?.transmissionCode ? `(${current.vehicleDetails.transmissionCode})` : ''}</p>
-              <p><span className="text-amber-200/70">Объём / код двигателя:</span> {current.vehicleDetails?.engineDisplacement || '—'} {current.vehicleDetails?.engineCode ? `· ${current.vehicleDetails.engineCode}` : ''}</p>
-              <p><span className="text-amber-200/70">Комплектация:</span> {current.vehicleDetails?.trimLevel || '—'}</p>
-              <p><span className="text-amber-200/70">Спецификация / рынок:</span> {current.vehicleDetails?.marketRegion || '—'}</p>
-              <p><span className="text-amber-200/70">Руль:</span> {current.vehicleDetails?.steeringSide || '—'}</p>
-              <p><span className="text-amber-200/70">Дверей / цвет:</span> {current.vehicleDetails?.doors || '—'} / {current.vehicleDetails?.color || '—'}</p>
-              {current.vehicleDetails?.additionalNotes && <p><span className="text-amber-200/70">Примечания:</span> {current.vehicleDetails.additionalNotes}</p>}
+              <p><span className="text-amber-200/70">Client:</span> {current.clientName || '—'}</p>
+              <p><span className="text-amber-200/70">Contact:</span> {current.customerContact || '—'}</p>
+              <p><span className="text-amber-200/70">Engine type:</span> {current.vehicleDetails?.engineType || '—'}</p>
+              <p><span className="text-amber-200/70">Fuel:</span> {current.vehicleDetails?.fuelType || '—'}</p>
+              <p><span className="text-amber-200/70">Drivetrain:</span> {current.vehicleDetails?.drivetrain || '—'}</p>
+              <p><span className="text-amber-200/70">Transmission:</span> {current.vehicleDetails?.transmission || '—'} {current.vehicleDetails?.transmissionCode ? `(${current.vehicleDetails.transmissionCode})` : ''}</p>
+              <p><span className="text-amber-200/70">Engine size / code:</span> {current.vehicleDetails?.engineDisplacement || '—'} {current.vehicleDetails?.engineCode ? `· ${current.vehicleDetails.engineCode}` : ''}</p>
+              <p><span className="text-amber-200/70">Trim:</span> {current.vehicleDetails?.trimLevel || '—'}</p>
+              <p><span className="text-amber-200/70">Spec / market:</span> {current.vehicleDetails?.marketRegion || '—'}</p>
+              <p><span className="text-amber-200/70">Steering:</span> {current.vehicleDetails?.steeringSide || '—'}</p>
+              <p><span className="text-amber-200/70">Doors / color:</span> {current.vehicleDetails?.doors || '—'} / {current.vehicleDetails?.color || '—'}</p>
+              {current.vehicleDetails?.additionalNotes && <p><span className="text-amber-200/70">Notes:</span> {current.vehicleDetails.additionalNotes}</p>}
             </div>
           </div>
         </div>
