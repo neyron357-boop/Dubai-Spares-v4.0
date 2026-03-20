@@ -1048,10 +1048,6 @@ const OrderDetailsScreen: React.FC = () => {
 
 
   const handleBackNavigation = useCallback(() => {
-    if (window.history.length > 1) {
-      navigate(-1);
-      return;
-    }
     navigate(backTo);
   }, [backTo, navigate]);
 
@@ -3155,7 +3151,13 @@ const OrderDetailsScreen: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => navigate(`/order/${order.id}/parts`)}
+                onClick={() => {
+                  const mainScroller = document.querySelector('main');
+                  const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
+                  navigate(`/order/${order.id}/parts`, {
+                    state: typeof restoreScrollTop === 'number' ? { restoreScrollTop } : undefined
+                  });
+                }}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-[11px] font-black text-white"
               >
                 Открыть экран деталей <ChevronRight size={14} />
@@ -3171,7 +3173,16 @@ const OrderDetailsScreen: React.FC = () => {
                     <button
                       key={part.id}
                       type="button"
-                      onClick={() => navigate(`/order/${order.id}/part/${part.id}`)}
+                      onClick={() => {
+                        const mainScroller = document.querySelector('main');
+                        const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
+                        navigate(`/order/${order.id}/part/${part.id}`, {
+                          state: {
+                            backTo: `/order/${order.id}`,
+                            ...(typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {}),
+                          },
+                        });
+                      }}
                       className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-left"
                     >
                       <div className="min-w-0">
