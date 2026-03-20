@@ -302,6 +302,7 @@ const SuppliersScreen: React.FC = () => {
   const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickPhotoInputRef = useRef<HTMLInputElement>(null);
+  const longPressTimerRef = useRef<number | null>(null);
   const fullscreenMenuRef = useRef<HTMLDivElement>(null);
   const [deleteSupplierId, setDeleteSupplierId] = useState<string | null>(null);
   const [quickPhotoSupplierId, setQuickPhotoSupplierId] = useState<string | null>(null);
@@ -384,6 +385,9 @@ const SuppliersScreen: React.FC = () => {
   const [bulkSendIndex, setBulkSendIndex] = useState(0);
   const [bulkSendMode, setBulkSendMode] = useState<3 | 5 | null>(null);
   const [bulkSendStartedAt, setBulkSendStartedAt] = useState<number | null>(null);
+  const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([]);
+  const [actionModalSupplierId, setActionModalSupplierId] = useState<string | null>(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
 
 
   const activeOrders = useMemo(
@@ -689,6 +693,35 @@ const SuppliersScreen: React.FC = () => {
       return haystack.includes(query);
     });
   }, [filteredSuppliers, supplierSearchQuery]);
+
+  const toggleSupplierSelection = (supplierId: string) => {
+    setSelectedSupplierIds((prev) => prev.includes(supplierId) ? prev.filter((id) => id !== supplierId) : [...prev, supplierId]);
+  };
+
+  const clearSupplierSelection = () => {
+    setSelectedSupplierIds([]);
+    setIsSelectionMode(false);
+  };
+
+  const openSupplierActions = (supplierId: string) => {
+    setActionModalSupplierId(supplierId);
+    setOverflowSupplierId(null);
+  };
+
+  const startLongPress = (supplierId: string) => {
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = window.setTimeout(() => {
+      openSupplierActions(supplierId);
+      longPressTimerRef.current = null;
+    }, 500);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
 
   const fullscreenSupplier = useMemo(
     () => displayedSuppliers.find((supplier) => supplier.id === fullscreenSupplierId) || filteredSuppliers.find((supplier) => supplier.id === fullscreenSupplierId) || null,
@@ -1257,9 +1290,17 @@ const SuppliersScreen: React.FC = () => {
   };
 
   const confirmDeleteSupplier = async () => {
-    if (!deleteSupplierId) return;
+    if (!deleteSupplierId || deleteSupplierId === '__bulk__') return;
     await deleteSupplier(deleteSupplierId);
+    setSelectedSupplierIds((prev) => prev.filter((id) => id !== deleteSupplierId));
     setDeleteSupplierId(null);
+  };
+
+  const confirmBulkDeleteSuppliers = async () => {
+    if (selectedSupplierIds.length === 0) return;
+    await Promise.all(selectedSupplierIds.map((supplierId) => deleteSupplier(supplierId)));
+    setDeleteSupplierId(null);
+    clearSupplierSelection();
   };
 
   const toggleFavorite = (supplier: Supplier) => {
@@ -1582,6 +1623,8 @@ const SuppliersScreen: React.FC = () => {
     setIsFullscreenMenuOpen(false);
   }, [fullscreenSupplierId]);
 
+  useEffect(() => () => cancelLongPress(), []);
+
   useEffect(() => {
     setBrandFilter(selectedBrandView || 'all');
   }, [selectedBrandView]);
@@ -1628,17 +1671,43 @@ const SuppliersScreen: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">{displayedSuppliers.length} suppliers</span>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedBrandView(null);
-              setSupplierSearchQuery('');
-            }}
-            className={`rounded-xl px-3 py-2 text-xs font-black ${selectedBrandView ? 'border border-slate-200 text-slate-600' : 'bg-slate-900 text-white'}`}
-          >
-            {selectedBrandView ? `Марка: ${selectedBrandView}` : 'Все марки'}
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">{displayedSuppliers.length} suppliers</span>
+            {selectedSupplierIds.length > 0 && (
+              <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase text-blue-700">Выбрано: {selectedSupplierIds.length}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (isSelectionMode || selectedSupplierIds.length > 0) clearSupplierSelection();
+                else setIsSelectionMode(true);
+              }}
+              className={`rounded-xl border px-3 py-2 text-xs font-black ${isSelectionMode || selectedSupplierIds.length > 0 ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 text-slate-600'}`}
+            >
+              {isSelectionMode || selectedSupplierIds.length > 0 ? 'Отмена' : 'Выбрать'}
+            </button>
+            {selectedSupplierIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setDeleteSupplierId('__bulk__')}
+                className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-black text-white"
+              >
+                Удалить
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedBrandView(null);
+                setSupplierSearchQuery('');
+              }}
+              className={`rounded-xl px-3 py-2 text-xs font-black ${selectedBrandView ? 'border border-slate-200 text-slate-600' : 'bg-slate-900 text-white'}`}
+            >
+              {selectedBrandView ? `Марка: ${selectedBrandView}` : 'Все марки'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1867,66 +1936,92 @@ const SuppliersScreen: React.FC = () => {
           const isReplied = (supplier.interactions || []).some((item) => item.type === 'whatsapp_reply');
           const distanceKm = calcDistanceKm(supplier, sortByDistanceRef);
           const brands = pickSupplierBrands(supplier);
+          const isSelected = selectedSupplierIds.includes(supplier.id);
           return (
-            <div key={supplier.id} role="button" tabIndex={0} onClick={() => setFullscreenSupplierId(supplier.id)} onKeyDown={(e) => { if (e.key === 'Enter') setFullscreenSupplierId(supplier.id); }} className="w-full rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-[0_8px_28px_rgba(15,23,42,0.08)] space-y-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(15,23,42,0.12)] active:scale-[0.99]">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-3">
-                    {((supplier.photos && supplier.photos.length > 0) || supplier.photoUrl) ? (
-                      <img src={((supplier.photos && supplier.photos[0]) || supplier.photoUrl) as string} alt={supplier.name} className="h-14 w-14 rounded-2xl border border-slate-200 object-cover" />
-                    ) : (
-                      <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-sm font-black text-white">{supplierInitials(supplier.name)}</div>
-                    )}
+            <div
+              key={supplier.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                if (isSelectionMode) {
+                  toggleSupplierSelection(supplier.id);
+                  return;
+                }
+                setFullscreenSupplierId(supplier.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  if (isSelectionMode) toggleSupplierSelection(supplier.id);
+                  else setFullscreenSupplierId(supplier.id);
+                }
+              }}
+              onMouseDown={() => startLongPress(supplier.id)}
+              onMouseUp={cancelLongPress}
+              onMouseLeave={cancelLongPress}
+              onTouchStart={() => startLongPress(supplier.id)}
+              onTouchEnd={cancelLongPress}
+              onTouchCancel={cancelLongPress}
+              className={`w-full rounded-[28px] border bg-white px-4 py-3 text-left shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition-all duration-200 ${isSelected ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'} hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(15,23,42,0.12)] active:scale-[0.99]`}
+            >
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setIsSelectionMode(true);
+                    toggleSupplierSelection(supplier.id);
+                  }}
+                  className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-black ${isSelected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-transparent'}`}
+                  aria-label={isSelected ? 'Снять выбор с поставщика' : 'Выбрать поставщика'}
+                >
+                  ✓
+                </button>
+                {((supplier.photos && supplier.photos.length > 0) || supplier.photoUrl) ? (
+                  <img src={((supplier.photos && supplier.photos[0]) || supplier.photoUrl) as string} alt={supplier.name} className="h-14 w-14 shrink-0 rounded-full object-cover" />
+                ) : (
+                  <div className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-sm font-black text-white">{supplierInitials(supplier.name)}</div>
+                )}
+                <div className="min-w-0 flex-1 border-b border-slate-100 pb-3">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-base font-black uppercase text-slate-900">{supplier.name}</p>
-                      <p className="truncate text-xs font-semibold text-slate-500">{supplier.location || 'Location not set'}</p>
-                      <p className="mt-1 text-[11px] font-semibold text-slate-500">{Number.isFinite(distanceKm) ? `📍 ${distanceKm.toFixed(1)} km away` : '📍 Distance unavailable'}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-[15px] font-black text-slate-900">{supplier.name}</p>
+                        {supplier.isPinned && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-black text-amber-700">PIN</span>}
+                        {supplier.isFavorite && <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-black text-rose-600">★</span>}
+                      </div>
+                      <p className="mt-0.5 truncate text-xs font-semibold text-slate-500">{brands.join(', ') || 'Марки не указаны'}</p>
+                      <p className="mt-1 truncate text-[11px] font-medium text-slate-400">{supplier.location || 'Локация не указана'}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-[11px] font-semibold text-slate-400">{timelineLabel(supplier.lastContactAt)}</p>
+                      <p className="mt-1 text-[12px] font-black text-slate-700">{Number.isFinite(distanceKm) ? `${Math.max(0.1, Number(distanceKm.toFixed(1)))} km` : 'n/a'}</p>
                     </div>
                   </div>
+                  <div className="mt-2 flex items-center gap-2 text-[10px] font-black uppercase">
+                    <span className={`rounded-full px-2 py-1 ${supplier.whatsappFast ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{supplier.whatsappFast ? 'FAST reply' : 'Standard'}</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">⭐ {Math.max(1, Math.min(5, Math.round(Number(supplier.trustLevel ?? supplier.autoTrustScore ?? 0) || 0)))}/5</span>
+                    {isContacted && <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">Written</span>}
+                    {isReplied && <span className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">Replied</span>}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 ml-[calc(3.5rem+2.25rem)] flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-slate-600">{((supplier.models || []).slice(0, 3).join(' • ')) || 'Модели не указаны'}</p>
+                  <p className="truncate text-[11px] text-slate-400">{daysAgoLabel(supplier.lastContactAt)}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={(event) => { event.stopPropagation(); togglePinned(supplier); }} className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border ${supplier.isPinned ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-500'}`} aria-label={supplier.isPinned ? 'Открепить поставщика' : 'Закрепить поставщика'}>
-                    <Pin size={16} className={supplier.isPinned ? 'fill-current' : ''} />
-                  </button>
-                  <button type="button" onClick={(event) => { event.stopPropagation(); toggleFavorite(supplier); }} className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border ${supplier.isFavorite ? 'border-rose-300 bg-rose-50 text-rose-600' : 'border-slate-200 bg-white text-slate-500'}`} aria-label={supplier.isFavorite ? 'Убрать из избранного' : 'Добавить в избранное'}>
-                    <Heart size={16} className={supplier.isFavorite ? 'fill-current' : ''} />
-                  </button>
-                  <button type="button" onClick={(event) => { event.stopPropagation(); openQuickPhotoPicker(supplier.id); }} className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500" title="Добавить фото">📷</button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsApp(supplier); }} className="rounded-full bg-emerald-500 px-3 py-2 text-[11px] font-black text-white">WhatsApp</button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); openPhone(supplier); }} className="rounded-full bg-slate-100 px-3 py-2 text-[11px] font-black text-slate-700">Call</button>
                 </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase">
-                {supplier.isPinned && <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-700">Pinned</span>}
-                {supplier.isFavorite && <span className="rounded-full bg-rose-50 px-2 py-1 text-rose-600">Favorite</span>}
-                <span className={`rounded-full px-2 py-1 ${isContacted ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>✓ Contacted</span>
-                <span className={`rounded-full px-2 py-1 ${isReplied ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>✓ Replied</span>
-              </div>
-              <div className="space-y-2">
-                <div>
-                  <p className="text-[11px] font-black uppercase text-slate-500">Brands</p>
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {(brands.length > 0 ? brands : ['N/A']).slice(0, 6).map((brand) => <span key={`${supplier.id}-brand-${brand}`} className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-black text-indigo-700">{brand.toUpperCase()}</span>)}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-[11px] font-black uppercase text-slate-500">Models</p>
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {((supplier.models || []).length > 0 ? (supplier.models || []) : ['N/A']).slice(0, 6).map((model) => <span key={`${supplier.id}-model-${model}`} className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-700">{model}</span>)}
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsApp(supplier); }} className="rounded-xl bg-emerald-500 px-2 py-2 text-xs font-black text-white">WhatsApp</button>
-                <button type="button" onClick={(e) => { e.stopPropagation(); openPhone(supplier); }} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-center text-xs font-black text-slate-700">Call</button>
-                <button type="button" onClick={(e) => { e.stopPropagation(); openMap(supplier.location || ''); }} className="rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-black text-slate-700">Map</button>
               </div>
             </div>
           );
-        })}
-      </section>
+        })}      </section>
 
       {isBrandsDrawerOpen && (
         <div className="fixed inset-0 z-[75] bg-black/40" onClick={() => setIsBrandsDrawerOpen(false)}>
-          <div className="h-full w-[86%] max-w-xs rounded-r-3xl bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+          <div className="ml-auto h-full w-[86%] max-w-xs rounded-l-3xl bg-white p-4 shadow-2xl transition-transform duration-300 ease-out translate-x-0" onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-black uppercase text-slate-900">Марки</p>
@@ -2373,23 +2468,6 @@ const SuppliersScreen: React.FC = () => {
               <p><span className="font-black">Last contact:</span> {daysAgoLabel(fullscreenSupplier.lastContactAt)}</p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-700">Contact status</p>
-              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={(fullscreenSupplier.interactions || []).some((item) => item.type === 'whatsapp')} onChange={() => markContacted(fullscreenSupplier)} /> Written</label>
-              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={(fullscreenSupplier.interactions || []).some((item) => item.type === 'whatsapp_reply')} onChange={() => markResponded(fullscreenSupplier)} /> Replied</label>
-              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={(fullscreenSupplier.interactions || []).some((item) => item.type === 'visit')} onChange={() => markVisitedQuick(fullscreenSupplier)} /> Visited</label>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="mb-3 text-xs font-black uppercase tracking-wide text-slate-700">Activity</p>
-              {(fullscreenSupplier.interactions || []).length === 0 ? <p className="text-xs text-slate-500">История пока пустая.</p> : Array.from(new Map((fullscreenSupplier.interactions || []).map((item) => [`${item.type}:${item.note || ''}`, item])).values()).map((item) => (
-                <div key={item.id} className="mb-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-                  <p className="text-xs font-semibold text-slate-700">{item.type === 'whatsapp' ? '💬 WhatsApp message' : item.type === 'whatsapp_reply' ? '✅ Supplier replied' : item.type === 'visit' ? '📍 Visited supplier' : item.type === 'call' ? '📞 Call supplier' : item.note || item.type}</p>
-                  <p className="text-[11px] font-semibold text-slate-500">{timelineLabel(item.date)}</p>
-                </div>
-              ))}
-            </div>
-
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 space-y-2">
               <p className="text-xs font-black uppercase tracking-wide text-blue-700">Add supplier to order</p>
               <input
@@ -2468,6 +2546,28 @@ const SuppliersScreen: React.FC = () => {
       )}
 
 
+
+      {actionModalSupplierId && (() => {
+        const actionSupplier = suppliers.find((supplier) => supplier.id === actionModalSupplierId);
+        if (!actionSupplier) return null;
+        return (
+          <div className="fixed inset-0 z-[85] flex items-end justify-center bg-black/50 p-3 sm:items-center" onClick={() => setActionModalSupplierId(null)}>
+            <div className="w-full max-w-sm rounded-[28px] bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+              <p className="text-sm font-black text-slate-900">Действия с карточкой</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">{actionSupplier.name}</p>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => { togglePinned(actionSupplier); setActionModalSupplierId(null); }} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs font-black text-slate-700"><Pin size={14} />{actionSupplier.isPinned ? 'Открепить' : 'Закрепить'}</button>
+                <button type="button" onClick={() => { toggleFavorite(actionSupplier); setActionModalSupplierId(null); }} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs font-black text-slate-700"><Heart size={14} />{actionSupplier.isFavorite ? 'Убрать' : 'Избранное'}</button>
+                <button type="button" onClick={() => { openQuickPhotoPicker(actionSupplier.id); setActionModalSupplierId(null); }} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs font-black text-slate-700">📷 Фото</button>
+                <button type="button" onClick={() => { startEditSupplier(actionSupplier); setActionModalSupplierId(null); }} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs font-black text-slate-700"><Pencil size={14} />Редактировать</button>
+                <button type="button" onClick={() => { setDeleteSupplierId(actionSupplier.id); setActionModalSupplierId(null); }} className="col-span-2 inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-xs font-black text-rose-700"><Trash2 size={14} />Удалить</button>
+              </div>
+              <button type="button" onClick={() => setActionModalSupplierId(null)} className="mt-3 w-full rounded-2xl bg-slate-900 px-3 py-3 text-xs font-black text-white">Закрыть</button>
+            </div>
+          </div>
+        );
+      })()}
+
       {contactEditorSupplierId && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3">
           <div className="w-full max-w-md rounded-2xl bg-white p-4 space-y-3">
@@ -2493,7 +2593,8 @@ const SuppliersScreen: React.FC = () => {
         onCancel={() => setPendingOrderRemoval(null)}
       />
 
-      <ConfirmModal isOpen={!!deleteSupplierId} message="Вы уверены, что хотите удалить этого поставщика?" onConfirm={confirmDeleteSupplier} onCancel={() => setDeleteSupplierId(null)} />
+      <ConfirmModal isOpen={deleteSupplierId === '__bulk__'} message={`Удалить выбранных поставщиков (${selectedSupplierIds.length})?`} confirmLabel="Удалить" cancelLabel="Отмена" confirmClass="bg-red-600" onConfirm={confirmBulkDeleteSuppliers} onCancel={() => setDeleteSupplierId(null)} />
+      <ConfirmModal isOpen={!!deleteSupplierId && deleteSupplierId !== '__bulk__'} message="Вы уверены, что хотите удалить этого поставщика?" onConfirm={confirmDeleteSupplier} onCancel={() => setDeleteSupplierId(null)} />
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
       <button
         type="button"
