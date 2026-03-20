@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, Archive, BarChart3, CheckSquare, Clock3, Cloud, Filter, MessageCircle, PenSquare, Pin, Search, Square, Star, Trash2, X } from 'lucide-react';
+import { Archive, BarChart3, Clock3, Filter, MessageCircle, PenSquare, Pin, Search, Star, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
-import { getGreeting } from '../utils/greeting';
 
 type TabType = 'active' | 'vip' | 'lead' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -331,8 +330,6 @@ const OrdersScreen: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
-  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
-  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
@@ -341,36 +338,6 @@ const OrdersScreen: React.FC = () => {
   const [issueFilter, setIssueFilter] = useState<'all' | 'missing_price' | 'missing_contact'>('all');
   const [yearFrom, setYearFrom] = useState('');
   const [yearTo, setYearTo] = useState('');
-
-  // Morning Boss state
-  const [streakBounce, setStreakBounce] = useState(false);
-  const dailyGoalOrders = 8;
-  const dailyGoalParts = 20;
-  const streakDays = 12;
-
-  const urgentOrdersList = useMemo(
-    () => orders.filter((o) => !o.isArchived && !o.isSold && o.priority === Priority.HIGH),
-    [orders]
-  );
-
-  const todayEarnings = useMemo(() => {
-    return orders
-      .filter((o) => !o.isArchived && !o.isSold)
-      .reduce((sum, order) => {
-        const totalCostAed = order.parts.reduce((acc, part) => {
-          const variants = part.variants || [];
-          if (!part.isFound && variants.length === 0) return acc;
-          const bestPrice = variants.reduce((min, v) => {
-            const p = Number(v.priceAed || 0);
-            if (!p) return min;
-            return min === 0 ? p : Math.min(min, p);
-          }, 0);
-          return acc + bestPrice;
-        }, 0);
-        if (totalCostAed <= 0) return sum;
-        return sum + totalCostAed * (order.markupPercent || 0) / 100;
-      }, 0);
-  }, [orders]);
 
 
   useEffect(() => {
@@ -425,14 +392,6 @@ const OrdersScreen: React.FC = () => {
     void updateOrder({ ...order, isArchived: false });
     toast('Заказ восстановлен', 'success');
   };
-
-  const toggleOrderSelection = (orderId: string) => {
-    setSelectedOrderIds((current) => current.includes(orderId)
-      ? current.filter((id) => id !== orderId)
-      : [...current, orderId]);
-  };
-
-  const clearSelection = () => setSelectedOrderIds([]);
 
   const getOrderContactAction = (order: Order) => {
     const source = String(order.source || '').toLowerCase();
@@ -572,35 +531,6 @@ const OrdersScreen: React.FC = () => {
 
   const activeFiltersCount = brandFilters.length + statusFilters.length + (priorityFilter !== 'all' ? 1 : 0) + (noResponseHours > 0 ? 1 : 0) + (issueFilter !== 'all' ? 1 : 0) + (yearFrom ? 1 : 0) + (yearTo ? 1 : 0);
 
-  useEffect(() => {
-    setSelectedOrderIds((current) => current.filter((id) => orders.some((order) => order.id === id)));
-  }, [orders]);
-  const allFilteredSelected = filteredOrders.length > 0 && filteredOrders.every((order) => selectedOrderIds.includes(order.id));
-  const isSelectionMode = selectedOrderIds.length > 0;
-
-  const handleBulkArchive = async () => {
-    if (selectedOrderIds.length === 0) return;
-    const selectedOrders = orders.filter((order) => selectedOrderIds.includes(order.id));
-    if (selectedOrders.length === 0) return;
-    setIsBulkProcessing(true);
-    await Promise.all(selectedOrders.map((order) => updateOrder({ ...order, isArchived: true })));
-    setIsBulkProcessing(false);
-    clearSelection();
-    toast(`В архив перемещено: ${selectedOrders.length}`, 'success');
-    setOpenSwipeId(null);
-  };
-
-  const handleBulkDelete = async () => {
-    if (selectedOrderIds.length === 0) return;
-    setIsBulkProcessing(true);
-    const results = await Promise.all(selectedOrderIds.map((orderId) => deleteOrder(orderId)));
-    setIsBulkProcessing(false);
-    clearSelection();
-    const deletedCount = results.filter(Boolean).length;
-    toast(`Удалено заказов: ${deletedCount}`, deletedCount > 0 ? 'success' : 'error');
-    setOpenSwipeId(null);
-  };
-
   return (
     <div className="space-y-4 px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))] overflow-x-hidden">
 
@@ -613,95 +543,10 @@ const OrdersScreen: React.FC = () => {
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setIsIncomeOpen(true)} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Статистика"><BarChart3 size={18} /></button>
             <button type="button" onClick={() => navigate('/vendor')} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Склад"><Archive size={16} /></button>
-            <button type="button" onClick={() => navigate('/notifications')} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Активность"><Activity size={16} /></button>
             <button type="button" disabled={isRefreshing} onClick={() => void refreshOrders()} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center disabled:opacity-50" aria-label="Обновить">
               <Clock3 size={18} className={isRefreshing ? 'animate-spin text-slate-500' : 'text-slate-700'} />
             </button>
           </div>
-        </div>
-
-        {/* Morning Boss Block */}
-        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 space-y-2.5">
-          <p className="text-sm font-black text-slate-800">{getGreeting()}</p>
-
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Цель на сегодня</p>
-              <div className="flex items-baseline gap-1 mt-0.5">
-                <span className="text-2xl font-black text-slate-900">{Math.min(tabCounts.active, dailyGoalOrders)}</span>
-                <span className="text-sm text-slate-400 font-semibold">/{dailyGoalOrders} зак.</span>
-                <span className="text-slate-300 mx-1">·</span>
-                <span className="text-2xl font-black text-slate-900">{Math.min(tabCounts.found, dailyGoalParts)}</span>
-                <span className="text-sm text-slate-400 font-semibold">/{dailyGoalParts} дет.</span>
-              </div>
-              <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div
-                  className="h-1.5 rounded-full bg-blue-500 transition-all duration-500"
-                  style={{ width: dailyGoalOrders > 0 ? `${Math.min(100, (Math.min(tabCounts.active, dailyGoalOrders) / dailyGoalOrders) * 100)}%` : '0%' }}
-                />
-              </div>
-              <p className="text-[10px] text-slate-400 mt-0.5">{Math.min(tabCounts.active, dailyGoalOrders)}/{dailyGoalOrders}</p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Маржа</p>
-              <p className="text-2xl font-black text-emerald-600">+{Math.round(todayEarnings).toLocaleString('ru-RU')}</p>
-              <p className="text-[10px] font-semibold text-emerald-600">AED</p>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-            <p className="text-xs font-bold text-slate-700">Стрик: {streakDays} дней подряд 🔥</p>
-            <button
-              type="button"
-              onClick={() => {
-                setStreakBounce(true);
-                window.setTimeout(() => setStreakBounce(false), 600);
-              }}
-              className={`text-[10px] font-semibold text-slate-400 transition-transform active:scale-95 ${streakBounce ? 'scale-110 text-amber-500' : 'scale-100'}`}
-            >
-              Не сломать стрик
-            </button>
-          </div>
-        </div>
-
-        {/* Urgent Today horizontal scroll */}
-        {urgentOrdersList.length > 0 && (
-          <div>
-            <p className="mb-1.5 text-[10px] font-black uppercase tracking-wide text-rose-600">🚨 Срочно сегодня</p>
-            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 -mx-4 px-4">
-              {urgentOrdersList.slice(0, 4).map((order) => (
-                <div
-                  key={order.id}
-                  className="shrink-0 w-40 rounded-2xl border border-rose-200 bg-rose-50 p-2.5 space-y-1.5"
-                >
-                  {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? (
-                    <img
-                      src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl}
-                      alt={`${order.brand} ${order.model}`}
-                      className="h-14 w-full rounded-xl object-cover"
-                    />
-                  ) : (
-                    <div className="h-14 w-full rounded-xl bg-rose-100 flex items-center justify-center">
-                      <span className="text-rose-400 text-sm font-black">{order.brand?.[0] || '?'}</span>
-                    </div>
-                  )}
-                  <p className="text-[11px] font-black text-slate-800 truncate">{order.brand} {order.model}</p>
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/order/${order.id}`)}
-                    className="w-full rounded-xl bg-rose-500 py-1.5 text-[10px] font-black text-white active:scale-95 transition-transform"
-                  >
-                    Отправить
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs">
-          <span className="inline-flex items-center gap-2 font-semibold text-emerald-700"><Cloud size={14} /> Синхронизировано</span>
-          <span className="text-slate-500">Обновлено только что</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -745,40 +590,6 @@ const OrdersScreen: React.FC = () => {
           ))}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => setSelectedOrderIds(allFilteredSelected ? [] : filteredOrders.map((order) => order.id))}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700"
-            >
-              {allFilteredSelected ? <CheckSquare size={14} /> : <Square size={14} />}
-              {allFilteredSelected ? 'Снять выделение' : 'Выбрать все'}
-            </button>
-            <span className="text-xs font-semibold text-slate-500">Выбрано: {selectedOrderIds.length}</span>
-          </div>
-
-          {isSelectionMode && (
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                disabled={isBulkProcessing}
-                onClick={() => void handleBulkArchive()}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-800 px-3 py-2 text-xs font-black text-white disabled:opacity-60"
-              >
-                <Archive size={14} /> В архив
-              </button>
-              <button
-                type="button"
-                disabled={isBulkProcessing}
-                onClick={() => void handleBulkDelete()}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2 text-xs font-black text-white disabled:opacity-60"
-              >
-                <Trash2 size={14} /> Удалить
-              </button>
-            </div>
-          )}
-        </div>
       </header>
 
       <div className="space-y-4">
@@ -804,7 +615,6 @@ const OrdersScreen: React.FC = () => {
             const status = getCardSearchStatus(order);
             const contactLabel = order.clientName?.trim() || order.customerContact || 'Без контакта';
             const ageLabel = formatAge(order.updatedAt || order.createdAt);
-            const profitAed = order.soldProfitUsd === undefined ? null : Math.round(order.soldProfitUsd * (order.exchangeRate || 3.67));
             const isVipOrder = order.isVip;
             const isUnreadLeadOrder = isUnreadPublicLead(order);
 
@@ -822,79 +632,60 @@ const OrdersScreen: React.FC = () => {
                 }}
                 onLongPressDelete={() => setDeleteId(order.id)}
                 onCardTap={() => openOrderPreview(order)}
-                disableCardTap={!!deleteId || isDeleting || isBulkProcessing}
+                disableCardTap={!!deleteId || isDeleting}
               >
                 <div className={`rounded-2xl p-1 -m-1 ${isVipOrder ? 'bg-amber-50/70 border border-amber-200' : isUnreadLeadOrder ? 'bg-amber-50/60 border border-amber-200/70' : ''}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex min-w-0 items-start gap-2">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleOrderSelection(order.id);
-                      }}
-                      className={`mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${selectedOrderIds.includes(order.id) ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-500'}`}
-                      aria-label={selectedOrderIds.includes(order.id) ? 'Снять выбор' : 'Выбрать заказ'}
-                    >
-                      {selectedOrderIds.includes(order.id) ? <CheckSquare size={13} /> : <Square size={13} />}
-                    </button>
-                    {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) && (
-                      <img src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl} alt={`${order.brand} ${order.model}`} className="h-14 w-14 shrink-0 rounded-2xl object-cover border border-slate-200" />
+                  <div className="flex items-start gap-3">
+                    {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? (
+                      <img src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl} alt={`${order.brand} ${order.model}`} className="h-16 w-16 shrink-0 rounded-2xl object-cover border border-slate-200" />
+                    ) : (
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 text-lg font-black text-slate-400">
+                        {order.brand?.[0] || '?'}
+                      </div>
                     )}
-                  <div className="min-w-0">
-                    <h3 className="truncate text-base font-black text-slate-900">{order.brand} {order.model} <span className="text-sm font-semibold text-slate-500">{order.year}</span></h3>
-                    {isUnreadLeadOrder && (
-                      <span className="mt-1 inline-flex items-center gap-2 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700 shadow-[0_0_0_1px_rgba(245,158,11,0.35)]">
-                        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-rose-500" /> NEW LEAD
-                      </span>
-                    )}
-                    <p className="mt-0.5 truncate text-sm text-slate-600 inline-flex items-center gap-1">{contactLabel}{order.isVip && <Star size={12} className="text-amber-500" />} • {order.source || 'Источник —'}</p>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h3 className="truncate text-sm font-black text-slate-900">{order.brand} {order.model}</h3>
+                          <p className="mt-0.5 truncate text-xs text-slate-500">
+                            {order.year || '—'} · {order.vin || contactLabel || 'Без контакта'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {isVipOrder && <Star size={12} className="shrink-0 text-amber-500 fill-amber-500" />}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void updateOrder({ ...order, isPinned: !order.isPinned });
+                            }}
+                            className={`inline-flex h-8 w-8 items-center justify-center rounded-xl border ${order.isPinned ? 'border-amber-300 bg-amber-100 text-amber-700' : 'border-slate-200 bg-white text-slate-500'}`}
+                            aria-label={order.isPinned ? 'Открепить заказ' : 'Закрепить заказ'}
+                          >
+                            <Pin size={13} className={order.isPinned ? 'fill-current' : ''} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">{statusLabelMap[status]}</span>
+                        {order.priority === Priority.HIGH && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-600">Срочно</span>}
+                        {isUnreadLeadOrder && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">Новый лид</span>}
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600 inline-flex items-center gap-1"><Clock3 size={10} /> {ageLabel}</span>
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-slate-500">
+                          <span>Найдено деталей</span>
+                          <span>{foundParts}/{totalParts || 0} · {progress}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                          <div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }} />
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  </div>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-700 inline-flex items-center gap-1"><Clock3 size={11} /> SLA {ageLabel}</span>
-                </div>
-
-                {isVipOrder && (
-                  <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-500 px-2.5 py-1 text-[10px] font-black uppercase text-white shadow">
-                    <Star size={11} className="fill-white" /> VIP Premium
-                  </div>
-                )}
-
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">{statusLabelMap[status]}</span>
-                  {order.priority === Priority.HIGH && <span className="text-[10px] font-black text-rose-600 uppercase">Срочно</span>}
-                  {order.salesStatus === 'Price Sent' && <span className="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">Оффер отправлен</span>}
-                  {activeTab === 'active' && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void updateOrder({ ...order, isPinned: !order.isPinned });
-                      }}
-                      className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-black ${order.isPinned ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}
-                    >
-                      <Pin size={11} className={order.isPinned ? 'fill-current' : ''} /> {order.isPinned ? 'Закреплён' : 'Закрепить'}
-                    </button>
-                  )}
-                </div>
-
-                <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                  <div className="rounded-xl bg-slate-50 px-2 py-1.5"><p className="text-slate-400">Детали</p><p className="font-bold text-slate-800">{totalParts}</p></div>
-                  <div className="rounded-xl bg-slate-50 px-2 py-1.5"><p className="text-slate-400">Найдено</p><p className="font-bold text-slate-800">{foundParts} · {progress}%</p></div>
-                  <div className="rounded-xl bg-slate-50 px-2 py-1.5"><p className="text-slate-400">Поставщ.</p><p className="font-bold text-slate-800">{new Set(order.parts.flatMap((part) => part.variants?.map((variant) => variant.shopName || variant.supplierName) || []).filter(Boolean)).size}</p></div>
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-semibold">
-                  <span className="text-slate-500">Purchase: {Math.round(order.parts.reduce((acc, part) => acc + ((part.variants || []).reduce((min, variant) => {
-                    const p = Number(variant.priceAed || 0);
-                    if (!p) return min;
-                    return min === 0 ? p : Math.min(min, p);
-                  }, 0)), 0))} AED</span>
-                  <span className="text-right text-slate-500">Client: {order.clientPriceAed ? `${Math.round(order.clientPriceAed)} AED` : '—'}</span>
-                  <span className="text-slate-500">Margin: {order.markupPercent ? `${order.markupPercent}%` : '—'}</span>
-                  <span className={`text-right ${profitAed === null ? 'text-slate-500' : profitAed >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>Profit: {profitAed === null ? 'Нет расчёта' : `${profitAed} AED`}</span>
-                </div>
-
                 </div>
               </SwipeableOrderCard>
             );
