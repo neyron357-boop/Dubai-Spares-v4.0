@@ -1,10 +1,12 @@
 import { Order, Part, PriceVariant } from '../types';
+import { normalizePartQuantity } from './groupItems';
 
 const getVariantSalePriceAed = (variant: PriceVariant) => Number(variant.salePriceAed ?? variant.priceAed ?? 0);
 
 
 const COMPANY_LOGO_PATH = '/icon-192.png';
 const formatPrice = (price: number) => `${new Intl.NumberFormat('ru-RU').format(Number(price || 0))} AED`;
+const getPartTotalPriceAed = (part: Part, variant: PriceVariant) => getVariantSalePriceAed(variant) * normalizePartQuantity(part.quantity);
 
 type ShareablePart = {
   part: Part;
@@ -149,21 +151,19 @@ export const generatePartPriceCard = async (order: Order, part: Part, variant: P
   await drawCoverPhoto(context, 40, 170, 460, 470, getPartPhotos(part, variant));
 
   const startX = 550;
+  const totalPrice = getPartTotalPriceAed(part, variant);
   context.fillStyle = '#2563EB';
   context.font = '700 62px Inter, Arial, sans-serif';
   context.fillText(formatPrice(getVariantSalePriceAed(variant)), startX, 242);
 
-  context.fillStyle = '#334155';
-  context.font = '600 28px Inter, Arial, sans-serif';
-  context.fillText(`Поставщик: ${(variant.shopName || '—').slice(0, 34)}`, startX, 320);
-  context.fillText(`Наличие: ${variant.availability || '—'}`, startX, 370);
-  context.fillText(`Состояние: ${variant.condition || '—'}`, startX, 420);
-
   context.fillStyle = '#64748B';
-  context.font = '500 22px Inter, Arial, sans-serif';
-  const locationLine = variant.locationText || variant.location || 'Локация не указана';
-  context.fillText(`Локация: ${locationLine}`.slice(0, 48), startX, 484);
-  if (part.comment?.trim()) context.fillText(`Комментарий: ${part.comment}`.slice(0, 48), startX, 528);
+  context.font = '600 28px Inter, Arial, sans-serif';
+  context.fillText(`Цена: ${formatPrice(getVariantSalePriceAed(variant))}`, startX, 320);
+  context.fillText(`Количество: ${normalizePartQuantity(part.quantity)}`, startX, 370);
+
+  context.fillStyle = '#0F1728';
+  context.font = '700 42px Inter, Arial, sans-serif';
+  context.fillText(`Итог: ${formatPrice(totalPrice)}`, startX, 455);
 
   return createCanvasBlob(canvas);
 };
@@ -171,7 +171,7 @@ export const generatePartPriceCard = async (order: Order, part: Part, variant: P
 export const generatePartsPriceSheet = async (order: Order, entries: ShareablePart[]) => {
   const safeEntries = entries.slice(0, 6);
   const rowHeight = 220;
-  const totalPrice = safeEntries.reduce((sum, entry) => sum + getVariantSalePriceAed(entry.variant), 0);
+  const totalPrice = safeEntries.reduce((sum, entry) => sum + getPartTotalPriceAed(entry.part, entry.variant), 0);
   const canvas = document.createElement('canvas');
   canvas.width = 1200;
   canvas.height = 180 + safeEntries.length * rowHeight + 160;
@@ -187,6 +187,7 @@ export const generatePartsPriceSheet = async (order: Order, entries: ShareablePa
 
   for (const [index, entry] of safeEntries.entries()) {
     const top = 160 + index * rowHeight;
+    const lineTotal = getPartTotalPriceAed(entry.part, entry.variant);
     context.fillStyle = '#F8FAFC';
     context.fillRect(40, top, canvas.width - 80, rowHeight - 20);
     await drawCoverPhoto(context, 60, top + 20, 180, 180, getPartPhotos(entry.part, entry.variant));
@@ -201,9 +202,8 @@ export const generatePartsPriceSheet = async (order: Order, entries: ShareablePa
 
     context.fillStyle = '#475569';
     context.font = '500 20px Inter, Arial, sans-serif';
-    context.fillText(`Поставщик: ${(entry.variant.shopName || '—').slice(0, 42)}`, 270, top + 154);
-    const locationLine = entry.variant.locationText || entry.variant.location || 'Локация не указана';
-    context.fillText(`Локация: ${locationLine}`.slice(0, 58), 270, top + 184);
+    context.fillText(`Количество: ${normalizePartQuantity(entry.part.quantity)}`, 270, top + 154);
+    context.fillText(`Итог: ${formatPrice(lineTotal)}`, 270, top + 184);
   }
 
   const summaryTop = 170 + safeEntries.length * rowHeight;
