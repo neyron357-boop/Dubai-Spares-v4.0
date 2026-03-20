@@ -5,9 +5,6 @@ import { normalizePartQuantity } from './groupItems';
 
 const BLUE = '#2b648d';
 const YELLOW = '#e6b400';
-const LIGHT_GRID = '#edf1f5';
-const LIGHT_RING = 'rgba(43, 100, 141, 0.14)';
-const SHEET_RATIO = 613 / 860;
 
 export type InvoiceItem = {
   id: string;
@@ -198,7 +195,7 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
 };
 
 export const buildInvoiceHtml = (payload: InvoicePayload) => {
-  const rows = payload.items.slice(0, 8).map((item) => `
+  const rows = payload.items.slice(0, 10).map((item) => `
     <tr>
       <td>
         <div class="desc-main">${esc(item.title)}</div>
@@ -227,106 +224,92 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
 <style>
   @page { size: A4 portrait; margin: 0; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #eef2f7; font-family: Montserrat, Poppins, Arial, sans-serif; color: ${BLUE}; }
-  body { padding: 12px; }
+  html, body { margin: 0; padding: 0; background: #ffffff; font-family: Montserrat, Poppins, Arial, sans-serif; color: ${BLUE}; }
+  body { background: #ffffff; }
   .sheet-wrap { display: flex; justify-content: center; }
   .sheet {
-    position: relative; width: min(210mm, calc(100vw - 24px)); min-height: 297mm; background: #fcfcfb;
-    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12); overflow: hidden;
+    width: 210mm;
+    min-height: 297mm;
+    background: #ffffff;
   }
-  .sheet::after {
-    content: ''; position: absolute; inset: 0;
-    background-image:
-      linear-gradient(${LIGHT_GRID} 1px, transparent 1px),
-      linear-gradient(90deg, ${LIGHT_GRID} 1px, transparent 1px),
-      linear-gradient(rgba(43,100,141,0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(43,100,141,0.04) 1px, transparent 1px);
-    background-size: 48px 48px, 48px 48px, 12px 12px, 12px 12px;
-    pointer-events: none;
+  .content {
+    padding: 12mm 12mm 10mm;
+    display: flex;
+    flex-direction: column;
+    gap: 8mm;
   }
-  .content { position: relative; z-index: 1; padding: 22mm 16mm 18mm; }
-  .brand-row, .meta-row, .bottom-grid, .footer { display: flex; justify-content: space-between; gap: 16px; }
-  .brand { display: flex; align-items: center; gap: 12px; }
-  .logo-image { width: 48px; height: 48px; object-fit: contain; }
-  .logo-mark { display:flex; gap:6px; align-items:flex-end; width:48px; height:48px; }
-  .logo-mark span:first-child{ width:12px; height:36px; background:${YELLOW}; clip-path: polygon(35% 0,100% 0,65% 100%,0 100%); }
-  .logo-mark span:last-child{ width:16px; height:42px; background:${BLUE}; clip-path: polygon(35% 0,100% 0,65% 100%,0 100%); }
-  .brand-text { line-height: 0.92; }
-  .brand-text .name { font-size: 20px; font-weight: 800; letter-spacing: 0.14em; color: ${YELLOW}; }
-  .brand-text .sub { font-size: 18px; font-weight: 800; letter-spacing: 0.14em; }
-  .dots, .dots-bottom { display:grid; grid-template-columns: repeat(9, 8px); gap: 8px; }
-  .dots span, .dots-bottom span { width: 4px; height: 4px; border-radius: 999px; background: ${BLUE}; display:block; }
-  .hero { margin-top: 18px; display:flex; justify-content: space-between; align-items:flex-start; gap: 16px; }
-  .invoice-title { font-size: 42px; line-height: 0.95; letter-spacing: 0.04em; font-weight: 800; margin: 0; }
-  .meta { min-width: 220px; padding-top: 10px; }
-  .meta-line { display:grid; grid-template-columns: 72px 1fr; gap: 10px; font-size: 13px; margin-bottom: 6px; }
+  .brand-row, .hero, .bottom-grid, .footer { display: flex; justify-content: space-between; gap: 10mm; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .logo-image { width: 40px; height: 40px; object-fit: contain; }
+  .logo-mark { display:flex; gap:5px; align-items:flex-end; width:40px; height:40px; }
+  .logo-mark span:first-child{ width:10px; height:30px; background:${YELLOW}; clip-path: polygon(35% 0,100% 0,65% 100%,0 100%); }
+  .logo-mark span:last-child{ width:14px; height:35px; background:${BLUE}; clip-path: polygon(35% 0,100% 0,65% 100%,0 100%); }
+  .brand-text { line-height: 0.94; }
+  .brand-text .name { font-size: 17px; font-weight: 800; letter-spacing: 0.14em; color: ${YELLOW}; }
+  .brand-text .sub { font-size: 16px; font-weight: 800; letter-spacing: 0.14em; }
+  .hero { align-items: flex-start; }
+  .invoice-title { font-size: 30px; line-height: 1; letter-spacing: 0.05em; font-weight: 800; margin: 0; }
+  .meta { min-width: 84mm; }
+  .meta-line { display:grid; grid-template-columns: 22mm 1fr; gap: 4mm; font-size: 11px; margin-bottom: 3px; }
   .meta-line strong { font-weight: 700; }
-  .arrow-left, .arrow-right { color: ${BLUE}; font-size: 34px; line-height: 1; font-weight: 300; letter-spacing: -7px; }
-  .arrow-left { margin: 12px 0 10px; }
-  table { width: 100%; border-collapse: separate; border-spacing: 0 8px; font-size: 12px; }
-  thead th { background: ${YELLOW}; color: ${BLUE}; text-align: left; font-size: 13px; padding: 9px 12px; font-weight: 800; }
-  tbody td { border: 1px solid rgba(43, 100, 141, 0.32); padding: 9px 12px; vertical-align: top; background: rgba(255,255,255,0.96); }
-  tbody td + td { border-left: none; }
-  tbody td.num { text-align: right; white-space: nowrap; width: 16%; }
-  tbody td.total-cell { font-weight: 700; }
-  .desc-main { font-weight: 600; }
-  .desc-sub { font-size: 10px; margin-top: 3px; color: rgba(43, 100, 141, 0.76); }
-  .bottom-grid { margin-top: 12px; align-items: flex-start; }
-  .section-title { color: ${YELLOW}; font-size: 15px; font-weight: 800; margin: 0 0 8px; }
-  .info-block { width: 52%; }
-  .totals { width: 34%; margin-left: auto; }
-  .info-line, .total-line { display:flex; justify-content:space-between; gap:12px; font-size: 13px; margin-bottom: 6px; }
-  .info-line span:first-child, .total-line span:first-child { min-width: 96px; }
-  .total-line strong { font-size: 14px; }
-  .total-line.grand { font-weight: 800; font-size: 15px; margin-top: 6px; }
-  .terms { margin-top: 12px; max-width: 58%; }
-  .terms ul { margin: 0; padding-left: 18px; }
-  .terms li { margin-bottom: 4px; font-size: 12px; }
-  .invoice-to { margin-top: 12px; font-size: 12px; }
-  .invoice-to strong { display:block; margin-bottom: 4px; color: ${YELLOW}; font-size: 15px; }
-  .signature-zone { margin-top: 18px; max-width: 220px; }
-  .signature-image { max-width: 150px; max-height: 42px; object-fit: contain; display:block; margin-bottom: 6px; }
-  .signature-placeholder { width: 150px; height: 28px; }
-  .signature-line { border-bottom: 1.5px solid ${BLUE}; width: 150px; margin-bottom: 6px; }
-  .footer { align-items: flex-end; margin-top: 18px; }
-  .contacts { font-size: 12px; display:grid; gap: 6px; }
-  .contact-line { display:flex; align-items:center; gap:8px; }
-  .icon { width: 18px; text-align:center; }
-  .ring-top, .ring-bottom {
-    position:absolute; border:1.4px solid ${LIGHT_RING}; border-radius:999px; pointer-events:none;
+  .meta-line span, .meta-line strong { word-break: break-word; }
+  table { width: 100%; border-collapse: collapse; font-size: 10.5px; table-layout: fixed; }
+  thead th {
+    background: ${YELLOW}; color: ${BLUE}; text-align: left; font-size: 11px; padding: 7px 8px; font-weight: 800;
+    border-bottom: 1px solid rgba(43, 100, 141, 0.25);
   }
-  .ring-top { width: 148px; height: 148px; top: 12px; right: 20px; }
-  .ring-top::before, .ring-bottom::before { content:''; position:absolute; inset: 14px; border:1px solid ${LIGHT_RING}; border-radius:999px; }
-  .ring-bottom { width: 180px; height: 180px; right: 18px; bottom: 18px; }
-  .ring-bottom::after { content:''; position:absolute; left:50%; top:50%; width:1px; height:100%; background:${LIGHT_RING}; transform:translate(-50%,-50%) rotate(42deg); transform-origin:center; box-shadow: 0 0 0 0 ${LIGHT_RING}, 0 0 0 0 ${LIGHT_RING}; }
-  .dots-top { position:absolute; top: 92px; left: 55%; }
-  .dots-bottom-wrap { position:absolute; right: 84px; bottom: 126px; }
-  .arrow-right { position:absolute; right: 24px; bottom: 54px; }
-  .sheet-note { font-size: 11px; opacity: 0.85; margin-top: 6px; }
+  tbody td {
+    padding: 6px 8px;
+    vertical-align: top;
+    border-bottom: 1px solid rgba(43, 100, 141, 0.16);
+  }
+  tbody tr:last-child td { border-bottom: 1px solid rgba(43, 100, 141, 0.25); }
+  tbody td.num { text-align: right; white-space: nowrap; }
+  tbody td.total-cell { font-weight: 700; }
+  .desc-main { font-weight: 600; line-height: 1.3; }
+  .desc-sub { font-size: 9px; margin-top: 2px; color: rgba(43, 100, 141, 0.76); line-height: 1.25; }
+  .bottom-grid { align-items: flex-start; }
+  .section-title { color: ${YELLOW}; font-size: 13px; font-weight: 800; margin: 0 0 6px; }
+  .info-block { width: 58%; }
+  .totals { width: 32%; margin-left: auto; }
+  .info-line, .total-line { display:flex; justify-content:space-between; gap:10px; font-size: 11px; margin-bottom: 5px; }
+  .info-line span:first-child, .total-line span:first-child { min-width: 27mm; }
+  .total-line strong { font-size: 12px; }
+  .total-line.grand { font-weight: 800; font-size: 13px; margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(43, 100, 141, 0.22); }
+  .terms-signature { display: flex; justify-content: space-between; align-items: flex-end; gap: 10mm; }
+  .terms { flex: 1; font-size: 10.5px; }
+  .terms ul { margin: 0; padding-left: 16px; }
+  .terms li { margin-bottom: 3px; line-height: 1.3; }
+  .invoice-to { margin-top: 8px; font-size: 10.5px; }
+  .invoice-to strong { display:block; margin-bottom: 3px; color: ${YELLOW}; font-size: 12px; }
+  .sheet-note { font-size: 10px; opacity: 0.85; margin-top: 5px; }
+  .signature-zone { width: 48mm; margin-left: auto; }
+  .signature-image { max-width: 120px; max-height: 34px; object-fit: contain; display:block; margin: 0 0 6px auto; }
+  .signature-placeholder { width: 120px; height: 22px; margin-left: auto; }
+  .signature-line { border-bottom: 1.2px solid ${BLUE}; width: 100%; margin-bottom: 6px; }
+  .signature-label { text-align: right; font-size: 10px; font-weight: 700; }
+  .footer { align-items: flex-end; padding-top: 2mm; border-top: 1px solid rgba(43, 100, 141, 0.18); }
+  .contacts { font-size: 10.5px; display:grid; gap: 4px; }
+  .contact-line { display:flex; align-items:center; gap:7px; }
+  .icon { width: 15px; text-align:center; }
   @media screen and (max-width: 900px) {
-    body { padding: 0; }
-    .content { padding: 16mm 12mm 14mm; }
-    .brand-row, .hero, .bottom-grid, .footer { gap: 12px; }
-    .invoice-title { font-size: 32px; }
-    .meta { min-width: 180px; }
-    .terms { max-width: 100%; }
+    .sheet { width: 100%; min-height: auto; }
+    .content { padding: 8mm; gap: 6mm; }
+    .brand-row, .hero, .bottom-grid, .terms-signature, .footer { flex-direction: column; gap: 5mm; }
+    .meta, .info-block, .totals, .signature-zone { width: 100%; min-width: 0; }
+    .signature-image, .signature-placeholder { margin-left: 0; }
+    .signature-label { text-align: left; }
   }
   @media print {
     html, body { background: white; }
     body { padding: 0; }
-    .sheet { width: 210mm; min-height: 297mm; box-shadow: none; }
-    .sheet::after { opacity: 0.9; }
+    .sheet { width: 210mm; min-height: 297mm; }
   }
 </style>
 </head>
 <body>
   <div class="sheet-wrap">
     <div class="sheet">
-      <div class="ring-top"></div>
-      <div class="ring-bottom"></div>
-      <div class="dots-top dots">${'<span></span>'.repeat(18)}</div>
-      <div class="dots-bottom-wrap dots-bottom">${'<span></span>'.repeat(18)}</div>
-      <div class="arrow-right">≫≫≫</div>
       <div class="content">
         <div class="brand-row">
           <div class="brand">
@@ -349,8 +332,6 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
             <div class="meta-line"><span>VIN:</span><strong>${esc(payload.vin || '—')}</strong></div>
           </div>
         </div>
-
-        <div class="arrow-left">≫≫≫</div>
 
         <table>
           <thead>
@@ -380,20 +361,22 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
           </div>
         </div>
 
-        <div class="terms">
-          <h3 class="section-title">Payment terms</h3>
-          <ul>${payload.paymentTerms.map((term) => `<li>${esc(term)}</li>`).join('')}</ul>
-          <div class="invoice-to">
-            <strong>Invoice to</strong>
-            <div>${esc(payload.invoiceTo || payload.clientName || 'Client details to be confirmed')}</div>
+        <div class="terms-signature">
+          <div class="terms">
+            <h3 class="section-title">Payment terms</h3>
+            <ul>${payload.paymentTerms.map((term) => `<li>${esc(term)}</li>`).join('')}</ul>
+            <div class="invoice-to">
+              <strong>Invoice to</strong>
+              <div>${esc(payload.invoiceTo || payload.clientName || 'Client details to be confirmed')}</div>
+            </div>
+            <div class="sheet-note">Prepared by ${esc(payload.company.managerName)}.</div>
           </div>
-          <div class="sheet-note">Prepared by ${esc(payload.company.managerName)}.</div>
-        </div>
 
-        <div class="signature-zone">
-          ${signatureMarkup}
-          <div class="signature-line"></div>
-          <div>AUTHORISED SIGN</div>
+          <div class="signature-zone">
+            ${signatureMarkup}
+            <div class="signature-line"></div>
+            <div class="signature-label">AUTHORISED SIGN</div>
+          </div>
         </div>
 
         <div class="footer">
