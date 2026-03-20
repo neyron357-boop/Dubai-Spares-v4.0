@@ -39,11 +39,16 @@ export interface AppSettings {
   publicWhatsappNumber: string;
   publicTelegramUrl: string;
   publicInstagramUrl: string;
+  publicWebsiteUrl: string;
+  publicEmail: string;
   publicDeliveryTerms: string;
   publicWorkTerms: string;
   publicCompanyLogoUrl: string;
   publicInvoiceSignatureUrl: string;
   publicManagerName: string;
+  invoicePaymentAccountNo: string;
+  invoicePaymentBeneficiary: string;
+  invoicePaymentBankAccount: string;
   publicTermsFileUrl: string;
   publicTermsFileName: string;
   executorPhotoUrl: string;
@@ -58,7 +63,7 @@ export interface AppSettings {
   orderZones: string[];
 }
 
-type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl' | 'publicManagerName' | 'publicTermsFileUrl' | 'publicTermsFileName' | 'executorPhotoUrl' | 'executorRole'>;
+type PublicAppSettings = Pick<AppSettings, 'publicWhatsappNumber' | 'publicTelegramUrl' | 'publicInstagramUrl' | 'publicWebsiteUrl' | 'publicEmail' | 'publicDeliveryTerms' | 'publicWorkTerms' | 'publicCompanyLogoUrl' | 'publicInvoiceSignatureUrl' | 'publicManagerName' | 'invoicePaymentAccountNo' | 'invoicePaymentBeneficiary' | 'invoicePaymentBankAccount' | 'publicTermsFileUrl' | 'publicTermsFileName' | 'executorPhotoUrl' | 'executorRole'>;
 type CloudPublicSettings = PublicAppSettings & Pick<AppSettings, 'publicContactsUpdatedAt'>;
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -85,11 +90,16 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   publicWhatsappNumber: '971000000000',
   publicTelegramUrl: '',
   publicInstagramUrl: '',
+  publicWebsiteUrl: 'https://www.dubaispares.ae',
+  publicEmail: 'sales@dubaispares.ae',
   publicDeliveryTerms: '',
   publicWorkTerms: '',
   publicCompanyLogoUrl: '',
   publicInvoiceSignatureUrl: '',
   publicManagerName: '',
+  invoicePaymentAccountNo: '',
+  invoicePaymentBeneficiary: '',
+  invoicePaymentBankAccount: '',
   publicTermsFileUrl: '',
   publicTermsFileName: '',
   executorPhotoUrl: '',
@@ -113,12 +123,17 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
     ? raw.publicWhatsappNumber.replace(/[^\d]/g, '')
     : DEFAULT_APP_SETTINGS.publicWhatsappNumber,
   publicTelegramUrl: typeof raw?.publicTelegramUrl === 'string' ? raw.publicTelegramUrl : '',
-  publicInstagramUrl: typeof raw?.publicInstagramUrl === 'string' ? raw.publicInstagramUrl : '',
+  publicInstagramUrl: typeof raw?.publicInstagramUrl === 'string' ? raw.publicInstagramUrl.trim() : '',
+  publicWebsiteUrl: typeof raw?.publicWebsiteUrl === 'string' ? raw.publicWebsiteUrl.trim() : DEFAULT_APP_SETTINGS.publicWebsiteUrl,
+  publicEmail: typeof raw?.publicEmail === 'string' ? raw.publicEmail.trim() : DEFAULT_APP_SETTINGS.publicEmail,
   publicDeliveryTerms: typeof raw?.publicDeliveryTerms === 'string' ? raw.publicDeliveryTerms : '',
   publicWorkTerms: typeof raw?.publicWorkTerms === 'string' ? raw.publicWorkTerms : '',
   publicCompanyLogoUrl: typeof raw?.publicCompanyLogoUrl === 'string' ? raw.publicCompanyLogoUrl : '',
   publicInvoiceSignatureUrl: typeof raw?.publicInvoiceSignatureUrl === 'string' ? raw.publicInvoiceSignatureUrl : '',
   publicManagerName: typeof raw?.publicManagerName === 'string' ? raw.publicManagerName.trim() : '',
+  invoicePaymentAccountNo: typeof raw?.invoicePaymentAccountNo === 'string' ? raw.invoicePaymentAccountNo.trim() : '',
+  invoicePaymentBeneficiary: typeof raw?.invoicePaymentBeneficiary === 'string' ? raw.invoicePaymentBeneficiary.trim() : '',
+  invoicePaymentBankAccount: typeof raw?.invoicePaymentBankAccount === 'string' ? raw.invoicePaymentBankAccount.trim() : '',
   publicTermsFileUrl: typeof raw?.publicTermsFileUrl === 'string' ? raw.publicTermsFileUrl : '',
   publicTermsFileName: typeof raw?.publicTermsFileName === 'string' ? raw.publicTermsFileName : '',
   executorPhotoUrl: typeof raw?.executorPhotoUrl === 'string' ? raw.executorPhotoUrl : '',
@@ -157,11 +172,16 @@ const pickPublicSettings = (raw: Partial<AppSettings> | null | undefined): Publi
     publicWhatsappNumber: normalized.publicWhatsappNumber,
     publicTelegramUrl: normalized.publicTelegramUrl,
     publicInstagramUrl: normalized.publicInstagramUrl,
+    publicWebsiteUrl: normalized.publicWebsiteUrl,
+    publicEmail: normalized.publicEmail,
     publicDeliveryTerms: normalized.publicDeliveryTerms,
     publicWorkTerms: normalized.publicWorkTerms,
     publicCompanyLogoUrl: normalized.publicCompanyLogoUrl,
     publicInvoiceSignatureUrl: normalized.publicInvoiceSignatureUrl,
     publicManagerName: normalized.publicManagerName,
+    invoicePaymentAccountNo: normalized.invoicePaymentAccountNo,
+    invoicePaymentBeneficiary: normalized.invoicePaymentBeneficiary,
+    invoicePaymentBankAccount: normalized.invoicePaymentBankAccount,
     publicTermsFileUrl: normalized.publicTermsFileUrl,
     publicTermsFileName: normalized.publicTermsFileName,
     executorPhotoUrl: normalized.executorPhotoUrl,

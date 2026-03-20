@@ -1460,6 +1460,25 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               />
             </Field>
 
+            <Field label="Сайт компании (для invoice)">
+              <input
+                value={draftSettings.publicWebsiteUrl}
+                onChange={(e) => updateDraft({ publicWebsiteUrl: e.target.value.trim() })}
+                placeholder="https://www.dubaispares.ae"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              />
+            </Field>
+
+            <Field label="Публичная почта (для invoice)">
+              <input
+                type="email"
+                value={draftSettings.publicEmail}
+                onChange={(e) => updateDraft({ publicEmail: e.target.value.trim() })}
+                placeholder="sales@dubaispares.ae"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              />
+            </Field>
+
             <Field label="Файл условий (cargo / доставка / и т.д.)">
               <div className="space-y-2">
                 <input
@@ -1506,6 +1525,35 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                 placeholder="Например: Ahmed Al Mansoori"
                 className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
               />
+            </Field>
+
+            <Field label="Реквизиты оплаты в invoice">
+              <div className="grid gap-3 md:grid-cols-3">
+                <Field label="Account No">
+                  <input
+                    value={draftSettings.invoicePaymentAccountNo}
+                    onChange={(e) => updateDraft({ invoicePaymentAccountNo: e.target.value })}
+                    placeholder="971521574546"
+                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                  />
+                </Field>
+                <Field label="Beneficiary / Name">
+                  <input
+                    value={draftSettings.invoicePaymentBeneficiary}
+                    onChange={(e) => updateDraft({ invoicePaymentBeneficiary: e.target.value })}
+                    placeholder="Dubai Spares UAE"
+                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                  />
+                </Field>
+                <Field label="Bank Account">
+                  <input
+                    value={draftSettings.invoicePaymentBankAccount}
+                    onChange={(e) => updateDraft({ invoicePaymentBankAccount: e.target.value })}
+                    placeholder="Dubai Spares UAE Trading Account"
+                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                  />
+                </Field>
+              </div>
             </Field>
 
             <Field label="Подпись владельца (для invoice)">
