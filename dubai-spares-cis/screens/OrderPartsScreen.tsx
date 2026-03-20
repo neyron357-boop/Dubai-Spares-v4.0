@@ -1,16 +1,38 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, CheckCircle2, ChevronRight, Circle, Package, Send, Sparkles } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../store';
+import type { Part } from '../types';
 import { getPartDisplayName, normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 import { generatePartPriceCard, generatePartsPriceSheet, resolveBestVariant, shareGeneratedPriceImage } from '../utils/partPriceShare';
+import SafeImage from '../components/SafeImage';
+
+
+
+const getPartPreviewPhotos = (part: Part): string[] => {
+  const variant = resolveBestVariant(part);
+  const variantPhotos = [variant?.photoUrl || '', ...(variant?.photos || [])].filter(Boolean);
+  const partPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean);
+  return Array.from(new Set([...(variantPhotos as string[]), ...(partPhotos as string[])]));
+};
 
 const OrderPartsScreen: React.FC = () => {
   const { orderId = '' } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { orders } = useStore();
   const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    const restoreScrollTop = (location.state as { restoreScrollTop?: unknown } | null)?.restoreScrollTop;
+    if (typeof restoreScrollTop !== 'number' || restoreScrollTop < 0) return;
+    const mainScroller = document.querySelector('main');
+    if (!(mainScroller instanceof HTMLElement)) return;
+    window.requestAnimationFrame(() => {
+      mainScroller.scrollTop = restoreScrollTop;
+    });
+  }, [location.state]);
 
   const order = orders.find((item) => item.id === orderId);
   const shareableParts = useMemo(() => (
@@ -72,7 +94,15 @@ const OrderPartsScreen: React.FC = () => {
     <div className="min-h-full bg-slate-50 pb-28">
       <div className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => navigate(`/order/${order.id}`)} className="rounded-full p-3 text-slate-600 hover:bg-slate-100">
+          <button
+            type="button"
+            onClick={() => {
+              const mainScroller = document.querySelector('main');
+              const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
+              navigate(`/order/${order.id}`, { state: typeof restoreScrollTop === 'number' ? { restoreScrollTop } : undefined });
+            }}
+            className="rounded-full p-3 text-slate-600 hover:bg-slate-100"
+          >
             <ArrowLeft size={20} />
           </button>
           <div className="min-w-0 flex-1">
@@ -120,13 +150,31 @@ const OrderPartsScreen: React.FC = () => {
                 >
                   {isSelected ? <CheckCircle2 size={22} /> : <Circle size={22} />}
                 </button>
-                <div className="grid h-12 w-12 place-items-center rounded-2xl border border-slate-200 bg-slate-50">
-                  <Package size={18} className="text-slate-400" />
+                <div className="relative h-12 w-12 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                  {getPartPreviewPhotos(part)[0] ? (
+                    <SafeImage src={getPartPreviewPhotos(part)[0]} alt={displayName} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="grid h-full w-full place-items-center">
+                      <Package size={18} className="text-slate-400" />
+                    </div>
+                  )}
+                  {getPartPreviewPhotos(part).length > 1 && (
+                    <span className="absolute bottom-0.5 right-0.5 rounded bg-slate-900/70 px-1 text-[8px] font-bold text-white">{getPartPreviewPhotos(part).length}</span>
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <button
                     type="button"
-                    onClick={() => navigate(`/order/${order.id}/part/${part.id}`)}
+                    onClick={() => {
+                      const mainScroller = document.querySelector('main');
+                      const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
+                      navigate(`/order/${order.id}/part/${part.id}`, {
+                        state: {
+                          backTo: `/order/${order.id}/parts`,
+                          ...(typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {}),
+                        },
+                      });
+                    }}
                     className="flex w-full items-start justify-between gap-2 text-left"
                   >
                     <div>

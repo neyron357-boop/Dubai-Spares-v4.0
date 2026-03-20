@@ -264,11 +264,7 @@ const PartDetailsScreen: React.FC = () => {
   const goBack = () => {
     const restoreScrollTop = (location.state as { orderScrollTop?: unknown } | null)?.orderScrollTop;
     const backState = typeof restoreScrollTop === 'number' ? { restoreScrollTop } : undefined;
-    if (window.history.length > 1) {
-      navigate(backTo, { state: backState });
-      return;
-    }
-    navigate('/vendor', { state: backState });
+    navigate(backTo, { state: backState });
   };
 
   const isPhotoVisible = (url: string) => !!String(url || '').trim() && !brokenPhotoUrls[url];
@@ -635,26 +631,6 @@ const PartDetailsScreen: React.FC = () => {
     }
   };
 
-  const duplicateTopVariant = () => {
-    const source = partVariants[0];
-    if (!source) return;
-    setIsAdding(true);
-    setEditingVariantId(null);
-    setForm({
-      purchasePriceAed: String((source.purchasePriceAed ?? source.priceAed) || ''),
-      salePriceAed: String((source.salePriceAed ?? source.priceAed) || ''),
-      shopName: source.shopName || '',
-      phone: source.phone || '+971',
-      locationText: source.locationText || source.location || '',
-      mapsUrl: source.mapsUrl || '',
-      photos: source.photos || [],
-      condition: source.condition || 'used',
-      availability: source.availability || 'in_stock',
-      deliveryEta: source.deliveryEta || 'today',
-      isBest: false,
-      note: source.note || ''
-    });
-  };
 
   const startEditPartName = () => {
     setPartNameDraft(part.name || '');
@@ -802,7 +778,6 @@ const PartDetailsScreen: React.FC = () => {
               <div className="absolute top-12 right-0 w-56 rounded-2xl bg-white border border-gray-100 shadow-2xl overflow-hidden">
                 <button type="button" onClick={() => { variantsListRef.current?.scrollIntoView({ behavior: 'smooth' }); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm font-bold hover:bg-gray-50">Показать все варианты</button>
                 <button type="button" onClick={() => { alert(historyPrices.length ? `История цен: ${historyPrices.join(', ')} AED` : 'История пока пустая'); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm font-bold hover:bg-gray-50">История цен</button>
-                <button type="button" onClick={() => { duplicateTopVariant(); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm font-bold hover:bg-gray-50">Дублировать вариант</button>
               </div>
             )}
           </div>
