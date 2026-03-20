@@ -368,7 +368,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                   {item.note && <p className="text-sm text-slate-500">{item.note}</p>}
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="rounded-2xl bg-white p-3"><span className="block text-xs uppercase text-slate-400">{t.qty}</span><strong className="text-slate-900">{item.qty}</strong></div>
-                    <div className="rounded-2xl bg-white p-3"><span className="block text-xs uppercase text-slate-400">AED</span><strong className="text-slate-900">{item.unitPriceAed.toFixed(2)}</strong></div>
+                    <div className="rounded-2xl bg-white p-3"><span className="block text-xs uppercase text-slate-400">{activeCurrency}</span><strong className="text-slate-900">{(item.unitPriceAed * fx).toFixed(2)}</strong></div>
                   </div>
                   <div className="rounded-2xl bg-white p-3 text-sm"><span className="block text-xs uppercase text-slate-400">{t.total}</span><strong className="text-slate-900">{money(item.totalAed * fx, activeCurrency)}</strong></div>
                 </div>
@@ -450,9 +450,9 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
           <div className="grid gap-6 p-5 lg:grid-cols-[0.9fr_1.1fr]">
             <div className="space-y-4">
               <ul className="space-y-2 text-sm text-slate-700">
-                <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> {lang === 'ru' ? 'Нам доверяют клиенты из СНГ' : 'Trusted by CIS customers'}</li>
-                <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> {lang === 'ru' ? 'Мы ежедневно работаем с авторазборками и магазинами Дубая.' : 'We work with Dubai scrap yards & shops daily.'}</li>
-                <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 text-emerald-500" /> {lang === 'ru' ? 'Скорость ответа: обычно 5–15 минут.' : 'Response time: usually 5–15 min.'}</li>
+                <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-500" /> {lang === 'ru' ? 'Нам доверяют клиенты из СНГ' : 'Trusted by CIS customers'}</li>
+                <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-500" /> {lang === 'ru' ? 'Мы ежедневно работаем с авторазборками и магазинами Дубая.' : 'We work with Dubai scrap yards & shops daily.'}</li>
+                <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-500" /> {lang === 'ru' ? 'Скорость ответа: обычно 5–15 минут.' : 'Response time: usually 5–15 min.'}</li>
               </ul>
             </div>
             <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50 to-white p-5 space-y-4">
