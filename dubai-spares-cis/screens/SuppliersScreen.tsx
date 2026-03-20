@@ -2035,12 +2035,11 @@ const SuppliersScreen: React.FC = () => {
                   else setFullscreenSupplierId(supplier.id);
                 }
               }}
-              onMouseDown={() => startLongPress(supplier.id)}
-              onMouseUp={cancelLongPress}
-              onMouseLeave={cancelLongPress}
-              onTouchStart={() => startLongPress(supplier.id)}
-              onTouchEnd={cancelLongPress}
-              onTouchCancel={cancelLongPress}
+              onPointerDown={(event) => startLongPress(supplier.id, event)}
+              onPointerMove={trackLongPressMove}
+              onPointerUp={finishLongPress}
+              onPointerCancel={() => cancelLongPress()}
+              onPointerLeave={() => cancelLongPress()}
               className={`w-full rounded-[28px] border bg-white px-4 py-3 text-left shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition-all duration-200 ${isSelected ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'} hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(15,23,42,0.12)] active:scale-[0.99]`}
             >
               <div className="flex items-center gap-3">
