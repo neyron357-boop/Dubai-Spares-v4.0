@@ -7,6 +7,8 @@ export type QuoteContact = {
   telegram: string;
   instagram: string;
   managerName: string;
+  website: string;
+  email: string;
   logoUrl: string;
   signatureUrl: string;
   workTerms: string;
@@ -196,6 +198,8 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
     telegram: firstString(raw.contact?.telegram, raw.contacts?.telegram, raw.public_contact?.telegram, mergedSettings.publicTelegramUrl) || '',
     instagram: firstString(raw.contact?.instagram, raw.contacts?.instagram, raw.public_contact?.instagram, mergedSettings.publicInstagramUrl) || '',
     managerName: firstString(mergedSettings.publicManagerName, raw.contact?.display_name, raw.owner?.display_name) || 'Dubai Spares UAE',
+    website: firstString(raw.contact?.website, raw.contacts?.website, raw.public_contact?.website, mergedSettings.publicWebsiteUrl) || '',
+    email: firstString(raw.contact?.email, raw.contacts?.email, raw.public_contact?.email, mergedSettings.publicEmail) || '',
     logoUrl: firstString(mergedSettings.publicCompanyLogoUrl) || '',
     signatureUrl: firstString(mergedSettings.publicInvoiceSignatureUrl) || '',
     workTerms: firstString(mergedSettings.publicWorkTerms) || '',

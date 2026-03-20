@@ -23,6 +23,9 @@ export type InvoicePayload = {
   vin: string;
   items: InvoiceItem[];
   subtotalAed: number;
+  deliveryAed: number;
+  packingAed: number;
+  commissionAed: number;
   taxAed: number;
   totalAed: number;
   paymentInfo: {
@@ -75,9 +78,9 @@ const formatWebsite = (value: string) => {
 };
 
 const resolvePaymentInfo = (settings: AppSettings) => ({
-  accountNo: settings.publicWhatsappNumber || '971521574546',
-  name: settings.publicManagerName || 'Dubai Spares UAE',
-  bankAccount: settings.publicManagerName ? `${settings.publicManagerName} Trading Account` : 'Dubai Spares UAE Trading Account',
+  accountNo: settings.invoicePaymentAccountNo || settings.publicWhatsappNumber || '971521574546',
+  name: settings.invoicePaymentBeneficiary || settings.publicManagerName || 'Dubai Spares UAE',
+  bankAccount: settings.invoicePaymentBankAccount || (settings.publicManagerName ? `${settings.publicManagerName} Trading Account` : 'Dubai Spares UAE Trading Account'),
 });
 
 const resolveTerms = (text: string) => {
@@ -124,7 +127,10 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
     });
 
   const subtotalAed = items.reduce((sum, item) => sum + item.totalAed, 0);
-  const totalAed = subtotalAed + Number(order.logistics?.deliveryAed || 0) + Number(order.logistics?.packingAed || 0) + Number(order.logistics?.serviceFeeAed || 0);
+  const deliveryAed = Number(order.logistics?.deliveryAed || 0);
+  const packingAed = Number(order.logistics?.packingAed || 0);
+  const commissionAed = Number(order.logistics?.serviceFeeAed || 0);
+  const totalAed = subtotalAed + deliveryAed + packingAed + commissionAed;
   const createdAt = new Date();
   const carTitle = [order.brand, order.model, order.year].filter(Boolean).join(' ');
 
@@ -136,6 +142,9 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
     vin: String(order.vin || '—'),
     items,
     subtotalAed,
+    deliveryAed,
+    packingAed,
+    commissionAed,
     taxAed: 0,
     totalAed,
     paymentInfo: resolvePaymentInfo(settings),
@@ -146,8 +155,8 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
       companyName: 'DUBAI SPARES',
       subtitle: 'UAE',
       phone: formatPhone(settings.publicWhatsappNumber),
-      website: formatWebsite(settings.publicInstagramUrl || settings.publicTelegramUrl || ''),
-      email: 'sales@dubaispares.ae',
+      website: formatWebsite(settings.publicWebsiteUrl || settings.publicInstagramUrl || settings.publicTelegramUrl || ''),
+      email: settings.publicEmail || 'sales@dubaispares.ae',
       managerName: settings.publicManagerName || 'Dubai Spares UAE',
       signatureUrl: settings.publicInvoiceSignatureUrl || '',
     },
@@ -172,12 +181,15 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
     vin: snapshot.order.vin,
     items,
     subtotalAed: snapshot.subtotalAed,
+    deliveryAed: snapshot.deliveryAed,
+    packingAed: snapshot.packingAed,
+    commissionAed: snapshot.commissionAed,
     taxAed: 0,
     totalAed: snapshot.grandTotalAed,
     paymentInfo: {
-      accountNo: snapshot.contact.whatsapp || '971521574546',
-      name: snapshot.contact.managerName || 'Dubai Spares UAE',
-      bankAccount: `${snapshot.contact.managerName || 'Dubai Spares UAE'} Trading Account`,
+      accountNo: String(snapshot.raw.public_settings?.invoicePaymentAccountNo || snapshot.contact.whatsapp || '971521574546'),
+      name: String(snapshot.raw.public_settings?.invoicePaymentBeneficiary || snapshot.contact.managerName || 'Dubai Spares UAE'),
+      bankAccount: String(snapshot.raw.public_settings?.invoicePaymentBankAccount || `${snapshot.contact.managerName || 'Dubai Spares UAE'} Trading Account`),
     },
     paymentTerms: resolveTerms(snapshot.contact.workTerms),
     invoiceTo: String(snapshot.raw.order?.clientName || snapshot.raw.order?.client_name || snapshot.raw.order?.customerContact || 'Client details to be confirmed'),
@@ -186,8 +198,8 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
       companyName: 'DUBAI SPARES',
       subtitle: 'UAE',
       phone: formatPhone(snapshot.contact.whatsapp),
-      website: formatWebsite(snapshot.contact.instagram || snapshot.contact.telegram || ''),
-      email: 'sales@dubaispares.ae',
+      website: formatWebsite(snapshot.contact.website || snapshot.contact.instagram || snapshot.contact.telegram || ''),
+      email: snapshot.contact.email || 'sales@dubaispares.ae',
       managerName: snapshot.contact.managerName || 'Dubai Spares UAE',
       signatureUrl: snapshot.contact.signatureUrl,
     },
@@ -233,65 +245,65 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
     background: #ffffff;
   }
   .content {
-    padding: 12mm 12mm 10mm;
+    padding: 9mm 10mm 8mm;
     display: flex;
     flex-direction: column;
-    gap: 8mm;
+    gap: 5mm;
   }
-  .brand-row, .hero, .bottom-grid, .footer { display: flex; justify-content: space-between; gap: 10mm; }
+  .brand-row, .hero, .bottom-grid, .footer { display: flex; justify-content: space-between; gap: 7mm; }
   .brand { display: flex; align-items: center; gap: 10px; }
-  .logo-image { width: 40px; height: 40px; object-fit: contain; }
-  .logo-mark { display:flex; gap:5px; align-items:flex-end; width:40px; height:40px; }
+  .logo-image { width: 34px; height: 34px; object-fit: contain; }
+  .logo-mark { display:flex; gap:5px; align-items:flex-end; width:34px; height:34px; }
   .logo-mark span:first-child{ width:10px; height:30px; background:${YELLOW}; clip-path: polygon(35% 0,100% 0,65% 100%,0 100%); }
   .logo-mark span:last-child{ width:14px; height:35px; background:${BLUE}; clip-path: polygon(35% 0,100% 0,65% 100%,0 100%); }
   .brand-text { line-height: 0.94; }
-  .brand-text .name { font-size: 17px; font-weight: 800; letter-spacing: 0.14em; color: ${YELLOW}; }
-  .brand-text .sub { font-size: 16px; font-weight: 800; letter-spacing: 0.14em; }
+  .brand-text .name { font-size: 15px; font-weight: 800; letter-spacing: 0.12em; color: ${YELLOW}; }
+  .brand-text .sub { font-size: 14px; font-weight: 800; letter-spacing: 0.12em; }
   .hero { align-items: flex-start; }
-  .invoice-title { font-size: 30px; line-height: 1; letter-spacing: 0.05em; font-weight: 800; margin: 0; }
-  .meta { min-width: 84mm; }
-  .meta-line { display:grid; grid-template-columns: 22mm 1fr; gap: 4mm; font-size: 11px; margin-bottom: 3px; }
+  .invoice-title { font-size: 25px; line-height: 1; letter-spacing: 0.05em; font-weight: 800; margin: 0; }
+  .meta { min-width: 76mm; }
+  .meta-line { display:grid; grid-template-columns: 20mm 1fr; gap: 3mm; font-size: 10px; margin-bottom: 2px; }
   .meta-line strong { font-weight: 700; }
   .meta-line span, .meta-line strong { word-break: break-word; }
-  table { width: 100%; border-collapse: collapse; font-size: 10.5px; table-layout: fixed; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.4px; table-layout: fixed; }
   thead th {
-    background: ${YELLOW}; color: ${BLUE}; text-align: left; font-size: 11px; padding: 7px 8px; font-weight: 800;
+    background: ${YELLOW}; color: ${BLUE}; text-align: left; font-size: 10px; padding: 5px 6px; font-weight: 800;
     border-bottom: 1px solid rgba(43, 100, 141, 0.25);
   }
   tbody td {
-    padding: 6px 8px;
+    padding: 4px 6px;
     vertical-align: top;
     border-bottom: 1px solid rgba(43, 100, 141, 0.16);
   }
   tbody tr:last-child td { border-bottom: 1px solid rgba(43, 100, 141, 0.25); }
   tbody td.num { text-align: right; white-space: nowrap; }
   tbody td.total-cell { font-weight: 700; }
-  .desc-main { font-weight: 600; line-height: 1.3; }
-  .desc-sub { font-size: 9px; margin-top: 2px; color: rgba(43, 100, 141, 0.76); line-height: 1.25; }
+  .desc-main { font-weight: 600; line-height: 1.2; }
+  .desc-sub { font-size: 8px; margin-top: 1px; color: rgba(43, 100, 141, 0.76); line-height: 1.15; }
   .bottom-grid { align-items: flex-start; }
-  .section-title { color: ${YELLOW}; font-size: 13px; font-weight: 800; margin: 0 0 6px; }
-  .info-block { width: 58%; }
-  .totals { width: 32%; margin-left: auto; }
-  .info-line, .total-line { display:flex; justify-content:space-between; gap:10px; font-size: 11px; margin-bottom: 5px; }
-  .info-line span:first-child, .total-line span:first-child { min-width: 27mm; }
-  .total-line strong { font-size: 12px; }
-  .total-line.grand { font-weight: 800; font-size: 13px; margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(43, 100, 141, 0.22); }
-  .terms-signature { display: flex; justify-content: space-between; align-items: flex-end; gap: 10mm; }
-  .terms { flex: 1; font-size: 10.5px; }
-  .terms ul { margin: 0; padding-left: 16px; }
-  .terms li { margin-bottom: 3px; line-height: 1.3; }
-  .invoice-to { margin-top: 8px; font-size: 10.5px; }
-  .invoice-to strong { display:block; margin-bottom: 3px; color: ${YELLOW}; font-size: 12px; }
-  .sheet-note { font-size: 10px; opacity: 0.85; margin-top: 5px; }
-  .signature-zone { width: 48mm; margin-left: auto; }
-  .signature-image { max-width: 120px; max-height: 34px; object-fit: contain; display:block; margin: 0 0 6px auto; }
-  .signature-placeholder { width: 120px; height: 22px; margin-left: auto; }
-  .signature-line { border-bottom: 1.2px solid ${BLUE}; width: 100%; margin-bottom: 6px; }
-  .signature-label { text-align: right; font-size: 10px; font-weight: 700; }
-  .footer { align-items: flex-end; padding-top: 2mm; border-top: 1px solid rgba(43, 100, 141, 0.18); }
-  .contacts { font-size: 10.5px; display:grid; gap: 4px; }
-  .contact-line { display:flex; align-items:center; gap:7px; }
-  .icon { width: 15px; text-align:center; }
+  .section-title { color: ${YELLOW}; font-size: 12px; font-weight: 800; margin: 0 0 4px; }
+  .info-block { width: 54%; }
+  .totals { width: 40%; margin-left: auto; }
+  .info-line, .total-line { display:flex; justify-content:space-between; gap:8px; font-size: 10px; margin-bottom: 3px; }
+  .info-line span:first-child, .total-line span:first-child { min-width: 24mm; }
+  .total-line strong { font-size: 11px; }
+  .total-line.grand { font-weight: 800; font-size: 12px; margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(43, 100, 141, 0.22); }
+  .terms-signature { display: flex; justify-content: space-between; align-items: flex-end; gap: 7mm; }
+  .terms { flex: 1; font-size: 9.4px; }
+  .terms ul { margin: 0; padding-left: 14px; }
+  .terms li { margin-bottom: 2px; line-height: 1.2; }
+  .invoice-to { margin-top: 5px; font-size: 9.4px; }
+  .invoice-to strong { display:block; margin-bottom: 2px; color: ${YELLOW}; font-size: 11px; }
+  .sheet-note { font-size: 9px; opacity: 0.85; margin-top: 4px; }
+  .signature-zone { width: 72mm; margin-left: auto; }
+  .signature-image { max-width: 360px; max-height: 102px; object-fit: contain; display:block; margin: 0 0 4px auto; }
+  .signature-placeholder { width: 360px; max-width: 100%; height: 66px; margin-left: auto; }
+  .signature-line { border-bottom: 1.2px solid ${BLUE}; width: 100%; margin-bottom: 4px; }
+  .signature-label { text-align: right; font-size: 9px; font-weight: 700; }
+  .footer { align-items: flex-end; padding-top: 1.5mm; border-top: 1px solid rgba(43, 100, 141, 0.18); }
+  .contacts { font-size: 9.4px; display:grid; gap: 2px; }
+  .contact-line { display:flex; align-items:center; gap:6px; }
+  .icon { width: 13px; text-align:center; }
   @media screen and (max-width: 900px) {
     .sheet { width: 100%; min-height: auto; }
     .content { padding: 8mm; gap: 6mm; }
@@ -356,6 +368,9 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
           </div>
           <div class="totals">
             <div class="total-line"><span>SUB TOTAL</span><strong>${esc(money(payload.subtotalAed))}</strong></div>
+            <div class="total-line"><span>DELIVERY</span><strong>${esc(money(payload.deliveryAed))}</strong></div>
+            <div class="total-line"><span>PACKING</span><strong>${esc(money(payload.packingAed))}</strong></div>
+            <div class="total-line"><span>COMMISSION</span><strong>${esc(money(payload.commissionAed))}</strong></div>
             <div class="total-line"><span>TAX</span><strong>${esc(money(payload.taxAed))}</strong></div>
             <div class="total-line grand"><span>TOTAL</span><strong>${esc(money(payload.totalAed))}</strong></div>
           </div>
