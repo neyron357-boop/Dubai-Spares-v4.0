@@ -1719,7 +1719,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                 className="w-full rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600"
               />
             </Field>
-            <p className="text-xs text-gray-500">Все AI запросы приложения отправляются только через этот Supabase Edge Function URL с помощью <code>supabase.functions.invoke(&quot;super-service&quot;, {{ body }})</code>. Локальный маршрут /ai/tasks, localhost и VITE_SERVER_API_URL больше не используются в клиентском AI потоке.</p>
+            <p className="text-xs text-gray-500">Все AI запросы приложения отправляются только через этот Supabase Edge Function URL с помощью <code>{'supabase.functions.invoke("super-service", { body })'}</code>. Локальный маршрут /ai/tasks, localhost и VITE_SERVER_API_URL больше не используются в клиентском AI потоке.</p>
           </div>
         </CompactBlock>
 
