@@ -11,6 +11,7 @@ import { Order } from '../types';
 import { clearBrokenImageBlacklist, isBrokenImageUrl, markBrokenImageUrl, normalizeBrokenImageKey, shouldBlacklistByStatus } from '../storage/brokenImageBlacklist';
 import { flushOfflineMutations } from '../orderStore';
 import { calculateCargo, calculateCargoEstimates, CargoTariff, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
+import { aiCore } from '../utils/aiCore';
 
 const loadImageFromFile = (file: File): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const url = URL.createObjectURL(file);
@@ -291,6 +292,7 @@ type GalleryRow = {
 type GallerySort = 'size_desc' | 'size_asc' | 'date_desc' | 'date_asc' | 'folder';
 type GalleryTaskType = 'compress' | 'delete';
 type GalleryTask = { id: string; label: string; type: GalleryTaskType; urls: string[]; createdAt: number; progress: number; total: number; done?: boolean; failed?: number };
+type AiTestTask = 'analyze_text' | 'transform_text' | 'extract_structured_data';
 
 const GALLERY_TASKS_KEY = 'dubai_spares_gallery_tasks_v1';
 
@@ -353,6 +355,16 @@ const SettingsScreen: React.FC = () => {
   const [folderFilter, setFolderFilter] = useState('all');
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [galleryTasks, setGalleryTasks] = useState<GalleryTask[]>(() => loadGalleryTasks());
+  const [aiTestTask, setAiTestTask] = useState<AiTestTask>('analyze_text');
+  const [aiTestText, setAiTestText] = useState('Toyota Camry 2020 нужна передняя левая фара, состояние б/у, доставка в Дубай.');
+  const [aiTestInstructions, setAiTestInstructions] = useState('Определи ключевые параметры запроса клиента и верни краткий структурированный вывод.');
+  const [aiTestOperation, setAiTestOperation] = useState('Сделай короткую деловую версию текста для менеджера.');
+  const [aiTestTargetLang, setAiTestTargetLang] = useState('ru');
+  const [aiTestTone, setAiTestTone] = useState('professional');
+  const [aiTestFormat, setAiTestFormat] = useState('plain_text');
+  const [aiTestSchema, setAiTestSchema] = useState('{\n  "brand": "string",\n  "model": "string",\n  "year": "string",\n  "part_name": "string",\n  "condition": "string",\n  "delivery_city": "string"\n}');
+  const [aiTestResult, setAiTestResult] = useState<string>('');
+  const [aiTestError, setAiTestError] = useState<string | null>(null);
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -520,6 +532,53 @@ const SettingsScreen: React.FC = () => {
       alert(`${message}. Use "Copy diagnostics" and retry.`);
     } finally {
       setBusy(null);
+    }
+  };
+
+  const runAiCoreTest = async () => {
+    setAiTestError(null);
+    setAiTestResult('');
+
+    if (!aiTestText.trim()) {
+      setAiTestError('Добавьте текст для теста AI ядра.');
+      return;
+    }
+
+    let response;
+
+    if (aiTestTask === 'analyze_text') {
+      response = await aiCore.analyzeText({
+        text: aiTestText.trim(),
+        instructions: aiTestInstructions.trim() || 'Проанализируй текст и верни полезный результат.'
+      });
+    } else if (aiTestTask === 'transform_text') {
+      response = await aiCore.transformText({
+        text: aiTestText.trim(),
+        operation: aiTestOperation.trim() || 'Переформулируй текст',
+        target_lang: aiTestTargetLang.trim() || undefined,
+        tone: aiTestTone.trim() || undefined,
+        format: aiTestFormat.trim() || undefined,
+        instructions: aiTestInstructions.trim() || undefined
+      });
+    } else {
+      let parsedSchema: Record<string, unknown>;
+      try {
+        parsedSchema = JSON.parse(aiTestSchema);
+      } catch {
+        setAiTestError('Схема JSON заполнена некорректно.');
+        return;
+      }
+
+      response = await aiCore.extractStructuredData({
+        text: aiTestText.trim(),
+        schema: parsedSchema,
+        instructions: aiTestInstructions.trim() || 'Извлеки структуру по схеме.'
+      });
+    }
+
+    setAiTestResult(JSON.stringify(response, null, 2));
+    if (!response.ok) {
+      setAiTestError(response.error || 'AI ядро вернуло ошибку.');
     }
   };
 
@@ -1629,6 +1688,103 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
       </Section>
 
       <Section title="Локальный режим">
+        <CompactBlock title="Тест AI ядра" subtitle="Проверка внутреннего шлюза POST /ai/tasks">
+          <div className="space-y-3">
+            <Field label="Задача">
+              <select
+                value={aiTestTask}
+                onChange={(e) => {
+                  setAiTestTask(e.target.value as AiTestTask);
+                  setAiTestError(null);
+                  setAiTestResult('');
+                }}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              >
+                <option value="analyze_text">analyze_text</option>
+                <option value="transform_text">transform_text</option>
+                <option value="extract_structured_data">extract_structured_data</option>
+              </select>
+            </Field>
+
+            <Field label="Текст для теста">
+              <textarea
+                value={aiTestText}
+                onChange={(e) => setAiTestText(e.target.value)}
+                rows={4}
+                className="min-h-24 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                placeholder="Введите текст, который нужно отправить в AI ядро"
+              />
+            </Field>
+
+            <Field label="Инструкции">
+              <textarea
+                value={aiTestInstructions}
+                onChange={(e) => setAiTestInstructions(e.target.value)}
+                rows={3}
+                className="min-h-20 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                placeholder="Дополнительные инструкции для AI"
+              />
+            </Field>
+
+            {aiTestTask === 'transform_text' ? (
+              <div className="grid gap-2 md:grid-cols-2">
+                <Field label="Операция">
+                  <input value={aiTestOperation} onChange={(e) => setAiTestOperation(e.target.value)} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" placeholder="Суммаризируй / переведи / переформулируй" />
+                </Field>
+                <Field label="Язык результата">
+                  <input value={aiTestTargetLang} onChange={(e) => setAiTestTargetLang(e.target.value)} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" placeholder="ru / en / ar" />
+                </Field>
+                <Field label="Тон">
+                  <input value={aiTestTone} onChange={(e) => setAiTestTone(e.target.value)} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" placeholder="professional" />
+                </Field>
+                <Field label="Формат">
+                  <input value={aiTestFormat} onChange={(e) => setAiTestFormat(e.target.value)} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" placeholder="plain_text" />
+                </Field>
+              </div>
+            ) : null}
+
+            {aiTestTask === 'extract_structured_data' ? (
+              <Field label="JSON-схема">
+                <textarea
+                  value={aiTestSchema}
+                  onChange={(e) => setAiTestSchema(e.target.value)}
+                  rows={8}
+                  className="min-h-40 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 font-mono text-xs"
+                  placeholder='{"field":"string"}'
+                />
+              </Field>
+            ) : null}
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void withBusy('ai-core-test', runAiCoreTest)}
+                disabled={busy === 'ai-core-test'}
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+              >
+                {busy === 'ai-core-test' ? 'Тестируем…' : 'Запустить AI тест'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAiTestError(null);
+                  setAiTestResult('');
+                }}
+                className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-bold"
+              >
+                Очистить ответ
+              </button>
+            </div>
+
+            {aiTestError ? <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{aiTestError}</p> : null}
+
+            <div className="rounded-2xl border border-gray-200 bg-gray-950 p-3 text-xs text-green-300">
+              <p className="mb-2 font-black text-white">Ответ AI ядра</p>
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words">{aiTestResult || 'После запуска здесь появится JSON-ответ внутреннего AI шлюза.'}</pre>
+            </div>
+          </div>
+        </CompactBlock>
+
         <div className="text-sm text-gray-700 space-y-1">
           <p>Режим: <b>LOCAL</b></p>
           <p>Server: {serverStatus === 'available' ? 'available' : 'unavailable'}</p>
