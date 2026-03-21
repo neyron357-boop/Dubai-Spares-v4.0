@@ -40,47 +40,75 @@ export type AnalyzeTextResult = { analysis: Record<string, unknown> };
 export type TransformTextResult = { transformed_text: string };
 export type ExtractStructuredDataResult = { extracted: Record<string, unknown> };
 
-const AI_CORE_URL = `${import.meta.env.VITE_SERVER_API_URL || 'http://localhost:8080'}/ai/tasks`;
+export const AI_CORE_URL = 'https://nbnfaxsvdlcdycnuzieu.supabase.co/functions/v1/super-service';
 
-const getLocalAiCoreApiKey = (): string => {
-  try {
-    const raw = window.localStorage.getItem('dubai_spares_app_settings_v1');
-    if (!raw) return '';
-    const parsed = JSON.parse(raw) as { aiCoreApiKey?: unknown };
-    return typeof parsed?.aiCoreApiKey === 'string' ? parsed.aiCoreApiKey.trim() : '';
-  } catch {
-    return '';
+const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+
+const normalizeAiResponse = <TTask extends AiTask, TResult>(task: TTask, data: unknown, fallbackError: string): AiResponse<TTask, TResult> => {
+  if (!isRecord(data)) {
+    return { ok: false, task, result: null, error: fallbackError };
   }
+
+  if (data.ok === true) {
+    return {
+      ok: true,
+      task: data.task === task ? task : task,
+      result: (data.result ?? {}) as TResult,
+      error: null,
+    };
+  }
+
+  const error = typeof data.error === 'string' && data.error.trim()
+    ? data.error.trim()
+    : fallbackError;
+
+  return {
+    ok: false,
+    task,
+    result: null,
+    error,
+  };
 };
 
 const postAiTask = async <TTask extends AiTask, TResult>(task: TTask, payload: unknown): Promise<AiResponse<TTask, TResult>> => {
   try {
-    const apiKey = getLocalAiCoreApiKey();
     const response = await fetch(AI_CORE_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ task, payload, ...(apiKey ? { apiKey } : {}) }),
+      body: JSON.stringify({ task, payload }),
     });
 
     const data = await response.json().catch(() => null);
-    if (!data || typeof data !== 'object') {
-      return { ok: false, task, result: null, error: 'Invalid AI gateway response' };
+    const fallbackError = response.ok
+      ? 'Invalid AI core response'
+      : `AI core request failed (${response.status})`;
+
+    const normalized = normalizeAiResponse<TTask, TResult>(task, data, fallbackError);
+
+    if (!response.ok && normalized.ok) {
+      return {
+        ok: false,
+        task,
+        result: null,
+        error: fallbackError,
+      };
     }
 
-    return data as AiResponse<TTask, TResult>;
+    return normalized;
   } catch (error) {
     return {
       ok: false,
       task,
       result: null,
-      error: error instanceof Error ? error.message : 'AI gateway request failed',
+      error: error instanceof Error ? error.message : 'AI core request failed',
     };
   }
 };
 
 export const aiCore = {
+  url: AI_CORE_URL,
   analyzeText(payload: AnalyzeTextPayload) {
     return postAiTask<'analyze_text', AnalyzeTextResult>('analyze_text', payload);
   },

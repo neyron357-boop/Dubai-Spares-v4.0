@@ -23,7 +23,7 @@ If lead creation fails, the form stores the order locally with `leadSyncPending=
 
 ## Universal internal AI core
 
-This project now uses one reusable internal AI gateway in the Express API server at `api/ai/*` and exposes a single internal endpoint at `POST /ai/tasks`.
+This project now uses one reusable frontend AI client in `utils/aiCore.ts` that sends every AI request directly to the Supabase Edge Function endpoint: `https://nbnfaxsvdlcdycnuzieu.supabase.co/functions/v1/super-service`.
 
 Request contract:
 
@@ -45,16 +45,10 @@ Response contract:
 }
 ```
 
-Server environment variables:
+Current frontend usage goes through `utils/aiCore.ts`, which is the single source of truth for AI requests and keeps the request/response contract stable for the app.
 
-- `OPENROUTER_API_KEY` (required)
-- `OPENROUTER_MODEL` (optional, defaults to `openrouter/free`)
+Supported tasks:
 
-Future task changes should be made only in these files:
-
-- `api/ai/constants.js` for the supported task list
-- `api/ai/validation.js` for payload validation
-- `api/ai/prompts.js` for prompt templates
-- `api/ai/taskRouter.js` for output normalization
-
-Current frontend usage goes through `utils/aiCore.ts`, which calls the internal gateway rather than talking to the provider directly.
+- `analyze_text`
+- `transform_text`
+- `extract_structured_data`
