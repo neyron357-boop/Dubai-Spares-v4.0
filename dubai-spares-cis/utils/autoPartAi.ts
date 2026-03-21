@@ -1,4 +1,4 @@
-const AUTO_PART_AI_URL = 'https://nbnfaxsvdlcdycnuzieu.supabase.co/functions/v1/auto-part-ai';
+import { aiCore } from './aiCore';
 
 export type AutoPartAiAnalysis = {
   category: string;
@@ -22,7 +22,6 @@ const resultCache = new Map<string, AutoPartAiAnalysis>();
 const inFlight = new Map<string, Promise<AutoPartAiAnalysis>>();
 
 const normalizeText = (value: string) => value.trim().replace(/\s+/g, ' ');
-
 const asRecord = (value: unknown): Record<string, unknown> => (
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 );
@@ -81,17 +80,21 @@ export const analyzeAutoPartText = async (text: string): Promise<AutoPartAiAnaly
   const existing = inFlight.get(cacheKey);
   if (existing) return existing;
 
-  const request = fetch(AUTO_PART_AI_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
+  const request = aiCore.extractStructuredData({
+    text: normalizedText,
+    schema: {
+      category: 'string',
+      translated: 'string',
+      translated_ru: 'string',
+      estimated_weight_kg: 'number',
+      fragile: 'boolean',
+      size_class: 'string',
     },
-    body: JSON.stringify({ text: normalizedText }),
+    instructions: 'Use realistic automotive spare-parts assumptions. Translate to English and Russian when possible.',
   })
-    .then(async (response) => {
-      if (!response.ok) throw new Error(`AI helper request failed: ${response.status}`);
-      const payload = await response.json();
-      const parsed = parseAnalysis(payload);
+    .then((response) => {
+      if (!response.ok) throw new Error(response.error);
+      const parsed = parseAnalysis(response.result.extracted);
       resultCache.set(cacheKey, parsed);
       return parsed;
     })
