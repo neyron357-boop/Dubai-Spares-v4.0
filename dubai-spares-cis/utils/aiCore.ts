@@ -1,5 +1,5 @@
-import { SUPABASE_URL } from '../cloudConfig';
-import { supabase } from '../supabaseClient';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../cloudConfig';
+import { wrapSupabaseFetch } from '../egressDebug';
 
 export type AiTask = 'analyze_text' | 'transform_text' | 'extract_structured_data';
 
@@ -43,16 +43,20 @@ export type AnalyzeTextResult = { analysis: Record<string, unknown> };
 export type TransformTextResult = { transformed_text: string };
 export type ExtractStructuredDataResult = { extracted: Record<string, unknown> };
 
+export type AiRequestOptions = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  cancelPrevious?: boolean;
+};
+
 const AI_FUNCTION_NAME = 'super-service';
+const DEFAULT_TIMEOUT_MS = 15_000;
+const TIMEOUT_ERROR_MESSAGE = 'AI request timed out. Please try again.';
+const CANCELLED_ERROR_MESSAGE = 'AI request was cancelled. Please retry.';
+
 export const AI_CORE_URL = `${SUPABASE_URL}/functions/v1/${AI_FUNCTION_NAME}`;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
-
-const readErrorMessage = (value: unknown): string => {
-  if (typeof value === 'string' && value.trim()) return value.trim();
-  if (value instanceof Error && value.message.trim()) return value.message.trim();
-  return '';
-};
 
 const normalizeAiResponse = <TTask extends AiTask, TResult>(task: TTask, data: unknown, fallbackError: string): AiResponse<TTask, TResult> => {
   if (!isRecord(data)) {
@@ -97,109 +101,107 @@ const parseJsonSafely = (value: string): unknown => {
   }
 };
 
-const extractBodyPayload = async (responseLike: unknown): Promise<unknown> => {
-  if (!responseLike) return null;
-
-  if (typeof Response !== 'undefined' && responseLike instanceof Response) {
-    try {
-      const cloned = responseLike.clone();
-      const text = await cloned.text();
-      return text ? parseJsonSafely(text) ?? text : null;
-    } catch {
-      return null;
-    }
+const readResponseBody = async (response: Response): Promise<unknown> => {
+  try {
+    const text = await response.text();
+    return text ? parseJsonSafely(text) ?? text : null;
+  } catch {
+    return null;
   }
-
-  if (isRecord(responseLike)) {
-    const candidateText = readErrorMessage(responseLike.body);
-    if (candidateText) return parseJsonSafely(candidateText) ?? candidateText;
-
-    const jsonFn = responseLike.json;
-    if (typeof jsonFn === 'function') {
-      try {
-        return await jsonFn.call(responseLike);
-      } catch {
-        // Ignore and continue with text fallback.
-      }
-    }
-
-    const textFn = responseLike.text;
-    if (typeof textFn === 'function') {
-      try {
-        const text = await textFn.call(responseLike);
-        return typeof text === 'string' && text ? parseJsonSafely(text) ?? text : null;
-      } catch {
-        return null;
-      }
-    }
-  }
-
-  return null;
 };
 
-const extractErrorPayload = async (error: unknown): Promise<unknown> => {
-  if (!isRecord(error)) return null;
+let activeRequestController: AbortController | null = null;
 
-  const sources = [
-    error.context,
-    error.response,
-    error.data,
-    error.body,
-  ];
-
-  for (const source of sources) {
-    if (!source) continue;
-    const parsed = await extractBodyPayload(source);
-    if (parsed != null) return parsed;
-    if (isRecord(source) && ('ok' in source || 'error' in source || 'task' in source || 'result' in source)) {
-      return source;
-    }
-  }
-
-  return null;
+const cancelActiveRequest = (reason = CANCELLED_ERROR_MESSAGE) => {
+  if (!activeRequestController || activeRequestController.signal.aborted) return;
+  activeRequestController.abort(reason);
 };
 
-const extractInvokeErrorMessage = async <TTask extends AiTask>(task: TTask, error: unknown, fallbackMessage: string): Promise<AiFailure<TTask>> => {
-  const payload = await extractErrorPayload(error);
-  const normalized = normalizeAiResponse<TTask, never>(task, payload, fallbackMessage);
-  if (!normalized.ok) {
-    return normalized;
-  }
-
-  const directMessage = readErrorMessage(error);
-  return toStructuredFailure(task, directMessage || fallbackMessage);
-};
-
-const postAiTask = async <TTask extends AiTask, TResult>(task: TTask, payload: unknown): Promise<AiResponse<TTask, TResult>> => {
-  if (!supabase) {
+const postAiTask = async <TTask extends AiTask, TResult>(task: TTask, payload: unknown, options: AiRequestOptions = {}): Promise<AiResponse<TTask, TResult>> => {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     return toStructuredFailure(task, 'AI core is disabled: Supabase client is not configured.');
   }
 
+  const requestController = new AbortController();
+  const timeoutMs = Math.max(12_000, Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 20_000));
+  let timeoutTriggered = false;
+
+  if (options.cancelPrevious !== false) {
+    cancelActiveRequest();
+    activeRequestController = requestController;
+  }
+
+  const abortFromSignal = () => {
+    if (!requestController.signal.aborted) {
+      requestController.abort(options.signal?.reason ?? CANCELLED_ERROR_MESSAGE);
+    }
+  };
+
+  options.signal?.addEventListener('abort', abortFromSignal, { once: true });
+
+  const timeoutId = window.setTimeout(() => {
+    timeoutTriggered = true;
+    if (!requestController.signal.aborted) {
+      requestController.abort(TIMEOUT_ERROR_MESSAGE);
+    }
+  }, timeoutMs);
+
   try {
-    const { data, error } = await supabase.functions.invoke(AI_FUNCTION_NAME, {
-      body: { task, payload },
+    const response = await wrapSupabaseFetch(AI_CORE_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ task, payload }),
+      signal: requestController.signal,
     });
 
-    if (error) {
-      return await extractInvokeErrorMessage(task, error, 'Edge Function returned a non-2xx status code');
+    const data = await readResponseBody(response);
+
+    if (!response.ok) {
+      return normalizeAiResponse<TTask, TResult>(task, data, 'Edge Function returned a non-2xx status code');
     }
 
     return normalizeAiResponse<TTask, TResult>(task, data, 'Invalid AI core response');
   } catch (error) {
-    return await extractInvokeErrorMessage(task, error, 'Edge Function returned a non-2xx status code');
+    if (timeoutTriggered) {
+      return toStructuredFailure(task, TIMEOUT_ERROR_MESSAGE);
+    }
+
+    if (requestController.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+      const reason = typeof requestController.signal.reason === 'string' && requestController.signal.reason.trim()
+        ? requestController.signal.reason.trim()
+        : CANCELLED_ERROR_MESSAGE;
+      return toStructuredFailure(task, reason);
+    }
+
+    const fallbackMessage = error instanceof Error && error.message.trim()
+      ? error.message.trim()
+      : 'Edge Function returned a non-2xx status code';
+    return toStructuredFailure(task, fallbackMessage);
+  } finally {
+    window.clearTimeout(timeoutId);
+    options.signal?.removeEventListener('abort', abortFromSignal);
+    if (activeRequestController === requestController) {
+      activeRequestController = null;
+    }
   }
 };
 
 export const aiCore = {
   functionName: AI_FUNCTION_NAME,
   url: AI_CORE_URL,
-  analyzeText(payload: AnalyzeTextPayload) {
-    return postAiTask<'analyze_text', AnalyzeTextResult>('analyze_text', payload);
+  timeoutMs: DEFAULT_TIMEOUT_MS,
+  cancelActiveRequest,
+  analyzeText(payload: AnalyzeTextPayload, options?: AiRequestOptions) {
+    return postAiTask<'analyze_text', AnalyzeTextResult>('analyze_text', payload, options);
   },
-  transformText(payload: TransformTextPayload) {
-    return postAiTask<'transform_text', TransformTextResult>('transform_text', payload);
+  transformText(payload: TransformTextPayload, options?: AiRequestOptions) {
+    return postAiTask<'transform_text', TransformTextResult>('transform_text', payload, options);
   },
-  extractStructuredData(payload: ExtractStructuredDataPayload) {
-    return postAiTask<'extract_structured_data', ExtractStructuredDataResult>('extract_structured_data', payload);
+  extractStructuredData(payload: ExtractStructuredDataPayload, options?: AiRequestOptions) {
+    return postAiTask<'extract_structured_data', ExtractStructuredDataResult>('extract_structured_data', payload, options);
   },
 };
