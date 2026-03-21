@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import webpush from 'web-push';
 import { createClient } from '@supabase/supabase-js';
+import { createAiCore } from './ai/core.js';
 
 const app = express();
 app.use(cors());
@@ -20,6 +21,8 @@ const missingEnvVars = requiredEnvVars.filter((name) => !process.env[name]);
 if (missingEnvVars.length > 0) {
   throw new Error(`Missing required env vars: ${missingEnvVars.join(', ')}`);
 }
+
+const aiCore = createAiCore();
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -206,6 +209,12 @@ const validateWebhookKey = (req, res, next) => {
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
+});
+
+
+app.post('/ai/tasks', async (req, res) => {
+  const response = await aiCore.execute(req.body ?? {});
+  return res.status(response.ok ? 200 : 400).json(response);
 });
 
 app.post('/webhooks/orders', validateWebhookKey, async (req, res) => {
