@@ -320,6 +320,36 @@ const loadLockedSnapshotIds = (): string[] => {
   }
 };
 
+const AI_RESULT_PREVIEW_LIMIT = 4000;
+
+type AiRenderState = {
+  preview: string;
+  full: string;
+  truncated: boolean;
+};
+
+const stringifyAiResponse = (value: unknown): AiRenderState => {
+  const seen = new WeakSet<object>();
+  const safeJson = JSON.stringify(
+    value,
+    (_key, currentValue) => {
+      if (!currentValue || typeof currentValue !== 'object') return currentValue;
+      if (seen.has(currentValue as object)) return '[Circular]';
+      seen.add(currentValue as object);
+      return currentValue;
+    },
+    2
+  ) || '';
+
+  const truncated = safeJson.length > AI_RESULT_PREVIEW_LIMIT;
+  return {
+    preview: truncated ? `${safeJson.slice(0, AI_RESULT_PREVIEW_LIMIT)}
+…[preview truncated]` : safeJson,
+    full: safeJson,
+    truncated,
+  };
+};
+
 const SettingsScreen: React.FC = () => {
   const publicRequestFormUrl = `${window.location.origin}${window.location.pathname}#/request`;
   const navigate = useNavigate();
@@ -375,8 +405,14 @@ const SettingsScreen: React.FC = () => {
   const [aiTestTone, setAiTestTone] = useState('professional');
   const [aiTestFormat, setAiTestFormat] = useState('plain_text');
   const [aiTestSchema, setAiTestSchema] = useState('{\n  "brand": "string",\n  "model": "string",\n  "year": "string",\n  "part_name": "string",\n  "condition": "string",\n  "delivery_city": "string"\n}');
-  const [aiTestResult, setAiTestResult] = useState<string>('');
+  const [aiTestResult, setAiTestResult] = useState<AiRenderState | null>(null);
   const [aiTestError, setAiTestError] = useState<string | null>(null);
+  const [aiTestPending, setAiTestPending] = useState(false);
+  const [aiTestStatus, setAiTestStatus] = useState<string | null>(null);
+  const [aiTestShowFullResponse, setAiTestShowFullResponse] = useState(false);
+  const aiTestAbortRef = useRef<AbortController | null>(null);
+  const aiTestRequestIdRef = useRef(0);
+  const isMountedRef = useRef(true);
 
   const timezoneList = useMemo(() => ['Asia/Dubai', 'UTC', 'Europe/Moscow'], []);
 
@@ -404,6 +440,14 @@ const SettingsScreen: React.FC = () => {
   }, [settings]);
 
 
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      aiTestAbortRef.current?.abort('AI request was cancelled. Please retry.');
+      aiCore.cancelActiveRequest('AI request was cancelled. Please retry.');
+    };
+  }, []);
 
   const updateDraft = (patch: Partial<AppSettings>) => {
     setDraftSettings((prev) => ({ ...prev, ...patch }));
@@ -547,14 +591,45 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
+  const cancelAiCoreTest = (message = 'AI request was cancelled. Please retry.') => {
+    aiTestAbortRef.current?.abort(message);
+    aiCore.cancelActiveRequest(message);
+    aiTestAbortRef.current = null;
+    if (!isMountedRef.current) return;
+    setAiTestPending(false);
+    setAiTestStatus(message);
+  };
+
   const runAiCoreTest = async () => {
     setAiTestError(null);
-    setAiTestResult('');
+    setAiTestResult(null);
+    setAiTestShowFullResponse(false);
 
     if (!aiTestText.trim()) {
       setAiTestError('Добавьте текст для теста AI ядра.');
+      setAiTestStatus(null);
       return;
     }
+
+    let parsedSchema: Record<string, unknown> | null = null;
+    if (aiTestTask === 'extract_structured_data') {
+      try {
+        parsedSchema = JSON.parse(aiTestSchema);
+      } catch {
+        setAiTestError('Схема JSON заполнена некорректно.');
+        setAiTestStatus(null);
+        return;
+      }
+    }
+
+    aiTestAbortRef.current?.abort('AI request was cancelled. Please retry.');
+    const controller = new AbortController();
+    aiTestAbortRef.current = controller;
+    const requestId = aiTestRequestIdRef.current + 1;
+    aiTestRequestIdRef.current = requestId;
+
+    setAiTestPending(true);
+    setAiTestStatus('AI is thinking...');
 
     let response;
 
@@ -562,7 +637,7 @@ const SettingsScreen: React.FC = () => {
       response = await aiCore.analyzeText({
         text: aiTestText.trim(),
         instructions: aiTestInstructions.trim() || 'Проанализируй текст и верни полезный результат.'
-      });
+      }, { signal: controller.signal });
     } else if (aiTestTask === 'transform_text') {
       response = await aiCore.transformText({
         text: aiTestText.trim(),
@@ -571,27 +646,30 @@ const SettingsScreen: React.FC = () => {
         tone: aiTestTone.trim() || undefined,
         format: aiTestFormat.trim() || undefined,
         instructions: aiTestInstructions.trim() || undefined
-      });
+      }, { signal: controller.signal });
     } else {
-      let parsedSchema: Record<string, unknown>;
-      try {
-        parsedSchema = JSON.parse(aiTestSchema);
-      } catch {
-        setAiTestError('Схема JSON заполнена некорректно.');
-        return;
-      }
-
       response = await aiCore.extractStructuredData({
         text: aiTestText.trim(),
-        schema: parsedSchema,
+        schema: parsedSchema || {},
         instructions: aiTestInstructions.trim() || 'Извлеки структуру по схеме.'
-      });
+      }, { signal: controller.signal });
     }
 
-    setAiTestResult(JSON.stringify(response, null, 2));
+    if (!isMountedRef.current || aiTestRequestIdRef.current !== requestId) {
+      return;
+    }
+
+    aiTestAbortRef.current = null;
+    setAiTestPending(false);
+    setAiTestResult(stringifyAiResponse(response));
+
     if (!response.ok) {
       setAiTestError(response.error || 'AI ядро вернуло ошибку.');
+      setAiTestStatus(response.error || 'AI request failed.');
+      return;
     }
+
+    setAiTestStatus('Готово. Ответ получен.');
   };
 
   const clearApplicationCache = async () => {
@@ -1743,7 +1821,9 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                 onChange={(e) => {
                   setAiTestTask(e.target.value as AiTestTask);
                   setAiTestError(null);
-                  setAiTestResult('');
+                  setAiTestStatus(null);
+                  setAiTestResult(null);
+                  setAiTestShowFullResponse(false);
                 }}
                 className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
               >
@@ -1805,17 +1885,28 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => void withBusy('ai-core-test', runAiCoreTest)}
-                disabled={busy === 'ai-core-test'}
+                onClick={() => void runAiCoreTest()}
+                disabled={aiTestPending}
                 className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
               >
-                {busy === 'ai-core-test' ? 'Тестируем…' : 'Запустить AI тест'}
+                {aiTestPending ? 'AI is thinking...' : 'Запустить AI тест'}
               </button>
+              {aiTestPending ? (
+                <button
+                  type="button"
+                  onClick={() => cancelAiCoreTest()}
+                  className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800"
+                >
+                  Отменить
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
                   setAiTestError(null);
-                  setAiTestResult('');
+                  setAiTestStatus(null);
+                  setAiTestResult(null);
+                  setAiTestShowFullResponse(false);
                 }}
                 className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-bold"
               >
@@ -1823,11 +1914,24 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               </button>
             </div>
 
+            {aiTestStatus ? <p className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700">{aiTestStatus}</p> : null}
             {aiTestError ? <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{aiTestError}</p> : null}
 
             <div className="rounded-2xl border border-gray-200 bg-gray-950 p-3 text-xs text-green-300">
-              <p className="mb-2 font-black text-white">Ответ AI ядра</p>
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words">{aiTestResult || 'После запуска здесь появится JSON-ответ внутреннего AI шлюза.'}</pre>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="font-black text-white">Ответ AI ядра</p>
+                {aiTestResult?.truncated ? (
+                  <button
+                    type="button"
+                    onClick={() => setAiTestShowFullResponse((prev) => !prev)}
+                    className="rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-bold text-white"
+                  >
+                    {aiTestShowFullResponse ? 'Скрыть полный JSON' : 'Показать полный JSON'}
+                  </button>
+                ) : null}
+              </div>
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words">{aiTestResult ? (aiTestShowFullResponse ? aiTestResult.full : aiTestResult.preview) : 'После запуска здесь появится JSON-ответ внутреннего AI шлюза.'}</pre>
+              {aiTestResult?.truncated && !aiTestShowFullResponse ? <p className="mt-2 text-[11px] text-gray-400">Показан компактный preview, чтобы большой JSON не подвешивал интерфейс.</p> : null}
             </div>
           </div>
         </CompactBlock>
