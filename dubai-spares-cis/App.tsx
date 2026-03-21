@@ -187,7 +187,14 @@ const CachedRoutes: React.FC = () => {
                   </DebugRouteBoundary>
                 )}
               />
-              <Route path="/settings" element={<SettingsScreen />} />
+              <Route
+                path="/settings"
+                element={(
+                  <DebugRouteBoundary>
+                    <SettingsScreen />
+                  </DebugRouteBoundary>
+                )}
+              />
               <Route path="/request" element={<PublicOrderFormScreen />} />
               <Route path="/order-form" element={<PublicOrderFormScreen />} />
               <Route path="/public-order-form" element={<PublicOrderFormScreen />} />
