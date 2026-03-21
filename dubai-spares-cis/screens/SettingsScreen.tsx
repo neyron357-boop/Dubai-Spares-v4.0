@@ -1062,11 +1062,27 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
   };
 
   useEffect(() => {
-    void loadSnapshots();
+    void (async () => {
+      try {
+        await loadSnapshots();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Не удалось загрузить снапшоты';
+        setSnapshotRows([]);
+        setSnapshotNotice(message);
+      }
+    })();
   }, []);
 
   useEffect(() => {
-    void loadServerGallery();
+    void (async () => {
+      try {
+        await loadServerGallery();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Не удалось загрузить галерею';
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: 'error', message } }));
+        setServerGalleryRows([]);
+      }
+    })();
   }, []);
 
   const galleryKey = (row: { bucket: string; path: string }) => `${row.bucket}:${row.path}`;
@@ -1130,7 +1146,12 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
   const clearGallerySelection = () => setSelectedGalleryKeys([]);
 
   useEffect(() => {
-    localStorage.setItem(GALLERY_TASKS_KEY, JSON.stringify(galleryTasks));
+    try {
+      localStorage.setItem(GALLERY_TASKS_KEY, JSON.stringify(galleryTasks));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось сохранить очередь галереи';
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: 'error', message } }));
+    }
   }, [galleryTasks]);
 
   const enqueueGalleryTask = (type: GalleryTaskType, rows: GalleryRow[], label: string) => {
