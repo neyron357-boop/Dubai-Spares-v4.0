@@ -16,8 +16,27 @@ const hasPushConfig = hasEnv('VAPID_PUBLIC_KEY') && hasEnv('VAPID_PRIVATE_KEY') 
 const hasSubscriptionConfig = hasEnv('DEVICE_REGISTRATION_KEY');
 const notificationsEnabled = hasSupabaseConfig && hasWebhookConfig && hasPushConfig;
 const subscriptionsEnabled = hasSupabaseConfig && hasSubscriptionConfig;
+const AI_CORE_SETTINGS_ID = 'app_settings';
 
-const aiCore = createAiCore();
+const readAiCoreApiKeyFromSettings = async () => {
+  if (!supabase) return '';
+
+  try {
+    const { data, error } = await supabase
+      .from('app_state')
+      .select('data')
+      .eq('id', AI_CORE_SETTINGS_ID)
+      .maybeSingle();
+
+    if (error) return '';
+    const apiKey = data?.data?.aiCoreApiKey;
+    return typeof apiKey === 'string' ? apiKey.trim() : '';
+  } catch {
+    return '';
+  }
+};
+
+const aiCore = createAiCore({ resolveApiKey: readAiCoreApiKeyFromSettings });
 
 const supabase = hasSupabaseConfig
   ? createClient(

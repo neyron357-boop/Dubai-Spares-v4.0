@@ -1688,6 +1688,23 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
       </Section>
 
       <Section title="Локальный режим">
+        <CompactBlock title="AI ядро" subtitle="Ключ OpenRouter для внутреннего AI шлюза">
+          <div className="space-y-3">
+            <Field label="API ключ AI ядра">
+              <input
+                type="password"
+                value={draftSettings.aiCoreApiKey || ''}
+                onChange={(e) => updateDraft({ aiCoreApiKey: e.target.value.trim() })}
+                placeholder="sk-or-v1-..."
+                autoComplete="off"
+                spellCheck={false}
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+              />
+            </Field>
+            <p className="text-xs text-gray-500">Ключ сохраняется в общих настройках приложения и используется серверным AI шлюзом для запросов к OpenRouter. Если поле пустое, сервер продолжит использовать OPENROUTER_API_KEY из окружения.</p>
+          </div>
+        </CompactBlock>
+
         <CompactBlock title="Тест AI ядра" subtitle="Проверка внутреннего шлюза POST /ai/tasks">
           <div className="space-y-3">
             <Field label="Задача">
