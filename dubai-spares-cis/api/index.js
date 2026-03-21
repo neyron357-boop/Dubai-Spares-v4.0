@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import webpush from 'web-push';
 import { createClient } from '@supabase/supabase-js';
-import { createAiCore } from './ai/core.js';
 
 const app = express();
 app.use(cors());
@@ -16,28 +15,6 @@ const hasPushConfig = hasEnv('VAPID_PUBLIC_KEY') && hasEnv('VAPID_PRIVATE_KEY') 
 const hasSubscriptionConfig = hasEnv('DEVICE_REGISTRATION_KEY');
 const notificationsEnabled = hasSupabaseConfig && hasWebhookConfig && hasPushConfig;
 const subscriptionsEnabled = hasSupabaseConfig && hasSubscriptionConfig;
-const AI_CORE_SETTINGS_ID = 'app_settings';
-
-const readAiCoreApiKeyFromSettings = async () => {
-  if (!supabase) return '';
-
-  try {
-    const { data, error } = await supabase
-      .from('app_state')
-      .select('data')
-      .eq('id', AI_CORE_SETTINGS_ID)
-      .maybeSingle();
-
-    if (error) return '';
-    const apiKey = data?.data?.aiCoreApiKey;
-    return typeof apiKey === 'string' ? apiKey.trim() : '';
-  } catch {
-    return '';
-  }
-};
-
-const aiCore = createAiCore({ resolveApiKey: readAiCoreApiKeyFromSettings });
-
 const supabase = hasSupabaseConfig
   ? createClient(
       process.env.SUPABASE_URL,
@@ -240,17 +217,12 @@ app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     features: {
-      ai: true,
       notifications: notificationsEnabled,
       subscriptions: subscriptionsEnabled,
     },
   });
 });
 
-app.post('/ai/tasks', async (req, res) => {
-  const response = await aiCore.execute(req.body ?? {});
-  return res.status(response.ok ? 200 : 400).json(response);
-});
 
 app.post('/webhooks/orders', validateWebhookKey, async (req, res) => {
   if (!notificationsEnabled) {

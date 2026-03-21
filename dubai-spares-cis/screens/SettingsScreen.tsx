@@ -1688,24 +1688,21 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
       </Section>
 
       <Section title="Локальный режим">
-        <CompactBlock title="AI ядро" subtitle="Ключ OpenRouter для внутреннего AI шлюза">
+        <CompactBlock title="AI ядро" subtitle="Единый AI шлюз приложения через Supabase Edge Function">
           <div className="space-y-3">
-            <Field label="API ключ AI ядра">
+            <Field label="Supabase Edge Function URL">
               <input
-                type="password"
-                value={draftSettings.aiCoreApiKey || ''}
-                onChange={(e) => updateDraft({ aiCoreApiKey: e.target.value.trim() })}
-                placeholder="sk-or-v1-..."
-                autoComplete="off"
-                spellCheck={false}
-                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                type="text"
+                value={aiCore.url}
+                readOnly
+                className="w-full rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600"
               />
             </Field>
-            <p className="text-xs text-gray-500">Ключ сохраняется в общих настройках приложения и используется серверным AI шлюзом для запросов к OpenRouter. Если поле пустое, сервер продолжит использовать OPENROUTER_API_KEY из окружения.</p>
+            <p className="text-xs text-gray-500">Все AI запросы приложения отправляются только через этот Supabase Edge Function URL. Локальный маршрут /ai/tasks и ключ OpenRouter в настройках больше не используются в клиентском AI потоке.</p>
           </div>
         </CompactBlock>
 
-        <CompactBlock title="Тест AI ядра" subtitle="Проверка внутреннего шлюза POST /ai/tasks">
+        <CompactBlock title="Тест AI ядра" subtitle="Проверка Supabase Edge Function AI шлюза">
           <div className="space-y-3">
             <Field label="Задача">
               <select
@@ -1729,7 +1726,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                 onChange={(e) => setAiTestText(e.target.value)}
                 rows={4}
                 className="min-h-24 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                placeholder="Введите текст, который нужно отправить в AI ядро"
+                placeholder="Введите текст, который нужно отправить в Supabase AI ядро"
               />
             </Field>
 
