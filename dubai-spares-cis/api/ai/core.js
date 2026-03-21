@@ -3,9 +3,9 @@ import { aiFailure, aiSuccess } from './response.js';
 import { runAiTask } from './taskRouter.js';
 import { validateAiRequest } from './validation.js';
 
-export const createAiCore = () => {
-  const getProviderClient = () => createOpenRouterClient({
-    apiKey: process.env.OPENROUTER_API_KEY,
+export const createAiCore = ({ resolveApiKey } = {}) => {
+  const getProviderClient = async () => createOpenRouterClient({
+    apiKey: (await resolveApiKey?.()) || process.env.OPENROUTER_API_KEY,
     model: process.env.OPENROUTER_MODEL,
   });
 
@@ -20,7 +20,7 @@ export const createAiCore = () => {
       }
 
       try {
-        const result = await runAiTask({ ...validated, providerClient: getProviderClient() });
+        const result = await runAiTask({ ...validated, providerClient: await getProviderClient() });
         return aiSuccess(validated.task, result);
       } catch (error) {
         return aiFailure(validated.task, error);
