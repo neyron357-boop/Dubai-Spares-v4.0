@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
 import { backupUpload, clearServerBackups, deletePublicQuoteSnapshot, listPublicQuoteSnapshots } from '../serverApi';
-import { cloudBuildGuardMessage, isCloudConfigured, SUPABASE_URL } from '../cloudConfig';
+import { cloudBuildGuardMessage, getCloudConfigDiagnostics, isCloudConfigured, SUPABASE_URL } from '../cloudConfig';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { testSupabaseConnection } from '../utils/testSupabaseConnection';
 import { deleteStorageDuplicateMappings, deleteStorageImageByPublicUrl, listAllStorageImages, recompressExistingStorageImage, runStorageImageMaintenance, uploadFileToStorage, uploadImageToStorage } from '../storage/photos';
@@ -355,6 +355,18 @@ const SettingsScreen: React.FC = () => {
   const [folderFilter, setFolderFilter] = useState('all');
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [galleryTasks, setGalleryTasks] = useState<GalleryTask[]>(() => loadGalleryTasks());
+  const cloudConfigDiagnostics = useMemo(() => getCloudConfigDiagnostics(), []);
+  const cloudStatusSummary = useMemo(() => {
+    if (cloudConfigDiagnostics.isCloudConfigured) return 'Cloud config OK';
+    if (cloudConfigDiagnostics.rawSupabaseUrlState === 'empty' || cloudConfigDiagnostics.rawSupabaseAnonKeyState === 'empty') {
+      return 'Frontend build did not receive one or both VITE_ env values. Rebuild/redeploy is required after fixing env.';
+    }
+    if (!cloudConfigDiagnostics.isSupabaseUrlValid) return 'Cloud config failed URL validation.';
+    if (!cloudConfigDiagnostics.isSupabaseAnonKeyJwt && !cloudConfigDiagnostics.isSupabaseAnonKeyPublishable) {
+      return 'Cloud config failed anon key format validation.';
+    }
+    return 'Cloud config failed validation.';
+  }, [cloudConfigDiagnostics]);
   const [aiTestTask, setAiTestTask] = useState<AiTestTask>('analyze_text');
   const [aiTestText, setAiTestText] = useState('Toyota Camry 2020 нужна передняя левая фара, состояние б/у, доставка в Дубай.');
   const [aiTestInstructions, setAiTestInstructions] = useState('Определи ключевые параметры запроса клиента и верни краткий структурированный вывод.');
@@ -1824,6 +1836,21 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           <p>Режим: <b>LOCAL</b></p>
           <p>Server: {serverStatus === 'available' ? 'available' : 'unavailable'}</p>
           {!isCloudConfigured && <p className="text-rose-600">{cloudBuildGuardMessage}</p>}
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 space-y-2">
+          <p className="font-black text-gray-900">Cloud env diagnostics</p>
+          <p className={isCloudConfigured ? 'text-emerald-700' : 'text-amber-700'}>{cloudStatusSummary}</p>
+          <ul className="space-y-1 break-all">
+            <li><span className="font-bold text-gray-900">rawSupabaseUrl:</span> {cloudConfigDiagnostics.rawSupabaseUrl}</li>
+            <li><span className="font-bold text-gray-900">isSupabaseUrlValid:</span> {String(cloudConfigDiagnostics.isSupabaseUrlValid)}</li>
+            <li><span className="font-bold text-gray-900">rawSupabaseAnonKey:</span> {cloudConfigDiagnostics.rawSupabaseAnonKey}</li>
+            <li><span className="font-bold text-gray-900">isSupabaseAnonKeyJwt:</span> {String(cloudConfigDiagnostics.isSupabaseAnonKeyJwt)}</li>
+            <li><span className="font-bold text-gray-900">isSupabaseAnonKeyPublishable:</span> {String(cloudConfigDiagnostics.isSupabaseAnonKeyPublishable)}</li>
+            <li><span className="font-bold text-gray-900">acceptedSupabaseAnonKeyFormat:</span> {cloudConfigDiagnostics.acceptedSupabaseAnonKeyFormat}</li>
+            <li><span className="font-bold text-gray-900">isCloudConfigured:</span> {String(cloudConfigDiagnostics.isCloudConfigured)}</li>
+            <li><span className="font-bold text-gray-900">buildTimeEnvSummary:</span> {cloudConfigDiagnostics.buildTimeEnvSummary}</li>
+          </ul>
         </div>
 
         <div className="flex flex-col gap-2">

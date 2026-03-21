@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY, isCloudConfigured, cloudFeatureFlags } from '../cloudConfig';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, isCloudConfigured, cloudFeatureFlags, getCloudConfigDiagnostics } from '../cloudConfig';
 
 const safeHostname = (value: string) => {
   try {
@@ -36,19 +36,23 @@ export const checkSupabaseMigration = async () => {
 };
 
 export const runCloudDiagnostics = async () => {
+  const configDiagnostics = getCloudConfigDiagnostics();
   const diagnostics = {
     timestamp: new Date().toISOString(),
     environment: {
-      VITE_SUPABASE_URL: SUPABASE_URL ? `✅ SET (${safeHostname(SUPABASE_URL)})` : '❌ MISSING',
-      VITE_SUPABASE_ANON_KEY: SUPABASE_ANON_KEY ? `✅ SET (${SUPABASE_ANON_KEY.substring(0, 20)}...)` : '❌ MISSING'
+      VITE_SUPABASE_URL: configDiagnostics.rawSupabaseUrlState === 'present' ? `✅ SET (${safeHostname(SUPABASE_URL)})` : '❌ MISSING',
+      VITE_SUPABASE_ANON_KEY: configDiagnostics.rawSupabaseAnonKeyState === 'present' ? `✅ SET (${configDiagnostics.rawSupabaseAnonKey})` : '❌ MISSING'
     },
     config: {
       isCloudConfigured,
-      cloudFeatureFlags
+      cloudFeatureFlags,
+      configDiagnostics
     },
     checks: {
-      urlValid: Boolean(SUPABASE_URL && /^https:\/\//i.test(SUPABASE_URL)),
-      anonKeyValid: Boolean(SUPABASE_ANON_KEY && SUPABASE_ANON_KEY.length > 30),
+      urlValid: configDiagnostics.isSupabaseUrlValid,
+      anonKeyJwt: configDiagnostics.isSupabaseAnonKeyJwt,
+      anonKeyPublishable: configDiagnostics.isSupabaseAnonKeyPublishable,
+      anonKeyAccepted: configDiagnostics.isSupabaseAnonKeyJwt || configDiagnostics.isSupabaseAnonKeyPublishable,
       clientFormEnabled: cloudFeatureFlags.clientForm,
       migrationAvailable: await checkSupabaseMigration()
     }
