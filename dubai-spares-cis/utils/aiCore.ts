@@ -42,14 +42,26 @@ export type ExtractStructuredDataResult = { extracted: Record<string, unknown> }
 
 const AI_CORE_URL = `${import.meta.env.VITE_SERVER_API_URL || 'http://localhost:8080'}/ai/tasks`;
 
+const getLocalAiCoreApiKey = (): string => {
+  try {
+    const raw = window.localStorage.getItem('dubai_spares_app_settings_v1');
+    if (!raw) return '';
+    const parsed = JSON.parse(raw) as { aiCoreApiKey?: unknown };
+    return typeof parsed?.aiCoreApiKey === 'string' ? parsed.aiCoreApiKey.trim() : '';
+  } catch {
+    return '';
+  }
+};
+
 const postAiTask = async <TTask extends AiTask, TResult>(task: TTask, payload: unknown): Promise<AiResponse<TTask, TResult>> => {
   try {
+    const apiKey = getLocalAiCoreApiKey();
     const response = await fetch(AI_CORE_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ task, payload }),
+      body: JSON.stringify({ task, payload, ...(apiKey ? { apiKey } : {}) }),
     });
 
     const data = await response.json().catch(() => null);
