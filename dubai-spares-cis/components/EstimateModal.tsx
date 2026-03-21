@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Order } from '../types';
 import { X, Share2, RefreshCcw, Images, CheckCircle2, FileText } from 'lucide-react';
 import { copyToClipboard, DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
@@ -7,6 +7,7 @@ import { useAppSettings } from '../appSettings';
 import { toast } from '../feedback';
 import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
 import { buildInvoicePayloadFromOrder, openInvoicePrintWindow } from '../utils/invoiceDocument';
+import { analyzeAutoPartText, resolveAutoPartTranslation } from '../utils/autoPartAi';
 
 const getVariantSalePriceAed = (variant: any) => Number(variant?.salePriceAed ?? variant?.priceAed ?? 0);
 
@@ -65,7 +66,10 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const [rateNotice, setRateNotice] = useState('');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [isSharing, setIsSharing] = useState(false);
+  const [translatedPartNames, setTranslatedPartNames] = useState<Record<string, string>>({});
+  const [translatedTerms, setTranslatedTerms] = useState<string[]>([]);
   const { settings } = useAppSettings();
+  const preferredLanguage: 'ru' | 'en' | 'ar' = order.whatsappTemplateLanguage || 'ru';
 
   const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
   const fixedMarkupTotal = Number(order.markupFixedAed || 0);
@@ -124,6 +128,40 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     }),
     [currency, foundParts, order.markupPercent, order.markupType, rates, fixedMarkupPerPart, isFixedMarkup]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(foundParts.map(async (part) => {
+      const analysis = await analyzeAutoPartText(part.name);
+      return [part.id, resolveAutoPartTranslation(analysis, part.name, preferredLanguage)] as const;
+    })).then((entries) => {
+      if (!cancelled) setTranslatedPartNames(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [foundParts, preferredLanguage]);
+
+  useEffect(() => {
+    const sourceTerms = String(settings.publicWorkTerms || '')
+      .split(/\n+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!sourceTerms.length) {
+      setTranslatedTerms([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(sourceTerms.map(async (term) => {
+      const analysis = await analyzeAutoPartText(term);
+      return resolveAutoPartTranslation(analysis, term, preferredLanguage);
+    })).then((items) => {
+      if (!cancelled) setTranslatedTerms(items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [preferredLanguage, settings.publicWorkTerms]);
 
   const updateRate = (code: QuoteCurrency, value: string) => {
     const parsed = Number(value.replace(',', '.'));
@@ -209,7 +247,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
                     {photos.length > 1 && <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 px-1 text-[8px] font-bold text-white">{photos.length}</span>}
                   </button>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm text-slate-900 leading-snug">{part.name}{qty > 1 ? ` ×${qty}` : ''}</p>
+                    <p className="font-bold text-sm text-slate-900 leading-snug">{translatedPartNames[part.id] || part.name}{qty > 1 ? ` ×${qty}` : ''}</p>
                     {part.partKind === 'group' && (
                       <div className="mt-1 space-y-0.5 text-[10px] text-slate-500">
                         {normalizeGroupItems((part as any).groupItems).map((item, idx) => <p key={`${part.id}-estimate-group-${idx}`} className="truncate">• {item.name} ×{item.quantity}</p>)}
@@ -314,8 +352,8 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
             {rateNotice && <p className="px-4 py-2 text-[10px] font-semibold text-blue-600">{rateNotice}</p>}
           </div>
 
-          {settings.publicWorkTerms.trim() && (
-            <p className="mx-4 mb-4 text-[10px] text-slate-500 whitespace-pre-line">{settings.publicWorkTerms.trim()}</p>
+          {(translatedTerms.length > 0 || settings.publicWorkTerms.trim()) && (
+            <p className="mx-4 mb-4 text-[10px] text-slate-500 whitespace-pre-line">{(translatedTerms.length > 0 ? translatedTerms.join('\n') : settings.publicWorkTerms).trim()}</p>
           )}
         </div>
 
