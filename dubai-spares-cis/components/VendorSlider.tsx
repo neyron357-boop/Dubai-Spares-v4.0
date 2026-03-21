@@ -1195,7 +1195,8 @@ const VendorSliderContent: React.FC = () => {
                 type="button"
                 onClick={() => {
                   clearPendingUrlSync();
-                  navigate(`/order/${current.id}/part/${part.id}`, { replace: false, state: { backTo: '/vendor' } });
+                  const backTo = `${location.pathname}${location.search}`;
+                  navigate(`/order/${current.id}/part/${part.id}`, { replace: false, state: { backTo } });
                 }}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-600 text-white/90"
                 title="Open part details"
