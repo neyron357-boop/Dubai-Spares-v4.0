@@ -53,6 +53,7 @@ import { getPartDisplayName, normalizeGroupItems, normalizePartQuantity } from '
 import { useAppSettings } from '../appSettings';
 import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 import { getOrderCustomerLogs } from '../customerEngagement';
+import { analyzeAutoPartText, inferCargoPlacesFromAnalysis, isOversizedFromAnalysis } from '../utils/autoPartAi';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -319,6 +320,8 @@ const OrderDetailsScreen: React.FC = () => {
   const [partCargoDrafts, setPartCargoDrafts] = useState<Record<string, PartCargoDraft>>({});
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
+  const [isAiFillingCargo, setIsAiFillingCargo] = useState(false);
+  const [aiCargoNotice, setAiCargoNotice] = useState<string | null>(null);
   // Multiple photos for new part
   const [newPartPhotos, setNewPartPhotos] = useState<string[]>([]);
   const partFileRef = useRef<HTMLInputElement>(null);
@@ -1131,6 +1134,91 @@ const OrderDetailsScreen: React.FC = () => {
       };
     });
   }, []);
+
+  const runAiCargoAssist = useCallback(async () => {
+    if (!isEditMode || !order.parts.length || isAiFillingCargo) return;
+    setIsAiFillingCargo(true);
+    setAiCargoNotice(null);
+    try {
+      const analyses = await Promise.all(order.parts.map(async (part) => ({
+        part,
+        analysis: await analyzeAutoPartText(part.name),
+      })));
+
+      let updatedCount = 0;
+      const nextDrafts: Record<string, PartCargoDraft> = {};
+      const nextParts = order.parts.map((part) => {
+        const analysis = analyses.find((item) => item.part.id === part.id)?.analysis;
+        if (!analysis) return part;
+
+        const nextWeight = Number(part.weightKg || 0) > 0 ? Number(part.weightKg || 0) : Number(analysis.estimatedWeightKg || 0);
+        const nextPlaces = Number(part.places || 0) >= 1 ? Number(part.places || 0) : inferCargoPlacesFromAnalysis(analysis);
+        const nextOversized = Boolean(part.isOversized) || isOversizedFromAnalysis(analysis);
+        const nextCategory = String(part.partType || analysis.category || '').trim();
+        const translatedName = analysis.translated || part.translatedName || '';
+        const translatedNameRu = analysis.translatedRu || part.translatedNameRu || '';
+
+        nextDrafts[part.id] = {
+          weightKg: nextWeight > 0 ? String(nextWeight) : '',
+          places: nextPlaces >= 1 ? String(nextPlaces) : '',
+          cargoPlaceGroup: String(part.cargoPlaceGroup || ''),
+          isOversized: nextOversized,
+        };
+
+        const hasChanges = (
+          nextWeight !== Number(part.weightKg || 0)
+          || nextPlaces !== Number(part.places || 0)
+          || nextOversized !== Boolean(part.isOversized)
+          || nextCategory !== String(part.partType || '')
+          || translatedName !== String(part.translatedName || '')
+          || translatedNameRu !== String(part.translatedNameRu || '')
+        );
+
+        if (hasChanges) updatedCount += 1;
+
+        return {
+          ...part,
+          weightKg: nextWeight > 0 ? nextWeight : part.weightKg,
+          places: nextPlaces >= 1 ? nextPlaces : part.places,
+          isOversized: nextOversized,
+          partType: nextCategory || part.partType,
+          translatedName: translatedName || part.translatedName,
+          translatedNameRu: translatedNameRu || part.translatedNameRu,
+        };
+      });
+
+      setPartCargoDrafts((prev) => ({ ...prev, ...nextDrafts }));
+
+      if (updatedCount > 0) {
+        const nextCargo = calculateCargo({ ...order, parts: nextParts }, settings);
+        const nextEstimates = calculateCargoEstimates({ ...order, parts: nextParts }, settings);
+        updateOrder({
+          ...order,
+          parts: nextParts,
+          logistics: {
+            ...order.logistics,
+            cargoEtaDays: nextCargo.eta,
+            cargoTotalWeightKg: nextCargo.realWeight,
+            cargoChargeableWeightKg: nextCargo.chargeableWeight,
+            cargoTotalPlaces: nextCargo.totalPlaces,
+            cargoBaseCostUsd: nextCargo.baseCostUsd,
+            cargoTotalCostUsd: nextCargo.totalCostUsd,
+            cargoAirEtaDays: nextEstimates.air.eta,
+            cargoAirCostUsd: nextEstimates.air.totalCostUsd,
+            cargoContainerEtaDays: nextEstimates.container.eta,
+            cargoContainerCostUsd: nextEstimates.container.totalCostUsd,
+          }
+        });
+      }
+
+      setAiCargoNotice(updatedCount > 0 ? `AI заполнил параметры для ${updatedCount} деталей.` : 'AI не нашёл новых данных, оставили текущие значения.');
+    } catch (error) {
+      console.error(error);
+      setAiCargoNotice('AI-помощник сейчас недоступен. Текущие значения сохранены.');
+    } finally {
+      setIsAiFillingCargo(false);
+    }
+  }, [isAiFillingCargo, isEditMode, order, settings, updateOrder]);
 
   const toggleCargoPartDraft = useCallback((partId: string) => {
     setExpandedCargoPartIds((prev) => ({ ...prev, [partId]: !prev[partId] }));
@@ -2685,8 +2773,21 @@ const OrderDetailsScreen: React.FC = () => {
               <p className="mt-2 text-xs text-slate-500">Страна влияет на расчёт доставки и отображение логистики в invoice.</p>
             </div>
             <div className="col-span-2 rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
-              <p className="text-sm font-semibold text-slate-700">Параметры cargo по деталям</p>
-              <p className="mt-1 text-xs text-slate-500">Эти параметры используются для расчёта логистики и отображения в invoice.</p>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">Параметры cargo по деталям</p>
+                  <p className="mt-1 text-xs text-slate-500">Эти параметры используются для расчёта логистики, автокатегории деталей и отображения в invoice.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void runAiCargoAssist()}
+                  disabled={isAiFillingCargo}
+                  className="inline-flex h-9 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-black text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isAiFillingCargo ? 'AI заполняет…' : 'AI заполнить'}
+                </button>
+              </div>
+              {aiCargoNotice && <p className="mt-2 rounded-xl border border-blue-100 bg-white px-3 py-2 text-xs font-semibold text-blue-700">{aiCargoNotice}</p>}
               {(order.parts || []).length === 0 ? (
                 <p className="mt-3 text-xs text-slate-500">Добавьте детали, чтобы рассчитать карго.</p>
               ) : (
@@ -2740,7 +2841,10 @@ const OrderDetailsScreen: React.FC = () => {
                       return (
                         <div key={part.id} className="rounded-xl border border-slate-200 bg-white overflow-hidden">
                           <button type="button" onClick={() => toggleCargoPartDraft(part.id)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-50 transition-colors">
-                            <span className="flex-1 truncate text-xs font-semibold text-slate-800">{part.name}</span>
+                            <span className="flex-1 truncate text-xs font-semibold text-slate-800">
+                              {part.name}
+                              {part.partType && <span className="ml-2 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-violet-700">{part.partType}</span>}
+                            </span>
                             <span className={`shrink-0 text-[11px] font-medium ${statusColor}`}>{summaryText}</span>
                             {isExpanded ? <ChevronUp size={12} className="shrink-0 text-slate-400" /> : <ChevronDown size={12} className="shrink-0 text-slate-400" />}
                           </button>

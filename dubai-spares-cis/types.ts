@@ -109,6 +109,8 @@ export interface Part {
   priority?: 'normal' | 'urgent';
   bestOfferId?: string;
   partType?: string;
+  translatedName?: string;
+  translatedNameRu?: string;
   weightKg?: number;
   lengthCm?: number;
   widthCm?: number;
