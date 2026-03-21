@@ -187,13 +187,20 @@ const isDevBuild = typeof import.meta !== 'undefined' && Boolean(import.meta.env
 const createInFlight = new Map<string, Promise<{ id: string | null | undefined; token: string; snapshotId: string; expiresAt: string; url: string; originalUrl: string; shortUrl: string | null }>>();
 
 const ISGD_API = 'https://is.gd/create.php';
+const SHORT_URL_TIMEOUT_MS = 1200;
 
-const shortenPublicQuoteUrl = async (url: string, signal?: AbortSignal): Promise<string | null> => {
+const shortenPublicQuoteUrl = async (url: string, _signal?: AbortSignal): Promise<string | null> => {
   const encodedUrl = encodeURIComponent(url);
+  const timeoutController = typeof AbortController === 'undefined' ? null : new AbortController();
+  const timeoutId = timeoutController ? window.setTimeout(() => timeoutController.abort(), SHORT_URL_TIMEOUT_MS) : null;
+  const cleanup = () => {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+  };
+
   try {
     const response = await fetch(`${ISGD_API}?format=simple&url=${encodedUrl}`, {
       method: 'GET',
-      signal
+      signal: timeoutController?.signal
     });
     if (!response.ok) {
       void logger.warn('public-quote:shorten', 'is.gd request failed', { status: response.status, url });
@@ -211,6 +218,8 @@ const shortenPublicQuoteUrl = async (url: string, signal?: AbortSignal): Promise
       error: error instanceof Error ? error.message : 'unknown'
     });
     return null;
+  } finally {
+    cleanup();
   }
 };
 
@@ -999,35 +1008,51 @@ export const publicQuoteCreateSnapshot = async (
       quoteUrl.hash = `#/q/${encodeURIComponent(buildPublicQuoteSlug(order))}?k=${encodeURIComponent(`${created.token}.${effectiveSnapshotId}`)}`;
 
       const originalUrl = quoteUrl.toString();
-      const shortUrl = await shortenPublicQuoteUrl(originalUrl, request.signal);
-      const finalUrl = shortUrl || originalUrl;
+      const finalUrl = originalUrl;
+      let shortUrl: string | null = null;
 
       if (created.id) {
-        const updatePayload = {
-          original_url: originalUrl,
-          short_url: shortUrl
+        const persistUrls = async (nextShortUrl: string | null) => {
+          const updatePayload = {
+            original_url: originalUrl,
+            short_url: nextShortUrl
+          };
+          let updateError = (await supabase
+            .from('public_quote_snapshots')
+            .update(updatePayload)
+            .eq('id', created.id)).error;
+
+          if (updateError && (updateError.code === 'PGRST204' || updateError.code === '42703' || String(updateError.message).includes('Could not find'))) {
+            void logger.info('public-quote:create', 'Skipping short/original url persistence because columns are unavailable', {
+              orderId: order.id,
+              snapshotId: created.id,
+              error: updateError.message
+            });
+            updateError = null;
+          }
+
+          if (updateError) {
+            void logger.warn('public-quote:create', 'Unable to persist short/original url fields', {
+              orderId: order.id,
+              snapshotId: created.id,
+              error: updateError.message
+            });
+          }
         };
-        let updateError = (await supabase
-          .from('public_quote_snapshots')
-          .update(updatePayload)
-          .eq('id', created.id)).error;
 
-        if (updateError && (updateError.code === 'PGRST204' || updateError.code === '42703' || String(updateError.message).includes('Could not find'))) {
-          void logger.info('public-quote:create', 'Skipping short/original url persistence because columns are unavailable', {
+        await persistUrls(null);
+
+        void shortenPublicQuoteUrl(originalUrl).then(async (resolvedShortUrl) => {
+          if (!resolvedShortUrl || resolvedShortUrl === originalUrl) return;
+          shortUrl = resolvedShortUrl;
+          await persistUrls(resolvedShortUrl);
+        }).catch((error) => {
+          void logger.warn('public-quote:create', 'Background short url persistence failed', {
             orderId: order.id,
             snapshotId: created.id,
-            error: updateError.message
+            error: error instanceof Error ? error.message : 'unknown'
           });
-          updateError = null;
-        }
-
-        if (updateError) {
-          void logger.warn('public-quote:create', 'Unable to persist short/original url fields', {
-            orderId: order.id,
-            snapshotId: created.id,
-            error: updateError.message
-          });
-        }
+        });
       }
 
       if (isDevBuild) {
