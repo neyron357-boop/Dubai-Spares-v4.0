@@ -1,4 +1,5 @@
-import { SUPABASE_ANON_KEY } from '../cloudConfig';
+import { SUPABASE_URL } from '../cloudConfig';
+import { supabase } from '../supabaseClient';
 
 export type AiTask = 'analyze_text' | 'transform_text' | 'extract_structured_data';
 
@@ -42,8 +43,8 @@ export type AnalyzeTextResult = { analysis: Record<string, unknown> };
 export type TransformTextResult = { transformed_text: string };
 export type ExtractStructuredDataResult = { extracted: Record<string, unknown> };
 
-export const AI_CORE_URL = 'https://nbnfaxsvdlcdycnuzieu.supabase.co/functions/v1/super-service';
-const isSupabaseJwt = /^eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+$/.test(SUPABASE_ANON_KEY);
+const AI_FUNCTION_NAME = 'super-service';
+export const AI_CORE_URL = `${SUPABASE_URL}/functions/v1/${AI_FUNCTION_NAME}`;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 
@@ -55,7 +56,7 @@ const normalizeAiResponse = <TTask extends AiTask, TResult>(task: TTask, data: u
   if (data.ok === true) {
     return {
       ok: true,
-      task: data.task === task ? task : task,
+      task,
       result: (data.result ?? {}) as TResult,
       error: null,
     };
@@ -73,55 +74,35 @@ const normalizeAiResponse = <TTask extends AiTask, TResult>(task: TTask, data: u
   };
 };
 
+const toStructuredFailure = <TTask extends AiTask>(task: TTask, error: string): AiFailure<TTask> => ({
+  ok: false,
+  task,
+  result: null,
+  error,
+});
+
 const postAiTask = async <TTask extends AiTask, TResult>(task: TTask, payload: unknown): Promise<AiResponse<TTask, TResult>> => {
-  if (!isSupabaseJwt) {
-    return {
-      ok: false,
-      task,
-      result: null,
-      error: 'AI core is disabled: VITE_SUPABASE_ANON_KEY must be the Supabase anon JWT key that starts with "eyJ". Keys starting with "sb_publishable_" return 401 for this endpoint.'
-    };
+  if (!supabase) {
+    return toStructuredFailure(task, 'AI core is disabled: Supabase client is not configured.');
   }
 
   try {
-    const response = await fetch(AI_CORE_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify({ task, payload }),
+    const { data, error } = await supabase.functions.invoke(AI_FUNCTION_NAME, {
+      body: { task, payload },
     });
 
-    const data = await response.json().catch(() => null);
-    const fallbackError = response.ok
-      ? 'Invalid AI core response'
-      : `AI core request failed (${response.status})`;
-
-    const normalized = normalizeAiResponse<TTask, TResult>(task, data, fallbackError);
-
-    if (!response.ok && normalized.ok) {
-      return {
-        ok: false,
-        task,
-        result: null,
-        error: fallbackError,
-      };
+    if (error) {
+      return toStructuredFailure(task, error.message || 'AI core request failed');
     }
 
-    return normalized;
+    return normalizeAiResponse<TTask, TResult>(task, data, 'Invalid AI core response');
   } catch (error) {
-    return {
-      ok: false,
-      task,
-      result: null,
-      error: error instanceof Error ? error.message : 'AI core request failed',
-    };
+    return toStructuredFailure(task, error instanceof Error ? error.message : 'AI core request failed');
   }
 };
 
 export const aiCore = {
+  functionName: AI_FUNCTION_NAME,
   url: AI_CORE_URL,
   analyzeText(payload: AnalyzeTextPayload) {
     return postAiTask<'analyze_text', AnalyzeTextResult>('analyze_text', payload);
