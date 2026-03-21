@@ -15,7 +15,8 @@ export const SUPABASE_URL = rawSupabaseUrl;
 export const SUPABASE_ANON_KEY = rawSupabaseAnonKey;
 export const SUPABASE_HOST = parseHost(rawSupabaseUrl);
 export const isSupabaseUrlValid = Boolean(SUPABASE_HOST && /^https:\/\//i.test(rawSupabaseUrl));
-export const isCloudConfigured = isSupabaseUrlValid && Boolean(SUPABASE_ANON_KEY);
+export const isSupabaseAnonKeyJwt = /^eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+$/.test(rawSupabaseAnonKey);
+export const isCloudConfigured = isSupabaseUrlValid && isSupabaseAnonKeyJwt;
 
 export const cloudFeatureFlags = {
   backup: Boolean(CLOUD_FEATURES.BACKUP),
@@ -25,7 +26,7 @@ export const cloudFeatureFlags = {
 
 export const cloudBuildGuardMessage = isCloudConfigured
   ? ''
-  : 'Cloud is disabled: missing or invalid VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY. Rebuild with valid env vars.';
+  : 'Cloud is disabled: missing or invalid VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY. Use the Supabase anon JWT key that starts with "eyJ", then rebuild the app.';
 
 export type CloudCallStatus = {
   at: string;
