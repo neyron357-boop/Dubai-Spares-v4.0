@@ -23,6 +23,7 @@ import { normalizePublicQuoteSnapshotPayload } from '../utils/publicQuoteSnapsho
 import { buildInvoicePayloadFromSnapshot, openInvoicePrintWindow } from '../utils/invoiceDocument';
 import { calculateCargoEstimates } from '../utils/cargo';
 import type { Order } from '../types';
+import { analyzeAutoPartText, resolveAutoPartTranslation } from '../utils/autoPartAi';
 
 type Language = 'ru' | 'en';
 type PublicQuoteScreenProps = { orderId: string };
@@ -159,6 +160,9 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [copied, setCopied] = useState(false);
   const [displayCurrency, setDisplayCurrency] = useState<'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT'>('USD');
+  const [translatedItemNames, setTranslatedItemNames] = useState<Record<string, string>>({});
+  const [translatedWorkTerms, setTranslatedWorkTerms] = useState('');
+  const [translatedDeliveryTerms, setTranslatedDeliveryTerms] = useState('');
   const detailRef = useRef<HTMLDivElement | null>(null);
 
   const t = i18n[lang];
@@ -238,6 +242,42 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   useEffect(() => {
     setDisplayCurrency((normalizedSnapshot?.currency || 'USD') as 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT');
   }, [normalizedSnapshot?.currency]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(items.map(async (item) => {
+      const analysis = await analyzeAutoPartText(item.name);
+      return [item.id, resolveAutoPartTranslation(analysis, item.name, lang)] as const;
+    })).then((entries) => {
+      if (!cancelled) setTranslatedItemNames(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [items, lang]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const translateBlock = async (value: string, setter: (next: string) => void) => {
+      const lines = String(value || '').split(/\n+/).map((item) => item.trim()).filter(Boolean);
+      if (!lines.length) {
+        setter('');
+        return;
+      }
+      const translated = await Promise.all(lines.map(async (line) => {
+        const analysis = await analyzeAutoPartText(line);
+        return resolveAutoPartTranslation(analysis, line, lang);
+      }));
+      if (!cancelled) setter(translated.join('\n'));
+    };
+    void Promise.all([
+      translateBlock(contact.workTerms, setTranslatedWorkTerms),
+      translateBlock(contact.deliveryTerms, setTranslatedDeliveryTerms),
+    ]);
+    return () => {
+      cancelled = true;
+    };
+  }, [contact.deliveryTerms, contact.workTerms, lang]);
 
   const handleOpenInvoice = () => {
     if (!normalizedSnapshot) return;
@@ -354,7 +394,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
               <article key={item.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
                 <button type="button" className="relative flex h-52 w-full items-center justify-center bg-slate-200" onClick={() => item.photos.length && setGallery({ images: item.photos, index: 0 })}>
                   {item.photos[0]
-                    ? <img src={item.photos[0]} alt={item.name} className="h-full w-full object-cover" onError={hideOnError} />
+                    ? <img src={item.photos[0]} alt={translatedItemNames[item.id] || item.name} className="h-full w-full object-cover" onError={hideOnError} />
                     : <div className="flex flex-col items-center gap-2 text-slate-500"><Images size={20} /><span className="text-xs">{t.noPhotos}</span></div>
                   }
                   {item.status && (
@@ -364,7 +404,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                   )}
                 </button>
                 <div className="space-y-2 p-4">
-                  <h3 className="text-base font-bold text-slate-900">{item.name}</h3>
+                  <h3 className="text-base font-bold text-slate-900">{translatedItemNames[item.id] || item.name}</h3>
                   {item.note && <p className="text-sm text-slate-500">{item.note}</p>}
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="rounded-2xl bg-white p-3"><span className="block text-xs uppercase text-slate-400">{t.qty}</span><strong className="text-slate-900">{item.qty}</strong></div>
@@ -379,7 +419,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
 
         <section className="overflow-hidden rounded-3xl border border-amber-200/80 bg-gradient-to-b from-amber-50 to-white p-5 text-sm text-amber-900 shadow-[0_12px_26px_rgba(180,83,9,0.09)]">
           <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em]"><Info size={14} /> {t.policyTitle}</p>
-          {contact.workTerms && <p className="mt-2 whitespace-pre-line">{contact.workTerms}</p>}
+          {(translatedWorkTerms || contact.workTerms) && <p className="mt-2 whitespace-pre-line">{translatedWorkTerms || contact.workTerms}</p>}
           <p className="mt-2 text-amber-800/90">{t.policyBody}</p>
         </section>
 
@@ -408,7 +448,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                 </div>
               </div>
             </div>
-            {contact.deliveryTerms && <div className="py-4 text-sm whitespace-pre-line text-slate-600">{contact.deliveryTerms}</div>}
+            {(translatedDeliveryTerms || contact.deliveryTerms) && <div className="py-4 text-sm whitespace-pre-line text-slate-600">{translatedDeliveryTerms || contact.deliveryTerms}</div>}
           </div>
         </section>
 
@@ -428,7 +468,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
         <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.workTerms}</h2></div>
           <div className="space-y-4 p-5">
-            {contact.workTerms ? <p className="text-sm whitespace-pre-line text-slate-700">{contact.workTerms}</p> : <p className="text-sm text-slate-500">—</p>}
+            {(translatedWorkTerms || contact.workTerms) ? <p className="text-sm whitespace-pre-line text-slate-700">{translatedWorkTerms || contact.workTerms}</p> : <p className="text-sm text-slate-500">—</p>}
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
