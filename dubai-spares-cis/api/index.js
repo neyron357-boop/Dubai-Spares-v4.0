@@ -8,33 +8,32 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '256kb' }));
 
-const requiredEnvVars = [
-  'SUPABASE_URL',
-  'SUPABASE_SERVICE_ROLE_KEY',
-  'WEBHOOK_API_KEY',
-  'VAPID_PUBLIC_KEY',
-  'VAPID_PRIVATE_KEY',
-  'VAPID_SUBJECT'
-];
-
-const missingEnvVars = requiredEnvVars.filter((name) => !process.env[name]);
-if (missingEnvVars.length > 0) {
-  throw new Error(`Missing required env vars: ${missingEnvVars.join(', ')}`);
-}
+const hasEnv = (name) => Boolean(process.env[name]);
+const getMissingEnvVars = (names) => names.filter((name) => !hasEnv(name));
+const hasSupabaseConfig = hasEnv('SUPABASE_URL') && hasEnv('SUPABASE_SERVICE_ROLE_KEY');
+const hasWebhookConfig = hasEnv('WEBHOOK_API_KEY');
+const hasPushConfig = hasEnv('VAPID_PUBLIC_KEY') && hasEnv('VAPID_PRIVATE_KEY') && hasEnv('VAPID_SUBJECT');
+const hasSubscriptionConfig = hasEnv('DEVICE_REGISTRATION_KEY');
+const notificationsEnabled = hasSupabaseConfig && hasWebhookConfig && hasPushConfig;
+const subscriptionsEnabled = hasSupabaseConfig && hasSubscriptionConfig;
 
 const aiCore = createAiCore();
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { persistSession: false } }
-);
+const supabase = hasSupabaseConfig
+  ? createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { persistSession: false } }
+    )
+  : null;
 
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT,
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
+if (hasPushConfig) {
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+}
 
 const normalize = (value = '') => value.toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
 const brandMatch = (orderBrand, shopBrand) => {
@@ -119,8 +118,17 @@ const normalizeOrderLikePayload = (table, record) => {
   };
 };
 
+const requireSupabase = () => {
+  if (!supabase) {
+    throw new Error(`Missing required env vars: ${getMissingEnvVars(['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']).join(', ')}`);
+  }
+
+  return supabase;
+};
+
 const getAdminSubscriptions = async () => {
-  const { data, error } = await supabase
+  const client = requireSupabase();
+  const { data, error } = await client
     .from('push_subscriptions')
     .select('id, endpoint, p256dh, auth, user_agent')
     .eq('is_active', true);
@@ -133,7 +141,8 @@ const getAdminSubscriptions = async () => {
 };
 
 const deactivateSubscription = async (id) => {
-  const { error } = await supabase
+  const client = requireSupabase();
+  const { error } = await client
     .from('push_subscriptions')
     .update({ is_active: false, updated_at: new Date().toISOString() })
     .eq('id', id);
@@ -181,7 +190,8 @@ const sendPushToAdmins = async (notificationPayload) => {
 };
 
 const fetchMatchingShops = async (order) => {
-  const { data, error } = await supabase
+  const client = requireSupabase();
+  const { data, error } = await client
     .from('shops')
     .select('id,name,specialization,specialization_models,specialization_years');
 
@@ -208,9 +218,15 @@ const validateWebhookKey = (req, res, next) => {
 };
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
+  res.json({
+    status: 'ok',
+    features: {
+      ai: true,
+      notifications: notificationsEnabled,
+      subscriptions: subscriptionsEnabled,
+    },
+  });
 });
-
 
 app.post('/ai/tasks', async (req, res) => {
   const response = await aiCore.execute(req.body ?? {});
@@ -218,6 +234,20 @@ app.post('/ai/tasks', async (req, res) => {
 });
 
 app.post('/webhooks/orders', validateWebhookKey, async (req, res) => {
+  if (!notificationsEnabled) {
+    return res.status(503).json({
+      error: 'Notifications are not configured',
+      missingEnvVars: getMissingEnvVars([
+        'SUPABASE_URL',
+        'SUPABASE_SERVICE_ROLE_KEY',
+        'WEBHOOK_API_KEY',
+        'VAPID_PUBLIC_KEY',
+        'VAPID_PRIVATE_KEY',
+        'VAPID_SUBJECT',
+      ]),
+    });
+  }
+
   try {
     const payload = req.body ?? {};
     const table = payload.table ?? payload?.record?.table;
@@ -255,6 +285,17 @@ app.post('/webhooks/orders', validateWebhookKey, async (req, res) => {
 });
 
 app.post('/subscriptions', async (req, res) => {
+  if (!subscriptionsEnabled) {
+    return res.status(503).json({
+      error: 'Subscriptions are not configured',
+      missingEnvVars: getMissingEnvVars([
+        'SUPABASE_URL',
+        'SUPABASE_SERVICE_ROLE_KEY',
+        'DEVICE_REGISTRATION_KEY',
+      ]),
+    });
+  }
+
   const registrationKey = req.header('x-registration-key');
   if (!registrationKey || registrationKey !== process.env.DEVICE_REGISTRATION_KEY) {
     return res.status(401).json({ error: 'Unauthorized subscription writer' });
@@ -274,7 +315,8 @@ app.post('/subscriptions', async (req, res) => {
     updated_at: new Date().toISOString()
   };
 
-  const { error } = await supabase
+  const client = requireSupabase();
+  const { error } = await client
     .from('push_subscriptions')
     .upsert(payload, { onConflict: 'endpoint' });
 
