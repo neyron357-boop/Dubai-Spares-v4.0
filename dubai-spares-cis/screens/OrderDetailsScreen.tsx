@@ -54,6 +54,7 @@ import { useAppSettings } from '../appSettings';
 import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 import { getOrderCustomerLogs } from '../customerEngagement';
 import { analyzeAutoPartText, inferCargoPlacesFromAnalysis, isOversizedFromAnalysis } from '../utils/autoPartAi';
+import { autofillVehicleDetailsFromVin, mergeVehicleAutofill } from '../utils/vehicleAutofillAi';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -322,6 +323,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
   const [isAiFillingCargo, setIsAiFillingCargo] = useState(false);
   const [aiCargoNotice, setAiCargoNotice] = useState<string | null>(null);
+  const [isAiFillingVehicle, setIsAiFillingVehicle] = useState(false);
   // Multiple photos for new part
   const [newPartPhotos, setNewPartPhotos] = useState<string[]>([]);
   const partFileRef = useRef<HTMLInputElement>(null);
@@ -1090,6 +1092,58 @@ const OrderDetailsScreen: React.FC = () => {
       setToast({ message: 'Буфер недоступен' });
     }
   };
+
+
+  const runVehicleVinAutofill = useCallback(async () => {
+    if (!orderRef.current || isAiFillingVehicle) return;
+
+    const currentOrder = orderRef.current;
+    const sourceOrder: Order = {
+      ...currentOrder,
+      brand: String(draftFields.brand ?? currentOrder.brand ?? '').trim(),
+      model: String(draftFields.model ?? currentOrder.model ?? '').trim(),
+      year: String(draftFields.year ?? currentOrder.year ?? '').trim(),
+      vin: String(draftFields.vin ?? currentOrder.vin ?? '').trim().toUpperCase(),
+      bodyType: String(draftFields.bodyType ?? currentOrder.bodyType ?? '').trim(),
+      vehicleDetails: { ...(currentOrder.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}) },
+      notes: String(draftFields.notes ?? currentOrder.notes ?? '').trim(),
+    };
+
+    if (!sourceOrder.vin && !sourceOrder.brand && !sourceOrder.model) {
+      setToast({ message: 'Добавьте VIN или базовые данные авто перед AI-заполнением' });
+      return;
+    }
+
+    setIsAiFillingVehicle(true);
+    try {
+      const inferred = await autofillVehicleDetailsFromVin(sourceOrder);
+      const mergedVehicleDetails = mergeVehicleAutofill(sourceOrder.vehicleDetails, inferred);
+      if (!mergedVehicleDetails) {
+        setToast({ message: 'AI не нашёл безопасных новых данных для заполнения' });
+        return;
+      }
+
+      const latestOrder = orderRef.current;
+      if (!latestOrder) return;
+      setDraftFields((prev) => ({ ...prev, vehicleDetails: mergedVehicleDetails }));
+      deferredFieldValuesRef.current.vehicleDetails = undefined;
+      const pendingTimer = deferredFieldTimersRef.current.vehicleDetails;
+      if (pendingTimer) {
+        window.clearTimeout(pendingTimer);
+        deferredFieldTimersRef.current.vehicleDetails = undefined;
+      }
+
+      await updateOrder({ ...latestOrder, vehicleDetails: mergedVehicleDetails });
+      setToast({ message: 'AI заполнил недостающие данные автомобиля' });
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : 'Не удалось заполнить данные по VIN';
+      setToast({ message });
+    } finally {
+      setIsAiFillingVehicle(false);
+    }
+  }, [draftFields.bodyType, draftFields.brand, draftFields.model, draftFields.notes, draftFields.vehicleDetails, draftFields.vin, draftFields.year, isAiFillingVehicle, updateOrder]);
 
   const scheduleDebouncedSaveLog = useCallback(() => {
     if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
@@ -2507,6 +2561,18 @@ const OrderDetailsScreen: React.FC = () => {
 
           {isVehicleDetailsExpanded && (
             <>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void runVehicleVinAutofill()}
+              disabled={isAiFillingVehicle}
+              className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-[11px] font-black text-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isAiFillingVehicle ? <RefreshCw size={14} className="animate-spin" /> : <Rocket size={14} />}
+              {isAiFillingVehicle ? 'AI заполняет...' : 'Заполнить по VIN'}
+            </button>
+            <p className="text-[11px] text-gray-500">AI бережно заполнит только пустые поля и добавит осторожные примечания по совместимости.</p>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Тип двигателя</label>
