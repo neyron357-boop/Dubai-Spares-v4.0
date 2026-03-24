@@ -7,17 +7,50 @@ const guessExtension = (mimeType: string) => {
   return ext.replace('jpeg', 'jpg').replace('svg+xml', 'svg');
 };
 
-const extractImageUrlFromHtml = (html: string): string | null => {
-  if (!html.trim()) return null;
+const extractImageSourcesFromHtml = (html: string): string[] => {
+  const sources = new Set<string>();
+  if (!html.trim()) return [];
   try {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
-    const candidate = doc.querySelector('img')?.getAttribute('src')?.trim() || '';
-    if (/^https?:\/\//i.test(candidate)) return candidate;
+    doc.querySelectorAll('img').forEach((img) => {
+      const src = img.getAttribute('src')?.trim();
+      if (src) sources.add(src);
+      const dataSrc = img.getAttribute('data-src')?.trim();
+      if (dataSrc) sources.add(dataSrc);
+    });
   } catch {
     // ignore parse errors
   }
-  return null;
+  return Array.from(sources);
+};
+
+const readUrlFromMarkdownImage = (text: string): string | null => {
+  const match = text.match(/!\[[^\]]*]\(([^)]+)\)/);
+  return match?.[1]?.trim() || null;
+};
+
+const parseDataImageUrl = (value: string): { mimeType: string; base64: string } | null => {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([a-zA-Z0-9+/=\n\r]+)$/);
+  if (!match) return null;
+  const mimeType = match[1];
+  const base64 = match[2].replace(/\s+/g, '');
+  if (!mimeType || !base64) return null;
+  return { mimeType, base64 };
+};
+
+const fileFromDataImageUrl = (value: string, fileIndex: number): File | null => {
+  const parsed = parseDataImageUrl(value);
+  if (!parsed) return null;
+
+  const binary = atob(parsed.base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+
+  const extension = guessExtension(parsed.mimeType);
+  const blob = new Blob([bytes], { type: parsed.mimeType });
+  return new File([blob], `${CLIPBOARD_FILENAME_PREFIX}-${Date.now()}-${fileIndex + 1}.${extension}`, { type: parsed.mimeType });
 };
 
 const fetchImageFileByUrl = async (url: string, fileIndex: number): Promise<File | null> => {
@@ -36,7 +69,7 @@ export const readClipboardImageFiles = async (): Promise<File[]> => {
   }
 
   const files: File[] = [];
-  const fallbackUrls: string[] = [];
+  const fallbackSources: string[] = [];
 
   if (typeof navigator.clipboard.read === 'function') {
     const items = await navigator.clipboard.read();
@@ -51,8 +84,7 @@ export const readClipboardImageFiles = async (): Promise<File[]> => {
         if (type === 'text/html') {
           const htmlBlob = await item.getType(type);
           const html = await htmlBlob.text();
-          const url = extractImageUrlFromHtml(html);
-          if (url) fallbackUrls.push(url);
+          fallbackSources.push(...extractImageSourcesFromHtml(html));
         }
       }
     }
@@ -60,16 +92,28 @@ export const readClipboardImageFiles = async (): Promise<File[]> => {
 
   if (files.length) return files;
 
-  const textUrlCandidates = new Set<string>(fallbackUrls);
+  const textUrlCandidates = new Set<string>(fallbackSources);
   if (typeof navigator.clipboard.readText === 'function') {
     const text = (await navigator.clipboard.readText()).trim();
-    if (/^https?:\/\//i.test(text)) textUrlCandidates.add(text);
+    if (text) {
+      textUrlCandidates.add(text);
+      const markdownImageUrl = readUrlFromMarkdownImage(text);
+      if (markdownImageUrl) textUrlCandidates.add(markdownImageUrl);
+    }
   }
 
-  for (const [index, url] of Array.from(textUrlCandidates).entries()) {
+  for (const [index, source] of Array.from(textUrlCandidates).entries()) {
     try {
-      const file = await fetchImageFileByUrl(url, index);
-      if (file) files.push(file);
+      const inlineFile = fileFromDataImageUrl(source, index);
+      if (inlineFile) {
+        files.push(inlineFile);
+        continue;
+      }
+
+      const file = await fetchImageFileByUrl(source, index);
+      if (file) {
+        files.push(file);
+      }
     } catch {
       // ignore unsupported/blocked urls
     }
