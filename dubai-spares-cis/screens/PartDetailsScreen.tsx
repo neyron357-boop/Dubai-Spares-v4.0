@@ -168,6 +168,8 @@ const PartDetailsScreen: React.FC = () => {
   const [brokenPhotoUrls, setBrokenPhotoUrls] = useState<Record<string, true>>({});
   const [isEditingPartName, setIsEditingPartName] = useState(false);
   const [partNameDraft, setPartNameDraft] = useState('');
+  const [isEditingPartDescription, setIsEditingPartDescription] = useState(false);
+  const [partDescriptionDraft, setPartDescriptionDraft] = useState('');
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
 
   const [form, setForm] = useState<OfferFormState>(DEFAULT_FORM);
@@ -637,6 +639,23 @@ const PartDetailsScreen: React.FC = () => {
     setIsEditingPartName(true);
   };
 
+  const startEditPartDescription = () => {
+    setPartDescriptionDraft(String(part.comment || ''));
+    setIsEditingPartDescription(true);
+  };
+
+  const submitPartDescription = () => {
+    const nextDescription = partDescriptionDraft.trim();
+    const currentDescription = String(part.comment || '').trim();
+    if (nextDescription === currentDescription) {
+      setIsEditingPartDescription(false);
+      return;
+    }
+    const updatedParts = order.parts.map((p) => (p.id === part.id ? { ...p, comment: nextDescription } : p));
+    updateOrder({ ...order, parts: updatedParts });
+    setIsEditingPartDescription(false);
+  };
+
 
 
   const getSamplePhotos = () => {
@@ -788,8 +807,48 @@ const PartDetailsScreen: React.FC = () => {
         {!isAdding ? (
           <div className="space-y-3">
             <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-3">
-              <p className="text-[10px] font-black uppercase tracking-wide text-blue-700">Описание детали</p>
-              <p className="mt-1 text-xs font-semibold text-blue-900">{String(part.comment || part.name || 'Описание пока не добавлено')}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-black uppercase tracking-wide text-blue-700">Описание детали</p>
+                {!isEditingPartDescription && (
+                  <button
+                    type="button"
+                    onClick={startEditPartDescription}
+                    className="rounded-md border border-blue-200 bg-white px-2 py-1 text-[10px] font-bold text-blue-700"
+                  >
+                    Изменить
+                  </button>
+                )}
+              </div>
+              {isEditingPartDescription ? (
+                <div className="mt-2 space-y-2">
+                  <textarea
+                    autoFocus
+                    value={partDescriptionDraft}
+                    onChange={(e) => setPartDescriptionDraft(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-900"
+                    placeholder="Добавьте описание детали"
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingPartDescription(false)}
+                      className="rounded-md border border-blue-200 bg-white px-2 py-1 text-[10px] font-bold text-blue-700"
+                    >
+                      Отмена
+                    </button>
+                    <button
+                      type="button"
+                      onClick={submitPartDescription}
+                      className="rounded-md bg-blue-600 px-2 py-1 text-[10px] font-bold text-white"
+                    >
+                      Сохранить
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-1 text-xs font-semibold text-blue-900">{String(part.comment || part.name || 'Описание пока не добавлено')}</p>
+              )}
             </div>
             <div className="rounded-2xl border border-gray-200 bg-white p-3">
               <div className="mb-2 flex items-center justify-between">
