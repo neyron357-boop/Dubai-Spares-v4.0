@@ -35,6 +35,7 @@ import { optimizeImageForUpload, uploadImageToStorage } from '../storage/photos'
 import { cloneVariantForPart, VariantLibraryItem } from '../variantLibraryStore';
 import { generatePartPriceCard, resolveBestVariant, shareGeneratedPriceImage } from '../utils/partPriceShare';
 import { logger } from '../logging';
+import { readClipboardImageFiles } from '../utils/clipboardImages';
 
 interface OfferFormState {
   purchasePriceAed: string;
@@ -292,6 +293,30 @@ const PartDetailsScreen: React.FC = () => {
       setForm((prev) => ({ ...prev, photos: [...prev.photos, ...photos.filter(Boolean)] }));
     });
     e.target.value = '';
+  };
+
+  const handleVariantPhotosFromClipboard = async () => {
+    try {
+      const files = await readClipboardImageFiles();
+      if (!files.length) {
+        alert('В буфере обмена нет изображений');
+        return;
+      }
+      const photos = await Promise.all(files.map(async (file) => {
+        try {
+          return await optimizeImageForUpload(file, `part-details:variant:clipboard:${file.name}`);
+        } catch {
+          const reader = new FileReader();
+          return await new Promise<string>((resolve) => {
+            reader.onloadend = () => resolve(String(reader.result || ''));
+            reader.readAsDataURL(file as Blob);
+          });
+        }
+      }));
+      setForm((prev) => ({ ...prev, photos: mergeUniqueStrings(prev.photos, photos.filter(Boolean)) }));
+    } catch {
+      alert('Не удалось получить фото из буфера обмена');
+    }
   };
 
   const removeVariantPhoto = (index: number) => {
@@ -721,6 +746,34 @@ const PartDetailsScreen: React.FC = () => {
     });
   };
 
+  const handleSamplePhotosFromClipboard = async () => {
+    try {
+      const files = await readClipboardImageFiles();
+      if (!files.length) {
+        alert('В буфере обмена нет изображений');
+        return;
+      }
+      const photoIndex = getSamplePhotos().length;
+      const photos = await Promise.all(files.map(async (file, fileIndex) => {
+        try {
+          const optimized = await optimizeImageForUpload(file, `part-details:sample:clipboard:${file.name}`);
+          const fileName = `${photoIndex + fileIndex}.jpg`;
+          return await uploadImageToStorage(
+            optimized,
+            `orders/${order.id}/parts/${part.id}/example`,
+            fileName
+          );
+        } catch {
+          return '';
+        }
+      }));
+      const merged = Array.from(new Set([...(getSamplePhotos() || []), ...photos.filter(Boolean)]));
+      replaceSamplePhotos(merged);
+    } catch {
+      alert('Не удалось получить фото из буфера обмена');
+    }
+  };
+
   const copyText = async (value: string) => {
     if (!value) return;
     try {
@@ -853,7 +906,10 @@ const PartDetailsScreen: React.FC = () => {
             <div className="rounded-2xl border border-gray-200 bg-white p-3">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Пример фото деталей</p>
-                <button type="button" onClick={() => sampleFileInputRef.current?.click()} className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-600">Добавить</button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => void handleSamplePhotosFromClipboard()} className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-600">Вставить</button>
+                  <button type="button" onClick={() => sampleFileInputRef.current?.click()} className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-600">Добавить</button>
+                </div>
               </div>
               {getSamplePhotos().length > 0 ? (
                 <div className="flex gap-2 overflow-x-auto no-scrollbar">
@@ -893,6 +949,7 @@ const PartDetailsScreen: React.FC = () => {
                 <label className="text-xs font-black text-gray-700">Фото</label>
                 <div className="flex gap-2 overflow-x-auto mt-2 pb-1">
                   <button type="button" onClick={() => fileInputRef.current?.click()} className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-300 flex flex-col justify-center items-center shrink-0"><Camera size={20} className="text-gray-400" /><span className="text-[10px] font-black text-gray-500">+ Фото</span></button>
+                  <button type="button" onClick={() => void handleVariantPhotosFromClipboard()} className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-300 flex flex-col justify-center items-center shrink-0"><ClipboardPaste size={20} className="text-gray-400" /><span className="text-[10px] font-black text-gray-500">Вставить</span></button>
                   {form.photos.map((photo, index) => (
                     <div key={`${photo}-${index}`} className="relative w-24 h-24 shrink-0 rounded-xl overflow-hidden border border-gray-200">
                       {isPhotoVisible(photo)
