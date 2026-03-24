@@ -22,6 +22,7 @@ import { PriceVariant } from '../types';
 import { VariantLibraryItem } from '../variantLibraryStore';
 import { optimizeImageForUpload } from '../storage/photos';
 import { useNavigate } from 'react-router-dom';
+import { normalizePartCategory } from '../partCategories';
 
 const priceTemplates = [150, 250, 450, 750, 1200, 1800];
 const supplierNamePrefixes = ['Desert', 'Falcon', 'Turbo', 'Prime', 'Royal', 'Emirates', 'Golden', 'Rapid', 'Metro', 'Pearl'];
@@ -285,6 +286,44 @@ const VariantsScreen: React.FC = () => {
     });
   }, [variantLibrary, activeFilter, searchTerm, sortKey]);
 
+  const groupedVariants = useMemo(() => {
+    const buckets = new Map<string, VariantLibraryItem[]>();
+
+    const resolveVariantCategory = (variant: VariantLibraryItem) => {
+      const direct = normalizePartCategory(variant.sourcePartCategory || '');
+      if (direct) return direct;
+
+      if (variant.sourcePartId) {
+        for (const order of orders) {
+          const sourcePart = order.parts.find((part) => part.id === variant.sourcePartId);
+          if (!sourcePart) continue;
+          const fromPart = normalizePartCategory(sourcePart.partType || '');
+          if (fromPart) return fromPart;
+          break;
+        }
+      }
+
+      return 'Без категории';
+    };
+
+    filteredAndSorted.forEach((variant) => {
+      const category = resolveVariantCategory(variant);
+      const existing = buckets.get(category) || [];
+      buckets.set(category, [...existing, variant]);
+    });
+
+    const sortedCategories = Array.from(buckets.keys()).sort((a, b) => {
+      if (a === 'Без категории') return 1;
+      if (b === 'Без категории') return -1;
+      return a.localeCompare(b, 'ru');
+    });
+
+    return sortedCategories.map((category) => ({
+      category,
+      items: buckets.get(category) || []
+    }));
+  }, [filteredAndSorted, orders]);
+
   const handleSupplierChange = (value: string) => {
     setSupplierId(value);
     const supplier = suppliers.find((item) => item.id === value);
@@ -525,8 +564,14 @@ const VariantsScreen: React.FC = () => {
         </div>
 
         {filteredAndSorted.length > 0 ? (
-          <div className="space-y-3">
-            {filteredAndSorted.map((variant) => {
+          <div className="space-y-4">
+            {groupedVariants.map((group) => (
+              <section key={group.category} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-[#344054]">{group.category}</h3>
+                  <span className="rounded-xl bg-[#EEF2FF] px-2 py-1 text-[11px] font-semibold text-[#3730A3]">{group.items.length}</span>
+                </div>
+                {group.items.map((variant) => {
               const photosForCard = miniPhotos(variant);
               const orderHint = variant.sourceOrderLabel || '';
               const vinCandidate = orderHint.split('•').at(-1)?.trim() || '';
@@ -576,7 +621,9 @@ const VariantsScreen: React.FC = () => {
                   </div>
                 </button>
               );
-            })}
+                })}
+              </section>
+            ))}
           </div>
         ) : (
           <div className="rounded-[20px] border border-dashed border-[#D0D5DD] bg-white p-8 text-center">

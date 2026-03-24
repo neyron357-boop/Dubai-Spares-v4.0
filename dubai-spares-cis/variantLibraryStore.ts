@@ -7,6 +7,7 @@ export interface VariantLibraryItem extends PriceVariant {
   sourceOrderId?: string;
   sourcePartId?: string;
   sourcePartName?: string;
+  sourcePartCategory?: string;
   sourceOrderLabel?: string;
   vehicleInfo?: string;
   customerOrderRef?: string;
@@ -87,6 +88,7 @@ export const getVariantLibraryItems = (orders: Order[]): VariantLibraryItem[] =>
         sourceOrderId: order.id,
         sourcePartId: part.id,
         sourcePartName: part.name,
+        sourcePartCategory: part.partType,
         sourceOrderLabel: `${order.brand} ${order.model} • ${order.vin}`,
         vehicleInfo: `${order.brand} ${order.model} • ${order.vin}`,
         customerOrderRef: order.id

@@ -53,6 +53,7 @@ import { getPartDisplayName, normalizeGroupItems, normalizePartQuantity } from '
 import { useAppSettings } from '../appSettings';
 import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 import { getOrderCustomerLogs } from '../customerEngagement';
+import { getUnifiedPartCategories, normalizePartCategory, saveCustomPartCategory } from '../partCategories';
 import { analyzeAutoPartText, inferCargoPlacesFromAnalysis, isOversizedFromAnalysis } from '../utils/autoPartAi';
 import { autofillVehicleDetailsFromVin, mergeVehicleAutofill } from '../utils/vehicleAutofillAi';
 
@@ -318,6 +319,8 @@ const OrderDetailsScreen: React.FC = () => {
   const [newPartKind, setNewPartKind] = useState<'single' | 'group'>('single');
   const [newPartGroupItems, setNewPartGroupItems] = useState<Array<GroupItemDraft>>([createGroupItemDraft()]);
   const [newPartComment, setNewPartComment] = useState('');
+  const [newPartCategory, setNewPartCategory] = useState('');
+  const [newCustomPartCategory, setNewCustomPartCategory] = useState('');
   const [partCargoDrafts, setPartCargoDrafts] = useState<Record<string, PartCargoDraft>>({});
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
@@ -330,6 +333,8 @@ const OrderDetailsScreen: React.FC = () => {
   const partInputRef = useRef<HTMLInputElement>(null);
   const partsListRef = useRef<HTMLDivElement>(null);
   const [showOnlyOpenParts, setShowOnlyOpenParts] = useState(false);
+
+  const partCategoryOptions = useMemo(() => getUnifiedPartCategories(orders), [orders]);
 
   // Exchange Rate Input State (Controlled)
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
@@ -1563,6 +1568,14 @@ const OrderDetailsScreen: React.FC = () => {
     });
   };
 
+  const handleAddCustomPartCategory = () => {
+    const normalized = normalizePartCategory(newCustomPartCategory);
+    if (!normalized) return;
+    saveCustomPartCategory(normalized);
+    setNewPartCategory(normalized);
+    setNewCustomPartCategory('');
+  };
+
   const addNewPart = () => {
     if (!isEditMode) return;
     if (!newPartName.trim()) return;
@@ -1572,6 +1585,7 @@ const OrderDetailsScreen: React.FC = () => {
       name: newPartName.trim(),
       quantity: normalizePartQuantity(newPartQuantity),
       comment: newPartComment.trim(),
+      partType: normalizePartCategory(newPartCategory) || undefined,
       partKind: newPartKind,
       groupItems: parsedGroupItems,
       photos: newPartPhotos,
@@ -1587,6 +1601,7 @@ const OrderDetailsScreen: React.FC = () => {
     setNewPartKind('single');
     setNewPartGroupItems([createGroupItemDraft()]);
     setNewPartComment('');
+    setNewPartCategory('');
     setNewPartPhotos([]);
     partInputRef.current?.focus();
     window.setTimeout(() => partsListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
@@ -3123,6 +3138,35 @@ const OrderDetailsScreen: React.FC = () => {
                 </button>
               </div>
             )}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <select
+                value={newPartCategory}
+                onChange={(e) => setNewPartCategory(e.target.value)}
+                className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold outline-none"
+              >
+                <option value="">Категория детали (необязательно)</option>
+                {partCategoryOptions.map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </select>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newCustomPartCategory}
+                  onChange={(e) => setNewCustomPartCategory(e.target.value)}
+                  placeholder="Новая категория"
+                  className="h-11 w-full min-w-[170px] rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCustomPartCategory}
+                  className="h-11 shrink-0 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-black uppercase tracking-wide text-blue-700"
+                >
+                  + Категория
+                </button>
+              </div>
+            </div>
+
             <textarea
               value={newPartComment}
               onChange={(e) => setNewPartComment(e.target.value)}
