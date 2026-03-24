@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Camera, ChevronDown, Mic, Square, Play, Pause, UserRound, Wrench, CarFront, ImagePlus, NotebookPen, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Camera, ChevronDown, Mic, Square, Play, Pause, UserRound, Wrench, CarFront, ImagePlus, NotebookPen, Save, Trash2, ClipboardPaste } from 'lucide-react';
 import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE } from '../constants';
 import { CHASSIS_BODY_TYPES_BY_BRAND } from '../carDatabase';
 import { useStore } from '../store';
@@ -577,7 +577,7 @@ const NewOrderScreen: React.FC = () => {
   };
 
   const attachCompressedImages = async (
-    files: FileList | null,
+    files: FileList | File[] | null,
     setter: React.Dispatch<React.SetStateAction<string[]>>,
     maxCount = 10,
     labelPrefix = 'new-order:image'
@@ -649,6 +649,46 @@ const NewOrderScreen: React.FC = () => {
         error: serializeError(error)
       });
       throw error;
+    }
+  };
+
+  const readClipboardImageFiles = async () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.read) {
+      throw new Error('clipboard_api_unavailable');
+    }
+
+    const items = await navigator.clipboard.read();
+    const files: File[] = [];
+
+    for (const item of items) {
+      for (const type of item.types) {
+        if (!type.startsWith('image/')) continue;
+        const blob = await item.getType(type);
+        files.push(new File([blob], `clipboard-${Date.now()}-${files.length + 1}.${type.split('/')[1] || 'png'}`, { type }));
+      }
+    }
+
+    return files;
+  };
+
+  const attachImagesFromClipboard = async (
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    labelPrefix: string
+  ) => {
+    try {
+      const files = await readClipboardImageFiles();
+      if (!files.length) {
+        toast('В буфере обмена нет изображений', 'error');
+        return;
+      }
+      await attachCompressedImages(files, setter, 10, `${labelPrefix}:clipboard`);
+      toast(`Вставлено фото: ${files.length}`, 'success');
+    } catch (error) {
+      await logger.warn('ui:new-order:images', 'clipboard_attach_failed', {
+        labelPrefix,
+        error: serializeError(error)
+      });
+      toast('Не удалось получить фото из буфера. Разрешите доступ к буферу обмена и попробуйте снова.', 'error');
     }
   };
 
@@ -987,6 +1027,7 @@ const NewOrderScreen: React.FC = () => {
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => carCameraRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Камера</button>
             <button type="button" onClick={() => carGalleryRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><ImagePlus size={14} /> Галерея</button>
+            <button type="button" onClick={() => void attachImagesFromClipboard(setCarPhotos, 'new-order:car')} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><ClipboardPaste size={14} /> Вставить</button>
           </div>
           {!!carPhotos.length && (
             <div className="grid grid-cols-3 gap-2">
@@ -1025,6 +1066,19 @@ const NewOrderScreen: React.FC = () => {
               <input value={part.comment} onChange={(e) => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, comment: e.target.value } : item))} placeholder="Комментарий (необязательно)" className={inputClass} />
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => partPhotoRefs.current[part.id]?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото детали</button>
+                <button
+                  type="button"
+                  onClick={() => void attachImagesFromClipboard((updater) => {
+                    setParts((prev) => prev.map((item) => {
+                      if (item.id !== part.id) return item;
+                      const nextPhotos = typeof updater === 'function' ? updater(item.photos) : updater;
+                      return { ...item, photos: nextPhotos };
+                    }));
+                  }, `new-order:part:${part.id}`)}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"
+                >
+                  <ClipboardPaste size={14} /> Вставить
+                </button>
                 {parts.length > 1 && <button type="button" onClick={() => setParts((prev) => prev.filter((item) => item.id !== part.id))} className="inline-flex h-10 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-bold text-rose-600">Удалить</button>}
               </div>
               {!!part.photos.length && (
@@ -1077,6 +1131,19 @@ const NewOrderScreen: React.FC = () => {
               />
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => notePhotoRefs.current[note.id]?.click()} className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото</button>
+                <button
+                  type="button"
+                  onClick={() => void attachImagesFromClipboard((updater) => {
+                    setNotes((prev) => prev.map((item) => {
+                      if (item.id !== note.id) return item;
+                      const nextPhotos = typeof updater === 'function' ? updater(item.photos) : updater;
+                      return { ...item, photos: nextPhotos };
+                    }));
+                  }, `new-order:note:${note.id}`)}
+                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"
+                >
+                  <ClipboardPaste size={14} /> Вставить
+                </button>
                 <button type="button" onClick={() => void toggleNoteRecording(note.id)} className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700">{recordingNoteId === note.id ? <Square size={14} /> : <Mic size={14} />} {recordingNoteId === note.id ? 'Стоп' : 'Голос'}</button>
                 {notes.length > 1 && <button type="button" onClick={() => setNotes((prev) => prev.filter((item) => item.id !== note.id))} className="inline-flex h-9 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-bold text-rose-600">Удалить</button>}
               </div>
