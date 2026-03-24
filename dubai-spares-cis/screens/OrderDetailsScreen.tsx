@@ -275,7 +275,6 @@ const OrderDetailsScreen: React.FC = () => {
   const [newNoteText, setNewNoteText] = useState('');
   const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
   const [newNoteAudios, setNewNoteAudios] = useState<Array<string | VoiceNoteAudio>>([]);
-  const [isBottomSummaryExpanded, setIsBottomSummaryExpanded] = useState(false);
   const noteFileRef = useRef<HTMLInputElement>(null);
   const carFileRef = useRef<HTMLInputElement>(null);
   const noteAudioFileRef = useRef<HTMLInputElement>(null);
@@ -3376,25 +3375,6 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur p-2.5 shadow-[0_-6px_16px_rgba(0,0,0,0.08)]">
-        <button type="button" onClick={() => setIsBottomSummaryExpanded((prev) => !prev)} className="w-full rounded-xl bg-slate-50 px-3 py-2 text-left">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700">
-            <span>Purchase {formatMoney(selectedOfferTotal)} · Margin {formatDualMoney(markupAed)} · Cargo {formatDualMoney(cargoTotalAed)} · Profit {netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</span>
-            <ChevronUp size={14} className={`transition-transform ${isBottomSummaryExpanded ? '' : 'rotate-180'}`} />
-          </div>
-        </button>
-        {isBottomSummaryExpanded && (
-          <div className="mt-2 grid grid-cols-2 gap-1.5">
-            <div><p className="text-[10px] text-gray-400">Client price</p><p className="text-[13px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
-            <div><p className="text-[10px] text-gray-400">Profit</p><p className="text-[13px] font-bold text-emerald-600">{netProfitAed === null ? '—' : formatDualMoney(netProfitAed)}</p></div>
-          </div>
-        )}
-        <div className="mt-2 grid gap-2 grid-cols-3">
-          <button type="button" onClick={openClientChannel} className="h-10 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black">{contactActionLabel}</button>
-          <button type="button" onClick={() => partInputRef.current?.focus()} className="h-10 rounded-xl bg-blue-600 text-white text-[10px] font-black">Добавить деталь</button>
-          <button type="button" onClick={() => setIsEstimateOpen(true)} className="h-10 rounded-xl bg-gray-900 text-white text-[10px] font-black">Сформировать quote</button>
-        </div>
-      </div>
 
       <ConfirmModal 
         isOpen={!!deletePartId} 
