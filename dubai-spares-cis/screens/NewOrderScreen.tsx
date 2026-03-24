@@ -8,6 +8,7 @@ import { Order, Priority, Source } from '../types';
 import { logger } from '../logging';
 import { optimizeImageForUpload } from '../storage/photos';
 import { toast } from '../feedback';
+import { readClipboardImageFiles } from '../utils/clipboardImages';
 
 type VinDecoded = {
   brand?: string;
@@ -650,25 +651,6 @@ const NewOrderScreen: React.FC = () => {
       });
       throw error;
     }
-  };
-
-  const readClipboardImageFiles = async () => {
-    if (typeof navigator === 'undefined' || !navigator.clipboard?.read) {
-      throw new Error('clipboard_api_unavailable');
-    }
-
-    const items = await navigator.clipboard.read();
-    const files: File[] = [];
-
-    for (const item of items) {
-      for (const type of item.types) {
-        if (!type.startsWith('image/')) continue;
-        const blob = await item.getType(type);
-        files.push(new File([blob], `clipboard-${Date.now()}-${files.length + 1}.${type.split('/')[1] || 'png'}`, { type }));
-      }
-    }
-
-    return files;
   };
 
   const attachImagesFromClipboard = async (
