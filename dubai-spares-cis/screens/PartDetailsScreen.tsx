@@ -210,12 +210,6 @@ const PartDetailsScreen: React.FC = () => {
   }, [isSalePriceValid, numericSalePrice, order?.exchangeRate, order?.clientCurrency]);
 
   useEffect(() => {
-    if (part && partVariants.length === 0 && !isAdding) {
-      setIsAdding(true);
-    }
-  }, [part, partVariants.length, isAdding]);
-
-  useEffect(() => {
     if (!isAdding) {
       formSessionRef.current = null;
       return;
