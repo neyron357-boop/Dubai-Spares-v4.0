@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant, SalesStatus } from './types';
 import { supabase, isCloudSyncConfigured } from './supabase';
-import { deleteOrderFolderFromStorage, ensurePublicImageUrls, optimizeImageForUpload, recompressExistingStorageImage } from './storage/photos';
+import { deleteOrderFolderFromStorage, deletePartFolderFromStorage, ensurePublicImageUrls, optimizeImageForUpload, recompressExistingStorageImage } from './storage/photos';
 import { OfflineMutation, isIdbAutoSyncPaused, offlineDb } from './storage/offlineDb';
 import { logger } from './logging';
 import { normalizeGroupItems, normalizePartQuantity } from './utils/groupItems';
@@ -2317,6 +2317,7 @@ export const removePartItem = async (orderId: string, partId: string) => {
   const previousPart = order.parts.find((part) => part.id === partId);
   const partName = previousPart?.name || 'Деталь';
   const parts = order.parts.filter((part) => part.id !== partId);
+  await deletePartFolderFromStorage(orderId, partId);
   await updateOrderItem({ ...order, parts });
   void publishDomainEvent('PART_DELETED', {
     entityType: 'part',
