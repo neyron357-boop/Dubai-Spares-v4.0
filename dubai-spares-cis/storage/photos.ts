@@ -935,6 +935,34 @@ export const deleteOrderFolderFromStorage = async (orderId: string): Promise<voi
   await logger.info('storage:cleanup', 'Storage cleanup completed for order', { orderId, deleted });
 };
 
+export const deletePartFolderFromStorage = async (orderId: string, partId: string): Promise<void> => {
+  if (!isCloudConfigured) {
+    await logger.info('storage:cleanup', '[INFO] Part storage cleanup skipped (cloud storage disabled).', { orderId, partId });
+    return;
+  }
+
+  const folder = `orders/${orderId}/parts/${partId}`;
+  let deleted = 0;
+
+  for (const bucket of BUCKET_CANDIDATES) {
+    try {
+      const paths = await listStoragePathsRecursive(bucket, folder);
+      if (!paths.length) continue;
+      await deleteStorageFiles(bucket, paths);
+      deleted += paths.length;
+    } catch (error) {
+      await logger.warn('storage:cleanup', 'Failed to cleanup part folder in storage bucket', {
+        orderId,
+        partId,
+        bucket,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  await logger.info('storage:cleanup', 'Part storage cleanup completed', { orderId, partId, deleted });
+};
+
 export const ensurePublicImageUrls = async (
   images: string[],
   folder: string,

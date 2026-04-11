@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, Clock3, Filter, MessageCircle, PenSquare, Pin, Search, Star, X } from 'lucide-react';
+import { Archive, BarChart3, CheckSquare, Clock3, Filter, MessageCircle, PenSquare, Pin, Search, Square, Star, Trash2, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
@@ -330,6 +330,9 @@ const OrdersScreen: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
@@ -522,11 +525,48 @@ const OrdersScreen: React.FC = () => {
 
   const showSkeleton = isLoading && orders.length === 0;
   const confirmDelete = async () => {
-    if (!deleteId) return;
+    if (!deleteId || deleteId === '__bulk__') return;
     setIsDeleting(true);
     const ok = await deleteOrder(deleteId);
     if (ok) setDeleteId(null);
     setIsDeleting(false);
+  };
+
+  const toggleSelectionMode = () => {
+    setIsSelectionMode((current) => !current);
+    setSelectedOrderIds([]);
+  };
+
+  const toggleOrderSelected = (orderId: string) => {
+    setSelectedOrderIds((current) => current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId]);
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedOrderIds(filteredOrders.map((order) => order.id));
+  };
+
+  const clearSelection = () => setSelectedOrderIds([]);
+
+  const archiveSelectedOrders = async () => {
+    if (selectedOrderIds.length === 0) return;
+    const selectedSet = new Set(selectedOrderIds);
+    const targets = orders.filter((order) => selectedSet.has(order.id) && !order.isArchived);
+    await Promise.all(targets.map((order) => updateOrder({ ...order, isArchived: true })));
+    toast(`В архив отправлено: ${targets.length}`, 'success');
+    clearSelection();
+    setIsSelectionMode(false);
+  };
+
+  const deleteSelectedOrders = async () => {
+    if (selectedOrderIds.length === 0) return;
+    setIsBulkDeleting(true);
+    const results = await Promise.all(selectedOrderIds.map((id) => deleteOrder(id)));
+    const deletedCount = results.filter(Boolean).length;
+    setIsBulkDeleting(false);
+    setDeleteId(null);
+    setSelectedOrderIds([]);
+    setIsSelectionMode(false);
+    toast(`Удалено заказов: ${deletedCount}`, deletedCount > 0 ? 'success' : 'error');
   };
 
   const activeFiltersCount = brandFilters.length + statusFilters.length + (priorityFilter !== 'all' ? 1 : 0) + (noResponseHours > 0 ? 1 : 0) + (issueFilter !== 'all' ? 1 : 0) + (yearFrom ? 1 : 0) + (yearTo ? 1 : 0);
@@ -543,6 +583,13 @@ const OrdersScreen: React.FC = () => {
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setIsIncomeOpen(true)} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Статистика"><BarChart3 size={18} /></button>
             <button type="button" onClick={() => navigate('/vendor')} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Склад"><Archive size={16} /></button>
+            <button
+              type="button"
+              onClick={toggleSelectionMode}
+              className={`h-11 rounded-xl border px-3 text-xs font-black ${isSelectionMode ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700'}`}
+            >
+              {isSelectionMode ? 'Готово' : 'Выбрать'}
+            </button>
             <button type="button" disabled={isRefreshing} onClick={() => void refreshOrders()} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center disabled:opacity-50" aria-label="Обновить">
               <Clock3 size={18} className={isRefreshing ? 'animate-spin text-slate-500' : 'text-slate-700'} />
             </button>
@@ -590,6 +637,18 @@ const OrdersScreen: React.FC = () => {
           ))}
         </div>
 
+        {isSelectionMode && (
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+            <button type="button" onClick={selectAllFiltered} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-black text-slate-700">
+              Выбрать все ({filteredOrders.length})
+            </button>
+            <button type="button" onClick={clearSelection} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-black text-slate-700">
+              Снять выбор
+            </button>
+            <span className="rounded-xl bg-blue-50 px-3 py-2 text-[11px] font-black text-blue-700">Выбрано: {selectedOrderIds.length}</span>
+          </div>
+        )}
+
       </header>
 
       <div className="space-y-4">
@@ -631,11 +690,30 @@ const OrdersScreen: React.FC = () => {
                   order.isArchived ? restoreOrder(order) : archiveOrder(order);
                 }}
                 onLongPressDelete={() => setDeleteId(order.id)}
-                onCardTap={() => openOrderPreview(order)}
+                onCardTap={() => {
+                  if (isSelectionMode) {
+                    toggleOrderSelected(order.id);
+                    return;
+                  }
+                  openOrderPreview(order);
+                }}
                 disableCardTap={!!deleteId || isDeleting}
               >
                 <div className={`rounded-2xl p-1 -m-1 ${isVipOrder ? 'bg-amber-50/70 border border-amber-200' : isUnreadLeadOrder ? 'bg-amber-50/60 border border-amber-200/70' : ''}`}>
                   <div className="flex items-start gap-3">
+                    {isSelectionMode && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleOrderSelected(order.id);
+                        }}
+                        className={`mt-1 inline-flex h-7 w-7 items-center justify-center rounded-lg border ${selectedOrderIds.includes(order.id) ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-500'}`}
+                        aria-label={selectedOrderIds.includes(order.id) ? 'Снять выбор заказа' : 'Выбрать заказ'}
+                      >
+                        {selectedOrderIds.includes(order.id) ? <CheckSquare size={14} /> : <Square size={14} />}
+                      </button>
+                    )}
                     {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? (
                       <img src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl} alt={`${order.brand} ${order.model}`} className="h-16 w-16 shrink-0 rounded-2xl object-cover border border-slate-200" />
                     ) : (
@@ -825,8 +903,39 @@ const OrdersScreen: React.FC = () => {
         </div>
       )}
 
-      <ConfirmModal isOpen={!!deleteId} message={isDeleting ? 'Удаляем…' : 'Вы уверены, что хотите удалить этот заказ?'} onConfirm={confirmDelete} onCancel={() => { if (!isDeleting) setDeleteId(null); }} />
+      <ConfirmModal isOpen={!!deleteId && deleteId !== '__bulk__'} message={isDeleting ? 'Удаляем…' : 'Вы уверены, что хотите удалить этот заказ?'} onConfirm={confirmDelete} onCancel={() => { if (!isDeleting) setDeleteId(null); }} />
+      <ConfirmModal
+        isOpen={isSelectionMode && deleteId === '__bulk__'}
+        message={isBulkDeleting ? 'Удаляем выбранные заказы…' : `Удалить выбранные заказы (${selectedOrderIds.length})?`}
+        onConfirm={deleteSelectedOrders}
+        onCancel={() => {
+          if (!isBulkDeleting) setDeleteId(null);
+        }}
+      />
       {isIncomeOpen && <IncomeModal isOpen={isIncomeOpen} onClose={() => setIsIncomeOpen(false)} orders={orders} />}
+
+      {isSelectionMode && (
+        <div className="fixed inset-x-3 bottom-[max(12px,calc(env(safe-area-inset-bottom)+10px))] z-30 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={selectedOrderIds.length === 0}
+              onClick={() => void archiveSelectedOrders()}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 text-xs font-black disabled:opacity-50"
+            >
+              <Archive size={14} /> В архив
+            </button>
+            <button
+              type="button"
+              disabled={selectedOrderIds.length === 0 || isBulkDeleting}
+              onClick={() => setDeleteId('__bulk__')}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-rose-600 text-xs font-black text-white disabled:opacity-50"
+            >
+              <Trash2 size={14} /> Удалить
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
