@@ -6,7 +6,6 @@ import {
   Phone,
   MapPin,
   Store,
-  UserPlus,
   Trash2,
   Tag,
   CheckCircle2,
@@ -1717,25 +1716,25 @@ const SuppliersScreen: React.FC = () => {
   }, [availableBrands, brandFilter]);
 
   return (
-    <div className="p-4 space-y-4 pb-32 overflow-x-hidden">
+    <div className="min-h-screen bg-[#F2F6FA] p-4 space-y-4 pb-32 overflow-x-hidden">
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold">База Поставщиков</h1>
-            <p className="text-xs font-semibold text-slate-500">Стартовый экран показывает весь список мини-карточек поставщиков.</p>
+            <h1 className="text-[30px] font-bold leading-[1.1] text-black">База Поставщиков</h1>
+            <p className="text-[13px] font-normal leading-[1.3] text-slate-500">Стартовый экран показывает весь список мини-карточек поставщиков.</p>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => navigate('/variants')}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[#007AFF] px-4 text-[13px] font-bold text-white shadow-sm active:bg-[#005FCC]"
             >
               Варианты
             </button>
             <button
               type="button"
               onClick={() => setIsFiltersOpen((prev) => !prev)}
-              className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${isFiltersOpen ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700'}`}
+              className={`inline-flex h-9 px-3 items-center justify-center rounded-full border ${isFiltersOpen ? 'border-[#007AFF] bg-[#007AFF] text-white' : 'border-[#D1D5DB] bg-white text-[#374151]'}`}
               aria-label="Открыть фильтры"
             >
               <SlidersHorizontal size={18} />
@@ -1743,16 +1742,16 @@ const SuppliersScreen: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsBrandsDrawerOpen(true)}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700"
+              className="inline-flex h-9 px-3 items-center justify-center rounded-full border border-[#D1D5DB] bg-white text-[#374151]"
               aria-label="Открыть список марок"
             >
               <Menu size={18} />
             </button>
           </div>
         </div>
-        <div className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">{displayedSuppliers.length} suppliers</span>
+            <span className="rounded-full bg-[#007AFF] px-3 py-2 text-[11px] font-semibold uppercase text-white">{displayedSuppliers.length} suppliers</span>
             {selectedSupplierIds.length > 0 && (
               <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase text-blue-700">Выбрано: {selectedSupplierIds.length}</span>
             )}
@@ -1791,13 +1790,13 @@ const SuppliersScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm">
+      <div className="rounded-2xl border border-[#E5E7EB] bg-white p-3 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-2">
           <input
             value={supplierSearchQuery}
             onChange={(e) => setSupplierSearchQuery(e.target.value)}
-            placeholder="Поиск поставщика, локации, марки или модели..."
-            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold"
+            placeholder="Поиск поставщика, локации, запчасти..."
+            className="w-full rounded-[22px] border border-[#E5E7EB] bg-white px-4 py-2.5 text-[14px] font-normal placeholder:text-[#9CA3AF] focus:border-[#007AFF] focus:outline-none"
           />
           <button
             type="button"
@@ -2040,7 +2039,7 @@ const SuppliersScreen: React.FC = () => {
               onPointerUp={finishLongPress}
               onPointerCancel={() => cancelLongPress()}
               onPointerLeave={() => cancelLongPress()}
-              className={`w-full rounded-[28px] border bg-white px-4 py-3 text-left shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition-all duration-200 ${isSelected ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'} hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(15,23,42,0.12)] active:scale-[0.99]`}
+              className={`w-full rounded-2xl border bg-white px-4 py-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-all duration-200 ${isSelected ? 'border-[#007AFF] ring-2 ring-blue-100' : 'border-slate-200'} hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(15,23,42,0.12)] active:scale-[0.99]`}
             >
               <div className="flex items-center gap-3">
                 <button
@@ -2050,7 +2049,7 @@ const SuppliersScreen: React.FC = () => {
                     setIsSelectionMode(true);
                     toggleSupplierSelection(supplier.id);
                   }}
-                  className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-black ${isSelected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-transparent'}`}
+                  className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[9px] font-black ${isSelected ? 'border-[#007AFF] bg-[#007AFF] text-white' : 'border-[#D1D5DB] bg-white text-transparent'}`}
                   aria-label={isSelected ? 'Снять выбор с поставщика' : 'Выбрать поставщика'}
                 >
                   ✓
@@ -2058,7 +2057,7 @@ const SuppliersScreen: React.FC = () => {
                 {((supplier.photos && supplier.photos.length > 0) || supplier.photoUrl) ? (
                   <img src={((supplier.photos && supplier.photos[0]) || supplier.photoUrl) as string} alt={supplier.name} className="h-14 w-14 shrink-0 rounded-full object-cover" />
                 ) : (
-                  <div className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-sm font-black text-white">{supplierInitials(supplier.name)}</div>
+                  <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#10B981] text-lg font-bold text-white">{supplierInitials(supplier.name)}</div>
                 )}
                 <div className="min-w-0 flex-1 border-b border-slate-100 pb-3">
                   <div className="flex items-start justify-between gap-3">
@@ -2090,8 +2089,8 @@ const SuppliersScreen: React.FC = () => {
                   <p className="truncate text-[11px] text-slate-400">{daysAgoLabel(supplier.lastContactAt)}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsApp(supplier); }} className="rounded-full bg-emerald-500 px-3 py-2 text-[11px] font-black text-white">WhatsApp</button>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); openPhone(supplier); }} className="rounded-full bg-slate-100 px-3 py-2 text-[11px] font-black text-slate-700">Call</button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsApp(supplier); }} className="inline-flex h-9 items-center rounded-full bg-[#25D366] px-4 text-[13px] font-bold text-white">WhatsApp</button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); openPhone(supplier); }} className="inline-flex h-9 items-center rounded-full bg-[#007AFF] px-4 text-[13px] font-bold text-white">Позвонить</button>
                 </div>
               </div>
             </div>
@@ -2690,10 +2689,10 @@ const SuppliersScreen: React.FC = () => {
       <button
         type="button"
         onClick={() => setIsAdding(true)}
-        className="fixed right-6 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-[0_10px_24px_rgba(37,99,235,0.45)] transition active:scale-95 bottom-[calc(env(safe-area-inset-bottom,0px)+5.5rem)]"
-        aria-label="Add supplier"
+        className="fixed right-5 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#007AFF] text-white shadow-[0_12px_24px_rgba(0,122,255,0.45)] transition active:scale-95 bottom-[calc(env(safe-area-inset-bottom,0px)+5.5rem)]"
+        aria-label="Новый поставщик"
       >
-        <UserPlus size={20} />
+        <span className="text-[30px] font-bold leading-none">+</span>
       </button>
 
       <ConfirmModal
