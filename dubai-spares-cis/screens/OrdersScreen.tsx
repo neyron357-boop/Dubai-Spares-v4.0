@@ -64,6 +64,7 @@ type SwipeableOrderCardProps = {
   onLongPressDelete: () => void;
   onCardTap: () => void;
   disableCardTap?: boolean;
+  disableSwipe?: boolean;
   children: React.ReactNode;
 };
 
@@ -78,6 +79,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
   onLongPressDelete,
   onCardTap,
   disableCardTap = false,
+  disableSwipe = false,
   children
 }) => {
   const [translateX, setTranslateX] = useState(0);
@@ -106,6 +108,11 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
     }
   }, [openCardId, orderId, status]);
 
+  useEffect(() => {
+    if (!disableSwipe) return;
+    setSpringPosition(0, 'idle');
+  }, [disableSwipe]);
+
   const clearLongPress = () => {
     if (longPressTimer.current) {
       window.clearTimeout(longPressTimer.current);
@@ -128,6 +135,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
   };
 
   const onPointerDown: React.PointerEventHandler<HTMLElement> = (event) => {
+    if (disableSwipe) return;
     const target = event.target as HTMLElement;
     if (target.closest('button, a, input, textarea, select')) return;
     pointerStart.current = { x: event.clientX, y: event.clientY };
@@ -150,7 +158,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
   };
 
   const onPointerMove: React.PointerEventHandler<HTMLElement> = (event) => {
-    if (!isDragging) return;
+    if (disableSwipe || !isDragging) return;
     const dx = event.clientX - pointerStart.current.x;
     const dy = event.clientY - pointerStart.current.y;
 
@@ -184,7 +192,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
   };
 
   const onPointerUp: React.PointerEventHandler<HTMLElement> = (event) => {
-    if (!isDragging) return;
+    if (disableSwipe || !isDragging) return;
     clearLongPress();
     const target = event.target as HTMLElement;
     if (target.closest('button, a, input, textarea, select')) {
@@ -241,6 +249,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm" data-swipe-card="true">
+      {!disableSwipe && (
       <div className="absolute inset-0 flex items-stretch justify-between">
         <button
           type="button"
@@ -286,14 +295,15 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
           ))}
         </div>
       </div>
+      )}
 
       <article
         className="relative rounded-2xl bg-white p-4"
         style={{
-          transform: `translate3d(${translateX}px,0,0)`,
+          transform: disableSwipe ? 'translate3d(0,0,0)' : `translate3d(${translateX}px,0,0)`,
           transition: isDragging ? 'none' : 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1)',
           willChange: 'transform',
-          touchAction: 'pan-y'
+          touchAction: disableSwipe ? 'auto' : 'pan-y'
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -531,6 +541,7 @@ const OrdersScreen: React.FC = () => {
 
   const toggleSelectionMode = () => {
     setIsSelectionMode((current) => !current);
+    setOpenSwipeId(null);
     setSelectedOrderIds([]);
   };
 
@@ -695,6 +706,7 @@ const OrdersScreen: React.FC = () => {
                   navigate(`/order/${order.id}`);
                 }}
                 disableCardTap={!!deleteId || isDeleting}
+                disableSwipe={isSelectionMode}
               >
                 <div className={`rounded-2xl p-1 -m-1 ${isVipOrder ? 'bg-amber-50/70 border border-amber-200' : isUnreadLeadOrder ? 'bg-amber-50/60 border border-amber-200/70' : ''}`}>
                   <div className="flex items-start gap-3">
