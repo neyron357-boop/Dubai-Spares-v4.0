@@ -14,7 +14,7 @@ const buildSnapshotOptions = () => {
   return {
     owner: {
       whatsappPhone: settings.publicWhatsappNumber,
-      displayName: 'Dubai Spares CIS'
+      displayName: 'Stark Motors'
     },
     publicSettings: {
       publicWhatsappNumber: settings.publicWhatsappNumber,
@@ -105,4 +105,3 @@ export const scheduleLivePublicQuoteSync = (order: Order, options?: { reason?: s
   }, DEBOUNCE_MS);
   timers.set(order.id, timer);
 };
-

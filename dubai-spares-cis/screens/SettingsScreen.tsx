@@ -1634,7 +1634,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               <input
                 value={draftSettings.publicWebsiteUrl}
                 onChange={(e) => updateDraft({ publicWebsiteUrl: e.target.value.trim() })}
-                placeholder="https://www.dubaispares.ae"
+                placeholder="https://www.starkmotors.ae"
                 className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
               />
             </Field>
@@ -1644,7 +1644,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                 type="email"
                 value={draftSettings.publicEmail}
                 onChange={(e) => updateDraft({ publicEmail: e.target.value.trim() })}
-                placeholder="sales@dubaispares.ae"
+                placeholder="sales@starkmotors.ae"
                 className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
               />
             </Field>
@@ -1711,7 +1711,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                   <input
                     value={draftSettings.invoicePaymentBeneficiary}
                     onChange={(e) => updateDraft({ invoicePaymentBeneficiary: e.target.value })}
-                    placeholder="Dubai Spares UAE"
+                    placeholder="Stark Motors"
                     className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
                   />
                 </Field>
@@ -1719,7 +1719,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                   <input
                     value={draftSettings.invoicePaymentBankAccount}
                     onChange={(e) => updateDraft({ invoicePaymentBankAccount: e.target.value })}
-                    placeholder="Dubai Spares UAE Trading Account"
+                    placeholder="Stark Motors Trading Account"
                     className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
                   />
                 </Field>

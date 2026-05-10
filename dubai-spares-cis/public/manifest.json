@@ -1,7 +1,7 @@
 {
-  "name": "Dubai Spares CIS",
-  "short_name": "DubaiSpares",
-  "description": "Order lifecycle, radar alerts, and supplier matching for Dubai Spares.",
+  "name": "Stark Motors",
+  "short_name": "StarkMotors",
+  "description": "Order lifecycle, radar alerts, and supplier matching for Stark Motors.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -20,7 +20,7 @@
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Dubai Spares mobile"
+      "label": "Stark Motors mobile"
     }
   ]
 }

@@ -73,14 +73,14 @@ const formatPhone = (value: string) => {
 
 const formatWebsite = (value: string) => {
   const trimmed = String(value || '').trim();
-  if (!trimmed) return 'www.dubaispares.ae';
+  if (!trimmed) return 'www.starkmotors.ae';
   return trimmed.replace(/^https?:\/\//, '').replace(/\/$/, '');
 };
 
 const resolvePaymentInfo = (settings: AppSettings) => ({
   accountNo: settings.invoicePaymentAccountNo || settings.publicWhatsappNumber || '971521574546',
-  name: settings.invoicePaymentBeneficiary || settings.publicManagerName || 'Dubai Spares UAE',
-  bankAccount: settings.invoicePaymentBankAccount || (settings.publicManagerName ? `${settings.publicManagerName} Trading Account` : 'Dubai Spares UAE Trading Account'),
+  name: settings.invoicePaymentBeneficiary || settings.publicManagerName || 'Stark Motors',
+  bankAccount: settings.invoicePaymentBankAccount || (settings.publicManagerName ? `${settings.publicManagerName} Trading Account` : 'Stark Motors Trading Account'),
 });
 
 const resolveTerms = (text: string) => {
@@ -95,9 +95,9 @@ const resolveTerms = (text: string) => {
 };
 
 const createInvoiceNumber = (seed: string, date: Date) => {
-  const compactSeed = seed.replace(/[^A-Za-z0-9]/g, '').slice(-6).toUpperCase() || 'DSUAE';
+  const compactSeed = seed.replace(/[^A-Za-z0-9]/g, '').slice(-6).toUpperCase() || 'SMUAE';
   const ymd = `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}${String(date.getUTCDate()).padStart(2, '0')}`;
-  return `DS-${ymd}-${compactSeed}`;
+  return `SM-${ymd}-${compactSeed}`;
 };
 
 export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings): InvoicePayload => {
@@ -152,12 +152,12 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
     invoiceTo: String(order.clientName || order.customerContact || order.socialNickname || 'Client details to be confirmed'),
     company: {
       logoUrl: settings.publicCompanyLogoUrl || '',
-      companyName: 'DUBAI SPARES',
+      companyName: 'STARK MOTORS',
       subtitle: 'UAE',
       phone: formatPhone(settings.publicWhatsappNumber),
       website: formatWebsite(settings.publicWebsiteUrl || settings.publicInstagramUrl || settings.publicTelegramUrl || ''),
-      email: settings.publicEmail || 'sales@dubaispares.ae',
-      managerName: settings.publicManagerName || 'Dubai Spares UAE',
+      email: settings.publicEmail || 'sales@starkmotors.ae',
+      managerName: settings.publicManagerName || 'Stark Motors',
       signatureUrl: settings.publicInvoiceSignatureUrl || '',
     },
   };
@@ -188,19 +188,19 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
     totalAed: snapshot.grandTotalAed,
     paymentInfo: {
       accountNo: String(snapshot.raw.public_settings?.invoicePaymentAccountNo || snapshot.contact.whatsapp || '971521574546'),
-      name: String(snapshot.raw.public_settings?.invoicePaymentBeneficiary || snapshot.contact.managerName || 'Dubai Spares UAE'),
-      bankAccount: String(snapshot.raw.public_settings?.invoicePaymentBankAccount || `${snapshot.contact.managerName || 'Dubai Spares UAE'} Trading Account`),
+      name: String(snapshot.raw.public_settings?.invoicePaymentBeneficiary || snapshot.contact.managerName || 'Stark Motors'),
+      bankAccount: String(snapshot.raw.public_settings?.invoicePaymentBankAccount || `${snapshot.contact.managerName || 'Stark Motors'} Trading Account`),
     },
     paymentTerms: resolveTerms(snapshot.contact.workTerms),
     invoiceTo: String(snapshot.raw.order?.clientName || snapshot.raw.order?.client_name || snapshot.raw.order?.customerContact || 'Client details to be confirmed'),
     company: {
       logoUrl: snapshot.contact.logoUrl,
-      companyName: 'DUBAI SPARES',
+      companyName: 'STARK MOTORS',
       subtitle: 'UAE',
       phone: formatPhone(snapshot.contact.whatsapp),
       website: formatWebsite(snapshot.contact.website || snapshot.contact.instagram || snapshot.contact.telegram || ''),
-      email: snapshot.contact.email || 'sales@dubaispares.ae',
-      managerName: snapshot.contact.managerName || 'Dubai Spares UAE',
+      email: snapshot.contact.email || 'sales@starkmotors.ae',
+      managerName: snapshot.contact.managerName || 'Stark Motors',
       signatureUrl: snapshot.contact.signatureUrl,
     },
   };
@@ -220,7 +220,7 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
   `).join('');
 
   const logoMarkup = payload.company.logoUrl
-    ? `<img src="${esc(payload.company.logoUrl)}" alt="Dubai Spares logo" class="logo-image" />`
+    ? `<img src="${esc(payload.company.logoUrl)}" alt="Stark Motors logo" class="logo-image" />`
     : `<div class="logo-mark"><span></span><span></span></div>`;
 
   const signatureMarkup = payload.company.signatureUrl

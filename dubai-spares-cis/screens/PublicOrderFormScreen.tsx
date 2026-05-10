@@ -1137,7 +1137,7 @@ Best time: ${bestContactTime || '—'}`,
       {/* HEADER */}
       <div className="mx-auto w-full max-w-[640px] px-6" style={{ paddingTop: '28px', paddingBottom: '12px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '8px' }}>
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: '#9CA3AF' }}>Dubai Spares Concierge</span>
+          <span className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: '#9CA3AF' }}>Stark Motors Concierge</span>
           {companyLogoUrl && <img src={companyLogoUrl} alt="Company logo" className="h-9 w-auto max-w-[140px] object-contain" />}
         </div>
         <h1 style={{ fontSize: '36px', fontWeight: 600, lineHeight: 1.2, margin: 0, color: '#F9FAFB' }}>{stepTitle}</h1>
