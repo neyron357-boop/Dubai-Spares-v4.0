@@ -3403,7 +3403,12 @@ const OrderDetailsScreen: React.FC = () => {
         />
       )}
       {showCustomerLogs && (
-        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/45 p-3 sm:items-center">
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/45 p-3"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setShowCustomerLogs(false);
+          }}
+        >
           <div className="w-full max-w-lg rounded-[24px] bg-white p-4 shadow-2xl">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -3412,7 +3417,7 @@ const OrderDetailsScreen: React.FC = () => {
               </div>
               <button type="button" onClick={() => setShowCustomerLogs(false)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-600">Закрыть</button>
             </div>
-            <div className="mt-4 max-h-[70vh] space-y-2 overflow-y-auto">
+            <div className="mt-4 max-h-[70dvh] space-y-2 overflow-y-auto">
               {customerLogs.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">Логи взаимодействия клиента пока пустые.</div>
               ) : customerLogs.map((entry) => (
