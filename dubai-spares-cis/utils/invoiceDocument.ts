@@ -118,7 +118,9 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
         ? basePriceAed + fixedMarkupPerPart
         : basePriceAed * (1 + Number(order.markupPercent || 0) / 100);
       const comment = String(part.comment || '').trim();
-      return {
+      const currencyCode = options?.currency || snapshot.currency || 'AED';
+  const rate = Number(options?.rate || 1) > 0 ? Number(options?.rate) : 1;
+  return {
         id: String(part.id || index),
         title: String(part.name || `Part ${index + 1}`),
         subtitle: comment || undefined,
@@ -154,6 +156,8 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
     paymentInfo: resolvePaymentInfo(settings),
     paymentTerms: resolveTerms(settings.publicWorkTerms),
     invoiceTo: String(order.clientName || order.customerContact || order.socialNickname || 'Client details to be confirmed'),
+    currencyCode,
+    language: options?.language || 'en',
     company: {
       logoUrl: settings.publicCompanyLogoUrl || '',
       companyName: 'STARK MOTORS',
@@ -164,12 +168,10 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
       managerName: settings.publicManagerName || 'Stark Motors',
       signatureUrl: settings.publicInvoiceSignatureUrl || '',
     },
-    currencyCode,
-    language: options?.language || 'en',
   };
 };
 
-export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteSnapshot): InvoicePayload => {
+export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteSnapshot, options?: { currency?: string; rate?: number; language?: 'en' | 'ru' }): InvoicePayload => {
   const createdAt = new Date(String(snapshot.raw.created_at || Date.now()));
   const items = snapshot.items.map((item) => ({
     id: item.id,
@@ -179,19 +181,21 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
     unitPriceAed: item.unitPriceAed,
     totalAed: item.totalAed,
   }));
+  const currencyCode = options?.currency || snapshot.currency || 'AED';
+  const rate = Number(options?.rate || 1) > 0 ? Number(options?.rate) : 1;
   return {
     invoiceNumber: createInvoiceNumber(String(snapshot.raw.order?.id || snapshot.order.vin || snapshot.order.brand), createdAt),
     createdAt,
     clientName: String(snapshot.raw.order?.clientName || snapshot.raw.order?.client_name || snapshot.raw.order?.customerContact || 'Client / Company'),
     carTitle: [snapshot.order.brand, snapshot.order.model, snapshot.order.year].filter(Boolean).join(' '),
     vin: snapshot.order.vin,
-    items,
-    subtotalAed: snapshot.subtotalAed,
-    deliveryAed: snapshot.deliveryAed,
-    packingAed: snapshot.packingAed,
-    commissionAed: snapshot.commissionAed,
+    items: items.map((item) => ({ ...item, unitPriceAed: item.unitPriceAed * rate, totalAed: item.totalAed * rate })),
+    subtotalAed: snapshot.subtotalAed * rate,
+    deliveryAed: snapshot.deliveryAed * rate,
+    packingAed: snapshot.packingAed * rate,
+    commissionAed: snapshot.commissionAed * rate,
     taxAed: 0,
-    totalAed: snapshot.grandTotalAed,
+    totalAed: snapshot.grandTotalAed * rate,
     paymentInfo: {
       accountNo: String(snapshot.raw.public_settings?.invoicePaymentAccountNo || snapshot.contact.whatsapp || '971521574546'),
       name: String(snapshot.raw.public_settings?.invoicePaymentBeneficiary || snapshot.contact.managerName || 'Stark Motors'),
@@ -199,6 +203,8 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
     },
     paymentTerms: resolveTerms(snapshot.contact.workTerms),
     invoiceTo: String(snapshot.raw.order?.clientName || snapshot.raw.order?.client_name || snapshot.raw.order?.customerContact || 'Client details to be confirmed'),
+    currencyCode,
+    language: options?.language || 'en',
     company: {
       logoUrl: snapshot.contact.logoUrl,
       companyName: 'STARK MOTORS',
