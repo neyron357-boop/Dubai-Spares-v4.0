@@ -14,7 +14,7 @@ const getVariantSalePriceAed = (variant: any) => Number(variant?.salePriceAed ??
 interface Props {
   order: Order;
   onClose: () => void;
-  onShare: (options: { rates: QuoteRates; currency: QuoteCurrency }) => void | Promise<void>;
+  onShare: (options: { rates: QuoteRates; currency: QuoteCurrency; sendPublicQuote: boolean }) => void | Promise<void>;
 }
 
 const CURRENCY_META: Record<QuoteCurrency, { label: string; symbol: string }> = {
@@ -65,6 +65,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const [rateNotice, setRateNotice] = useState('');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [isSharing, setIsSharing] = useState(false);
+  const [sendPublicQuote, setSendPublicQuote] = useState(true);
   const { settings } = useAppSettings();
 
   const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
@@ -140,7 +141,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const runShare = async () => {
     setIsSharing(true);
     try {
-      await onShare({ rates, currency });
+      await onShare({ rates, currency, sendPublicQuote });
     } catch (error) {
       const message = error instanceof Error && error.message.trim() ? error.message : 'Сервер недоступен, попробуйте снова';
       toast(message, 'error');
@@ -322,6 +323,18 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
 
         {/* Footer actions */}
         <div className="p-4 bg-white border-t border-slate-100 space-y-2 pb-[calc(16px+env(safe-area-inset-bottom))]">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Отправить клиенту</p>
+            <label className="mt-2 inline-flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={sendPublicQuote}
+                onChange={(e) => setSendPublicQuote(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              Отправка публичной сметы
+            </label>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={handleOpenInvoice}
               className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#2b648d]/20 bg-[#f5f9fc] px-4 py-3 text-sm font-bold text-[#2b648d]">
