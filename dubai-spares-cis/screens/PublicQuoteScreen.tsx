@@ -21,8 +21,6 @@ import { copyToClipboard, parsePublicQuoteKey } from '../shareUtils';
 import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot } from '../publicQuoteApi';
 import { normalizePublicQuoteSnapshotPayload } from '../utils/publicQuoteSnapshot';
 import { buildInvoicePayloadFromSnapshot, openInvoicePrintWindow } from '../utils/invoiceDocument';
-import { calculateCargoEstimates } from '../utils/cargo';
-import type { Order } from '../types';
 import { analyzeAutoPartText, resolveAutoPartTranslation } from '../utils/autoPartAi';
 
 type Language = 'ru' | 'en';
@@ -31,7 +29,7 @@ type PublicQuoteScreenProps = { orderId: string };
 type QuoteDocument = {
   href: string;
   label: string;
-  kind: 'invoice' | 'cargo' | 'pdf' | 'document';
+  kind: 'invoice' | 'pdf' | 'document';
 };
 
 const i18n = {
@@ -135,8 +133,6 @@ const i18n = {
 
 const money = (value: number, currency: string) => `${value.toFixed(2)} ${currency}`;
 
-const isCargoDocument = (value: string) => /cargo|logistic|delivery|shipment|transport/i.test(value);
-
 const hideOnError = (e: React.SyntheticEvent<HTMLImageElement>) => {
   (e.currentTarget as HTMLImageElement).style.display = 'none';
 };
@@ -220,24 +216,16 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const fx = rates[activeCurrency] || 1;
   const contact = normalizedSnapshot?.contact || { whatsapp: '', telegram: '', instagram: '', managerName: 'Stark Motors', logoUrl: '', signatureUrl: '', workTerms: '', deliveryTerms: '' };
 
-  const cargoEstimate = useMemo(() => calculateCargoEstimates({
-    logistics: normalizedSnapshot?.cargoInput.logistics,
-    parts: normalizedSnapshot?.cargoInput.parts || [],
-  } as Order, {}), [normalizedSnapshot]);
-
   const whatsappHref = contact.whatsapp ? `https://wa.me/${contact.whatsapp}` : '';
   const documentButtons = useMemo(() => {
     const docs = normalizedSnapshot?.documents || [];
     return dedupeDocuments(docs.map((doc) => {
-      if (doc.kind === 'cargo' || isCargoDocument(doc.label)) {
-        return { ...doc, label: doc.label || t.downloadCargoPdf, kind: 'cargo' as const };
-      }
       if (doc.kind === 'invoice') {
         return { ...doc, label: doc.label || t.downloadPdf, kind: 'invoice' as const };
       }
       return { ...doc, label: doc.label || t.downloadFile, kind: doc.kind };
     }));
-  }, [normalizedSnapshot?.documents, t.downloadCargoPdf, t.downloadFile, t.downloadPdf]);
+  }, [normalizedSnapshot?.documents, t.downloadFile, t.downloadPdf]);
 
   useEffect(() => {
     setDisplayCurrency((normalizedSnapshot?.currency || 'USD') as 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT');
@@ -281,7 +269,11 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
 
   const handleOpenInvoice = () => {
     if (!normalizedSnapshot) return;
-    const opened = openInvoicePrintWindow(buildInvoicePayloadFromSnapshot(normalizedSnapshot));
+    const opened = openInvoicePrintWindow(buildInvoicePayloadFromSnapshot(normalizedSnapshot, {
+      currency: activeCurrency,
+      rate: fx,
+      language: lang,
+    }));
     if (!opened) window.alert(lang === 'ru' ? 'Не удалось открыть invoice. Проверьте блокировку всплывающих окон.' : 'Unable to open invoice. Please check your pop-up blocker.');
   };
 
@@ -421,35 +413,6 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
           <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em]"><Info size={14} /> {t.policyTitle}</p>
           {(translatedWorkTerms || contact.workTerms) && <p className="mt-2 whitespace-pre-line">{translatedWorkTerms || contact.workTerms}</p>}
           <p className="mt-2 text-amber-800/90">{t.policyBody}</p>
-        </section>
-
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
-          <div className="border-b border-slate-100 px-5 py-3">
-            <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{t.cargo}</h2>
-            <p className="mt-1 text-xs text-slate-500">{t.cargoHelper}</p>
-          </div>
-          <div className="divide-y divide-slate-100 px-5">
-            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.country}</span><strong className="text-slate-900">{cargoEstimate.air.country}</strong></div>
-            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.weight}</span><strong className="text-slate-900">{cargoEstimate.air.realWeight.toFixed(2)} kg</strong></div>
-            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.totalPlaces}</span><strong className="text-slate-900">{cargoEstimate.air.totalPlaces}</strong></div>
-            <div className="grid gap-3 py-4 md:grid-cols-2">
-              <div className="rounded-2xl bg-slate-50 p-4 text-sm">
-                <p className="font-semibold text-slate-900">{t.air}</p>
-                <div className="mt-2 space-y-1 text-slate-600">
-                  <p>{money(cargoEstimate.air.totalCostUsd, 'USD')}</p>
-                  <p>{t.eta}: {cargoEstimate.air.eta}</p>
-                </div>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4 text-sm">
-                <p className="font-semibold text-slate-900">{t.container}</p>
-                <div className="mt-2 space-y-1 text-slate-600">
-                  <p>{money(cargoEstimate.container.totalCostUsd, 'USD')}</p>
-                  <p>{t.eta}: {cargoEstimate.container.eta}</p>
-                </div>
-              </div>
-            </div>
-            {(translatedDeliveryTerms || contact.deliveryTerms) && <div className="py-4 text-sm whitespace-pre-line text-slate-600">{translatedDeliveryTerms || contact.deliveryTerms}</div>}
-          </div>
         </section>
 
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
