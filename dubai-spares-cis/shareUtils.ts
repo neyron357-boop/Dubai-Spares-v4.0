@@ -389,7 +389,7 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
     exchangeRate: options?.rates?.[options?.currency || 'USD'],
     owner: {
       whatsappPhone: settings.publicWhatsappNumber,
-      displayName: 'Dubai Spares CIS'
+      displayName: 'Stark Motors'
     },
     publicSettings: {
       publicWhatsappNumber: settings.publicWhatsappNumber,
@@ -399,6 +399,7 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
       publicWorkTerms: settings.publicWorkTerms,
       publicCompanyLogoUrl: settings.publicCompanyLogoUrl,
       publicInvoiceSignatureUrl: settings.publicInvoiceSignatureUrl,
+      publicManagerName: settings.publicManagerName,
       publicTermsFileUrl: settings.publicTermsFileUrl,
       publicTermsFileName: settings.publicTermsFileName,
       executorPhotoUrl: settings.executorPhotoUrl,

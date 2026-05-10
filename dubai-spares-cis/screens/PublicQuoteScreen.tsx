@@ -71,7 +71,7 @@ const i18n = {
     fastResponseBadge: 'Ответ 5–15 мин',
     validUntil: 'Цена действует до',
     companyProfile: 'Профиль компании',
-    trustNote: 'Dubai Spares показывает здесь только финальную смету: позиции, фото, суммы, логистику и контакты.',
+    trustNote: 'Stark Motors показывает здесь только финальную смету: позиции, фото, суммы, логистику и контакты.',
     signature: 'Подпись',
     signatureMissing: 'Подпись не настроена',
     officialSignature: 'Официальная подпись',
@@ -119,7 +119,7 @@ const i18n = {
     fastResponseBadge: 'Reply in 5–15 min',
     validUntil: 'Price valid until',
     companyProfile: 'Company profile',
-    trustNote: 'Dubai Spares shows only the final quote here: parts, photos, totals, logistics, and contacts.',
+    trustNote: 'Stark Motors shows only the final quote here: parts, photos, totals, logistics, and contacts.',
     signature: 'Signature',
     signatureMissing: 'Signature is not configured',
     officialSignature: 'Official signature',
@@ -218,7 +218,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const grandTotalAed = normalizedSnapshot?.grandTotalAed || 0;
   const activeCurrency = (displayCurrency || currency) as keyof typeof rates;
   const fx = rates[activeCurrency] || 1;
-  const contact = normalizedSnapshot?.contact || { whatsapp: '', telegram: '', instagram: '', managerName: 'Dubai Spares UAE', logoUrl: '', signatureUrl: '', workTerms: '', deliveryTerms: '' };
+  const contact = normalizedSnapshot?.contact || { whatsapp: '', telegram: '', instagram: '', managerName: 'Stark Motors', logoUrl: '', signatureUrl: '', workTerms: '', deliveryTerms: '' };
 
   const cargoEstimate = useMemo(() => calculateCargoEstimates({
     logistics: normalizedSnapshot?.cargoInput.logistics,
@@ -497,7 +497,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
             </div>
             <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50 to-white p-5 space-y-4">
               <div className="flex items-center justify-between gap-3">
-                <p className="inline-flex items-center gap-2 font-bold text-slate-800"><Building2 size={16} /> {t.companyProfile}: Dubai Spares UAE</p>
+                <p className="inline-flex items-center gap-2 font-bold text-slate-800"><Building2 size={16} /> {t.companyProfile}: {contact.managerName || 'Stark Motors'}</p>
                 {contact.logoUrl && <img src={contact.logoUrl} alt="Company logo" className="h-20 w-auto max-w-[360px] object-contain" />}
               </div>
               <p className="text-sm text-slate-600">{t.trustNote}</p>

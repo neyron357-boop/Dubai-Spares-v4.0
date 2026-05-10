@@ -167,7 +167,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
 
           <div className="relative z-10 px-5 pb-6 pt-[max(18px,calc(env(safe-area-inset-top)+8px))]">
             <div className="flex items-start justify-between mb-4">
-              <span className="inline-block rounded-lg bg-blue-600 px-3 py-1 text-[10px] font-black tracking-widest uppercase text-white">DUBAI SPARES</span>
+              <span className="inline-block rounded-lg bg-blue-600 px-3 py-1 text-[10px] font-black tracking-widest uppercase text-white">STARK MOTORS</span>
               <button onClick={onClose} className="rounded-full bg-white/10 p-1.5 text-white/70 hover:text-white transition-colors"><X size={18} /></button>
             </div>
             <h2 className="text-2xl font-black text-white tracking-tight">{order.brand} {order.model} {order.year}</h2>
