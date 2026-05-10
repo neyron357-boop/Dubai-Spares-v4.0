@@ -692,7 +692,7 @@ const OrdersScreen: React.FC = () => {
                     toggleOrderSelected(order.id);
                     return;
                   }
-                  navigate(`/order/${order.id}`);
+                  openOrderPreview(order);
                 }}
                 disableCardTap={!!deleteId || isDeleting}
               >
