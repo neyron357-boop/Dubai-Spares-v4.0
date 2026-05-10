@@ -54,7 +54,6 @@ import { useAppSettings } from '../appSettings';
 import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 import { getOrderCustomerLogs } from '../customerEngagement';
 import { analyzeAutoPartText, inferCargoPlacesFromAnalysis, isOversizedFromAnalysis } from '../utils/autoPartAi';
-import { autofillVehicleDetailsFromVin, mergeVehicleAutofill } from '../utils/vehicleAutofillAi';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -322,7 +321,6 @@ const OrderDetailsScreen: React.FC = () => {
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
   const [isAiFillingCargo, setIsAiFillingCargo] = useState(false);
   const [aiCargoNotice, setAiCargoNotice] = useState<string | null>(null);
-  const [isAiFillingVehicle, setIsAiFillingVehicle] = useState(false);
   // Multiple photos for new part
   const [newPartPhotos, setNewPartPhotos] = useState<string[]>([]);
   const partFileRef = useRef<HTMLInputElement>(null);
@@ -1091,57 +1089,6 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
-
-  const runVehicleVinAutofill = useCallback(async () => {
-    if (!orderRef.current || isAiFillingVehicle) return;
-
-    const currentOrder = orderRef.current;
-    const sourceOrder: Order = {
-      ...currentOrder,
-      brand: String(draftFields.brand ?? currentOrder.brand ?? '').trim(),
-      model: String(draftFields.model ?? currentOrder.model ?? '').trim(),
-      year: String(draftFields.year ?? currentOrder.year ?? '').trim(),
-      vin: String(draftFields.vin ?? currentOrder.vin ?? '').trim().toUpperCase(),
-      bodyType: String(draftFields.bodyType ?? currentOrder.bodyType ?? '').trim(),
-      vehicleDetails: { ...(currentOrder.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}) },
-      notes: String(draftFields.notes ?? currentOrder.notes ?? '').trim(),
-    };
-
-    if (!sourceOrder.vin && !sourceOrder.brand && !sourceOrder.model) {
-      setToast({ message: 'Добавьте VIN или базовые данные авто перед AI-заполнением' });
-      return;
-    }
-
-    setIsAiFillingVehicle(true);
-    try {
-      const inferred = await autofillVehicleDetailsFromVin(sourceOrder);
-      const mergedVehicleDetails = mergeVehicleAutofill(sourceOrder.vehicleDetails, inferred);
-      if (!mergedVehicleDetails) {
-        setToast({ message: 'AI не нашёл безопасных новых данных для заполнения' });
-        return;
-      }
-
-      const latestOrder = orderRef.current;
-      if (!latestOrder) return;
-      setDraftFields((prev) => ({ ...prev, vehicleDetails: mergedVehicleDetails }));
-      deferredFieldValuesRef.current.vehicleDetails = undefined;
-      const pendingTimer = deferredFieldTimersRef.current.vehicleDetails;
-      if (pendingTimer) {
-        window.clearTimeout(pendingTimer);
-        deferredFieldTimersRef.current.vehicleDetails = undefined;
-      }
-
-      await updateOrder({ ...latestOrder, vehicleDetails: mergedVehicleDetails });
-      setToast({ message: 'AI заполнил недостающие данные автомобиля' });
-    } catch (error) {
-      const message = error instanceof Error && error.message.trim()
-        ? error.message.trim()
-        : 'Не удалось заполнить данные по VIN';
-      setToast({ message });
-    } finally {
-      setIsAiFillingVehicle(false);
-    }
-  }, [draftFields.bodyType, draftFields.brand, draftFields.model, draftFields.notes, draftFields.vehicleDetails, draftFields.vin, draftFields.year, isAiFillingVehicle, updateOrder]);
 
   const scheduleDebouncedSaveLog = useCallback(() => {
     if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
@@ -2218,7 +2165,6 @@ const OrderDetailsScreen: React.FC = () => {
             <option value={Priority.MEDIUM}>MEDIUM</option>
             <option value={Priority.LOW}>LOW</option>
           </select>
-          <button type="button" onClick={() => void pasteVinFromClipboard()} className="text-[10px] font-black px-3 py-2 rounded-xl uppercase tracking-tight bg-white border border-gray-200 text-gray-700 shrink-0">Вставить VIN</button>
         </div>
       </div>
 
@@ -2401,7 +2347,7 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+        <div className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-100 space-y-2">
           <button type="button" onClick={() => setIsVehicleBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
               <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Данные автомобиля</p>
@@ -2455,7 +2401,6 @@ const OrderDetailsScreen: React.FC = () => {
           <button type="button" onClick={() => setIsVehicleDetailsExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Подробные данные автомобиля</p>
-              <p className="text-[11px] text-gray-500 mt-1">Двигатель, привод, коробка, рынок/спецификация и другие важные параметры для точного подбора деталей.</p>
             </div>
             {isVehicleDetailsExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
           </button>
@@ -2512,54 +2457,6 @@ const OrderDetailsScreen: React.FC = () => {
                 <option value="">Не указано</option>
                 {VEHICLE_TRANSMISSION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
               </select>
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Код коробки</label>
-              <input
-                type="text"
-                value={String((draftFields.vehicleDetails?.transmissionCode) ?? (order.vehicleDetails?.transmissionCode ?? ''))}
-                readOnly={!isEditMode}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), transmissionCode: e.target.value })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                placeholder="ZF8HP / Aisin"
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Объём двигателя</label>
-              <input
-                type="text"
-                value={String((draftFields.vehicleDetails?.engineDisplacement) ?? (order.vehicleDetails?.engineDisplacement ?? ''))}
-                readOnly={!isEditMode}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), engineDisplacement: e.target.value })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                placeholder="2.0 / 3.5"
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Код двигателя</label>
-              <input
-                type="text"
-                value={String((draftFields.vehicleDetails?.engineCode) ?? (order.vehicleDetails?.engineCode ?? ''))}
-                readOnly={!isEditMode}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), engineCode: e.target.value })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                placeholder="N52 / 2GR"
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Комплектация / Trim</label>
-              <input
-                type="text"
-                value={String((draftFields.vehicleDetails?.trimLevel) ?? (order.vehicleDetails?.trimLevel ?? ''))}
-                readOnly={!isEditMode}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), trimLevel: e.target.value })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                placeholder="SE / Limited"
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              />
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Рынок / спецификация</label>
