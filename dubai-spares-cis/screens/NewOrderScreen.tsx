@@ -23,11 +23,19 @@ type DropdownOption = {
   value: string;
 };
 
+type DraftGroupItem = {
+  id: string;
+  name: string;
+  quantity: string;
+};
+
 type DraftPart = {
   id: string;
+  partKind: 'single' | 'group';
   name: string;
   comment: string;
   photos: string[];
+  groupItems: DraftGroupItem[];
 };
 
 type DraftNote = {
@@ -84,22 +92,20 @@ const inferWhatsappLanguage = (country: string, customerContact: string): 'ru' |
 
 const createId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
-const createDraftPart = (): DraftPart => ({
-  id: createId(),
+const createDraftGroupItem = (suffix?: string): DraftGroupItem => ({
+  id: `${createId()}${suffix ? `-${suffix}` : ''}`,
   name: '',
-  comment: '',
-  photos: []
+  quantity: '1'
 });
 
-const COUNTRY_CITY_MAP: Record<string, string[]> = {
-  'ОАЭ': ['Дубай', 'Абу-Даби', 'Шарджа', 'Аджман'],
-  'Россия': ['Москва', 'Санкт-Петербург', 'Казань', 'Екатеринбург'],
-  'Казахстан': ['Алматы', 'Астана', 'Шымкент'],
-  'Узбекистан': ['Ташкент', 'Самарканд', 'Бухара'],
-  'Кыргызстан': ['Бишкек', 'Ош'],
-  'Саудовская Аравия': ['Эр-Рияд', 'Джидда', 'Мекка']
-};
-const COUNTRY_OPTIONS = Object.keys(COUNTRY_CITY_MAP).sort((a, b) => a.localeCompare(b, 'ru'));
+const createDraftPart = (): DraftPart => ({
+  id: createId(),
+  partKind: 'single',
+  name: '',
+  comment: '',
+  photos: [],
+  groupItems: [createDraftGroupItem()]
+});
 
 const createDraftNote = (): DraftNote => ({
   id: createId(),
@@ -131,9 +137,8 @@ const normalizeDraftList = (items: unknown): Array<{ id: string; createdAt: numb
         parts: Array.isArray(item.data?.parts) && item.data?.parts.length ? item.data.parts : [createDraftPart()],
         notes: Array.isArray(item.data?.notes) && item.data?.notes.length ? item.data.notes : [createDraftNote()],
         clientName: item.data?.clientName || '',
-        customerContact: item.data?.customerContact || '',
-        country: item.data?.country || '',
-        city: item.data?.city || ''
+        contactValue: item.data?.contactValue || item.data?.customerContact || '',
+        leadSource: (item.data?.leadSource || item.data?.source || Source.WHATSAPP) as Source
       });
       return { id, createdAt, title, data };
     })
@@ -153,15 +158,27 @@ const toPersistableDraft = (payload: {
   year: string;
   bodyType: string;
   seriesCode: string;
-  parts: DraftPart[];
+  parts: Array<Partial<DraftPart> & { id?: string }>;
   notes: DraftNote[];
   clientName: string;
-  customerContact: string;
-  country: string;
-  city: string;
+  contactValue: string;
+  leadSource: Source;
 }) => ({
   ...payload,
-  parts: (payload.parts || []).map((part) => ({ ...part, photos: [] })),
+  parts: (payload.parts || []).map((part) => ({
+    id: String(part.id || createId()),
+    partKind: part.partKind === 'group' ? 'group' : 'single',
+    name: String(part.name || ''),
+    comment: String(part.comment || ''),
+    photos: [],
+    groupItems: Array.isArray((part as DraftPart).groupItems) && (part as DraftPart).groupItems.length
+      ? (part as DraftPart).groupItems.map((item) => ({
+        id: String(item.id || createId()),
+        name: String(item.name || ''),
+        quantity: String(item.quantity || '1')
+      }))
+      : [createDraftGroupItem()]
+  })),
   notes: (payload.notes || []).map((note) => ({ ...note, photos: [], voices: [] }))
 });
 
@@ -309,9 +326,7 @@ const NewOrderScreen: React.FC = () => {
   const [notes, setNotes] = useState<DraftNote[]>([createDraftNote()]);
 
   const [clientName, setClientName] = useState('');
-  const [customerContact, setCustomerContact] = useState('');
-  const [country, setCountry] = useState('');
-  const [city, setCity] = useState('');
+  const [contactValue, setContactValue] = useState('');
   const [leadSource, setLeadSource] = useState<Source>(Source.WHATSAPP);
 
   const [carPhotos, setCarPhotos] = useState<string[]>([]);
@@ -319,7 +334,6 @@ const NewOrderScreen: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [savedDrafts, setSavedDrafts] = useState<Array<{ id: string; createdAt: number; title: string; data: ReturnType<typeof toPersistableDraft> }>>([]);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
-  const [cityManualMode, setCityManualMode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [brandLoading, setBrandLoading] = useState(true);
   const [modelLoading, setModelLoading] = useState(false);
@@ -413,12 +427,28 @@ const NewOrderScreen: React.FC = () => {
     setYear(d.year || '');
     setBodyType(d.bodyType || '');
     setSeriesCode(d.seriesCode || '');
-    setParts(Array.isArray(d.parts) && d.parts.length ? d.parts : [createDraftPart()]);
+    setParts(
+      Array.isArray(d.parts) && d.parts.length
+        ? d.parts.map((part) => ({
+          id: String(part.id || createId()),
+          partKind: part.partKind === 'group' ? 'group' : 'single',
+          name: String(part.name || ''),
+          comment: String(part.comment || ''),
+          photos: Array.isArray((part as DraftPart).photos) ? (part as DraftPart).photos : [],
+          groupItems: Array.isArray((part as DraftPart).groupItems) && (part as DraftPart).groupItems.length
+            ? (part as DraftPart).groupItems.map((item) => ({
+              id: String(item.id || createId()),
+              name: String(item.name || ''),
+              quantity: String(item.quantity || '1')
+            }))
+            : [createDraftGroupItem()]
+        }))
+        : [createDraftPart()]
+    );
     setNotes(Array.isArray(d.notes) && d.notes.length ? d.notes : [createDraftNote()]);
     setClientName(d.clientName || '');
-    setCustomerContact(d.customerContact || '');
-    setCountry(d.country || '');
-    setCity(d.city || '');
+    setContactValue(d.contactValue || '');
+    setLeadSource(d.leadSource || Source.WHATSAPP);
   };
 
   useEffect(() => {
@@ -454,9 +484,9 @@ const NewOrderScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const draftData = toPersistableDraft({ mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, customerContact, country, city });
+    const draftData = toPersistableDraft({ mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource });
     localStorage.setItem('new-order-draft-v2', JSON.stringify(draftData));
-  }, [mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, customerContact, country, city]);
+  }, [mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource]);
 
   useEffect(() => {
     const decoded = decodeVin(vin);
@@ -475,12 +505,30 @@ const NewOrderScreen: React.FC = () => {
     const next: Record<string, string> = {};
     const currentYear = new Date().getFullYear();
     const parsedYear = Number(year.trim());
+    const hasAnyPart = parts.some((item) => (
+      item.partKind === 'group'
+        ? item.groupItems.some((g) => g.name.trim())
+        : item.name.trim()
+    ));
+    const rawContact = contactValue.trim();
+    const isPhone = /^\+[0-9]{9,15}$/.test(rawContact);
+    const isUrl = /^https?:\/\//i.test(rawContact);
+    const isHandle = /^@?[A-Za-z0-9._]{2,}$/.test(rawContact);
+    const isTelegramHandle = /^@?[A-Za-z0-9_]{2,}$/.test(rawContact);
     if (!brand.trim()) next.brand = 'Марка обязательна';
     if (!model.trim()) next.model = 'Модель обязательна';
     if (!year.trim() || !/^\d{4}$/.test(year.trim()) || parsedYear < 1980 || parsedYear > currentYear) next.year = `Год должен быть в диапазоне 1980-${currentYear}`;
-    if (!parts.some((item) => item.name.trim())) next.partName = 'Добавьте хотя бы одну деталь';
+    if (!hasAnyPart) next.partName = 'Добавьте хотя бы одну деталь';
     if (vin.trim() && vin.trim().length !== 17) next.vin = 'VIN должен быть 17 символов';
-    if (customerContact.trim() && !/^\+[0-9]{9,15}$/.test(customerContact.trim())) next.customerContact = 'Телефон: +код и 9–15 цифр без пробелов';
+    if (rawContact) {
+      if (leadSource === Source.WHATSAPP) {
+        if (!isPhone) next.contactValue = 'Телефон: +код и 9–15 цифр без пробелов';
+      } else if (leadSource === Source.INSTAGRAM || leadSource === Source.TIKTOK || leadSource === Source.FACEBOOK) {
+        if (!isUrl && !isHandle) next.contactValue = 'Укажите ссылку (https://...) или @username';
+      } else if (leadSource === Source.TELEGRAM) {
+        if (!isUrl && !isTelegramHandle && !isPhone) next.contactValue = 'Укажите ссылку (https://t.me/...) или @username';
+      }
+    }
     setErrors(next);
     if (Object.keys(next).length > 0) {
       void logger.warn('create-order', 'create_order_validation_error', { errors: next });
@@ -491,13 +539,34 @@ const NewOrderScreen: React.FC = () => {
   const canCreate = useMemo(() => {
     const currentYear = new Date().getFullYear();
     const parsedYear = Number(year.trim());
-    return !!brand.trim() && !!model.trim() && /^\d{4}$/.test(year.trim()) && parsedYear >= 1980 && parsedYear <= currentYear && parts.some((item) => item.name.trim()) && (!vin.trim() || vin.trim().length === 17) && (!customerContact.trim() || /^\+[0-9]{9,15}$/.test(customerContact.trim()));
-  }, [brand, model, year, parts, vin, customerContact]);
-
-  const cityOptions = useMemo(() => {
-    if (!country) return [];
-    return (COUNTRY_CITY_MAP[country] || []).map((item) => ({ label: item, value: item }));
-  }, [country]);
+    const hasAnyPart = parts.some((item) => (
+      item.partKind === 'group'
+        ? item.groupItems.some((g) => g.name.trim())
+        : item.name.trim()
+    ));
+    const rawContact = contactValue.trim();
+    const isPhone = /^\+[0-9]{9,15}$/.test(rawContact);
+    const isUrl = /^https?:\/\//i.test(rawContact);
+    const isHandle = /^@?[A-Za-z0-9._]{2,}$/.test(rawContact);
+    const isTelegramHandle = /^@?[A-Za-z0-9_]{2,}$/.test(rawContact);
+    const contactOk = !rawContact
+      ? true
+      : leadSource === Source.WHATSAPP
+        ? isPhone
+        : leadSource === Source.INSTAGRAM || leadSource === Source.TIKTOK || leadSource === Source.FACEBOOK
+          ? (isUrl || isHandle)
+          : leadSource === Source.TELEGRAM
+            ? (isUrl || isTelegramHandle || isPhone)
+            : true;
+    return !!brand.trim()
+      && !!model.trim()
+      && /^\d{4}$/.test(year.trim())
+      && parsedYear >= 1980
+      && parsedYear <= currentYear
+      && hasAnyPart
+      && (!vin.trim() || vin.trim().length === 17)
+      && contactOk;
+  }, [brand, model, year, parts, vin, contactValue, leadSource]);
 
   useEffect(() => {
     if (!recordingNoteId) return;
@@ -685,15 +754,14 @@ const NewOrderScreen: React.FC = () => {
     setParts([createDraftPart()]);
     setNotes([createDraftNote()]);
     setClientName('');
-    setCustomerContact('');
-    setCountry('');
-    setCity('');
+    setContactValue('');
+    setLeadSource(Source.WHATSAPP);
     setCarPhotos([]);
     setErrors({});
   };
 
   const saveDraft = () => {
-    const data = toPersistableDraft({ mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, customerContact, country, city });
+    const data = toPersistableDraft({ mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource });
     const next = [{
       id: createId(),
       createdAt: Date.now(),
@@ -759,10 +827,36 @@ const NewOrderScreen: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const fromLead = params.get('from') === 'lead';
 
-    const shippingCountry = country.trim();
-    const shippingCity = city.trim();
-    const shippingNote = [shippingCountry, shippingCity].filter(Boolean).join(', ');
-    const whatsappTemplateLanguage = inferWhatsappLanguage(shippingCountry, customerContact.trim());
+    const rawContact = contactValue.trim();
+    const looksLikePhone = /^\+[0-9]{9,15}$/.test(rawContact);
+    const whatsappTemplateLanguage = inferWhatsappLanguage('', looksLikePhone ? rawContact : '');
+    const resolvedCustomerContact = leadSource === Source.WHATSAPP || looksLikePhone ? rawContact : '';
+    const resolvedSocialNickname = leadSource !== Source.WHATSAPP && !looksLikePhone ? rawContact : '';
+    const preparedParts = parts
+      .map((draft) => {
+        const kind = draft.partKind === 'group' ? 'group' : 'single';
+        const hasSingleName = kind === 'single' && !!draft.name.trim();
+        const normalizedGroupItems = kind === 'group'
+          ? draft.groupItems
+            .map((item) => ({
+              name: item.name.trim(),
+              quantity: Math.max(1, Number(String(item.quantity || '').replace(/[^\d]/g, '') || 1))
+            }))
+            .filter((item) => !!item.name)
+          : [];
+        const hasGroupItems = kind === 'group' && normalizedGroupItems.length > 0;
+
+        if (!hasSingleName && !hasGroupItems) return null;
+
+        return {
+          kind,
+          name: draft.name.trim(),
+          comment: draft.comment.trim(),
+          photos: draft.photos,
+          groupItems: normalizedGroupItems.map((item, index) => ({ id: `new-group-${draft.id}-${index}`, ...item }))
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
     const order: Order = {
       id: createId(),
@@ -774,13 +868,15 @@ const NewOrderScreen: React.FC = () => {
       priority: Priority.MEDIUM,
       clientName: clientName.trim(),
       source: leadSource,
-      customerContact: customerContact.trim(),
+      customerContact: resolvedCustomerContact,
       carPhotos,
       carPhotoUrl: carPhotos[0],
-      parts: parts.filter((part) => part.name.trim()).map((part) => ({
+      parts: preparedParts.map((part) => ({
         id: createId(),
-        name: part.name.trim(),
-        comment: part.comment.trim(),
+        name: part.name,
+        partKind: part.kind,
+        groupItems: part.kind === 'group' ? part.groupItems : [],
+        comment: part.comment,
         photos: part.photos,
         photoUrl: part.photos[0],
         variants: [],
@@ -796,7 +892,6 @@ const NewOrderScreen: React.FC = () => {
       leadUnread: fromLead,
       leadSource: fromLead ? 'public_form' : 'manual',
       notes: [
-        ...(shippingNote ? [{ id: createId(), text: `Доставка: ${shippingNote}`, createdAt: now }] : []),
         ...notes
           .filter((note) => note.text.trim() || note.photos.length > 0 || note.voices.length > 0)
           .map((note) => ({
@@ -811,7 +906,7 @@ const NewOrderScreen: React.FC = () => {
           })),
         ...(seriesCode.trim() ? [{ id: createId(), text: `Series/Code: ${seriesCode.trim()}`, createdAt: now }] : [])
       ],
-      socialNickname: shippingNote || undefined,
+      socialNickname: resolvedSocialNickname || undefined,
       whatsappTemplateLanguage
     };
 
@@ -1009,7 +1104,6 @@ const NewOrderScreen: React.FC = () => {
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => carCameraRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Камера</button>
             <button type="button" onClick={() => carGalleryRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><ImagePlus size={14} /> Галерея</button>
-            <button type="button" onClick={() => void attachImagesFromClipboard(setCarPhotos, 'new-order:car')} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><ClipboardPaste size={14} /> Вставить</button>
           </div>
           {!!carPhotos.length && (
             <div className="grid grid-cols-3 gap-2">
@@ -1035,16 +1129,91 @@ const NewOrderScreen: React.FC = () => {
         <div className="space-y-3">
           {parts.map((part, index) => (
             <div key={part.id} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, partKind: 'single' } : item))}
+                  className={`rounded-xl border px-3 py-2 text-[11px] font-black uppercase tracking-wide ${part.partKind === 'single' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-500'}`}
+                >
+                  Обычная деталь
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, partKind: 'group', groupItems: item.groupItems?.length ? item.groupItems : [createDraftGroupItem()] } : item))}
+                  className={`rounded-xl border px-3 py-2 text-[11px] font-black uppercase tracking-wide ${part.partKind === 'group' ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-slate-200 bg-white text-slate-500'}`}
+                >
+                  Группа деталей
+                </button>
+              </div>
               <label className="space-y-1">
-                <span className="text-xs font-semibold text-slate-500">Деталь {index + 1} *</span>
-                <textarea
-                  value={part.name}
-                  onChange={(e) => setParts((prev) => prev.map((item) => (item.id === part.id ? { ...item, name: e.target.value } : item)))}
-                  placeholder="Название детали (можно с новой строки)"
-                  rows={2}
-                  className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-                />
+                <span className="text-xs font-semibold text-slate-500">{part.partKind === 'group' ? `Группа ${index + 1}` : `Деталь ${index + 1} *`}</span>
+                {part.partKind === 'group' ? (
+                  <input
+                    value={part.name}
+                    onChange={(e) => setParts((prev) => prev.map((item) => (item.id === part.id ? { ...item, name: e.target.value } : item)))}
+                    placeholder="Название группы (необязательно)"
+                    className={inputClass}
+                  />
+                ) : (
+                  <textarea
+                    value={part.name}
+                    onChange={(e) => setParts((prev) => prev.map((item) => (item.id === part.id ? { ...item, name: e.target.value } : item)))}
+                    placeholder="Название детали"
+                    rows={2}
+                    className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+                  />
+                )}
               </label>
+              {part.partKind === 'group' && (
+                <div className="space-y-2 rounded-xl border border-violet-100 bg-violet-50/60 p-3">
+                  <p className="text-[11px] font-black uppercase tracking-wide text-violet-700">Состав группы</p>
+                  {part.groupItems.map((item, groupIndex) => (
+                    <div key={item.id} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <input
+                        type="text"
+                        value={item.name}
+                        onChange={(e) => setParts((prev) => prev.map((p) => {
+                          if (p.id !== part.id) return p;
+                          return { ...p, groupItems: p.groupItems.map((g) => g.id === item.id ? { ...g, name: e.target.value } : g) };
+                        }))}
+                        placeholder={`Деталь #${groupIndex + 1}`}
+                        className="w-full flex-1 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm font-semibold outline-none"
+                      />
+                      <div className="flex items-center gap-2 sm:shrink-0">
+                        <input
+                          type="number"
+                          min={1}
+                          value={item.quantity}
+                          onChange={(e) => setParts((prev) => prev.map((p) => {
+                            if (p.id !== part.id) return p;
+                            return { ...p, groupItems: p.groupItems.map((g) => g.id === item.id ? { ...g, quantity: e.target.value.replace(/[^\d]/g, '') } : g) };
+                          }))}
+                          className="w-20 rounded-lg border border-violet-100 bg-white px-2 py-2 text-center text-sm font-bold"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setParts((prev) => prev.map((p) => {
+                            if (p.id !== part.id) return p;
+                            const filtered = p.groupItems.filter((g) => g.id !== item.id);
+                            return { ...p, groupItems: filtered.length ? filtered : [createDraftGroupItem()] };
+                          }))}
+                          className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-sm font-black text-rose-600"
+                          aria-label="Удалить строку"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setParts((prev) => prev.map((p) => p.id === part.id ? { ...p, groupItems: [...p.groupItems, createDraftGroupItem(String(p.groupItems.length))] } : p))}
+                    className="w-full rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-black uppercase tracking-wide text-violet-700 sm:w-auto"
+                  >
+                    + Добавить деталь в группу
+                  </button>
+                </div>
+              )}
               <input value={part.comment} onChange={(e) => setParts((prev) => prev.map((item) => item.id === part.id ? { ...item, comment: e.target.value } : item))} placeholder="Комментарий (необязательно)" className={inputClass} />
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => partPhotoRefs.current[part.id]?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Camera size={14} /> Фото детали</button>
@@ -1177,16 +1346,31 @@ const NewOrderScreen: React.FC = () => {
 
       <section className={cardClass}>
         <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><UserRound size={16} /> Клиент</h2>
-        <input
-          type="tel"
-          name="customerContact"
-          autoComplete="tel"
-          value={customerContact}
-          onChange={(e) => setCustomerContact(e.target.value.replace(/\s+/g, ''))}
-          placeholder="WhatsApp / телефон (+971501234567)"
-          className={inputClass}
-        />
-        {errors.customerContact && <p className="text-xs text-rose-600">{errors.customerContact}</p>}
+        <div className="space-y-1">
+          <span className="text-xs font-semibold text-slate-500">Контакты</span>
+          <input
+            type={leadSource === Source.WHATSAPP ? 'tel' : 'url'}
+            name="contactValue"
+            autoComplete={leadSource === Source.WHATSAPP ? 'tel' : 'url'}
+            value={contactValue}
+            onChange={(e) => setContactValue(e.target.value.replace(/\s+/g, ''))}
+            placeholder={
+              leadSource === Source.WHATSAPP
+                ? 'WhatsApp / телефон (+971501234567)'
+                : leadSource === Source.INSTAGRAM
+                  ? 'Instagram: @username или https://instagram.com/username'
+                  : leadSource === Source.TIKTOK
+                    ? 'TikTok: @username или https://www.tiktok.com/@username'
+                    : leadSource === Source.TELEGRAM
+                      ? 'Telegram: @username или https://t.me/username'
+                      : leadSource === Source.FACEBOOK
+                        ? 'Facebook: ссылка на профиль'
+                        : 'Ссылка/контакт'
+            }
+            className={inputClass}
+          />
+          {errors.contactValue && <p className="text-xs text-rose-600">{errors.contactValue}</p>}
+        </div>
         <input
           type="text"
           name="clientName"
@@ -1197,30 +1381,17 @@ const NewOrderScreen: React.FC = () => {
           className={inputClass}
         />
 
-        <div className="grid grid-cols-1 gap-3 transition-all duration-200 sm:grid-cols-2">
-          <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Страна (необязательно)</span>
-            <SearchableDropdown value={country} placeholder="Выберите страну" options={COUNTRY_OPTIONS.map((item) => ({ label: item, value: item }))} onChange={(value) => { setCountry(value); setCity(''); setCityManualMode(false); }} noOptionsText="Страна не найдена" />
-          </label>
-          <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Город (необязательно)</span>
-            {cityManualMode ? (
-              <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Введите город вручную" className={inputClass} />
-            ) : (
-              <SearchableDropdown value={city} placeholder={country ? 'Выберите город' : 'Сначала выберите страну'} options={cityOptions} disabled={!country} onChange={setCity} noOptionsText="Город не найден" />
-            )}
-            {!!country && <button type="button" onClick={() => setCityManualMode((prev) => !prev)} className="text-xs font-semibold text-slate-600 underline underline-offset-2">{cityManualMode ? 'Выбрать из списка' : 'Нет города в списке? Ввести вручную'}</button>}
-          </label>
-          <label className="space-y-1 sm:col-span-2">
-            <span className="text-xs font-semibold text-slate-500">Источник</span>
-            <select value={leadSource} onChange={(e) => setLeadSource(e.target.value as Source)} className={inputClass}>
-              <option value={Source.INSTAGRAM}>Instagram</option>
-              <option value={Source.TIKTOK}>TikTok</option>
-              <option value={Source.WHATSAPP}>WhatsApp</option>
-              <option value={Source.OTHER}>Другое</option>
-            </select>
-          </label>
-        </div>
+        <label className="space-y-1">
+          <span className="text-xs font-semibold text-slate-500">Источник</span>
+          <select value={leadSource} onChange={(e) => setLeadSource(e.target.value as Source)} className={inputClass}>
+            <option value={Source.INSTAGRAM}>Instagram</option>
+            <option value={Source.TIKTOK}>TikTok</option>
+            <option value={Source.TELEGRAM}>Telegram</option>
+            <option value={Source.FACEBOOK}>Facebook</option>
+            <option value={Source.WHATSAPP}>WhatsApp</option>
+            <option value={Source.OTHER}>Другое</option>
+          </select>
+        </label>
       </section>
 
       <div style={{ bottom: `${keyboardOffset}px` }} className="fixed inset-x-0 z-40 mx-auto w-full max-w-md border-t border-slate-200 bg-white/95 px-3 pt-3 backdrop-blur" >
@@ -1235,7 +1406,7 @@ const NewOrderScreen: React.FC = () => {
               if (!brand.trim()) missing.push('марка');
               if (!model.trim()) missing.push('модель');
               if (!year.trim()) missing.push('год');
-              if (!parts.some((item) => item.name.trim())) missing.push('деталь');
+              if (!parts.some((item) => item.partKind === 'group' ? item.groupItems.some((g) => g.name.trim()) : item.name.trim())) missing.push('деталь');
               toast(`Заполните обязательные поля: ${missing.join(', ')}`, 'error');
             }}
             disabled={isSyncing || isSubmitting}
