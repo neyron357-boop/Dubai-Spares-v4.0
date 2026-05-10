@@ -66,6 +66,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const [sendPublicQuote, setSendPublicQuote] = useState(true);
+  const [invoiceLanguage, setInvoiceLanguage] = useState<'en' | 'ru'>('en');
   const { settings } = useAppSettings();
 
   const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
@@ -85,16 +86,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     deliveryAed: Number(order.logistics?.deliveryAed || 0),
     packingAed: Number(order.logistics?.packingAed || 0),
     serviceFeeAed: Number(order.logistics?.serviceFeeAed || 0)
-  };
-  const cargo = {
-    country: order.logistics?.cargoCountry || '—',
-    weight: Number(order.logistics?.cargoTotalWeightKg || 0),
-    chargeableWeight: Number(order.logistics?.cargoChargeableWeightKg || 0),
-    places: Number(order.logistics?.cargoTotalPlaces || 0),
-    airEta: order.logistics?.cargoAirEtaDays || '—',
-    airCostUsd: Number(order.logistics?.cargoAirCostUsd || 0),
-    containerEta: order.logistics?.cargoContainerEtaDays || '—',
-    containerCostUsd: Number(order.logistics?.cargoContainerCostUsd || 0)
   };
   const finalTotalAed = totalAed + logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed;
 
@@ -134,7 +125,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   };
 
   const handleOpenInvoice = () => {
-    const opened = openInvoicePrintWindow(buildInvoicePayloadFromOrder(order, settings));
+    const opened = openInvoicePrintWindow(buildInvoicePayloadFromOrder(order, settings, { currency, rate: rates[currency], language: invoiceLanguage }));
     if (!opened) toast('Не удалось открыть invoice. Проверьте блокировку всплывающих окон.', 'error');
   };
 
@@ -230,18 +221,6 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
             )}
           </div>
 
-          <div className="mx-4 mb-4 rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Logistics / Cargo</p>
-            </div>
-            <div className="px-4 py-3 space-y-2 text-sm">
-                            <div className="flex items-center justify-between"><span className="text-slate-600">Страна</span><span className="font-semibold text-slate-800">{cargo.country}</span></div>
-                            <div className="flex items-center justify-between"><span className="text-slate-600">Вес</span><span className="font-semibold text-slate-800">{cargo.weight.toFixed(1)} кг (CW {cargo.chargeableWeight.toFixed(1)})</span></div>
-              <div className="flex items-center justify-between"><span className="text-slate-600">Места</span><span className="font-semibold text-slate-800">{cargo.places}</span></div>
-              <div className="flex items-center justify-between"><span className="text-slate-600">Авиа ({cargo.airEta} дн.)</span><span className="font-semibold text-slate-800">${cargo.airCostUsd.toFixed(2)}</span></div>
-              <div className="flex items-center justify-between"><span className="text-slate-600">Контейнер ({cargo.containerEta} дн.)</span><span className="font-semibold text-slate-800">${cargo.containerCostUsd.toFixed(2)}</span></div>
-            </div>
-          </div>
 
           {/* Price breakdown */}
           <div className="mx-4 mb-4 rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
@@ -275,6 +254,13 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
                 <span className="font-bold text-slate-900">Итого</span>
                 <span className="text-lg font-black text-blue-600">{convertedTotal.toFixed(2)} {currency}</span>
               </div>
+            </div>
+          </div>
+          <div className="mx-4 mb-4 rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden p-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Язык invoice</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setInvoiceLanguage('en')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${invoiceLanguage === 'en' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>EN</button>
+              <button type="button" onClick={() => setInvoiceLanguage('ru')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${invoiceLanguage === 'ru' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>RU</button>
             </div>
           </div>
 
