@@ -590,7 +590,7 @@ const OrderDetailsScreen: React.FC = () => {
     );
   }
 
-  const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency }) => {
+  const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency; sendPublicQuote?: boolean }) => {
     if (!order) return;
     const parsedRateInput = parseFloat(String(rateInput || '').replace(',', '.'));
     const quoteExchangeRate = Number.isFinite(parsedRateInput) && parsedRateInput > 0
@@ -630,6 +630,9 @@ const OrderDetailsScreen: React.FC = () => {
 
     if (hasPendingPricingChanges) {
       await updateOrder(quoteOrder);
+    }
+    if (options?.sendPublicQuote === false) {
+      return;
     }
     await shareQuoteLink(quoteOrder, options);
   };
