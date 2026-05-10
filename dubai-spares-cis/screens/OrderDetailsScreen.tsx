@@ -2402,19 +2402,6 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
-        <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-5 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
-          <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Order Workspace</p>
-          <div className="grid grid-cols-1 gap-5 text-xs">
-            <div className="rounded-[14px] border border-[#E7EAF3] bg-white p-4 space-y-2">
-              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Main</p>
-              <p className="text-[13px] font-normal text-[#8B8F98]">Supplier: {orderWorkspaceSuppliers[0]?.name || 'Not selected'}</p>
-              <p className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-[12px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white border')}`}>
-                {order.salesStatus || 'Inquiry'}
-              </p>
-            </div>
-          </div>
-        </div>
-
         <div ref={vehicleSectionRef} className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-100 space-y-2">
           <button type="button" onClick={() => setIsVehicleBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>

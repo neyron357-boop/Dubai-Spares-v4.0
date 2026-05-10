@@ -45,6 +45,8 @@ export type InvoicePayload = {
     managerName: string;
     signatureUrl: string;
   };
+  currencyCode?: string;
+  language?: 'en' | 'ru';
 };
 
 const esc = (value: unknown) => String(value ?? '')
@@ -53,7 +55,7 @@ const esc = (value: unknown) => String(value ?? '')
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
-const money = (value: number) => `${value.toFixed(2)} AED`;
+const money = (value: number, currencyCode = 'AED') => `${value.toFixed(2)} ${currencyCode}`;
 
 const formatDate = (value: Date) => value.toLocaleDateString('en-GB', {
   day: '2-digit',
@@ -100,7 +102,7 @@ const createInvoiceNumber = (seed: string, date: Date) => {
   return `SM-${ymd}-${compactSeed}`;
 };
 
-export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings): InvoicePayload => {
+export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings, options?: { currency?: string; rate?: number; language?: 'en' | 'ru' }): InvoicePayload => {
   const foundParts = order.parts.filter((part) => part.isFound && part.variants.length > 0);
   const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
   const fixedMarkupPerPart = isFixedMarkup && foundParts.length > 0
@@ -134,19 +136,21 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
   const createdAt = new Date();
   const carTitle = [order.brand, order.model, order.year].filter(Boolean).join(' ');
 
+  const currencyCode = options?.currency || 'AED';
+  const rate = Number(options?.rate || 1) > 0 ? Number(options?.rate) : 1;
   return {
     invoiceNumber: createInvoiceNumber(order.id || order.vin || carTitle, createdAt),
     createdAt,
     clientName: String(order.clientName || order.customerContact || order.socialNickname || 'Client / Company'),
     carTitle: carTitle || 'Vehicle request',
     vin: String(order.vin || '—'),
-    items,
-    subtotalAed,
-    deliveryAed,
-    packingAed,
-    commissionAed,
+    items: items.map((item) => ({ ...item, unitPriceAed: item.unitPriceAed * rate, totalAed: item.totalAed * rate })),
+    subtotalAed: subtotalAed * rate,
+    deliveryAed: deliveryAed * rate,
+    packingAed: packingAed * rate,
+    commissionAed: commissionAed * rate,
     taxAed: 0,
-    totalAed,
+    totalAed: totalAed * rate,
     paymentInfo: resolvePaymentInfo(settings),
     paymentTerms: resolveTerms(settings.publicWorkTerms),
     invoiceTo: String(order.clientName || order.customerContact || order.socialNickname || 'Client details to be confirmed'),
@@ -160,6 +164,8 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
       managerName: settings.publicManagerName || 'Stark Motors',
       signatureUrl: settings.publicInvoiceSignatureUrl || '',
     },
+    currencyCode,
+    language: options?.language || 'en',
   };
 };
 
@@ -214,8 +220,8 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
         ${item.subtitle ? `<div class="desc-sub">${esc(item.subtitle)}</div>` : ''}
       </td>
       <td class="num">${esc(item.qty)}</td>
-      <td class="num">${esc(money(item.unitPriceAed))}</td>
-      <td class="num total-cell">${esc(money(item.totalAed))}</td>
+      <td class="num">${esc(money(item.unitPriceAed, payload.currencyCode))}</td>
+      <td class="num total-cell">${esc(money(item.totalAed, payload.currencyCode))}</td>
     </tr>
   `).join('');
 
@@ -367,12 +373,12 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
             <div class="info-line"><span>Bank Account</span><strong>${esc(payload.paymentInfo.bankAccount)}</strong></div>
           </div>
           <div class="totals">
-            <div class="total-line"><span>SUB TOTAL</span><strong>${esc(money(payload.subtotalAed))}</strong></div>
-            <div class="total-line"><span>DELIVERY</span><strong>${esc(money(payload.deliveryAed))}</strong></div>
-            <div class="total-line"><span>PACKING</span><strong>${esc(money(payload.packingAed))}</strong></div>
-            <div class="total-line"><span>COMMISSION</span><strong>${esc(money(payload.commissionAed))}</strong></div>
-            <div class="total-line"><span>TAX</span><strong>${esc(money(payload.taxAed))}</strong></div>
-            <div class="total-line grand"><span>TOTAL</span><strong>${esc(money(payload.totalAed))}</strong></div>
+            <div class="total-line"><span>SUB TOTAL</span><strong>${esc(money(payload.subtotalAed, payload.currencyCode))}</strong></div>
+            <div class="total-line"><span>DELIVERY</span><strong>${esc(money(payload.deliveryAed, payload.currencyCode))}</strong></div>
+            <div class="total-line"><span>PACKING</span><strong>${esc(money(payload.packingAed, payload.currencyCode))}</strong></div>
+            <div class="total-line"><span>COMMISSION</span><strong>${esc(money(payload.commissionAed, payload.currencyCode))}</strong></div>
+            <div class="total-line"><span>TAX</span><strong>${esc(money(payload.taxAed, payload.currencyCode))}</strong></div>
+            <div class="total-line grand"><span>TOTAL</span><strong>${esc(money(payload.totalAed, payload.currencyCode))}</strong></div>
           </div>
         </div>
 
