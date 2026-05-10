@@ -2120,14 +2120,33 @@ const OrderDetailsScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] text-[#1E1F23]">
-      <div className="sticky top-0 z-30 border-b border-gray-100 bg-white/95 px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.06)] backdrop-blur">
+      <div className="sticky top-0 z-30 space-y-1 border-b border-gray-100 bg-white/95 px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.06)] backdrop-blur">
         <div className="flex items-center justify-between gap-2">
           <button type="button" onClick={handleBackNavigation} className="p-2 -ml-1 rounded-full transition-colors text-gray-600 active:bg-gray-100">
             <ArrowLeft size={20} />
           </button>
-          <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-slate-100">{((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? <img src={((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-sm font-black text-slate-400">{order.brand?.[0] || "?"}</div>}</div><div className="text-left flex-1 mx-1 min-w-0">
+          <button
+            type="button"
+            onClick={() => {
+              const photos = getCarPhotos();
+              if (photos.length) setGallery({ images: photos, index: 0 });
+            }}
+            className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-slate-100"
+          >{((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? <img src={((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-sm font-black text-slate-400">{order.brand?.[0] || "?"}</div>}</button><div className="text-left flex-1 mx-1 min-w-0">
             <h1 className="text-[15px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model}</h1>
             <p className="mt-0.5 text-[12px] font-medium truncate text-slate-500">{order.year || 'Год не указан'}</p>
+            {isEditMode ? (
+              <input
+                type="text"
+                value={String(draftFields.vin ?? order.vin ?? '')}
+                onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))}
+                onBlur={() => flushDeferredOrderField('vin')}
+                placeholder="VIN"
+                className="mt-1 h-7 w-full rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-semibold text-slate-700 outline-none"
+              />
+            ) : (
+              <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 truncate">VIN: {order.vin || '—'}</p>
+            )}
           </div>
           <div className="relative">
             <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-2 rounded-full text-gray-600 active:bg-gray-100">
@@ -2147,7 +2166,7 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="space-y-1.5 rounded-[12px] bg-white px-3 py-2.5 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+      <div className="space-y-1.5 rounded-[12px] bg-white px-3 py-2.5 shadow-[0_2px_8px_rgba(0,0,0,0.05)]">
           <p className="text-[12px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Pipeline</p>
           <div className="flex items-center justify-between gap-3">
           <div className="inline-flex rounded-[10px] bg-[#F6F7FB] border border-[#E7EAF3] p-0.5">
@@ -2557,29 +2576,7 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
-        <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Фото автомобиля</div>
-            <>
-              <input type="file" ref={carFileRef} onChange={handleCarPhotoChange} className="hidden" accept="image/*" multiple />
-              <button type="button" onClick={() => carFileRef.current?.click()} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Добавить фото</button>
-            </>
-          </div>
-          {getCarPhotos().length > 0 ? (
-            <div className="flex gap-2 overflow-x-auto no-scrollbar">
-              {getCarPhotos().map((ph, i) => (
-                <div key={i} className="relative w-[180px] h-[120px] rounded-[12px] overflow-hidden border border-gray-100 shrink-0">
-                  <button type="button" className="w-full h-full" onClick={(e) => { e.stopPropagation(); setGallery({ images: getCarPhotos(), index: i }); }}>
-                    <img src={ph} className="w-full h-full object-cover" />
-                  </button>
-                  <button type="button" onClick={() => removeCarPhoto(i)} className="absolute right-1 top-1 rounded-full bg-black/60 px-1 text-[9px] text-white">✕</button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-gray-400">Фотографии автомобиля не добавлены.</p>
-          )}
-        </div>
+
 
         <div ref={markupSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsPricingCargoExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
