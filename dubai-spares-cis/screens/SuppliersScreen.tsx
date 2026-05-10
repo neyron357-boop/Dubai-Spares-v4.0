@@ -355,6 +355,7 @@ const SuppliersScreen: React.FC = () => {
   const [activeOrderPartLink, setActiveOrderPartLink] = useState<{ supplierId: string; orderId: string; partId: string } | null>(null);
   const [selectedOrderBySupplier, setSelectedOrderBySupplier] = useState<Record<string, string>>({});
   const [fullscreenOrderSearch, setFullscreenOrderSearch] = useState('');
+  const [isFullscreenOrderLinkOpen, setIsFullscreenOrderLinkOpen] = useState(false);
   const [pendingOrderRemoval, setPendingOrderRemoval] = useState<{ supplierId: string; orderId: string } | null>(null);
   const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
   const [isInitialSuppliersLoading, setIsInitialSuppliersLoading] = useState(true);
@@ -1688,6 +1689,8 @@ const SuppliersScreen: React.FC = () => {
 
   useEffect(() => {
     setIsFullscreenMenuOpen(false);
+    setIsFullscreenOrderLinkOpen(false);
+    setFullscreenOrderSearch('');
   }, [fullscreenSupplierId]);
 
   useEffect(() => () => cancelLongPress(), []);
@@ -1750,14 +1753,14 @@ const SuppliersScreen: React.FC = () => {
             </button>
           </div>
         </div>
-        <div className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">{displayedSuppliers.length} suppliers</span>
             {selectedSupplierIds.length > 0 && (
               <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase text-blue-700">Выбрано: {selectedSupplierIds.length}</span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={() => {
@@ -2531,83 +2534,136 @@ const SuppliersScreen: React.FC = () => {
               </div>
           <div className="relative">
             {fullscreenSupplier.photos?.[0] ? (
-              <img src={fullscreenSupplier.photos[0]} alt={fullscreenSupplier.name} className="h-64 w-full object-cover" />
+              <img src={fullscreenSupplier.photos[0]} alt={fullscreenSupplier.name} className="h-44 w-full object-cover" />
             ) : (
-              <div className="h-56 w-full bg-gradient-to-r from-indigo-600 to-blue-600" />
+              <div className="h-44 w-full bg-gradient-to-r from-slate-700 to-slate-900" />
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-transparent" />
-            <div className="absolute bottom-0 w-full px-5 pb-5 text-white">
-              <p className="text-3xl font-black tracking-tight uppercase">{fullscreenSupplier.name}</p>
-              <p className="mt-1 text-sm font-semibold text-white/95">📍 {fullscreenSupplier.zone || fullscreenSupplier.location || 'Location not set'}</p>
-              <p className="mt-2 text-xs font-semibold text-white/90">{(pickSupplierBrands(fullscreenSupplier).join(' • ') || '—')}</p>
-              <p className="text-xs font-semibold text-white/80">{((fullscreenSupplier.models || []).join(' • ') || '—')}</p>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
+            <div className="absolute bottom-0 w-full px-5 pb-4 text-white">
+              <div className="flex items-end justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-2xl font-black tracking-tight text-white">{fullscreenSupplier.name}</p>
+                  <p className="mt-1 truncate text-xs font-semibold text-white/80">{fullscreenSupplier.zone || fullscreenSupplier.location || 'Локация не указана'}</p>
+                  <p className="mt-1 truncate text-[11px] font-semibold text-white/70">{(pickSupplierBrands(fullscreenSupplier).slice(0, 6).join(' • ') || 'Марки не указаны')}</p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1 text-[10px] font-black uppercase tracking-wide text-white/90">
+                  <span className="rounded-full bg-white/15 px-2 py-1">⭐ {Math.max(1, Math.min(5, Math.round(Number(fullscreenSupplier.trustLevel ?? fullscreenSupplier.autoTrustScore ?? 0) || 0)))}/5</span>
+                  <span className="rounded-full bg-white/15 px-2 py-1">{fullscreenSupplier.whatsappFast ? 'Fast reply' : 'Standard'}</span>
+                </div>
+              </div>
             </div>
           </div>
           <div className="space-y-4 p-5 pb-24">
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 space-y-2">
-              <button type="button" onClick={() => openWhatsApp(fullscreenSupplier)} className="w-full rounded-xl bg-emerald-500 px-3 py-3 text-sm font-black text-white shadow-sm">🟢 WhatsApp</button>
-              <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => openPhone(fullscreenSupplier)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-center text-xs font-black text-slate-700 shadow-sm">📞 Call</button>
-                <button type="button" onClick={() => openMap(fullscreenSupplier.location || '')} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 shadow-sm">📍 Map</button>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Контакты</p>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <button type="button" onClick={() => openWhatsApp(fullscreenSupplier)} className="rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-black text-white">WhatsApp</button>
+                <button type="button" onClick={() => openPhone(fullscreenSupplier)} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">Call</button>
+                <button type="button" onClick={() => openMap(fullscreenSupplier.location || '')} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">Map</button>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-semibold text-slate-700">
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Телефон</p>
+                  <p className="mt-1 truncate text-sm font-black text-slate-900">{fullscreenSupplier.phone || '—'}</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Последний контакт</p>
+                  <p className="mt-1 truncate text-sm font-black text-slate-900">{daysAgoLabel(fullscreenSupplier.lastContactAt)}</p>
+                </div>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs font-semibold text-slate-700 space-y-2">
-              <p className="flex items-center gap-2"><span className="font-black">Локация:</span> {fullscreenSupplier.location ? <button type="button" onClick={() => openMap(fullscreenSupplier.location || '')} className="text-blue-700 underline">📍 Open location in Google Maps</button> : '—'}</p>
-              <p><span className="font-black">Марки:</span> {(pickSupplierBrands(fullscreenSupplier).join(', ') || '—')}</p>
-              <p><span className="font-black">Модели:</span> {((fullscreenSupplier.models || []).join(', ') || '—')}</p>
-              <p><span className="font-black">Last contact:</span> {daysAgoLabel(fullscreenSupplier.lastContactAt)}</p>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Информация</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-semibold text-slate-700">
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Зона</p>
+                  <p className="mt-1 truncate text-sm font-black text-slate-900">{fullscreenSupplier.zone || '—'}</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Локация</p>
+                  <p className="mt-1 line-clamp-2 text-sm font-black text-slate-900">{fullscreenSupplier.location || '—'}</p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2 text-xs font-semibold text-slate-700">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Марки</p>
+                  <p className="mt-1">{pickSupplierBrands(fullscreenSupplier).join(', ') || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Модели</p>
+                  <p className="mt-1">{(fullscreenSupplier.models || []).join(', ') || '—'}</p>
+                </div>
+              </div>
             </div>
 
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 space-y-2">
-              <p className="text-xs font-black uppercase tracking-wide text-blue-700">Add supplier to order</p>
-              <input
-                value={fullscreenOrderSearch}
-                onChange={(e) => setFullscreenOrderSearch(e.target.value)}
-                placeholder="Search order (brand / model / VIN)"
-                className="w-full rounded-lg border border-blue-200 bg-white px-2 py-2 text-xs font-semibold"
-              />
-              <select
-                className="w-full rounded-lg border border-blue-200 bg-white px-2 py-2 text-xs font-semibold"
-                value={selectedOrderBySupplier[fullscreenSupplier.id] || ''}
-                onChange={(e) => setSelectedOrderBySupplier((prev) => ({ ...prev, [fullscreenSupplier.id]: e.target.value }))}
-              >
-                <option value="">Select order</option>
-                {fullscreenOrderOptions.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model} • {order.vin}</option>)}
-              </select>
+            <div className="rounded-2xl border border-slate-200 bg-white">
               <button
                 type="button"
-                onClick={() => {
-                  const selectedOrderId = selectedOrderBySupplier[fullscreenSupplier.id];
-                  if (!selectedOrderId) return;
-                  const selectedOrder = activeOrders.find((order) => order.id === selectedOrderId);
-                  if (!selectedOrder) return;
-                  addSupplierToOrder(fullscreenSupplier.id, selectedOrderId, selectedOrder.parts.map((part) => part.id));
-                  toast('✓ Supplier added to order', 'success');
-                }}
-                className="w-full rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white transition active:scale-[0.99]"
+                onClick={() => setIsFullscreenOrderLinkOpen((prev) => !prev)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
               >
-                + Add to order
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Привязка</p>
+                  <p className="mt-0.5 text-sm font-black text-slate-900">Привязать к заказу</p>
+                </div>
+                <ChevronDown size={16} className={`text-slate-400 transition-transform ${isFullscreenOrderLinkOpen ? 'rotate-180' : ''}`} />
               </button>
+              {isFullscreenOrderLinkOpen && (
+                <div className="space-y-2 px-4 pb-4">
+                  <input
+                    value={fullscreenOrderSearch}
+                    onChange={(e) => setFullscreenOrderSearch(e.target.value)}
+                    placeholder="Поиск заказа (brand / model / VIN)"
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold"
+                  />
+                  <select
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold"
+                    value={selectedOrderBySupplier[fullscreenSupplier.id] || ''}
+                    onChange={(e) => setSelectedOrderBySupplier((prev) => ({ ...prev, [fullscreenSupplier.id]: e.target.value }))}
+                  >
+                    <option value="">Выберите заказ</option>
+                    {fullscreenOrderOptions.map((order) => <option key={order.id} value={order.id}>{order.brand} {order.model} • {order.vin}</option>)}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const selectedOrderId = selectedOrderBySupplier[fullscreenSupplier.id];
+                      if (!selectedOrderId) return;
+                      const selectedOrder = activeOrders.find((order) => order.id === selectedOrderId);
+                      if (!selectedOrder) return;
+                      addSupplierToOrder(fullscreenSupplier.id, selectedOrderId, selectedOrder.parts.map((part) => part.id));
+                      toast('Поставщик привязан к заказу', 'success');
+                    }}
+                    className="w-full rounded-2xl bg-blue-600 px-3 py-2 text-xs font-black text-white transition active:scale-[0.99]"
+                  >
+                    Привязать
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-violet-700">Orders</p>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Связанные заказы</p>
               {fullscreenSupplierOrders.length === 0 ? (
-                <p className="mt-2 text-xs font-semibold text-violet-600">No linked orders yet.</p>
+                <p className="mt-2 text-xs font-semibold text-slate-500">Нет связанных заказов.</p>
               ) : (
-                <div className="mt-2 space-y-2">
+                <div className="mt-3 space-y-2">
                   {fullscreenSupplierOrders.map((order) => (
-                    <div key={order.id} className="rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
-                      <p className="font-black text-slate-800">{order.brand} {order.model}</p>
-                      <p className="text-[11px] text-slate-500">VIN: {order.vin || '—'}</p>
-                      <button
-                        type="button"
-                        onClick={() => setPendingOrderRemoval({ supplierId: fullscreenSupplier.id, orderId: order.id })}
-                        className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-700"
-                      >
-                        remove
-                      </button>
+                    <div key={order.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-slate-900">{order.brand} {order.model}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-slate-500">VIN: {order.vin || '—'}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPendingOrderRemoval({ supplierId: fullscreenSupplier.id, orderId: order.id })}
+                          className="shrink-0 rounded-xl border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-700"
+                        >
+                          Убрать
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
