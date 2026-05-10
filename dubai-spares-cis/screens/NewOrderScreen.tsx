@@ -271,8 +271,8 @@ const SearchableDropdown: React.FC<{
               }
               if (event.key === 'Enter' && filteredOptions[highlighted]) {
                 event.preventDefault();
-                onChange(filteredOptions[highlighted].value);
                 setOpen(false);
+                onChange(filteredOptions[highlighted].value);
               }
               if (event.key === 'Escape') {
                 setOpen(false);
@@ -292,9 +292,11 @@ const SearchableDropdown: React.FC<{
                 <button
                   key={option.value}
                   type="button"
-                  onClick={() => {
-                    onChange(option.value);
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
                     setOpen(false);
+                    onChange(option.value);
                   }}
                   className={`flex w-full items-center rounded-lg px-2 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 ${highlighted === index ? 'bg-slate-100' : ''}`}
                 >
@@ -1349,9 +1351,10 @@ const NewOrderScreen: React.FC = () => {
         <div className="space-y-1">
           <span className="text-xs font-semibold text-slate-500">Контакты</span>
           <input
-            type={leadSource === Source.WHATSAPP ? 'tel' : 'url'}
+            type={leadSource === Source.WHATSAPP ? 'tel' : 'text'}
             name="contactValue"
-            autoComplete={leadSource === Source.WHATSAPP ? 'tel' : 'url'}
+            autoComplete={leadSource === Source.WHATSAPP ? 'tel' : 'off'}
+            inputMode={leadSource === Source.WHATSAPP ? 'tel' : 'url'}
             value={contactValue}
             onChange={(e) => setContactValue(e.target.value.replace(/\s+/g, ''))}
             placeholder={
