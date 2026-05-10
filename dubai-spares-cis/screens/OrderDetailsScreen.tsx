@@ -325,6 +325,11 @@ const OrderDetailsScreen: React.FC = () => {
   const partFileRef = useRef<HTMLInputElement>(null);
   const partInputRef = useRef<HTMLInputElement>(null);
   const partsListRef = useRef<HTMLDivElement>(null);
+  const vehicleSectionRef = useRef<HTMLDivElement>(null);
+  const markupSectionRef = useRef<HTMLDivElement>(null);
+  const addPartSectionRef = useRef<HTMLDivElement>(null);
+  const notesSectionRef = useRef<HTMLDivElement>(null);
+  const detailsScreenSectionRef = useRef<HTMLDivElement>(null);
   const [showOnlyOpenParts, setShowOnlyOpenParts] = useState(false);
 
   // Exchange Rate Input State (Controlled)
@@ -2098,6 +2103,18 @@ const OrderDetailsScreen: React.FC = () => {
     });
   }, [location.state]);
 
+  const quickNavItems: Array<{ label: string; ref: React.RefObject<HTMLDivElement | null> }> = [
+    { label: 'Добавить деталь', ref: addPartSectionRef },
+    { label: 'Надценка', ref: markupSectionRef },
+    { label: 'Заметка', ref: notesSectionRef },
+    { label: 'Экран деталей', ref: detailsScreenSectionRef },
+    { label: 'Данные автомобиля', ref: vehicleSectionRef }
+  ];
+
+  const scrollToSection = (targetRef: React.RefObject<HTMLDivElement | null>) => {
+    targetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
     <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] text-[#1E1F23]">
       <div className="sticky top-0 z-30 border-b border-gray-100 bg-white/95 px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.06)] backdrop-blur">
@@ -2171,6 +2188,24 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
       )}
+
+      <aside className="fixed right-3 top-1/2 z-20 hidden -translate-y-1/2 xl:flex">
+        <div className="w-[146px] rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur">
+          <div className="mb-1 px-1 text-[9px] font-black uppercase tracking-[0.14em] text-gray-400">Навигация</div>
+          <div className="space-y-1">
+            {quickNavItems.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => scrollToSection(item.ref)}
+                className="w-full rounded-lg bg-gray-50 px-2 py-1.5 text-left text-[10px] font-bold text-gray-600 transition hover:bg-blue-50 hover:text-blue-700"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </aside>
 
       <div className="p-4 space-y-4">
 
@@ -2340,7 +2375,7 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-100 space-y-2">
+        <div ref={vehicleSectionRef} className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-100 space-y-2">
           <button type="button" onClick={() => setIsVehicleBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
               <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Данные автомобиля</p>
@@ -2390,7 +2425,7 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
 
 
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+        <div ref={markupSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsVehicleDetailsExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Подробные данные автомобиля</p>
@@ -2543,7 +2578,7 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+        <div ref={markupSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsPricingCargoExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Надценка</p>
@@ -2638,7 +2673,7 @@ const OrderDetailsScreen: React.FC = () => {
         )}
 
 
-        <div className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-4 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
+        <div ref={addPartSectionRef} className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-4 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
           <h2 className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Add part</h2>
           <form 
             onSubmit={(e) => { e.preventDefault(); addNewPart(); }}
@@ -2766,7 +2801,7 @@ const OrderDetailsScreen: React.FC = () => {
           </p>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+        <div ref={notesSectionRef} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Заметки</h2>
           <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
 
@@ -2897,6 +2932,7 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         )}
 
+        <div ref={detailsScreenSectionRef}>
         <div ref={partsListRef} className="space-y-3">
           <div className="rounded-2xl border border-[#E7EAF3] bg-white p-3 shadow-[0_3px_10px_rgba(0,0,0,0.05)]">
             <div className="flex items-start justify-between gap-3">
@@ -2970,6 +3006,7 @@ const OrderDetailsScreen: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
         </div>
       </div>
 
