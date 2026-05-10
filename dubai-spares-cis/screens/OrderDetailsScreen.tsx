@@ -2166,7 +2166,7 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="space-y-1.5 rounded-[12px] bg-white px-3 py-2.5 shadow-[0_2px_8px_rgba(0,0,0,0.05)]">
+      <div className="sticky top-[74px] z-20 space-y-1.5 rounded-b-[12px] border-b border-gray-100 bg-white/95 px-3 py-2.5 shadow-[0_4px_12px_rgba(0,0,0,0.05)] backdrop-blur">
           <p className="text-[12px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Pipeline</p>
           <div className="flex items-center justify-between gap-3">
           <div className="inline-flex rounded-[10px] bg-[#F6F7FB] border border-[#E7EAF3] p-0.5">
@@ -2228,6 +2228,24 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </div>
       </aside>
+
+      <div className="px-4 pt-3">
+        <div className="rounded-2xl border border-blue-100 bg-white p-3 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Публичная смета</p>
+              <p className="text-xs font-semibold text-gray-600">Отправка клиенту ссылки на смету с текущими ценами.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void shareQuote()}
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-blue-600 px-3 text-xs font-black text-white shadow-sm active:scale-[0.98]"
+            >
+              <Share2 size={14} /> Отправить смету
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="p-4 space-y-4">
 
