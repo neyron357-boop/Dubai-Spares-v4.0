@@ -2197,27 +2197,23 @@ const OrderDetailsScreen: React.FC = () => {
     <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] text-[#1E1F23]">
       <div className="p-2 sticky top-0 z-30 backdrop-blur bg-white/95 border-b border-gray-100 space-y-1 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
         <div className="flex items-center justify-between gap-2">
-          <button type="button" onClick={handleBackNavigation} className="p-3 -ml-2 rounded-full transition-colors text-gray-600 active:bg-gray-100">
-            <ArrowLeft size={22} />
+          <button type="button" onClick={handleBackNavigation} className="p-2 -ml-1 rounded-full transition-colors text-gray-600 active:bg-gray-100">
+            <ArrowLeft size={20} />
           </button>
-          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-slate-100">{((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? <img src={((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-sm font-black text-slate-400">{order.brand?.[0] || "?"}</div>}</div><div className="text-left flex-1 mx-1 min-w-0">
-            <h1 className="text-[16px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model} <span className="text-slate-500">{order.year}</span></h1>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-slate-100">{((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? <img src={((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-sm font-black text-slate-400">{order.brand?.[0] || "?"}</div>}</div><div className="text-left flex-1 mx-1 min-w-0">
+            <h1 className="text-[15px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model} <span className="text-slate-500">{order.year}</span></h1>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[10px]">
               <span className="text-[#667085]">ID <span className="font-mono font-bold text-gray-700">#{order.id.slice(0, 8).toUpperCase()}</span></span>
-              <button type="button" onClick={() => void copyText(order.id, 'ID скопирован')} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-gray-600"><Copy size={11} />Копировать</button>
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700"><Cloud size={11} />Синхронизировано</span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
               <span className="text-[#667085]">VIN: <span className="font-mono uppercase text-gray-700">{order.vin || 'Не добавлен'}</span></span>
-              <button type="button" onClick={() => void copyText(order.vin || '', 'VIN скопирован')} disabled={!order.vin} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-gray-600 disabled:opacity-40"><Copy size={11} />VIN</button>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Возраст: {orderAgeDays} дн</span>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Найдено: {foundPartsCount}/{partsCount}</span>
             </div>
-            {vinIsIncomplete && <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-[10px] font-bold text-orange-700">⚠ VIN неполный</span>}
+            {vinIsIncomplete && <span className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-[9px] font-bold text-orange-700">⚠ VIN неполный</span>}
           </div>
           <div className="relative">
-            <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-3 rounded-full text-gray-600 active:bg-gray-100">
-              <MoreVertical size={20} />
+            <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-2 rounded-full text-gray-600 active:bg-gray-100">
+              <MoreVertical size={18} />
             </button>
             {showActionsMenu && (
               <div className="absolute right-0 mt-1 w-56 rounded-xl border border-gray-100 bg-white shadow-lg p-1 text-xs font-semibold z-30">
@@ -2231,16 +2227,16 @@ const OrderDetailsScreen: React.FC = () => {
             )}
           </div>
         </div>
-        <div className="space-y-2 rounded-[14px] bg-white px-4 py-4 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
-          <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Pipeline</p>
+        <div className="space-y-1.5 rounded-[12px] bg-white px-3 py-2.5 shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Pipeline</p>
           <div className="flex items-center justify-between gap-3">
-          <div className="inline-flex rounded-[12px] bg-[#F6F7FB] border border-[#E7EAF3] p-1">
+          <div className="inline-flex rounded-[10px] bg-[#F6F7FB] border border-[#E7EAF3] p-0.5">
             {CUSTOMER_STATUSES.map(status => (
               <button
                 key={status}
                 type="button"
                 onClick={() => updateCustomerStatus(status)}
-                className={`h-10 min-w-[84px] px-3 rounded-[10px] text-[13px] font-medium transition-all duration-150 active:scale-[0.97] ${resolvedCustomerStatus === status ? PIPELINE_STYLES[status] : 'text-gray-500'}`}
+                className={`h-8 min-w-[72px] px-2.5 rounded-[8px] text-[12px] font-medium transition-all duration-150 active:scale-[0.97] ${resolvedCustomerStatus === status ? PIPELINE_STYLES[status] : 'text-gray-500'}`}
               >
                 {status}
               </button>
@@ -2251,14 +2247,14 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </div>
         </div>
-        <div className="flex gap-2 items-center overflow-x-auto no-scrollbar">
-          <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white')}`}>
+        <div className="flex gap-1.5 items-center overflow-x-auto no-scrollbar">
+          <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white')}`}>
             <span className="tracking-[0.04em]">Status</span>
-            <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="bg-transparent text-[12px] font-medium text-current outline-none">
+            <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="bg-transparent text-[11px] font-medium text-current outline-none">
             {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </div>
-          <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} disabled={!isEditMode} className="text-[11px] font-bold px-3 py-1.5 rounded-full bg-red-50 border border-red-200 text-red-700 shrink-0">
+          <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} disabled={!isEditMode} className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-red-50 border border-red-200 text-red-700 shrink-0">
             <option value={Priority.HIGH}>HIGH</option>
             <option value={Priority.MEDIUM}>MEDIUM</option>
             <option value={Priority.LOW}>LOW</option>
