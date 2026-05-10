@@ -1182,16 +1182,18 @@ const NewOrderScreen: React.FC = () => {
                         className="w-full flex-1 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm font-semibold outline-none"
                       />
                       <div className="flex items-center gap-2 sm:shrink-0">
-                        <input
-                          type="number"
-                          min={1}
+                        <select
                           value={item.quantity}
                           onChange={(e) => setParts((prev) => prev.map((p) => {
                             if (p.id !== part.id) return p;
-                            return { ...p, groupItems: p.groupItems.map((g) => g.id === item.id ? { ...g, quantity: e.target.value.replace(/[^\d]/g, '') } : g) };
+                            return { ...p, groupItems: p.groupItems.map((g) => g.id === item.id ? { ...g, quantity: e.target.value } : g) };
                           }))}
-                          className="w-20 rounded-lg border border-violet-100 bg-white px-2 py-2 text-center text-sm font-bold"
-                        />
+                          className="w-28 rounded-lg border border-violet-100 bg-white px-2 py-2 text-center text-sm font-bold"
+                        >
+                          {Array.from({ length: 20 }, (_, qtyIdx) => String(qtyIdx + 1)).map((qty) => (
+                            <option key={qty} value={qty}>{qty} шт.</option>
+                          ))}
+                        </select>
                         <button
                           type="button"
                           onClick={() => setParts((prev) => prev.map((p) => {
