@@ -339,7 +339,6 @@ const OrderDetailsScreen: React.FC = () => {
   const [isVehicleBlockExpanded, setIsVehicleBlockExpanded] = useState(false);
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
   const [isPricingCargoExpanded, setIsPricingCargoExpanded] = useState(true);
-  const [isSupplierIntelligenceExpanded, setIsSupplierIntelligenceExpanded] = useState(true);
   const [expandedCargoPartIds, setExpandedCargoPartIds] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState('');
@@ -2136,46 +2135,6 @@ const OrderDetailsScreen: React.FC = () => {
       .slice(0, 3);
   }, [order.brand, suppliers]);
 
-  const partsGraphInsights = useMemo(() => {
-    const allVariants = orders.flatMap((item) =>
-      (item.parts || []).flatMap((part) =>
-        (part.variants || []).map((variant) => ({
-          partName: part.name,
-          priceAed: Number(variant.priceAed),
-          shopName: variant.shopName,
-          createdAt: Number(variant.updatedAt || variant.createdAt || 0)
-        }))
-      )
-    );
-
-    return (order.parts || []).map((part) => {
-      const partKey = part.name.trim().toLowerCase();
-      const history = allVariants
-        .filter((variant) => variant.partName.trim().toLowerCase() === partKey && Number.isFinite(variant.priceAed) && variant.priceAed > 0)
-        .sort((a, b) => b.createdAt - a.createdAt);
-
-      const lastPrice = history[0]?.priceAed ?? null;
-      const suppliersForPart = Array.from(new Set(history.map((item) => item.shopName).filter(Boolean))).slice(0, 2);
-
-      return {
-        partId: part.id,
-        partName: part.name,
-        lastPrice,
-        suppliersForPart
-      };
-    });
-  }, [order.parts, orders]);
-
-  const bestOfferTotal = useMemo(() => {
-    const value = (order.parts || []).reduce((sum, part) => {
-      const prices = (part.variants || [])
-        .map((variant) => Number(variant.priceAed))
-        .filter((price) => Number.isFinite(price) && price > 0);
-      if (!prices.length) return sum;
-      return sum + Math.min(...prices);
-    }, 0);
-    return value > 0 ? value : null;
-  }, [order.parts]);
 
   const partsCount = order.parts.length;
   const foundPartsCount = useMemo(
@@ -2438,26 +2397,6 @@ const OrderDetailsScreen: React.FC = () => {
               <p className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-[12px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white border')}`}>
                 {order.salesStatus || 'Inquiry'}
               </p>
-            </div>
-            <div className="rounded-[16px] bg-gradient-to-r from-[#5A6CF8] to-[#6C7CFF] p-4 text-white space-y-2 shadow-[0_4px_12px_rgba(0,0,0,0.12)]">
-              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-white/90">Quote клиенту</p>
-              <div className="space-y-1 text-[13px] leading-[20px]">
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <p>Purchase</p><p className="text-right text-[16px] font-medium">{formatMoney(selectedOfferTotal)}</p>
-                <p>Margin</p><p className="text-right text-[16px] font-medium">{formatMoney(markupAed)}</p>
-                <p>Logistics</p><p className="text-right text-[16px] font-medium">{formatMoney(logisticsWithCargoTotal)}</p>
-              </div>
-                <p className="flex items-center justify-between border-t border-white/30 pt-2"><span>Client price</span><span className="text-[20px] font-bold">{formatMoney(sellTotalAed, clientCurrency)}</span></p>
-              </div>
-              <button type="button" onClick={() => setIsEstimateOpen(true)} className="mt-2 h-12 w-full rounded-[12px] bg-white text-[#3B6AF7] text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Отправить клиенту</button>
-            </div>
-            <div className="rounded-[14px] border border-[#E7EAF3] bg-white p-4 space-y-2">
-              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Панель деталей</p>
-              {partsGraphInsights.map((insight) => (
-                <p key={insight.partId} className="text-[13px] text-[#8B8F98]">
-                  <span className="font-medium text-[#1E1F23]">{insight.partName}:</span> {insight.suppliersForPart.join(', ') || 'без истории'} {insight.lastPrice ? `· last ${insight.lastPrice} AED` : ''}
-                </p>
-              ))}
             </div>
           </div>
         </div>
