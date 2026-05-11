@@ -29,7 +29,7 @@ type PublicQuoteScreenProps = { orderId: string };
 type QuoteDocument = {
   href: string;
   label: string;
-  kind: 'invoice' | 'pdf' | 'document';
+  kind: 'invoice' | 'pdf' | 'document' | 'cargo';
 };
 
 const i18n = {
@@ -218,7 +218,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
 
   const whatsappHref = contact.whatsapp ? `https://wa.me/${contact.whatsapp}` : '';
   const documentButtons = useMemo(() => {
-    const docs = normalizedSnapshot?.documents || [];
+    const docs = (normalizedSnapshot?.documents || []).filter((doc) => doc.kind !== 'cargo');
     return dedupeDocuments(docs.map((doc) => {
       if (doc.kind === 'invoice') {
         return { ...doc, label: doc.label || t.downloadPdf, kind: 'invoice' as const };

@@ -2172,7 +2172,7 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => void shareQuote()}
+              onClick={() => setIsEstimateOpen(true)}
               className="inline-flex h-10 items-center gap-2 rounded-xl bg-blue-600 px-3 text-xs font-black text-white shadow-sm active:scale-[0.98]"
             >
               <Share2 size={14} /> Отправить смету
