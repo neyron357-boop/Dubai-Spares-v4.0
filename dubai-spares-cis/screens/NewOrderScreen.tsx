@@ -867,6 +867,8 @@ const NewOrderScreen: React.FC = () => {
       year: year.trim(),
       bodyType: bodyType.trim(),
       vin: vin.trim(),
+      status: 'waiting_deposit',
+      paymentStatus: 'none',
       priority: Priority.MEDIUM,
       clientName: clientName.trim(),
       source: leadSource,

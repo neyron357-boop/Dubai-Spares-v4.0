@@ -24,8 +24,8 @@ LIMIT = 30
 TRACKED_SOURCES = [
     {
         "table": "orders",
-        "select": "id,created_at,name,phone,message,brand,model,year,vin,customer_name,customer_phone,notes",
-        "order_fields": ["created_at", "updated_at", "id"],
+        "select": "id,created_at,updated_at,name,phone,message,brand,model,year,vin,customer_name,customer_phone,notes,payment_status",
+        "order_fields": ["updated_at", "created_at", "id"],
     },
     {
         "table": "client_leads",
@@ -40,6 +40,7 @@ last_seen_per_source: dict[str, tuple[str, str]] = {}
 offset = 0
 last_supabase_error = ""
 customer_links: dict[str, dict] = {}
+last_payment_status_by_order: dict[str, str] = {}
 
 
 def load_subscribers() -> set[int]:
@@ -352,6 +353,11 @@ def bootstrap_last_seen():
             rows, order_field = fetch_with_fallbacks(source)
             if rows and order_field:
                 last_seen_per_source[name] = row_sort_key(rows[0], order_field)
+                if name == "orders":
+                    for row in rows:
+                        order_id = str(row.get("id") or "")
+                        if order_id:
+                            last_payment_status_by_order[order_id] = str(row.get("payment_status") or "none")
                 print(f"[BOOT] {name}: marker={last_seen_per_source[name]}")
             else:
                 print(f"[BOOT] {name}: no rows or unavailable")
@@ -375,6 +381,23 @@ def supabase_poll_loop():
                 for row in new_rows:
                     broadcast_message(format_notification(row))
                     print(f"[SENT] {source_name} id={row.get('id')}")
+                    if source_name == "orders":
+                        order_id = str(row.get("id") or "")
+                        if not order_id:
+                            continue
+                        previous_status = last_payment_status_by_order.get(order_id, "none")
+                        current_status = str(row.get("payment_status") or "none")
+                        if current_status == "search_deposit_paid" and previous_status != "search_deposit_paid":
+                            broadcast_message(
+                                "\n".join([
+                                    "💰 Депозит за подбор оплачен",
+                                    f"🆔 Заказ: {order_id}",
+                                    f"🚘 Авто: {' '.join(filter(None, [str(row.get('brand') or ''), str(row.get('model') or ''), str(row.get('year') or '')])).strip() or '—'}",
+                                    f"🕒 Обновлено: {to_local_time(str(row.get('updated_at') or row.get('created_at') or ''))}",
+                                ])
+                            )
+                            print(f"[SENT] payment-status order={order_id}")
+                        last_payment_status_by_order[order_id] = current_status
 
             if not any_success:
                 msg = "No tracked table could be fetched. Check SUPABASE_URL/SUPABASE_KEY/table names."
