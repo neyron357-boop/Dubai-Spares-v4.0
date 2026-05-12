@@ -31,10 +31,11 @@ const HashPublicQuoteRoute: React.FC = () => {
 type BottomTab = 'orders' | 'vendors' | 'notifications' | 'settings' | null;
 
 const resolveBottomTab = (pathname: string): BottomTab => {
-  if (pathname === '/orders' || pathname.startsWith('/order/') || pathname === '/new') return 'orders';
-  if (pathname.startsWith('/database') || pathname.startsWith('/variants')) return 'vendors';
-  if (pathname.startsWith('/notifications')) return 'notifications';
-  if (pathname.startsWith('/settings')) return 'settings';
+  const normalizedPath = pathname.replace(/\/+$/, '') || '/';
+  if (normalizedPath === '/orders' || normalizedPath.startsWith('/order/') || normalizedPath === '/new') return 'orders';
+  if (normalizedPath.startsWith('/database') || normalizedPath.startsWith('/variants')) return 'vendors';
+  if (normalizedPath.startsWith('/notifications')) return 'notifications';
+  if (normalizedPath.startsWith('/settings')) return 'settings';
   return null;
 };
 
@@ -116,9 +117,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   };
 
   return (
-      <div className="fixed inset-0 h-[100dvh] w-full bg-slate-100 flex justify-center overflow-hidden"><div className="h-full w-full max-w-md bg-gray-50 flex flex-col overflow-hidden shadow-sm relative">
+      <div className="min-h-[100svh] w-full bg-slate-100 flex justify-center"><div className="min-h-[100svh] w-full max-w-md bg-gray-50 flex flex-col shadow-sm relative">
         <DebugIndex indexId="1.01">
-        <main ref={mainRef} className="flex-1 overflow-y-auto no-scrollbar relative">
+        <main ref={mainRef} className="flex-1 overflow-y-auto no-scrollbar relative pb-[max(12px,env(safe-area-inset-bottom))]">
           {children}
         </main>
         </DebugIndex>
