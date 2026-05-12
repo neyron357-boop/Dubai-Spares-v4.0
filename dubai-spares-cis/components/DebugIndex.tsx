@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 
 const DEBUG_INDEX_STORAGE_KEY = 'debug-index-visible-v1';
 
-const DebugIndexContext = createContext<{ enabled: boolean; toggle: () => void }>({ enabled: false, toggle: () => undefined });
+const DebugIndexContext = createContext<{ enabled: boolean; toggle: () => void }>({ enabled: true, toggle: () => undefined });
 
 const SCREEN_PREFIXES: Array<{ test: (pathname: string) => boolean; prefix: string }> = [
   { test: (p) => p.startsWith('/orders'), prefix: '2' },
@@ -15,6 +15,12 @@ const SCREEN_PREFIXES: Array<{ test: (pathname: string) => boolean; prefix: stri
 
 const resolvePrefix = (pathname: string) => SCREEN_PREFIXES.find((entry) => entry.test(pathname))?.prefix || '9';
 
+const NUMBERABLE_SELECTOR = [
+  'main', 'form', 'section', 'article', 'nav', 'header', 'footer', 'aside',
+  'button', 'a[href]', 'input', 'textarea', 'select', '[role="button"]', '[role="region"]',
+  'div', 'ul', 'ol', 'li', 'label', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'img'
+].join(',');
+
 const useAutoDebugIndexing = (enabled: boolean) => {
   useEffect(() => {
     document.body.classList.toggle('debug-index-enabled', enabled);
@@ -25,34 +31,37 @@ const useAutoDebugIndexing = (enabled: boolean) => {
       };
     }
 
-    const pathname = window.location.hash.replace(/^#/, '') || '/';
-    const prefix = resolvePrefix(pathname);
-
     const applyIndexes = () => {
-      const scopes = Array.from(document.querySelectorAll<HTMLElement>('main, form, section, article, nav, header, footer, aside, [role="region"]'));
-      scopes.forEach((node, idx) => {
-        if (!node.dataset.debugId) node.dataset.debugId = `${prefix}.${String(idx + 1).padStart(2, '0')}`;
-      });
+      const pathname = window.location.hash.replace(/^#/, '') || '/';
+      const prefix = resolvePrefix(pathname);
+      const nodes = Array.from(document.querySelectorAll<HTMLElement>(NUMBERABLE_SELECTOR));
 
-      const controls = Array.from(document.querySelectorAll<HTMLElement>('input, textarea, select, button, a[href], [role="button"]'));
-      controls.forEach((node, idx) => {
-        if (!node.dataset.debugId) node.dataset.debugId = `${prefix}.${String(scopes.length + idx + 1).padStart(2, '0')}`;
+      let number = 1;
+      nodes.forEach((node) => {
+        if (!node.offsetParent && node !== document.body) return;
+        node.dataset.debugId = `${prefix}.${String(number).padStart(4, '0')}`;
+        number += 1;
       });
     };
 
     applyIndexes();
     const observer = new MutationObserver(() => applyIndexes());
-    observer.observe(document.body, { subtree: true, childList: true });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    window.addEventListener('hashchange', applyIndexes);
 
     return () => {
       observer.disconnect();
+      window.removeEventListener('hashchange', applyIndexes);
       document.body.classList.remove('debug-index-enabled');
     };
   }, [enabled]);
 };
 
 export const DebugIndexProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [enabled, setEnabled] = useState<boolean>(() => window.localStorage.getItem(DEBUG_INDEX_STORAGE_KEY) === '1');
+  const [enabled, setEnabled] = useState<boolean>(() => {
+    const saved = window.localStorage.getItem(DEBUG_INDEX_STORAGE_KEY);
+    return saved === null ? true : saved === '1';
+  });
 
   useAutoDebugIndexing(enabled);
 
