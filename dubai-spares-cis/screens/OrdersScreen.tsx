@@ -9,6 +9,7 @@ import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
 
 type TabType = 'active' | 'vip' | 'lead' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
+const hasPaidDeposit = (order: Order) => order.paymentStatus === 'search_deposit_paid' || order.paymentStatus === 'full_prepayment_paid';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
 type SearchState = 'searching' | 'waiting_response' | 'found' | 'offer_sent' | 'sold' | 'archived';
 
@@ -439,13 +440,13 @@ const OrdersScreen: React.FC = () => {
   const isUnreadPublicLead = (order: Order) => order.leadSource === 'public_form' && order.leadUnread === true && !order.isArchived;
 
   const tabCounts = useMemo(() => ({
-    active: orders.filter((o) => !o.isArchived && !o.isSold).length,
-    vip: orders.filter((o) => o.isVip && !o.isArchived && !o.isSold).length,
-    lead: orders.filter((o) => o.isLead && !o.isArchived && !o.isSold).length,
-    found: orders.filter((o) => !o.isArchived && !o.isSold && isOrderFound(o)).length,
-    urgent: orders.filter((o) => !o.isArchived && !o.isSold && o.priority === Priority.HIGH).length,
-    medium: orders.filter((o) => !o.isArchived && !o.isSold && o.priority === Priority.MEDIUM).length,
-    low: orders.filter((o) => !o.isArchived && !o.isSold && o.priority === Priority.LOW).length,
+    active: orders.filter((o) => !o.isArchived && !o.isSold && hasPaidDeposit(o)).length,
+    vip: orders.filter((o) => o.isVip && !o.isArchived && !o.isSold && hasPaidDeposit(o)).length,
+    lead: orders.filter((o) => !o.isArchived && !o.isSold && !hasPaidDeposit(o)).length,
+    found: orders.filter((o) => !o.isArchived && !o.isSold && hasPaidDeposit(o) && isOrderFound(o)).length,
+    urgent: orders.filter((o) => !o.isArchived && !o.isSold && hasPaidDeposit(o) && o.priority === Priority.HIGH).length,
+    medium: orders.filter((o) => !o.isArchived && !o.isSold && hasPaidDeposit(o) && o.priority === Priority.MEDIUM).length,
+    low: orders.filter((o) => !o.isArchived && !o.isSold && hasPaidDeposit(o) && o.priority === Priority.LOW).length,
     sold: orders.filter((o) => !o.isArchived && o.isSold).length,
     archive: orders.filter((o) => o.isArchived).length
   }), [orders]);
@@ -461,14 +462,14 @@ const OrdersScreen: React.FC = () => {
   const filteredOrders = useMemo(() => {
     let list = orders.filter((order) => {
       if (activeTab === 'archive') return order.isArchived;
-      if (activeTab === 'vip') return order.isVip && !order.isArchived && !order.isSold;
-      if (activeTab === 'lead') return order.isLead && !order.isArchived && !order.isSold;
-      if (activeTab === 'found') return !order.isArchived && !order.isSold && isOrderFound(order);
-      if (activeTab === 'urgent') return !order.isArchived && !order.isSold && order.priority === Priority.HIGH;
-      if (activeTab === 'medium') return !order.isArchived && !order.isSold && order.priority === Priority.MEDIUM;
-      if (activeTab === 'low') return !order.isArchived && !order.isSold && order.priority === Priority.LOW;
+      if (activeTab === 'vip') return order.isVip && !order.isArchived && !order.isSold && hasPaidDeposit(order);
+      if (activeTab === 'lead') return !order.isArchived && !order.isSold && !hasPaidDeposit(order);
+      if (activeTab === 'found') return !order.isArchived && !order.isSold && hasPaidDeposit(order) && isOrderFound(order);
+      if (activeTab === 'urgent') return !order.isArchived && !order.isSold && hasPaidDeposit(order) && order.priority === Priority.HIGH;
+      if (activeTab === 'medium') return !order.isArchived && !order.isSold && hasPaidDeposit(order) && order.priority === Priority.MEDIUM;
+      if (activeTab === 'low') return !order.isArchived && !order.isSold && hasPaidDeposit(order) && order.priority === Priority.LOW;
       if (activeTab === 'sold') return !order.isArchived && order.isSold;
-      return !order.isArchived && !order.isSold;
+      return !order.isArchived && !order.isSold && hasPaidDeposit(order);
     });
 
     if (debouncedSearch) {

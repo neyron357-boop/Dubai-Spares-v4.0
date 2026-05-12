@@ -1144,6 +1144,9 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     isLead: !!row.is_lead,
     notes: row.notes || [],
     status: row.status || 'active',
+    paymentStatus: (['none', 'search_deposit_paid', 'full_prepayment_paid'] as const).includes((row as any).payment_status)
+      ? (row as any).payment_status
+      : 'none',
     salesStatus: row.sales_status || 'Inquiry',
     customerStatus: (row as any).customer_status || undefined,
     statusChangedAt: Number.isFinite(Number((row as any).status_changed_at))
@@ -1344,7 +1347,8 @@ const persistOrderGraph = async (order: Order) => {
       ? uploadedOrder.vehicleDetails
       : {},
     hunt_status: uploadedOrder.huntStatus || 'data_gathering',
-    public_quote_token: uploadedOrder.publicQuoteToken || null
+    public_quote_token: uploadedOrder.publicQuoteToken || null,
+    payment_status: uploadedOrder.paymentStatus || 'none'
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -1366,6 +1370,7 @@ const persistOrderGraph = async (order: Order) => {
       'customer_status',
       'status_changed_at',
       'status_changed_by',
+      'payment_status',
       'lead_unread',
       'lead_source',
       'lead_read_at',
@@ -1668,6 +1673,7 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   is_lead: typeof patch.isLead === 'boolean' ? patch.isLead : undefined,
   is_pinned: typeof patch.isPinned === 'boolean' ? patch.isPinned : undefined,
   status: patch.status,
+  payment_status: patch.paymentStatus,
   brand: patch.brand,
   model: patch.model,
   year: patch.year,
