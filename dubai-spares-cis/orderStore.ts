@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant, SalesStatus } from './types';
+import { DbOrderGraphRow, Order, OrderStatus, Part, PriceVariant, SalesStatus, SearchDepositStatus } from './types';
 import { supabase, isCloudSyncConfigured } from './supabase';
 import { deleteOrderFolderFromStorage, deletePartFolderFromStorage, ensurePublicImageUrls, optimizeImageForUpload, recompressExistingStorageImage } from './storage/photos';
 import { OfflineMutation, isIdbAutoSyncPaused, offlineDb } from './storage/offlineDb';
@@ -64,6 +64,11 @@ const normalizeSalesStatus = (value: unknown): SalesStatus => {
   const normalizedKey = raw.toLowerCase().replace(/[\s-]+/g, '_');
   return SALES_STATUS_ALIASES[normalizedKey] || 'Inquiry';
 };
+
+const SEARCH_DEPOSIT_STATUSES: SearchDepositStatus[] = ['not_required', 'pending', 'paid'];
+const normalizeSearchDepositStatus = (value: unknown): SearchDepositStatus =>
+  SEARCH_DEPOSIT_STATUSES.includes(value as SearchDepositStatus) ? (value as SearchDepositStatus) : 'not_required';
+const hasPaidSearchDeposit = (order: Pick<Order, 'searchDepositStatus'>) => normalizeSearchDepositStatus(order.searchDepositStatus) === 'paid';
 
 const getMissingColumnName = (error: unknown): string | null => {
   const payload = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown } | null;
@@ -281,6 +286,7 @@ const normalizeOrder = (order: Order): Order => {
   return {
     ...order,
     status: order.status ?? getStatus(order),
+    searchDepositStatus: normalizeSearchDepositStatus(order.searchDepositStatus),
     salesStatus,
     isSold,
     isArchived: order.isArchived || isCompleted,
@@ -1147,6 +1153,7 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     paymentStatus: (['none', 'search_deposit_paid', 'full_prepayment_paid'] as const).includes((row as any).payment_status)
       ? (row as any).payment_status
       : 'none',
+    searchDepositStatus: normalizeSearchDepositStatus((row as any).search_deposit_status),
     salesStatus: row.sales_status || 'Inquiry',
     customerStatus: (row as any).customer_status || undefined,
     statusChangedAt: Number.isFinite(Number((row as any).status_changed_at))
@@ -1349,6 +1356,8 @@ const persistOrderGraph = async (order: Order) => {
     hunt_status: uploadedOrder.huntStatus || 'data_gathering',
     public_quote_token: uploadedOrder.publicQuoteToken || null,
     payment_status: uploadedOrder.paymentStatus || 'none'
+    ,
+    search_deposit_status: normalizeSearchDepositStatus(uploadedOrder.searchDepositStatus)
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -1371,6 +1380,7 @@ const persistOrderGraph = async (order: Order) => {
       'status_changed_at',
       'status_changed_by',
       'payment_status',
+      'search_deposit_status',
       'lead_unread',
       'lead_source',
       'lead_read_at',
@@ -1674,6 +1684,7 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   is_pinned: typeof patch.isPinned === 'boolean' ? patch.isPinned : undefined,
   status: patch.status,
   payment_status: patch.paymentStatus,
+  search_deposit_status: patch.searchDepositStatus,
   brand: patch.brand,
   model: patch.model,
   year: patch.year,
@@ -2119,8 +2130,23 @@ export const addOrderItem = async (order: Order) => {
 };
 
 export const updateOrderItem = async (order: Order) => {
+  const previousOrder = state.orders.find((item) => item.id === order.id);
   const normalized = normalizeOrder({ ...order, updatedAt: Date.now() });
   const previousOrders = state.orders;
+  const searchDepositPaid = hasPaidSearchDeposit(normalized);
+
+  if (!searchDepositPaid && previousOrder) {
+    const previousVariantTotal = previousOrder.parts.reduce((sum, part) => sum + (part.variants || []).length, 0);
+    const nextVariantTotal = normalized.parts.reduce((sum, part) => sum + (part.variants || []).length, 0);
+    const previousSuppliersTotal = (previousOrder.vendorContacts || []).length;
+    const nextSuppliersTotal = (normalized.vendorContacts || []).length;
+    const isAddingVariants = nextVariantTotal > previousVariantTotal;
+    const isAddingSuppliers = nextSuppliersTotal > previousSuppliersTotal;
+    if (isAddingVariants || isAddingSuppliers) {
+      setState({ error: 'Добавление вариантов цен и поставщиков доступно только после оплаты депозита поиска (50 AED).' });
+      return false;
+    }
+  }
 
   try {
     if (shouldSyncDirectly()) {
@@ -2221,6 +2247,10 @@ export const removePartItem = async (orderId: string, partId: string) => {
 export const updatePriceVariantItem = async (partId: string, variant: PriceVariant) => {
   const order = state.orders.find((o) => o.parts.some((p) => p.id === partId));
   if (!order) return;
+  if (!hasPaidSearchDeposit(order)) {
+    setState({ error: 'Добавление вариантов цен доступно только после оплаты депозита поиска (50 AED).' });
+    return;
+  }
 
   const part = order.parts.find((item) => item.id === partId);
   const previousVariant = part?.variants.find((v) => v.id === variant.id);

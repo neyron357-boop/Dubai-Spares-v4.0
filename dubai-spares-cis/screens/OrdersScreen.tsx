@@ -760,6 +760,11 @@ const OrdersScreen: React.FC = () => {
                         <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">{statusLabelMap[status]}</span>
                         {order.priority === Priority.HIGH && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-600">Срочно</span>}
                         {isUnreadLeadOrder && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">Новый лид</span>}
+                        {activeTab === 'lead' && order.searchDepositStatus === 'pending' && (
+                          <span className="rounded-full bg-fuchsia-600 px-2 py-1 text-[10px] font-black text-white shadow-sm shadow-fuchsia-500/30">
+                            Ожидает оплаты 50 AED
+                          </span>
+                        )}
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600 inline-flex items-center gap-1"><Clock3 size={10} /> {ageLabel}</span>
                       </div>
 
