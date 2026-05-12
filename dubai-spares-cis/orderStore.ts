@@ -729,7 +729,19 @@ const processOfflineMutation = async (mutation: OfflineMutation): Promise<Mutati
 const notify = () => listeners.forEach((l) => l());
 
 const setState = (patch: Partial<OrderState>) => {
-  state = { ...state, ...patch };
+  let hasChanges = false;
+  const nextState = { ...state };
+
+  (Object.keys(patch) as Array<keyof OrderState>).forEach((key) => {
+    const nextValue = patch[key];
+    if (!Object.is(state[key], nextValue)) {
+      hasChanges = true;
+      (nextState[key] as OrderState[keyof OrderState]) = nextValue as OrderState[keyof OrderState];
+    }
+  });
+
+  if (!hasChanges) return;
+  state = nextState;
   notify();
 };
 
