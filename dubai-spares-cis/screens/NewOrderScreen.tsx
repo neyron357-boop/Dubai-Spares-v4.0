@@ -950,7 +950,7 @@ const NewOrderScreen: React.FC = () => {
           </button>
           <h1 className="text-xl font-black text-slate-900">Создать заказ</h1>
         </div>
-        <button type="button" onClick={saveDraft} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700" aria-label="Сохранить черновик"><Save size={14} />Сохранить черновик</button>
+        <button type="button" data-debug-id="4.20" onClick={saveDraft} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700" aria-label="Сохранить черновик"><Save size={14} />Сохранить черновик</button>
       </div>
 
       {!!savedDrafts.length && (
@@ -1003,7 +1003,7 @@ const NewOrderScreen: React.FC = () => {
 
         {mode === 'full' && (
           <div className="space-y-1 transition-all duration-200">
-            <input autoFocus value={vin} onChange={(e) => setVin(e.target.value.toUpperCase().slice(0, 17))} placeholder="VIN (необязательно)" className={inputClass} />
+            <input data-debug-id="4.11" autoFocus value={vin} onChange={(e) => setVin(e.target.value.toUpperCase().slice(0, 17))} placeholder="VIN (необязательно)" className={inputClass} />
             {errors.vin && <p className="text-xs text-rose-600">{errors.vin}</p>}
           </div>
         )}
@@ -1403,7 +1403,7 @@ const NewOrderScreen: React.FC = () => {
 
       <div style={{ bottom: `${keyboardOffset}px` }} className="fixed inset-x-0 z-40 mx-auto w-full max-w-md border-t border-slate-200 bg-white/95 px-3 pt-3 backdrop-blur" >
         <div className="space-y-2 pb-[calc(env(safe-area-inset-bottom)+64px)]">
-          <button type="button" onClick={saveDraft} className="h-11 w-full rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-700">Сохранить черновик</button>
+          <button type="button" data-debug-id="4.20" onClick={saveDraft} className="h-11 w-full rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-700">Сохранить черновик</button>
           <button
             type="submit"
             onClick={(event) => {

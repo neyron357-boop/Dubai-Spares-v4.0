@@ -18,6 +18,7 @@ import VendorSlidesScreen from './screens/VendorSlidesScreen';
 import { Bell, CarFront, Layers, PlusCircle, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
+import { DebugIndex, DebugIndexProvider, useDebugIndex } from './components/DebugIndex';
 import { playSound } from './utils/sounds';
 
 const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
@@ -38,6 +39,7 @@ const resolveBottomTab = (pathname: string): BottomTab => {
 };
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { toggle } = useDebugIndex();
   const location = useLocation();
   const navigate = useNavigate();
   const mainRef = useRef<HTMLElement>(null);
@@ -115,16 +117,19 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   return (
       <div className="fixed inset-0 h-[100dvh] w-full bg-slate-100 flex justify-center overflow-hidden"><div className="h-full w-full max-w-md bg-gray-50 flex flex-col overflow-hidden shadow-sm relative">
+        <DebugIndex indexId="1.01">
         <main ref={mainRef} className="flex-1 overflow-y-auto no-scrollbar relative">
           {children}
         </main>
+        </DebugIndex>
         {!hideNav && (
-          <nav className="h-16 bg-white border-t border-gray-200 flex items-end justify-around px-2 pb-safe shrink-0 z-50 overflow-visible">
+          <DebugIndex indexId="1.10"><nav className="h-16 bg-white border-t border-gray-200 flex items-end justify-around px-2 pb-safe shrink-0 z-50 overflow-visible">
             <NavLink to={tabPaths.orders} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('orders'); }} className={() => `flex flex-col items-center gap-1 pb-1 ${resolveBottomTab(location.pathname) === 'orders' ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
             <NavLink to={tabPaths.vendors} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('vendors'); }} className={() => `flex flex-col items-center gap-1 pb-1 ${resolveBottomTab(location.pathname) === 'vendors' ? 'text-blue-600' : 'text-gray-400'}`}><Layers size={22} /><span className="text-[10px] font-medium">Поставщики</span></NavLink>
             {/* Center: New Order FAB */}
             <button
               type="button"
+              data-debug-id="1.13"
               onClick={() => { playSound('navigate'); navigate('/new'); }}
               className="flex flex-col items-center gap-0.5 -translate-y-3"
               aria-label="Новый заказ"
@@ -139,8 +144,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               <span className="text-[10px] font-medium">Оповещения</span>
             </NavLink>
             <NavLink to={tabPaths.settings} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('settings'); }} className={() => `flex flex-col items-center gap-1 pb-1 ${resolveBottomTab(location.pathname) === 'settings' ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настройки</span></NavLink>
-          </nav>
+          </nav></DebugIndex>
         )}
+        <button
+          type="button"
+          aria-label="Toggle debug indexing"
+          data-debug-id="1.99"
+          className="absolute top-0 right-0 w-6 h-6 opacity-0"
+          onClick={toggle}
+        />
         </div>
       </div>
   );
