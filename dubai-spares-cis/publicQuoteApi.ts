@@ -134,6 +134,12 @@ export type PublicQuotePayloadV1 = {
     created_at: string;
   };
   image_manifest?: unknown;
+  pre_sale_check?: {
+    defect_photos: string[];
+    inspection_media: string[];
+    disclaimer: string;
+    checked_at?: string;
+  };
 };
 
 type SnapshotRow = {
@@ -756,6 +762,7 @@ const buildSnapshotPayload = (
   const normalizedWhatsapp = toDigits(publicSettings?.publicWhatsappNumber) || toDigits(owner.whatsappPhone);
   const normalizedTelegram = publicSettings?.publicTelegramUrl || '';
   const normalizedInstagram = publicSettings?.publicInstagramUrl || '';
+  const preSaleCheck = order.preSaleCheck || { defectPhotos: [], inspectionMedia: [] };
 
   return {
     version: 'public_quote_payload_v1',
@@ -839,6 +846,12 @@ const buildSnapshotPayload = (
       whatsapp: normalizedWhatsapp,
       telegram: normalizedTelegram,
       instagram: normalizedInstagram
+    },
+    pre_sale_check: {
+      defect_photos: (preSaleCheck.defectPhotos || []).filter(Boolean),
+      inspection_media: (preSaleCheck.inspectionMedia || []).filter(Boolean),
+      disclaimer: 'Товар проверен. После передачи в карго претензии не принимаются',
+      checked_at: preSaleCheck.checkedAt ? new Date(preSaleCheck.checkedAt).toISOString() : undefined
     },
     meta: {
       oid: order.id,

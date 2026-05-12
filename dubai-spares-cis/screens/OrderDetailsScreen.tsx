@@ -1043,6 +1043,14 @@ const OrderDetailsScreen: React.FC = () => {
       && !['markupType', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType', 'customerContact', 'socialNickname'].includes(String(field));
 
     if (!shouldDebounce) {
+      if (field === 'salesStatus' && String(value) === 'Completed') {
+        const preSaleCheck = orderRef.current?.preSaleCheck || { defectPhotos: [], inspectionMedia: [] };
+        if (!preSaleCheck.defectPhotos?.length || !preSaleCheck.inspectionMedia?.length) {
+          setSellError("Статус Completed требует заполненной предпродажной проверки.");
+          setTimeout(() => setSellError(null), 3500);
+          return;
+        }
+      }
       commitDeferredOrderField(field, value);
       syncPerf.recordTypingSample(Math.round((performance.now() - keyStart) * 100) / 100);
       return;
@@ -1566,6 +1574,12 @@ const OrderDetailsScreen: React.FC = () => {
       setTimeout(() => setSellError(null), 3000);
       return;
     }
+    const preSaleCheck = order.preSaleCheck || { defectPhotos: [], inspectionMedia: [] };
+    if (!preSaleCheck.defectPhotos?.length || !preSaleCheck.inspectionMedia?.length) {
+      setSellError("Перед продажей заполните 'Предпродажную проверку': фото и видео/voice.");
+      setTimeout(() => setSellError(null), 3500);
+      return;
+    }
 
     setShowSellConfirm(true);
   };
@@ -1648,6 +1662,24 @@ const OrderDetailsScreen: React.FC = () => {
   const removeCarPhoto = (photoIndex: number) => {
     const next = getCarPhotos().filter((_, index) => index !== photoIndex);
     void updateOrder({ ...order, carPhotos: next, carPhotoUrl: next[0] || '' });
+  };
+
+  const addPreSaleMedia = async (kind: 'defectPhotos' | 'inspectionMedia', files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const photos = await Promise.all(Array.from(files).map(async (file) => {
+      try {
+        return await optimizeImageForUpload(file, `order-details:presale:${kind}:${file.name}`);
+      } catch {
+        const reader = new FileReader();
+        return await new Promise<string>((resolve) => {
+          reader.onloadend = () => resolve(String(reader.result || ''));
+          reader.readAsDataURL(file as Blob);
+        });
+      }
+    }));
+    const current = order.preSaleCheck || { defectPhotos: [], inspectionMedia: [] };
+    const next = Array.from(new Set([...(current[kind] || []), ...photos.filter(Boolean)]));
+    void updateOrder({ ...order, preSaleCheck: { ...current, [kind]: next, checkedAt: Date.now() } });
   };
 
   const handleNotePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2188,6 +2220,34 @@ const OrderDetailsScreen: React.FC = () => {
       </div>
 
       <div className="p-4 space-y-4">
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Предпродажная проверка</p>
+          <p className="text-xs text-gray-600">Обязательно перед статусом Sold/Completed: фото дефектов (или их отсутствия) и видео/voice проверки.</p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-gray-700">Фото дефектов / без дефектов</p>
+              <input type="file" multiple accept="image/*" onChange={(e) => { void addPreSaleMedia('defectPhotos', e.target.files); e.target.value = ''; }} className="w-full text-xs" />
+              <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                {(order.preSaleCheck?.defectPhotos || []).map((ph, idx) => (
+                  <button key={`df-${idx}`} type="button" onClick={() => setGallery({ images: order.preSaleCheck?.defectPhotos || [], index: idx })} className="relative h-14 w-14 overflow-hidden rounded-lg border border-gray-200 shrink-0">
+                    <img src={ph} className="h-full w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-gray-700">Видео / Voice проверки</p>
+              <input type="file" multiple accept="image/*,video/*,audio/*" onChange={(e) => { void addPreSaleMedia('inspectionMedia', e.target.files); e.target.value = ''; }} className="w-full text-xs" />
+              <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                {(order.preSaleCheck?.inspectionMedia || []).map((ph, idx) => (
+                  <button key={`im-${idx}`} type="button" onClick={() => setGallery({ images: order.preSaleCheck?.inspectionMedia || [], index: idx })} className="relative h-14 w-14 overflow-hidden rounded-lg border border-gray-200 shrink-0">
+                    <img src={ph} className="h-full w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Зона заказа</p>
