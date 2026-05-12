@@ -69,6 +69,12 @@ const SALES_STATUS_STYLES: Record<(typeof SALES_STATUSES)[number], string> = {
   Paid: 'text-[#3B6AF7] border-blue-100 bg-blue-50',
   Completed: 'text-emerald-700 border-emerald-200 bg-emerald-50'
 };
+const PAYMENT_STATUS_LABELS: Record<Order['paymentStatus'] extends infer T ? Extract<T, string> : never, string> = {
+  none: 'Не оплачен',
+  search_deposit_paid: 'Внесен депозит',
+  full_prepayment_paid: 'Полная предоплата'
+};
+
 const PRIORITY_HINT: Record<Priority, string> = {
   [Priority.LOW]: 'можно отвечать позже',
   [Priority.MEDIUM]: 'обычная срочность',
@@ -2336,53 +2342,38 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
-        <div ref={vehicleSectionRef} className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-100 space-y-2">
-          <button type="button" onClick={() => setIsVehicleBlockExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
-            <div>
-              <p className="text-[14px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Данные автомобиля</p>
+        <div ref={vehicleSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Карточка заказа</p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                const photos = getCarPhotos();
+                if (photos.length) setGallery({ images: photos, index: 0 });
+              }}
+              className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-slate-100"
+            >
+              {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)
+                ? <img src={((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" />
+                : <div className="flex h-full w-full items-center justify-center text-xl font-black text-slate-400">{order.brand?.[0] || '?'}</div>}
+            </button>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-bold text-gray-900 truncate">{order.brand || '—'} {order.model || ''}</p>
+              {isEditMode ? (
+                <input
+                  type="text"
+                  value={String(draftFields.vin ?? order.vin ?? '')}
+                  onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))}
+                  onBlur={() => flushDeferredOrderField('vin')}
+                  placeholder="VIN"
+                  className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-semibold text-slate-700 outline-none"
+                />
+              ) : (
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 truncate">VIN: {order.vin || '—'}</p>
+              )}
+              <p className="text-xs font-semibold text-blue-700">Статус оплаты: {PAYMENT_STATUS_LABELS[order.paymentStatus || 'none']}</p>
             </div>
-            {isVehicleBlockExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
-          </button>
-          {isVehicleBlockExpanded && <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Model: {String(draftFields.model ?? order.model ?? '—')}</div>
-          <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Year: {String(draftFields.year ?? order.year ?? '—')}</div>
-          <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Generation: {String(draftFields.bodyType ?? order.bodyType ?? '—')}</div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Модель</label>
-            <input
-              type="text"
-              value={String(draftFields.model ?? order.model ?? '')}
-              readOnly={!isEditMode}
-              onChange={(e) => updateOrderField('model', e.target.value)}
-              onBlur={() => flushDeferredOrderField('model')}
-              className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-            />
           </div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Год</label>
-            <input
-              type="text"
-              value={String(draftFields.year ?? order.year ?? '')}
-              readOnly={!isEditMode}
-              onChange={(e) => updateOrderField('year', e.target.value)}
-              onBlur={() => flushDeferredOrderField('year')}
-              className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Тип кузова</label>
-            <input
-              type="text"
-              value={String(draftFields.bodyType ?? order.bodyType ?? '')}
-              readOnly={!isEditMode}
-              onChange={(e) => updateOrderField('bodyType', e.target.value)}
-              onBlur={() => flushDeferredOrderField('bodyType')}
-              placeholder="E39 / F10 / S-Class"
-              className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-            />
-          </div>
-                    </div>
-          }
         </div>
 
 
@@ -2397,7 +2388,7 @@ const OrderDetailsScreen: React.FC = () => {
           {isVehicleDetailsExpanded && (
             <>
           <div className="grid grid-cols-2 gap-2">
-            <div>
+            {(isEditMode || (draftFields.vehicleDetails?.engineType ?? order.vehicleDetails?.engineType)) && <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Тип двигателя</label>
               <input
                 type="text"
@@ -2408,8 +2399,8 @@ const OrderDetailsScreen: React.FC = () => {
                 placeholder="V6 / Hybrid / Electric"
                 className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
               />
-            </div>
-            <div>
+            </div>}
+            {(isEditMode || (draftFields.vehicleDetails?.fuelType ?? order.vehicleDetails?.fuelType)) && <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Топливо</label>
               <input
                 type="text"
@@ -2420,7 +2411,7 @@ const OrderDetailsScreen: React.FC = () => {
                 placeholder="Бензин / Дизель"
                 className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
               />
-            </div>
+            </div>}
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Привод</label>
               <select
@@ -2473,7 +2464,7 @@ const OrderDetailsScreen: React.FC = () => {
                 {VEHICLE_STEERING_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
               </select>
             </div>
-            <div>
+            {(isEditMode || (draftFields.vehicleDetails?.doors ?? order.vehicleDetails?.doors)) && <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Дверей</label>
               <input
                 type="text"
@@ -2484,7 +2475,7 @@ const OrderDetailsScreen: React.FC = () => {
                 placeholder="2 / 4 / 5"
                 className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
               />
-            </div>
+            </div>}
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Цвет</label>
               <input
