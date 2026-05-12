@@ -621,6 +621,105 @@ const runWithSyncMutex = async <T>(task: () => Promise<T>): Promise<T> => {
 };
 
 
+
+const getBackoffDelayMs = (retryCount: number) => {
+  const safeRetry = Math.max(1, Math.floor(retryCount));
+  const index = Math.min(RETRY_DELAYS.length - 1, safeRetry - 1);
+  return RETRY_DELAYS[index];
+};
+
+type MutationProcessResult = {
+  status: 'synced' | 'deferred' | 'failed';
+  deferredUntil?: number;
+};
+
+const processOfflineMutation = async (mutation: OfflineMutation): Promise<MutationProcessResult> => {
+  if (Number(mutation.nextRetryAt || 0) > Date.now()) {
+    return { status: 'deferred', deferredUntil: Number(mutation.nextRetryAt) };
+  }
+
+  await logger.info('sync:flush', `Processing mutation ${mutation.id}`, {
+    operation: mutation.operation || mutation.type,
+    table: mutation.table || mutation.entity || 'orders',
+    orderId: mutation.orderId,
+    attempt: Number((mutation.attemptCount ?? mutation.retryCount) || 0)
+  });
+
+  try {
+    setSyncStatus('syncing');
+    setState({ isSyncing: true });
+    syncPerf.setActiveRequest(true);
+    const startedAt = Date.now();
+
+    if (mutation.table === 'public_quote_snapshots' && mutation.payload) {
+      const payloadBytes = JSON.stringify(mutation.payload).length;
+      syncPerf.recordNetworkRequest();
+      syncPerf.setLastNetworkRequest({ operation: 'public_quote_snapshots.upsert', orderId: mutation.orderId, bytes: payloadBytes });
+      const { error } = await supabase
+        .from('public_quote_snapshots')
+        .upsert(mutation.payload as Record<string, unknown>, { onConflict: 'token' });
+      if (error) throw error;
+    } else if (mutation.type === 'delete') {
+      if (isUuid(mutation.orderId)) await deleteRemoteOrderWithStorageCleanup(mutation.orderId);
+    } else if (mutation.patch && !mutation.payload) {
+      await persistOrderPatch(mutation.orderId, mutation.patch as Partial<Order>);
+    } else if (mutation.payload) {
+      const typedPayload = mutation.payload as Order;
+      const payloadBytes = JSON.stringify(typedPayload).length;
+      syncPerf.recordNetworkRequest();
+      syncPerf.setLastNetworkRequest({ operation: 'orders.graph_upsert', orderId: mutation.orderId, bytes: payloadBytes });
+      const saved = await persistOrderGraph(typedPayload);
+      await offlineDb.saveOrder(saved);
+    }
+
+    await offlineDb.removeMutation(mutation.id);
+    const queueLength = await offlineDb.getMutationCount();
+    cachedQueueLength = queueLength;
+    syncPerf.setQueueLength(queueLength);
+    syncPerf.setLastErrorType(null);
+    syncPerf.setLastError(null);
+    syncPausedUntil = 0;
+
+    await logger.info('sync:flush', `Mutation ${mutation.id} synced`, { durationMs: Date.now() - startedAt, queueLength });
+    return { status: 'synced' };
+  } catch (error) {
+    const errorType = classifySyncError(error);
+    const retryCount = Number((mutation.attemptCount ?? mutation.retryCount) || 0) + 1;
+    const isTimeoutLike = isNetworkError(error);
+    const nextRetryAt = Date.now() + getBackoffDelayMs(retryCount);
+
+    syncPerf.setLastErrorType(errorType);
+    syncPerf.setLastError(getErrorMessage(error, 'Mutation failed'));
+
+    if (errorType === 'schema' || retryCount > MAX_MUTATION_RETRY) {
+      await offlineDb.removeMutation(mutation.id);
+      return { status: 'failed' };
+    }
+
+    syncPerf.markRetry();
+    await offlineDb.enqueueMutation({
+      ...mutation,
+      attemptCount: retryCount,
+      retryCount,
+      lastError: getErrorMessage(error, 'Mutation failed'),
+      nextRetryAt
+    });
+
+    if (isTimeoutLike) {
+      syncPausedUntil = Math.max(syncPausedUntil, nextRetryAt);
+      setSyncStatus('error');
+    }
+
+    await logger.warn('sync:flush', `Mutation ${mutation.id} failed`, { retryCount, nextRetryAt, error: serializeError(error) });
+    cachedQueueLength = await offlineDb.getMutationCount();
+    syncPerf.setQueueLength(cachedQueueLength);
+    return { status: 'deferred', deferredUntil: nextRetryAt };
+  } finally {
+    syncPerf.setActiveRequest(false);
+    setState({ isSyncing: false });
+  }
+};
+
 const notify = () => listeners.forEach((l) => l());
 
 const setState = (patch: Partial<OrderState>) => {
@@ -1697,105 +1796,11 @@ export const flushOfflineMutations = async (options?: { force?: boolean }) => ru
     await logger.info('sync:flush', `Flush started with ${pending.length} pending mutations`);
 
     for (const mutation of pending) {
-      if (Number(mutation.nextRetryAt || 0) > Date.now()) {
-        if (!earliestDeferredRetryAt || Number(mutation.nextRetryAt) < earliestDeferredRetryAt) earliestDeferredRetryAt = Number(mutation.nextRetryAt);
-        continue;
-      }
-
-      await logger.info('sync:flush', `Processing mutation ${mutation.id}`, {
-        operation: mutation.operation || mutation.type,
-        table: mutation.table || mutation.entity || 'orders',
-        orderId: mutation.orderId,
-        attempt: Number((mutation.attemptCount ?? mutation.retryCount) || 0)
-      });
-
-      try {
-        setSyncStatus('syncing');
-        setState({ isSyncing: true });
-        syncPerf.setActiveRequest(true);
-        const startedAt = Date.now();
-
-        if (mutation.table === 'public_quote_snapshots' && mutation.payload) {
-          const payloadBytes = JSON.stringify(mutation.payload).length;
-          syncPerf.recordNetworkRequest();
-          syncPerf.setLastNetworkRequest({ operation: 'public_quote_snapshots.upsert', orderId: mutation.orderId, bytes: payloadBytes });
-          const { error } = await supabase
-            .from('public_quote_snapshots')
-            .upsert(mutation.payload as Record<string, unknown>, { onConflict: 'token' });
-          if (error) throw error;
-        } else if (mutation.type === 'delete') {
-          if (isUuid(mutation.orderId)) {
-            await deleteRemoteOrderWithStorageCleanup(mutation.orderId);
-          }
-        } else if (mutation.patch && !mutation.payload) {
-          await persistOrderPatch(mutation.orderId, mutation.patch as Partial<Order>);
-        } else if (mutation.payload) {
-          const typedPayload = mutation.payload as Order;
-          const payloadBytes = JSON.stringify(typedPayload).length;
-          syncPerf.recordNetworkRequest();
-          syncPerf.setLastNetworkRequest({ operation: 'orders.graph_upsert', orderId: mutation.orderId, bytes: payloadBytes });
-          await logger.info('sync:flush', `Sending payload for ${mutation.orderId}`, { payloadBytes, table: mutation.table || 'orders' });
-          const saved = await persistOrderGraph(typedPayload);
-          await offlineDb.saveOrder(saved);
+      const result = await processOfflineMutation(mutation);
+      if (result.status === 'deferred' && result.deferredUntil) {
+        if (!earliestDeferredRetryAt || result.deferredUntil < earliestDeferredRetryAt) {
+          earliestDeferredRetryAt = result.deferredUntil;
         }
-
-        await offlineDb.removeMutation(mutation.id);
-        const queueLength = await offlineDb.getMutationCount();
-        cachedQueueLength = queueLength;
-        syncPerf.setQueueLength(queueLength);
-        syncPerf.setLastErrorType(null);
-        syncPerf.setLastError(null);
-        syncPausedUntil = 0;
-
-        await logger.info('sync:flush', `Mutation ${mutation.id} synced`, {
-          durationMs: Date.now() - startedAt,
-          queueLength
-        });
-      } catch (error) {
-        const errorType = classifySyncError(error);
-        const retryCount = Number((mutation.attemptCount ?? mutation.retryCount) || 0) + 1;
-        const nextRetryAt = Date.now();
-        const isTimeoutLike = isNetworkError(error);
-
-        syncPerf.setLastErrorType(errorType);
-        syncPerf.setLastError(getErrorMessage(error, 'Mutation failed'));
-
-        if (errorType === 'schema') {
-          await offlineDb.removeMutation(mutation.id);
-          await logger.error('sync:flush', `Schema mismatch for mutation ${mutation.id}; retries stopped`, {
-            error: serializeError(error),
-            orderId: mutation.orderId
-          });
-        } else if (retryCount > MAX_MUTATION_RETRY) {
-          await offlineDb.removeMutation(mutation.id);
-          await logger.error('sync:flush', `Mutation ${mutation.id} dropped after max retries`, { error: serializeError(error) });
-        } else {
-          syncPerf.markRetry();
-          await offlineDb.enqueueMutation({
-            ...mutation,
-            attemptCount: retryCount,
-            retryCount,
-            lastError: getErrorMessage(error, 'Mutation failed'),
-            nextRetryAt
-          });
-          if (!earliestDeferredRetryAt || nextRetryAt < earliestDeferredRetryAt) earliestDeferredRetryAt = nextRetryAt;
-          if (isTimeoutLike) {
-            syncPausedUntil = Math.max(syncPausedUntil, nextRetryAt);
-            setSyncStatus('error');
-          }
-          await logger.warn('sync:flush', `Mutation ${mutation.id} failed`, {
-            retryCount,
-            nextRetryAt,
-            pausedUntil: syncPausedUntil || null,
-            error: serializeError(error)
-          });
-        }
-
-        cachedQueueLength = await offlineDb.getMutationCount();
-        syncPerf.setQueueLength(cachedQueueLength);
-      } finally {
-        syncPerf.setActiveRequest(false);
-        setState({ isSyncing: false });
       }
     }
 

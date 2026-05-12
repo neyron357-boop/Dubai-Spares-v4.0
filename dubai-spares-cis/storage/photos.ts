@@ -120,14 +120,6 @@ const loadImage = (src: string): Promise<HTMLImageElement> =>
     image.src = src;
   });
 
-const computeTargetSize = (width: number, height: number) => {
-  const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(width, height));
-  return {
-    width: Math.max(1, Math.round(width * scale)),
-    height: Math.max(1, Math.round(height * scale))
-  };
-};
-
 const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> =>
   new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
