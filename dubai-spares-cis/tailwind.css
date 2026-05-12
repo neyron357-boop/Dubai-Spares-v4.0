@@ -11,8 +11,8 @@
   }
 
   html {
-    height: 100vh;
-    height: 100dvh;
+    --app-height: 100dvh;
+    height: 100%;
     overflow: hidden;
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
