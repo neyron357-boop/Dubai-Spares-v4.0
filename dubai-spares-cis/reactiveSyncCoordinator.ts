@@ -28,7 +28,17 @@ const emitSnapshot = () => {
 export const getSyncCoordinatorSnapshot = () => snapshot;
 
 export const updateSyncCoordinator = (patch: Partial<SyncCoordinatorSnapshot>) => {
-  snapshot = { ...snapshot, ...patch };
+  const next = { ...snapshot, ...patch };
+  if (
+    next.mode === snapshot.mode
+    && next.realtimeConnected === snapshot.realtimeConnected
+    && next.visibility === snapshot.visibility
+    && next.online === snapshot.online
+    && next.pendingQueue === snapshot.pendingQueue
+  ) {
+    return snapshot;
+  }
+  snapshot = next;
   emitSnapshot();
   return snapshot;
 };
