@@ -11,6 +11,18 @@ import { logger } from './logging';
 
 installRuntimeDiagnostics();
 
+
+const syncAppHeight = () => {
+  if (typeof window === 'undefined') return;
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  document.documentElement.style.setProperty('--app-height', `${Math.round(viewportHeight)}px`);
+};
+
+syncAppHeight();
+window.addEventListener('resize', syncAppHeight);
+window.visualViewport?.addEventListener('resize', syncAppHeight);
+
+
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');
 

@@ -120,8 +120,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const tabBarPaddingBottomClass = 'pb-[max(8px,env(safe-area-inset-bottom))]';
 
   return (
-      <div className="h-[100dvh] w-full overflow-hidden bg-slate-100 flex justify-center">
-        <div className="h-[100dvh] w-full max-w-md bg-gray-50 flex flex-col shadow-sm relative overflow-hidden">
+      <div className="h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-100 flex justify-center">
+        <div className="h-[var(--app-height,100dvh)] w-full max-w-md bg-gray-50 flex flex-col shadow-sm relative overflow-hidden">
         <DebugIndex indexId="1.01">
         <main
           ref={mainRef}
@@ -312,7 +312,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div onKeyDown={handleKeyDown} className="h-[100dvh] overflow-hidden">
+    <div onKeyDown={handleKeyDown} className="h-[var(--app-height,100dvh)] overflow-hidden">
       <div className={`h-full transition-all duration-500 ${isBooting ? 'opacity-0 scale-[0.985]' : 'opacity-100'}`}>
         <div className={`fixed top-3 right-3 z-[90] pointer-events-none transition-all duration-700 ${savePulse ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
           <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-lg">
