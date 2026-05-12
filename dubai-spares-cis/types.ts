@@ -15,6 +15,7 @@ export enum Source {
 
 export type OrderStatus = 'active' | 'archive' | 'sold' | 'vip' | 'lead' | 'new_inquiry' | 'in_progress' | 'waiting_deposit';
 export type PaymentStatus = 'none' | 'search_deposit_paid' | 'full_prepayment_paid';
+export type SearchDepositStatus = 'not_required' | 'pending' | 'paid';
 export type SalesStatus = 'Inquiry' | 'Price Sent' | 'Pending Approval' | 'Paid' | 'Completed';
 
 /** Transparent Pipeline lifecycle status */
@@ -131,6 +132,7 @@ export interface Order {
   vinPhotoUrl?: string;
   status?: OrderStatus;
   paymentStatus?: PaymentStatus;
+  searchDepositStatus?: SearchDepositStatus;
   priority: Priority;
   clientName: string;
   source: Source;
@@ -483,6 +485,7 @@ export interface DbOrderRow {
   notes: OrderNote[];
   sales_status?: SalesStatus;
   payment_status?: PaymentStatus;
+  search_deposit_status?: SearchDepositStatus;
   customer_status?: 'VIP' | 'LEAD' | 'INQUIRY' | null;
   customer_contact?: string;
   social_nickname?: string;
