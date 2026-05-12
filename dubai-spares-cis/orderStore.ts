@@ -2035,6 +2035,26 @@ export const fetchOrderDetails = async (orderId: string) => {
 };
 
 
+
+const BASIC_SYNC_RETRY_COUNT = 3;
+const BASIC_SYNC_RETRY_DELAY_MS = 400;
+
+const retrySync = async <T>(task: () => Promise<T>, attempts = BASIC_SYNC_RETRY_COUNT): Promise<T> => {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await task();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts) break;
+      await new Promise((resolve) => window.setTimeout(resolve, BASIC_SYNC_RETRY_DELAY_MS * attempt));
+    }
+  }
+  throw lastError;
+};
+
+const shouldSyncDirectly = () => !LOCAL_ONLY && Boolean(supabase) && navigator.onLine && isCloudSyncConfigured;
+
 const compressOrderImagesForAddFlow = async (order: Order): Promise<Order> => {
   const compressList = async (images: string[], labelPrefix: string) =>
     Promise.all(
@@ -2069,212 +2089,60 @@ export const addOrderItem = async (order: Order) => {
   forgetLeadSyncOverrides(order.id);
   const compressedOrder = await compressOrderImagesForAddFlow(order);
   const localOrder = normalizeOrder({ ...compressedOrder, id: ensureUuid(compressedOrder.id) });
-  pushNotification({
-    type: NotificationType.ORDER_NEW,
-    title: `Новый заказ: ${localOrder.brand} ${localOrder.model}`,
-    message: `Клиент: ${localOrder.clientName || 'без имени'} · ${localOrder.year}`,
-    orderId: localOrder.id,
-    phone: localOrder.customerContact,
-    brand: localOrder.brand,
-    carModel: localOrder.model,
-    carYear: Number(localOrder.year) || undefined,
-    source: 'app',
-    route: `/order/${localOrder.id}`,
-    severity: localOrder.isVip ? 'critical' : 'info'
-  });
-  pushActivityNotification({
-    title: 'Создан заказ',
-    message: `${localOrder.brand} ${localOrder.model} · ${localOrder.vin}`,
-    orderId: localOrder.id,
-    entityType: 'order',
-    entityId: localOrder.id,
-    route: `/order/${localOrder.id}`
-  });
-  const next = [localOrder, ...state.orders.filter((o) => o.id !== localOrder.id)];
-  setState({ orders: next, error: null });
-  await orderRepository.saveOrder(localOrder);
-  window.dispatchEvent(new CustomEvent('cloud-save-success'));
-  void publishDomainEvent(localOrder.leadSource === 'public_form' ? 'LEAD_CREATED' : 'ORDER_CREATED', {
-    entityType: localOrder.leadSource === 'public_form' ? 'lead' : 'order',
-    entityId: localOrder.id,
-    aggregateId: localOrder.id,
-    dedupeKey: `order-created:${localOrder.id}:${localOrder.createdAt}`,
-    idempotencyKey: `order-created:${localOrder.id}:${localOrder.createdAt}`,
-    replaySafe: true,
-    source: 'ui',
-    payload: { order: localOrder }
-  });
 
-  createOrderMutationIntent('upsert', localOrder.id, localOrder);
-  await queueMutation('upsert', localOrder, localOrder.id);
-  decideSyncMode({ pendingQueue: true });
-  if (navigator.onLine) {
-    await flushOfflineMutations({ force: true });
+  try {
+    if (shouldSyncDirectly()) {
+      await retrySync(() => persistOrderGraph(localOrder));
+    }
+
+    const next = [localOrder, ...state.orders.filter((o) => o.id !== localOrder.id)];
+    setState({ orders: next, error: null });
+    await orderRepository.saveOrder(localOrder);
+    window.dispatchEvent(new CustomEvent('cloud-save-success'));
+    return true;
+  } catch (error) {
+    await logger.error('order:add', 'Failed to add order', { error: serializeError(error), orderId: localOrder.id });
+    setState({ error: getErrorMessage(error, 'Не удалось сохранить заказ') });
+    return false;
   }
-  return true;
 };
 
 export const updateOrderItem = async (order: Order) => {
-  const previousOrder = state.orders.find((o) => o.id === order.id);
   const normalized = normalizeOrder({ ...order, updatedAt: Date.now() });
-  let shouldPurgeLeadArtifacts = false;
-  if (normalized.leadSource === "public_form") {
-    if (!normalized.isLead || normalized.leadUnread === false || normalized.status !== "lead") {
-      rememberLeadConverted(normalized.id);
-      shouldPurgeLeadArtifacts = true;
-    } else {
-      forgetLeadSyncOverrides(normalized.id);
+  const previousOrders = state.orders;
+
+  try {
+    if (shouldSyncDirectly()) {
+      await retrySync(() => persistOrderGraph(normalized));
     }
-  }
-  if (previousOrder && previousOrder.status !== normalized.status) {
-    pushNotification({
-      type: NotificationType.ORDER_STATUS_CHANGED,
-      title: `Статус заказа изменён`,
-      message: `${normalized.brand} ${normalized.model}: ${previousOrder.status} → ${normalized.status}`,
-      orderId: normalized.id,
-      brand: normalized.brand,
-      carModel: normalized.model,
-      source: 'app',
-      route: `/order/${normalized.id}`,
-      severity: normalized.status === 'vip' ? 'critical' : 'info'
-    });
-    pushActivityNotification({
-      title: 'Обновлён статус заказа',
-      message: `${normalized.brand} ${normalized.model}: ${previousOrder.status} → ${normalized.status}` ,
-      orderId: normalized.id,
-      entityType: 'order',
-      entityId: normalized.id,
-      route: `/order/${normalized.id}`
-    });
-  }
-  const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
-  setState({ orders: next, error: null });
-  const structuralDiff = hasStructuralDiff(previousOrder, normalized);
-  const patch = structuralDiff ? {} : pickHotFieldPatch(previousOrder, normalized);
-  const shouldPrioritizeSync = structuralDiff || hasCriticalFinancialPatch(patch);
-  scheduleLocalCommit(normalized, structuralDiff ? undefined : patch);
-  window.dispatchEvent(new CustomEvent('cloud-save-success'));
 
-  const changedFields = diffOrderFields(previousOrder, normalized);
-  const projectionReason = getOrderProjectionReason(previousOrder, normalized);
-  void publishDomainEvent(previousOrder ? 'ORDER_UPDATED' : 'ORDER_CREATED', {
-    entityType: 'order',
-    entityId: normalized.id,
-    aggregateId: normalized.id,
-    dedupeKey: `order:${normalized.id}:${normalized.updatedAt || normalized.createdAt || Date.now()}`,
-    idempotencyKey: `order:${normalized.id}:${normalized.updatedAt || normalized.createdAt || Date.now()}`,
-    replaySafe: true,
-    source: 'ui',
-    payload: { order: normalized, previousOrder, changedFields }
-  });
-  if (normalized.leadSource === 'public_form' && !previousOrder) {
-    void publishDomainEvent('LEAD_CREATED', {
-      entityType: 'lead',
-      entityId: normalized.id,
-      aggregateId: normalized.id,
-      dedupeKey: `lead:${normalized.id}:${normalized.createdAt}`,
-      idempotencyKey: `lead:${normalized.id}:${normalized.createdAt}`,
-      replaySafe: true,
-      source: 'ui',
-      payload: { order: normalized }
-    });
+    const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
+    setState({ orders: next, error: null });
+    await orderRepository.saveOrder(normalized);
+    window.dispatchEvent(new CustomEvent('cloud-save-success'));
+    return true;
+  } catch (error) {
+    await logger.error('order:update', 'Failed to update order', { orderId: normalized.id, error: serializeError(error) });
+    setState({ orders: previousOrders, error: getErrorMessage(error, 'Не удалось обновить заказ') });
+    return false;
   }
-  if (projectionReason === 'pricing_changed') {
-    void publishDomainEvent('ORDER_PRICING_CHANGED', {
-      entityType: 'order',
-      entityId: normalized.id,
-      aggregateId: normalized.id,
-      dedupeKey: `order-pricing:${normalized.id}:${normalized.updatedAt || 0}`,
-      idempotencyKey: `order-pricing:${normalized.id}:${normalized.updatedAt || 0}`,
-      replaySafe: true,
-      source: 'ui',
-      payload: { order: normalized, previousPricingEvents: previousOrder?.pricingEvents, nextPricingEvents: normalized.pricingEvents }
-    });
-  }
-  if (projectionReason === 'logistics_changed') {
-    void publishDomainEvent('ORDER_LOGISTICS_CHANGED', {
-      entityType: 'order',
-      entityId: normalized.id,
-      aggregateId: normalized.id,
-      dedupeKey: `order-logistics:${normalized.id}:${normalized.updatedAt || 0}`,
-      idempotencyKey: `order-logistics:${normalized.id}:${normalized.updatedAt || 0}`,
-      replaySafe: true,
-      source: 'ui',
-      payload: { order: normalized, previousLogistics: previousOrder?.logistics, nextLogistics: normalized.logistics }
-    });
-  }
-  decideSyncMode({ pendingQueue: cachedQueueLength > 0 });
-
-  if (shouldPurgeLeadArtifacts) {
-    const purgeResult = await purgePublicLeadArtifacts(normalized.id);
-    if (!purgeResult.ok) {
-      await logger.warn('order:update', 'Failed to purge public lead artifacts after lead conversion', {
-        orderId: normalized.id,
-        code: purgeResult.code,
-        error: purgeResult.error
-      });
-    }
-  }
-
-  createOrderMutationIntent('upsert', normalized.id, structuralDiff ? normalized : undefined, patch);
-  await queueMutation('upsert', structuralDiff ? normalized : undefined, normalized.id, patch);
-  decideSyncMode({ pendingQueue: true });
-  if (shouldPrioritizeSync && navigator.onLine) {
-    await flushOfflineMutations({ force: true });
-  }
-  return true;
 };
 
 export const deleteOrderItem = async (orderId: string) => {
   const previousOrders = state.orders;
-  const orderToDelete = previousOrders.find((o) => o.id === orderId);
 
   try {
-    if (orderToDelete) {
-      pushActivityNotification({
-        title: 'Удалён заказ',
-        message: `${orderToDelete.brand} ${orderToDelete.model} · ${orderToDelete.vin}`,
-        orderId: orderToDelete.id,
-        entityType: 'order',
-        entityId: orderToDelete.id
-      });
+    if (shouldSyncDirectly()) {
+      await retrySync(() => deleteRemoteOrderWithStorageCleanup(orderId));
     }
-    rememberLeadDeleted(orderId);
+
     const next = previousOrders.filter((o) => o.id !== orderId);
     setState({ orders: next, error: null });
     await orderRepository.deleteOrder(orderId);
     window.dispatchEvent(new CustomEvent('cloud-save-success'));
-
-    if (orderToDelete?.leadSource === 'public_form' || orderToDelete?.isLead) {
-      const purgeResult = await purgePublicLeadArtifacts(orderId);
-      if (!purgeResult.ok) {
-        await logger.warn('order:delete', 'Failed to purge public lead artifacts after lead deletion', {
-          orderId,
-          code: purgeResult.code,
-          error: purgeResult.error
-        });
-      }
-    }
-
-    createOrderMutationIntent('delete', orderId);
-    await queueMutation('delete', undefined, orderId);
-    void publishDomainEvent('ORDER_DELETED', {
-      entityType: 'order',
-      entityId: orderId,
-      aggregateId: orderId,
-      dedupeKey: `order-deleted:${orderId}:${Date.now()}`,
-      idempotencyKey: `order-deleted:${orderId}`,
-      replaySafe: true,
-      source: 'ui',
-      payload: { orderId, previousOrder: orderToDelete }
-    });
-    decideSyncMode({ pendingQueue: cachedQueueLength > 0 });
     return true;
   } catch (error) {
-    await logger.error('order:delete', 'Failed to delete order locally', {
-      orderId,
-      error: serializeError(error)
-    });
+    await logger.error('order:delete', 'Failed to delete order', { orderId, error: serializeError(error) });
     setState({ orders: previousOrders, error: getErrorMessage(error, 'Не удалось удалить заказ') });
     return false;
   }
