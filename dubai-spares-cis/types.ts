@@ -209,6 +209,11 @@ export interface Order {
   publicQuoteToken?: string;
   zone?: string;
   zones?: string[];
+  preSaleCheck?: {
+    defectPhotos: string[];
+    inspectionMedia: string[];
+    checkedAt?: number;
+  };
 }
 
 export interface VehicleDetails {

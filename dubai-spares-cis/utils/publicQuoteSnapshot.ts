@@ -58,6 +58,12 @@ export type NormalizedPublicQuoteSnapshot = {
   pdfHref: string;
   documents: QuoteDocument[];
   hasRenderableContent: boolean;
+  preSaleCheck: {
+    defectPhotos: string[];
+    inspectionMedia: string[];
+    disclaimer: string;
+    checkedAt?: string;
+  };
 };
 
 const digits = (value: string | null | undefined) => (value || '').replace(/\D/g, '');
@@ -243,6 +249,12 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
         cargoPlaceGroup: part.cargo_place_group || part.cargoPlaceGroup,
         isOversized: Boolean(part.is_oversized || part.isOversized),
       })),
+    },
+    preSaleCheck: {
+      defectPhotos: asArray(raw.pre_sale_check?.defect_photos).filter(Boolean),
+      inspectionMedia: asArray(raw.pre_sale_check?.inspection_media).filter(Boolean),
+      disclaimer: firstString(raw.pre_sale_check?.disclaimer) || 'Товар проверен. После передачи в карго претензии не принимаются',
+      checkedAt: firstString(raw.pre_sale_check?.checked_at),
     },
     pdfHref: firstString(raw.pdf_url, raw.invoice_url, raw.documents?.pdf, raw.documents?.invoice) || '',
     documents,
