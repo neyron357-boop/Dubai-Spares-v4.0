@@ -17,6 +17,14 @@ const resolvePrefix = (pathname: string) => SCREEN_PREFIXES.find((entry) => entr
 
 const useAutoDebugIndexing = (enabled: boolean) => {
   useEffect(() => {
+    document.body.classList.toggle('debug-index-enabled', enabled);
+
+    if (!enabled) {
+      return () => {
+        document.body.classList.remove('debug-index-enabled');
+      };
+    }
+
     const pathname = window.location.hash.replace(/^#/, '') || '/';
     const prefix = resolvePrefix(pathname);
 
@@ -35,8 +43,6 @@ const useAutoDebugIndexing = (enabled: boolean) => {
     applyIndexes();
     const observer = new MutationObserver(() => applyIndexes());
     observer.observe(document.body, { subtree: true, childList: true });
-
-    document.body.classList.toggle('debug-index-enabled', enabled);
 
     return () => {
       observer.disconnect();
