@@ -120,8 +120,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const tabBarPaddingBottomClass = 'pb-[max(8px,env(safe-area-inset-bottom))]';
 
   return (
-      <div className="h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-100 flex items-center justify-center">
-        <div className="h-[var(--app-height,100dvh)] w-full max-w-md bg-gray-50 flex flex-col shadow-sm relative overflow-hidden">
+      <div className="h-[var(--app-height,100dvh)] min-h-[100dvh] w-full overflow-hidden bg-slate-100 flex items-center justify-center">
+        <div className="h-[var(--app-height,100dvh)] min-h-[100dvh] w-full max-w-md bg-gray-50 flex flex-col shadow-sm relative overflow-hidden">
         <DebugIndex indexId="1.01">
         <main
           ref={mainRef}
