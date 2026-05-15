@@ -9,7 +9,7 @@ const SCREEN_PREFIXES: Array<{ test: (pathname: string) => boolean; prefix: stri
   { test: (p) => p.startsWith('/order/'), prefix: '3' },
   { test: (p) => p.startsWith('/new') || p.startsWith('/request') || p.startsWith('/order-form') || p.startsWith('/public-order-form'), prefix: '4' },
   { test: (p) => p.startsWith('/settings'), prefix: '5' },
-  { test: (p) => p.startsWith('/database') || p.startsWith('/variants') || p.startsWith('/vendor'), prefix: '6' },
+  { test: (p) => p.startsWith('/database') || p.startsWith('/variants'), prefix: '6' },
   { test: (p) => p.startsWith('/notifications'), prefix: '7' }
 ];
 

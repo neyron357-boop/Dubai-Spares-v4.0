@@ -1,6 +1,6 @@
 import React from 'react';
 import { Order } from '../types';
-import { X, TrendingUp, Calendar, DollarSign } from 'lucide-react';
+import { X, TrendingDown, TrendingUp } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -8,120 +8,122 @@ interface Props {
   orders: Order[];
 }
 
+const formatAed = (value: number) => `${Number(value || 0).toFixed(0)} AED`;
+
 const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
   if (!isOpen) return null;
 
-  const orderStats = orders
-    .filter((order) => order.isSold)
-    .map((order) => {
-      let profitAed = Number(order.soldProfitUsd || 0) * Number(order.exchangeRate || 3.67);
+  const soldOrders = orders.filter((order) => order.isSold && !order.isArchived);
+  const totals = soldOrders.reduce((sum, order) => {
+    const partsTotal = order.parts.reduce((partSum, part) => {
+      const quantity = Math.max(1, Number(part.quantity || 1));
+      const selected = (part.variants || []).find((variant) => variant.id === part.bestOfferId || variant.isBest) || part.variants?.[0];
+      if (!selected) return partSum;
+      const purchase = Number(selected.purchasePriceAed ?? selected.priceAed ?? 0) * quantity;
+      const sale = Number(selected.salePriceAed ?? selected.priceAed ?? 0) * quantity;
+      return {
+        purchase: partSum.purchase + purchase,
+        sale: partSum.sale + sale
+      };
+    }, { purchase: 0, sale: 0 });
 
-      const totals = order.parts.reduce((sum, part) => {
-        if (!(part.isFound && part.variants.length > 0)) return sum;
-        const variant = part.variants[0];
-        const purchase = Number(variant.purchasePriceAed ?? variant.priceAed ?? 0);
-        const sale = Number(variant.salePriceAed ?? variant.priceAed ?? 0);
-        return { purchase: sum.purchase + purchase, sale: sum.sale + sale };
-      }, { purchase: 0, sale: 0 });
+    const delivery = Number(order.logistics?.deliveryAed || 0);
+    const packing = Number(order.logistics?.packingAed || 0);
+    const service = Number(order.logistics?.serviceFeeAed || 0);
+    const markup = order.markupType === 'fixed'
+      ? Number(order.markupFixedAed || 0)
+      : partsTotal.sale * (Number(order.markupPercent || 0) / 100);
+    const clientPrice = partsTotal.sale + delivery + packing + service + markup;
+    const calculatedProfit = clientPrice - partsTotal.purchase - delivery - packing;
+    const profit = Number.isFinite(Number(order.soldProfitUsd)) && Number(order.soldProfitUsd) !== 0
+      ? Number(order.soldProfitUsd) * Number(order.exchangeRate || 3.67)
+      : calculatedProfit;
 
-      if (!Number.isFinite(profitAed) || profitAed === 0) {
-        profitAed = (totals.sale - totals.purchase) + (order.markupType === 'fixed'
-          ? Number(order.markupFixedAed || 0)
-          : totals.sale * (Number(order.markupPercent || 0) / 100));
-      }
+    return {
+      purchase: sum.purchase + partsTotal.purchase,
+      delivery: sum.delivery + delivery,
+      packing: sum.packing + packing,
+      service: sum.service + service + markup,
+      clientPrice: sum.clientPrice + clientPrice,
+      profit: sum.profit + profit
+    };
+  }, { purchase: 0, delivery: 0, packing: 0, service: 0, clientPrice: 0, profit: 0 });
 
-      const commissionAed = Number(order.logistics?.serviceFeeAed || 0);
-      return { ...order, profitAed, commissionAed, totalIncomeAed: profitAed + commissionAed };
-    });
+  const hasEnoughData = soldOrders.length > 0 && totals.clientPrice > 0 && totals.purchase > 0;
+  const margin = hasEnoughData && totals.clientPrice > 0 ? (totals.profit / totals.clientPrice) * 100 : 0;
+  const isProfit = totals.profit >= 0;
 
-  const totalIncome = orderStats.reduce((sum, order) => sum + order.totalIncomeAed, 0);
-  const totalProfit = orderStats.reduce((sum, order) => sum + order.profitAed, 0);
-  const totalCommission = orderStats.reduce((sum, order) => sum + order.commissionAed, 0);
+  const rows = [
+    ['Закупка', totals.purchase],
+    ['Доставка', totals.delivery],
+    ['Упаковка', totals.packing],
+    ['Сервисный сбор', totals.service],
+    ['Цена клиенту', totals.clientPrice]
+  ] as const;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-[max(1rem,env(safe-area-inset-top))] backdrop-blur-sm"
+      className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-4"
       onClick={onClose}
     >
       <section
         role="dialog"
         aria-modal="true"
         aria-label="Доход компании"
-        className="flex max-h-[min(720px,calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+        className="flex max-h-[min(88dvh,720px)] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-600">Finance</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Finance</p>
             <h2 className="text-lg font-black text-slate-950">Доход компании</h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Закрыть"
-            className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-600 active:scale-95"
-          >
+          <button type="button" onClick={onClose} aria-label="Закрыть" className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-600 active:scale-95">
             <X size={18} />
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="rounded-3xl bg-emerald-600 p-5 text-white shadow-lg">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.12em] text-emerald-100">Итого</p>
-                <div className="mt-2 text-4xl font-black leading-none">{totalIncome.toFixed(0)} AED</div>
-              </div>
-              <div className="grid h-11 w-11 place-items-center rounded-2xl bg-white/15">
-                <TrendingUp size={22} />
-              </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+          {!hasEnoughData ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-500">
+              Недостаточно данных для расчёта дохода
             </div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Прибыль</p>
-              <p className="mt-1 text-lg font-black text-slate-950">{totalProfit.toFixed(0)} AED</p>
-            </div>
-            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Комиссия</p>
-              <p className="mt-1 text-lg font-black text-slate-950">{totalCommission.toFixed(0)} AED</p>
-            </div>
-          </div>
-
-          <div className="mt-5 space-y-2 pb-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">Проданные заказы</h3>
-              <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-500">{orderStats.length}</span>
-            </div>
-
-            {orderStats.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-400">
-                Проданных заказов пока нет
-              </div>
-            ) : (
-              orderStats.map((order) => (
-                <article key={order.id} className="rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-slate-950">{order.brand} {order.model}</p>
-                      <p className="mt-1 flex items-center gap-1 text-[11px] font-bold text-slate-400">
-                        <Calendar size={11} /> {new Date(order.createdAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="flex items-center justify-end gap-1 text-base font-black text-emerald-600">
-                        <DollarSign size={14} /> {order.totalIncomeAed.toFixed(0)}
-                      </p>
-                      {order.commissionAed > 0 && (
-                        <p className="text-[10px] font-bold text-emerald-700">комиссия {order.commissionAed.toFixed(0)} AED</p>
-                      )}
-                    </div>
+          ) : (
+            <div className="space-y-4">
+              <div className={`rounded-2xl border px-4 py-3 ${isProfit ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.16em] opacity-70">{isProfit ? 'Прибыль' : 'Убыток'}</p>
+                    <p className="mt-1 text-3xl font-black leading-none">{formatAed(totals.profit)}</p>
                   </div>
-                </article>
-              ))
-            )}
-          </div>
+                  {isProfit ? <TrendingUp size={28} /> : <TrendingDown size={28} />}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="space-y-2">
+                  {rows.map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-semibold text-slate-500">{label}:</span>
+                      <span className="font-black text-slate-900">{formatAed(value)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 border-t border-slate-100 pt-3">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-semibold text-slate-500">Прибыль:</span>
+                    <span className={`font-black ${isProfit ? 'text-emerald-700' : 'text-rose-700'}`}>{formatAed(totals.profit)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                    <span className="font-semibold text-slate-500">Маржа:</span>
+                    <span className={`font-black ${isProfit ? 'text-emerald-700' : 'text-rose-700'}`}>{margin.toFixed(0)}%</span>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-center text-[11px] font-semibold text-slate-400">Проданных заказов: {soldOrders.length}</p>
+            </div>
+          )}
         </div>
       </section>
     </div>
