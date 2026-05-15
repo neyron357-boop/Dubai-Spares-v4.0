@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
@@ -154,8 +154,8 @@ const removeBrokenPhotosFromOrder = (order: Order): { next: Order; removed: numb
   };
 };
 
-const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger' }> = ({ title, children, tone = 'default' }) => {
-  const [isOpen, setIsOpen] = useState(false);
+const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger'; defaultOpen?: boolean }> = ({ title, children, tone = 'default', defaultOpen = false }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   const sectionRef = useRef<HTMLElement | null>(null);
 
   return (
@@ -1369,7 +1369,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
       </div>
 
 
-      <Section title="Основные настройки">
+      <Section title="Основные настройки" defaultOpen>
         <div className="space-y-3">
           <Field label="Язык приложения">
             <select value={draftSettings.appLanguage} onChange={(e) => {

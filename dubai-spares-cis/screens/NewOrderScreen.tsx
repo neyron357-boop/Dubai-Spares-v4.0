@@ -827,7 +827,7 @@ const NewOrderScreen: React.FC = () => {
 
     const now = Date.now();
     const params = new URLSearchParams(window.location.search);
-    const fromLead = params.get('from') === 'lead';
+    const fromLead = params.get('from') === 'lead' || params.get('source') === 'public_form';
 
     const rawContact = contactValue.trim();
     const looksLikePhone = /^\+[0-9]{9,15}$/.test(rawContact);

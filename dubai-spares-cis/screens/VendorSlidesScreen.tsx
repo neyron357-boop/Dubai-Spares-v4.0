@@ -94,9 +94,9 @@ const VendorSlidesScreen: React.FC = () => {
   }, [activeOrders]);
 
   return (
-    <div className="fixed inset-0 overflow-y-auto bg-[#0B1220] text-white">
+    <div className="min-h-[100dvh] bg-[#0B1220] pb-[calc(env(safe-area-inset-bottom)+6rem)] text-white">
       <div className="mx-auto max-w-4xl px-3 py-4" style={{ paddingTop: 'max(1rem, calc(env(safe-area-inset-top) + 0.5rem))' }}>
-        <div className="mb-4 rounded-2xl border border-slate-700/80 bg-slate-900/50 px-3 py-3">
+        <div className="sticky top-0 z-20 mb-4 rounded-2xl border border-slate-700/80 bg-slate-900/95 px-3 py-3 shadow-xl backdrop-blur">
           <button
             type="button"
             onClick={() => navigate('/orders')}

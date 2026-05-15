@@ -2243,7 +2243,18 @@ const SuppliersScreen: React.FC = () => {
                 onPointerLeave={() => cancelLongPress()}
                 className={`rounded-2xl p-3 shadow-sm space-y-2 border transition-all duration-300 ease-out ${s.whatsappFast === true ? 'ring-1 ring-emerald-200' : ''} ${isExpanded ? 'bg-indigo-50/60 border-indigo-200 shadow-indigo-100/70' : 'bg-white border-gray-100 hover:border-slate-200 hover:shadow-md'}`}
               >
-                <button type="button" onClick={() => toggleSupplierExpanded(s.id)} className="w-full text-left space-y-2">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleSupplierExpanded(s.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      toggleSupplierExpanded(s.id);
+                    }
+                  }}
+                  className="w-full text-left space-y-2"
+                >
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       {((s.photos && s.photos.length > 0) || s.photoUrl) ? (
@@ -2315,7 +2326,7 @@ const SuppliersScreen: React.FC = () => {
                     <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-slate-700">⭐ {Math.max(1, Math.min(5, Math.round(trustDisplay || 0)))}/5</span>
                     <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-slate-700">📍 {Number.isFinite(distanceKm) ? `${Math.max(0.1, Number(distanceKm.toFixed(1)))} km` : 'n/a'}</span>
                   </div>
-                </button>
+                </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   {(s.phone || '').trim() ? (
@@ -2337,7 +2348,7 @@ const SuppliersScreen: React.FC = () => {
                   <button type="button" onClick={() => setVisitFormSupplierId(s.id)} className="h-8 rounded-full border border-slate-300 bg-white px-2 text-slate-700">📍 Посетил</button>
                 </div>
 
-                <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isExpanded ? 2200 : 0, opacity: isExpanded ? 1 : 0 }}>
+                <div className={isExpanded ? "space-y-3" : "hidden"}>
                 {isExpanded && <>
                 <div className="rounded-xl border border-gray-100 bg-slate-50 p-2 space-y-1">
                   <p className="text-[11px] font-semibold text-slate-700"><span className="font-black">Марки:</span> {(brands.length > 0 ? brands : ['—']).join(', ')}</p>
@@ -2382,7 +2393,7 @@ const SuppliersScreen: React.FC = () => {
                 {isExpanded && (
                 <div className="border-t border-gray-100 pt-3 space-y-2">
                   <button type="button" onClick={() => setActiveOrderLinkShopId(isManagePartsExpanded ? null : s.id)} className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 inline-flex items-center justify-between gap-2"><span className="inline-flex items-center gap-2"><Link2 size={13} /> Управление деталями поставщика</span>{isManagePartsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>
-                  <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isManagePartsExpanded ? 800 : 0, opacity: isManagePartsExpanded ? 1 : 0 }}>
+                  <div className={isManagePartsExpanded ? "space-y-3" : "hidden"}>
                   {isManagePartsExpanded && (
                     <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50 p-2 space-y-2">
                       <select
@@ -2440,7 +2451,7 @@ const SuppliersScreen: React.FC = () => {
                       <span>Добавленные детали ({linkedParts.length})</span>
                       {isAddedPartsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     </button>
-                    <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxHeight: isAddedPartsExpanded ? 900 : 0, opacity: isAddedPartsExpanded ? 1 : 0 }}>
+                    <div className={isAddedPartsExpanded ? "space-y-3" : "hidden"}>
                     {isAddedPartsExpanded && (linkedParts.length === 0 ? (
                       <p className="text-[11px] text-slate-500">Нет деталей. Добавьте через блок выше или через «Добавить варианты».</p>
                     ) : linkedParts.map((entry) => (

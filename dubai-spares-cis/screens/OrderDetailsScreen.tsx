@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { Order, OrderPricingEvent, Part, Priority, OrderNote, Shop, VoiceNoteAudio } from '../types';
+import { Order, OrderPricingEvent, Part, Priority, Source, OrderNote, Shop, VoiceNoteAudio } from '../types';
 import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationDiagnostics, getShopRecommendationLevel, isBrandMatch, isShopCompatibleWithOrder } from '../shopMatching';
 import { SOURCES } from '../constants';
 import { 
@@ -267,7 +267,24 @@ const OrderDetailsScreen: React.FC = () => {
     : '/orders';
   const { orders, isLoading, updateOrder, removePart, suppliers, fetchOrderDetails } = useStore();
   const { settings } = useAppSettings();
-  const order = orders.find(o => o.id === id);
+  const foundOrder = orders.find(o => o.id === id);
+  const orderMissing = !foundOrder;
+  const order = foundOrder ?? ({
+    id: id || '',
+    brand: '',
+    model: '',
+    year: '',
+    vin: '',
+    priority: Priority.MEDIUM,
+    clientName: '',
+    source: Source.OTHER,
+    parts: [],
+    markupPercent: 0,
+    exchangeRate: 3.67,
+    createdAt: Date.now(),
+    isArchived: false,
+    isSold: false
+  } satisfies Order);
   
   // State for handling missing order
   const [retryAttempts, setRetryAttempts] = useState(0);
@@ -342,7 +359,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [isLaunchingRadar, setIsLaunchingRadar] = useState(false);
-  const [isEditMode] = useState(true);
+  const [isEditMode, setIsEditMode] = useState(true);
   const [isClientBlockExpanded, setIsClientBlockExpanded] = useState(false);
   const [isVehicleBlockExpanded, setIsVehicleBlockExpanded] = useState(false);
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
@@ -383,15 +400,15 @@ const OrderDetailsScreen: React.FC = () => {
   }, [order?.id, order?.markupFixedAed]);
 
   useEffect(() => {
-    if (!order) return;
+    if (orderMissing) return;
     setLogisticsDraft({
       deliveryAed: String(Number(order.logistics?.deliveryAed || 0)),
       packingAed: String(Number(order.logistics?.packingAed || 0)),
       serviceFeeAed: String(Number(order.logistics?.serviceFeeAed || 0))
     });
-  }, [order?.id, order?.logistics?.deliveryAed, order?.logistics?.packingAed, order?.logistics?.serviceFeeAed]);
+  }, [orderMissing, order.id, order.logistics?.deliveryAed, order.logistics?.packingAed, order.logistics?.serviceFeeAed]);
   useEffect(() => {
-    if (!order?.id) return;
+    if (orderMissing || !order.id) return;
     setCustomerLogs(getOrderCustomerLogs(order.id));
     const handleLogsChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ orderId?: string }>).detail;
@@ -399,18 +416,20 @@ const OrderDetailsScreen: React.FC = () => {
     };
     window.addEventListener('customer-logs:changed', handleLogsChanged);
     return () => window.removeEventListener('customer-logs:changed', handleLogsChanged);
-  }, [order?.id]);
+  }, [orderMissing, order.id]);
 
 
   useEffect(() => {
+    if (orderMissing) return;
     const nextDrafts = (order.parts || []).reduce((acc, part) => {
       acc[part.id] = part.comment || '';
       return acc;
     }, {} as Record<string, string>);
     setPartCommentDrafts(nextDrafts);
-  }, [order.id, order.parts]);
+  }, [orderMissing, order.id, order.parts]);
 
   useEffect(() => {
+    if (orderMissing) return;
     const nextCargoDrafts = (order.parts || []).reduce((acc, part) => {
       acc[part.id] = {
         weightKg: Number((part as any).weightKg || 0) > 0 ? String(Number((part as any).weightKg || 0)) : '',
@@ -421,11 +440,12 @@ const OrderDetailsScreen: React.FC = () => {
       return acc;
     }, {} as Record<string, PartCargoDraft>);
     setPartCargoDrafts(nextCargoDrafts);
-  }, [order.id, order.parts]);
+  }, [orderMissing, order.id, order.parts]);
 
   useEffect(() => {
+    if (orderMissing) return;
     setPartCommentExpanded({});
-  }, [order.id]);
+  }, [orderMissing, order.id]);
 
   useEffect(() => () => {
     if (pricingSaveDebounceRef.current) window.clearTimeout(pricingSaveDebounceRef.current);
@@ -477,11 +497,11 @@ const OrderDetailsScreen: React.FC = () => {
     void fetchOrderDetails(id);
   }, [id, orders, fetchOrderDetails]);
   useEffect(() => {
-    if (!order) return;
+    if (orderMissing) return;
     if (order.leadSource === 'public_form' && order.leadUnread) {
       updateOrder({ ...order, leadUnread: false, leadReadAt: Date.now(), isLead: false, status: 'active' });
     }
-  }, [order?.id]);
+  }, [orderMissing, order.id]);
 
 
   useEffect(() => {
@@ -563,7 +583,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   // Auto-retry loading order if not found
   useEffect(() => {
-    if (!id || order || isLoading || isRetrying || retryAttempts >= MAX_RETRY_ATTEMPTS) return;
+    if (!id || !orderMissing || isLoading || isRetrying || retryAttempts >= MAX_RETRY_ATTEMPTS) return;
     
     let cancelled = false;
     const retryTimer = window.setTimeout(() => {
@@ -583,9 +603,9 @@ const OrderDetailsScreen: React.FC = () => {
       cancelled = true;
       window.clearTimeout(retryTimer);
     };
-  }, [id, order, isLoading, isRetrying, retryAttempts, fetchOrderDetails]);
+  }, [id, orderMissing, isLoading, isRetrying, retryAttempts, fetchOrderDetails]);
 
-  if (!order && isLoading) {
+  if (orderMissing && isLoading) {
     return (
       <div className="p-4 space-y-4 animate-pulse">
         <div className="h-10 bg-gray-200 rounded-2xl" />
@@ -597,7 +617,7 @@ const OrderDetailsScreen: React.FC = () => {
   }
 
   const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency; sendPublicQuote?: boolean }) => {
-    if (!order) return;
+    if (orderMissing) return;
     const parsedRateInput = parseFloat(String(rateInput || '').replace(',', '.'));
     const quoteExchangeRate = Number.isFinite(parsedRateInput) && parsedRateInput > 0
       ? parsedRateInput
@@ -643,7 +663,7 @@ const OrderDetailsScreen: React.FC = () => {
     await shareQuoteLink(quoteOrder, options);
   };
 
-  if (!order) {
+  if (orderMissing) {
     return (
       <div className="flex min-h-[100dvh] flex-col items-center justify-center space-y-4 p-4">
         <div className="text-center space-y-3">
@@ -667,7 +687,7 @@ const OrderDetailsScreen: React.FC = () => {
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={handleBackNavigation}
+            onClick={() => navigate(backTo)}
             className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm"
           >
             ← Назад к заказам
@@ -1043,14 +1063,6 @@ const OrderDetailsScreen: React.FC = () => {
       && !['markupType', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType', 'customerContact', 'socialNickname'].includes(String(field));
 
     if (!shouldDebounce) {
-      if (field === 'salesStatus' && String(value) === 'Completed') {
-        const preSaleCheck = orderRef.current?.preSaleCheck || { defectPhotos: [], inspectionMedia: [] };
-        if (!preSaleCheck.defectPhotos?.length || !preSaleCheck.inspectionMedia?.length) {
-          setSellError("Статус Completed требует заполненной предпродажной проверки.");
-          setTimeout(() => setSellError(null), 3500);
-          return;
-        }
-      }
       commitDeferredOrderField(field, value);
       syncPerf.recordTypingSample(Math.round((performance.now() - keyStart) * 100) / 100);
       return;
@@ -1574,12 +1586,6 @@ const OrderDetailsScreen: React.FC = () => {
       setTimeout(() => setSellError(null), 3000);
       return;
     }
-    const preSaleCheck = order.preSaleCheck || { defectPhotos: [], inspectionMedia: [] };
-    if (!preSaleCheck.defectPhotos?.length || !preSaleCheck.inspectionMedia?.length) {
-      setSellError("Перед продажей заполните 'Предпродажную проверку': фото и видео/voice.");
-      setTimeout(() => setSellError(null), 3500);
-      return;
-    }
 
     setShowSellConfirm(true);
   };
@@ -1662,24 +1668,6 @@ const OrderDetailsScreen: React.FC = () => {
   const removeCarPhoto = (photoIndex: number) => {
     const next = getCarPhotos().filter((_, index) => index !== photoIndex);
     void updateOrder({ ...order, carPhotos: next, carPhotoUrl: next[0] || '' });
-  };
-
-  const addPreSaleMedia = async (kind: 'defectPhotos' | 'inspectionMedia', files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const photos = await Promise.all(Array.from(files).map(async (file) => {
-      try {
-        return await optimizeImageForUpload(file, `order-details:presale:${kind}:${file.name}`);
-      } catch {
-        const reader = new FileReader();
-        return await new Promise<string>((resolve) => {
-          reader.onloadend = () => resolve(String(reader.result || ''));
-          reader.readAsDataURL(file as Blob);
-        });
-      }
-    }));
-    const current = order.preSaleCheck || { defectPhotos: [], inspectionMedia: [] };
-    const next = Array.from(new Set([...(current[kind] || []), ...photos.filter(Boolean)]));
-    void updateOrder({ ...order, preSaleCheck: { ...current, [kind]: next, checkedAt: Date.now() } });
   };
 
   const handleNotePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2092,7 +2080,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] text-[#1E1F23]">
-      <div className="sticky top-0 z-30 space-y-1 border-b border-gray-100 bg-white/95 px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.06)] backdrop-blur">
+      <div className="sticky top-0 z-40 space-y-1 border-b border-gray-100 bg-white/95 px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.06)] backdrop-blur">
         <div className="flex items-center justify-between gap-2">
           <button type="button" onClick={handleBackNavigation} className="p-2 -ml-1 rounded-full transition-colors text-gray-600 active:bg-gray-100">
             <ArrowLeft size={20} />
@@ -2220,35 +2208,6 @@ const OrderDetailsScreen: React.FC = () => {
       </div>
 
       <div className="p-4 space-y-4">
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Предпродажная проверка</p>
-          <p className="text-xs text-gray-600">Обязательно перед статусом Sold/Completed: фото дефектов (или их отсутствия) и видео/voice проверки.</p>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2">
-              <p className="text-xs font-bold text-gray-700">Фото дефектов / без дефектов</p>
-              <input type="file" multiple accept="image/*" onChange={(e) => { void addPreSaleMedia('defectPhotos', e.target.files); e.target.value = ''; }} className="w-full text-xs" />
-              <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                {(order.preSaleCheck?.defectPhotos || []).map((ph, idx) => (
-                  <button key={`df-${idx}`} type="button" onClick={() => setGallery({ images: order.preSaleCheck?.defectPhotos || [], index: idx })} className="relative h-14 w-14 overflow-hidden rounded-lg border border-gray-200 shrink-0">
-                    <img src={ph} className="h-full w-full object-cover" />
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs font-bold text-gray-700">Видео / Voice проверки</p>
-              <input type="file" multiple accept="image/*,video/*,audio/*" onChange={(e) => { void addPreSaleMedia('inspectionMedia', e.target.files); e.target.value = ''; }} className="w-full text-xs" />
-              <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                {(order.preSaleCheck?.inspectionMedia || []).map((ph, idx) => (
-                  <button key={`im-${idx}`} type="button" onClick={() => setGallery({ images: order.preSaleCheck?.inspectionMedia || [], index: idx })} className="relative h-14 w-14 overflow-hidden rounded-lg border border-gray-200 shrink-0">
-                    <img src={ph} className="h-full w-full object-cover" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Зона заказа</p>
           <div className="flex flex-wrap gap-1 min-h-[28px]">
@@ -2402,39 +2361,6 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
-        <div ref={vehicleSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Карточка заказа</p>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                const photos = getCarPhotos();
-                if (photos.length) setGallery({ images: photos, index: 0 });
-              }}
-              className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-slate-100"
-            >
-              {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)
-                ? <img src={((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" />
-                : <div className="flex h-full w-full items-center justify-center text-xl font-black text-slate-400">{order.brand?.[0] || '?'}</div>}
-            </button>
-            <div className="min-w-0 space-y-1">
-              <p className="text-sm font-bold text-gray-900 truncate">{order.brand || '—'} {order.model || ''}</p>
-              {isEditMode ? (
-                <input
-                  type="text"
-                  value={String(draftFields.vin ?? order.vin ?? '')}
-                  onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))}
-                  onBlur={() => flushDeferredOrderField('vin')}
-                  placeholder="VIN"
-                  className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-semibold text-slate-700 outline-none"
-                />
-              ) : (
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 truncate">VIN: {order.vin || '—'}</p>
-              )}
-              <p className="text-xs font-semibold text-blue-700">Статус оплаты: {PAYMENT_STATUS_LABELS[order.paymentStatus || 'none']}</p>
-            </div>
-          </div>
-        </div>
 
 
         <div ref={markupSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">

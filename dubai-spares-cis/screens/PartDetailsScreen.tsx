@@ -377,17 +377,18 @@ const PartDetailsScreen: React.FC = () => {
     setLocationParseNotice(null);
   };
 
-  const attachVariantFromLibrary = (item: VariantLibraryItem) => {
+  const attachVariantFromLibrary = async (item: VariantLibraryItem) => {
     const variant = cloneVariantForPart(item, part.id);
     const updatedParts = order.parts.map((p) => {
       if (p.id !== part.id) return p;
       return {
         ...p,
         isFound: true,
-        variants: [variant, ...p.variants]
+        status: 'found',
+        variants: [variant, ...(Array.isArray(p.variants) ? p.variants : [])]
       };
     });
-    updateOrder({ ...order, parts: updatedParts });
+    await updateOrder({ ...order, parts: updatedParts });
     setShowLibraryPicker(false);
   };
 
@@ -554,16 +555,15 @@ const PartDetailsScreen: React.FC = () => {
         return {
           ...p,
           isFound: true,
+          status: 'found',
           bestOfferId,
-          // Keep sample photos independent from variant photos.
-          // Preview consumers should combine part + variant photos at read-time.
           photoUrl: p.photoUrl || '',
           photos: p.photos || [],
           variants: variants.map((v) => ({ ...v, isBest: form.isBest ? v.id === variantId : v.isBest && v.id !== variantId }))
         };
       });
 
-      updateOrder({ ...order, parts: updatedParts });
+      await updateOrder({ ...order, parts: updatedParts });
       setShowAfterSaveSheet(!editingVariantId);
       closeEditor();
     } finally {
