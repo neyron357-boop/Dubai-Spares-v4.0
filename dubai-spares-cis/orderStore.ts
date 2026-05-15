@@ -43,11 +43,12 @@ const createUuid = () =>
 
 const ensureUuid = (value?: string) => (value && isUuid(value) ? value : createUuid());
 
-const getStatus = (order: Pick<Order, 'isSold' | 'isArchived' | 'isVip' | 'isLead'>): OrderStatus => {
+const getStatus = (order: Pick<Order, 'isSold' | 'isArchived' | 'isVip' | 'isLead' | 'status'>): OrderStatus => {
   if (order.isSold) return 'sold';
   if (order.isArchived) return 'archive';
+  if (order.isLead || order.status === 'lead') return 'lead';
   if (order.isVip) return 'vip';
-  if (order.isLead) return 'lead';
+  if (order.status === 'new_inquiry' || order.status === 'in_progress' || order.status === 'waiting_deposit') return order.status;
   return 'active';
 };
 
@@ -69,6 +70,13 @@ const SEARCH_DEPOSIT_STATUSES: SearchDepositStatus[] = ['not_required', 'pending
 const normalizeSearchDepositStatus = (value: unknown): SearchDepositStatus =>
   SEARCH_DEPOSIT_STATUSES.includes(value as SearchDepositStatus) ? (value as SearchDepositStatus) : 'not_required';
 const hasPaidSearchDeposit = (order: Pick<Order, 'searchDepositStatus'>) => normalizeSearchDepositStatus(order.searchDepositStatus) === 'paid';
+const isRealLeadOrder = (order: Pick<Order, 'isLead' | 'status' | 'leadSource' | 'customerStatus'>) =>
+  order.isLead === true
+  || order.status === 'lead'
+  || order.customerStatus === 'LEAD'
+  || order.leadSource === 'public_form';
+const canEditCommercialData = (order: Pick<Order, 'isLead' | 'status' | 'leadSource' | 'customerStatus' | 'searchDepositStatus'>) =>
+  !isRealLeadOrder(order) || hasPaidSearchDeposit(order);
 
 const getMissingColumnName = (error: unknown): string | null => {
   const payload = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown } | null;
@@ -1133,17 +1141,27 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
       isOversized: Boolean((part as any).is_oversized),
       variants: (part.price_variants || []).map((v): PriceVariant => ({
         id: String(v.id),
+        orderId: (v as any).order_id ? String((v as any).order_id) : String(row.id),
         partId: String(v.part_id),
         priceAed: Number((v.sale_price_aed ?? v.price_aed) || 0),
         purchasePriceAed: Number((v.purchase_price_aed ?? v.price_aed) || 0),
         salePriceAed: Number((v.sale_price_aed ?? v.price_aed) || 0),
+        currency: ((v as any).currency === 'AED' ? 'AED' : undefined),
+        condition: (v as any).condition || undefined,
+        availability: (v as any).availability || undefined,
+        deliveryEta: (v as any).delivery_eta || undefined,
         shopName: v.shop_name || '',
         shopId: v.shop_id ? String(v.shop_id) : undefined,
         phone: v.phone || '',
         location: v.location || '',
+        locationText: (v as any).location_text || v.location || '',
+        mapsUrl: (v as any).maps_url || '',
         photos: v.photos || [],
         photoUrl: v.photo_url || v.photos?.[0],
-        createdAt: parseTimestamp(v.created_at)
+        isBest: !!(v as any).is_best,
+        note: (v as any).note || '',
+        createdAt: parseTimestamp(v.created_at),
+        updatedAt: (v as any).updated_at ? parseTimestamp((v as any).updated_at) : undefined
       }))
     })),
     markupPercent: Number(row.markup_percent || 0),
@@ -1536,17 +1554,27 @@ const persistOrderGraph = async (order: Order) => {
   const variantRows = (cloudOrder.parts || []).flatMap((part) =>
     (part.variants || []).map((variant) => ({
       id: variant.id,
+      order_id: uploadedOrder.id,
       part_id: part.id,
       price_aed: variant.salePriceAed ?? variant.priceAed,
       purchase_price_aed: variant.purchasePriceAed ?? variant.priceAed,
       sale_price_aed: variant.salePriceAed ?? variant.priceAed,
+      currency: variant.currency || 'AED',
+      condition: variant.condition || null,
+      availability: variant.availability || null,
+      delivery_eta: variant.deliveryEta || null,
       shop_name: variant.shopName,
       shop_id: variant.shopId || null,
       phone: variant.phone,
       location: variant.location,
+      location_text: variant.locationText || variant.location || '',
+      maps_url: variant.mapsUrl || '',
       photo_url: variant.photoUrl,
       photos: variant.photos || [],
-      created_at: parseTimestamp(variant.createdAt)
+      is_best: !!variant.isBest,
+      note: variant.note || '',
+      created_at: parseTimestamp(variant.createdAt),
+      updated_at: toIsoTimestamp(variant.updatedAt || variant.createdAt || Date.now())
     }))
   );
 
@@ -1557,16 +1585,14 @@ const persistOrderGraph = async (order: Order) => {
       payloadBytes: JSON.stringify(batch).length
     });
     let { error: variantError } = await supabase.from('price_variants').upsert(batch, { onConflict: 'id' });
+    let currentVariantBatch: Record<string, unknown>[] = batch as Record<string, unknown>[];
 
     if (variantError && isTimestamptzTimestampInputError(variantError)) {
       await logger.warn('sync:persist', 'price_variants.created_at expects timestamptz; retrying with ISO timestamps');
-      ({ error: variantError } = await supabase.from('price_variants').upsert(
-        batch.map((row) => ({ ...row, created_at: toIsoTimestamp(row.created_at) })),
-        { onConflict: 'id' }
-      ));
+      currentVariantBatch = batch.map((row) => ({ ...row, created_at: toIsoTimestamp(row.created_at), updated_at: toIsoTimestamp(row.updated_at) }));
+      ({ error: variantError } = await supabase.from('price_variants').upsert(currentVariantBatch, { onConflict: 'id' }));
     }
 
-    let currentVariantBatch: Record<string, unknown>[] = batch as Record<string, unknown>[];
     while (variantError) {
       const missingVariantCol = getMissingColumnName(variantError);
       if (!missingVariantCol) break;
@@ -2146,9 +2172,9 @@ export const updateOrderItem = async (order: Order) => {
   const previousOrder = state.orders.find((item) => item.id === order.id);
   const normalized = normalizeOrder({ ...order, updatedAt: Date.now() });
   const previousOrders = state.orders;
-  const searchDepositPaid = hasPaidSearchDeposit(normalized);
+  const canEditCommercial = canEditCommercialData(normalized);
 
-  if (!searchDepositPaid && previousOrder) {
+  if (!canEditCommercial && previousOrder) {
     const previousVariantTotal = previousOrder.parts.reduce((sum, part) => sum + (part.variants || []).length, 0);
     const nextVariantTotal = normalized.parts.reduce((sum, part) => sum + (part.variants || []).length, 0);
     const previousSuppliersTotal = (previousOrder.vendorContacts || []).length;
@@ -2260,7 +2286,7 @@ export const removePartItem = async (orderId: string, partId: string) => {
 export const updatePriceVariantItem = async (partId: string, variant: PriceVariant) => {
   const order = state.orders.find((o) => o.parts.some((p) => p.id === partId));
   if (!order) return;
-  if (!hasPaidSearchDeposit(order)) {
+  if (!canEditCommercialData(order)) {
     setState({ error: 'Добавление вариантов цен доступно только после оплаты депозита поиска (50 AED).' });
     return;
   }

@@ -67,6 +67,7 @@ export type OfferSyncStatus = 'synced' | 'pending' | 'error';
 
 export interface PriceVariant {
   id: string;
+  orderId?: string;
   partId?: string;
   priceAed: number;
   purchasePriceAed?: number;
@@ -383,6 +384,7 @@ export interface Supplier {
   activityScore?: number;
   lastContactAt?: number;
   isFavorite?: boolean;
+  isPinned?: boolean;
   createdAt?: number;
   updatedAt?: number;
   syncStatus?: SupplierSyncStatus;
@@ -424,17 +426,27 @@ export interface Shop {
 
 export interface DbPriceVariantRow {
   id: string;
+  order_id?: string | null;
   part_id: string;
   price_aed: number;
   purchase_price_aed?: number | null;
   sale_price_aed?: number | null;
+  currency?: string | null;
+  condition?: OfferCondition | null;
+  availability?: OfferAvailability | null;
+  delivery_eta?: OfferDeliveryEta | null;
   shop_name: string;
   shop_id?: string | null;
   phone: string;
   location: string;
+  location_text?: string | null;
+  maps_url?: string | null;
   photo_url: string | null;
   photos: string[];
+  is_best?: boolean | null;
+  note?: string | null;
   created_at: number | string;
+  updated_at?: number | string | null;
 }
 
 export interface DbPartRow {

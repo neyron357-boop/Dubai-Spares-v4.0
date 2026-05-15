@@ -20,8 +20,6 @@ const SuppliersScreen = lazy(() => import('./screens/SuppliersScreen'));
 const NotificationsScreen = lazy(() => import('./screens/NotificationsScreen'));
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
 const VariantsScreen = lazy(() => import('./screens/VariantsScreen'));
-const VendorSlider = lazy(() => import('./components/VendorSlider'));
-const VendorSlidesScreen = lazy(() => import('./screens/VendorSlidesScreen'));
 
 const RouteFallback: React.FC = () => (
   <div className="flex min-h-[60dvh] items-center justify-center p-4 text-xs font-bold uppercase tracking-wide text-slate-400">
@@ -199,8 +197,6 @@ const CachedRoutes: React.FC = () => {
               <Route path="/morning" element={<MorningBossScreen />} />
               <Route path="/orders" element={<OrdersScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />
-              <Route path="/vendor" element={<VendorSlidesScreen />} />
-              <Route path="/vendor/slider" element={<VendorSlider />} />
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/parts" element={<OrderPartsScreen />} />
               <Route path="/order/:orderId/part/:partId" element={<PartDetailsScreen />} />
