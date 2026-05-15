@@ -2279,7 +2279,7 @@ export const updatePriceVariantItem = async (partId: string, variant: PriceVaria
     return {
       ...p,
       isFound: true,
-      status: 'found',
+      status: 'found' as const,
       bestOfferId: variant.isBest ? variant.id : p.bestOfferId === variant.id ? undefined : p.bestOfferId,
       variants: normalizedVariants
     };
