@@ -1365,11 +1365,16 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
     <div className="min-h-full max-w-full overflow-x-hidden bg-gray-50 p-4 pb-24 space-y-4">
       <div>
         <h1 className="text-xl font-black text-gray-900">Настройки</h1>
-        <p className="text-xs text-gray-500 mt-1">Рабочая панель владельца: только основные и безопасные действия</p>
+        <p className="text-xs text-gray-500 mt-1">Профессиональная admin panel: компания, расчёты, заказы, поставщики, public quote и система</p>
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 text-[11px] font-black text-slate-600 no-scrollbar">
+          {['Компания', 'Валюта', 'Заказы', 'Поставщики', 'Public Quote', 'Система'].map((label) => (
+            <span key={label} className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5">{label}</span>
+          ))}
+        </div>
       </div>
 
 
-      <Section title="Основные настройки" defaultOpen>
+      <Section title="Валюта и расчёты" defaultOpen>
         <div className="space-y-3">
           <Field label="Язык приложения">
             <select value={draftSettings.appLanguage} onChange={(e) => {
@@ -1397,7 +1402,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
             </select>
           </Field>
 
-          <Field label="Курс по умолчанию">
+          <Field label="Курс AED/USD по умолчанию">
             <input
               value={draftSettings.defaultExchangeRate}
               onChange={(e) => updateDraft({ defaultExchangeRate: parseDecimalInput(e.target.value) })}
@@ -1449,7 +1454,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </div>
       </Section>
 
-      <Section title="Главный экран «Сегодня»">
+      <Section title="Компания">
         <div className="space-y-3">
           <Field label="Ваше имя (приветствие)">
             <input
@@ -1492,7 +1497,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </div>
       </Section>
 
-      <Section title="Чек лист поиска поставщиков">
+      <Section title="Поставщики">
         <p className="text-xs text-gray-500">Эти задачи подставляются по умолчанию во все слайды Vendor. Можно добавлять индивидуальные задачи уже в конкретном заказе.</p>
         <div className="mt-3 space-y-2">
           {(draftSettings.defaultVendorChecklist || []).map((task, idx) => (
@@ -1513,8 +1518,8 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </div>
       </Section>
 
-      <Section title="Зоны заказов">
-        <p className="text-xs text-gray-500">Список зон, доступных для выбора в деталях заказа и в разделе Vendor Slides.</p>
+      <Section title="Заказы">
+        <p className="text-xs text-gray-500">Список зон, доступных для выбора в деталях заказа и базе поставщиков.</p>
         <div className="mt-3 space-y-2">
           {(draftSettings.orderZones || []).map((zone, idx) => (
             <div key={`${zone}-${idx}`} className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
@@ -1567,7 +1572,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </div>
       )}
 
-      <Section title="Ссылка для клиента">
+      <Section title="Public Quote / Invoice">
         <p className="text-xs text-gray-600">Отправьте эту ссылку клиенту — он заполняет форму, и вы получаете новый лид в разделе «Заказы»:</p>
         <div className="flex items-center gap-2">
           <input
@@ -1600,7 +1605,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </div>
       </Section>
 
-      <Section title="Публичные контакты">
+      <Section title="Компания: контакты и документы">
         <div className="space-y-3">
           <CompactBlock title="Контакты для клиента" subtitle="WhatsApp / Telegram / Instagram">
             <Field label="WhatsApp номер для ссылки в заявке и смете">
@@ -1697,35 +1702,6 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               />
             </Field>
 
-            <Field label="Реквизиты оплаты в invoice">
-              <div className="grid gap-3 md:grid-cols-3">
-                <Field label="Account No">
-                  <input
-                    value={draftSettings.invoicePaymentAccountNo}
-                    onChange={(e) => updateDraft({ invoicePaymentAccountNo: e.target.value })}
-                    placeholder="971521574546"
-                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                  />
-                </Field>
-                <Field label="Beneficiary / Name">
-                  <input
-                    value={draftSettings.invoicePaymentBeneficiary}
-                    onChange={(e) => updateDraft({ invoicePaymentBeneficiary: e.target.value })}
-                    placeholder="Stark Motors"
-                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                  />
-                </Field>
-                <Field label="Bank Account">
-                  <input
-                    value={draftSettings.invoicePaymentBankAccount}
-                    onChange={(e) => updateDraft({ invoicePaymentBankAccount: e.target.value })}
-                    placeholder="Stark Motors Trading Account"
-                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                  />
-                </Field>
-              </div>
-            </Field>
-
             <Field label="Подпись владельца (для invoice)">
               <div className="space-y-2">
                 <input
@@ -1798,7 +1774,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </div>
       </Section>
 
-      <Section title="Локальный режим">
+      <Section title="Система">
         <CompactBlock title="AI ядро" subtitle="Единый AI шлюз приложения через Supabase Edge Function">
           <div className="space-y-3">
             <Field label="Supabase Edge Function URL">
@@ -2063,7 +2039,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </button>
       </Section>
 
-      <Section title="Snapshots (публичные сметы)">
+      <Section title="Система: публичные сметы">
         <div className="flex gap-2">
           <button
             type="button"
@@ -2120,7 +2096,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </div>
       </Section>
 
-      <Section title="Галерея сервера">
+      <Section title="Система: медиа">
         <div className="rounded-3xl border border-gray-200 bg-gradient-to-b from-slate-50 to-white p-3 shadow-inner">
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" className="rounded-2xl border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-700 disabled:opacity-50" onClick={openServerGalleryFullscreen} disabled={serverGalleryLoading}>{serverGalleryLoading ? 'Открываем…' : 'Открыть галерею сервера'}</button>

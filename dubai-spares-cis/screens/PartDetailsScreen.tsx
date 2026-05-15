@@ -36,6 +36,7 @@ import { cloneVariantForPart, VariantLibraryItem } from '../variantLibraryStore'
 import { generatePartPriceCard, resolveBestVariant, shareGeneratedPriceImage } from '../utils/partPriceShare';
 import { logger } from '../logging';
 import { readClipboardImageFiles } from '../utils/clipboardImages';
+import { toast } from '../feedback';
 
 interface OfferFormState {
   purchasePriceAed: string;
@@ -378,7 +379,7 @@ const PartDetailsScreen: React.FC = () => {
   };
 
   const attachVariantFromLibrary = async (item: VariantLibraryItem) => {
-    const variant = cloneVariantForPart(item, part.id);
+    const variant = { ...cloneVariantForPart(item, part.id), orderId: order.id };
     const updatedParts = order.parts.map((p) => {
       if (p.id !== part.id) return p;
       return {
@@ -388,8 +389,13 @@ const PartDetailsScreen: React.FC = () => {
         variants: [variant, ...(Array.isArray(p.variants) ? p.variants : [])]
       };
     });
-    await updateOrder({ ...order, parts: updatedParts });
+    const saved = await updateOrder({ ...order, parts: updatedParts });
+    if (!saved) {
+      toast('Не удалось прикрепить вариант к детали.', 'error');
+      return;
+    }
     setShowLibraryPicker(false);
+    toast('Вариант прикреплён к детали', 'success');
   };
 
   const saveVariant = async () => {
@@ -517,6 +523,7 @@ const PartDetailsScreen: React.FC = () => {
       const resolvedShopName = form.shopName.trim() || existingSupplier?.name || '';
       const newVariant: PriceVariant = {
         id: variantId,
+        orderId: order.id,
         partId: part.id,
         priceAed: Number(form.salePriceAed.replace(/\s+/g, '')),
         purchasePriceAed: Number(form.purchasePriceAed.replace(/\s+/g, '')),
@@ -563,9 +570,21 @@ const PartDetailsScreen: React.FC = () => {
         };
       });
 
-      await updateOrder({ ...order, parts: updatedParts });
+      const saved = await updateOrder({ ...order, parts: updatedParts });
+      if (!saved) {
+        toast('Не удалось сохранить вариант. Проверьте ошибку синхронизации и попробуйте ещё раз.', 'error');
+        return;
+      }
+      toast(isEditing ? 'Вариант обновлён' : 'Вариант сохранён', 'success');
       setShowAfterSaveSheet(!editingVariantId);
       closeEditor();
+    } catch (error) {
+      await logger.error('part-details:variant-save-failed', 'Variant save failed', {
+        orderId: order.id,
+        partId: part.id,
+        error
+      });
+      toast('Supabase не сохранил вариант. Данные не закрыты, можно повторить сохранение.', 'error');
     } finally {
       setIsResolvingLocation(false);
     }

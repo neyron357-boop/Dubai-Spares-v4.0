@@ -265,7 +265,7 @@ const OrderDetailsScreen: React.FC = () => {
   const backTo = typeof (location.state as { backTo?: unknown } | null)?.backTo === 'string'
     ? String((location.state as { backTo?: unknown }).backTo)
     : '/orders';
-  const { orders, isLoading, updateOrder, removePart, suppliers, fetchOrderDetails } = useStore();
+  const { orders, isLoading, updateOrder, deleteOrder, removePart, suppliers, fetchOrderDetails } = useStore();
   const { settings } = useAppSettings();
   const foundOrder = orders.find(o => o.id === id);
   const orderMissing = !foundOrder;
@@ -360,12 +360,13 @@ const OrderDetailsScreen: React.FC = () => {
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [isLaunchingRadar, setIsLaunchingRadar] = useState(false);
   const [isEditMode, setIsEditMode] = useState(true);
-  const [isClientBlockExpanded, setIsClientBlockExpanded] = useState(false);
+  const [isClientBlockExpanded, setIsClientBlockExpanded] = useState(true);
   const [isVehicleBlockExpanded, setIsVehicleBlockExpanded] = useState(false);
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
   const [isPricingCargoExpanded, setIsPricingCargoExpanded] = useState(true);
   const [expandedCargoPartIds, setExpandedCargoPartIds] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
+  const [deleteOrderConfirmOpen, setDeleteOrderConfirmOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
   const [showCustomerLogs, setShowCustomerLogs] = useState(false);
@@ -742,13 +743,15 @@ const OrderDetailsScreen: React.FC = () => {
   const cargoEstimates = useMemo(() => calculateCargoEstimates(order, settings), [order, settings]);
   const cargoTariffOptions = (settings.cargoTariffs?.length ? settings.cargoTariffs : DEFAULT_CARGO_TARIFFS);
   const markupType = order.markupType || 'percent';
+  const effectiveMarkupPercent = Number(draftFields.markupPercent ?? order.markupPercent ?? 0);
   const markupAed = useMemo(() => (markupType === 'fixed'
     ? Number(markupFixedInput || 0)
-    : selectedOfferTotal * (order.markupPercent / 100)), [markupType, markupFixedInput, selectedOfferTotal, order.markupPercent]);
+    : selectedOfferTotal * (effectiveMarkupPercent / 100)), [markupType, markupFixedInput, selectedOfferTotal, effectiveMarkupPercent]);
   const sellTotalAed = selectedOfferTotal + logisticsWithCargoTotal + markupAed;
   const canComputeProfit = selectedOfferTotal > 0;
   const baseMarginAed = canComputeProfit ? selectedOfferTotals.sale - selectedOfferTotals.purchase : 0;
   const netProfitAed = canComputeProfit ? baseMarginAed + markupAed : null;
+  const marginPercent = canComputeProfit && netProfitAed !== null && sellTotalAed > 0 ? (netProfitAed / sellTotalAed) * 100 : null;
   const isMarkupMissing = canComputeProfit && markupAed <= 0;
   const lowMargin = canComputeProfit && selectedOfferTotal > 0 && markupAed > 0 && markupAed / selectedOfferTotal < 0.03;
   const isLoss = canComputeProfit && sellTotalAed < selectedOfferTotal + logisticsWithCargoTotal;
@@ -1060,7 +1063,7 @@ const OrderDetailsScreen: React.FC = () => {
     if (!isEditMode) return;
     const keyStart = performance.now();
     const shouldDebounce = (typeof value === 'string' || typeof value === 'number')
-      && !['markupType', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType', 'customerContact', 'socialNickname'].includes(String(field));
+      && !['markupPercent', 'markupType', 'markupFixedAed', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType', 'customerContact', 'socialNickname'].includes(String(field));
 
     if (!shouldDebounce) {
       commitDeferredOrderField(field, value);
@@ -1495,6 +1498,16 @@ const OrderDetailsScreen: React.FC = () => {
       void removePart(order.id, deletePartId);
       setDeletePartId(null);
     }
+  };
+
+  const confirmDeleteOrder = async () => {
+    const ok = await deleteOrder(order.id);
+    if (ok) {
+      setDeleteOrderConfirmOpen(false);
+      navigate('/orders');
+      return;
+    }
+    setToast({ message: 'Не удалось удалить заказ' });
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2067,11 +2080,12 @@ const OrderDetailsScreen: React.FC = () => {
   }, [location.state]);
 
   const quickNavItems: Array<{ label: string; ref: React.RefObject<HTMLDivElement | null> }> = [
+    { label: 'Клиент', ref: detailsScreenSectionRef },
+    { label: 'Автомобиль', ref: vehicleSectionRef },
+    { label: 'Запчасти', ref: partsListRef },
     { label: 'Добавить деталь', ref: addPartSectionRef },
-    { label: 'Надценка', ref: markupSectionRef },
-    { label: 'Заметка', ref: notesSectionRef },
-    { label: 'Экран деталей', ref: detailsScreenSectionRef },
-    { label: 'Данные автомобиля', ref: vehicleSectionRef }
+    { label: 'Расчёт', ref: markupSectionRef },
+    { label: 'Заметки', ref: notesSectionRef }
   ];
 
   const scrollToSection = (targetRef: React.RefObject<HTMLDivElement | null>) => {
@@ -2079,8 +2093,8 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col min-h-full overflow-x-hidden bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] text-[#1E1F23]">
-      <div className="sticky top-0 z-40 space-y-1 border-b border-gray-100 bg-white/95 px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.06)] backdrop-blur">
+    <div className="flex min-h-full flex-col bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-[68px] text-[#1E1F23]">
+      <div className="fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 space-y-1 border-b border-gray-100 bg-white/95 px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.06)] backdrop-blur">
         <div className="flex items-center justify-between gap-2">
           <button type="button" onClick={handleBackNavigation} className="p-2 -ml-1 rounded-full transition-colors text-gray-600 active:bg-gray-100">
             <ArrowLeft size={20} />
@@ -2094,7 +2108,7 @@ const OrderDetailsScreen: React.FC = () => {
             className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-slate-100"
           >{((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? <img src={((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-sm font-black text-slate-400">{order.brand?.[0] || "?"}</div>}</button><div className="text-left flex-1 mx-1 min-w-0">
             <h1 className="text-[15px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model}</h1>
-            <p className="mt-0.5 text-[12px] font-medium truncate text-slate-500">{order.year || 'Год не указан'}</p>
+            <p className="mt-0.5 text-[12px] font-medium truncate text-slate-500">{order.year || 'Год не указан'}{order.vin ? ` · VIN: ${order.vin.slice(0, 8)}${order.vin.length > 8 ? '...' : ''}` : ''}</p>
             {isEditMode ? (
               <input
                 type="text"
@@ -2108,6 +2122,8 @@ const OrderDetailsScreen: React.FC = () => {
               <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 truncate">VIN: {order.vin || '—'}</p>
             )}
           </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700 sm:inline-flex">Synced</span>
           <div className="relative">
             <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-2 rounded-full text-gray-600 active:bg-gray-100">
               <MoreVertical size={18} />
@@ -2119,14 +2135,15 @@ const OrderDetailsScreen: React.FC = () => {
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrderField('isArchived', !order.isArchived)}>{order.isArchived ? 'Unarchive' : 'Archive'}</button>
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => void copyText('Синхронизация активна', 'Синхронизация')}>Состояние синхронизации</button>
                 <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEstimateOpen(true)}>Export</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-red-600" onClick={() => setShowActionsMenu(false)}>Delete</button>
+                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-red-600" onClick={() => { setShowActionsMenu(false); setDeleteOrderConfirmOpen(true); }}>Delete</button>
               </div>
             )}
+          </div>
           </div>
         </div>
       </div>
 
-      <div className="sticky top-[74px] z-20 space-y-1.5 rounded-b-[12px] border-b border-gray-100 bg-white/95 px-3 py-2.5 shadow-[0_4px_12px_rgba(0,0,0,0.05)] backdrop-blur">
+      <div ref={detailsScreenSectionRef} className="space-y-1.5 border-b border-gray-100 bg-white px-3 py-2.5">
           <p className="text-[12px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Pipeline</p>
           <div className="flex items-center justify-between gap-3">
           <div className="inline-flex rounded-[10px] bg-[#F6F7FB] border border-[#E7EAF3] p-0.5">
@@ -2363,13 +2380,44 @@ const OrderDetailsScreen: React.FC = () => {
 
 
 
-        <div ref={markupSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+        <div ref={vehicleSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsVehicleDetailsExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Подробные данные автомобиля</p>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Автомобиль</p>
+              <p className="text-sm font-black text-slate-900">{order.brand} {order.model} {order.year}</p>
             </div>
             {isVehicleDetailsExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
           </button>
+
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="rounded-xl bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Марка</p>
+              <p className="mt-1 truncate font-black text-slate-800">{order.brand || '—'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Модель</p>
+              <p className="mt-1 truncate font-black text-slate-800">{order.model || '—'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Год</p>
+              <p className="mt-1 truncate font-black text-slate-800">{order.year || '—'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">VIN</p>
+              <p className="mt-1 truncate font-black text-slate-800">{order.vin || '—'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Двигатель</p>
+              <p className="mt-1 truncate font-black text-slate-800">{order.vehicleDetails?.engineType || order.vehicleDetails?.engineCode || '—'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Кузов</p>
+              <p className="mt-1 truncate font-black text-slate-800">{order.bodyType || '—'}</p>
+            </div>
+          </div>
+          {order.vehicleDetails?.additionalNotes ? (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">{order.vehicleDetails.additionalNotes}</p>
+          ) : null}
 
           {isVehicleDetailsExpanded && (
             <>
@@ -2493,6 +2541,109 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
 
 
+        <div ref={partsListRef} className="rounded-2xl border border-[#E7EAF3] bg-white p-3 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-black text-gray-900 text-xs uppercase tracking-[0.14em]">Запчасти</h2>
+              <p className="mt-1 text-xs font-semibold text-slate-500">{foundPartsCount} из {partsCount} с вариантами</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => partInputRef.current?.focus()}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-blue-600 px-3 text-[11px] font-black text-white"
+            >
+              <Plus size={14} /> Деталь
+            </button>
+          </div>
+
+          {order.parts.length === 0 ? (
+            <div className="mt-3 rounded-2xl border border-dashed border-gray-200 p-4 text-center">
+              <p className="text-sm font-bold text-slate-600">Деталей пока нет</p>
+              <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white">Добавить первую деталь</button>
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {order.parts.map((part) => {
+                const partDisplayName = getPartDisplayName(part);
+                const groupItems = normalizeGroupItems(part.groupItems);
+                const partQuantity = normalizePartQuantity(part.quantity);
+                const variants = Array.isArray(part.variants) ? part.variants : [];
+                const bestVariant = variants.find((variant) => variant.id === part.bestOfferId || variant.isBest) || variants[0];
+                const partPhotos = (part.photos && part.photos.length > 0 ? part.photos : part.photoUrl ? [part.photoUrl] : []).filter(Boolean);
+                return (
+                  <article key={part.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => partPhotos.length > 0 && setGallery({ images: partPhotos, index: 0, partId: part.id })}
+                        className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white"
+                      >
+                        {partPhotos[0] ? <img src={partPhotos[0]} alt={partDisplayName} className="h-full w-full object-cover" /> : <Package size={18} className="text-slate-300" />}
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-black text-slate-900">{partDisplayName}</p>
+                            <p className="mt-0.5 text-[11px] font-semibold text-slate-500">Qty: {partQuantity}{groupItems.length > 0 ? ` · ${groupItems.length} в группе` : ''}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const mainScroller = document.querySelector('main');
+                              const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
+                              navigate(`/order/${order.id}/part/${part.id}`, {
+                                state: {
+                                  backTo: `/order/${order.id}`,
+                                  ...(typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {}),
+                                },
+                              });
+                            }}
+                            className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700"
+                          >
+                            Добавить вариант
+                          </button>
+                        </div>
+                        {part.comment ? <p className="mt-2 line-clamp-2 text-xs font-semibold text-slate-600">{part.comment}</p> : null}
+                        <div className="mt-2 space-y-1">
+                          {variants.length === 0 ? (
+                            <p className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-400">Вариантов пока нет</p>
+                          ) : variants.slice(0, 3).map((variant) => {
+                            const isBest = bestVariant?.id === variant.id;
+                            const salePrice = Number((variant.salePriceAed ?? variant.priceAed) || 0);
+                            const purchasePrice = Number((variant.purchasePriceAed ?? variant.priceAed) || 0);
+                            return (
+                              <div key={variant.id} className={`flex items-center justify-between gap-2 rounded-xl border bg-white px-3 py-2 text-xs ${isBest ? 'border-emerald-200' : 'border-slate-200'}`}>
+                                <div className="min-w-0">
+                                  <p className="truncate font-black text-slate-800">{variant.shopName || 'Поставщик не указан'}</p>
+                                  <p className="mt-0.5 text-[11px] font-semibold text-slate-500">{purchasePrice.toFixed(0)} AED закупка · {variant.condition || 'condition'} · {variant.availability || 'availability'}</p>
+                                </div>
+                                <div className="shrink-0 text-right">
+                                  <p className="font-black text-blue-700">{salePrice.toFixed(0)} AED</p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updatedParts = order.parts.map((p) => p.id === part.id ? { ...p, bestOfferId: variant.id, variants: (Array.isArray(p.variants) ? p.variants : []).map((v) => ({ ...v, isBest: v.id === variant.id })) } : p);
+                                      void updateOrder({ ...order, parts: updatedParts });
+                                    }}
+                                    className={`mt-1 rounded-lg px-2 py-0.5 text-[10px] font-black ${isBest ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
+                                  >
+                                    {isBest ? 'Рекомендован' : 'Рекомендовать'}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {variants.length > 3 ? <p className="px-1 text-[10px] font-semibold text-slate-400">Ещё {variants.length - 3} вариантов в карточке детали.</p> : null}
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
 
         <div ref={markupSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsPricingCargoExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
@@ -2562,7 +2713,7 @@ const OrderDetailsScreen: React.FC = () => {
               <div className="rounded-xl bg-blue-50 px-3 py-2"><p className="text-blue-500">Margin</p><p className="font-black text-blue-700">{formatDualMoney(markupAed)}</p></div>
               <div className="rounded-xl bg-emerald-50 px-3 py-2"><p className="text-emerald-500">Client price</p><p className="font-black text-emerald-700">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
             </div>
-            <div className="rounded-xl bg-emerald-100 px-3 py-2 text-sm font-black text-emerald-800">Чистая прибыль: {canComputeProfit && netProfitAed !== null ? formatDualMoney(netProfitAed) : '—'}</div>
+            <div className="rounded-xl bg-emerald-100 px-3 py-2 text-sm font-black text-emerald-800">Чистая прибыль: {canComputeProfit && netProfitAed !== null ? formatDualMoney(netProfitAed) : '—'}{marginPercent !== null ? ` · ${marginPercent.toFixed(0)}%` : ''}</div>
             {!canComputeProfit && <div className="text-xs font-semibold text-gray-500">Добавьте варианты цен.</div>}
             {isLoss && <div className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">Вы уходите в минус ⚠️</div>}
             {isMarkupMissing && <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Наценка отсутствует. Прибыль = 0.</div>}
@@ -2812,6 +2963,27 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Действия</h2>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setIsEstimateOpen(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 text-xs font-black text-white">
+              <Share2 size={14} /> Отправить
+            </button>
+            <button type="button" onClick={() => setIsEstimateOpen(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-black text-blue-700">
+              <FileText size={14} /> Public quote
+            </button>
+            <button type="button" onClick={() => setIsEstimateOpen(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700">
+              <Download size={14} /> Invoice
+            </button>
+            <button type="button" onClick={() => updateOrderField('isArchived', !order.isArchived)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700">
+              <Package size={14} /> {order.isArchived ? 'Вернуть' : 'Архив'}
+            </button>
+          </div>
+          <button type="button" onClick={() => setDeleteOrderConfirmOpen(true)} className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">
+            <X size={14} /> Удалить заказ
+          </button>
+        </div>
+
         {isRecording && (
           <div className="fixed inset-0 z-50 bg-slate-900/70 p-4">
             <div className="mx-auto mt-16 w-full max-w-md rounded-2xl border border-rose-100 bg-white p-4 shadow-xl space-y-3">
@@ -2848,82 +3020,6 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         )}
 
-        <div ref={detailsScreenSectionRef}>
-        <div ref={partsListRef} className="space-y-3">
-          <div className="rounded-2xl border border-[#E7EAF3] bg-white p-3 shadow-[0_3px_10px_rgba(0,0,0,0.05)]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="font-black text-gray-900 text-xs uppercase tracking-[0.14em]">Детали заказа</h2>
-              </div>
-              <div className="rounded-xl bg-blue-50 px-2.5 py-1.5 text-right">
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-blue-700">Детали</p>
-                <p className="text-base font-black text-blue-900">{order.parts.length}</p>
-              </div>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setShowOnlyOpenParts((v) => !v)}
-                className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-bold transition-colors ${showOnlyOpenParts ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500'}`}
-              >
-                {showOnlyOpenParts ? 'Только в поиске' : 'Все детали'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const mainScroller = document.querySelector('main');
-                  const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
-                  navigate(`/order/${order.id}/parts`, {
-                    state: typeof restoreScrollTop === 'number' ? { restoreScrollTop } : undefined
-                  });
-                }}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-1.5 text-[10px] font-black text-white"
-              >
-                Открыть <ChevronRight size={14} />
-              </button>
-            </div>
-            {order.parts.length > 0 && (
-              <div className="mt-3 space-y-1.5">
-                {order.parts.filter((part) => !showOnlyOpenParts || (!part.isFound && (part.variants || []).length === 0)).slice(0, 2).map((part) => {
-                  const partDisplayName = getPartDisplayName(part);
-                  const groupItems = normalizeGroupItems(part.groupItems);
-                  const partQuantity = normalizePartQuantity(part.quantity);
-                  return (
-                    <button
-                      key={part.id}
-                      type="button"
-                      onClick={() => {
-                        const mainScroller = document.querySelector('main');
-                        const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
-                        navigate(`/order/${order.id}/part/${part.id}`, {
-                          state: {
-                            backTo: `/order/${order.id}`,
-                            ...(typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {}),
-                          },
-                        });
-                      }}
-                      className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2 text-left"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-[13px] font-black text-slate-900">{partDisplayName}</p>
-                        <p className="mt-0.5 text-[10px] font-semibold text-slate-500">Qty: {partQuantity}{groupItems.length > 0 ? ` · ${groupItems.length} в группе` : ''}</p>
-                      </div>
-                      <ChevronRight size={16} className="shrink-0 text-slate-300" />
-                    </button>
-                  );
-                })}
-                {order.parts.length > 2 && <p className="px-1 text-[10px] font-semibold text-slate-400">Ещё {order.parts.length - 2} деталей в отдельном экране.</p>}
-              </div>
-            )}
-            {order.parts.length === 0 && (
-              <div className="mt-4 rounded-2xl border border-dashed border-gray-200 p-4 text-center">
-                <p className="text-[16px] font-medium text-[#1E1F23]">No parts yet</p>
-                <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 px-3 py-2 rounded-[12px] bg-[#3B6AF7] text-white text-[13px] font-semibold active:scale-[0.97] transition-transform duration-200">Add first part</button>
-              </div>
-            )}
-          </div>
-        </div>
-        </div>
       </div>
 
 
@@ -2932,6 +3028,15 @@ const OrderDetailsScreen: React.FC = () => {
         message="Вы уверены, что хотите удалить эту деталь?" 
         onConfirm={confirmDeletePart} 
         onCancel={() => setDeletePartId(null)} 
+      />
+
+      <ConfirmModal
+        isOpen={deleteOrderConfirmOpen}
+        message="Удалить заказ? Это действие удалит заказ и связанные детали."
+        confirmLabel="Удалить"
+        confirmClass="bg-red-600 active:bg-red-700"
+        onConfirm={() => void confirmDeleteOrder()}
+        onCancel={() => setDeleteOrderConfirmOpen(false)}
       />
 
       <ConfirmModal

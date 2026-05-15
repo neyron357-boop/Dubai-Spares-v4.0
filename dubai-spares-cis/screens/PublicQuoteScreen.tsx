@@ -212,7 +212,6 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const packingAed = normalizedSnapshot?.packingAed || 0;
   const commissionAed = normalizedSnapshot?.commissionAed || 0;
   const grandTotalAed = normalizedSnapshot?.grandTotalAed || 0;
-  const preSaleCheck = normalizedSnapshot?.preSaleCheck;
   const activeCurrency = (displayCurrency || currency) as keyof typeof rates;
   const fx = rates[activeCurrency] || 1;
   const contact = normalizedSnapshot?.contact || { whatsapp: '', telegram: '', instagram: '', managerName: 'Stark Motors', logoUrl: '', signatureUrl: '', workTerms: '', deliveryTerms: '' };
@@ -376,20 +375,6 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
             </div>
           </div>
             </section>
-
-            {preSaleCheck && (
-              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
-                <h3 className="text-sm font-black text-slate-900">Предпродажная проверка</h3>
-                <p className="text-xs font-semibold text-slate-600">{preSaleCheck.disclaimer}</p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {[...(preSaleCheck.defectPhotos || []), ...(preSaleCheck.inspectionMedia || [])].slice(0, 8).map((src, idx) => (
-                    <button key={`${src}-${idx}`} type="button" onClick={() => setGallery({ images: [...(preSaleCheck.defectPhotos || []), ...(preSaleCheck.inspectionMedia || [])], index: idx })} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                      <img src={src} className="h-28 w-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
 
         <section ref={detailRef} className="rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4">
