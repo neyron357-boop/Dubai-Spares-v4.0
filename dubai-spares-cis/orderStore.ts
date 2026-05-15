@@ -605,6 +605,7 @@ let lastLeadRefreshAt = 0;
 
 const MIN_FULL_FETCH_INTERVAL_MS = 45_000;
 const MIN_LEAD_REFRESH_INTERVAL_MS = 30_000;
+const RETRY_DELAYS = [2_000, 5_000, 10_000];
 
 const ensureReactiveArchitectureInstalled = () => {
   if (architectureInstalled) return;
@@ -2270,8 +2271,18 @@ export const updatePriceVariantItem = async (partId: string, variant: PriceVaria
   const parts = order.parts.map((p) => {
     if (p.id !== partId) return p;
     const exists = p.variants.some((v) => v.id === variant.id);
-    const variants = exists ? p.variants.map((v) => (v.id === variant.id ? variant : v)) : [...p.variants, variant];
-    return { ...p, variants };
+    const variants = exists ? p.variants.map((v) => (v.id === variant.id ? variant : v)) : [variant, ...p.variants];
+    const normalizedVariants = variants.map((item) => ({
+      ...item,
+      isBest: variant.isBest ? item.id === variant.id : item.isBest && item.id !== variant.id
+    }));
+    return {
+      ...p,
+      isFound: true,
+      status: 'found',
+      bestOfferId: variant.isBest ? variant.id : p.bestOfferId === variant.id ? undefined : p.bestOfferId,
+      variants: normalizedVariants
+    };
   });
 
   await updateOrderItem({ ...order, parts });

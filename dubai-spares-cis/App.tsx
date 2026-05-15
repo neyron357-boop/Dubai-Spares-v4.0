@@ -1,20 +1,9 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { HashRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
-import MorningBossScreen from './screens/MorningBossScreen';
 import OrdersScreen from './screens/OrdersScreen';
-import NewOrderScreen from './screens/NewOrderScreen';
-import OrderDetailsScreen from './screens/OrderDetailsScreen';
-import PartDetailsScreen from './screens/PartDetailsScreen';
-import OrderPartsScreen from './screens/OrderPartsScreen';
-import SuppliersScreen from './screens/SuppliersScreen';
-import NotificationsScreen from './screens/NotificationsScreen';
-import SettingsScreen from './screens/SettingsScreen';
-import VariantsScreen from './screens/VariantsScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
-import VendorSlider from './components/VendorSlider';
-import VendorSlidesScreen from './screens/VendorSlidesScreen';
 import { Bell, CarFront, Layers, PlusCircle, Settings } from 'lucide-react';
 import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
@@ -22,6 +11,23 @@ import { DebugIndex, DebugIndexProvider, useDebugIndex } from './components/Debu
 import { playSound } from './utils/sounds';
 
 const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
+const MorningBossScreen = lazy(() => import('./screens/MorningBossScreen'));
+const NewOrderScreen = lazy(() => import('./screens/NewOrderScreen'));
+const OrderDetailsScreen = lazy(() => import('./screens/OrderDetailsScreen'));
+const PartDetailsScreen = lazy(() => import('./screens/PartDetailsScreen'));
+const OrderPartsScreen = lazy(() => import('./screens/OrderPartsScreen'));
+const SuppliersScreen = lazy(() => import('./screens/SuppliersScreen'));
+const NotificationsScreen = lazy(() => import('./screens/NotificationsScreen'));
+const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
+const VariantsScreen = lazy(() => import('./screens/VariantsScreen'));
+const VendorSlider = lazy(() => import('./components/VendorSlider'));
+const VendorSlidesScreen = lazy(() => import('./screens/VendorSlidesScreen'));
+
+const RouteFallback: React.FC = () => (
+  <div className="flex min-h-[60dvh] items-center justify-center p-4 text-xs font-bold uppercase tracking-wide text-slate-400">
+    Loading...
+  </div>
+);
 
 const HashPublicQuoteRoute: React.FC = () => {
   const { orderId = '' } = useParams();
@@ -183,10 +189,11 @@ const CachedRoutes: React.FC = () => {
     <>
       {stablePaths.map((pathname) => {
         const isActive = pathname === location.pathname;
-        const keepMountedWhenHidden = !pathname.startsWith('/vendor');
+        const keepMountedWhenHidden = ['/orders', '/database', '/notifications', '/settings', '/new'].includes(pathname);
         if (!isActive && !keepMountedWhenHidden) return null;
         return (
           <div key={pathname} className={isActive ? 'h-full' : 'hidden'}>
+            <Suspense fallback={<RouteFallback />}>
             <Routes location={{ ...location, pathname }}>
               <Route path="/" element={<Navigate to="/orders" replace />} />
               <Route path="/morning" element={<MorningBossScreen />} />
@@ -224,6 +231,7 @@ const CachedRoutes: React.FC = () => {
               <Route path="/q/:orderId" element={<HashPublicQuoteRoute />} />
               <Route path="*" element={<NotFoundScreen />} />
             </Routes>
+            </Suspense>
           </div>
         );
       })}

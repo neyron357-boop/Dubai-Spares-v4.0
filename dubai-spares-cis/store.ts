@@ -531,7 +531,9 @@ export const useStore = () => {
   useEffect(() => {
     const listener = () => setVersion((v) => v + 1);
     listeners.add(listener);
-    return () => listeners.delete(listener);
+    return () => {
+      listeners.delete(listener);
+    };
   }, []);
 
   useEffect(() => {

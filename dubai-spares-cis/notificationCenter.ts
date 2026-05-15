@@ -180,6 +180,25 @@ const notificationToRow = (item: AppNotification) => ({
   offline: item.offline || false
 });
 
+const notificationToLegacyRow = (item: AppNotification) => ({
+  created_at: new Date(item.createdAt).toISOString(),
+  type: item.type,
+  title: item.title,
+  message: item.message,
+  severity: item.severity,
+  source: item.source || null,
+  order_id: toUuidOrNull(item.orderId),
+  supplier_id: toUuidOrNull(item.supplierId),
+  part_id: item.partId || null,
+  route: item.route || null,
+  payload: {}
+});
+
+const isMissingNotificationColumn = (error: unknown) => {
+  const message = String((error as { message?: unknown } | null)?.message || error || '').toLowerCase();
+  return message.includes('activity_notifications.') && message.includes('does not exist');
+};
+
 const rowToNotification = (row: Record<string, unknown>): AppNotification | null => {
   if (!row || typeof row !== 'object') return null;
   return normalizeNotification({
@@ -217,12 +236,23 @@ const rowToNotification = (row: Record<string, unknown>): AppNotification | null
 /** Fire-and-forget upsert of a single notification to the server. */
 const syncNotificationToServer = (item: AppNotification): void => {
   if (!supabase) return;
+  const client = supabase;
   const row = notificationToRow(item);
-  void supabase
+  void client
     .from('activity_notifications')
     .upsert(row, { onConflict: 'client_id', ignoreDuplicates: false })
-    .then(({ error }) => {
-      if (error) console.warn('[notificationCenter] server upsert failed', error.message);
+    .then(async ({ error }) => {
+      if (!error) return;
+      if (isMissingNotificationColumn(error)) {
+        const retry = await client
+          .from('activity_notifications')
+          .insert(notificationToLegacyRow(item));
+        if (!retry.error) return;
+        if (isMissingNotificationColumn(retry.error)) return;
+        console.warn('[notificationCenter] server legacy insert failed', retry.error.message);
+        return;
+      }
+      console.warn('[notificationCenter] server upsert failed', error.message);
     });
 };
 
@@ -234,6 +264,7 @@ const syncNotificationStateToServer = (clientId: string, update: { read_at?: str
     .update(update)
     .eq('client_id', clientId)
     .then(({ error }) => {
+      if (error && isMissingNotificationColumn(error)) return;
       if (error) console.warn('[notificationCenter] server update failed', error.message);
     });
 };
@@ -248,7 +279,6 @@ export const initNotificationsFromServer = async (): Promise<void> => {
     const { data, error } = await supabase
       .from('activity_notifications')
       .select('*')
-      .not('client_id', 'is', null)
       .order('created_at', { ascending: false })
       .limit(MAX_ITEMS);
 
@@ -316,9 +346,16 @@ const normalizeNotificationRoute = (route?: string) => {
   return `/${normalized}`;
 };
 
+type BrowserNotificationOptions = NotificationOptions & {
+  route?: string;
+  url?: string;
+  vibrate?: VibratePattern;
+  renotify?: boolean;
+};
+
 export const sendBrowserNotification = async (
   title: string,
-  options: NotificationOptions & { route?: string; url?: string }
+  options: BrowserNotificationOptions
 ) => {
   if (typeof Notification === 'undefined') return;
   if (Notification.permission !== 'granted') return;
@@ -327,16 +364,18 @@ export const sendBrowserNotification = async (
 
   if ('serviceWorker' in navigator) {
     const registration = await navigator.serviceWorker.ready;
-    await registration.showNotification(title, {
+    const serviceWorkerOptions = {
       ...options,
       data,
       vibrate: options.vibrate || [220, 120, 220],
       badge: '/icon-192.png'
-    });
+    } as NotificationOptions;
+    await registration.showNotification(title, serviceWorkerOptions);
     return;
   }
 
-  const notification = new Notification(title, { ...options, data, vibrate: options.vibrate || [220, 120, 220] });
+  const notificationOptions = { ...options, data, vibrate: options.vibrate || [220, 120, 220] } as NotificationOptions;
+  const notification = new Notification(title, notificationOptions);
   notification.onclick = () => {
     if (options.route) {
       window.location.hash = `#${normalizeNotificationRoute(options.route)}`;

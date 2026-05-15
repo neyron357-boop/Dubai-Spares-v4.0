@@ -20,22 +20,25 @@ const base64ToBytes = (b64: string): Uint8Array => {
   return bytes;
 };
 
-const gzipBytes = async (input: Uint8Array): Promise<Uint8Array> => {
+const bytesToBlobPart = (bytes: Uint8Array): BlobPart =>
+  bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+
+const gzipBytes = async (input: Uint8Array): Promise<Uint8Array<ArrayBuffer>> => {
   if (typeof CompressionStream === 'undefined') {
     throw new Error('CompressionStream is not supported in this browser');
   }
-  const stream = new Blob([input]).stream().pipeThrough(new CompressionStream('gzip'));
+  const stream = new Blob([bytesToBlobPart(input)]).stream().pipeThrough(new CompressionStream('gzip'));
   const buffer = await new Response(stream).arrayBuffer();
-  return new Uint8Array(buffer);
+  return new Uint8Array(buffer) as Uint8Array<ArrayBuffer>;
 };
 
-const ungzipBytes = async (input: Uint8Array): Promise<Uint8Array> => {
+const ungzipBytes = async (input: Uint8Array): Promise<Uint8Array<ArrayBuffer>> => {
   if (typeof DecompressionStream === 'undefined') {
     throw new Error('DecompressionStream is not supported in this browser');
   }
-  const stream = new Blob([input]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const stream = new Blob([bytesToBlobPart(input)]).stream().pipeThrough(new DecompressionStream('gzip'));
   const buffer = await new Response(stream).arrayBuffer();
-  return new Uint8Array(buffer);
+  return new Uint8Array(buffer) as Uint8Array<ArrayBuffer>;
 };
 
 export type EncodedPayload = {
@@ -48,8 +51,8 @@ export type EncodedPayload = {
 
 export const encodePayloadToCompressedTransport = async (payload: unknown): Promise<EncodedPayload> => {
   const rawText = JSON.stringify(payload);
-  const rawBytes = new TextEncoder().encode(rawText);
-  let compressed = rawBytes;
+  const rawBytes = new TextEncoder().encode(rawText) as Uint8Array<ArrayBuffer>;
+  let compressed: Uint8Array<ArrayBuffer> = rawBytes;
   let codec = 'identity+b64';
 
   if (typeof CompressionStream !== 'undefined') {

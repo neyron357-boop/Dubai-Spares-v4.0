@@ -176,31 +176,7 @@ export interface Order {
   useMarkupAsDefaultForNewParts?: boolean;
   clientCurrency?: 'AED' | 'USD' | 'RUB' | 'TJS';
   fxUpdatedAt?: number;
-  logistics?: {
-    delivery_type?: 'uae' | 'export';
-    delivery_aed?: number;
-    packing_aed?: number;
-    service_fee_aed?: number;
-    cargo_country?: string;
-    cargo_delivery_type?: 'air' | 'express_air' | 'container';
-    cargo_eta_days?: string;
-    cargo_total_weight_kg?: number;
-    cargo_chargeable_weight_kg?: number;
-    cargo_volume_cbm?: number;
-    cargo_total_places?: number;
-    cargo_base_cost_usd?: number;
-    cargo_total_cost_usd?: number;
-    cargo_air_eta_days?: string;
-    cargo_air_cost_usd?: number;
-    cargo_container_eta_days?: string;
-    cargo_container_cost_usd?: number;
-    additional_costs_usd?: {
-      packaging_usd?: number;
-      insurance_usd?: number;
-      customs_usd?: number;
-      city_delivery_usd?: number;
-    };
-  };
+  logistics?: OrderLogistics;
   pricingEvents?: OrderPricingEvent[];
   vendorContacts?: OrderVendorContact[];
   vendorChecklist?: VendorChecklistItem[];
@@ -213,6 +189,55 @@ export interface Order {
     defectPhotos: string[];
     inspectionMedia: string[];
     checkedAt?: number;
+  };
+}
+
+export interface OrderLogistics {
+  deliveryType?: 'uae' | 'export';
+  delivery_type?: 'uae' | 'export';
+  deliveryAed?: number;
+  delivery_aed?: number;
+  packingAed?: number;
+  packing_aed?: number;
+  serviceFeeAed?: number;
+  service_fee_aed?: number;
+  cargoCountry?: string;
+  cargo_country?: string;
+  cargoDeliveryType?: 'air' | 'express_air' | 'container';
+  cargo_delivery_type?: 'air' | 'express_air' | 'container';
+  cargoEtaDays?: string;
+  cargo_eta_days?: string;
+  cargoTotalWeightKg?: number;
+  cargo_total_weight_kg?: number;
+  cargoChargeableWeightKg?: number;
+  cargo_chargeable_weight_kg?: number;
+  cargoVolumeCbm?: number;
+  cargo_volume_cbm?: number;
+  cargoTotalPlaces?: number;
+  cargo_total_places?: number;
+  cargoBaseCostUsd?: number;
+  cargo_base_cost_usd?: number;
+  cargoTotalCostUsd?: number;
+  cargo_total_cost_usd?: number;
+  cargoAirEtaDays?: string;
+  cargo_air_eta_days?: string;
+  cargoAirCostUsd?: number;
+  cargo_air_cost_usd?: number;
+  cargoContainerEtaDays?: string;
+  cargo_container_eta_days?: string;
+  cargoContainerCostUsd?: number;
+  cargo_container_cost_usd?: number;
+  additionalCostsUsd?: {
+    packagingUsd?: number;
+    insuranceUsd?: number;
+    customsUsd?: number;
+    cityDeliveryUsd?: number;
+  };
+  additional_costs_usd?: {
+    packaging_usd?: number;
+    insurance_usd?: number;
+    customs_usd?: number;
+    city_delivery_usd?: number;
   };
 }
 
@@ -450,31 +475,7 @@ export interface DbOrderRow {
   use_markup_as_default_for_new_parts?: boolean;
   client_currency?: 'AED' | 'USD' | 'RUB' | 'TJS';
   fx_updated_at?: number | string | null;
-  logistics?: {
-    delivery_type?: 'uae' | 'export';
-    delivery_aed?: number;
-    packing_aed?: number;
-    service_fee_aed?: number;
-    cargo_country?: string;
-    cargo_delivery_type?: 'air' | 'express_air' | 'container';
-    cargo_eta_days?: string;
-    cargo_total_weight_kg?: number;
-    cargo_chargeable_weight_kg?: number;
-    cargo_volume_cbm?: number;
-    cargo_total_places?: number;
-    cargo_base_cost_usd?: number;
-    cargo_total_cost_usd?: number;
-    cargo_air_eta_days?: string;
-    cargo_air_cost_usd?: number;
-    cargo_container_eta_days?: string;
-    cargo_container_cost_usd?: number;
-    additional_costs_usd?: {
-      packaging_usd?: number;
-      insurance_usd?: number;
-      customs_usd?: number;
-      city_delivery_usd?: number;
-    };
-  };
+  logistics?: OrderLogistics;
   pricing_events?: OrderPricingEvent[];
   vendor_contacts?: OrderVendorContact[];
   vendor_checklist?: VendorChecklistItem[];
