@@ -35,7 +35,7 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div 
-        className="bg-white w-full max-w-md rounded-t-[32px] overflow-hidden animate-in slide-in-from-bottom duration-300 h-[80vh] flex flex-col"
+        className="bg-white w-full max-w-md rounded-t-[32px] overflow-hidden animate-in slide-in-from-bottom duration-300 max-h-[80dvh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         <div className="p-6 pb-2 border-b border-gray-50 flex items-center justify-between shrink-0">

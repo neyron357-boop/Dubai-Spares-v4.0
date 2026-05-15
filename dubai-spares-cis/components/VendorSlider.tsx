@@ -763,7 +763,7 @@ const VendorSliderContent: React.FC = () => {
 
   if (!selectedBrand) {
     return (
-      <div className="fixed inset-0 z-50 flex min-h-screen flex-col overflow-hidden bg-[#0B1220] text-white">
+      <div className="fixed inset-0 z-50 flex min-h-[100dvh] flex-col overflow-hidden bg-[#0B1220] text-white">
         {/* HEADER */}
         <div className="flex shrink-0 items-center justify-between px-4 pb-2 pt-4">
           <div className="flex items-center gap-3">
@@ -1039,7 +1039,7 @@ const VendorSliderContent: React.FC = () => {
 
   if (!current) {
     return (
-      <div className="fixed inset-0 z-50 flex min-h-screen flex-col items-center justify-center gap-4 bg-[#0B1220] text-gray-300">
+      <div className="fixed inset-0 z-50 flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-[#0B1220] text-gray-300">
         <p>No data</p>
         <button type="button" onClick={() => { clearPendingUrlSync(); navigate(-1); }} className="rounded-xl border border-gray-700 px-4 py-2">Back</button>
       </div>
@@ -1053,8 +1053,8 @@ const VendorSliderContent: React.FC = () => {
   const visibleSlideParts = partsTab === 'searching' ? searchingParts : foundParts;
 
   return (
-    <div className="fixed inset-0 z-50 flex min-h-screen w-full flex-col overflow-hidden bg-[#0B1220] text-white">
-      <div className="relative h-[32vh] min-h-[210px] max-h-[300px] overflow-hidden border-b border-slate-800">
+    <div className="fixed inset-0 z-50 flex min-h-[100dvh] w-full flex-col overflow-hidden bg-[#0B1220] text-white">
+      <div className="relative h-[32dvh] min-h-[210px] max-h-[300px] overflow-hidden border-b border-slate-800">
         {availableCarImages[0] ? (
           <button type="button" onClick={() => setGallery({ images: availableCarImages, index: 0 })} className="h-full w-full">
             <SafeImage
@@ -1293,7 +1293,7 @@ const VendorSliderContent: React.FC = () => {
         <div className="absolute inset-0 z-20 bg-black/70 p-4" onClick={() => setPartsSheetOpen(false)}>
           <div className="mt-16 rounded-3xl border border-slate-700 bg-[#111a2d] p-4" onClick={(e) => e.stopPropagation()}>
             <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white/70">Vehicles</p>
-            <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+            <div className="max-h-[60dvh] space-y-2 overflow-y-auto">
               {orderSlides.map((slide, idx) => (
                 <button
                   key={slide.id}
@@ -1363,7 +1363,7 @@ const VendorSliderContent: React.FC = () => {
               </div>
             )}
 
-            <div className="max-h-[48vh] space-y-2 overflow-y-auto">
+            <div className="max-h-[48dvh] space-y-2 overflow-y-auto">
               {suppliersTab === 'active' && supplierContacts.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-4 text-xs text-slate-300">No suppliers added to this order yet.</p>}
 
               {suppliersTab === 'active' && supplierContacts.map((contact) => {
@@ -1497,7 +1497,7 @@ const VendorSliderContent: React.FC = () => {
 
             <div className="mt-3 space-y-2">
               {mergedChecklistItems.length === 0 && <p className="rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-3 text-xs text-slate-300">No tasks yet. Add the first task below.</p>}
-              <div className="max-h-[44vh] space-y-2 overflow-y-auto">
+              <div className="max-h-[44dvh] space-y-2 overflow-y-auto">
                 {mergedChecklistItems.map((item) => (
                   <label key={item.id} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/50 px-3 py-2">
                     <input type="checkbox" checked={item.completed} onChange={() => void toggleChecklistItem(item)} className="h-4 w-4" />
