@@ -3,8 +3,8 @@ import type { AppSettings } from '../appSettings';
 import type { NormalizedPublicQuoteSnapshot } from './publicQuoteSnapshot';
 import { normalizePartQuantity } from './groupItems';
 
-const BLUE = '#2b648d';
-const YELLOW = '#e6b400';
+const BLUE = '#1f3f5f';
+const YELLOW = '#b88a1d';
 
 export type InvoiceItem = {
   id: string;
@@ -28,11 +28,6 @@ export type InvoicePayload = {
   commissionAed: number;
   taxAed: number;
   totalAed: number;
-  paymentInfo: {
-    accountNo: string;
-    name: string;
-    bankAccount: string;
-  };
   paymentTerms: string[];
   invoiceTo: string;
   company: {
@@ -79,18 +74,12 @@ const formatWebsite = (value: string) => {
   return trimmed.replace(/^https?:\/\//, '').replace(/\/$/, '');
 };
 
-const resolvePaymentInfo = (settings: AppSettings) => ({
-  accountNo: settings.invoicePaymentAccountNo || settings.publicWhatsappNumber || '971521574546',
-  name: settings.invoicePaymentBeneficiary || settings.publicManagerName || 'Stark Motors',
-  bankAccount: settings.invoicePaymentBankAccount || (settings.publicManagerName ? `${settings.publicManagerName} Trading Account` : 'Stark Motors Trading Account'),
-});
-
 const resolveTerms = (text: string) => {
   const fallback = [
-    '100% advance payment before dispatch.',
-    'Part availability and lead time must be reconfirmed before payment.',
-    'Returns are only possible upon prior agreement and inspection result.',
-    'Logistics, export documents, and delivery timing are finalized with your manager.',
+    'Prices and availability are valid only after final manager confirmation.',
+    'Delivery timeline, export documents, and handover details are confirmed separately.',
+    'Returns are possible only upon prior agreement and inspection result.',
+    'This invoice was generated electronically and is valid without a stamp unless otherwise requested.',
   ];
   const normalized = String(text || '').split(/\n+/).map((line) => line.trim()).filter(Boolean);
   return normalized.length ? normalized : fallback;
@@ -118,9 +107,7 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
         ? basePriceAed + fixedMarkupPerPart
         : basePriceAed * (1 + Number(order.markupPercent || 0) / 100);
       const comment = String(part.comment || '').trim();
-      const currencyCode = options?.currency || snapshot.currency || 'AED';
-  const rate = Number(options?.rate || 1) > 0 ? Number(options?.rate) : 1;
-  return {
+      return {
         id: String(part.id || index),
         title: String(part.name || `Part ${index + 1}`),
         subtitle: comment || undefined,
@@ -153,7 +140,6 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
     commissionAed: commissionAed * rate,
     taxAed: 0,
     totalAed: totalAed * rate,
-    paymentInfo: resolvePaymentInfo(settings),
     paymentTerms: resolveTerms(settings.publicWorkTerms),
     invoiceTo: String(order.clientName || order.customerContact || order.socialNickname || 'Client details to be confirmed'),
     currencyCode,
@@ -196,11 +182,6 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
     commissionAed: snapshot.commissionAed * rate,
     taxAed: 0,
     totalAed: snapshot.grandTotalAed * rate,
-    paymentInfo: {
-      accountNo: String(snapshot.raw.public_settings?.invoicePaymentAccountNo || snapshot.contact.whatsapp || '971521574546'),
-      name: String(snapshot.raw.public_settings?.invoicePaymentBeneficiary || snapshot.contact.managerName || 'Stark Motors'),
-      bankAccount: String(snapshot.raw.public_settings?.invoicePaymentBankAccount || `${snapshot.contact.managerName || 'Stark Motors'} Trading Account`),
-    },
     paymentTerms: resolveTerms(snapshot.contact.workTerms),
     invoiceTo: String(snapshot.raw.order?.clientName || snapshot.raw.order?.client_name || snapshot.raw.order?.customerContact || 'Client details to be confirmed'),
     currencyCode,
@@ -248,7 +229,7 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
 <style>
   @page { size: A4 portrait; margin: 0; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #ffffff; font-family: Montserrat, Poppins, Arial, sans-serif; color: ${BLUE}; }
+  html, body { margin: 0; padding: 0; background: #ffffff; font-family: Inter, Arial, sans-serif; color: ${BLUE}; }
   body { background: #ffffff; }
   .sheet-wrap { display: flex; justify-content: center; }
   .sheet {
@@ -257,10 +238,10 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
     background: #ffffff;
   }
   .content {
-    padding: 9mm 10mm 8mm;
+    padding: 11mm 12mm 10mm;
     display: flex;
     flex-direction: column;
-    gap: 5mm;
+    gap: 6mm;
   }
   .brand-row, .hero, .bottom-grid, .footer { display: flex; justify-content: space-between; gap: 7mm; }
   .brand { display: flex; align-items: center; gap: 10px; }
@@ -272,20 +253,21 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
   .brand-text .name { font-size: 15px; font-weight: 800; letter-spacing: 0.12em; color: ${YELLOW}; }
   .brand-text .sub { font-size: 14px; font-weight: 800; letter-spacing: 0.12em; }
   .hero { align-items: flex-start; }
-  .invoice-title { font-size: 25px; line-height: 1; letter-spacing: 0.05em; font-weight: 800; margin: 0; }
+  .invoice-title { font-size: 27px; line-height: 1; letter-spacing: 0.08em; font-weight: 800; margin: 0; color: #0f172a; }
+  .doc-label { margin-top: 4px; font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: #64748b; font-weight: 700; }
   .meta { min-width: 76mm; }
   .meta-line { display:grid; grid-template-columns: 20mm 1fr; gap: 3mm; font-size: 10px; margin-bottom: 2px; }
   .meta-line strong { font-weight: 700; }
   .meta-line span, .meta-line strong { word-break: break-word; }
   table { width: 100%; border-collapse: collapse; font-size: 9.4px; table-layout: fixed; }
   thead th {
-    background: ${YELLOW}; color: ${BLUE}; text-align: left; font-size: 10px; padding: 5px 6px; font-weight: 800;
-    border-bottom: 1px solid rgba(43, 100, 141, 0.25);
+    background: #f1f5f9; color: #334155; text-align: left; font-size: 9.5px; padding: 7px 8px; font-weight: 800;
+    border-bottom: 1px solid #cbd5e1;
   }
   tbody td {
-    padding: 4px 6px;
+    padding: 7px 8px;
     vertical-align: top;
-    border-bottom: 1px solid rgba(43, 100, 141, 0.16);
+    border-bottom: 1px solid #e2e8f0;
   }
   tbody tr:last-child td { border-bottom: 1px solid rgba(43, 100, 141, 0.25); }
   tbody td.num { text-align: right; white-space: nowrap; }
@@ -293,13 +275,13 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
   .desc-main { font-weight: 600; line-height: 1.2; }
   .desc-sub { font-size: 8px; margin-top: 1px; color: rgba(43, 100, 141, 0.76); line-height: 1.15; }
   .bottom-grid { align-items: flex-start; }
-  .section-title { color: ${YELLOW}; font-size: 12px; font-weight: 800; margin: 0 0 4px; }
-  .info-block { width: 54%; }
+  .section-title { color: #0f172a; font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; margin: 0 0 5px; }
+  .info-block { width: 54%; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px; background: #f8fafc; }
   .totals { width: 40%; margin-left: auto; }
-  .info-line, .total-line { display:flex; justify-content:space-between; gap:8px; font-size: 10px; margin-bottom: 3px; }
+  .info-line, .total-line { display:flex; justify-content:space-between; gap:8px; font-size: 10px; margin-bottom: 4px; }
   .info-line span:first-child, .total-line span:first-child { min-width: 24mm; }
   .total-line strong { font-size: 11px; }
-  .total-line.grand { font-weight: 800; font-size: 12px; margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(43, 100, 141, 0.22); }
+  .total-line.grand { font-weight: 800; font-size: 12px; margin-top: 5px; padding: 7px 0 0; border-top: 1px solid #94a3b8; color: #0f172a; }
   .terms-signature { display: flex; justify-content: space-between; align-items: flex-end; gap: 7mm; }
   .terms { flex: 1; font-size: 9.4px; }
   .terms ul { margin: 0; padding-left: 14px; }
@@ -347,7 +329,8 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
 
         <div class="hero">
           <div>
-            <h1 class="invoice-title">INVOICE</h1>
+            <h1 class="invoice-title">COMMERCIAL INVOICE</h1>
+            <div class="doc-label">Official estimate for auto parts supply</div>
           </div>
           <div class="meta">
             <div class="meta-line"><span>Invoice:</span><strong>${esc(payload.invoiceNumber)}</strong></div>
@@ -373,10 +356,11 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
 
         <div class="bottom-grid">
           <div class="info-block">
-            <h3 class="section-title">Payment Info:</h3>
-            <div class="info-line"><span>Account No</span><strong>${esc(payload.paymentInfo.accountNo)}</strong></div>
-            <div class="info-line"><span>Name</span><strong>${esc(payload.paymentInfo.name)}</strong></div>
-            <div class="info-line"><span>Bank Account</span><strong>${esc(payload.paymentInfo.bankAccount)}</strong></div>
+            <h3 class="section-title">Bill to</h3>
+            <div class="info-line"><span>Client</span><strong>${esc(payload.invoiceTo || payload.clientName || 'Client details to be confirmed')}</strong></div>
+            <div class="info-line"><span>Vehicle</span><strong>${esc(payload.carTitle || 'Vehicle request')}</strong></div>
+            <div class="info-line"><span>VIN</span><strong>${esc(payload.vin || '—')}</strong></div>
+            <div class="info-line"><span>Prepared by</span><strong>${esc(payload.company.managerName)}</strong></div>
           </div>
           <div class="totals">
             <div class="total-line"><span>SUB TOTAL</span><strong>${esc(money(payload.subtotalAed, payload.currencyCode))}</strong></div>
@@ -390,12 +374,8 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
 
         <div class="terms-signature">
           <div class="terms">
-            <h3 class="section-title">Payment terms</h3>
+            <h3 class="section-title">Terms and conditions</h3>
             <ul>${payload.paymentTerms.map((term) => `<li>${esc(term)}</li>`).join('')}</ul>
-            <div class="invoice-to">
-              <strong>Invoice to</strong>
-              <div>${esc(payload.invoiceTo || payload.clientName || 'Client details to be confirmed')}</div>
-            </div>
             <div class="sheet-note">Prepared by ${esc(payload.company.managerName)}.</div>
           </div>
 
