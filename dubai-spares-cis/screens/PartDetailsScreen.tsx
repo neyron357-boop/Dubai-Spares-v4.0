@@ -384,7 +384,7 @@ const PartDetailsScreen: React.FC = () => {
       return {
         ...p,
         isFound: true,
-        status: 'found',
+        status: 'found' as const,
         variants: [variant, ...(Array.isArray(p.variants) ? p.variants : [])]
       };
     });
@@ -442,7 +442,7 @@ const PartDetailsScreen: React.FC = () => {
             orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
             partId: part.id,
             partName: part.name,
-            status: 'found',
+            status: 'found' as const,
             source: 'variant',
             priceAed: Number(form.salePriceAed.replace(/\s+/g, '')),
             updatedAt: Date.now()
@@ -477,7 +477,7 @@ const PartDetailsScreen: React.FC = () => {
             orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
             partId: part.id,
             partName: part.name,
-            status: 'found',
+            status: 'found' as const,
             source: 'variant',
             priceAed: Number(form.salePriceAed.replace(/\s+/g, '')),
             updatedAt: Date.now()
@@ -555,7 +555,7 @@ const PartDetailsScreen: React.FC = () => {
         return {
           ...p,
           isFound: true,
-          status: 'found',
+          status: 'found' as const,
           bestOfferId,
           photoUrl: p.photoUrl || '',
           photos: p.photos || [],
