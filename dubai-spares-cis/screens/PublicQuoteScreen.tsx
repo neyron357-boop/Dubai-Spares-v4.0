@@ -285,12 +285,12 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   };
 
   if (isLoading) {
-    return <div className="min-h-screen bg-slate-100 p-6 text-slate-700">{t.loading}</div>;
+    return <div className="min-h-[100dvh] bg-slate-100 p-6 text-slate-700">{t.loading}</div>;
   }
 
   if (error || !snapshotPayload) {
     return (
-      <div className="min-h-screen bg-slate-100 px-4 py-8">
+      <div className="min-h-[100dvh] bg-slate-100 px-4 py-8">
         <div className="mx-auto max-w-3xl rounded-3xl border border-rose-200 bg-white p-6 shadow-sm">
           <div className="flex items-start gap-3 text-rose-700">
             <AlertCircle className="mt-0.5" size={20} />
@@ -308,8 +308,8 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 px-3 py-4 sm:px-6">
-      <main className="mx-auto flex max-w-5xl flex-col gap-4 pb-24">
+    <div className="min-h-[100dvh] bg-slate-100 px-3 py-4 pb-[calc(104px+env(safe-area-inset-bottom))] sm:px-6">
+      <main className="mx-auto flex max-w-5xl flex-col gap-4">
         <section className="overflow-hidden rounded-3xl bg-[#0f1f3d] text-white shadow-[0_16px_40px_rgba(15,31,61,0.24)]">
           {order.carPhotoUrl && (
             <div className="relative h-52 w-full sm:h-64">
@@ -521,7 +521,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
       </main>
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
       {whatsappHref && grandTotalAed > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur-sm">
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur-sm">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t.quoteTotal}</p>

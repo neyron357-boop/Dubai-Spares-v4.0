@@ -64,9 +64,9 @@ const MorningBossScreen: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-[#f7f8fc] overflow-hidden">
+    <div className="flex min-h-[100dvh] flex-col bg-[#f7f8fc]">
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto no-scrollbar px-5 pt-[max(1.5rem,env(safe-area-inset-top))]">
+      <div className="flex-1 px-5 pt-[max(1.5rem,env(safe-area-inset-top))]">
 
         {/* ── 1. Greeting ── */}
         <div className="mb-6">

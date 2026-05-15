@@ -590,7 +590,7 @@ const VariantsScreen: React.FC = () => {
 
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40">
-          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-3">
+          <div className="max-h-[92dvh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-3">
             <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
             <div className="mt-3 flex items-center justify-between">
               <h2 className="text-lg font-bold">Новый вариант</h2>
@@ -660,7 +660,7 @@ const VariantsScreen: React.FC = () => {
 
       {selectedVariant && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/55">
-          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-3">
+          <div className="max-h-[92dvh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-3">
             <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
             <div className="mt-3 flex items-start justify-between gap-2">
               <div>

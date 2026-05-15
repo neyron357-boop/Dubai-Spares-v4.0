@@ -1166,7 +1166,7 @@ const PartDetailsScreen: React.FC = () => {
 
       {showLibraryPicker && (
         <div className="fixed inset-0 z-[130] bg-black/30 flex items-end">
-          <div className="w-full max-w-md mx-auto bg-white rounded-t-3xl p-4 max-h-[70vh] overflow-y-auto space-y-2">
+          <div className="w-full max-w-md mx-auto bg-white rounded-t-3xl p-4 max-h-[70dvh] overflow-y-auto space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-black">Выбрать вариант</h3>
               <button type="button" onClick={() => setShowLibraryPicker(false)} className="p-2 rounded-lg hover:bg-gray-100"><X size={16} /></button>

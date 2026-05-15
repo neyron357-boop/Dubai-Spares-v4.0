@@ -645,7 +645,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   if (!order) {
     return (
-      <div className="p-4 flex flex-col items-center justify-center min-h-screen space-y-4">
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center space-y-4 p-4">
         <div className="text-center space-y-3">
           <AlertTriangle size={48} className="mx-auto text-amber-500" />
           <h2 className="text-lg font-black text-gray-900">Заказ не найден</h2>

@@ -1040,7 +1040,7 @@ Best time: ${bestContactTime || '—'}`,
 
   if (showThanks) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-10" style={{ background: '#0B1220', color: '#F9FAFB', fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <div className="flex min-h-[100dvh] items-center justify-center px-4 py-10" style={{ background: '#0B1220', color: '#F9FAFB', fontFamily: 'Inter, system-ui, sans-serif' }}>
         <div className="w-full max-w-[640px] rounded-[24px] p-8 text-center" style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full" style={{ background: 'rgba(16,185,129,0.15)' }}>
             <Check className="h-8 w-8" style={{ color: '#10B981' }} />
@@ -1125,7 +1125,7 @@ Best time: ${bestContactTime || '—'}`,
   };
 
   return (
-    <div className="min-h-screen pb-[88px]" style={{ background: '#0B1220', color: '#F9FAFB', fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div className="min-h-[100dvh] pb-[calc(104px+env(safe-area-inset-bottom))]" style={{ background: '#0B1220', color: '#F9FAFB', fontFamily: 'Inter, system-ui, sans-serif' }}>
       {import.meta.env.DEV && (
         <div className="fixed top-2 right-2 z-50 rounded-lg px-3 py-2 text-xs font-mono" style={{ background: 'rgba(0,0,0,0.85)', color: '#F9FAFB' }}>
           Cloud: {isCloudConfigured ? '✅ ON' : (cloudFeatureFlags.clientForm ? '⚠️ PARTIAL' : '❌ OFF')}
@@ -1831,7 +1831,7 @@ Best time: ${bestContactTime || '—'}`,
       </div>
 
       {/* BOTTOM ACTION BAR */}
-      <div className="fixed inset-x-0 bottom-0 z-20" style={{ height: '88px', background: 'rgba(11,18,32,0.97)', borderTop: '1px solid rgba(255,255,255,0.07)', backdropFilter: 'blur(16px)' }}>
+      <div className="fixed inset-x-0 bottom-0 z-20" style={{ height: 'calc(88px + env(safe-area-inset-bottom))', background: 'rgba(11,18,32,0.97)', borderTop: '1px solid rgba(255,255,255,0.07)', backdropFilter: 'blur(16px)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="mx-auto flex h-full w-full max-w-[640px] items-center gap-3 px-6">
           <button
             type="button"
