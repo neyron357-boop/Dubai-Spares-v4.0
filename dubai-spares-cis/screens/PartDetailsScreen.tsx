@@ -24,7 +24,8 @@ import {
   Check,
   ExternalLink,
   Images,
-  Send
+  Send,
+  Video
 } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
@@ -37,6 +38,7 @@ import { generatePartPriceCard, resolveBestVariant, shareGeneratedPriceImage } f
 import { logger } from '../logging';
 import { readClipboardImageFiles } from '../utils/clipboardImages';
 import { toast } from '../feedback';
+import { isLikelyGoogleDriveUrl, normalizeExternalMediaUrl, openExternalMediaUrl } from '../utils/externalMedia';
 
 interface OfferFormState {
   purchasePriceAed: string;
@@ -172,6 +174,7 @@ const PartDetailsScreen: React.FC = () => {
   const [partNameDraft, setPartNameDraft] = useState('');
   const [isEditingPartDescription, setIsEditingPartDescription] = useState(false);
   const [partDescriptionDraft, setPartDescriptionDraft] = useState('');
+  const [partMediaLinkDraft, setPartMediaLinkDraft] = useState('');
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
 
   const [form, setForm] = useState<OfferFormState>(DEFAULT_FORM);
@@ -209,6 +212,10 @@ const PartDetailsScreen: React.FC = () => {
     if (currency === 'AED') return `${numericSalePrice.toFixed(0)} AED`;
     return `${(numericSalePrice / order.exchangeRate).toFixed(0)} ${currency}`;
   }, [isSalePriceValid, numericSalePrice, order?.exchangeRate, order?.clientCurrency]);
+
+  useEffect(() => {
+    setPartMediaLinkDraft(String((part as any)?.googleDriveVideoUrl || ''));
+  }, [part?.id, (part as any)?.googleDriveVideoUrl]);
 
   useEffect(() => {
     if (!isAdding) {
@@ -694,6 +701,33 @@ const PartDetailsScreen: React.FC = () => {
     setIsEditingPartDescription(false);
   };
 
+  const savePartMediaLink = (rawValue = partMediaLinkDraft, options?: { showToast?: boolean }) => {
+    if (!order || !part) return String(rawValue || '').trim();
+    const nextValue = String(rawValue || '').trim();
+    const currentValue = String((part as any).googleDriveVideoUrl || '').trim();
+    if (nextValue !== currentValue) {
+      const updatedParts = order.parts.map((p) => (p.id === part.id ? { ...p, googleDriveVideoUrl: nextValue } : p));
+      void updateOrder({ ...order, parts: updatedParts });
+      if (options?.showToast) toast(nextValue ? 'Media link сохранён' : 'Media link очищен', 'success');
+    }
+    return nextValue;
+  };
+
+  const checkPartMediaLink = () => {
+    const savedUrl = savePartMediaLink(partMediaLinkDraft, { showToast: false });
+    const url = normalizeExternalMediaUrl(savedUrl);
+    if (!url) {
+      toast('Добавьте Google Drive ссылку для детали', 'error');
+      return;
+    }
+    if (!isLikelyGoogleDriveUrl(url)) {
+      toast('Нужна ссылка Google Drive: drive.google.com или docs.google.com', 'error');
+      return;
+    }
+    openExternalMediaUrl(url);
+    toast('Ссылка открыта. Проверьте доступ: Anyone with the link can view', 'success');
+  };
+
 
 
   const getSamplePhotos = () => {
@@ -941,6 +975,30 @@ const PartDetailsScreen: React.FC = () => {
                 <p className="text-[10px] font-semibold text-gray-400">Пока нет пример-фото.</p>
               )}
               <input type="file" ref={sampleFileInputRef} onChange={handleSamplePhotoChange} className="hidden" accept="image/*" multiple />
+            </div>
+
+            <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-wide text-sky-800">
+                  <Video size={14} /> Видео / Media Link
+                </p>
+                <button
+                  type="button"
+                  onClick={checkPartMediaLink}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2 text-[10px] font-black text-sky-700"
+                >
+                  <ExternalLink size={12} /> Проверить
+                </button>
+              </div>
+              <input
+                type="url"
+                value={partMediaLinkDraft}
+                onChange={(e) => setPartMediaLinkDraft(e.target.value)}
+                onBlur={(e) => savePartMediaLink(e.target.value)}
+                placeholder="https://drive.google.com/..."
+                className="mt-2 h-11 w-full rounded-xl border border-sky-100 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-sky-300"
+              />
+              <p className="mt-1 text-[10px] font-semibold text-sky-700/70">Не загружайте видео в Supabase. Для клиента включите доступ Anyone with the link can view.</p>
             </div>
 
             <button type="button" onClick={() => { setIsAdding(true); setEditingVariantId(null); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg uppercase text-xs"><Plus size={20} /> Добавить вариант</button>

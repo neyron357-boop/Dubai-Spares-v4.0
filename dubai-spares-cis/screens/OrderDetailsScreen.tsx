@@ -35,7 +35,10 @@ import {
   Rocket,
   Share2,
   Download,
-  History
+  History,
+  Video,
+  FolderOpen,
+  ExternalLink
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
@@ -53,6 +56,7 @@ import { useAppSettings } from '../appSettings';
 import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 import { getOrderCustomerLogs } from '../customerEngagement';
 import { analyzeAutoPartText, inferCargoPlacesFromAnalysis, isOversizedFromAnalysis } from '../utils/autoPartAi';
+import { isLikelyGoogleDriveUrl, normalizeExternalMediaUrl, openExternalMediaUrl } from '../utils/externalMedia';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -340,6 +344,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [newPartComment, setNewPartComment] = useState('');
   const [partCargoDrafts, setPartCargoDrafts] = useState<Record<string, PartCargoDraft>>({});
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
+  const [partMediaLinkDrafts, setPartMediaLinkDrafts] = useState<Record<string, string>>({});
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
   const [isAiFillingCargo, setIsAiFillingCargo] = useState(false);
   const [aiCargoNotice, setAiCargoNotice] = useState<string | null>(null);
@@ -369,6 +374,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [deleteOrderConfirmOpen, setDeleteOrderConfirmOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
+  const [orderMediaFolderDraft, setOrderMediaFolderDraft] = useState(order?.googleDriveFolderUrl || '');
   const [showCustomerLogs, setShowCustomerLogs] = useState(false);
   const [customerLogs, setCustomerLogs] = useState(() => getOrderCustomerLogs(order?.id || ''));
 
@@ -428,6 +434,20 @@ const OrderDetailsScreen: React.FC = () => {
     }, {} as Record<string, string>);
     setPartCommentDrafts(nextDrafts);
   }, [orderMissing, order.id, order.parts]);
+
+  useEffect(() => {
+    if (orderMissing) return;
+    const nextDrafts = (order.parts || []).reduce((acc, part) => {
+      acc[part.id] = String((part as any).googleDriveVideoUrl || '');
+      return acc;
+    }, {} as Record<string, string>);
+    setPartMediaLinkDrafts(nextDrafts);
+  }, [orderMissing, order.id, order.parts]);
+
+  useEffect(() => {
+    if (orderMissing) return;
+    setOrderMediaFolderDraft(order.googleDriveFolderUrl || '');
+  }, [orderMissing, order.id, order.googleDriveFolderUrl]);
 
   useEffect(() => {
     if (orderMissing) return;
@@ -1115,6 +1135,51 @@ const OrderDetailsScreen: React.FC = () => {
       setToast({ message: 'Не удалось скопировать' });
     }
   };
+
+  const checkGoogleDriveLink = useCallback((rawUrl: string, emptyMessage: string) => {
+    const url = normalizeExternalMediaUrl(rawUrl);
+    if (!url) {
+      setToast({ message: emptyMessage });
+      return false;
+    }
+    if (!isLikelyGoogleDriveUrl(url)) {
+      setToast({ message: 'Нужна ссылка Google Drive: drive.google.com или docs.google.com' });
+      return false;
+    }
+    openExternalMediaUrl(url);
+    setToast({ message: 'Ссылка открыта. Проверьте доступ: Anyone with the link can view' });
+    return true;
+  }, []);
+
+  const saveOrderMediaFolder = useCallback((rawValue = orderMediaFolderDraft, options?: { showToast?: boolean }) => {
+    if (!isEditMode) return String(rawValue || '').trim();
+    const currentOrder = orderRef.current;
+    if (!currentOrder) return String(rawValue || '').trim();
+    const nextValue = String(rawValue || '').trim();
+    const currentValue = String(currentOrder.googleDriveFolderUrl || '').trim();
+    if (nextValue !== currentValue) {
+      void updateOrder({ ...currentOrder, googleDriveFolderUrl: nextValue });
+      if (options?.showToast) setToast({ message: nextValue ? 'Папка заказа сохранена' : 'Папка заказа очищена' });
+    }
+    return nextValue;
+  }, [isEditMode, orderMediaFolderDraft, updateOrder]);
+
+  const savePartMediaLink = useCallback((partId: string, rawValue?: string, options?: { showToast?: boolean }) => {
+    const nextValue = String(rawValue ?? partMediaLinkDrafts[partId] ?? '').trim();
+    if (!isEditMode) return nextValue;
+    const currentOrder = orderRef.current;
+    if (!currentOrder) return nextValue;
+    const currentPart = (currentOrder.parts || []).find((item) => item.id === partId);
+    const currentValue = String((currentPart as any)?.googleDriveVideoUrl || '').trim();
+    if (currentPart && nextValue !== currentValue) {
+      const updatedParts = currentOrder.parts.map((item) => (
+        item.id === partId ? { ...item, googleDriveVideoUrl: nextValue } : item
+      ));
+      void updateOrder({ ...currentOrder, parts: updatedParts });
+      if (options?.showToast) setToast({ message: nextValue ? 'Media link сохранён' : 'Media link очищен' });
+    }
+    return nextValue;
+  }, [isEditMode, partMediaLinkDrafts, updateOrder]);
 
   const pasteVinFromClipboard = async () => {
     try {
@@ -2604,6 +2669,33 @@ const OrderDetailsScreen: React.FC = () => {
                           </button>
                         </div>
                         {part.comment ? <p className="mt-2 line-clamp-2 text-xs font-semibold text-slate-600">{part.comment}</p> : null}
+                        <div className="mt-2 rounded-xl border border-sky-100 bg-white p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide text-sky-700">
+                              <Video size={12} /> Видео / Media Link
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const savedUrl = savePartMediaLink(part.id, partMediaLinkDrafts[part.id], { showToast: true });
+                                checkGoogleDriveLink(savedUrl, 'Добавьте Google Drive ссылку для детали');
+                              }}
+                              className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2 text-[10px] font-black text-sky-700 disabled:opacity-40"
+                            >
+                              <ExternalLink size={12} /> Проверить
+                            </button>
+                          </div>
+                          <input
+                            type="url"
+                            value={partMediaLinkDrafts[part.id] ?? ''}
+                            readOnly={!isEditMode}
+                            onChange={(e) => setPartMediaLinkDrafts((prev) => ({ ...prev, [part.id]: e.target.value }))}
+                            onBlur={(e) => savePartMediaLink(part.id, e.target.value)}
+                            placeholder="https://drive.google.com/..."
+                            className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-800 outline-none focus:border-sky-300 focus:bg-white"
+                          />
+                          <p className="mt-1 text-[10px] font-semibold text-slate-400">Google Drive: доступ Anyone with the link can view.</p>
+                        </div>
                         <div className="mt-2 space-y-1">
                           {variants.length === 0 ? (
                             <p className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-400">Вариантов пока нет</p>
@@ -2965,6 +3057,33 @@ const OrderDetailsScreen: React.FC = () => {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Действия</h2>
+          <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-wide text-sky-800">
+                <FolderOpen size={14} /> Материалы заказа
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const savedUrl = saveOrderMediaFolder(orderMediaFolderDraft, { showToast: true });
+                  checkGoogleDriveLink(savedUrl, 'Добавьте Google Drive папку заказа');
+                }}
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2 text-[10px] font-black text-sky-700"
+              >
+                <ExternalLink size={12} /> Проверить
+              </button>
+            </div>
+            <input
+              type="url"
+              value={orderMediaFolderDraft}
+              readOnly={!isEditMode}
+              onChange={(e) => setOrderMediaFolderDraft(e.target.value)}
+              onBlur={(e) => saveOrderMediaFolder(e.target.value)}
+              placeholder="https://drive.google.com/drive/folders/..."
+              className="mt-2 h-11 w-full rounded-xl border border-sky-100 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-sky-300"
+            />
+            <p className="mt-1 text-[10px] font-semibold text-sky-700/70">Папка появится внизу Public Quote. Доступ: Anyone with the link can view.</p>
+          </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setIsEstimateOpen(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 text-xs font-black text-white">
               <Share2 size={14} /> Отправить

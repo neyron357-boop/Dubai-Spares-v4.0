@@ -7,11 +7,14 @@ import {
   Clock3,
   Copy,
   Download,
+  ExternalLink,
   FileText,
+  FolderOpen,
   Images,
   Info,
   Instagram,
   MessageCircle,
+  PlayCircle,
   RefreshCcw,
   Send,
   ShieldCheck,
@@ -51,6 +54,10 @@ const i18n = {
     total: 'Итого',
     qty: 'Кол-во',
     noPhotos: 'Фотографии для этой детали пока недоступны.',
+    watchVideo: 'Смотреть видео',
+    orderMaterials: 'Все материалы заказа',
+    orderMaterialsHelper: 'Видео, оригинальные фото и дополнительные файлы по вашему заказу.',
+    openFolder: 'Открыть папку',
     workTerms: 'Условия и документы',
     cargo: 'Оценка логистики',
     policyTitle: 'Условия оплаты',
@@ -99,6 +106,10 @@ const i18n = {
     total: 'Total',
     qty: 'Qty',
     noPhotos: 'Photos are not available for this part yet.',
+    watchVideo: 'Watch video',
+    orderMaterials: 'All order materials',
+    orderMaterialsHelper: 'Videos, original photos, and extra files for your order.',
+    openFolder: 'Open folder',
     workTerms: 'Terms and documents',
     cargo: 'Cargo estimates',
     policyTitle: 'Payment policy',
@@ -203,7 +214,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   useEffect(() => { void loadQuote(); }, [loadQuote]);
 
   const normalizedSnapshot = useMemo(() => normalizePublicQuoteSnapshotPayload(snapshotPayload), [snapshotPayload]);
-  const order = normalizedSnapshot?.order || { brand: '—', model: '', year: '', vin: '—', bodyType: '', carPhotoUrl: '' };
+  const order = normalizedSnapshot?.order || { brand: '—', model: '', year: '', vin: '—', bodyType: '', carPhotoUrl: '', googleDriveFolderUrl: '' };
   const rates = normalizedSnapshot?.rates || { AED: 1, USD: 0.27, RUB: 21, TJS: 2.6 };
   const currency = normalizedSnapshot?.currency || 'USD';
   const items = normalizedSnapshot?.items || [];
@@ -212,6 +223,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const packingAed = normalizedSnapshot?.packingAed || 0;
   const commissionAed = normalizedSnapshot?.commissionAed || 0;
   const grandTotalAed = normalizedSnapshot?.grandTotalAed || 0;
+  const orderMediaFolderUrl = normalizedSnapshot?.orderMediaFolderUrl || order.googleDriveFolderUrl || '';
   const activeCurrency = (displayCurrency || currency) as keyof typeof rates;
   const fx = rates[activeCurrency] || 1;
   const contact = normalizedSnapshot?.contact || { whatsapp: '', telegram: '', instagram: '', managerName: 'Stark Motors', logoUrl: '', signatureUrl: '', workTerms: '', deliveryTerms: '' };
@@ -398,6 +410,16 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                 <div className="space-y-2 p-4">
                   <h3 className="text-base font-bold text-slate-900">{translatedItemNames[item.id] || item.name}</h3>
                   {item.note && <p className="text-sm text-slate-500">{item.note}</p>}
+                  {item.googleDriveVideoUrl && (
+                    <a
+                      href={item.googleDriveVideoUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-3 text-sm font-bold text-sky-800 shadow-sm transition hover:bg-sky-100 active:scale-[0.99]"
+                    >
+                      <PlayCircle size={16} /> {t.watchVideo} <ExternalLink size={13} />
+                    </a>
+                  )}
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="rounded-2xl bg-white p-3"><span className="block text-xs uppercase text-slate-400">{t.qty}</span><strong className="text-slate-900">{item.qty}</strong></div>
                     <div className="rounded-2xl bg-white p-3"><span className="block text-xs uppercase text-slate-400">{activeCurrency}</span><strong className="text-slate-900">{(item.unitPriceAed * fx).toFixed(2)}</strong></div>
@@ -408,6 +430,30 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
             ))}
           </div>
         </section>
+
+        {orderMediaFolderUrl && (
+          <section className="rounded-3xl border border-sky-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-sky-50 text-sky-700">
+                  <FolderOpen size={20} />
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-slate-900">{t.orderMaterials}</h2>
+                  <p className="mt-1 text-sm text-slate-500">{t.orderMaterialsHelper}</p>
+                </div>
+              </div>
+              <a
+                href={orderMediaFolderUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.99]"
+              >
+                <FolderOpen size={16} /> {t.openFolder} <ExternalLink size={13} />
+              </a>
+            </div>
+          </section>
+        )}
 
         <section className="overflow-hidden rounded-3xl border border-amber-200/80 bg-gradient-to-b from-amber-50 to-white p-5 text-sm text-amber-900 shadow-[0_12px_26px_rgba(180,83,9,0.09)]">
           <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em]"><Info size={14} /> {t.policyTitle}</p>
