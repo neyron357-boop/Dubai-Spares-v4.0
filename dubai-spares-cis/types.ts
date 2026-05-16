@@ -102,6 +102,7 @@ export interface Part {
   name: string;
   quantity?: number;
   comment?: string;
+  googleDriveVideoUrl?: string;
   partKind?: 'single' | 'group';
   groupItems?: Array<string | { id?: string; name?: string; quantity?: number }>;
   photoUrl?: string;
@@ -131,6 +132,7 @@ export interface Order {
   bodyType?: string;
   vin: string;
   vinPhotoUrl?: string;
+  googleDriveFolderUrl?: string;
   status?: OrderStatus;
   paymentStatus?: PaymentStatus;
   searchDepositStatus?: SearchDepositStatus;
@@ -455,6 +457,7 @@ export interface DbPartRow {
   name: string;
   quantity?: number | null;
   comment?: string | null;
+  google_drive_video_url?: string | null;
   photo_url: string | null;
   photos: string[];
   is_found: boolean;
@@ -475,6 +478,7 @@ export interface DbOrderRow {
   body_type?: string | null;
   vin: string;
   vin_photo_url?: string | null;
+  google_drive_folder_url?: string | null;
   status: OrderStatus;
   priority: Priority;
   client_name: string;

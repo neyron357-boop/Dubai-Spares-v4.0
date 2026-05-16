@@ -23,6 +23,8 @@ export type PublicQuotePayloadV1 = {
     markup_fixed_aed?: number;
     markupPercent?: number;
     markup_percent?: number;
+    googleDriveFolderUrl?: string;
+    google_drive_folder_url?: string;
   };
   pricing: {
     currency: string;
@@ -45,6 +47,8 @@ export type PublicQuotePayloadV1 = {
     supplier_price_aed: number;
     client_price_aed: number;
     photo_urls: string[];
+    googleDriveVideoUrl?: string;
+    google_drive_video_url?: string;
     weight_kg?: number;
     places?: number;
     cargo_place_group?: string;
@@ -112,11 +116,14 @@ export type PublicQuotePayloadV1 = {
     };
   };
   items?: Array<{
+    id?: string;
     name: string;
     qty: number;
     unit_price: number;
     line_total: number;
     currency: string;
+    googleDriveVideoUrl?: string;
+    google_drive_video_url?: string;
   }>;
   fees?: {
     logistics: number;
@@ -354,31 +361,37 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
     (payload.order as any)?.markup_percent
   ) || 0);
   const legacyParts = Array.isArray(payload.parts) ? payload.parts as Array<Record<string, unknown>> : [];
-  const items = legacyParts.map((part) => {
+  const items = legacyParts.map((part, index) => {
     const variants = Array.isArray(part.variants) ? part.variants as Array<Record<string, unknown>> : [];
     const variant = variants[0] || {};
     const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
     const unitPrice = resolveClientUnitPriceAed({ ...part, ...variant }, { markupPercent });
 
     return {
+      id: String(part.id || `part-${index}`),
       name: String(part.name || 'Part'),
       qty,
       unit_price: unitPrice,
-      line_total: round2(unitPrice * qty)
+      line_total: round2(unitPrice * qty),
+      googleDriveVideoUrl: String(part.googleDriveVideoUrl || part.google_drive_video_url || ''),
+      google_drive_video_url: String(part.google_drive_video_url || part.googleDriveVideoUrl || '')
     };
   });
 
   const fallbackItems = Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : [];
   const normalizedItems = items.length > 0
     ? items
-    : fallbackItems.map((item) => {
+    : fallbackItems.map((item, index) => {
       const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
       const unitPrice = parseMoney(item.unit_price, item.unitPrice, item.price, item.amount, item.value);
       return {
+        id: String(item.id || `item-${index}`),
         name: String(item.name || 'Part'),
         qty,
         unit_price: unitPrice,
-        line_total: round2(parseMoney(item.line_total, item.lineTotal, unitPrice * qty))
+        line_total: round2(parseMoney(item.line_total, item.lineTotal, unitPrice * qty)),
+        googleDriveVideoUrl: String(item.googleDriveVideoUrl || item.google_drive_video_url || ''),
+        google_drive_video_url: String(item.google_drive_video_url || item.googleDriveVideoUrl || '')
       };
     });
 
@@ -465,28 +478,34 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
     (basePayload.order as any)?.markupPercent,
     (basePayload.order as any)?.markup_percent
   ) || 0);
-  const normalizedItemsFromParts = partRows.map((part) => {
+  const normalizedItemsFromParts = partRows.map((part, index) => {
     const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
     const unitPrice = resolveClientUnitPriceAed(part, { markupPercent });
     return {
+      id: String(part.id || `part-${index}`),
       name: String(part.name || 'Part'),
       qty,
       unit_price: unitPrice,
       line_total: round2(unitPrice * qty),
-      currency: 'AED'
+      currency: 'AED',
+      googleDriveVideoUrl: String(part.googleDriveVideoUrl || part.google_drive_video_url || ''),
+      google_drive_video_url: String(part.google_drive_video_url || part.googleDriveVideoUrl || '')
     };
   });
   const normalizedItems = normalizedItemsFromParts.length > 0
     ? normalizedItemsFromParts
-    : itemRows.map((item) => {
+    : itemRows.map((item, index) => {
       const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
       const unitPrice = resolveClientUnitPriceAed(item, { markupPercent });
       return {
+        id: String(item.id || `item-${index}`),
         name: String(item.name || 'Part'),
         qty,
         unit_price: unitPrice,
         line_total: round2(unitPrice * qty),
-        currency: 'AED'
+        currency: 'AED',
+        googleDriveVideoUrl: String(item.googleDriveVideoUrl || item.google_drive_video_url || ''),
+        google_drive_video_url: String(item.google_drive_video_url || item.googleDriveVideoUrl || '')
       };
     });
   const computed = computeTotalsFromItems(normalizedItems as Array<Record<string, unknown>>, { logistics, packaging, commission });
@@ -738,6 +757,8 @@ const buildSnapshotPayload = (
         supplier_price_aed: supplierAed,
         client_price_aed: round2(clientAed),
         photo_urls: dedupePhotoUrls([part.photoUrl || '', ...(part.photos || []), variant?.photoUrl || '', ...(variant?.photos || [])]),
+        googleDriveVideoUrl: String((part as any).googleDriveVideoUrl || '').trim(),
+        google_drive_video_url: String((part as any).googleDriveVideoUrl || '').trim(),
         weight_kg: parseMoney((part as any).weightKg),
         places: parseMoney((part as any).places),
         cargo_place_group: String((part as any).cargoPlaceGroup || '').trim() || undefined,
@@ -746,11 +767,14 @@ const buildSnapshotPayload = (
     });
 
   const snapshotItems = pricedParts.map((part) => ({
+    id: part.id,
     name: part.name,
     qty: part.qty,
     unit_price: part.client_price_aed,
     line_total: round2(part.client_price_aed * part.qty),
-    currency: 'AED'
+    currency: 'AED',
+    googleDriveVideoUrl: part.googleDriveVideoUrl,
+    google_drive_video_url: part.google_drive_video_url
   }));
   const computed = computeTotalsFromItems(snapshotItems as Array<Record<string, unknown>>, {
     logistics: deliveryAed,
@@ -791,7 +815,9 @@ const buildSnapshotPayload = (
       markupFixedAed: parseMoney(order.markupFixedAed) || 0,
       markup_fixed_aed: parseMoney(order.markupFixedAed) || 0,
       markupPercent: parseMoney(order.markupPercent) || 0,
-      markup_percent: parseMoney(order.markupPercent) || 0
+      markup_percent: parseMoney(order.markupPercent) || 0,
+      googleDriveFolderUrl: String((order as any).googleDriveFolderUrl || '').trim(),
+      google_drive_folder_url: String((order as any).googleDriveFolderUrl || '').trim()
     },
     pricing: {
       currency,

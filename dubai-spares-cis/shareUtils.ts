@@ -270,7 +270,7 @@ const uniquePhotos = (photos: string[]) => {
 };
 
 const buildQuoteSnapshot = (order: Pick<Order,
-  'id' | 'brand' | 'model' | 'year' | 'bodyType' | 'vin' | 'vinPhotoUrl' | 'carPhotoUrl' | 'carPhotos' |
+  'id' | 'brand' | 'model' | 'year' | 'bodyType' | 'vin' | 'vinPhotoUrl' | 'googleDriveFolderUrl' | 'carPhotoUrl' | 'carPhotos' |
   'markupType' | 'markupPercent' | 'markupFixedAed' | 'exchangeRate' | 'clientCurrency' | 'logistics' | 'pricingEvents' | 'parts'>) => {
   const pricedParts = (order.parts || []).filter((part) => part.isFound && part.variants.length > 0);
   const partsSumAed = pricedParts.reduce((sum, part) => sum + Number(part.variants[0]?.priceAed || 0), 0);
@@ -291,6 +291,8 @@ const buildQuoteSnapshot = (order: Pick<Order,
   bodyType: order.bodyType,
   vin: order.vin,
   vinPhotoUrl: order.vinPhotoUrl,
+  googleDriveFolderUrl: order.googleDriveFolderUrl || '',
+  google_drive_folder_url: order.googleDriveFolderUrl || '',
   carPhotoUrl: order.carPhotoUrl,
   carPhotos: (order.carPhotos || []).slice(0, 3),
   markupType: order.markupType,
@@ -333,6 +335,8 @@ const buildQuoteSnapshot = (order: Pick<Order,
     places: Number((part as any).places || 0),
     cargoPlaceGroup: String((part as any).cargoPlaceGroup || '').trim(),
     isOversized: !!(part as any).isOversized,
+    googleDriveVideoUrl: String((part as any).googleDriveVideoUrl || '').trim(),
+    google_drive_video_url: String((part as any).googleDriveVideoUrl || '').trim(),
     photoUrl: part.photoUrl,
     photos: uniquePhotos(part.photos || []),
     variants: (part.variants || []).map((variant) => ({
