@@ -43,12 +43,20 @@ const createUuid = () =>
 
 const ensureUuid = (value?: string) => (value && isUuid(value) ? value : createUuid());
 
-const getStatus = (order: Pick<Order, 'isSold' | 'isArchived' | 'isVip' | 'isLead'>): OrderStatus => {
+const KNOWN_ORDER_STATUSES: OrderStatus[] = ['active', 'archive', 'sold', 'vip', 'lead', 'new_inquiry', 'in_progress', 'waiting_deposit'];
+
+const getStatus = (order: Pick<Order, 'status' | 'isSold' | 'isArchived' | 'isVip' | 'isLead'>): OrderStatus => {
   if (order.isSold) return 'sold';
   if (order.isArchived) return 'archive';
   if (order.isVip) return 'vip';
+
+  const explicitStatus = typeof order.status === 'string' ? order.status : '';
+  if (KNOWN_ORDER_STATUSES.includes(explicitStatus as OrderStatus) && explicitStatus !== 'lead') {
+    return explicitStatus as OrderStatus;
+  }
+
   if (order.isLead) return 'lead';
-  return 'active';
+  return explicitStatus === 'lead' ? 'lead' : 'active';
 };
 
 const SALES_STATUS_ALIASES: Record<string, SalesStatus> = {
