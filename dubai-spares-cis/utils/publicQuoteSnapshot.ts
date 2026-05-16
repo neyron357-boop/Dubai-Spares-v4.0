@@ -1,6 +1,7 @@
 import { DEFAULT_QUOTE_RATES, parseQuoteRates, type QuoteCurrency, type QuoteRates } from '../shareUtils';
 import { normalizeGroupItems, normalizePartQuantity } from './groupItems';
 import { resolveClientUnitPriceAed } from '../publicQuoteApi';
+import { normalizeExternalMediaUrl } from './externalMedia';
 
 export type QuoteContact = {
   whatsapp: string;
@@ -22,6 +23,7 @@ export type QuoteItem = {
   unitPriceAed: number;
   totalAed: number;
   photos: string[];
+  googleDriveVideoUrl?: string;
   note?: string;
   status?: string;
 };
@@ -41,6 +43,7 @@ export type NormalizedPublicQuoteSnapshot = {
     vin: string;
     bodyType: string;
     carPhotoUrl: string;
+    googleDriveFolderUrl: string;
   };
   rates: QuoteRates;
   currency: QuoteCurrency;
@@ -57,6 +60,7 @@ export type NormalizedPublicQuoteSnapshot = {
   };
   pdfHref: string;
   documents: QuoteDocument[];
+  orderMediaFolderUrl: string;
   hasRenderableContent: boolean;
   preSaleCheck: {
     defectPhotos: string[];
@@ -131,6 +135,7 @@ const normalizeItems = (payload: Record<string, any>): QuoteItem[] => {
       unitPriceAed,
       totalAed: unitPriceAed * qty,
       photos: asArray(part.photo_urls).filter(Boolean).length ? asArray(part.photo_urls).filter(Boolean) : asArray(part.photos).filter(Boolean),
+      googleDriveVideoUrl: normalizeExternalMediaUrl(firstString(part.googleDriveVideoUrl, part.google_drive_video_url, part.driveVideoUrl, part.drive_video_url, part.videoUrl, part.video_url, part.mediaUrl, part.media_url)),
       note: firstString(part.note, part.comment),
       status: normalizeItemStatus(part),
     };
@@ -148,6 +153,7 @@ const normalizeItems = (payload: Record<string, any>): QuoteItem[] => {
       unitPriceAed,
       totalAed: firstNumber(item.line_total, item.lineTotal, unitPriceAed * qty),
       photos: asArray(item.photo_urls).filter(Boolean).length ? asArray(item.photo_urls).filter(Boolean) : asArray(item.photos).filter(Boolean),
+      googleDriveVideoUrl: normalizeExternalMediaUrl(firstString(item.googleDriveVideoUrl, item.google_drive_video_url, item.driveVideoUrl, item.drive_video_url, item.videoUrl, item.video_url, item.mediaUrl, item.media_url)),
       note: firstString(item.note, item.comment),
       status: normalizeItemStatus(item),
     };
@@ -176,6 +182,16 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
   const rates = normalizeRates(pricing.rates || breakdown.rates);
   const rawCurrency = String(pricing.currency || breakdown.currency || 'USD').toUpperCase();
   const currency = (['AED', 'USD', 'RUB', 'TJS', 'KZT'].includes(rawCurrency) ? rawCurrency : 'USD') as QuoteCurrency;
+  const orderMediaFolderUrl = normalizeExternalMediaUrl(firstString(
+    order.googleDriveFolderUrl,
+    order.google_drive_folder_url,
+    raw.googleDriveFolderUrl,
+    raw.google_drive_folder_url,
+    raw.orderMediaFolderUrl,
+    raw.order_media_folder_url,
+    raw.mediaFolderUrl,
+    raw.media_folder_url
+  ));
 
   const documentsRaw = asObject(raw.documents);
   const documents: QuoteDocument[] = [];
@@ -230,6 +246,7 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
         raw.car_photos?.[0],
         raw.car_photo_url,
       ) || '',
+      googleDriveFolderUrl: orderMediaFolderUrl,
     },
     rates,
     currency,
@@ -258,6 +275,7 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
     },
     pdfHref: firstString(raw.pdf_url, raw.invoice_url, raw.documents?.pdf, raw.documents?.invoice) || '',
     documents,
+    orderMediaFolderUrl,
     hasRenderableContent: Boolean(
       items.length
       || firstString(order.brand, order.model, order.vin, raw.brand?.name)
@@ -267,6 +285,7 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
       || contact.instagram
       || contact.workTerms
       || contact.deliveryTerms
+      || orderMediaFolderUrl
     ),
   };
 };
