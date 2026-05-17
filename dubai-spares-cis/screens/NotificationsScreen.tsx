@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, CheckCheck, ChevronRight, Clock3, AlertTriangle, Car, LocateFixed, Phone, Search, Archive, ArchiveRestore, RefreshCw, Copy, MessageCircle, ExternalLink, Undo2 } from 'lucide-react';
 import {
@@ -9,6 +9,7 @@ import {
   getNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  markNotificationsRead,
   restoreFromArchive,
   restoreNotificationReadState,
   snoozeNotification,
@@ -136,6 +137,29 @@ const NotificationsScreen: React.FC = () => {
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [filter, sort, period, debouncedQuery, tab]);
+
+
+  const visibleNotificationIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (tab !== 'active') return;
+    const unreadVisibleIds = visibleItems
+      .filter((item) => !item.readAt && !item.archivedAt)
+      .map((item) => item.id)
+      .filter((id) => visibleNotificationIdsRef.current.has(id));
+
+    if (unreadVisibleIds.length > 0) {
+      markNotificationsRead(unreadVisibleIds);
+    }
+  }, [visibleItems, tab]);
+
+  const registerVisibleNotification = (id: string) => {
+    visibleNotificationIdsRef.current.add(id);
+  };
+
+  const unregisterVisibleNotification = (id: string) => {
+    visibleNotificationIdsRef.current.delete(id);
+  };
 
   const relativeTime = (timestamp: number) => {
     const diff = Date.now() - timestamp;
@@ -390,6 +414,34 @@ const NotificationsScreen: React.FC = () => {
       />
     </div>
   );
+};
+
+
+const NotificationListItemVisibility: React.FC<{ id: string; onVisible: (id: string) => void; onHidden: (id: string) => void; children: React.ReactNode }> = ({ id, onVisible, onHidden, children }) => {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const target = hostRef.current;
+    if (!target || typeof IntersectionObserver === 'undefined') {
+      onVisible(id);
+      return () => onHidden(id);
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.55) onVisible(id);
+        else onHidden(id);
+      });
+    }, { threshold: [0.55] });
+
+    observer.observe(target);
+    return () => {
+      observer.disconnect();
+      onHidden(id);
+    };
+  }, [id, onHidden, onVisible]);
+
+  return <div ref={hostRef}>{children}</div>;
 };
 
 export default NotificationsScreen;

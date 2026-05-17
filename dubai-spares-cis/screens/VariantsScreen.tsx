@@ -548,8 +548,15 @@ const VariantsScreen: React.FC = () => {
                   }}
                   className="w-full rounded-[20px] border border-[#E7EAF0] bg-white p-4 text-left shadow-[0_2px_10px_rgba(15,23,40,0.04)]"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                  <div className="flex items-start gap-3">
+                    {photosForCard[0] ? (
+                      <img src={photosForCard[0]} alt={variant.sourcePartName || 'Фото варианта'} className="h-20 w-20 shrink-0 rounded-2xl border border-[#E7EAF0] object-cover" loading="lazy" />
+                    ) : (
+                      <div className="h-20 w-20 shrink-0 rounded-2xl border border-dashed border-[#D0D5DD] bg-[#F8FAFC] grid place-items-center text-[#98A2B3]">
+                        <Camera size={16} />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
                       <p className="line-clamp-2 text-base font-bold leading-6 text-[#0F1728]">{variant.shopName || 'Без поставщика'}</p>
                       <p className="mt-1 line-clamp-2 text-sm text-[#667085]">{variant.sourcePartName || 'Деталь не указана'}</p>
                     </div>
@@ -590,7 +597,7 @@ const VariantsScreen: React.FC = () => {
 
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40">
-          <div className="max-h-[92dvh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-3">
+          <div className="max-h-[92dvh] w-full overflow-y-auto overscroll-contain touch-pan-y rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-3">
             <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
             <div className="mt-3 flex items-center justify-between">
               <h2 className="text-lg font-bold">Новый вариант</h2>
@@ -660,7 +667,7 @@ const VariantsScreen: React.FC = () => {
 
       {selectedVariant && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/55">
-          <div className="max-h-[92dvh] w-full overflow-y-auto rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-3">
+          <div className="max-h-[92dvh] w-full overflow-y-auto overscroll-contain touch-pan-y rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-3">
             <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
             <div className="mt-3 flex items-start justify-between gap-2">
               <div>
