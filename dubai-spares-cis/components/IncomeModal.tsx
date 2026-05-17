@@ -13,7 +13,11 @@ const formatAed = (value: number) => `${Number(value || 0).toFixed(0)} AED`;
 const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
   if (!isOpen) return null;
 
-  const soldOrders = orders.filter((order) => order.isSold && !order.isArchived);
+  const soldOrders = orders.filter((order) => {
+    const salesStatus = String(order.salesStatus || '').toLowerCase();
+    const isPaidOrCompleted = salesStatus === 'paid' || salesStatus === 'completed';
+    return !order.isArchived && (order.isSold || isPaidOrCompleted);
+  });
   const totals = soldOrders.reduce((sum, order) => {
     const partsTotal = order.parts.reduce((partSum, part) => {
       const quantity = Math.max(1, Number(part.quantity || 1));

@@ -228,7 +228,13 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const fx = rates[activeCurrency] || 1;
   const contact = normalizedSnapshot?.contact || { whatsapp: '', telegram: '', instagram: '', managerName: 'Stark Motors', logoUrl: '', signatureUrl: '', workTerms: '', deliveryTerms: '' };
 
+  const whatsappConfirmationText = lang === 'ru'
+    ? `Здравствуйте! Подтверждаю смету по ${normalizedSnapshot?.vehicleLabel || 'моему авто'} на сумму ${(grandTotalAed * fx).toFixed(2)} ${activeCurrency}.`
+    : `Hello! I confirm the quote for ${normalizedSnapshot?.vehicleLabel || 'my car'} for ${(grandTotalAed * fx).toFixed(2)} ${activeCurrency}.`;
   const whatsappHref = contact.whatsapp ? `https://wa.me/${contact.whatsapp}` : '';
+  const whatsappConfirmHref = contact.whatsapp
+    ? `https://wa.me/${contact.whatsapp}?text=${encodeURIComponent(whatsappConfirmationText)}`
+    : '';
   const documentButtons = useMemo(() => {
     const docs = (normalizedSnapshot?.documents || []).filter((doc) => doc.kind !== 'cargo');
     return dedupeDocuments(docs.map((doc) => {
@@ -558,7 +564,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t.quoteTotal}</p>
               <p className="text-xl font-black leading-none text-[#0f1f3d]">{(grandTotalAed * fx).toFixed(2)} <span className="text-sm font-semibold text-slate-500">{activeCurrency}</span></p>
             </div>
-            <a href={whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-12 shrink-0 items-center gap-2 rounded-2xl bg-emerald-500 px-5 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-400 active:scale-[0.98]">
+            <a href={whatsappConfirmHref || whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-12 shrink-0 items-center gap-2 rounded-2xl bg-emerald-500 px-5 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-400 active:scale-[0.98]">
               <MessageCircle size={17} /> {t.contactManager}
             </a>
           </div>
