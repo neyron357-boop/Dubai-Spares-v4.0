@@ -49,6 +49,19 @@ const safeMessagePayload = (value: unknown): Record<string, unknown> => {
   return {};
 };
 
+const extractPlainMessage = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object') return '';
+  } catch {
+    // keep raw text when not JSON
+  }
+  return trimmed;
+};
+
 const toStringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
 const toTrimmedString = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 
@@ -120,8 +133,10 @@ export const validateCloudLead = (lead: unknown): lead is CloudLead => {
  */
 export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
   const payload = await extractPayloadFromLead(lead);
-  const messagePayload = safeMessagePayload(payload.message);
-  const mergedPayload: Record<string, unknown> = { ...messagePayload, ...payload };
+  const leadMessagePayload = safeMessagePayload(lead.message);
+  const payloadMessagePayload = safeMessagePayload(payload.message);
+  const mergedPayload: Record<string, unknown> = { ...leadMessagePayload, ...payloadMessagePayload, ...payload };
+  const fallbackMessageText = extractPlainMessage((payload as Record<string, unknown>).message) || extractPlainMessage(lead.message);
   const year = mergedPayload.year;
   const fallbackName = typeof mergedPayload.name === 'string' ? mergedPayload.name : (lead.name || 'Public Lead');
   const fallbackPhone = typeof mergedPayload.phone === 'string' ? mergedPayload.phone : (lead.phone || '');
@@ -143,7 +158,7 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
           createdAt: typeof note.createdAt === 'number' ? note.createdAt : Date.now()
         };
       })
-    : (typeof mergedPayload.message === 'string' ? [{ id: createId(), text: mergedPayload.message, photos: [], audios: [], createdAt: Date.now() }] : []);
+    : (fallbackMessageText ? [{ id: createId(), text: fallbackMessageText, photos: [], audios: [], createdAt: Date.now() }] : []);
 
   // Collect all carPhotos including from vinPhotos fallback
   const carPhotos = toStringArray(mergedPayload.carPhotos);
