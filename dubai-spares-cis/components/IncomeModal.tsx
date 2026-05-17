@@ -63,14 +63,14 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <section
         role="dialog"
         aria-modal="true"
         aria-label="Доход компании"
-        className="flex max-h-[min(88dvh,720px)] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl"
+        className="flex max-h-[min(88dvh,720px)] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
