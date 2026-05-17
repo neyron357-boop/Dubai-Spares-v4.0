@@ -71,11 +71,9 @@ const buildPublicQuoteShareMessage = (order: Order, link: string) => {
   const intro = clientName ? `Здравствуйте, ${clientName}!` : 'Здравствуйте!';
   return [
     intro,
-    `Подготовили для вас итоговую смету по автомобилю ${carName}.`,
-    'По ссылке открывается сохранённая версия сметы с позициями, ценами, фотографиями и итоговой суммой.',
-    'Откройте ссылку, чтобы посмотреть именно эту версию предложения:',
+    `Итоговая смета по ${carName}:`,
     link,
-    'Если понадобится помощь или уточнение по позициям, пожалуйста, напишите нам — мы с удовольствием подскажем.'
+    'Если будут вопросы — напишите, поможем.'
   ].join('\n\n');
 };
 
@@ -417,8 +415,7 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
   if (navigator.share) {
     await navigator.share({
       title: `Смета для ${order.brand} ${order.model} ${order.year}`.trim(),
-      text: shareText,
-      url: link
+      text: shareText
     });
     return { method: 'native' as const, link, shareText, token: snapshot.token };
   }
