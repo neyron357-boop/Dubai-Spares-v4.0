@@ -265,7 +265,8 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
     try {
       const mapped = await mapCloudLeadToOrder(lead);
       const rawLeadId = typeof lead.id === 'string' ? lead.id.trim() : '';
-      const serverMarkedConverted = typeof lead.order_id === 'string' && lead.order_id.trim().length > 0;
+      const serverLinkedOrderId = typeof lead.order_id === 'string' ? lead.order_id.trim() : '';
+      const serverMarkedConverted = serverLinkedOrderId.length > 0 && existingOrders.some((order) => order.id === serverLinkedOrderId);
       if (ignored.has(mapped.id) || (rawLeadId && ignored.has(rawLeadId))) continue;
       const existing = existingById.get(mapped.id);
 

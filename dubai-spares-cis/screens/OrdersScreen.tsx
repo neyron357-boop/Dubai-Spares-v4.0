@@ -603,7 +603,6 @@ const OrdersScreen: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setIsIncomeOpen(true)} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Статистика"><BarChart3 size={18} /></button>
-            <button type="button" onClick={() => navigate('/database')} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="База поставщиков"><Archive size={16} /></button>
             <button
               type="button"
               onClick={toggleSelectionMode}
