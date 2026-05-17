@@ -573,8 +573,13 @@ const OrdersScreen: React.FC = () => {
   const deleteSelectedOrders = async () => {
     if (selectedOrderIds.length === 0) return;
     setIsBulkDeleting(true);
-    const results = await Promise.all(selectedOrderIds.map((id) => deleteOrder(id)));
-    const deletedCount = results.filter(Boolean).length;
+
+    let deletedCount = 0;
+    for (const id of selectedOrderIds) {
+      const removed = await deleteOrder(id);
+      if (removed) deletedCount += 1;
+    }
+
     setIsBulkDeleting(false);
     setDeleteId(null);
     setSelectedOrderIds([]);
