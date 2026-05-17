@@ -12,8 +12,7 @@ type TabType = 'active' | 'vip' | 'lead' | 'found' | 'urgent' | 'medium' | 'low'
 const isLeadOrder = (order: Order) =>
   order.isLead === true
   || order.status === 'lead'
-  || order.customerStatus === 'LEAD'
-  || order.leadSource === 'public_form';
+  || order.customerStatus === 'LEAD';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
 type SearchState = 'searching' | 'waiting_response' | 'found' | 'offer_sent' | 'sold' | 'archived';
 
@@ -442,6 +441,10 @@ const OrdersScreen: React.FC = () => {
 
 
   const isUnreadPublicLead = (order: Order) => order.leadSource === 'public_form' && order.leadUnread === true && !order.isArchived;
+  const unreadPublicLeadsCount = useMemo(
+    () => orders.filter((order) => !order.isSold && isLeadOrder(order) && isUnreadPublicLead(order)).length,
+    [orders]
+  );
 
   const tabCounts = useMemo(() => ({
     active: orders.filter((o) => !o.isArchived && !o.isSold && !isLeadOrder(o)).length,
@@ -640,6 +643,10 @@ const OrdersScreen: React.FC = () => {
             ['sold', 'Проданные'],
             ['archive', 'Архив']
           ] as [TabType, string][]).map(([tab, label]) => (
+            (() => {
+              const isLeadTab = tab === 'lead';
+              const hasUnreadLeads = isLeadTab && unreadPublicLeadsCount > 0;
+              return (
             <button
               key={tab}
               type="button"
@@ -647,11 +654,16 @@ const OrdersScreen: React.FC = () => {
               className={`whitespace-nowrap rounded-2xl border px-3 py-2 text-[11px] font-black transition ${
                 activeTab === tab
                   ? 'border-blue-600 bg-blue-600 text-white'
-                  : 'border-slate-200 bg-white text-slate-600'
+                  : hasUnreadLeads
+                    ? 'animate-pulse border-amber-400 bg-amber-100 text-amber-800'
+                    : 'border-slate-200 bg-white text-slate-600'
               }`}
             >
               {label} <span className="opacity-80">{tabCounts[tab]}</span>
+              {hasUnreadLeads && <span className="ml-1 inline-flex h-2 w-2 rounded-full bg-amber-500 align-middle" />}
             </button>
+              );
+            })()
           ))}
         </div>
 
