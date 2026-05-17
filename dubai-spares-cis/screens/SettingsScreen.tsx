@@ -1365,195 +1365,13 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
     <div className="min-h-full max-w-full overflow-x-hidden bg-gray-50 p-4 pb-24 space-y-4">
       <div>
         <h1 className="text-xl font-black text-gray-900">Настройки</h1>
-        <p className="text-xs text-gray-500 mt-1">Профессиональная admin panel: компания, расчёты, заказы, поставщики, public quote и система</p>
+        <p className="text-xs text-gray-500 mt-1">Профессиональная admin panel: public quote, контакты и система</p>
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1 text-[11px] font-black text-slate-600 no-scrollbar">
-          {['Компания', 'Валюта', 'Заказы', 'Поставщики', 'Public Quote', 'Система'].map((label) => (
+          {['Public Quote', 'Компания: контакты', 'Система'].map((label) => (
             <span key={label} className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5">{label}</span>
           ))}
         </div>
       </div>
-
-
-      <Section title="Валюта и расчёты" defaultOpen>
-        <div className="space-y-3">
-          <Field label="Язык приложения">
-            <select value={draftSettings.appLanguage} onChange={(e) => {
-              const nextLang = e.target.value as 'ru' | 'en';
-              updateDraft({ appLanguage: nextLang });
-              updateSettings({ appLanguage: nextLang });
-            }} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
-              <option value="ru">RU</option>
-              <option value="en">EN</option>
-            </select>
-          </Field>
-
-          <Field label="Язык WA шаблонов">
-            <select value={draftSettings.waTemplateLanguage} onChange={(e) => updateDraft({ waTemplateLanguage: e.target.value as 'ru' | 'en' | 'ar' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
-              <option value="ru">RU</option>
-              <option value="en">EN</option>
-              <option value="ar">AR</option>
-            </select>
-          </Field>
-
-          <Field label="Валюта">
-            <select value={draftSettings.currencyFormat} onChange={(e) => updateDraft({ currencyFormat: e.target.value as 'AED' | 'USD' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
-              <option value="AED">AED</option>
-              <option value="USD">USD</option>
-            </select>
-          </Field>
-
-          <Field label="Курс AED/USD по умолчанию">
-            <input
-              value={draftSettings.defaultExchangeRate}
-              onChange={(e) => updateDraft({ defaultExchangeRate: parseDecimalInput(e.target.value) })}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-              type="text"
-              inputMode="decimal"
-              placeholder="0.75"
-            />
-          </Field>
-
-          <Field label="Часовой пояс">
-            <div className="space-y-2">
-              <select value={draftSettings.timezoneMode} onChange={(e) => updateDraft({ timezoneMode: e.target.value as 'auto' | 'manual' })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
-                <option value="auto">Auto</option>
-                <option value="manual">Manual</option>
-              </select>
-              {draftSettings.timezoneMode === 'manual' && (
-                <select value={draftSettings.manualTimezone || timezoneList[0]} onChange={(e) => updateDraft({ manualTimezone: e.target.value })} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
-                  {timezoneList.map((tz) => (
-                    <option key={tz} value={tz}>{tz}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </Field>
-
-          <label className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2">
-            <span className="text-sm font-bold text-gray-800">Field Focus Mode</span>
-            <input
-              type="checkbox"
-              checked={draftSettings.fieldFocusMode}
-              onChange={(e) => updateDraft({ fieldFocusMode: e.target.checked })}
-              className="h-4 w-4"
-            />
-          </label>
-
-          <label className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2">
-            <div>
-              <span className="text-sm font-bold text-gray-800">Звуки интерфейса</span>
-              <p className="text-xs text-gray-500">Тапы, переходы, уведомления, сохранение</p>
-            </div>
-            <input
-              type="checkbox"
-              checked={draftSettings.soundsEnabled !== false}
-              onChange={(e) => updateDraft({ soundsEnabled: e.target.checked })}
-              className="h-4 w-4"
-            />
-          </label>
-        </div>
-      </Section>
-
-      <Section title="Компания">
-        <div className="space-y-3">
-          <Field label="Ваше имя (приветствие)">
-            <input
-              value={draftSettings.userName || ''}
-              onChange={(e) => updateDraft({ userName: e.target.value })}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-              type="text"
-              placeholder="Руслан"
-            />
-          </Field>
-
-          <Field label="Цель по прибыли за неделю (AED)">
-            <input
-              value={draftSettings.weeklyGoalAed || 2000}
-              onChange={(e) => updateDraft({ weeklyGoalAed: Number(e.target.value.replace(/\D/g, '')) || 2000 })}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-              type="text"
-              inputMode="numeric"
-              placeholder="2000"
-            />
-          </Field>
-
-          <Field label="Время утреннего уведомления">
-            <input
-              value={draftSettings.morningNotificationTime || '07:30'}
-              onChange={(e) => updateDraft({ morningNotificationTime: e.target.value })}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-              type="time"
-            />
-          </Field>
-
-          <Field label="Время вечернего уведомления">
-            <input
-              value={draftSettings.eveningNotificationTime || '21:00'}
-              onChange={(e) => updateDraft({ eveningNotificationTime: e.target.value })}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-              type="time"
-            />
-          </Field>
-        </div>
-      </Section>
-
-      <Section title="Поставщики">
-        <p className="text-xs text-gray-500">Эти задачи подставляются по умолчанию во все слайды Vendor. Можно добавлять индивидуальные задачи уже в конкретном заказе.</p>
-        <div className="mt-3 space-y-2">
-          {(draftSettings.defaultVendorChecklist || []).map((task, idx) => (
-            <div key={`${task}-${idx}`} className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
-              <span className="flex-1 text-sm text-gray-800">{task}</span>
-              <button type="button" onClick={() => removeDefaultChecklistTask(idx)} className="rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-bold text-rose-700">Удалить</button>
-            </div>
-          ))}
-          <div className="flex gap-2">
-            <input
-              value={newDefaultChecklistTask}
-              onChange={(e) => setNewDefaultChecklistTask(e.target.value)}
-              placeholder="Новая задача по умолчанию"
-              className="h-10 flex-1 rounded-xl border border-gray-300 bg-white px-3 text-sm"
-            />
-            <button type="button" onClick={addDefaultChecklistTask} className="rounded-xl bg-blue-600 px-3 text-xs font-bold text-white">Добавить</button>
-          </div>
-        </div>
-      </Section>
-
-      <Section title="Заказы">
-        <p className="text-xs text-gray-500">Список зон, доступных для выбора в деталях заказа и базе поставщиков.</p>
-        <div className="mt-3 space-y-2">
-          {(draftSettings.orderZones || []).map((zone, idx) => (
-            <div key={`${zone}-${idx}`} className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
-              {editingZoneIndex === idx ? (
-                <>
-                  <input
-                    value={editingZoneValue}
-                    onChange={(e) => setEditingZoneValue(e.target.value)}
-                    className="h-8 flex-1 rounded-lg border border-gray-300 bg-white px-2 text-sm"
-                    autoFocus
-                  />
-                  <button type="button" onClick={saveEditZone} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">Сохранить</button>
-                  <button type="button" onClick={() => setEditingZoneIndex(null)} className="rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-bold text-gray-500">Отмена</button>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1 text-sm text-gray-800">{zone}</span>
-                  <button type="button" onClick={() => startEditZone(idx)} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">Изменить</button>
-                  <button type="button" onClick={() => removeZone(idx)} className="rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-bold text-rose-700">Удалить</button>
-                </>
-              )}
-            </div>
-          ))}
-          <div className="flex gap-2">
-            <input
-              value={newZoneName}
-              onChange={(e) => setNewZoneName(e.target.value)}
-              placeholder="Новая зона (напр. Zone 5)"
-              className="h-10 flex-1 rounded-xl border border-gray-300 bg-white px-3 text-sm"
-            />
-            <button type="button" onClick={addZone} className="rounded-xl bg-blue-600 px-3 text-xs font-bold text-white">Добавить</button>
-          </div>
-        </div>
-      </Section>
 
       {logoCrop && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
@@ -1653,25 +1471,6 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                 className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
               />
             </Field>
-
-            <Field label="Файл условий (cargo / доставка / и т.д.)">
-              <div className="space-y-2">
-                <input
-                  type="file"
-                  accept=".pdf,.doc,.docx,.txt,.rtf"
-                  onChange={handlePublicTermsFileChange}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                />
-                {draftSettings.publicTermsFileUrl && (
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <a href={draftSettings.publicTermsFileUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
-                      {draftSettings.publicTermsFileName || 'Открыть файл'}
-                    </a>
-                    <button type="button" onClick={() => updateDraft({ publicTermsFileUrl: '', publicTermsFileName: '' })} className="rounded-lg border border-rose-200 px-3 py-1.5 font-bold text-rose-700">Удалить файл</button>
-                  </div>
-                )}
-              </div>
-            </Field>
           </CompactBlock>
 
           <CompactBlock title="Брендинг документов" subtitle="Логотип и подпись в публичной смете">
@@ -1731,186 +1530,10 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               />
             </Field>
           </CompactBlock>
-
-          <CompactBlock title="Калькулятор карго / доставки" subtitle="Тарифы по странам (расчёт только по весу)">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-bold text-gray-700">Тарифы по странам (USD)</p>
-                <button type="button" onClick={addCargoTariff} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700">+ Добавить страну</button>
-              </div>
-              {cargoTariffs.map((tariff, index) => (
-                <CompactBlock key={`${tariff.country || 'country'}-${index}`} title={tariff.country || `Страна ${index + 1}`} subtitle="Тарифы и сроки доставки">
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <Field label="Страна">
-                      <input
-                        value={tariff.country}
-                        onChange={(e) => updateCargoTariff(index, { country: e.target.value })}
-                        placeholder="Россия"
-                        className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                      />
-                    </Field>
-                    <div className="flex items-end justify-end">
-                      <button type="button" onClick={() => removeCargoTariff(index)} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-black text-rose-700">Удалить страну</button>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2 md:grid-cols-3">
-                    <Field label="Авиадоставка: цена за кг (обычный груз)"><TariffNumberInput placeholder="11.5" value={tariff.airRegularUsdPerKg} onCommit={(nextValue) => updateCargoTariff(index, { airRegularUsdPerKg: nextValue })} /></Field>
-                    <Field label="Контейнер: цена за кг"><TariffNumberInput placeholder="0.75" value={tariff.containerUsdPerKg} onCommit={(nextValue) => updateCargoTariff(index, { containerUsdPerKg: nextValue })} /></Field>
-                    <Field label="Авиадоставка: цена за кг (крупногабарит)"><TariffNumberInput placeholder="13.25" value={tariff.airOversizedUsdPerKg} onCommit={(nextValue) => updateCargoTariff(index, { airOversizedUsdPerKg: nextValue })} /></Field>
-                    <Field label="Авиадоставка: доплата за место ($)"><TariffNumberInput placeholder="10" value={tariff.airSeatUsd} onCommit={(nextValue) => updateCargoTariff(index, { airSeatUsd: nextValue })} /></Field>
-                  </div>
-
-                  <div className="grid gap-2 md:grid-cols-3">
-                    <Field label="Мин. авиа (кг)"><TariffNumberInput placeholder="0.75" value={tariff.minAirKg} onCommit={(nextValue) => updateCargoTariff(index, { minAirKg: nextValue })} /></Field>
-                    <Field label="Мин. контейнер (кг)"><TariffNumberInput placeholder="0.75" value={tariff.minContainerKg} onCommit={(nextValue) => updateCargoTariff(index, { minContainerKg: nextValue })} /></Field>
-                                        <Field label="Авиа срок (дней)"><input value={tariff.airEtaDays} onChange={(e) => updateCargoTariff(index, { airEtaDays: e.target.value })} placeholder="3-7" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                    <Field label="Контейнер срок (дней)"><input value={tariff.containerEtaDays} onChange={(e) => updateCargoTariff(index, { containerEtaDays: e.target.value })} placeholder="25-45" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" /></Field>
-                  </div>
-                </CompactBlock>
-              ))}
-            </div>
-          </CompactBlock>
         </div>
       </Section>
 
       <Section title="Система">
-        <CompactBlock title="AI ядро" subtitle="Единый AI шлюз приложения через Supabase Edge Function">
-          <div className="space-y-3">
-            <Field label="Supabase Edge Function URL">
-              <input
-                type="text"
-                value={aiCore.url}
-                readOnly
-                className="w-full rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600"
-              />
-            </Field>
-            <p className="text-xs text-gray-500">Все AI запросы приложения отправляются только через этот Supabase Edge Function URL с помощью <code>{'supabase.functions.invoke("super-service", { body })'}</code>. Локальный маршрут /ai/tasks, localhost и VITE_SERVER_API_URL больше не используются в клиентском AI потоке.</p>
-          </div>
-        </CompactBlock>
-
-        <CompactBlock title="Тест AI ядра" subtitle="Проверка Supabase Edge Function AI шлюза">
-          <div className="space-y-3">
-            <Field label="Задача">
-              <select
-                value={aiTestTask}
-                onChange={(e) => {
-                  setAiTestTask(e.target.value as AiTestTask);
-                  setAiTestError(null);
-                  setAiTestStatus(null);
-                  setAiTestResult(null);
-                  setAiTestShowFullResponse(false);
-                }}
-                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-              >
-                <option value="analyze_text">analyze_text</option>
-                <option value="transform_text">transform_text</option>
-                <option value="extract_structured_data">extract_structured_data</option>
-              </select>
-            </Field>
-
-            <Field label="Текст для теста">
-              <textarea
-                value={aiTestText}
-                onChange={(e) => setAiTestText(e.target.value)}
-                rows={4}
-                className="min-h-24 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                placeholder="Введите текст, который нужно отправить в Supabase AI ядро"
-              />
-            </Field>
-
-            <Field label="Инструкции">
-              <textarea
-                value={aiTestInstructions}
-                onChange={(e) => setAiTestInstructions(e.target.value)}
-                rows={3}
-                className="min-h-20 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                placeholder="Дополнительные инструкции для AI"
-              />
-            </Field>
-
-            {aiTestTask === 'transform_text' ? (
-              <div className="grid gap-2 md:grid-cols-2">
-                <Field label="Операция">
-                  <input value={aiTestOperation} onChange={(e) => setAiTestOperation(e.target.value)} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" placeholder="Суммаризируй / переведи / переформулируй" />
-                </Field>
-                <Field label="Язык результата">
-                  <input value={aiTestTargetLang} onChange={(e) => setAiTestTargetLang(e.target.value)} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" placeholder="ru / en / ar" />
-                </Field>
-                <Field label="Тон">
-                  <input value={aiTestTone} onChange={(e) => setAiTestTone(e.target.value)} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" placeholder="professional" />
-                </Field>
-                <Field label="Формат">
-                  <input value={aiTestFormat} onChange={(e) => setAiTestFormat(e.target.value)} className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm" placeholder="plain_text" />
-                </Field>
-              </div>
-            ) : null}
-
-            {aiTestTask === 'extract_structured_data' ? (
-              <Field label="JSON-схема">
-                <textarea
-                  value={aiTestSchema}
-                  onChange={(e) => setAiTestSchema(e.target.value)}
-                  rows={8}
-                  className="min-h-40 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 font-mono text-xs"
-                  placeholder='{"field":"string"}'
-                />
-              </Field>
-            ) : null}
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void runAiCoreTest()}
-                disabled={aiTestPending}
-                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
-              >
-                {aiTestPending ? 'AI is thinking...' : 'Запустить AI тест'}
-              </button>
-              {aiTestPending ? (
-                <button
-                  type="button"
-                  onClick={() => cancelAiCoreTest()}
-                  className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800"
-                >
-                  Отменить
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => {
-                  setAiTestError(null);
-                  setAiTestStatus(null);
-                  setAiTestResult(null);
-                  setAiTestShowFullResponse(false);
-                }}
-                className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-bold"
-              >
-                Очистить ответ
-              </button>
-            </div>
-
-            {aiTestStatus ? <p className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700">{aiTestStatus}</p> : null}
-            {aiTestError ? <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{aiTestError}</p> : null}
-
-            <div className="rounded-2xl border border-gray-200 bg-gray-950 p-3 text-xs text-green-300">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <p className="font-black text-white">Ответ AI ядра</p>
-                {aiTestResult?.truncated ? (
-                  <button
-                    type="button"
-                    onClick={() => setAiTestShowFullResponse((prev) => !prev)}
-                    className="rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-bold text-white"
-                  >
-                    {aiTestShowFullResponse ? 'Скрыть полный JSON' : 'Показать полный JSON'}
-                  </button>
-                ) : null}
-              </div>
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words">{aiTestResult ? (aiTestShowFullResponse ? aiTestResult.full : aiTestResult.preview) : 'После запуска здесь появится JSON-ответ внутреннего AI шлюза.'}</pre>
-              {aiTestResult?.truncated && !aiTestShowFullResponse ? <p className="mt-2 text-[11px] text-gray-400">Показан компактный preview, чтобы большой JSON не подвешивал интерфейс.</p> : null}
-            </div>
-          </div>
-        </CompactBlock>
 
         <div className="text-sm text-gray-700 space-y-1">
           <p>Режим: <b>LOCAL</b></p>
@@ -2174,10 +1797,6 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
       <Section title="Опасные действия" tone="danger">
         <div className="text-xs text-rose-700">Изменения ниже могут удалить локальные данные и требуют подтверждения.</div>
         <div className="flex flex-col gap-2 text-sm">
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCheckAndCleanBrokenPhotos}>{busyLabel('check-clean-broken-photos', 'Проверить и очистить битые фото', 'Проверяем битые фото…')}</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRestoreBrokenPhotos}>{busyLabel('restore-broken-photos', 'Восстановить битые фото', 'Восстанавливаем фото…')}</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={handleClearBrokenLinks}>{busyLabel('clear-broken-links', 'Очистить битые ссылки', 'Очищаем битые ссылки…')}</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => { clearBrokenImageBlacklist(); window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Локальный blacklist битых фото очищен', tone: 'success' } })); }}>Очистить blacklist битых фото</button>
           <button className="w-full rounded-xl border border-rose-300 bg-rose-600 text-white px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy || isHardResetting} onClick={() => void withBusy('hard-reset', clearAllLocalDataAndRestart)}>{busyLabel('hard-reset', 'Очистить кэш и все локальные данные', 'Очищаем и перезапускаем…')}</button>
           <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('public-snapshots', async () => {
             await handleClearSnapshotsExceptLocked();
@@ -2193,9 +1812,6 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
             const tone = result.ok ? 'success' : 'error';
             window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, tone } }));
           })}>{busyLabel('server-backups', 'Очистить все backup записи на сервере', 'Удаление backup…')}</button>
-          <button className="w-full rounded-xl border border-rose-300 bg-white text-rose-700 px-3 py-2 font-black disabled:opacity-50" type="button" disabled={!!busy} onClick={() => void withBusy('index', async () => {
-            await offlineDb.exportAllData();
-          })}>{busyLabel('index', 'Перестроить индекс', 'Перестраиваем индекс…')}</button>
         </div>
         {dangerActionProgress && (
           <div className="rounded-xl border border-rose-200 bg-white p-2">
