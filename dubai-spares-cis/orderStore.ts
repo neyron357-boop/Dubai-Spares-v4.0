@@ -2214,10 +2214,23 @@ export const updateOrderItem = async (order: Order) => {
 
 export const deleteOrderItem = async (orderId: string) => {
   const previousOrders = state.orders;
+  const targetOrder = previousOrders.find((order) => order.id === orderId);
+  const isPublicLeadOrder = targetOrder?.leadSource === 'public_form' || targetOrder?.isLead === true;
+  if (isPublicLeadOrder) rememberLeadDeleted(orderId);
 
   try {
     if (shouldSyncDirectly()) {
       await retrySync(() => deleteRemoteOrderWithStorageCleanup(orderId));
+      if (isPublicLeadOrder) {
+        const purgeResult = await purgePublicLeadArtifacts(orderId);
+        if (!purgeResult.ok) {
+          await logger.warn('order:delete', 'Failed to purge public lead artifacts during order delete', {
+            orderId,
+            code: purgeResult.code,
+            error: purgeResult.error
+          });
+        }
+      }
     }
 
     const next = previousOrders.filter((o) => o.id !== orderId);
@@ -2226,6 +2239,7 @@ export const deleteOrderItem = async (orderId: string) => {
     window.dispatchEvent(new CustomEvent('cloud-save-success'));
     return true;
   } catch (error) {
+    if (isPublicLeadOrder) forgetLeadSyncOverrides(orderId);
     await logger.error('order:delete', 'Failed to delete order', { orderId, error: serializeError(error) });
     setState({ orders: previousOrders, error: getErrorMessage(error, 'Не удалось удалить заказ') });
     return false;
