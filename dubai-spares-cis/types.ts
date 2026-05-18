@@ -170,6 +170,8 @@ export interface Order {
   leadUnread?: boolean;
   leadSource?: 'public_form' | 'manual';
   leadReadAt?: number;
+  leadCloudId?: string;
+  leadOrderId?: string;
   customerStatus?: 'VIP' | 'LEAD' | 'INQUIRY';
   statusChangedAt?: number;
   statusChangedBy?: string;

@@ -73,8 +73,7 @@ const hasPaidSearchDeposit = (order: Pick<Order, 'searchDepositStatus'>) => norm
 const isRealLeadOrder = (order: Pick<Order, 'isLead' | 'status' | 'leadSource' | 'customerStatus'>) =>
   order.isLead === true
   || order.status === 'lead'
-  || order.customerStatus === 'LEAD'
-  || order.leadSource === 'public_form';
+  || order.customerStatus === 'LEAD';
 const canEditCommercialData = (order: Pick<Order, 'isLead' | 'status' | 'leadSource' | 'customerStatus' | 'searchDepositStatus'>) =>
   !isRealLeadOrder(order) || hasPaidSearchDeposit(order);
 
@@ -515,15 +514,22 @@ const writeLeadSyncState = (state: LeadSyncState) => {
   }));
 };
 
-const rememberLeadDeleted = (orderId: string) => {
+const normalizeLeadOverrideIds = (ids: Array<string | undefined | null>) =>
+  ids.map((id) => String(id || '').trim()).filter(Boolean);
+
+const rememberLeadDeleted = (...ids: Array<string | undefined | null>) => {
+  const normalizedIds = normalizeLeadOverrideIds(ids);
+  if (normalizedIds.length === 0) return;
   const state = readLeadSyncState();
-  state.ignoredIds.push(orderId);
+  state.ignoredIds.push(...normalizedIds);
   writeLeadSyncState(state);
 };
 
-const rememberLeadConverted = (orderId: string) => {
+const rememberLeadConverted = (...ids: Array<string | undefined | null>) => {
+  const normalizedIds = normalizeLeadOverrideIds(ids);
+  if (normalizedIds.length === 0) return;
   const state = readLeadSyncState();
-  state.convertedIds.push(orderId);
+  state.convertedIds.push(...normalizedIds);
   writeLeadSyncState(state);
 };
 
@@ -532,6 +538,16 @@ const forgetLeadSyncOverrides = (orderId: string) => {
   writeLeadSyncState({
     ignoredIds: state.ignoredIds.filter((id) => id !== orderId),
     convertedIds: state.convertedIds.filter((id) => id !== orderId)
+  });
+};
+
+const forgetLeadConverted = (...ids: Array<string | undefined | null>) => {
+  const normalizedIds = new Set(normalizeLeadOverrideIds(ids));
+  if (normalizedIds.size === 0) return;
+  const state = readLeadSyncState();
+  writeLeadSyncState({
+    ignoredIds: state.ignoredIds,
+    convertedIds: state.convertedIds.filter((id) => !normalizedIds.has(id))
   });
 };
 
@@ -2181,6 +2197,9 @@ export const updateOrderItem = async (order: Order) => {
   const normalized = normalizeOrder({ ...order, updatedAt: Date.now() });
   const previousOrders = state.orders;
   const canEditCommercial = canEditCommercialData(normalized);
+  const wasPublicLead = previousOrder?.leadSource === 'public_form' || previousOrder?.leadCloudId || previousOrder?.leadOrderId;
+  const nextIsLeadStatus = normalized.isLead === true || normalized.status === 'lead' || normalized.customerStatus === 'LEAD';
+  const leadOverrideIds = [normalized.id, normalized.leadCloudId, normalized.leadOrderId, previousOrder?.leadCloudId, previousOrder?.leadOrderId];
 
   if (!canEditCommercial && previousOrder) {
     const previousVariantTotal = previousOrder.parts.reduce((sum, part) => sum + (part.variants || []).length, 0);
@@ -2203,6 +2222,10 @@ export const updateOrderItem = async (order: Order) => {
     const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
     setState({ orders: next, error: null });
     await orderRepository.saveOrder(normalized);
+    if (wasPublicLead) {
+      if (nextIsLeadStatus) forgetLeadConverted(...leadOverrideIds);
+      else rememberLeadConverted(...leadOverrideIds);
+    }
     window.dispatchEvent(new CustomEvent('cloud-save-success'));
     return true;
   } catch (error) {
@@ -2216,7 +2239,7 @@ export const deleteOrderItem = async (orderId: string) => {
   const previousOrders = state.orders;
   const targetOrder = previousOrders.find((order) => order.id === orderId);
   const isPublicLeadOrder = targetOrder?.leadSource === 'public_form' || targetOrder?.isLead === true;
-  if (isPublicLeadOrder) rememberLeadDeleted(orderId);
+  if (isPublicLeadOrder) rememberLeadDeleted(orderId, targetOrder?.leadCloudId, targetOrder?.leadOrderId);
 
   try {
     if (shouldSyncDirectly()) {
@@ -2244,6 +2267,77 @@ export const deleteOrderItem = async (orderId: string) => {
     setState({ orders: previousOrders, error: getErrorMessage(error, 'Не удалось удалить заказ') });
     return false;
   }
+};
+
+const runLimited = async <T,>(items: T[], limit: number, worker: (item: T) => Promise<void>) => {
+  const queue = [...items];
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (item !== undefined) await worker(item);
+    }
+  });
+  await Promise.all(workers);
+};
+
+export const deleteOrderItems = async (orderIds: string[]) => {
+  const uniqueIds = Array.from(new Set(orderIds.map((id) => String(id || '').trim()).filter(Boolean)));
+  if (uniqueIds.length === 0) return { deleted: 0, failed: 0 };
+
+  const previousOrders = state.orders;
+  const targets = uniqueIds
+    .map((id) => previousOrders.find((order) => order.id === id))
+    .filter((order): order is Order => Boolean(order));
+  if (targets.length === 0) return { deleted: 0, failed: uniqueIds.length };
+
+  const publicLeadIds = new Set(
+    targets
+      .filter((order) => order.leadSource === 'public_form' || order.isLead === true)
+      .map((order) => order.id)
+  );
+  targets.forEach((order) => {
+    if (publicLeadIds.has(order.id)) rememberLeadDeleted(order.id, order.leadCloudId, order.leadOrderId);
+  });
+
+  const failedIds = new Set<string>();
+
+  if (shouldSyncDirectly()) {
+    await runLimited(targets, 4, async (order) => {
+      try {
+        await retrySync(() => deleteRemoteOrderWithStorageCleanup(order.id));
+      } catch (error) {
+        failedIds.add(order.id);
+        await logger.warn('order:bulk-delete', 'Failed to delete remote order during bulk delete', {
+          orderId: order.id,
+          error: serializeError(error)
+        });
+      }
+
+      if (publicLeadIds.has(order.id)) {
+        const purgeResult = await purgePublicLeadArtifacts(order.id);
+        if (!purgeResult.ok) {
+          await logger.warn('order:bulk-delete', 'Failed to purge public lead artifacts during bulk delete', {
+            orderId: order.id,
+            code: purgeResult.code,
+            error: purgeResult.error
+          });
+        }
+      }
+    });
+  }
+
+  const successIds = targets.map((order) => order.id).filter((id) => !failedIds.has(id));
+  if (successIds.length > 0) {
+    const successSet = new Set(successIds);
+    const next = previousOrders.filter((order) => !successSet.has(order.id));
+    setState({ orders: next, error: failedIds.size > 0 ? 'Часть заказов не удалось удалить на сервере.' : null });
+    await orderRepository.deleteOrders(successIds);
+    window.dispatchEvent(new CustomEvent('cloud-save-success'));
+  } else if (failedIds.size > 0) {
+    setState({ error: 'Не удалось удалить выбранные заказы.' });
+  }
+
+  return { deleted: successIds.length, failed: failedIds.size };
 };
 
 export const updatePartItem = async (orderId: string, part: Part) => {
@@ -2472,6 +2566,7 @@ export const useOrderStore = () => {
     addOrder: useCallback(addOrderItem, []),
     updateOrder: useCallback(updateOrderItem, []),
     deleteOrder: useCallback(deleteOrderItem, []),
+    bulkDeleteOrders: useCallback(deleteOrderItems, []),
     updatePart: useCallback(updatePartItem, []),
     removePart: useCallback(removePartItem, []),
     updatePriceVariant: useCallback(updatePriceVariantItem, []),

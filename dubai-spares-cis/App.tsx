@@ -4,14 +4,17 @@ import OrdersScreen from './screens/OrdersScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
-import { Bell, CarFront, Layers, PlusCircle, Settings } from 'lucide-react';
-import { getUnreadNotificationsCount, initNotificationsFromServer } from './notificationCenter';
+import { CarFront, Layers, PlusCircle, Settings, UserRound } from 'lucide-react';
+import { initNotificationsFromServer } from './notificationCenter';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
 import { DebugIndex, DebugIndexProvider, useDebugIndex } from './components/DebugIndex';
 import { playSound } from './utils/sounds';
+import { useStore } from './store';
+import { isLeadOrder, isUnreadLeadOrder } from './utils/orderClassification';
 
 const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
 const MorningBossScreen = lazy(() => import('./screens/MorningBossScreen'));
+const LeadsScreen = lazy(() => import('./screens/LeadsScreen'));
 const NewOrderScreen = lazy(() => import('./screens/NewOrderScreen'));
 const OrderDetailsScreen = lazy(() => import('./screens/OrderDetailsScreen'));
 const PartDetailsScreen = lazy(() => import('./screens/PartDetailsScreen'));
@@ -32,13 +35,13 @@ const HashPublicQuoteRoute: React.FC = () => {
   return <PublicQuoteScreen orderId={orderId} />;
 };
 
-type BottomTab = 'orders' | 'vendors' | 'notifications' | 'settings' | null;
+type BottomTab = 'orders' | 'vendors' | 'leads' | 'settings' | null;
 
 const resolveBottomTab = (pathname: string): BottomTab => {
   const normalizedPath = pathname.replace(/\/+$/, '') || '/';
   if (normalizedPath === '/orders' || normalizedPath.startsWith('/order/') || normalizedPath === '/new') return 'orders';
   if (normalizedPath.startsWith('/database') || normalizedPath.startsWith('/variants')) return 'vendors';
-  if (normalizedPath.startsWith('/notifications')) return 'notifications';
+  if (normalizedPath.startsWith('/leads')) return 'leads';
   if (normalizedPath.startsWith('/settings')) return 'settings';
   return null;
 };
@@ -55,6 +58,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { toggle } = useDebugIndex();
   const location = useLocation();
   const navigate = useNavigate();
+  const { orders } = useStore();
   const mainRef = useRef<HTMLElement>(null);
   const scrollPositions = useRef<Record<string, number>>({});
   const prevPathname = useRef(location.pathname);
@@ -62,11 +66,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Show bottom nav only on the tab screens (and order details, which stays in Orders context)
   const hideNav = resolveBottomTab(location.pathname) === null;
 
-  const [unreadCount, setUnreadCount] = useState(() => getUnreadNotificationsCount());
+  const leadNavStats = useMemo(() => ({
+    total: orders.filter((order) => !order.isArchived && !order.isSold && isLeadOrder(order)).length,
+    unread: orders.filter((order) => !order.isSold && isUnreadLeadOrder(order)).length
+  }), [orders]);
+
   const [tabPaths, setTabPaths] = useState<Record<Exclude<BottomTab, null>, string>>({
     orders: '/orders',
     vendors: '/database',
-    notifications: '/notifications',
+    leads: '/leads',
     settings: '/settings',
   });
 
@@ -91,26 +99,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     setTabPaths((prev) => (prev[tab] === location.pathname ? prev : { ...prev, [tab]: location.pathname }));
   }, [location.pathname]);
 
-  useEffect(() => {
-    const updateUnread = () => setUnreadCount(getUnreadNotificationsCount());
-
-    updateUnread();
-    window.addEventListener('notifications:changed', updateUnread);
-    window.addEventListener('focus', updateUnread);
-    document.addEventListener('visibilitychange', updateUnread);
-
-    return () => {
-      window.removeEventListener('notifications:changed', updateUnread);
-      window.removeEventListener('focus', updateUnread);
-      document.removeEventListener('visibilitychange', updateUnread);
-    };
-  }, []);
-
   const handleTabNavigate = (tab: Exclude<BottomTab, null>) => {
     const rootByTab: Record<Exclude<BottomTab, null>, string> = {
       orders: '/orders',
       vendors: '/database',
-      notifications: '/notifications',
+      leads: '/leads',
       settings: '/settings',
     };
 
@@ -155,9 +148,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               </span>
               <span className="text-[10px] font-medium text-gray-500">Новый</span>
             </button>
-            <NavLink to={tabPaths.notifications} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('notifications'); }} className={() => `flex flex-col items-center gap-1 pb-1 relative ${resolveBottomTab(location.pathname) === 'notifications' ? 'text-blue-600' : 'text-gray-400'}`}>
-              <span className="relative"><Bell size={22} />{unreadCount > 0 && <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full bg-rose-500 text-white text-[8px] font-black flex items-center justify-center">{unreadCount > 99 ? '99+' : unreadCount}</span>}</span>
-              <span className="text-[10px] font-medium">Оповещения</span>
+            <NavLink to={tabPaths.leads} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('leads'); }} className={() => `flex flex-col items-center gap-1 pb-1 relative ${resolveBottomTab(location.pathname) === 'leads' ? 'text-blue-600' : 'text-gray-400'}`}>
+              <span className="relative"><UserRound size={22} />{leadNavStats.total > 0 && <span className={`absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full text-white text-[8px] font-black flex items-center justify-center ${leadNavStats.unread > 0 ? 'bg-amber-500' : 'bg-blue-500'}`}>{leadNavStats.unread > 0 ? (leadNavStats.unread > 99 ? '99+' : leadNavStats.unread) : leadNavStats.total > 99 ? '99+' : leadNavStats.total}</span>}</span>
+              <span className="text-[10px] font-medium">Лиды</span>
             </NavLink>
             <NavLink to={tabPaths.settings} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('settings'); }} className={() => `flex flex-col items-center gap-1 pb-1 ${resolveBottomTab(location.pathname) === 'settings' ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настройки</span></NavLink>
           </nav></DebugIndex>
@@ -187,7 +180,7 @@ const CachedRoutes: React.FC = () => {
     <>
       {stablePaths.map((pathname) => {
         const isActive = pathname === location.pathname;
-        const keepMountedWhenHidden = ['/orders', '/database', '/notifications', '/settings', '/new'].includes(pathname);
+        const keepMountedWhenHidden = ['/orders', '/database', '/leads', '/notifications', '/settings', '/new'].includes(pathname);
         if (!isActive && !keepMountedWhenHidden) return null;
         return (
           <div key={pathname} className={isActive ? 'h-full' : 'hidden'}>
@@ -196,6 +189,7 @@ const CachedRoutes: React.FC = () => {
               <Route path="/" element={<Navigate to="/orders" replace />} />
               <Route path="/morning" element={<MorningBossScreen />} />
               <Route path="/orders" element={<OrdersScreen />} />
+              <Route path="/leads" element={<LeadsScreen />} />
               <Route path="/new" element={<NewOrderScreen />} />
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/parts" element={<OrderPartsScreen />} />

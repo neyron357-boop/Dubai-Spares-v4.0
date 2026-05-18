@@ -526,7 +526,7 @@ export const restoreDataExternal = (data: any) => {
 export const useStore = () => {
   const [version, setVersion] = useState(0);
 
-  const { orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, updatePart, removePart, updatePriceVariant, fetchOrders } = useOrderStore();
+  const { orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, bulkDeleteOrders, updatePart, removePart, updatePriceVariant, fetchOrders } = useOrderStore();
 
   useEffect(() => {
     const listener = () => setVersion((v) => v + 1);
@@ -644,6 +644,7 @@ export const useStore = () => {
     addOrder,
     updateOrder,
     deleteOrder,
+    bulkDeleteOrders,
     addSupplier,
     updateSupplier,
     deleteSupplier,
@@ -661,5 +662,5 @@ export const useStore = () => {
     variantLibrary,
     saveStandaloneVariant,
     removeStandaloneVariant
-  }), [version, orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, updatePart, removePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders, fetchOrderDetails, variantLibrary, saveStandaloneVariant, removeStandaloneVariant]);
+  }), [version, orders, isLoading, isHydrated, error, addOrder, updateOrder, deleteOrder, bulkDeleteOrders, updatePart, removePart, updatePriceVariant, addSupplier, updateSupplier, deleteSupplier, getBackupData, restoreData, fetchOrders, fetchOrderDetails, variantLibrary, saveStandaloneVariant, removeStandaloneVariant]);
 };

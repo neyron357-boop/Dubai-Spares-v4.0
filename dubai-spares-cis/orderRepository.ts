@@ -10,5 +10,8 @@ export const orderRepository = {
   },
   deleteOrder(orderId: string) {
     return offlineDb.deleteOrder(orderId);
+  },
+  deleteOrders(orderIds: string[]) {
+    return offlineDb.deleteOrders(orderIds);
   }
 };

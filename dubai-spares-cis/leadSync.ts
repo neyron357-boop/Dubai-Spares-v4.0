@@ -229,6 +229,8 @@ export const mapCloudLeadToOrder = async (lead: CloudLead): Promise<Order> => {
     source: normalizedSource,
     leadSource: 'public_form',
     leadUnread: true,
+    leadCloudId: lead.id,
+    leadOrderId: lead.order_id || undefined,
     createdAt: toTimestamp(lead.created_at),
     updatedAt: toTimestamp(lead.updated_at),
     isArchived: false,
@@ -258,6 +260,17 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
   const ignored = new Set(syncState.ignoredIds);
   const converted = new Set(syncState.convertedIds);
   const merged = [...existingOrders];
+  const isLeadStatus = (order: Order) =>
+    order.isLead === true || order.status === 'lead' || order.customerStatus === 'LEAD';
+  const hasManualOrderProgress = (order: Order) =>
+    (order.parts || []).some((part) => part.isFound || (part.variants || []).length > 0)
+    || (order.vendorContacts || []).length > 0
+    || order.paymentStatus === 'search_deposit_paid'
+    || order.paymentStatus === 'full_prepayment_paid'
+    || order.searchDepositStatus === 'paid'
+    || Boolean(order.isSold)
+    || Boolean(order.isVip)
+    || (order.salesStatus && order.salesStatus !== 'Inquiry');
 
   for (const lead of cloudLeads) {
     if (!validateCloudLead(lead)) continue;
@@ -266,12 +279,13 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
       const mapped = await mapCloudLeadToOrder(lead);
       const rawLeadId = typeof lead.id === 'string' ? lead.id.trim() : '';
       const serverLinkedOrderId = typeof lead.order_id === 'string' ? lead.order_id.trim() : '';
-      const serverMarkedConverted = serverLinkedOrderId.length > 0 && existingOrders.some((order) => order.id === serverLinkedOrderId);
-      if (ignored.has(mapped.id) || (rawLeadId && ignored.has(rawLeadId))) continue;
+      const linkedOrder = serverLinkedOrderId ? existingOrders.find((order) => order.id === serverLinkedOrderId) : undefined;
+      const serverMarkedConverted = Boolean(linkedOrder && linkedOrder.leadSource !== 'public_form' && !isLeadStatus(linkedOrder));
+      if (ignored.has(mapped.id) || (rawLeadId && ignored.has(rawLeadId)) || (serverLinkedOrderId && ignored.has(serverLinkedOrderId))) continue;
       const existing = existingById.get(mapped.id);
 
       if (!existing) {
-        if (converted.has(mapped.id) || (rawLeadId && converted.has(rawLeadId)) || serverMarkedConverted) continue;
+        if (converted.has(mapped.id) || (rawLeadId && converted.has(rawLeadId)) || (serverLinkedOrderId && converted.has(serverLinkedOrderId)) || serverMarkedConverted) continue;
         merged.push(mapped);
         continue;
       }
@@ -279,12 +293,19 @@ export const mergeCloudLeadsWithOrders = async (existingOrders: Order[], cloudLe
       if (existing.leadSource === 'public_form' || existing.isLead) {
         const index = merged.findIndex((order) => order.id === existing.id);
         if (index >= 0) {
-          const isConverted = converted.has(existing.id) || (rawLeadId && converted.has(rawLeadId)) || serverMarkedConverted;
+          const isConverted = converted.has(existing.id)
+            || (rawLeadId && converted.has(rawLeadId))
+            || (serverLinkedOrderId && converted.has(serverLinkedOrderId))
+            || serverMarkedConverted
+            || (!isLeadStatus(existing) && hasManualOrderProgress(existing));
           merged[index] = {
             ...existing,
             leadUnread: isConverted ? false : (existing.leadUnread === false ? false : true),
-            isLead: isConverted ? false : existing.isLead,
-            status: isConverted ? 'active' : existing.status,
+            leadCloudId: existing.leadCloudId || rawLeadId || mapped.leadCloudId,
+            leadOrderId: existing.leadOrderId || serverLinkedOrderId || mapped.leadOrderId,
+            customerStatus: isConverted ? existing.customerStatus : 'LEAD',
+            isLead: isConverted ? false : true,
+            status: isConverted ? 'active' : 'lead',
             updatedAt: Math.max(Number(existing.updatedAt || 0), mapped.updatedAt || 0)
           };
         }
