@@ -379,12 +379,14 @@ const OrderDetailsScreen: React.FC = () => {
   const notesSectionRef = useRef<HTMLDivElement>(null);
   const detailsScreenSectionRef = useRef<HTMLDivElement>(null);
   const [showOnlyOpenParts, setShowOnlyOpenParts] = useState(false);
+  const [isAddPartExpanded, setIsAddPartExpanded] = useState(false);
 
   // Exchange Rate Input State (Controlled)
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [isLaunchingRadar, setIsLaunchingRadar] = useState(false);
   const [isEditMode, setIsEditMode] = useState(true);
+  const [isDealControlsExpanded, setIsDealControlsExpanded] = useState(false);
   const [isClientBlockExpanded, setIsClientBlockExpanded] = useState(true);
   const [isVehicleBlockExpanded, setIsVehicleBlockExpanded] = useState(false);
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
@@ -397,6 +399,19 @@ const OrderDetailsScreen: React.FC = () => {
   const [orderMediaFolderDraft, setOrderMediaFolderDraft] = useState(order?.googleDriveFolderUrl || '');
   const [showCustomerLogs, setShowCustomerLogs] = useState(false);
   const [customerLogs, setCustomerLogs] = useState(() => getOrderCustomerLogs(order?.id || ''));
+
+  type OrderDetailsTab = 'overview' | 'search' | 'proof' | 'cargo' | 'finance' | 'notes';
+  const activeTab = ((): OrderDetailsTab => {
+    const raw = new URLSearchParams(location.search).get('tab');
+    if (raw === 'overview' || raw === 'search' || raw === 'proof' || raw === 'cargo' || raw === 'finance' || raw === 'notes') return raw;
+    return 'overview';
+  })();
+  const setActiveTab = (next: OrderDetailsTab) => {
+    const params = new URLSearchParams(location.search);
+    params.set('tab', next);
+    const nextSearch = params.toString();
+    navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ''}`, { replace: true, state: location.state });
+  };
 
   const [logisticsDraft, setLogisticsDraft] = useState<Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string>>({
     deliveryAed: String(Number(order?.logistics?.deliveryAed || 0)),
@@ -2204,28 +2219,9 @@ const OrderDetailsScreen: React.FC = () => {
           <button type="button" onClick={handleBackNavigation} className="p-2 -ml-1 rounded-full transition-colors text-gray-600 active:bg-gray-100">
             <ArrowLeft size={20} />
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              const photos = getCarPhotos();
-              if (photos.length) setGallery({ images: photos, index: 0 });
-            }}
-            className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-slate-100"
-          >{((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? <img src={((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-sm font-black text-slate-400">{order.brand?.[0] || "?"}</div>}</button><div className="text-left flex-1 mx-1 min-w-0">
+          <div className="text-left flex-1 mx-1 min-w-0">
             <h1 className="text-[15px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model}</h1>
             <p className="mt-0.5 text-[12px] font-medium truncate text-slate-500">{order.year || 'Год не указан'}{order.vin ? ` · VIN: ${order.vin.slice(0, 8)}${order.vin.length > 8 ? '...' : ''}` : ''}</p>
-            {isEditMode ? (
-              <input
-                type="text"
-                value={String(draftFields.vin ?? order.vin ?? '')}
-                onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))}
-                onBlur={() => flushDeferredOrderField('vin')}
-                placeholder="VIN"
-                className="mt-1 h-7 w-full rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-semibold text-slate-700 outline-none"
-              />
-            ) : (
-              <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 truncate">VIN: {order.vin || '—'}</p>
-            )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700 sm:inline-flex">Synced</span>
@@ -2248,38 +2244,163 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div ref={detailsScreenSectionRef} className="space-y-1.5 border-b border-gray-100 bg-white px-3 py-2.5">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Pipeline</p>
-          <div className="flex items-center justify-between gap-3">
-          <div className="inline-flex rounded-[10px] bg-[#F6F7FB] border border-[#E7EAF3] p-0.5">
-            {CUSTOMER_STATUSES.map(status => (
+      <div ref={detailsScreenSectionRef} className="px-4 pt-3 space-y-3">
+        <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="flex items-start gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                const photos = getCarPhotos();
+                if (photos.length) setGallery({ images: photos, index: 0 });
+              }}
+              className="h-[72px] w-[72px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100"
+            >
+              {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? (
+                <img src={((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-xl font-black text-slate-400">{order.brand?.[0] || "?"}</div>
+              )}
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Order</p>
+              <h2 className="mt-1 text-[18px] font-black leading-tight text-slate-900 truncate">{order.brand} {order.model} {order.year}</h2>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void copyText(order.vin || '', 'VIN')}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-bold text-slate-700"
+                  disabled={!order.vin}
+                >
+                  <Copy size={12} /> {order.vin ? `VIN ${order.vin.slice(0, 6)}…${order.vin.slice(-4)}` : 'VIN —'}
+                </button>
+                {order.vehicleDetails?.marketRegion && (
+                  <span className="inline-flex h-8 items-center rounded-xl border border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700">
+                    {order.vehicleDetails.marketRegion.toUpperCase()}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span className={`shrink-0 rounded-2xl border px-3 py-2 text-[11px] font-black ${DEAL_RISK_STYLES[safetySummary.dealRisk.level]}`}>
+              {safetySummary.dealRisk.score}/100
+            </span>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Stage</p>
+              <p className="mt-1 text-sm font-black text-slate-900">{safetySummary.stages.find((stage) => stage.state === 'current')?.label || '—'}</p>
+              <p className="mt-1 text-[11px] font-semibold text-slate-600 line-clamp-2">{safetySummary.stages.find((stage) => stage.state === 'current')?.helper || ''}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Payment</p>
+              <p className="mt-1 text-sm font-black text-slate-900">
+                {fullPrepaymentPaid ? 'Paid' : depositPaid ? 'Deposit Paid' : 'Awaiting Deposit'}
+              </p>
+              <p className="mt-1 text-[11px] font-semibold text-slate-600">{formatDualMoney(sellTotalAed)}</p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (!depositPaid) {
+                  updateOrder({ ...order, status: 'waiting_deposit', searchDepositStatus: 'pending' });
+                  return;
+                }
+                if (!fullPrepaymentPaid) {
+                  setIsEstimateOpen(true);
+                  return;
+                }
+                void launchRadarSession();
+              }}
+              className="flex-1 h-11 rounded-2xl bg-blue-600 px-3 text-xs font-black text-white shadow-sm active:scale-[0.99]"
+            >
+              {!depositPaid ? 'Request Deposit' : !fullPrepaymentPaid ? 'Request Payment' : 'Start Hunt'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsDealControlsExpanded((prev) => !prev)}
+              className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700"
+            >
+              Controls
+            </button>
+          </div>
+
+          {isDealControlsExpanded && (
+            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="inline-flex rounded-[10px] bg-[#F6F7FB] border border-[#E7EAF3] p-0.5">
+                  {CUSTOMER_STATUSES.map(status => (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => updateCustomerStatus(status)}
+                      className={`h-8 min-w-[72px] px-2.5 rounded-[8px] text-[12px] font-medium transition-all duration-150 active:scale-[0.97] ${resolvedCustomerStatus === status ? PIPELINE_STYLES[status] : 'text-gray-500'}`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+                <div className={`inline-flex items-center gap-1 text-xs font-bold ${isSlaBreached ? 'text-amber-700' : 'text-gray-500'}`}>
+                  <Clock3 size={14} /> {orderAgeDays} дней
+                </div>
+              </div>
+              <div className="flex gap-1.5 items-center overflow-x-auto no-scrollbar">
+                <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white')}`}>
+                  <span className="tracking-[0.04em]">Status</span>
+                  <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="bg-transparent text-[11px] font-medium text-current outline-none">
+                  {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
+                </div>
+                <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} disabled={!isEditMode} className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-red-50 border border-red-200 text-red-700 shrink-0">
+                  <option value={Priority.HIGH}>HIGH</option>
+                  <option value={Priority.MEDIUM}>MEDIUM</option>
+                  <option value={Priority.LOW}>LOW</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Timeline</p>
+              <p className="mt-1 text-sm font-black text-slate-900">Safety progress: {safetyProgressText}</p>
+            </div>
+            <span className={`shrink-0 rounded-xl border px-3 py-2 text-[11px] font-black ${DEAL_RISK_STYLES[safetySummary.dealRisk.level]}`}>
+              {safetySummary.dealRisk.label}
+            </span>
+          </div>
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+            {safetySummary.stages.map((stage) => (
               <button
-                key={status}
+                key={stage.id}
                 type="button"
-                onClick={() => updateCustomerStatus(status)}
-                className={`h-8 min-w-[72px] px-2.5 rounded-[8px] text-[12px] font-medium transition-all duration-150 active:scale-[0.97] ${resolvedCustomerStatus === status ? PIPELINE_STYLES[status] : 'text-gray-500'}`}
+                onClick={() => {}}
+                className={`min-w-[108px] rounded-2xl border px-3 py-2 text-left ${STAGE_STATE_STYLES[stage.state]}`}
               >
-                {status}
+                <div className="flex items-center gap-2">
+                  {stage.state === 'completed' ? <CheckCircle2 size={14} /> : <Circle size={13} />}
+                  <span className={`truncate ${stage.state === 'current' ? 'text-[12px] font-black' : 'text-[11px] font-bold'}`}>{stage.label}</span>
+                </div>
+                <p className="mt-1 line-clamp-2 text-[10px] font-semibold opacity-75">{stage.state === 'locked' ? 'locked' : stage.helper}</p>
               </button>
             ))}
           </div>
-          <div className={`inline-flex items-center gap-1 text-xs font-bold ${isSlaBreached ? 'text-amber-700' : 'text-gray-500'}`}>
-            <Clock3 size={14} /> {orderAgeDays} дней
+        </section>
+
+        <nav className="rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+          <div className="grid grid-cols-3 gap-1 text-[11px] font-black">
+            <button type="button" onClick={() => setActiveTab('overview')} className={`h-9 rounded-xl ${activeTab === 'overview' ? 'bg-blue-600 text-white' : 'text-slate-600 active:bg-slate-50'}`}>Overview</button>
+            <button type="button" onClick={() => setActiveTab('search')} className={`h-9 rounded-xl ${activeTab === 'search' ? 'bg-blue-600 text-white' : 'text-slate-600 active:bg-slate-50'}`}>Search</button>
+            <button type="button" onClick={() => setActiveTab('proof')} className={`h-9 rounded-xl ${activeTab === 'proof' ? 'bg-blue-600 text-white' : 'text-slate-600 active:bg-slate-50'}`}>Proof</button>
+            <button type="button" onClick={() => setActiveTab('cargo')} className={`h-9 rounded-xl ${activeTab === 'cargo' ? 'bg-blue-600 text-white' : 'text-slate-600 active:bg-slate-50'}`}>Cargo</button>
+            <button type="button" onClick={() => setActiveTab('finance')} className={`h-9 rounded-xl ${activeTab === 'finance' ? 'bg-blue-600 text-white' : 'text-slate-600 active:bg-slate-50'}`}>Finance</button>
+            <button type="button" onClick={() => setActiveTab('notes')} className={`h-9 rounded-xl ${activeTab === 'notes' ? 'bg-blue-600 text-white' : 'text-slate-600 active:bg-slate-50'}`}>Notes</button>
           </div>
-        </div>
-        <div className="flex gap-1.5 items-center overflow-x-auto no-scrollbar">
-          <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white')}`}>
-            <span className="tracking-[0.04em]">Status</span>
-            <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="bg-transparent text-[11px] font-medium text-current outline-none">
-            {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </div>
-          <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} disabled={!isEditMode} className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-red-50 border border-red-200 text-red-700 shrink-0">
-            <option value={Priority.HIGH}>HIGH</option>
-            <option value={Priority.MEDIUM}>MEDIUM</option>
-            <option value={Priority.LOW}>LOW</option>
-          </select>
-        </div>
+        </nav>
       </div>
 
       {toast && (
@@ -2292,67 +2413,38 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
       )}
-
-      <aside className="fixed right-3 top-1/2 z-20 hidden -translate-y-1/2 xl:flex">
-        <div className="w-[146px] rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur">
-          <div className="mb-1 px-1 text-[9px] font-black uppercase tracking-[0.14em] text-gray-400">Навигация</div>
-          <div className="space-y-1">
-            {quickNavItems.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => scrollToSection(item.ref)}
-                className="w-full rounded-lg bg-gray-50 px-2 py-1.5 text-left text-[10px] font-bold text-gray-600 transition hover:bg-blue-50 hover:text-blue-700"
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </aside>
-
-      <div className="px-4 pt-3">
-        <div className="rounded-2xl border border-blue-100 bg-white p-3 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Публичная смета</p>
-              <p className="text-xs font-semibold text-gray-600">Отправка клиенту ссылки на смету с текущими ценами.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsEstimateOpen(true)}
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-blue-600 px-3 text-xs font-black text-white shadow-sm active:scale-[0.98]"
-            >
-              <Share2 size={14} /> Отправить смету
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="px-4 pt-3">
-        <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Safety Sales System</p>
-              <h2 className="mt-1 text-lg font-black text-slate-900">{safetySummary.stages.find((stage) => stage.state === 'current')?.label || 'Сделка'}</h2>
-              <p className="mt-1 text-xs font-semibold text-slate-500">{safetySummary.stages.find((stage) => stage.state === 'current')?.helper}</p>
-            </div>
-            <span className={`shrink-0 rounded-xl border px-3 py-2 text-[11px] font-black ${DEAL_RISK_STYLES[safetySummary.dealRisk.level]}`}>
-              {safetySummary.dealRisk.label}
-            </span>
-          </div>
-
-          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-            {safetySummary.stages.map((stage) => (
-              <div key={stage.id} className={`min-w-[92px] rounded-xl border px-2.5 py-2 ${STAGE_STATE_STYLES[stage.state]}`}>
-                <div className="flex items-center gap-1.5">
-                  {stage.state === 'completed' ? <CheckCircle2 size={13} /> : <Circle size={12} />}
-                  <span className="truncate text-[11px] font-black">{stage.label}</span>
+      {activeTab === 'overview' && (
+        <>
+          <div className="px-4 pt-3">
+            <div className="rounded-2xl border border-blue-100 bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Публичная смета</p>
+                  <p className="text-xs font-semibold text-gray-600">Отправка клиенту ссылки на смету с текущими ценами.</p>
                 </div>
-                <p className="mt-1 line-clamp-2 text-[9px] font-semibold opacity-75">{stage.state === 'locked' ? 'locked' : stage.helper}</p>
+                <button
+                  type="button"
+                  onClick={() => setIsEstimateOpen(true)}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-blue-600 px-3 text-xs font-black text-white shadow-sm active:scale-[0.98]"
+                >
+                  <Share2 size={14} /> Отправить смету
+                </button>
               </div>
-            ))}
+            </div>
           </div>
+
+          <div className="px-4 pt-3">
+            <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Safety Sales System</p>
+                  <h2 className="mt-1 text-lg font-black text-slate-900">{safetySummary.stages.find((stage) => stage.state === 'current')?.label || 'Сделка'}</h2>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">{safetySummary.stages.find((stage) => stage.state === 'current')?.helper}</p>
+                </div>
+                <span className={`shrink-0 rounded-xl border px-3 py-2 text-[11px] font-black ${DEAL_RISK_STYLES[safetySummary.dealRisk.level]}`}>
+                  {safetySummary.dealRisk.label}
+                </span>
+              </div>
 
           {!depositPaid && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
@@ -2494,8 +2586,12 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </section>
       </div>
+        </>
+      )}
 
       <div className="p-4 space-y-4">
+        {activeTab === 'overview' && (
+          <>
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Зона заказа</p>
           <div className="flex flex-wrap gap-1 min-h-[28px]">
@@ -2811,16 +2907,22 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
+          </>
+        )}
+
+        {activeTab === 'search' && (
 
         <div ref={partsListRef} className="rounded-2xl border border-[#E7EAF3] bg-white p-3 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-black text-gray-900 text-xs uppercase tracking-[0.14em]">Запчасти</h2>
-              <p className="mt-1 text-xs font-semibold text-slate-500">{foundPartsCount} из {partsCount} с вариантами</p>
             </div>
             <button
               type="button"
-              onClick={() => partInputRef.current?.focus()}
+              onClick={() => {
+                setIsAddPartExpanded(true);
+                window.setTimeout(() => partInputRef.current?.focus(), 0);
+              }}
               className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-blue-600 px-3 text-[11px] font-black text-white"
             >
               <Plus size={14} /> Деталь
@@ -2830,7 +2932,7 @@ const OrderDetailsScreen: React.FC = () => {
           {order.parts.length === 0 ? (
             <div className="mt-3 rounded-2xl border border-dashed border-gray-200 p-4 text-center">
               <p className="text-sm font-bold text-slate-600">Деталей пока нет</p>
-              <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white">Добавить первую деталь</button>
+              <button type="button" onClick={() => { setIsAddPartExpanded(true); window.setTimeout(() => partInputRef.current?.focus(), 0); }} className="mt-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white">Добавить первую деталь</button>
             </div>
           ) : (
             <div className="mt-3 space-y-2">
@@ -2941,8 +3043,10 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           )}
         </div>
+        )}
 
-
+        {activeTab === 'finance' && (
+        <>
         <div ref={markupSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsPricingCargoExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
@@ -3004,7 +3108,7 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           </div>
 
-<div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-2">
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-2">
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Purchase</p><p className="font-black text-gray-800">{formatMoney(selectedOfferTotal)}</p></div>
               <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Cargo</p><p className="font-black text-gray-800">{formatDualMoney(cargoTotalAed)}</p></div>
@@ -3036,10 +3140,121 @@ const OrderDetailsScreen: React.FC = () => {
             {sellError}
           </div>
         )}
+        </>
+        )}
 
+        {activeTab === 'cargo' && (
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Cargo</p>
+                <p className="mt-1 text-sm font-black text-slate-900">ETA: {Number(cargoCalc.eta || 0) > 0 ? `${cargoCalc.eta} days` : '—'}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">Total cost: {formatDualMoney(cargoTotalAed)}</p>
+              </div>
+              <span className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-black text-slate-700">{cargoCalc.totalPlaces || 0} places</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-xl bg-slate-50 px-3 py-2">
+                <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Real weight</p>
+                <p className="mt-1 font-black text-slate-800">{Number(cargoCalc.realWeight || 0).toFixed(1)} kg</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2">
+                <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Chargeable</p>
+                <p className="mt-1 font-black text-slate-800">{Number(cargoCalc.chargeableWeight || 0).toFixed(1)} kg</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2">
+                <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Base</p>
+                <p className="mt-1 font-black text-slate-800">{Number(cargoCalc.baseCostUsd || 0).toFixed(2)} USD</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2">
+                <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Total</p>
+                <p className="mt-1 font-black text-slate-800">{Number(cargoCalc.totalCostUsd || 0).toFixed(2)} USD</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Air</p>
+                <p className="mt-1 font-black text-slate-800">{Number(cargoEstimates.air.totalCostUsd || 0).toFixed(2)} USD · {cargoEstimates.air.eta}d</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Container</p>
+                <p className="mt-1 font-black text-slate-800">{Number(cargoEstimates.container.totalCostUsd || 0).toFixed(2)} USD · {cargoEstimates.container.eta}d</p>
+              </div>
+            </div>
+          </div>
+        )}
 
+        {activeTab === 'proof' && (
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Proof Pack</p>
+                <p className="mt-1 text-sm font-black text-slate-900">
+                  {(() => {
+                    const completed = safetySummary.proofPack.completed;
+                    const total = safetySummary.proofPack.total;
+                    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+                    if (completed === 0) return `Incomplete · ${percent}%`;
+                    if (completed === total) return `Fully Verified · ${percent}%`;
+                    if (percent >= 70) return `Safe · ${percent}%`;
+                    return `Partial · ${percent}%`;
+                  })()}
+                </p>
+              </div>
+              <span className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-black text-slate-700">
+                {safetySummary.proofPack.completed}/{safetySummary.proofPack.total}
+              </span>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Missing</p>
+              <div className="mt-2 space-y-1.5">
+                {safetySummary.proofPack.items.filter((item) => !item.done).slice(0, 8).map((item) => (
+                  <div key={item.id} className="flex items-start gap-2 text-xs font-semibold text-slate-700">
+                    <Circle size={13} className="mt-0.5 shrink-0 text-slate-300" />
+                    <span className={item.critical ? 'text-rose-700' : 'text-slate-600'}>{item.label}</span>
+                  </div>
+                ))}
+                {safetySummary.proofPack.items.filter((item) => !item.done).length === 0 && (
+                  <p className="text-xs font-semibold text-emerald-700">Все доказательства собраны.</p>
+                )}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-wide text-sky-800">
+                  <FolderOpen size={14} /> Материалы заказа
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const savedUrl = saveOrderMediaFolder(orderMediaFolderDraft, { showToast: true });
+                    checkGoogleDriveLink(savedUrl, 'Добавьте Google Drive папку заказа');
+                  }}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2 text-[10px] font-black text-sky-700"
+                >
+                  <ExternalLink size={12} /> Проверить
+                </button>
+              </div>
+              <input
+                type="url"
+                value={orderMediaFolderDraft}
+                readOnly={!isEditMode}
+                onChange={(e) => setOrderMediaFolderDraft(e.target.value)}
+                onBlur={(e) => saveOrderMediaFolder(e.target.value)}
+                placeholder="https://drive.google.com/drive/folders/..."
+                className="mt-2 h-11 w-full rounded-xl border border-sky-100 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-sky-300"
+              />
+              <p className="mt-1 text-[10px] font-semibold text-sky-700/70">Папка появится внизу Public Quote. Доступ: Anyone with the link can view.</p>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'search' && isAddPartExpanded && (
         <div ref={addPartSectionRef} className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-4 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
-          <h2 className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Add part</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Add part</h2>
+            <button type="button" onClick={() => setIsAddPartExpanded(false)} className="h-9 rounded-xl border border-gray-200 bg-gray-50 px-3 text-[11px] font-black text-gray-700">Close</button>
+          </div>
           <form 
             onSubmit={(e) => { e.preventDefault(); addNewPart(); }}
             className="flex flex-col gap-3"
@@ -3165,7 +3380,9 @@ const OrderDetailsScreen: React.FC = () => {
             {order.parts.length > 0 ? <span className="text-gray-500"> · Последняя: {order.parts[order.parts.length - 1]?.name || '—'}</span> : null}
           </p>
         </div>
+        )}
 
+        {activeTab === 'notes' && (
         <div ref={notesSectionRef} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Заметки</h2>
           <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
@@ -3260,42 +3477,20 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           )}
         </div>
+        )}
 
+        {activeTab === 'overview' && (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Действия</h2>
-          <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-wide text-sky-800">
-                <FolderOpen size={14} /> Материалы заказа
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  const savedUrl = saveOrderMediaFolder(orderMediaFolderDraft, { showToast: true });
-                  checkGoogleDriveLink(savedUrl, 'Добавьте Google Drive папку заказа');
-                }}
-                className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2 text-[10px] font-black text-sky-700"
-              >
-                <ExternalLink size={12} /> Проверить
-              </button>
-            </div>
-            <input
-              type="url"
-              value={orderMediaFolderDraft}
-              readOnly={!isEditMode}
-              onChange={(e) => setOrderMediaFolderDraft(e.target.value)}
-              onBlur={(e) => saveOrderMediaFolder(e.target.value)}
-              placeholder="https://drive.google.com/drive/folders/..."
-              className="mt-2 h-11 w-full rounded-xl border border-sky-100 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-sky-300"
-            />
-            <p className="mt-1 text-[10px] font-semibold text-sky-700/70">Папка появится внизу Public Quote. Доступ: Anyone with the link can view.</p>
-          </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setIsEstimateOpen(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 text-xs font-black text-white">
               <Share2 size={14} /> Отправить
             </button>
             <button type="button" onClick={() => setIsEstimateOpen(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-black text-blue-700">
               <FileText size={14} /> Public quote
+            </button>
+            <button type="button" onClick={() => setActiveTab('proof')} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700">
+              <FolderOpen size={14} /> Proof Pack
             </button>
             <button type="button" onClick={() => setIsEstimateOpen(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700">
               <Download size={14} /> Invoice
@@ -3308,6 +3503,7 @@ const OrderDetailsScreen: React.FC = () => {
             <X size={14} /> Удалить заказ
           </button>
         </div>
+        )}
 
         {isRecording && (
           <div className="fixed inset-0 z-50 bg-slate-900/70 p-4">
