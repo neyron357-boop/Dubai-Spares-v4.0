@@ -530,6 +530,14 @@ export const offlineDb = {
     await flushOrderWrites();
   },
 
+  async deleteOrders(orderIds: string[]): Promise<void> {
+    const uniqueIds = Array.from(new Set(orderIds.map((id) => String(id || '').trim()).filter(Boolean)));
+    if (uniqueIds.length === 0) return;
+    uniqueIds.forEach((orderId) => pendingOrderWrites.set(orderId, { type: 'delete' }));
+    scheduleOrderFlush();
+    await flushOrderWrites();
+  },
+
   async enqueueMutation(mutation: OfflineMutation): Promise<void> {
     const normalized: OfflineMutation = {
       ...mutation,
