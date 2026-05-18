@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCheck, ChevronRight, Clock3, AlertTriangle, Car, LocateFixed, Phone, Search, Archive, ArchiveRestore, RefreshCw, Copy, MessageCircle, ExternalLink, Undo2 } from 'lucide-react';
+import { ArrowLeft, Bell, CheckCheck, ChevronRight, Clock3, AlertTriangle, Car, LocateFixed, Phone, Search, Archive, ArchiveRestore, RefreshCw, Copy, MessageCircle, ExternalLink, Undo2 } from 'lucide-react';
 import {
   AppNotification,
   NotificationType,
@@ -243,7 +243,17 @@ const NotificationsScreen: React.FC = () => {
   return (
     <div className="p-4 space-y-3 pb-24 overflow-x-hidden bg-gray-50 min-h-full" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-black text-gray-900">Уведомления</h1>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700"
+            aria-label="Назад"
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <h1 className="text-xl font-black text-gray-900">Уведомления</h1>
+        </div>
         <button type="button" onClick={refresh} className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-gray-600">
           <RefreshCw size={13} className={isRefreshing ? 'animate-spin' : ''} /> Обновить
         </button>

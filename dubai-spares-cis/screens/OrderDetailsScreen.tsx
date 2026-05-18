@@ -520,9 +520,9 @@ const OrderDetailsScreen: React.FC = () => {
   useEffect(() => {
     if (orderMissing) return;
     if (order.leadSource === 'public_form' && order.leadUnread) {
-      updateOrder({ ...order, leadUnread: false, leadReadAt: Date.now(), isLead: false, status: 'active' });
+      updateOrder({ ...order, leadUnread: false, leadReadAt: Date.now() });
     }
-  }, [orderMissing, order.id]);
+  }, [orderMissing, order.id, order.leadSource, order.leadUnread]);
 
 
   useEffect(() => {
@@ -927,11 +927,15 @@ const OrderDetailsScreen: React.FC = () => {
     if (!isEditMode) return;
     const prevStatus = resolvedCustomerStatus;
     if (prevStatus === nextStatus) return;
+    const previousOrderStatus = order.status;
     updateOrder({
       ...order,
       customerStatus: nextStatus === 'Lead' ? 'LEAD' : nextStatus === 'Inquiry' ? 'INQUIRY' : 'VIP',
       isVip: nextStatus === 'VIP',
       isLead: nextStatus === 'Lead',
+      status: nextStatus === 'Lead' ? 'lead' : (order.status === 'lead' ? 'active' : order.status),
+      leadUnread: nextStatus === 'Lead' ? order.leadUnread : false,
+      leadReadAt: nextStatus === 'Lead' ? order.leadReadAt : Date.now(),
       statusChangedAt: Date.now(),
       statusChangedBy: 'current-user'
     });
@@ -941,7 +945,10 @@ const OrderDetailsScreen: React.FC = () => {
         ...order,
         customerStatus: prevStatus === 'Lead' ? 'LEAD' : prevStatus === 'Inquiry' ? 'INQUIRY' : 'VIP',
         isVip: prevStatus === 'VIP',
-        isLead: prevStatus === 'Lead'
+        isLead: prevStatus === 'Lead',
+        status: previousOrderStatus,
+        leadUnread: order.leadUnread,
+        leadReadAt: order.leadReadAt
       })
     });
   };

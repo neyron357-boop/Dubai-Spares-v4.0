@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Bell } from 'lucide-react';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
 import { backupUpload, clearServerBackups, deletePublicQuoteSnapshot, listPublicQuoteSnapshots } from '../serverApi';
@@ -12,6 +13,7 @@ import { clearBrokenImageBlacklist, isBrokenImageUrl, markBrokenImageUrl, normal
 import { flushOfflineMutations } from '../orderStore';
 import { calculateCargo, calculateCargoEstimates, CargoTariff, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 import { aiCore } from '../utils/aiCore';
+import { getUnreadNotificationsCount } from '../notificationCenter';
 
 const loadImageFromFile = (file: File): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const url = URL.createObjectURL(file);
@@ -410,6 +412,7 @@ const SettingsScreen: React.FC = () => {
   const [aiTestPending, setAiTestPending] = useState(false);
   const [aiTestStatus, setAiTestStatus] = useState<string | null>(null);
   const [aiTestShowFullResponse, setAiTestShowFullResponse] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(() => getUnreadNotificationsCount());
   const aiTestAbortRef = useRef<AbortController | null>(null);
   const aiTestRequestIdRef = useRef(0);
   const isMountedRef = useRef(true);
@@ -434,6 +437,19 @@ const SettingsScreen: React.FC = () => {
   useEffect(() => {
     document.documentElement.lang = settings.appLanguage;
   }, [settings.appLanguage]);
+
+  useEffect(() => {
+    const updateUnreadNotifications = () => setUnreadNotifications(getUnreadNotificationsCount());
+    updateUnreadNotifications();
+    window.addEventListener('notifications:changed', updateUnreadNotifications);
+    window.addEventListener('focus', updateUnreadNotifications);
+    document.addEventListener('visibilitychange', updateUnreadNotifications);
+    return () => {
+      window.removeEventListener('notifications:changed', updateUnreadNotifications);
+      window.removeEventListener('focus', updateUnreadNotifications);
+      document.removeEventListener('visibilitychange', updateUnreadNotifications);
+    };
+  }, []);
 
   useEffect(() => {
     setDraftSettings(settings);
@@ -1364,8 +1380,25 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
   return (
     <div className="min-h-full max-w-full overflow-x-hidden bg-gray-50 p-4 pb-24 space-y-4">
       <div>
-        <h1 className="text-xl font-black text-gray-900">Настройки</h1>
-        <p className="text-xs text-gray-500 mt-1">Профессиональная admin panel: public quote, контакты и система</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-black text-gray-900">Настройки</h1>
+            <p className="text-xs text-gray-500 mt-1">Профессиональная admin panel: public quote, контакты и система</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/notifications')}
+            className="relative grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm"
+            aria-label="Открыть оповещения"
+          >
+            <Bell size={18} />
+            {unreadNotifications > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white">
+                {unreadNotifications > 99 ? '99+' : unreadNotifications}
+              </span>
+            )}
+          </button>
+        </div>
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1 text-[11px] font-black text-slate-600 no-scrollbar">
           {['Public Quote', 'Компания: контакты', 'Система'].map((label) => (
             <span key={label} className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5">{label}</span>
@@ -1391,7 +1424,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
       )}
 
       <Section title="Public Quote / Invoice">
-        <p className="text-xs text-gray-600">Отправьте эту ссылку клиенту — он заполняет форму, и вы получаете новый лид в разделе «Заказы»:</p>
+        <p className="text-xs text-gray-600">Отправьте эту ссылку клиенту — он заполняет форму, и вы получаете новый лид в разделе «Лиды»:</p>
         <div className="flex items-center gap-2">
           <input
             readOnly

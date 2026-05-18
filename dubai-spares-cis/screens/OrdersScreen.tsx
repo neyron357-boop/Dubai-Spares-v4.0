@@ -7,12 +7,9 @@ import IncomeModal from '../components/IncomeModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
+import { isLeadOrder, isUnreadLeadOrder } from '../utils/orderClassification';
 
-type TabType = 'active' | 'vip' | 'lead' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
-const isLeadOrder = (order: Order) =>
-  order.isLead === true
-  || order.status === 'lead'
-  || order.customerStatus === 'LEAD';
+type TabType = 'active' | 'vip' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
 type SearchState = 'searching' | 'waiting_response' | 'found' | 'offer_sent' | 'sold' | 'archived';
 
@@ -328,7 +325,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
 };
 
 const OrdersScreen: React.FC = () => {
-  const { orders, isLoading, syncOrders, updateOrder, deleteOrder } = useStore();
+  const { orders, isLoading, syncOrders, updateOrder, deleteOrder, bulkDeleteOrders } = useStore();
   const navigate = useNavigate();
 
   useLeadsPolling(true);
@@ -440,16 +437,9 @@ const OrdersScreen: React.FC = () => {
   const allBrands = useMemo(() => Array.from(new Set(orders.map((order) => order.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
 
 
-  const isUnreadPublicLead = (order: Order) => order.leadSource === 'public_form' && order.leadUnread === true && !order.isArchived;
-  const unreadPublicLeadsCount = useMemo(
-    () => orders.filter((order) => !order.isSold && isLeadOrder(order) && isUnreadPublicLead(order)).length,
-    [orders]
-  );
-
   const tabCounts = useMemo(() => ({
     active: orders.filter((o) => !o.isArchived && !o.isSold && !isLeadOrder(o)).length,
     vip: orders.filter((o) => o.isVip && !o.isArchived && !o.isSold && !isLeadOrder(o)).length,
-    lead: orders.filter((o) => !o.isArchived && !o.isSold && isLeadOrder(o)).length,
     found: orders.filter((o) => !o.isArchived && !o.isSold && !isLeadOrder(o) && isOrderFound(o)).length,
     urgent: orders.filter((o) => !o.isArchived && !o.isSold && !isLeadOrder(o) && o.priority === Priority.HIGH).length,
     medium: orders.filter((o) => !o.isArchived && !o.isSold && !isLeadOrder(o) && o.priority === Priority.MEDIUM).length,
@@ -459,8 +449,8 @@ const OrdersScreen: React.FC = () => {
   }), [orders]);
 
   const openOrderPreview = (order: Order) => {
-    if (isUnreadPublicLead(order)) {
-      const viewedLead = { ...order, leadUnread: false };
+    if (isUnreadLeadOrder(order)) {
+      const viewedLead = { ...order, leadUnread: false, leadReadAt: Date.now() };
       void updateOrder(viewedLead);
     }
     navigate(`/order/${order.id}`);
@@ -470,7 +460,6 @@ const OrdersScreen: React.FC = () => {
     let list = orders.filter((order) => {
       if (activeTab === 'archive') return order.isArchived;
       if (activeTab === 'vip') return order.isVip && !order.isArchived && !order.isSold && !isLeadOrder(order);
-      if (activeTab === 'lead') return !order.isArchived && !order.isSold && isLeadOrder(order);
       if (activeTab === 'found') return !order.isArchived && !order.isSold && !isLeadOrder(order) && isOrderFound(order);
       if (activeTab === 'urgent') return !order.isArchived && !order.isSold && !isLeadOrder(order) && order.priority === Priority.HIGH;
       if (activeTab === 'medium') return !order.isArchived && !order.isSold && !isLeadOrder(order) && order.priority === Priority.MEDIUM;
@@ -577,17 +566,14 @@ const OrdersScreen: React.FC = () => {
     if (selectedOrderIds.length === 0) return;
     setIsBulkDeleting(true);
 
-    let deletedCount = 0;
-    for (const id of selectedOrderIds) {
-      const removed = await deleteOrder(id);
-      if (removed) deletedCount += 1;
-    }
+    const result = await bulkDeleteOrders(selectedOrderIds);
+    const deletedCount = result.deleted;
 
     setIsBulkDeleting(false);
     setDeleteId(null);
     setSelectedOrderIds([]);
     setIsSelectionMode(false);
-    toast(`Удалено заказов: ${deletedCount}`, deletedCount > 0 ? 'success' : 'error');
+    toast(result.failed > 0 ? `Удалено: ${deletedCount}, ошибок: ${result.failed}` : `Удалено заказов: ${deletedCount}`, deletedCount > 0 ? 'success' : 'error');
   };
 
   const activeFiltersCount = brandFilters.length + statusFilters.length + (priorityFilter !== 'all' ? 1 : 0) + (noResponseHours > 0 ? 1 : 0) + (issueFilter !== 'all' ? 1 : 0) + (yearFrom ? 1 : 0) + (yearTo ? 1 : 0);
@@ -599,7 +585,7 @@ const OrdersScreen: React.FC = () => {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="text-[30px] leading-[34px] font-black tracking-tight text-slate-900">Заказы</h1>
-            <p className="mt-0.5 text-xs text-slate-500">{tabCounts.active} активных · {tabCounts.lead} лидов · {tabCounts.found} найдено</p>
+            <p className="mt-0.5 text-xs text-slate-500">{tabCounts.active} активных · {tabCounts.found} найдено · {tabCounts.sold} продано</p>
           </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setIsIncomeOpen(true)} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Статистика"><BarChart3 size={18} /></button>
@@ -637,15 +623,10 @@ const OrdersScreen: React.FC = () => {
           {([
             ['active', 'Активные'],
             ['vip', 'VIP'],
-            ['lead', 'Лиды'],
             ['found', 'Найденные'],
             ['sold', 'Проданные'],
             ['archive', 'Архив']
           ] as [TabType, string][]).map(([tab, label]) => (
-            (() => {
-              const isLeadTab = tab === 'lead';
-              const hasUnreadLeads = isLeadTab && unreadPublicLeadsCount > 0;
-              return (
             <button
               key={tab}
               type="button"
@@ -653,16 +634,11 @@ const OrdersScreen: React.FC = () => {
               className={`whitespace-nowrap rounded-2xl border px-3 py-2 text-[11px] font-black transition ${
                 activeTab === tab
                   ? 'border-blue-600 bg-blue-600 text-white'
-                  : hasUnreadLeads
-                    ? 'animate-pulse border-amber-400 bg-amber-100 text-amber-800'
-                    : 'border-slate-200 bg-white text-slate-600'
+                  : 'border-slate-200 bg-white text-slate-600'
               }`}
             >
               {label} <span className="opacity-80">{tabCounts[tab]}</span>
-              {hasUnreadLeads && <span className="ml-1 inline-flex h-2 w-2 rounded-full bg-amber-500 align-middle" />}
             </button>
-              );
-            })()
           ))}
         </div>
 
@@ -704,7 +680,7 @@ const OrdersScreen: React.FC = () => {
             const contactLabel = order.clientName?.trim() || order.customerContact || 'Без контакта';
             const ageLabel = formatAge(order.updatedAt || order.createdAt);
             const isVipOrder = order.isVip;
-            const isUnreadLeadOrder = isUnreadPublicLead(order);
+            const unreadLead = isUnreadLeadOrder(order);
 
             return (
               <SwipeableOrderCard
@@ -729,7 +705,7 @@ const OrdersScreen: React.FC = () => {
                 disableCardTap={!!deleteId || isDeleting}
                 disableSwipe={isSelectionMode}
               >
-                <div className={`rounded-2xl p-1 -m-1 ${isVipOrder ? 'bg-amber-50/70 border border-amber-200' : isUnreadLeadOrder ? 'bg-amber-50/60 border border-amber-200/70' : ''}`}>
+                <div className={`rounded-2xl p-1 -m-1 ${isVipOrder ? 'bg-amber-50/70 border border-amber-200' : unreadLead ? 'bg-amber-50/60 border border-amber-200/70' : ''}`}>
                   <div className="flex items-start gap-3">
                     {isSelectionMode && (
                       <button
@@ -779,12 +755,7 @@ const OrdersScreen: React.FC = () => {
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">{statusLabelMap[status]}</span>
                         {order.priority === Priority.HIGH && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-600">Срочно</span>}
-                        {isUnreadLeadOrder && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">Новый лид</span>}
-                        {activeTab === 'lead' && order.searchDepositStatus === 'pending' && (
-                          <span className="rounded-full bg-fuchsia-600 px-2 py-1 text-[10px] font-black text-white shadow-sm shadow-fuchsia-500/30">
-                            Ожидает оплаты 50 AED
-                          </span>
-                        )}
+                        {unreadLead && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">Новый лид</span>}
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600 inline-flex items-center gap-1"><Clock3 size={10} /> {ageLabel}</span>
                       </div>
 

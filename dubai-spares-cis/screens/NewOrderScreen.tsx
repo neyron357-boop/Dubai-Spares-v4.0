@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Camera, ChevronDown, Mic, Square, Play, Pause, UserRound, Wrench, CarFront, ImagePlus, NotebookPen, Save, Trash2, ClipboardPaste } from 'lucide-react';
 import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE } from '../constants';
 import { CHASSIS_BODY_TYPES_BY_BRAND } from '../carDatabase';
@@ -17,6 +17,7 @@ type VinDecoded = {
 };
 
 type Mode = 'quick' | 'full';
+type CreationType = 'lead' | 'order';
 
 type DropdownOption = {
   label: string;
@@ -127,6 +128,7 @@ const normalizeDraftList = (items: unknown): Array<{ id: string; createdAt: numb
       const createdAt = Number(item.createdAt || Date.now());
       const title = String(item.title || 'Черновик без названия');
       const data = toPersistableDraft({
+        creationType: item.data?.creationType === 'lead' ? 'lead' : 'order',
         mode: item.data?.mode || 'quick',
         vin: item.data?.vin || '',
         brand: item.data?.brand || '',
@@ -151,6 +153,7 @@ const normalizeDraftList = (items: unknown): Array<{ id: string; createdAt: numb
 };
 
 const toPersistableDraft = (payload: {
+  creationType: CreationType;
   mode: Mode;
   vin: string;
   brand: string;
@@ -314,8 +317,12 @@ const SearchableDropdown: React.FC<{
 
 const NewOrderScreen: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { addOrder, isSyncing } = useStore();
 
+  const [creationType, setCreationType] = useState<CreationType>(() => (
+    new URLSearchParams(location.search).get('type') === 'lead' ? 'lead' : 'order'
+  ));
   const [mode, setMode] = useState<Mode>('quick');
   const [vin, setVin] = useState('');
   const [brand, setBrand] = useState('');
@@ -355,6 +362,11 @@ const NewOrderScreen: React.FC = () => {
   const audioChunksRef = useRef<Blob[]>([]);
 
   const touched = useRef({ brand: false, model: false, year: false });
+
+  useEffect(() => {
+    const nextType = new URLSearchParams(location.search).get('type') === 'lead' ? 'lead' : 'order';
+    setCreationType(nextType);
+  }, [location.search]);
 
   const modelOptions = useMemo(() => {
     const base = brand ? BRAND_MODELS[brand] || [] : Array.from(new Set(Object.values(BRAND_MODELS).flat()));
@@ -422,6 +434,7 @@ const NewOrderScreen: React.FC = () => {
   }, [manualModelMode, model, modelOptions]);
 
   const applyDraft = (d: ReturnType<typeof toPersistableDraft>) => {
+    setCreationType(d.creationType === 'lead' ? 'lead' : 'order');
     setMode(d.mode || 'quick');
     setVin(d.vin || '');
     setBrand(d.brand || '');
@@ -486,9 +499,9 @@ const NewOrderScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const draftData = toPersistableDraft({ mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource });
+    const draftData = toPersistableDraft({ creationType, mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource });
     localStorage.setItem('new-order-draft-v2', JSON.stringify(draftData));
-  }, [mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource]);
+  }, [creationType, mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource]);
 
   useEffect(() => {
     const decoded = decodeVin(vin);
@@ -507,20 +520,30 @@ const NewOrderScreen: React.FC = () => {
     const next: Record<string, string> = {};
     const currentYear = new Date().getFullYear();
     const parsedYear = Number(year.trim());
+    const isLeadCreation = creationType === 'lead';
     const hasAnyPart = parts.some((item) => (
       item.partKind === 'group'
         ? item.groupItems.some((g) => g.name.trim())
         : item.name.trim()
     ));
+    const hasAnyNote = notes.some((note) => note.text.trim() || note.photos.length > 0 || note.voices.length > 0);
+    const hasLeadInterest = !!brand.trim() || !!model.trim() || !!year.trim() || !!vin.trim() || hasAnyPart || hasAnyNote;
+    const hasLeadClient = !!clientName.trim() || !!contactValue.trim();
     const rawContact = contactValue.trim();
     const isPhone = /^\+[0-9]{9,15}$/.test(rawContact);
     const isUrl = /^https?:\/\//i.test(rawContact);
     const isHandle = /^@?[A-Za-z0-9._]{2,}$/.test(rawContact);
     const isTelegramHandle = /^@?[A-Za-z0-9_]{2,}$/.test(rawContact);
-    if (!brand.trim()) next.brand = 'Марка обязательна';
-    if (!model.trim()) next.model = 'Модель обязательна';
-    if (!year.trim() || !/^\d{4}$/.test(year.trim()) || parsedYear < 1980 || parsedYear > currentYear) next.year = `Год должен быть в диапазоне 1980-${currentYear}`;
-    if (!hasAnyPart) next.partName = 'Добавьте хотя бы одну деталь';
+    if (isLeadCreation) {
+      if (!hasLeadClient) next.contactValue = 'Укажите имя или контакт клиента';
+      if (!hasLeadInterest) next.leadInterest = 'Добавьте интерес клиента: авто, деталь или комментарий';
+      if (year.trim() && (!/^\d{4}$/.test(year.trim()) || parsedYear < 1980 || parsedYear > currentYear)) next.year = `Год должен быть в диапазоне 1980-${currentYear}`;
+    } else {
+      if (!brand.trim()) next.brand = 'Марка обязательна';
+      if (!model.trim()) next.model = 'Модель обязательна';
+      if (!year.trim() || !/^\d{4}$/.test(year.trim()) || parsedYear < 1980 || parsedYear > currentYear) next.year = `Год должен быть в диапазоне 1980-${currentYear}`;
+      if (!hasAnyPart) next.partName = 'Добавьте хотя бы одну деталь';
+    }
     if (vin.trim() && vin.trim().length !== 17) next.vin = 'VIN должен быть 17 символов';
     if (rawContact) {
       if (leadSource === Source.WHATSAPP) {
@@ -541,11 +564,15 @@ const NewOrderScreen: React.FC = () => {
   const canCreate = useMemo(() => {
     const currentYear = new Date().getFullYear();
     const parsedYear = Number(year.trim());
+    const isLeadCreation = creationType === 'lead';
     const hasAnyPart = parts.some((item) => (
       item.partKind === 'group'
         ? item.groupItems.some((g) => g.name.trim())
         : item.name.trim()
     ));
+    const hasAnyNote = notes.some((note) => note.text.trim() || note.photos.length > 0 || note.voices.length > 0);
+    const hasLeadInterest = !!brand.trim() || !!model.trim() || !!year.trim() || !!vin.trim() || hasAnyPart || hasAnyNote;
+    const hasLeadClient = !!clientName.trim() || !!contactValue.trim();
     const rawContact = contactValue.trim();
     const isPhone = /^\+[0-9]{9,15}$/.test(rawContact);
     const isUrl = /^https?:\/\//i.test(rawContact);
@@ -560,6 +587,14 @@ const NewOrderScreen: React.FC = () => {
           : leadSource === Source.TELEGRAM
             ? (isUrl || isTelegramHandle || isPhone)
             : true;
+    if (isLeadCreation) {
+      const yearOk = !year.trim() || (/^\d{4}$/.test(year.trim()) && parsedYear >= 1980 && parsedYear <= currentYear);
+      return hasLeadClient
+        && hasLeadInterest
+        && (!vin.trim() || vin.trim().length === 17)
+        && yearOk
+        && contactOk;
+    }
     return !!brand.trim()
       && !!model.trim()
       && /^\d{4}$/.test(year.trim())
@@ -568,7 +603,7 @@ const NewOrderScreen: React.FC = () => {
       && hasAnyPart
       && (!vin.trim() || vin.trim().length === 17)
       && contactOk;
-  }, [brand, model, year, parts, vin, contactValue, leadSource]);
+  }, [creationType, brand, model, year, parts, notes, vin, clientName, contactValue, leadSource]);
 
   useEffect(() => {
     if (!recordingNoteId) return;
@@ -763,7 +798,7 @@ const NewOrderScreen: React.FC = () => {
   };
 
   const saveDraft = () => {
-    const data = toPersistableDraft({ mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource });
+    const data = toPersistableDraft({ creationType, mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource });
     const next = [{
       id: createId(),
       createdAt: Date.now(),
@@ -804,7 +839,7 @@ const NewOrderScreen: React.FC = () => {
     if (isSubmitting || submitLockRef.current) return;
 
     submitLockRef.current = true;
-    void logger.info('create-order', 'create_order_start', { source: 'manual', mode });
+    void logger.info('create-order', 'create_order_start', { source: 'manual', mode, creationType });
 
     const validationErrors = validate();
     if (Object.keys(validationErrors).length > 0) {
@@ -826,8 +861,9 @@ const NewOrderScreen: React.FC = () => {
     }
 
     const now = Date.now();
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     const fromLead = params.get('from') === 'lead' || params.get('source') === 'public_form';
+    const shouldCreateLead = creationType === 'lead' || fromLead;
 
     const rawContact = contactValue.trim();
     const looksLikePhone = /^\+[0-9]{9,15}$/.test(rawContact);
@@ -862,12 +898,12 @@ const NewOrderScreen: React.FC = () => {
 
     const order: Order = {
       id: createId(),
-      brand: brand.trim(),
-      model: model.trim(),
+      brand: brand.trim() || 'Без марки',
+      model: model.trim() || 'Интерес клиента',
       year: year.trim(),
       bodyType: bodyType.trim(),
       vin: vin.trim(),
-      status: 'waiting_deposit',
+      status: shouldCreateLead ? 'lead' : 'waiting_deposit',
       paymentStatus: 'none',
       priority: Priority.MEDIUM,
       clientName: clientName.trim(),
@@ -892,9 +928,10 @@ const NewOrderScreen: React.FC = () => {
       createdAt: now,
       isArchived: false,
       isSold: false,
-      isLead: fromLead,
-      leadUnread: fromLead,
+      isLead: shouldCreateLead,
+      leadUnread: shouldCreateLead,
       leadSource: fromLead ? 'public_form' : 'manual',
+      customerStatus: shouldCreateLead ? 'LEAD' : 'INQUIRY',
       notes: [
         ...notes
           .filter((note) => note.text.trim() || note.photos.length > 0 || note.voices.length > 0)
@@ -918,19 +955,19 @@ const NewOrderScreen: React.FC = () => {
     try {
       const ok = await addOrder(order);
       if (!ok) {
-        await logger.warn('create-order', 'create_order_store_rejected', { orderId: order.id, mode });
-        toast('Не удалось создать заказ. Проверьте соединение и попробуйте снова.', 'error');
+        await logger.warn('create-order', 'create_order_store_rejected', { orderId: order.id, mode, creationType });
+        toast(`Не удалось создать ${shouldCreateLead ? 'лид' : 'заказ'}. Проверьте соединение и попробуйте снова.`, 'error');
         return;
       }
 
       localStorage.removeItem('new-order-draft-v2');
-      void logger.info('create-order', 'create_order_success', { orderId: order.id });
-      toast(`Заказ создан: #${order.id.slice(0, 8)}`, 'success');
+      void logger.info('create-order', 'create_order_success', { orderId: order.id, creationType });
+      toast(`${shouldCreateLead ? 'Лид' : 'Заказ'} создан: #${order.id.slice(0, 8)}`, 'success');
       resetForm();
-      navigate(`/order/${order.id}`);
+      navigate(shouldCreateLead ? '/leads' : `/order/${order.id}`);
     } catch (error) {
       await logger.error('create-order', 'create_order_unexpected_failure', { error: serializeError(error) });
-      toast('Не удалось создать заказ. Попробуйте ещё раз.', 'error');
+      toast(`Не удалось создать ${shouldCreateLead ? 'лид' : 'заказ'}. Попробуйте ещё раз.`, 'error');
     } finally {
       setIsSubmitting(false);
       submitLockRef.current = false;
@@ -948,10 +985,31 @@ const NewOrderScreen: React.FC = () => {
           >
             <ArrowLeft size={14} /> Назад
           </button>
-          <h1 className="text-xl font-black text-slate-900">Создать заказ</h1>
+          <h1 className="text-xl font-black text-slate-900">{creationType === 'lead' ? 'Создать лид' : 'Создать заказ'}</h1>
         </div>
         <button type="button" data-debug-id="4.20" onClick={saveDraft} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700" aria-label="Сохранить черновик"><Save size={14} />Сохранить черновик</button>
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setCreationType('lead')}
+            className={`rounded-xl border px-3 py-3 text-left transition ${creationType === 'lead' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}
+          >
+            <span className="block text-sm font-black">Лид</span>
+            <span className="mt-0.5 block text-[11px] font-semibold leading-4">Быстрый интерес клиента</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCreationType('order')}
+            className={`rounded-xl border px-3 py-3 text-left transition ${creationType === 'order' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}
+          >
+            <span className="block text-sm font-black">Заказ</span>
+            <span className="mt-0.5 block text-[11px] font-semibold leading-4">Полная рабочая карточка</span>
+          </button>
+        </div>
+      </section>
 
       {!!savedDrafts.length && (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
@@ -990,6 +1048,105 @@ const NewOrderScreen: React.FC = () => {
         </section>
       )}
 
+      {creationType === 'lead' && (
+        <>
+          <section className={cardClass}>
+            <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><UserRound size={16} /> Клиент</h2>
+            <p className="text-xs text-slate-500">Минимум: имя или контакт. Лид останется в отдельном разделе до смены статуса.</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <input
+                type="text"
+                name="clientName"
+                autoComplete="name"
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+                placeholder="Имя клиента"
+                className={inputClass}
+              />
+              <select value={leadSource} onChange={(e) => setLeadSource(e.target.value as Source)} className={inputClass}>
+                <option value={Source.INSTAGRAM}>Instagram</option>
+                <option value={Source.TIKTOK}>TikTok</option>
+                <option value={Source.TELEGRAM}>Telegram</option>
+                <option value={Source.FACEBOOK}>Facebook</option>
+                <option value={Source.WHATSAPP}>WhatsApp</option>
+                <option value={Source.OTHER}>Другое</option>
+              </select>
+            </div>
+            <input
+              type={leadSource === Source.WHATSAPP ? 'tel' : 'text'}
+              name="contactValue"
+              autoComplete={leadSource === Source.WHATSAPP ? 'tel' : 'off'}
+              inputMode={leadSource === Source.WHATSAPP ? 'tel' : 'url'}
+              value={contactValue}
+              onChange={(e) => setContactValue(e.target.value.replace(/\s+/g, ''))}
+              placeholder={leadSource === Source.WHATSAPP ? 'WhatsApp / телефон (+971501234567)' : 'Ссылка, @username или контакт'}
+              className={inputClass}
+            />
+            {errors.contactValue && <p className="text-xs text-rose-600">{errors.contactValue}</p>}
+          </section>
+
+          <section className={cardClass}>
+            <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><Wrench size={16} /> Интерес клиента</h2>
+            <p className="text-xs text-slate-500">Достаточно кратко: авто, нужная деталь или комментарий клиента.</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <SearchableDropdown
+                value={brand}
+                placeholder="Марка"
+                options={brandOptions}
+                loading={brandLoading}
+                onChange={(value) => {
+                  touched.current.brand = true;
+                  setBrand(value);
+                }}
+              />
+              <input
+                value={model}
+                onChange={(e) => {
+                  touched.current.model = true;
+                  setModel(e.target.value);
+                }}
+                placeholder="Модель"
+                className={inputClass}
+              />
+              <input
+                value={year}
+                onChange={(e) => {
+                  touched.current.year = true;
+                  setYear(e.target.value.replace(/[^\d]/g, '').slice(0, 4));
+                }}
+                placeholder="Год"
+                inputMode="numeric"
+                className={inputClass}
+              />
+            </div>
+            {errors.year && <p className="text-xs text-rose-600">{errors.year}</p>}
+            <textarea
+              value={parts[0]?.name || ''}
+              onChange={(e) => setParts((prev) => {
+                const first = prev[0] || createDraftPart();
+                return [{ ...first, partKind: 'single', name: e.target.value }, ...prev.slice(1)];
+              })}
+              placeholder="Что ищет клиент: фара, бампер, мотор, комплект деталей..."
+              rows={3}
+              className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+            />
+            <textarea
+              value={notes[0]?.text || ''}
+              onChange={(e) => setNotes((prev) => {
+                const first = prev[0] || createDraftNote();
+                return [{ ...first, text: e.target.value }, ...prev.slice(1)];
+              })}
+              placeholder="Комментарий: бюджет, срочность, страна клиента, состояние детали..."
+              rows={3}
+              className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+            />
+            {errors.leadInterest && <p className="text-xs text-rose-600">{errors.leadInterest}</p>}
+          </section>
+        </>
+      )}
+
+      {creationType === 'order' && (
+        <>
       <div className="rounded-2xl bg-slate-100 p-1">
         <div className="grid grid-cols-2 gap-1">
           <button type="button" onClick={() => setMode('quick')} className={`h-10 rounded-xl text-sm font-bold transition ${mode === 'quick' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Быстро</button>
@@ -1400,6 +1557,8 @@ const NewOrderScreen: React.FC = () => {
           </select>
         </label>
       </section>
+        </>
+      )}
 
       <div style={{ bottom: `${keyboardOffset}px` }} className="fixed inset-x-0 z-40 mx-auto w-full max-w-md border-t border-slate-200 bg-white/95 px-3 pt-3 backdrop-blur" >
         <div className="space-y-2 pb-[calc(env(safe-area-inset-bottom)+64px)]">
@@ -1410,16 +1569,26 @@ const NewOrderScreen: React.FC = () => {
               if (canCreate) return;
               event.preventDefault();
               const missing = [];
-              if (!brand.trim()) missing.push('марка');
-              if (!model.trim()) missing.push('модель');
-              if (!year.trim()) missing.push('год');
-              if (!parts.some((item) => item.partKind === 'group' ? item.groupItems.some((g) => g.name.trim()) : item.name.trim())) missing.push('деталь');
+              if (creationType === 'lead') {
+                if (!clientName.trim() && !contactValue.trim()) missing.push('имя или контакт');
+                const hasLeadInterest = !!brand.trim()
+                  || !!model.trim()
+                  || !!year.trim()
+                  || parts.some((item) => item.partKind === 'group' ? item.groupItems.some((g) => g.name.trim()) : item.name.trim())
+                  || notes.some((note) => note.text.trim() || note.photos.length > 0 || note.voices.length > 0);
+                if (!hasLeadInterest) missing.push('интерес клиента');
+              } else {
+                if (!brand.trim()) missing.push('марка');
+                if (!model.trim()) missing.push('модель');
+                if (!year.trim()) missing.push('год');
+                if (!parts.some((item) => item.partKind === 'group' ? item.groupItems.some((g) => g.name.trim()) : item.name.trim())) missing.push('деталь');
+              }
               toast(`Заполните обязательные поля: ${missing.join(', ')}`, 'error');
             }}
             disabled={isSyncing || isSubmitting}
-            className={`h-14 w-full rounded-2xl text-sm font-black uppercase tracking-wide text-white transition-all duration-200 disabled:opacity-40 ${canCreate ? 'bg-emerald-600 shadow-[0_8px_20px_rgba(5,150,105,0.35)]' : 'bg-slate-900'}`}
+            className={`h-14 w-full rounded-2xl text-sm font-black uppercase tracking-wide text-white transition-all duration-200 disabled:opacity-40 ${canCreate ? (creationType === 'lead' ? 'bg-blue-600 shadow-[0_8px_20px_rgba(37,99,235,0.35)]' : 'bg-emerald-600 shadow-[0_8px_20px_rgba(5,150,105,0.35)]') : 'bg-slate-900'}`}
           >
-            {isSubmitting ? 'Создание...' : 'Создать заказ'}
+            {isSubmitting ? 'Создание...' : creationType === 'lead' ? 'Создать лид' : 'Создать заказ'}
           </button>
         </div>
       </div>
