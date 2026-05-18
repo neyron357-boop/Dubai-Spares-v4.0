@@ -219,6 +219,11 @@ const LogisticsAmountInput = React.memo(({
   onChange: (field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', nextValue: string) => void;
   onBlur?: () => void;
 }) => {
+
+  const ORDER_TABS = ['overview', 'search', 'proof_pack', 'finance', 'notes'] as const;
+  type OrderTab = typeof ORDER_TABS[number];
+  const [activeTab, setActiveTab] = useState<OrderTab>('overview');
+
   return (
     <div>
       <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label} AED</span>
@@ -2282,6 +2287,28 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
+
+      <div className="sticky top-[120px] z-30 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur">
+        <div className="flex gap-1 overflow-x-auto no-scrollbar">
+          {[
+            { key: 'overview', label: 'Overview' },
+            { key: 'search', label: 'Search' },
+            { key: 'proof_pack', label: 'Proof Pack' },
+            { key: 'finance', label: 'Finance' },
+            { key: 'notes', label: 'Notes' }
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key as OrderTab)}
+              className={`shrink-0 rounded-full px-3 py-2 text-xs font-black transition ${activeTab === tab.key ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {toast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 bg-gray-900 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-2 shadow-lg">
           <Check size={14} /> {toast.message}
@@ -2330,6 +2357,7 @@ const OrderDetailsScreen: React.FC = () => {
       </div>
 
       <div className="px-4 pt-3">
+        {(activeTab === 'overview' || activeTab === 'proof_pack') && (
         <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -2493,6 +2521,7 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           </div>
         </section>
+        )}
       </div>
 
       <div className="p-4 space-y-4">
@@ -2651,7 +2680,7 @@ const OrderDetailsScreen: React.FC = () => {
 
 
 
-        <div ref={vehicleSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+        {activeTab === 'overview' && (<div ref={vehicleSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsVehicleDetailsExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Автомобиль</p>
@@ -2809,10 +2838,10 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
             </>
           )}
-        </div>
+        </div>)}
 
 
-        <div ref={partsListRef} className="rounded-2xl border border-[#E7EAF3] bg-white p-3 shadow-sm">
+        {(activeTab === 'search' || activeTab === 'proof_pack') && (<div ref={partsListRef} className="rounded-2xl border border-[#E7EAF3] bg-white p-3 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-black text-gray-900 text-xs uppercase tracking-[0.14em]">Запчасти</h2>
@@ -2940,10 +2969,10 @@ const OrderDetailsScreen: React.FC = () => {
               })}
             </div>
           )}
-        </div>
+        </div>)}
 
 
-        <div ref={markupSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+        {activeTab === 'finance' && (<div ref={markupSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsPricingCargoExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Надценка</p>
@@ -3027,7 +3056,7 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </div>
           )}
-        </div>
+        </div>)}
 
 
         {sellError && (
@@ -3038,7 +3067,7 @@ const OrderDetailsScreen: React.FC = () => {
         )}
 
 
-        <div ref={addPartSectionRef} className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-4 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
+        {(activeTab === 'search' || activeTab === 'proof_pack') && (<div ref={addPartSectionRef} className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-4 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
           <h2 className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Add part</h2>
           <form 
             onSubmit={(e) => { e.preventDefault(); addNewPart(); }}
@@ -3164,9 +3193,9 @@ const OrderDetailsScreen: React.FC = () => {
             Добавлено деталей: <span className="font-black text-gray-800">{order.parts.length}</span>
             {order.parts.length > 0 ? <span className="text-gray-500"> · Последняя: {order.parts[order.parts.length - 1]?.name || '—'}</span> : null}
           </p>
-        </div>
+        </div>)}
 
-        <div ref={notesSectionRef} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
+        {activeTab === 'notes' && (<div ref={notesSectionRef} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Заметки</h2>
           <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
 
@@ -3259,9 +3288,9 @@ const OrderDetailsScreen: React.FC = () => {
               ))}
             </div>
           )}
-        </div>
+        </div>)}
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        {activeTab === 'overview' && (<div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Действия</h2>
           <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
             <div className="flex items-center justify-between gap-2">
@@ -3307,7 +3336,7 @@ const OrderDetailsScreen: React.FC = () => {
           <button type="button" onClick={() => setDeleteOrderConfirmOpen(true)} className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">
             <X size={14} /> Удалить заказ
           </button>
-        </div>
+        </div>)}
 
         {isRecording && (
           <div className="fixed inset-0 z-50 bg-slate-900/70 p-4">
