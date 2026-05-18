@@ -8,6 +8,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
 import { isLeadOrder, isUnreadLeadOrder } from '../utils/orderClassification';
+import { deriveSafetySalesSummary } from '../utils/safetySales';
 
 type TabType = 'active' | 'vip' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -33,6 +34,20 @@ const statusLabelMap: Record<SearchState, string> = {
   offer_sent: 'Оффер отправлен',
   sold: 'Продано',
   archived: 'Архив'
+};
+
+const safetyRiskStyles: Record<string, string> = {
+  safe: 'bg-emerald-50 text-emerald-700',
+  caution: 'bg-amber-50 text-amber-700',
+  high: 'bg-orange-50 text-orange-700',
+  refuse: 'bg-rose-50 text-rose-700'
+};
+const leadQualityStyles: Record<string, string> = {
+  cold: 'bg-slate-100 text-slate-600',
+  warm: 'bg-sky-50 text-sky-700',
+  hot: 'bg-orange-50 text-orange-700',
+  paid: 'bg-emerald-50 text-emerald-700',
+  risky: 'bg-rose-50 text-rose-700'
 };
 
 const isOrderFound = (order: Order) => order.parts.some((part) => part.isFound || (part.variants || []).length > 0);
@@ -681,6 +696,7 @@ const OrdersScreen: React.FC = () => {
             const ageLabel = formatAge(order.updatedAt || order.createdAt);
             const isVipOrder = order.isVip;
             const unreadLead = isUnreadLeadOrder(order);
+            const safety = deriveSafetySalesSummary(order);
 
             return (
               <SwipeableOrderCard
@@ -757,6 +773,8 @@ const OrdersScreen: React.FC = () => {
                         {order.priority === Priority.HIGH && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-600">Срочно</span>}
                         {unreadLead && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">Новый лид</span>}
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600 inline-flex items-center gap-1"><Clock3 size={10} /> {ageLabel}</span>
+                        <span className={`rounded-full px-2 py-1 text-[10px] font-black ${leadQualityStyles[safety.leadQuality.level]}`}>{safety.leadQuality.label}</span>
+                        <span className={`rounded-full px-2 py-1 text-[10px] font-black ${safetyRiskStyles[safety.dealRisk.level]}`}>{safety.dealRisk.label}</span>
                       </div>
 
                       <div className="mt-3">

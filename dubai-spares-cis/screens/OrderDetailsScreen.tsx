@@ -57,6 +57,7 @@ import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '
 import { getOrderCustomerLogs } from '../customerEngagement';
 import { analyzeAutoPartText, inferCargoPlacesFromAnalysis, isOversizedFromAnalysis } from '../utils/autoPartAi';
 import { isLikelyGoogleDriveUrl, normalizeExternalMediaUrl, openExternalMediaUrl } from '../utils/externalMedia';
+import { deriveSafetySalesSummary } from '../utils/safetySales';
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -77,6 +78,25 @@ const PAYMENT_STATUS_LABELS: Record<Order['paymentStatus'] extends infer T ? Ext
   none: 'Не оплачен',
   search_deposit_paid: 'Внесен депозит',
   full_prepayment_paid: 'Полная предоплата'
+};
+const LEAD_QUALITY_STYLES: Record<string, string> = {
+  cold: 'border-slate-200 bg-slate-50 text-slate-700',
+  warm: 'border-sky-200 bg-sky-50 text-sky-700',
+  hot: 'border-orange-200 bg-orange-50 text-orange-700',
+  paid: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  risky: 'border-rose-200 bg-rose-50 text-rose-700'
+};
+const DEAL_RISK_STYLES: Record<string, string> = {
+  safe: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  caution: 'border-amber-200 bg-amber-50 text-amber-700',
+  high: 'border-orange-200 bg-orange-50 text-orange-700',
+  refuse: 'border-rose-200 bg-rose-50 text-rose-700'
+};
+const STAGE_STATE_STYLES: Record<string, string> = {
+  completed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  current: 'border-blue-500 bg-blue-600 text-white',
+  locked: 'border-slate-200 bg-slate-100 text-slate-400',
+  upcoming: 'border-slate-200 bg-white text-slate-500'
 };
 
 const PRIORITY_HINT: Record<Priority, string> = {
@@ -775,6 +795,19 @@ const OrderDetailsScreen: React.FC = () => {
   const isMarkupMissing = canComputeProfit && markupAed <= 0;
   const lowMargin = canComputeProfit && selectedOfferTotal > 0 && markupAed > 0 && markupAed / selectedOfferTotal < 0.03;
   const isLoss = canComputeProfit && sellTotalAed < selectedOfferTotal + logisticsWithCargoTotal;
+  const safetySummary = useMemo(() => deriveSafetySalesSummary({
+    ...order,
+    logistics: {
+      ...order.logistics,
+      deliveryAed: logistics.deliveryAed,
+      packingAed: logistics.packingAed,
+      serviceFeeAed: logistics.serviceFeeAed
+    },
+    markupFixedAed: (order.markupType || 'percent') === 'fixed' ? Number(markupFixedInput || 0) : order.markupFixedAed
+  }), [logistics.deliveryAed, logistics.packingAed, logistics.serviceFeeAed, markupFixedInput, order]);
+  const depositPaid = order.searchDepositStatus === 'paid' || order.paymentStatus === 'search_deposit_paid' || order.paymentStatus === 'full_prepayment_paid';
+  const fullPrepaymentPaid = order.paymentStatus === 'full_prepayment_paid' || order.salesStatus === 'Paid';
+  const safetyProgressText = `${safetySummary.readiness.completed}/${safetySummary.readiness.total}`;
 
   const rateByCurrency: Record<string, number> = {
     AED: 1,
@@ -2294,6 +2327,172 @@ const OrderDetailsScreen: React.FC = () => {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="px-4 pt-3">
+        <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Safety Sales System</p>
+              <h2 className="mt-1 text-lg font-black text-slate-900">{safetySummary.stages.find((stage) => stage.state === 'current')?.label || 'Сделка'}</h2>
+              <p className="mt-1 text-xs font-semibold text-slate-500">{safetySummary.stages.find((stage) => stage.state === 'current')?.helper}</p>
+            </div>
+            <span className={`shrink-0 rounded-xl border px-3 py-2 text-[11px] font-black ${DEAL_RISK_STYLES[safetySummary.dealRisk.level]}`}>
+              {safetySummary.dealRisk.label}
+            </span>
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+            {safetySummary.stages.map((stage) => (
+              <div key={stage.id} className={`min-w-[92px] rounded-xl border px-2.5 py-2 ${STAGE_STATE_STYLES[stage.state]}`}>
+                <div className="flex items-center gap-1.5">
+                  {stage.state === 'completed' ? <CheckCircle2 size={13} /> : <Circle size={12} />}
+                  <span className="truncate text-[11px] font-black">{stage.label}</span>
+                </div>
+                <p className="mt-1 line-clamp-2 text-[9px] font-semibold opacity-75">{stage.state === 'locked' ? 'locked' : stage.helper}</p>
+              </div>
+            ))}
+          </div>
+
+          {!depositPaid && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700" />
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-amber-900">Deposit Gate включен</p>
+                  <p className="mt-1 text-xs font-semibold text-amber-800">До депозита: заявка, уточнения, общая информация и примерная вилка. Активный поиск и поездки только после оплаты депозита.</p>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => updateOrder({ ...order, status: 'waiting_deposit', searchDepositStatus: 'pending' })}
+                  className="h-10 rounded-xl border border-amber-300 bg-white px-2 text-[11px] font-black text-amber-800"
+                >
+                  Ждать депозит
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateOrder({ ...order, status: 'in_progress', huntStatus: 'live_hunt', searchDepositStatus: 'paid', paymentStatus: 'search_deposit_paid' })}
+                  className="h-10 rounded-xl bg-emerald-600 px-2 text-[11px] font-black text-white"
+                >
+                  Депозит оплачен
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className={`rounded-xl border p-3 ${LEAD_QUALITY_STYLES[safetySummary.leadQuality.level]}`}>
+              <p className="text-[10px] font-black uppercase tracking-wide opacity-70">Lead Quality</p>
+              <p className="mt-1 text-sm font-black">{safetySummary.leadQuality.label}</p>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/70">
+                <div className="h-full rounded-full bg-current" style={{ width: `${safetySummary.leadQuality.score}%` }} />
+              </div>
+              <p className="mt-1 text-[10px] font-bold opacity-75">{safetySummary.leadQuality.score}/100</p>
+            </div>
+            <div className={`rounded-xl border p-3 ${DEAL_RISK_STYLES[safetySummary.dealRisk.level]}`}>
+              <p className="text-[10px] font-black uppercase tracking-wide opacity-70">Deal Safety</p>
+              <p className="mt-1 text-sm font-black">{safetySummary.dealRisk.label}</p>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/70">
+                <div className="h-full rounded-full bg-current" style={{ width: `${safetySummary.dealRisk.score}%` }} />
+              </div>
+              <p className="mt-1 text-[10px] font-bold opacity-75">{safetySummary.dealRisk.score}/100 risk</p>
+            </div>
+            <div className={`rounded-xl border p-3 ${safetySummary.profit.level === 'healthy' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : safetySummary.profit.level === 'unknown' ? 'border-slate-200 bg-slate-50 text-slate-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+              <p className="text-[10px] font-black uppercase tracking-wide opacity-70">Profit</p>
+              <p className="mt-1 text-sm font-black">{safetySummary.profit.label}</p>
+              <p className="mt-1 text-[10px] font-bold opacity-75">{safetySummary.profit.message}</p>
+            </div>
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-blue-700">
+              <p className="text-[10px] font-black uppercase tracking-wide opacity-70">Readiness</p>
+              <p className="mt-1 text-sm font-black">{safetyProgressText} собрано</p>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/70">
+                <div className="h-full rounded-full bg-blue-600" style={{ width: `${safetySummary.readiness.percent}%` }} />
+              </div>
+              <p className="mt-1 text-[10px] font-bold opacity-75">{safetySummary.readiness.percent}% ready</p>
+            </div>
+          </div>
+
+          {safetySummary.cargoRisk.active && (
+            <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-orange-900">
+              <p className="flex items-center gap-2 text-sm font-black"><Package size={16} /> Cargo Risk Mode</p>
+              <p className="mt-1 text-xs font-semibold text-orange-800">{safetySummary.cargoRisk.clientWarning}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {safetySummary.cargoRisk.fragileParts.slice(0, 3).map((part) => (
+                  <span key={part} className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-orange-700">{part}</span>
+                ))}
+                {safetySummary.cargoRisk.expensiveParts.slice(0, 2).map((part) => (
+                  <span key={part} className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-orange-700">{part}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Proof Pack</p>
+                <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-slate-600">{safetySummary.proofPack.completed}/{safetySummary.proofPack.total}</span>
+              </div>
+              <div className="mt-2 space-y-1.5">
+                {safetySummary.proofPack.items.slice(0, 6).map((item) => (
+                  <div key={item.id} className="flex items-start gap-2 text-xs font-semibold text-slate-700">
+                    {item.done ? <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-600" /> : <Circle size={13} className="mt-0.5 shrink-0 text-slate-300" />}
+                    <span className={item.done ? '' : item.critical ? 'text-rose-700' : 'text-slate-500'}>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Order Readiness</p>
+                <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-slate-600">{safetySummary.readiness.blockers.length} blockers</span>
+              </div>
+              <div className="mt-2 space-y-1.5">
+                {safetySummary.readiness.items.slice(0, 6).map((item) => (
+                  <div key={item.id} className="flex items-start gap-2 text-xs font-semibold text-slate-700">
+                    {item.done ? <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-600" /> : <Circle size={13} className="mt-0.5 shrink-0 text-slate-300" />}
+                    <span className={item.done ? '' : item.critical ? 'text-rose-700' : 'text-slate-500'}>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Системные подсказки</p>
+            <p className="mt-2 text-xs font-semibold text-slate-600">{safetySummary.dealRisk.recommendation}</p>
+            {safetySummary.followUp.status !== 'none' && (
+              <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs font-semibold text-amber-800">
+                {safetySummary.followUp.label}: {safetySummary.followUp.message}
+              </div>
+            )}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => void copyText(safetySummary.supplierBroadcast, 'Заявка поставщику скопирована')} className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-black text-slate-700">
+                <Copy size={13} className="mr-1 inline" /> Supplier request
+              </button>
+              <button type="button" onClick={() => void copyText(safetySummary.paymentExplanation, 'Текст про оплату скопирован')} className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-black text-slate-700">
+                <DollarSign size={13} className="mr-1 inline" /> Предоплата
+              </button>
+              {safetySummary.followUp.message && (
+                <button type="button" onClick={() => void copyText(safetySummary.followUp.message, 'Follow-up скопирован')} className="h-10 rounded-xl border border-amber-200 bg-amber-50 px-2 text-[11px] font-black text-amber-700">
+                  <Copy size={13} className="mr-1 inline" /> Follow-up
+                </button>
+              )}
+              {(safetySummary.dealRisk.level === 'high' || safetySummary.dealRisk.level === 'refuse' || safetySummary.profit.level === 'thin' || safetySummary.profit.level === 'loss') && (
+                <button type="button" onClick={() => void copyText(safetySummary.refusalMessage, 'Текст отказа скопирован')} className="h-10 rounded-xl border border-rose-200 bg-rose-50 px-2 text-[11px] font-black text-rose-700">
+                  <AlertTriangle size={13} className="mr-1 inline" /> Отказаться
+                </button>
+              )}
+              {!fullPrepaymentPaid && selectedOfferTotal > 0 && (
+                <button type="button" onClick={() => updateOrder({ ...order, paymentStatus: 'full_prepayment_paid', salesStatus: 'Paid' })} className="h-10 rounded-xl bg-emerald-600 px-2 text-[11px] font-black text-white">
+                  Полная предоплата
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
       </div>
 
       <div className="p-4 space-y-4">

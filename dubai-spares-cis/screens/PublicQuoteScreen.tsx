@@ -25,6 +25,7 @@ import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot } from '../
 import { normalizePublicQuoteSnapshotPayload } from '../utils/publicQuoteSnapshot';
 import { buildInvoicePayloadFromSnapshot, openInvoicePrintWindow } from '../utils/invoiceDocument';
 import { analyzeAutoPartText, resolveAutoPartTranslation } from '../utils/autoPartAi';
+import { isFragilePartName } from '../utils/safetySales';
 
 type Language = 'ru' | 'en';
 type PublicQuoteScreenProps = { orderId: string };
@@ -227,6 +228,18 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const activeCurrency = (displayCurrency || currency) as keyof typeof rates;
   const fx = rates[activeCurrency] || 1;
   const contact = normalizedSnapshot?.contact || { whatsapp: '', telegram: '', instagram: '', managerName: 'Stark Motors', logoUrl: '', signatureUrl: '', workTerms: '', deliveryTerms: '' };
+  const fragileQuoteItems = useMemo(() => items.filter((item) => isFragilePartName(item.name) || item.unitPriceAed >= 2500), [items]);
+  const hasCargoRiskMode = fragileQuoteItems.length > 0 || packingAed > 0 || deliveryAed > 0 || Boolean(normalizedSnapshot?.cargoInput?.logistics?.cargoCountry);
+  const publicTimeline = useMemo(() => ([
+    { label: lang === 'ru' ? 'Заявка получена' : 'Request received', done: true },
+    { label: lang === 'ru' ? 'Данные авто проверены' : 'Vehicle data checked', done: Boolean(order.vin && order.vin !== '—') },
+    { label: lang === 'ru' ? 'Вариант найден' : 'Option found', done: items.length > 0 },
+    { label: lang === 'ru' ? 'Ожидается оплата' : 'Waiting for payment', done: grandTotalAed > 0, current: grandTotalAed > 0 },
+    { label: lang === 'ru' ? 'Закупка после оплаты' : 'Purchase after payment', done: false },
+    { label: lang === 'ru' ? 'Проверка и упаковка' : 'Inspection and packing', done: false },
+    { label: lang === 'ru' ? 'Передача в cargo' : 'Cargo handover', done: false }
+  ]), [grandTotalAed, items.length, lang, order.vin]);
+  const trustPageHref = `${window.location.origin}${window.location.pathname}#/trust`;
 
   const whatsappConfirmationText = lang === 'ru'
     ? `Здравствуйте! Подтверждаю смету по ${normalizedSnapshot?.vehicleLabel || 'моему авто'} на сумму ${(grandTotalAed * fx).toFixed(2)} ${activeCurrency}.`
@@ -393,6 +406,75 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
             </div>
           </div>
             </section>
+
+        <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Безопасная сделка' : 'Safe sales process'}</p>
+                <h2 className="mt-2 text-xl font-black text-slate-900">{lang === 'ru' ? 'Сначала условия и оплата, потом закупка' : 'Terms and payment first, purchase second'}</h2>
+              </div>
+              <a href={trustPageHref} target="_blank" rel="noreferrer" className="inline-flex h-10 shrink-0 items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700">
+                <ShieldCheck size={14} /> {lang === 'ru' ? 'Как мы работаем' : 'How it works'}
+              </a>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {(lang === 'ru'
+                ? [
+                  'Депозит запускает реальный поиск и работу с поставщиками.',
+                  'Полная предоплата нужна до закупки детали под конкретного клиента.',
+                  'Фото, видео и состояние фиксируются в Proof Pack.',
+                  'После передачи в cargo ответственность за перевозку несёт перевозчик.'
+                ]
+                : [
+                  'A deposit starts real supplier search and market work.',
+                  'Full prepayment is required before buying a client-specific part.',
+                  'Photos, videos and condition notes are kept in the Proof Pack.',
+                  'After cargo handover, transport liability belongs to the carrier.'
+                ]).map((line) => (
+                <div key={line} className="flex items-start gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                  <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-emerald-500" /> {line}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Статус заказа' : 'Order timeline'}</p>
+            <div className="mt-4 space-y-2">
+              {publicTimeline.map((step) => (
+                <div key={step.label} className={`flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold ${step.done ? 'bg-emerald-50 text-emerald-800' : step.current ? 'bg-blue-50 text-blue-800' : 'bg-slate-50 text-slate-500'}`}>
+                  {step.done ? <CheckCircle2 size={15} className="shrink-0" /> : <Clock3 size={15} className="shrink-0" />}
+                  <span>{step.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {hasCargoRiskMode && (
+          <section className="rounded-3xl border border-orange-200 bg-orange-50 p-5 text-orange-900 shadow-sm">
+            <div className="flex items-start gap-3">
+              <AlertCircle size={20} className="mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em]">{lang === 'ru' ? 'Fragile item warning' : 'Fragile item warning'}</p>
+                <h2 className="mt-2 text-lg font-black">{lang === 'ru' ? 'Хрупкая/дорогая деталь требует отдельного cargo risk' : 'Fragile or high-value parts require cargo risk handling'}</h2>
+                <p className="mt-2 text-sm font-semibold text-orange-800">
+                  {lang === 'ru'
+                    ? 'Нужна усиленная упаковка, фото/видео упаковки и проверка при получении. После передачи в cargo риск повреждения переходит к перевозчику.'
+                    : 'Extra packing, packing photos/video and inspection on delivery are required. After cargo handover, damage risk belongs to the carrier.'}
+                </p>
+                {fragileQuoteItems.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {fragileQuoteItems.slice(0, 4).map((item) => (
+                      <span key={item.id} className="rounded-xl bg-white px-2.5 py-1 text-[11px] font-black text-orange-700">{translatedItemNames[item.id] || item.name}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
 
         <section ref={detailRef} className="rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4">
