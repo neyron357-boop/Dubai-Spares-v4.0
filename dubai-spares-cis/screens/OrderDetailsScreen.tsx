@@ -59,6 +59,16 @@ import { analyzeAutoPartText, inferCargoPlacesFromAnalysis, isOversizedFromAnaly
 import { isLikelyGoogleDriveUrl, normalizeExternalMediaUrl, openExternalMediaUrl } from '../utils/externalMedia';
 import { deriveSafetySalesSummary } from '../utils/safetySales';
 
+type OrderDetailsTab = 'overview' | 'search' | 'proof' | 'finance' | 'notes';
+
+const ORDER_DETAILS_TABS: Array<{ id: OrderDetailsTab; label: string; helper: string }> = [
+  { id: 'overview', label: 'Overview', helper: 'Клиент, авто, статус' },
+  { id: 'search', label: 'Search', helper: 'Детали и варианты' },
+  { id: 'proof', label: 'Proof Pack', helper: 'Материалы и проверки' },
+  { id: 'finance', label: 'Finance', helper: 'Маржа и логистика' },
+  { id: 'notes', label: 'Notes', helper: 'Заметки и voice' }
+];
+
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
 const CUSTOMER_STATUSES = ['Lead', 'VIP', 'Inquiry'] as const;
@@ -314,6 +324,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [retryAttempts, setRetryAttempts] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
 
+  const [activeTab, setActiveTab] = useState<OrderDetailsTab>('overview');
   const [isEstimateOpen, setIsEstimateOpen] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number; partId?: string } | null>(null);
   const [deletePartId, setDeletePartId] = useState<string | null>(null);
@@ -2293,25 +2304,29 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       )}
 
-      <aside className="fixed right-3 top-1/2 z-20 hidden -translate-y-1/2 xl:flex">
-        <div className="w-[146px] rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur">
-          <div className="mb-1 px-1 text-[9px] font-black uppercase tracking-[0.14em] text-gray-400">Навигация</div>
-          <div className="space-y-1">
-            {quickNavItems.map((item) => (
+      <nav className="sticky top-[68px] z-30 border-b border-gray-100 bg-[#F6F7FB]/95 px-3 py-2 backdrop-blur" aria-label="Order details sections">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+          {ORDER_DETAILS_TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
               <button
-                key={item.label}
+                key={tab.id}
                 type="button"
-                onClick={() => scrollToSection(item.ref)}
-                className="w-full rounded-lg bg-gray-50 px-2 py-1.5 text-left text-[10px] font-bold text-gray-600 transition hover:bg-blue-50 hover:text-blue-700"
+                onClick={() => setActiveTab(tab.id)}
+                className={`min-w-[112px] rounded-2xl border px-3 py-2 text-left transition-all active:scale-[0.98] ${isActive ? 'border-blue-200 bg-white text-blue-700 shadow-sm' : 'border-transparent bg-white/55 text-slate-500'}`}
+                aria-pressed={isActive}
               >
-                {item.label}
+                <span className="block text-[12px] font-black">{tab.label}</span>
+                <span className="mt-0.5 block truncate text-[10px] font-semibold opacity-75">{tab.helper}</span>
               </button>
-            ))}
-          </div>
+            );
+          })}
         </div>
-      </aside>
+      </nav>
 
-      <div className="px-4 pt-3">
+      {activeTab === 'proof' && (
+        <div className="px-4 pt-3 space-y-4">
+      <div>
         <div className="rounded-2xl border border-blue-100 bg-white p-3 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -2329,7 +2344,7 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="px-4 pt-3">
+      <div>
         <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -2494,7 +2509,10 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </section>
       </div>
+        </div>
+      )}
 
+      {activeTab === 'overview' && (
       <div className="p-4 space-y-4">
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Зона заказа</p>
@@ -2810,8 +2828,11 @@ const OrderDetailsScreen: React.FC = () => {
             </>
           )}
         </div>
+      </div>
+      )}
 
-
+      {activeTab === 'search' && (
+      <div className="p-4 space-y-4">
         <div ref={partsListRef} className="rounded-2xl border border-[#E7EAF3] bg-white p-3 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -2941,8 +2962,11 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           )}
         </div>
+      </div>
+      )}
 
-
+      {activeTab === 'finance' && (
+      <div className="p-4 space-y-4">
         <div ref={markupSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <button type="button" onClick={() => setIsPricingCargoExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
             <div>
@@ -3036,8 +3060,11 @@ const OrderDetailsScreen: React.FC = () => {
             {sellError}
           </div>
         )}
+      </div>
+      )}
 
-
+      {activeTab === 'search' && (
+      <div className="p-4 pt-0 space-y-4">
         <div ref={addPartSectionRef} className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-4 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
           <h2 className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Add part</h2>
           <form 
@@ -3165,7 +3192,11 @@ const OrderDetailsScreen: React.FC = () => {
             {order.parts.length > 0 ? <span className="text-gray-500"> · Последняя: {order.parts[order.parts.length - 1]?.name || '—'}</span> : null}
           </p>
         </div>
+      </div>
+      )}
 
+      {activeTab === 'notes' && (
+      <div className="p-4 space-y-4">
         <div ref={notesSectionRef} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Заметки</h2>
           <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
@@ -3260,7 +3291,11 @@ const OrderDetailsScreen: React.FC = () => {
             </div>
           )}
         </div>
+      </div>
+      )}
 
+      {activeTab === 'proof' && (
+      <div className="p-4 pt-0 space-y-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Действия</h2>
           <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
@@ -3308,6 +3343,8 @@ const OrderDetailsScreen: React.FC = () => {
             <X size={14} /> Удалить заказ
           </button>
         </div>
+      </div>
+      )}
 
         {isRecording && (
           <div className="fixed inset-0 z-50 bg-slate-900/70 p-4">
@@ -3345,7 +3382,7 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         )}
 
-      </div>
+
 
 
       <ConfirmModal 
