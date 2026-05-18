@@ -23,6 +23,7 @@ const SuppliersScreen = lazy(() => import('./screens/SuppliersScreen'));
 const NotificationsScreen = lazy(() => import('./screens/NotificationsScreen'));
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
 const VariantsScreen = lazy(() => import('./screens/VariantsScreen'));
+const ClientTrustScreen = lazy(() => import('./screens/ClientTrustScreen'));
 
 const RouteFallback: React.FC = () => (
   <div className="flex min-h-[60dvh] items-center justify-center p-4 text-xs font-bold uppercase tracking-wide text-slate-400">
@@ -218,6 +219,8 @@ const CachedRoutes: React.FC = () => {
               <Route path="/request" element={<PublicOrderFormScreen />} />
               <Route path="/order-form" element={<PublicOrderFormScreen />} />
               <Route path="/public-order-form" element={<PublicOrderFormScreen />} />
+              <Route path="/trust" element={<ClientTrustScreen />} />
+              <Route path="/client-trust" element={<ClientTrustScreen />} />
               <Route path="/q/:orderId" element={<HashPublicQuoteRoute />} />
               <Route path="*" element={<NotFoundScreen />} />
             </Routes>
