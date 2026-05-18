@@ -282,6 +282,8 @@ const createGroupItemDraft = (suffix = ''): GroupItemDraft => ({
   quantity: '1'
 });
 
+type OrderDetailsTab = 'overview' | 'search' | 'proof_pack' | 'cargo' | 'finance' | 'notes';
+
 const OrderDetailsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
