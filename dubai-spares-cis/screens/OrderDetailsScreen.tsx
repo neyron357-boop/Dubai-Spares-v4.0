@@ -108,6 +108,17 @@ const STAGE_STATE_STYLES: Record<string, string> = {
   locked: 'border-slate-200 bg-slate-100 text-slate-400',
   upcoming: 'border-slate-200 bg-white text-slate-500'
 };
+const DEAL_TIMELINE_STAGES = [
+  'Inquiry',
+  'Deposit',
+  'Search',
+  'Quote',
+  'Payment',
+  'Purchase',
+  'Proof Pack',
+  'Cargo',
+  'Completed'
+] as const;
 
 const HERO_RISK_ACCENTS: Record<string, string> = {
   safe: 'text-emerald-700',
@@ -2230,6 +2241,21 @@ const OrderDetailsScreen: React.FC = () => {
     ? (MARKET_REGION_LABELS[order.vehicleDetails.marketRegion] || order.vehicleDetails.marketRegion.toUpperCase())
     : 'Market не указан';
   const heroCurrentStage = safetySummary.stages.find((stage) => stage.state === 'current') || safetySummary.stages[0];
+  const timelineCurrentSourceIndex = Math.max(
+    0,
+    safetySummary.stages.findIndex((stage) => stage.state === 'current')
+  );
+  const timelineRatio = safetySummary.stages.length > 1
+    ? timelineCurrentSourceIndex / (safetySummary.stages.length - 1)
+    : 0;
+  const dealTimelineCurrentIndex = Math.min(
+    DEAL_TIMELINE_STAGES.length - 1,
+    Math.round(timelineRatio * (DEAL_TIMELINE_STAGES.length - 1))
+  );
+  const dealTimeline = DEAL_TIMELINE_STAGES.map((label, index) => ({
+    label,
+    state: index < dealTimelineCurrentIndex ? 'completed' : index === dealTimelineCurrentIndex ? 'current' : 'upcoming'
+  }));
   const heroRiskAccent = HERO_RISK_ACCENTS[safetySummary.dealRisk.level] || 'text-slate-800';
   const heroPrimaryAction = (() => {
     if (!order.vin || !heroPhoto) {
@@ -2464,14 +2490,18 @@ const OrderDetailsScreen: React.FC = () => {
             </span>
           </div>
 
-          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-            {safetySummary.stages.map((stage) => (
-              <div key={stage.id} className={`min-w-[92px] rounded-xl border px-2.5 py-2 ${STAGE_STATE_STYLES[stage.state]}`}>
-                <div className="flex items-center gap-1.5">
-                  {stage.state === 'completed' ? <CheckCircle2 size={13} /> : <Circle size={12} />}
-                  <span className="truncate text-[11px] font-black">{stage.label}</span>
+          <div className="flex gap-0 overflow-x-auto pb-1 no-scrollbar">
+            {dealTimeline.map((stage, index) => (
+              <div key={stage.label} className="flex min-w-[98px] items-center">
+                <div className={`w-full rounded-xl border px-2.5 py-2 ${STAGE_STATE_STYLES[stage.state]}`}>
+                  <div className="flex items-center gap-1.5">
+                    {stage.state === 'completed' ? <CheckCircle2 size={13} /> : <Circle size={12} />}
+                    <span className="truncate text-[11px] font-black">{stage.label}</span>
+                  </div>
                 </div>
-                <p className="mt-1 line-clamp-2 text-[9px] font-semibold opacity-75">{stage.state === 'locked' ? 'locked' : stage.helper}</p>
+                {index < dealTimeline.length - 1 && (
+                  <div className={`h-[2px] w-4 shrink-0 ${index < dealTimelineCurrentIndex ? 'bg-emerald-300' : 'bg-slate-200'}`} />
+                )}
               </div>
             ))}
           </div>
