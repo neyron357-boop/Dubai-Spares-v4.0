@@ -109,6 +109,22 @@ const STAGE_STATE_STYLES: Record<string, string> = {
   upcoming: 'border-slate-200 bg-white text-slate-500'
 };
 
+const HERO_RISK_ACCENTS: Record<string, string> = {
+  safe: 'text-emerald-700',
+  caution: 'text-amber-700',
+  high: 'text-orange-700',
+  refuse: 'text-rose-700'
+};
+
+const MARKET_REGION_LABELS: Record<string, string> = {
+  china: 'Китай',
+  japan: 'Япония',
+  usa: 'США',
+  europe: 'Европа',
+  gcc: 'GCC',
+  other: 'Другое'
+};
+
 const PRIORITY_HINT: Record<Priority, string> = {
   [Priority.LOW]: 'можно отвечать позже',
   [Priority.MEDIUM]: 'обычная срочность',
@@ -2208,6 +2224,56 @@ const OrderDetailsScreen: React.FC = () => {
     targetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  const heroPhoto = (order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl || '';
+  const heroCarName = [order.brand, order.model, order.year].filter(Boolean).join(' ') || 'Автомобиль не указан';
+  const heroMarketRegion = order.vehicleDetails?.marketRegion
+    ? (MARKET_REGION_LABELS[order.vehicleDetails.marketRegion] || order.vehicleDetails.marketRegion.toUpperCase())
+    : 'Market не указан';
+  const heroCurrentStage = safetySummary.stages.find((stage) => stage.state === 'current') || safetySummary.stages[0];
+  const heroRiskAccent = HERO_RISK_ACCENTS[safetySummary.dealRisk.level] || 'text-slate-800';
+  const heroPrimaryAction = (() => {
+    if (!order.vin || !heroPhoto) {
+      return {
+        label: 'Заполнить данные',
+        helper: 'VIN и фото авто',
+        onClick: () => {
+          setActiveTab('overview');
+          scrollToSection(vehicleSectionRef);
+        }
+      };
+    }
+
+    if (!depositPaid) {
+      return {
+        label: 'Запросить депозит',
+        helper: 'Безопасный старт поиска',
+        onClick: () => void copyText(safetySummary.paymentExplanation, 'Текст для депозита скопирован')
+      };
+    }
+
+    if (selectedOfferTotal <= 0) {
+      return {
+        label: 'Начать поиск',
+        helper: `${foundPartsCount}/${partsCount || 0} деталей найдено`,
+        onClick: () => setActiveTab('search')
+      };
+    }
+
+    if (!fullPrepaymentPaid) {
+      return {
+        label: 'Отправить смету',
+        helper: 'Зафиксировать условия',
+        onClick: () => setIsEstimateOpen(true)
+      };
+    }
+
+    return {
+      label: 'Собрать proof pack',
+      helper: `${safetySummary.proofPack.completed}/${safetySummary.proofPack.total} готово`,
+      onClick: () => setActiveTab('proof')
+    };
+  })();
+
   return (
     <div className="flex min-h-full flex-col bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-[68px] text-[#1E1F23]">
       <div className="fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 space-y-1 border-b border-gray-100 bg-white/95 px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.06)] backdrop-blur">
@@ -2259,39 +2325,80 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div ref={detailsScreenSectionRef} className="space-y-1.5 border-b border-gray-100 bg-white px-3 py-2.5">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.04em] text-[#8B8F98]">Pipeline</p>
-          <div className="flex items-center justify-between gap-3">
-          <div className="inline-flex rounded-[10px] bg-[#F6F7FB] border border-[#E7EAF3] p-0.5">
-            {CUSTOMER_STATUSES.map(status => (
+      <section ref={detailsScreenSectionRef} className="px-3 pt-3">
+        <div className="overflow-hidden rounded-[28px] bg-slate-950 text-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
+          <div className="relative min-h-[168px]">
+            {heroPhoto ? (
               <button
-                key={status}
                 type="button"
-                onClick={() => updateCustomerStatus(status)}
-                className={`h-8 min-w-[72px] px-2.5 rounded-[8px] text-[12px] font-medium transition-all duration-150 active:scale-[0.97] ${resolvedCustomerStatus === status ? PIPELINE_STYLES[status] : 'text-gray-500'}`}
+                onClick={() => {
+                  const photos = getCarPhotos();
+                  if (photos.length) setGallery({ images: photos, index: 0 });
+                }}
+                className="absolute inset-0 h-full w-full"
+                aria-label="Открыть фото автомобиля"
               >
-                {status}
+                <img src={heroPhoto} alt={heroCarName} className="h-full w-full object-cover opacity-75" />
               </button>
-            ))}
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-black text-5xl font-black text-white/18">
+                {order.brand?.[0] || '?'}
+              </div>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/68 to-slate-950/10" />
+            <div className="relative flex min-h-[168px] flex-col justify-end p-5">
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/55">Order Mission Control</p>
+              <div className="mt-2 flex items-end justify-between gap-4">
+                <div className="min-w-0">
+                  <h1 className="truncate text-2xl font-black leading-tight tracking-[-0.04em]">{heroCarName}</h1>
+                  <p className="mt-1 truncate font-mono text-[12px] font-semibold uppercase tracking-[0.08em] text-white/70">VIN {order.vin || '—'}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">Total</p>
+                  <p className="text-xl font-black tracking-[-0.03em]">{formatDualMoney(sellTotalAed)}</p>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className={`inline-flex items-center gap-1 text-xs font-bold ${isSlaBreached ? 'text-amber-700' : 'text-gray-500'}`}>
-            <Clock3 size={14} /> {orderAgeDays} дней
+
+          <div className="space-y-5 bg-white p-5 text-slate-950">
+            <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Market</p>
+                <p className="mt-1 text-sm font-black text-slate-900">{heroMarketRegion}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Deal stage</p>
+                <p className="mt-1 text-sm font-black text-slate-900">{heroCurrentStage?.label || 'Сделка'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Payment</p>
+                <p className="mt-1 text-sm font-black text-slate-900">{PAYMENT_STATUS_LABELS[order.paymentStatus || 'none']}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Risk score</p>
+                <p className={`mt-1 text-sm font-black ${heroRiskAccent}`}>{safetySummary.dealRisk.score}/100 · {safetySummary.dealRisk.label}</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Next best action</p>
+                  <p className="mt-1 truncate text-sm font-black text-slate-900">{heroPrimaryAction.helper}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={heroPrimaryAction.onClick}
+                  className="shrink-0 rounded-2xl bg-slate-950 px-4 py-3 text-[12px] font-black text-white shadow-[0_12px_26px_rgba(15,23,42,0.24)] transition active:scale-[0.98]"
+                >
+                  {heroPrimaryAction.label}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="flex gap-1.5 items-center overflow-x-auto no-scrollbar">
-          <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium ${(SALES_STATUS_STYLES[(order.salesStatus || 'Inquiry') as typeof SALES_STATUSES[number]] || 'text-[#1E1F23] border-gray-200 bg-white')}`}>
-            <span className="tracking-[0.04em]">Status</span>
-            <select value={order.salesStatus || 'Inquiry'} onChange={(e) => updateOrderField('salesStatus', e.target.value)} disabled={!isEditMode} className="bg-transparent text-[11px] font-medium text-current outline-none">
-            {SALES_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </div>
-          <select value={order.priority} title={PRIORITY_HINT[order.priority]} onChange={(e) => updatePriority(e.target.value as Priority)} disabled={!isEditMode} className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-red-50 border border-red-200 text-red-700 shrink-0">
-            <option value={Priority.HIGH}>HIGH</option>
-            <option value={Priority.MEDIUM}>MEDIUM</option>
-            <option value={Priority.LOW}>LOW</option>
-          </select>
-        </div>
-      </div>
+      </section>
 
       {toast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 bg-gray-900 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-2 shadow-lg">
