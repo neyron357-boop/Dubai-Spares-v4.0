@@ -2557,8 +2557,16 @@ const OrderDetailsScreen: React.FC = () => {
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Proof Pack</p>
                 <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-slate-600">{safetySummary.proofPack.completed}/{safetySummary.proofPack.total}</span>
               </div>
+              <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-[10px] font-black uppercase tracking-wide text-blue-800">
+                Verification level: {safetySummary.proofPack.verificationLabel}
+              </div>
+              {safetySummary.proofPack.missingCritical.length > 0 && (
+                <p className="mt-2 text-[10px] font-bold text-rose-700">
+                  Missing proof items: {safetySummary.proofPack.missingCritical.join(', ')}
+                </p>
+              )}
               <div className="mt-2 space-y-1.5">
-                {safetySummary.proofPack.items.slice(0, 6).map((item) => (
+                {safetySummary.proofPack.items.map((item) => (
                   <div key={item.id} className="flex items-start gap-2 text-xs font-semibold text-slate-700">
                     {item.done ? <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-600" /> : <Circle size={13} className="mt-0.5 shrink-0 text-slate-300" />}
                     <span className={item.done ? '' : item.critical ? 'text-rose-700' : 'text-slate-500'}>{item.label}</span>
