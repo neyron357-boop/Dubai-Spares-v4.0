@@ -69,6 +69,9 @@ export type CargoRiskSummary = {
 export type ProofPackSummary = {
   total: number;
   completed: number;
+  verificationLevel: 'basic' | 'verified' | 'legal';
+  verificationLabel: string;
+  missingCritical: string[];
   items: ChecklistItem[];
 };
 
@@ -387,26 +390,39 @@ const deriveProofPack = (order: Order): ProofPackSummary => {
   const text = orderText(order);
   const supplierPhotos = (order.parts || []).flatMap((part) => (part.variants || []).flatMap((variant) => [variant.photoUrl || '', ...(variant.photos || [])])).filter(Boolean);
   const partPhotos = (order.parts || []).flatMap((part) => [part.photoUrl || '', ...(part.photos || [])]).filter(Boolean);
-  const notePhotos = (order.notes || []).flatMap((note) => note.photos || []).filter(Boolean);
   const inspectionMedia = order.preSaleCheck?.inspectionMedia || [];
   const defectPhotos = order.preSaleCheck?.defectPhotos || [];
   const hasVideo = inspectionMedia.length > 0 || (order.parts || []).some((part) => normalizeText(part.googleDriveVideoUrl));
 
   const items: ChecklistItem[] = [
-    { id: 'supplier_photos', label: 'Фото детали у поставщика', done: supplierPhotos.length > 0, critical: true },
-    { id: 'serial_marking', label: 'Серийные номера / маркировки', done: /serial|marking|номер|маркиров/i.test(text), critical: false },
-    { id: 'defects', label: 'Фото дефектов и состояния', done: defectPhotos.length > 0 || hasAnyPattern(text, DEFECT_PATTERNS), critical: true },
-    { id: 'inspection_video', label: 'Видео проверки', done: hasVideo, critical: true },
-    { id: 'before_purchase', label: 'Фото до покупки', done: partPhotos.length > 0 || supplierPhotos.length > 0, critical: false },
-    { id: 'after_purchase', label: 'Фото после покупки', done: notePhotos.length > 0 || inspectionMedia.length > 0, critical: false },
-    { id: 'packing', label: 'Фото/видео упаковки', done: hasAnyPattern(text, PACKING_PATTERNS), critical: true },
-    { id: 'cargo_handover', label: 'Передача в cargo + receipt', done: hasAnyPattern(text, CARGO_HANDOVER_PATTERNS), critical: true },
-    { id: 'condition_comment', label: 'Комментарий по состоянию', done: (order.parts || []).some((part) => normalizeText(part.comment).length > 8) || (order.notes || []).some((note) => normalizeText(note.text).length > 12), critical: false }
+    { id: 'before_purchase', label: 'Before purchase photos', done: partPhotos.length > 0 || supplierPhotos.length > 0, critical: true },
+    { id: 'defects', label: 'Defect photos', done: defectPhotos.length > 0 || hasAnyPattern(text, DEFECT_PATTERNS), critical: true },
+    { id: 'inspection_video', label: 'Inspection video', done: hasVideo, critical: true },
+    { id: 'packaging', label: 'Packaging photos', done: hasAnyPattern(text, PACKING_PATTERNS), critical: true },
+    { id: 'cargo_handoff', label: 'Cargo handoff proof', done: hasAnyPattern(text, CARGO_HANDOVER_PATTERNS), critical: true },
+    { id: 'cargo_receipt', label: 'Cargo receipt', done: /receipt|накладн|квитан|awb|tracking/i.test(text), critical: true },
+    { id: 'serial_numbers', label: 'Serial numbers (if available)', done: /serial|marking|номер|маркиров/i.test(text), critical: false }
   ];
+
+  const completed = items.filter((item) => item.done).length;
+  const criticalTotal = items.filter((item) => item.critical).length;
+  const criticalCompleted = items.filter((item) => item.critical && item.done).length;
+  const missingCritical = items.filter((item) => item.critical && !item.done).map((item) => item.label);
+  const verificationLevel: ProofPackSummary['verificationLevel'] = criticalCompleted === criticalTotal
+    ? completed === items.length ? 'legal' : 'verified'
+    : criticalCompleted >= Math.ceil(criticalTotal / 2) ? 'verified' : 'basic';
+  const verificationLabel = verificationLevel === 'legal'
+    ? 'Legal Evidence Pack'
+    : verificationLevel === 'verified'
+      ? 'Verified Protection'
+      : 'Basic Protection';
 
   return {
     total: items.length,
-    completed: items.filter((item) => item.done).length,
+    completed,
+    verificationLevel,
+    verificationLabel,
+    missingCritical,
     items
   };
 };
@@ -644,4 +660,3 @@ export const deriveSafetySalesSummary = (order: Order): SafetySalesSummary => {
     refusalMessage: buildRefusalMessage(order, dealRisk, profit)
   };
 };
-
