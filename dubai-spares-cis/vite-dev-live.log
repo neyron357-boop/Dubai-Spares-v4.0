@@ -1,0 +1,117 @@
+
+> dubai-spares-cis@0.0.0 dev
+> vite --host 127.0.0.1 --port 5173
+
+Re-optimizing dependencies because vite config has changed
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m1994[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
+[2m17:43:49[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m17:45:54[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m17:47:50[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m17:47:52[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m17:54:31[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/tailwind.css[22m
+[2m17:54:42[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m17:55:41[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m17:56:36[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m17:57:17[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m17:58:12[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m18:01:01[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m18:03:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m18:04:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m18:05:30[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m18:05:59[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m18:06:06[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m18:06:27[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m18:06:28[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m18:10:09[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m18:10:24[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:05:01[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/tailwind.css, /screens/PublicOrderFormScreen.tsx, /App.tsx, /screens/OrdersScreen.tsx, /screens/OrderDetailsScreen.tsx, /screens/PartDetailsScreen.tsx[22m
+[2m22:05:15[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/tailwind.css, /screens/PublicOrderFormScreen.tsx, /App.tsx, /screens/OrdersScreen.tsx, /screens/OrderDetailsScreen.tsx, /screens/PartDetailsScreen.tsx[22m
+[2m22:05:39[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/tailwind.css, /screens/PublicOrderFormScreen.tsx, /App.tsx, /screens/OrdersScreen.tsx, /screens/OrderDetailsScreen.tsx, /screens/PartDetailsScreen.tsx[22m
+[2m22:06:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/tailwind.css, /screens/PublicOrderFormScreen.tsx, /App.tsx, /screens/OrdersScreen.tsx, /screens/OrderDetailsScreen.tsx, /screens/PartDetailsScreen.tsx[22m
+[2m22:07:33[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:07:53[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:08:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:08:13[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:08:26[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:08:26[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:08:49[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:10:09[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:10:22[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:10:28[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:10:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:11:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:11:17[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:11:58[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:12:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:12:14[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:12:16[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:12:39[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:13:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:13:21[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:14:16[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PartDetailsScreen.tsx, /tailwind.css[22m
+[2m22:14:23[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PartDetailsScreen.tsx, /tailwind.css[22m
+[2m22:15:19[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PartDetailsScreen.tsx, /tailwind.css[22m
+[2m22:15:31[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PartDetailsScreen.tsx, /tailwind.css[22m
+[2m22:15:44[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PartDetailsScreen.tsx, /tailwind.css[22m
+[2m22:15:49[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:15:58[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/components/ImagePreview.tsx, /tailwind.css[22m
+[2m22:16:15[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/components/ImagePreview.tsx, /tailwind.css[22m
+[2m22:16:21[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:20:02[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:20:08[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:20:50[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:21:18[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:21:49[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:22:06[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:22:11[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:22:49[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:23:17[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:23:52[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:24:21[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:24:37[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:25:54[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:27:00[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:27:41[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PartDetailsScreen.tsx, /tailwind.css[22m
+[2m22:27:44[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:27:52[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:27:52[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:30:00[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:34:52[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PartDetailsScreen.tsx, /tailwind.css[22m
+[2m22:35:27[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:35:27[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m22:37:55[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:42:56[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/App.tsx, /tailwind.css[22m
+[2m23:43:10[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:43:17[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/components/EstimateModal.tsx, /tailwind.css[22m
+[2m23:43:35[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:43:43[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:43:51[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:43:58[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:44:06[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:44:15[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PartDetailsScreen.tsx, /tailwind.css[22m
+[2m23:44:26[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:44:32[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:44:39[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:45:22[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:45:33[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:48:45[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m23:53:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m00:30:30[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2mshareUtils.ts[22m
+[2m00:33:12[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m00:33:22[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m00:33:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m00:33:55[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m00:34:47[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m00:34:57[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m00:35:13[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m00:35:54[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m
+[2m00:36:08[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PublicQuoteScreen.tsx, /tailwind.css[22m
+[2m00:36:27[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PublicQuoteScreen.tsx, /tailwind.css[22m
+[2m00:36:33[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PartDetailsScreen.tsx, /tailwind.css[22m
+[2m00:36:38[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PartDetailsScreen.tsx, /tailwind.css[22m
+[2m00:36:50[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/PartDetailsScreen.tsx, /tailwind.css[22m
+[2m00:37:21[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/tailwind.css, /screens/PublicQuoteScreen.tsx, /screens/OrdersScreen.tsx, /screens/OrderDetailsScreen.tsx[22m
+[2m00:39:11[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/screens/OrderDetailsScreen.tsx, /tailwind.css[22m

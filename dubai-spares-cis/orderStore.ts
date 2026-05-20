@@ -75,7 +75,7 @@ const isRealLeadOrder = (order: Pick<Order, 'isLead' | 'status' | 'leadSource' |
   || order.status === 'lead'
   || order.customerStatus === 'LEAD';
 const canEditCommercialData = (order: Pick<Order, 'isLead' | 'status' | 'leadSource' | 'customerStatus' | 'searchDepositStatus'>) =>
-  !isRealLeadOrder(order) || hasPaidSearchDeposit(order);
+  hasPaidSearchDeposit(order);
 
 const getMissingColumnName = (error: unknown): string | null => {
   const payload = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown } | null;
@@ -2214,14 +2214,15 @@ export const updateOrderItem = async (order: Order) => {
     }
   }
 
+  const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
+  setState({ orders: next, error: null });
+
   try {
+    await orderRepository.saveOrder(normalized);
+
     if (shouldSyncDirectly()) {
       await retrySync(() => persistOrderGraph(normalized));
     }
-
-    const next = state.orders.map((o) => (o.id === normalized.id ? normalized : o));
-    setState({ orders: next, error: null });
-    await orderRepository.saveOrder(normalized);
     if (wasPublicLead) {
       if (nextIsLeadStatus) forgetLeadConverted(...leadOverrideIds);
       else rememberLeadConverted(...leadOverrideIds);

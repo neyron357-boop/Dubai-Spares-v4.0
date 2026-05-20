@@ -410,23 +410,22 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
     rates: options?.rates
   });
   const link = snapshot.url;
-  const shareText = buildPublicQuoteShareMessage(order, link);
 
   if (navigator.share) {
     await navigator.share({
       title: `Смета для ${order.brand} ${order.model} ${order.year}`.trim(),
-      text: shareText
+      url: link
     });
-    return { method: 'native' as const, link, shareText, token: snapshot.token };
+    return { method: 'native' as const, link, shareText: link, token: snapshot.token };
   }
 
-  const copied = await copyToClipboard(shareText);
+  const copied = await copyToClipboard(link);
   if (copied) {
-    return { method: 'clipboard' as const, link, shareText, token: snapshot.token };
+    return { method: 'clipboard' as const, link, shareText: link, token: snapshot.token };
   }
 
-  await shareMessage(shareText);
-  return { method: 'fallback' as const, link, shareText, token: snapshot.token };
+  await shareMessage(link);
+  return { method: 'fallback' as const, link, shareText: link, token: snapshot.token };
 };
 
 export const copyToClipboard = async (text: string) => {

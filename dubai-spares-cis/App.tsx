@@ -4,7 +4,7 @@ import OrdersScreen from './screens/OrdersScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
-import { CarFront, Layers, PlusCircle, Settings, UserRound } from 'lucide-react';
+import { CarFront, Check, Layers, PlusCircle, Settings, UserRound } from 'lucide-react';
 import { initNotificationsFromServer } from './notificationCenter';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
 import { DebugIndex, DebugIndexProvider, useDebugIndex } from './components/DebugIndex';
@@ -64,8 +64,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const scrollPositions = useRef<Record<string, number>>({});
   const prevPathname = useRef(location.pathname);
 
-  // Show bottom nav only on the tab screens (and order details, which stays in Orders context)
-  const hideNav = resolveBottomTab(location.pathname) === null;
+  const isOrderWorkspace = /^\/order\/[^/]+(?:\/parts|\/part\/[^/]+)?$/.test(location.pathname.replace(/\/+$/, ''));
+  const hideNav = resolveBottomTab(location.pathname) === null || isOrderWorkspace;
 
   const leadNavStats = useMemo(() => ({
     total: orders.filter((order) => !order.isArchived && !order.isSold && isLeadOrder(order)).length,
@@ -251,9 +251,8 @@ const App: React.FC = () => {
 
     const onSave = () => {
       setSavePulse(true);
-      playSound('success');
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => setSavePulse(false), 950);
+      timer = setTimeout(() => setSavePulse(false), 760);
     };
 
     window.addEventListener('cloud-save-success', onSave);
@@ -318,9 +317,9 @@ const App: React.FC = () => {
   return (
     <div onKeyDown={handleKeyDown} className="min-h-[100dvh]">
       <div className={`min-h-[100dvh] transition-all duration-500 ${isBooting ? 'opacity-0 scale-[0.985]' : 'opacity-100'}`}>
-        <div className={`fixed top-3 right-3 z-[90] pointer-events-none transition-all duration-700 ${savePulse ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
-          <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-lg">
-            Сохранено
+        <div className={`fixed right-3 top-3 z-[90] pointer-events-none transition-all duration-500 ${savePulse ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
+          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/92 text-white shadow-lg shadow-emerald-950/15 ring-1 ring-white/60">
+            <Check size={14} strokeWidth={3} />
           </div>
         </div>
 
