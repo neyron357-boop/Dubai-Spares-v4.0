@@ -31,8 +31,8 @@ const ImagePreview: React.FC<Props> = ({
   onClose,
   onDeleteCurrent,
   deleteLabel = 'Удалить',
-  shareTitle = 'Vehicle photos',
-  shareText = 'Vehicle photos'
+  shareTitle = 'Фото автомобиля',
+  shareText = 'Фото автомобиля'
 }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
@@ -274,6 +274,10 @@ const ImagePreview: React.FC<Props> = ({
           const dx = touch.clientX - touchStartRef.current.x;
           const dy = touch.clientY - touchStartRef.current.y;
           touchStartRef.current = null;
+          if (dy > 90 && Math.abs(dy) > Math.abs(dx) * 1.25) {
+            onClose();
+            return;
+          }
           if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
           if (dx < 0) goNext();
           if (dx > 0) goPrev();

@@ -133,6 +133,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     setIsSharing(true);
     try {
       await onShare({ rates, currency, sendPublicQuote });
+      onClose();
     } catch (error) {
       const message = error instanceof Error && error.message.trim() ? error.message : 'Сервер недоступен, попробуйте снова';
       toast(message, 'error');
