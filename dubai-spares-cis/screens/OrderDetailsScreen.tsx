@@ -2802,7 +2802,7 @@ const OrderDetailsScreen: React.FC = () => {
 
               <form
                 onSubmit={(event) => { event.preventDefault(); addNewPart(); }}
-                className="fixed bottom-0 left-1/2 z-40 w-screen -translate-x-1/2 border-t border-stone-200/70 bg-[#F4F1EA]/96 px-3 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl"
+                className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl"
               >
                 {newPartKind === 'group' && (
                   <div className="mb-2 max-h-32 space-y-1 overflow-y-auto rounded-2xl bg-white/80 p-2">
@@ -3067,7 +3067,7 @@ const OrderDetailsScreen: React.FC = () => {
               </section>
 
               {sellError && <div className="rounded-2xl bg-rose-50 px-4 py-3 text-xs font-black text-rose-700">{sellError}</div>}
-              <div className="fixed bottom-0 left-1/2 z-40 w-screen -translate-x-1/2 border-t border-stone-200/70 bg-[#F4F1EA]/96 px-3 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl">
+              <div className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl">
                 <div className="grid grid-cols-4 gap-2">
                   <div className="rounded-2xl bg-stone-950 px-3 py-2 text-white">
                     <p className="text-[9px] font-black text-white/45">Прибыль</p>
@@ -3210,7 +3210,7 @@ const OrderDetailsScreen: React.FC = () => {
 
               <form
                 onSubmit={(event) => { event.preventDefault(); addNote(); }}
-                className="fixed bottom-0 left-1/2 z-40 w-screen -translate-x-1/2 border-t border-stone-200/70 bg-[#F4F1EA]/96 px-3 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl"
+                className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl"
               >
                 {recordingError && <p className="mb-2 rounded-2xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{recordingError}</p>}
                 {recordingSavedLocally && <p className="mb-2 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Голос сохранён локально</p>}
