@@ -2406,7 +2406,7 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </nav>
 
-        <div className={`min-h-[52dvh] rounded-t-[30px] bg-[#F4F1EA] px-4 pt-6 text-[#171717] shadow-[0_-18px_60px_rgba(0,0,0,0.28)] ${activeTab === 'search' || activeTab === 'notes' || activeTab === 'finance' ? 'pb-[calc(9.5rem+env(safe-area-inset-bottom))]' : 'pb-8'}`}>
+        <div className="min-h-[52dvh] rounded-t-[30px] bg-[#F4F1EA] px-4 pt-6 pb-[calc(12.5rem+env(safe-area-inset-bottom))] text-[#171717] shadow-[0_-18px_60px_rgba(0,0,0,0.28)]">
           {activeTab === 'overview' && (
             <div className="ds-mode-enter space-y-7">
               <section className="hidden">
@@ -2802,7 +2802,7 @@ const OrderDetailsScreen: React.FC = () => {
 
               <form
                 onSubmit={(event) => { event.preventDefault(); addNewPart(); }}
-                className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl"
+                className="space-y-2"
               >
                 {newPartKind === 'group' && (
                   <div className="mb-2 max-h-32 space-y-1 overflow-y-auto rounded-2xl bg-white/80 p-2">
@@ -3067,7 +3067,7 @@ const OrderDetailsScreen: React.FC = () => {
               </section>
 
               {sellError && <div className="rounded-2xl bg-rose-50 px-4 py-3 text-xs font-black text-rose-700">{sellError}</div>}
-              <div className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl">
+              <div className="space-y-2">
                 <div className="grid grid-cols-4 gap-2">
                   <div className="rounded-2xl bg-stone-950 px-3 py-2 text-white">
                     <p className="text-[9px] font-black text-white/45">Прибыль</p>
@@ -3210,7 +3210,7 @@ const OrderDetailsScreen: React.FC = () => {
 
               <form
                 onSubmit={(event) => { event.preventDefault(); addNote(); }}
-                className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl"
+                className="space-y-2"
               >
                 {recordingError && <p className="mb-2 rounded-2xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{recordingError}</p>}
                 {recordingSavedLocally && <p className="mb-2 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Голос сохранён локально</p>}
@@ -3266,6 +3266,39 @@ const OrderDetailsScreen: React.FC = () => {
               </form>
             </div>
           )}
+        </div>
+
+        <div className="fixed inset-x-0 z-40 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl" style={{ bottom: 'calc(6.5rem + env(safe-area-inset-bottom))' }}>
+          {activeTab === 'search' && (
+            <form onSubmit={(event) => { event.preventDefault(); addNewPart(); }} className="space-y-2">
+              {newPartKind === 'group' && (
+                <div className="rounded-2xl bg-white px-3 py-2 text-xs font-bold text-stone-600">Групповой режим добавления включён.</div>
+              )}
+              <div className="flex items-end gap-2">
+                <button type="button" onClick={() => partFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Фото детали"><ImageIcon size={18} /></button>
+                <button type="button" onClick={() => { setNewPartKind((value) => value === 'group' ? 'single' : 'group'); setNewPartGroupItems((prev) => prev.length > 0 ? prev : [createGroupItemDraft()]); }} className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${newPartKind === 'group' ? 'bg-stone-950 text-white' : 'bg-white text-stone-700'}`} aria-label="Группа деталей"><Package size={17} /></button>
+                <button type="button" onClick={() => void copyText(safetySummary.supplierBroadcast, 'Запрос поставщика скопирован')} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Поставщику"><Send size={16} /></button>
+                <div className="flex min-w-0 flex-1 items-center rounded-2xl bg-white px-3">
+                  <input ref={partInputRef} type="text" value={newPartName} onChange={(event) => setNewPartName(event.target.value)} placeholder="Добавить деталь..." className="h-12 min-w-0 flex-1 border-0 bg-transparent text-sm font-black text-stone-950 outline-none placeholder:text-stone-400" />
+                </div>
+                <button type="submit" className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label="Добавить деталь"><Plus size={17} /></button>
+              </div>
+            </form>
+          )}
+          {activeTab === 'notes' && (
+            <form onSubmit={(event) => { event.preventDefault(); addNote(); }} className="space-y-2">
+              {(newNoteText.trim().length > 0 || newNotePhotos.length > 0 || newNoteAudios.length > 0) && <div className="rounded-2xl bg-white px-3 py-2 text-xs font-bold text-stone-500">Черновик заметки активен</div>}
+              <div className="flex items-end gap-2">
+                <button type="button" onClick={() => noteFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Прикрепить фото"><ImageIcon size={18} /></button>
+                <button type="button" onClick={() => void toggleRecording()} className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${isRecording ? 'bg-rose-50 text-rose-700' : 'bg-white text-stone-700'}`} aria-label="Записать голос">{isRecording ? <Square size={17} /> : <Mic size={18} />}</button>
+                <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2"><textarea value={newNoteText} onChange={(event) => setNewNoteText(event.target.value)} placeholder="Сообщение..." rows={1} className="no-scrollbar max-h-24 min-h-8 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-bold leading-6 text-stone-900 outline-none placeholder:text-stone-400" /></div>
+                <button type="submit" disabled={!isEditMode || (!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0)} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить заметку"><Send size={17} /></button>
+              </div>
+            </form>
+          )}
+          {activeTab === 'finance' && <div className="grid grid-cols-4 gap-2"><div className="rounded-2xl bg-stone-950 px-3 py-2 text-white"><p className="text-[9px] font-black text-white/45">Прибыль</p><p className="mt-0.5 truncate text-[13px] font-black">{shownNetProfit !== null ? formatMoney(shownNetProfit) : '—'}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Клиент</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(sellTotalAed, clientCurrency)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Закуп</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(selectedOfferTotal)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Маржа</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{marginPercent !== null ? `${marginPercent.toFixed(0)}%` : '—'}</p></div></div>}
+          {activeTab === 'overview' && <button type="button" onClick={heroPrimaryAction.onClick} className="ds-press flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-stone-950 text-xs font-black uppercase tracking-[0.08em] text-white">{nextActionCopy.label}<ChevronRight size={15} /></button>}
+          {activeTab === 'proof' && <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => partFileRef.current?.click()} className="ds-press h-12 rounded-2xl bg-white text-xs font-black text-stone-800">Добавить медиа</button><button type="button" onClick={() => { const photos = getCarPhotos(); if (photos.length) setGallery({ images: photos, index: 0 }); }} className="ds-press h-12 rounded-2xl bg-stone-950 text-xs font-black text-white">Открыть пруфы</button></div>}
         </div>
 
         {isRecording && (
