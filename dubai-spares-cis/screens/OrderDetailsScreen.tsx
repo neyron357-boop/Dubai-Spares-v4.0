@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Order, OrderPricingEvent, Part, Priority, Source, OrderNote, Shop, VoiceNoteAudio } from '../types';
@@ -38,7 +38,18 @@ import {
   History,
   Video,
   FolderOpen,
-  ExternalLink
+  ExternalLink,
+  Search,
+  ShieldCheck,
+  Wallet,
+  MessageCircle,
+  Camera,
+  Send,
+  Minus,
+  Upload,
+  MapPin,
+  Phone,
+  ReceiptText
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
@@ -114,6 +125,51 @@ const HERO_RISK_ACCENTS: Record<string, string> = {
   caution: 'text-amber-700',
   high: 'text-orange-700',
   refuse: 'text-rose-700'
+};
+
+const PAYMENT_STATUS_SHORT: Record<Order['paymentStatus'] extends infer T ? Extract<T, string> : never, { label: string; tone: string }> = {
+  none: { label: 'No payment', tone: 'bg-white/[0.14] text-white/[0.78] ring-white/[0.12]' },
+  search_deposit_paid: { label: 'Deposit paid', tone: 'bg-amber-300/16 text-amber-100 ring-amber-200/24' },
+  full_prepayment_paid: { label: 'Fully prepaid', tone: 'bg-emerald-300/16 text-emerald-100 ring-emerald-200/24' }
+};
+
+const STAGE_COPY: Record<string, { label: string; helper: string }> = {
+  inquiry: { label: 'Intake', helper: 'Capture the request and keep the client warm.' },
+  data_collection: { label: 'Data capture', helper: 'Lock VIN, vehicle media, delivery, and exact parts.' },
+  preliminary_estimate: { label: 'Estimate', helper: 'Give a light range before committing market time.' },
+  deposit_gate: { label: 'Deposit gate', helper: 'Ask for search deposit before active supplier work.' },
+  active_search: { label: 'Live search', helper: 'Move through suppliers, media, prices, and variants.' },
+  final_quote: { label: 'Final quote', helper: 'Send the clean offer and conditions.' },
+  full_prepayment: { label: 'Prepayment', helper: 'Protect the deal before purchase.' },
+  purchase: { label: 'Purchase', helper: 'Buy only after terms are protected.' },
+  inspection: { label: 'Inspection', helper: 'Capture condition, markings, defects, and proof.' },
+  packing: { label: 'Packing', helper: 'Record packing before cargo handover.' },
+  cargo_handover: { label: 'Cargo handover', helper: 'Attach receipt and release risk cleanly.' },
+  completed: { label: 'Closed', helper: 'The transaction is complete.' }
+};
+
+const READINESS_COPY: Record<string, string> = {
+  vin: 'VIN',
+  car_photo: 'Vehicle photo',
+  part: 'Exact part',
+  delivery: 'Delivery place',
+  price: 'Confirmed price',
+  terms: 'Terms sent',
+  prepayment: 'Deposit/payment',
+  cargo_risk: 'Cargo risk',
+  proof_pack: 'Proof started'
+};
+
+const PROOF_COPY: Record<string, string> = {
+  supplier_photos: 'Supplier photos',
+  serial_marking: 'Serial / marking',
+  defects: 'Defects',
+  inspection_video: 'Inspection video',
+  before_purchase: 'Before purchase',
+  after_purchase: 'After purchase',
+  packing: 'Packing',
+  cargo_handover: 'Cargo receipt',
+  condition_comment: 'Condition note'
 };
 
 const MARKET_REGION_LABELS: Record<string, string> = {
@@ -412,7 +468,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [isLaunchingRadar, setIsLaunchingRadar] = useState(false);
   const [isEditMode, setIsEditMode] = useState(true);
-  const [isClientBlockExpanded, setIsClientBlockExpanded] = useState(true);
+  const [isClientBlockExpanded, setIsClientBlockExpanded] = useState(false);
   const [isVehicleBlockExpanded, setIsVehicleBlockExpanded] = useState(false);
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
   const [isPricingCargoExpanded, setIsPricingCargoExpanded] = useState(true);
@@ -1689,10 +1745,11 @@ const OrderDetailsScreen: React.FC = () => {
   const addNewPart = () => {
     if (!isEditMode) return;
     if (!newPartName.trim()) return;
+    const capturedPartName = newPartName.trim();
     const parsedGroupItems = newPartKind === 'group' ? normalizeGroupItems(newPartGroupItems) : [];
     const newPart: Part = {
       id: Math.random().toString(36).substr(2, 9),
-      name: newPartName.trim(),
+      name: capturedPartName,
       quantity: normalizePartQuantity(newPartQuantity),
       comment: newPartComment.trim(),
       partKind: newPartKind,
@@ -1711,6 +1768,7 @@ const OrderDetailsScreen: React.FC = () => {
     setNewPartGroupItems([createGroupItemDraft()]);
     setNewPartComment('');
     setNewPartPhotos([]);
+    setToast({ message: `Added ${capturedPartName}` });
     partInputRef.current?.focus();
     window.setTimeout(() => partsListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
   };
@@ -2274,1293 +2332,962 @@ const OrderDetailsScreen: React.FC = () => {
     };
   })();
 
+  const stageIndex = Math.max(0, safetySummary.stages.findIndex((stage) => stage.id === heroCurrentStage?.id));
+  const stageProgress = Math.round(((stageIndex + 1) / Math.max(1, safetySummary.stages.length)) * 100);
+  const stageCopy = STAGE_COPY[heroCurrentStage?.id || safetySummary.currentStage] || STAGE_COPY.inquiry;
+  const paymentCopy = PAYMENT_STATUS_SHORT[order.paymentStatus || 'none'] || PAYMENT_STATUS_SHORT.none;
+  const openPartsCount = order.parts.filter((part) => !(part.isFound || (part.variants || []).length > 0)).length;
+  const pricedPartsCount = order.parts.filter((part) => (part.variants || []).some((variant) => Number(variant.salePriceAed ?? variant.priceAed) > 0)).length;
+  const readinessMissing = safetySummary.readiness.items.filter((item) => !item.done).slice(0, 5);
+  const criticalReadinessMissing = safetySummary.readiness.items.filter((item) => item.critical && !item.done).slice(0, 4);
+  const proofMissing = safetySummary.proofPack.items.filter((item) => !item.done).slice(0, 5);
+  const criticalProofMissing = safetySummary.proofPack.items.filter((item) => item.critical && !item.done).slice(0, 4);
+  const evidencePhotos = Array.from(new Set([
+    ...getCarPhotos(),
+    ...order.parts.flatMap((part) => [
+      part.photoUrl || '',
+      ...(part.photos || []),
+      ...(part.variants || []).flatMap((variant) => [variant.photoUrl || '', ...(variant.photos || [])])
+    ]),
+    ...(order.notes || []).flatMap((note) => note.photos || [])
+  ].filter(Boolean))) as string[];
+  const partQueue = showOnlyOpenParts
+    ? order.parts.filter((part) => !(part.isFound || (part.variants || []).length > 0))
+    : order.parts;
+  const nextActionCopy = (() => {
+    if (!order.vin || !heroPhoto) return { label: 'Complete identity', helper: 'VIN and vehicle photo unlock the flow.' };
+    if (!depositPaid) return { label: 'Request deposit', helper: 'Protect market time before supplier work.' };
+    if (selectedOfferTotal <= 0) return { label: 'Start sourcing', helper: `${openPartsCount}/${partsCount || 0} parts still open.` };
+    if (!fullPrepaymentPaid) return { label: 'Send quote', helper: 'Move from sourcing to client decision.' };
+    return { label: 'Capture proof', helper: `${safetySummary.proofPack.completed}/${safetySummary.proofPack.total} proof points ready.` };
+  })();
+  const riskCopy: Record<string, { label: string; tone: string; line: string }> = {
+    safe: { label: 'Calm', tone: 'text-emerald-700 bg-emerald-50', line: 'Normal transaction rhythm.' },
+    caution: { label: 'Watch', tone: 'text-amber-700 bg-amber-50', line: 'Proceed, but keep terms written.' },
+    high: { label: 'Hold', tone: 'text-orange-700 bg-orange-50', line: 'Do not buy without payment protection.' },
+    refuse: { label: 'Decline', tone: 'text-rose-700 bg-rose-50', line: 'Terms are not worth the risk.' }
+  };
+  const currentRiskCopy = riskCopy[safetySummary.dealRisk.level] || riskCopy.safe;
+  const profitTone = safetySummary.profit.level === 'healthy'
+    ? 'text-emerald-700 bg-emerald-50'
+    : safetySummary.profit.level === 'unknown'
+      ? 'text-stone-600 bg-stone-100'
+      : 'text-rose-700 bg-rose-50';
+  const shownNetProfit = canComputeProfit && netProfitAed !== null ? netProfitAed : safetySummary.profit.netProfitAed;
+  const heroPhotoCount = getCarPhotos().length;
+  const latestNote = (order.notes || [])[0];
+  const firstRecommendedShop = recommendedShops[0];
+
   return (
-    <div className="flex min-h-full flex-col bg-[#F6F7FB] pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-[68px] text-[#1E1F23]">
-      <div className="fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 space-y-1 border-b border-gray-100 bg-white/95 px-2 py-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.06)] backdrop-blur">
-        <div className="flex items-center justify-between gap-2">
-          <button type="button" onClick={handleBackNavigation} className="p-2 -ml-1 rounded-full transition-colors text-gray-600 active:bg-gray-100">
-            <ArrowLeft size={20} />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const photos = getCarPhotos();
-              if (photos.length) setGallery({ images: photos, index: 0 });
-            }}
-            className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-slate-100"
-          >{((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? <img src={((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl)} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-sm font-black text-slate-400">{order.brand?.[0] || "?"}</div>}</button><div className="text-left flex-1 mx-1 min-w-0">
-            <h1 className="text-[15px] font-semibold leading-tight truncate text-[#1E1F23]">{order.brand} {order.model}</h1>
-            <p className="mt-0.5 text-[12px] font-medium truncate text-slate-500">{order.year || 'Год не указан'}{order.vin ? ` · VIN: ${order.vin.slice(0, 8)}${order.vin.length > 8 ? '...' : ''}` : ''}</p>
-            {isEditMode ? (
-              <input
-                type="text"
-                value={String(draftFields.vin ?? order.vin ?? '')}
-                onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))}
-                onBlur={() => flushDeferredOrderField('vin')}
-                placeholder="VIN"
-                className="mt-1 h-7 w-full rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-semibold text-slate-700 outline-none"
-              />
-            ) : (
-              <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 truncate">VIN: {order.vin || '—'}</p>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700 sm:inline-flex">Synced</span>
-          <div className="relative">
-            <button type="button" onClick={() => setShowActionsMenu(v => !v)} className="p-2 rounded-full text-gray-600 active:bg-gray-100">
-              <MoreVertical size={18} />
+      <div className="min-h-full bg-[#07080A] pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-[58px] text-white">
+        <div className="fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 border-b border-white/10 bg-[#08090B]/92 px-3 py-2 backdrop-blur-xl">
+          <div className="flex h-10 items-center justify-between gap-2">
+            <button type="button" onClick={handleBackNavigation} className="ds-press flex h-10 w-10 items-center justify-center rounded-full text-white/[0.78] active:bg-white/10" aria-label="Back">
+              <ArrowLeft size={20} />
             </button>
-            {showActionsMenu && (
-              <div className="absolute right-0 mt-1 w-56 rounded-xl border border-gray-100 bg-white shadow-lg p-1 text-xs font-semibold z-30">
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEditMode((prev) => !prev)}>Edit order</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrder({ ...order, id: `${order.id}-copy-${Date.now()}` })}>Duplicate order</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => updateOrderField('isArchived', !order.isArchived)}>{order.isArchived ? 'Unarchive' : 'Archive'}</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => void copyText('Синхронизация активна', 'Синхронизация')}>Состояние синхронизации</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50" onClick={() => setIsEstimateOpen(true)}>Export</button>
-                <button type="button" className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-red-600" onClick={() => { setShowActionsMenu(false); setDeleteOrderConfirmOpen(true); }}>Delete</button>
-              </div>
-            )}
-          </div>
-          </div>
-        </div>
-      </div>
-
-      <section ref={detailsScreenSectionRef} className="px-3 pt-3">
-        <div className="overflow-hidden rounded-[28px] bg-slate-950 text-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
-          <div className="relative min-h-[168px]">
-            {heroPhoto ? (
-              <button
-                type="button"
-                onClick={() => {
-                  const photos = getCarPhotos();
-                  if (photos.length) setGallery({ images: photos, index: 0 });
-                }}
-                className="absolute inset-0 h-full w-full"
-                aria-label="Открыть фото автомобиля"
-              >
-                <img src={heroPhoto} alt={heroCarName} className="h-full w-full object-cover opacity-75" />
+            <div className="min-w-0 flex-1 text-center">
+              <p className="truncate text-[13px] font-black text-white">{heroCarName}</p>
+              <p className="truncate text-[10px] font-semibold tracking-[0.08em] text-white/[0.42]">{stageCopy.label} · {order.id.slice(0, 8)}</p>
+            </div>
+            <div className="relative flex h-10 w-10 items-center justify-center">
+              <button type="button" onClick={() => setShowActionsMenu((value) => !value)} className="ds-press flex h-10 w-10 items-center justify-center rounded-full text-white/[0.72] active:bg-white/10" aria-label="Actions">
+                <MoreVertical size={18} />
               </button>
-            ) : (
-              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-black text-5xl font-black text-white/18">
-                {order.brand?.[0] || '?'}
-              </div>
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/68 to-slate-950/10" />
-            <div className="relative flex min-h-[168px] flex-col justify-end p-5">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/55">Order Mission Control</p>
-              <div className="mt-2 flex items-end justify-between gap-4">
-                <div className="min-w-0">
-                  <h1 className="truncate text-2xl font-black leading-tight tracking-[-0.04em]">{heroCarName}</h1>
-                  <p className="mt-1 truncate font-mono text-[12px] font-semibold uppercase tracking-[0.08em] text-white/70">VIN {order.vin || '—'}</p>
+              {showActionsMenu && (
+                <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#15171D] p-1 text-xs font-bold text-white shadow-2xl">
+                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEditMode((prev) => !prev)}><FileText size={14} /> {isEditMode ? 'Lock editing' : 'Edit order'}</button>
+                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEstimateOpen(true)}><Share2 size={14} /> Quote / export</button>
+                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => updateOrderField('isArchived', !order.isArchived)}><Package size={14} /> {order.isArchived ? 'Unarchive' : 'Archive'}</button>
+                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-200 hover:bg-rose-500/10" onClick={() => { setShowActionsMenu(false); setDeleteOrderConfirmOpen(true); }}><X size={14} /> Delete</button>
                 </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">Total</p>
-                  <p className="text-xl font-black tracking-[-0.03em]">{formatDualMoney(sellTotalAed)}</p>
-                </div>
-              </div>
+              )}
             </div>
           </div>
+        </div>
 
-          <div className="space-y-5 bg-white p-5 text-slate-950">
-            <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Market</p>
-                <p className="mt-1 text-sm font-black text-slate-900">{heroMarketRegion}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Deal stage</p>
-                <p className="mt-1 text-sm font-black text-slate-900">{heroCurrentStage?.label || 'Сделка'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Payment</p>
-                <p className="mt-1 text-sm font-black text-slate-900">{PAYMENT_STATUS_LABELS[order.paymentStatus || 'none']}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Risk score</p>
-                <p className={`mt-1 text-sm font-black ${heroRiskAccent}`}>{safetySummary.dealRisk.score}/100 · {safetySummary.dealRisk.label}</p>
-              </div>
-            </div>
-
-            <div className="rounded-2xl bg-slate-50 px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Next best action</p>
-                  <p className="mt-1 truncate text-sm font-black text-slate-900">{heroPrimaryAction.helper}</p>
-                </div>
+        <section ref={detailsScreenSectionRef} className="px-3 pb-4 pt-3">
+          <div className="ds-deep-surface relative overflow-hidden rounded-[32px] bg-[#111318]">
+            <div className="absolute inset-x-10 top-8 h-32 rounded-full bg-amber-300/10 blur-3xl" />
+            <div className="relative min-h-[300px]">
+              {heroPhoto ? (
                 <button
                   type="button"
-                  onClick={heroPrimaryAction.onClick}
-                  className="shrink-0 rounded-2xl bg-slate-950 px-4 py-3 text-[12px] font-black text-white shadow-[0_12px_26px_rgba(15,23,42,0.24)] transition active:scale-[0.98]"
+                  onClick={() => {
+                    const photos = getCarPhotos();
+                    if (photos.length) setGallery({ images: photos, index: 0 });
+                  }}
+                  className="absolute inset-0 h-full w-full"
+                  aria-label="Open vehicle gallery"
                 >
-                  {heroPrimaryAction.label}
+                  <img src={heroPhoto} alt={heroCarName} className="h-full w-full object-cover opacity-88 transition duration-500" />
                 </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {toast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 bg-gray-900 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-2 shadow-lg">
-          <Check size={14} /> {toast.message}
-          {toast.undo && (
-            <button type="button" onClick={() => { toast.undo?.(); setToast(null); }} className="inline-flex items-center gap-1 text-blue-300">
-              <Undo2 size={12} /> Undo
-            </button>
-          )}
-        </div>
-      )}
-
-      <nav className="sticky top-[68px] z-30 border-b border-gray-100 bg-[#F6F7FB]/95 px-3 py-2 backdrop-blur" aria-label="Order details sections">
-        <div className="flex gap-2 overflow-x-auto no-scrollbar">
-          {ORDER_DETAILS_TABS.map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`min-w-[112px] rounded-2xl border px-3 py-2 text-left transition-all active:scale-[0.98] ${isActive ? 'border-blue-200 bg-white text-blue-700 shadow-sm' : 'border-transparent bg-white/55 text-slate-500'}`}
-                aria-pressed={isActive}
-              >
-                <span className="block text-[12px] font-black">{tab.label}</span>
-                <span className="mt-0.5 block truncate text-[10px] font-semibold opacity-75">{tab.helper}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
-
-      {activeTab === 'proof' && (
-        <div className="px-4 pt-3 space-y-4">
-      <div>
-        <div className="rounded-2xl border border-blue-100 bg-white p-3 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Публичная смета</p>
-              <p className="text-xs font-semibold text-gray-600">Отправка клиенту ссылки на смету с текущими ценами.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsEstimateOpen(true)}
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-blue-600 px-3 text-xs font-black text-white shadow-sm active:scale-[0.98]"
-            >
-              <Share2 size={14} /> Отправить смету
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Safety Sales System</p>
-              <h2 className="mt-1 text-lg font-black text-slate-900">{safetySummary.stages.find((stage) => stage.state === 'current')?.label || 'Сделка'}</h2>
-              <p className="mt-1 text-xs font-semibold text-slate-500">{safetySummary.stages.find((stage) => stage.state === 'current')?.helper}</p>
-            </div>
-            <span className={`shrink-0 rounded-xl border px-3 py-2 text-[11px] font-black ${DEAL_RISK_STYLES[safetySummary.dealRisk.level]}`}>
-              {safetySummary.dealRisk.label}
-            </span>
-          </div>
-
-          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-            {safetySummary.stages.map((stage) => (
-              <div key={stage.id} className={`min-w-[92px] rounded-xl border px-2.5 py-2 ${STAGE_STATE_STYLES[stage.state]}`}>
-                <div className="flex items-center gap-1.5">
-                  {stage.state === 'completed' ? <CheckCircle2 size={13} /> : <Circle size={12} />}
-                  <span className="truncate text-[11px] font-black">{stage.label}</span>
-                </div>
-                <p className="mt-1 line-clamp-2 text-[9px] font-semibold opacity-75">{stage.state === 'locked' ? 'locked' : stage.helper}</p>
-              </div>
-            ))}
-          </div>
-
-          {!depositPaid && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-              <div className="flex items-start gap-2">
-                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700" />
-                <div className="min-w-0">
-                  <p className="text-sm font-black text-amber-900">Deposit Gate включен</p>
-                  <p className="mt-1 text-xs font-semibold text-amber-800">До депозита: заявка, уточнения, общая информация и примерная вилка. Активный поиск и поездки только после оплаты депозита.</p>
-                </div>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
+              ) : (
                 <button
                   type="button"
-                  onClick={() => updateOrder({ ...order, status: 'waiting_deposit', searchDepositStatus: 'pending' })}
-                  className="h-10 rounded-xl border border-amber-300 bg-white px-2 text-[11px] font-black text-amber-800"
+                  onClick={() => carFileRef.current?.click()}
+                  className="absolute inset-0 h-full w-full overflow-hidden bg-[#101217]"
+                  aria-label="Add vehicle photo"
                 >
-                  Ждать депозит
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateOrder({ ...order, status: 'in_progress', huntStatus: 'live_hunt', searchDepositStatus: 'paid', paymentStatus: 'search_deposit_paid' })}
-                  className="h-10 rounded-xl bg-emerald-600 px-2 text-[11px] font-black text-white"
-                >
-                  Депозит оплачен
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className={`rounded-xl border p-3 ${LEAD_QUALITY_STYLES[safetySummary.leadQuality.level]}`}>
-              <p className="text-[10px] font-black uppercase tracking-wide opacity-70">Lead Quality</p>
-              <p className="mt-1 text-sm font-black">{safetySummary.leadQuality.label}</p>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/70">
-                <div className="h-full rounded-full bg-current" style={{ width: `${safetySummary.leadQuality.score}%` }} />
-              </div>
-              <p className="mt-1 text-[10px] font-bold opacity-75">{safetySummary.leadQuality.score}/100</p>
-            </div>
-            <div className={`rounded-xl border p-3 ${DEAL_RISK_STYLES[safetySummary.dealRisk.level]}`}>
-              <p className="text-[10px] font-black uppercase tracking-wide opacity-70">Deal Safety</p>
-              <p className="mt-1 text-sm font-black">{safetySummary.dealRisk.label}</p>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/70">
-                <div className="h-full rounded-full bg-current" style={{ width: `${safetySummary.dealRisk.score}%` }} />
-              </div>
-              <p className="mt-1 text-[10px] font-bold opacity-75">{safetySummary.dealRisk.score}/100 risk</p>
-            </div>
-            <div className={`rounded-xl border p-3 ${safetySummary.profit.level === 'healthy' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : safetySummary.profit.level === 'unknown' ? 'border-slate-200 bg-slate-50 text-slate-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
-              <p className="text-[10px] font-black uppercase tracking-wide opacity-70">Profit</p>
-              <p className="mt-1 text-sm font-black">{safetySummary.profit.label}</p>
-              <p className="mt-1 text-[10px] font-bold opacity-75">{safetySummary.profit.message}</p>
-            </div>
-            <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-blue-700">
-              <p className="text-[10px] font-black uppercase tracking-wide opacity-70">Readiness</p>
-              <p className="mt-1 text-sm font-black">{safetyProgressText} собрано</p>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/70">
-                <div className="h-full rounded-full bg-blue-600" style={{ width: `${safetySummary.readiness.percent}%` }} />
-              </div>
-              <p className="mt-1 text-[10px] font-bold opacity-75">{safetySummary.readiness.percent}% ready</p>
-            </div>
-          </div>
-
-          {safetySummary.cargoRisk.active && (
-            <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-orange-900">
-              <p className="flex items-center gap-2 text-sm font-black"><Package size={16} /> Cargo Risk Mode</p>
-              <p className="mt-1 text-xs font-semibold text-orange-800">{safetySummary.cargoRisk.clientWarning}</p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {safetySummary.cargoRisk.fragileParts.slice(0, 3).map((part) => (
-                  <span key={part} className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-orange-700">{part}</span>
-                ))}
-                {safetySummary.cargoRisk.expensiveParts.slice(0, 2).map((part) => (
-                  <span key={part} className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-orange-700">{part}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Proof Pack</p>
-                <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-slate-600">{safetySummary.proofPack.completed}/{safetySummary.proofPack.total}</span>
-              </div>
-              <div className="mt-2 space-y-1.5">
-                {safetySummary.proofPack.items.slice(0, 6).map((item) => (
-                  <div key={item.id} className="flex items-start gap-2 text-xs font-semibold text-slate-700">
-                    {item.done ? <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-600" /> : <Circle size={13} className="mt-0.5 shrink-0 text-slate-300" />}
-                    <span className={item.done ? '' : item.critical ? 'text-rose-700' : 'text-slate-500'}>{item.label}</span>
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_32%,rgba(245,158,11,0.15),transparent_36%)]" />
+                  <div className="absolute bottom-11 left-7 h-20 w-[80%] rounded-[999px] border border-white/10 bg-white/[0.025] shadow-[inset_0_0_34px_rgba(255,255,255,0.04)]" />
+                  <div className="absolute bottom-[88px] left-12 h-px w-[62%] bg-gradient-to-r from-transparent via-white/[0.18] to-transparent" />
+                  <div className="absolute right-8 top-24 flex h-36 w-36 items-center justify-center rounded-full border border-white/10 bg-white/[0.02] text-7xl font-black text-white/[0.075]">
+                    {order.brand?.[0] || '?'}
                   </div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Order Readiness</p>
-                <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-slate-600">{safetySummary.readiness.blockers.length} blockers</span>
-              </div>
-              <div className="mt-2 space-y-1.5">
-                {safetySummary.readiness.items.slice(0, 6).map((item) => (
-                  <div key={item.id} className="flex items-start gap-2 text-xs font-semibold text-slate-700">
-                    {item.done ? <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-600" /> : <Circle size={13} className="mt-0.5 shrink-0 text-slate-300" />}
-                    <span className={item.done ? '' : item.critical ? 'text-rose-700' : 'text-slate-500'}>{item.label}</span>
+                </button>
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-[#08090B] via-[#08090B]/[0.42] to-black/[0.12]" />
+              <div className="relative flex min-h-[300px] flex-col justify-between p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-black/[0.28] px-3 py-2 text-[11px] font-semibold text-white/70 ring-1 ring-white/10 backdrop-blur">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-300 shadow-[0_0_16px_rgba(252,211,77,0.8)]" />
+                    Live order
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
+                  <button type="button" onClick={() => carFileRef.current?.click()} className="ds-press inline-flex h-10 items-center gap-2 rounded-full bg-white/10 px-3 text-[11px] font-black text-white ring-1 ring-white/[0.12] backdrop-blur">
+                    {heroPhoto ? <Camera size={14} /> : <Upload size={14} />}
+                    {heroPhoto ? `${heroPhotoCount} photo${heroPhotoCount === 1 ? '' : 's'}` : 'Add photo'}
+                  </button>
+                  <input type="file" ref={carFileRef} onChange={handleCarPhotoChange} className="hidden" accept="image/*" multiple />
+                </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-3">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Системные подсказки</p>
-            <p className="mt-2 text-xs font-semibold text-slate-600">{safetySummary.dealRisk.recommendation}</p>
-            {safetySummary.followUp.status !== 'none' && (
-              <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs font-semibold text-amber-800">
-                {safetySummary.followUp.label}: {safetySummary.followUp.message}
+                <div className="space-y-4">
+                  <div>
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-black text-white ring-1 ring-white/10">{stageCopy.label}</span>
+                      <span className={`rounded-full px-3 py-1.5 text-[11px] font-black ring-1 ${paymentCopy.tone}`}>{paymentCopy.label}</span>
+                    </div>
+                    <h1 className="max-w-[16rem] text-[30px] font-black leading-[0.94] tracking-normal text-white">{heroCarName}</h1>
+                    <p className="mt-3 max-w-[18rem] truncate text-[12px] font-semibold tracking-[0.08em] text-white/[0.62]">VIN {order.vin || 'not set'}</p>
+                  </div>
+
+                  <div className="rounded-[22px] border border-white/10 bg-black/[0.28] p-3 backdrop-blur-xl">
+                    <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-white/[0.12]">
+                      <div className="h-full rounded-full bg-gradient-to-r from-amber-300 via-white to-emerald-300 transition-all duration-500" style={{ width: `${stageProgress}%` }} />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold leading-5 text-white/[0.62]">{nextActionCopy.helper}</p>
+                      </div>
+                      <button type="button" onClick={heroPrimaryAction.onClick} className="ds-press inline-flex h-12 shrink-0 items-center gap-2 rounded-[20px] bg-[#F7F3EA] px-4 text-[12px] font-black text-[#101114] shadow-[inset_0_1px_0_rgba(255,255,255,0.86),0_14px_28px_rgba(0,0,0,0.26)]">
+                        {nextActionCopy.label}
+                        <ChevronRight size={15} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => void copyText(safetySummary.supplierBroadcast, 'Заявка поставщику скопирована')} className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-black text-slate-700">
-                <Copy size={13} className="mr-1 inline" /> Supplier request
-              </button>
-              <button type="button" onClick={() => void copyText(safetySummary.paymentExplanation, 'Текст про оплату скопирован')} className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-black text-slate-700">
-                <DollarSign size={13} className="mr-1 inline" /> Предоплата
-              </button>
-              {safetySummary.followUp.message && (
-                <button type="button" onClick={() => void copyText(safetySummary.followUp.message, 'Follow-up скопирован')} className="h-10 rounded-xl border border-amber-200 bg-amber-50 px-2 text-[11px] font-black text-amber-700">
-                  <Copy size={13} className="mr-1 inline" /> Follow-up
-                </button>
-              )}
-              {(safetySummary.dealRisk.level === 'high' || safetySummary.dealRisk.level === 'refuse' || safetySummary.profit.level === 'thin' || safetySummary.profit.level === 'loss') && (
-                <button type="button" onClick={() => void copyText(safetySummary.refusalMessage, 'Текст отказа скопирован')} className="h-10 rounded-xl border border-rose-200 bg-rose-50 px-2 text-[11px] font-black text-rose-700">
-                  <AlertTriangle size={13} className="mr-1 inline" /> Отказаться
-                </button>
-              )}
-              {!fullPrepaymentPaid && selectedOfferTotal > 0 && (
-                <button type="button" onClick={() => updateOrder({ ...order, paymentStatus: 'full_prepayment_paid', salesStatus: 'Paid' })} className="h-10 rounded-xl bg-emerald-600 px-2 text-[11px] font-black text-white">
-                  Полная предоплата
-                </button>
-              )}
             </div>
           </div>
         </section>
-      </div>
-        </div>
-      )}
 
-      {activeTab === 'overview' && (
-      <div className="p-4 space-y-4">
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Зона заказа</p>
-          <div className="flex flex-wrap gap-1 min-h-[28px]">
-            {(order.zones && order.zones.length > 0 ? order.zones : order.zone ? [order.zone] : []).map((z, index) => (
-              <span key={`${z}-${index}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700">
-                {z}
+        {toast && (
+          <div className="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#111318] px-4 py-3 text-xs font-black text-white shadow-2xl">
+            <Check size={14} /> {toast.message}
+            {toast.undo && (
+              <button type="button" onClick={() => { toast.undo?.(); setToast(null); }} className="inline-flex items-center gap-1 text-amber-200">
+                <Undo2 size={12} /> Undo
+              </button>
+            )}
+          </div>
+        )}
+
+        <nav className="sticky top-[58px] z-30 bg-[#08090B]/92 px-3 py-2 backdrop-blur-xl" aria-label="Order details sections">
+          <div className="grid grid-cols-5 gap-1 rounded-[28px] border border-white/10 bg-white/[0.045] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+            {ORDER_DETAILS_TABS.map((tab) => {
+              const isActive = activeTab === tab.id;
+              const Icon = tab.id === 'overview' ? FileText : tab.id === 'search' ? Search : tab.id === 'proof' ? ShieldCheck : tab.id === 'finance' ? Wallet : MessageCircle;
+              return (
                 <button
+                  key={tab.id}
                   type="button"
-                  aria-label={`Удалить зону ${z}`}
-                  onClick={() => {
-                    const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
-                    const targetIndex = current.findIndex((_, currentIndex) => currentIndex === index);
-                    if (targetIndex < 0) return;
-                    const next = current.filter((_, currentIndex) => currentIndex !== targetIndex);
-                    updateOrderZones(next);
-                  }}
-                  className="text-blue-400 hover:text-red-500 leading-none"
-                >×</button>
-              </span>
-            ))}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`ds-press flex h-11 flex-col items-center justify-center gap-1 rounded-[24px] text-[10px] font-black ${isActive ? 'bg-[#F4F1EA] text-[#111318] shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_5px_14px_rgba(0,0,0,0.2)]' : 'text-white/[0.48]'}`}
+                  aria-pressed={isActive}
+                >
+                  <Icon size={15} />
+                  <span className="max-w-full truncate px-1">{tab.label === 'Proof Pack' ? 'Proof' : tab.label}</span>
+                </button>
+              );
+            })}
           </div>
-          <select
-            value=""
-            onChange={(e) => {
-              const selected = e.target.value;
-              if (!selected) return;
-              const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
-              if (current.includes(selected)) return;
-              const next = [...current, selected];
-              updateOrderZones(next);
-            }}
-            className="w-full text-sm font-bold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-          >
-            <option value="">+ Добавить зону</option>
-            {(settings.orderZones || []).map((z) => (
-              <option key={z} value={z}>{z}</option>
-            ))}
-          </select>
-        </div>
+        </nav>
 
-        {/* Client & Source Block */}
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setIsClientBlockExpanded((prev) => !prev)} className="flex flex-1 items-center justify-between text-left">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Клиент</p>
-                <p className="text-sm font-bold text-gray-800">{String(draftFields.clientName ?? order.clientName ?? 'Без имени')}</p>
-              </div>
-              {isClientBlockExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
-            </button>
-            <button type="button" onClick={() => setShowCustomerLogs(true)} className="h-10 shrink-0 rounded-xl border border-gray-200 bg-gray-50 px-3 text-[11px] font-black text-gray-700 inline-flex items-center gap-1">
-              <History size={14} /> Логи
-            </button>
-          </div>
-          {isClientBlockExpanded && (
-            <>
-          <div className="grid grid-cols-1 gap-3">
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1 mb-1"><User size={10} /> Клиент</label>
-              <input
-                type="text"
-                value={String(draftFields.clientName ?? order.clientName ?? '')}
-                readOnly={!isEditMode}
-                onChange={(e) => updateOrderField('clientName', e.target.value)}
-                onBlur={() => flushDeferredOrderField('clientName')}
-                placeholder="Имя клиента..."
-                className="w-full text-sm font-bold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1 mb-1"><Smartphone size={10} /> Телефон</label>
-              <div className="flex gap-2">
-                <input
-                  type="tel"
-                  value={String(draftFields.customerContact ?? order.customerContact ?? '')}
-                  readOnly={!isEditMode}
-                  onChange={(e) => updateOrderField('customerContact', e.target.value)}
-                  onBlur={() => flushDeferredOrderField('customerContact')}
-                  placeholder="+971..."
-                  className="flex-1 text-sm font-bold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
-                />
-                <button type="button" onClick={() => void copyText(order.customerContact || '', 'Телефон скопирован')} disabled={!order.customerContact} className="h-10 px-3 rounded-xl border border-gray-200 text-gray-600 disabled:opacity-40"><Copy size={14} /></button>
-              </div>
-            </div>
-          </div>
+        <div className="min-h-[52dvh] rounded-t-[30px] bg-[#F4F1EA] px-4 pb-8 pt-6 text-[#171717] shadow-[0_-18px_60px_rgba(0,0,0,0.28)]">
+          {activeTab === 'overview' && (
+            <div className="ds-mode-enter space-y-7">
+              <section className="space-y-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-[26px] font-black leading-tight tracking-normal text-stone-950">{stageCopy.label}</h2>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-stone-600">{stageCopy.helper}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-3 py-2 text-[11px] font-black ${currentRiskCopy.tone}`}>{currentRiskCopy.label}</span>
+                </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Источник</label>
-              <select
-                value={String(draftFields.source ?? order.source)}
-                onChange={(e) => updateOrderField('source', e.target.value)}
-                disabled={!isEditMode}
-                className="w-full h-10 text-sm font-bold bg-gray-50 rounded-xl px-2 outline-none border border-gray-100"
-              >
-                {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Шаблон</label>
-              <select
-                value={normalizedSelectedTemplate}
-                onChange={(e) => setSelectedTemplate(e.target.value)}
-                disabled={!isEditMode}
-                className="w-full h-10 text-sm font-bold bg-gray-50 rounded-xl px-2 outline-none border border-gray-100"
-              >
-                {messageTemplates.map(template => <option key={template} value={template}>{template}</option>)}
-              </select>
-            </div>
-          </div>
-          {(sourceLabel.includes('instagram') || sourceLabel.includes('tiktok') || sourceLabel.includes('telegram')) && (
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Ссылка клиента</label>
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-2 flex flex-wrap items-center gap-2">
-                {isEditMode && (
-                  <button
-                    type="button"
-                    onClick={saveSocialNickname}
-                    className="h-9 px-3 rounded-lg border border-gray-200 bg-white text-xs font-bold text-gray-700"
-                  >
-                    {(draftFields.socialNickname ?? order.socialNickname ?? '') ? 'Изменить ссылку' : 'Вставить ссылку'}
-                  </button>
-                )}
-                {isEditMode && (draftFields.socialNickname ?? order.socialNickname ?? '') && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      updateOrderField('socialNickname', '');
-                      flushDeferredOrderField('socialNickname');
-                    }}
-                    className="h-9 px-3 rounded-lg border border-rose-200 bg-rose-50 text-xs font-bold text-rose-600"
-                  >
-                    Очистить
-                  </button>
-                )}
-                <span className="text-xs font-semibold text-gray-500">
-                  {(draftFields.socialNickname ?? order.socialNickname ?? '') ? 'Ссылка сохранена и скрыта' : 'Ссылка не добавлена'}
-                </span>
-              </div>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={openClientChannel}
-            disabled={!getClientChannelLink() && (!(order.customerContact || '').replace(/[^\d]/g, '').length || (order.customerContact || '').replace(/[^\d]/g, '').length < 8)}
-            className="h-11 w-full rounded-2xl bg-emerald-600 text-white text-xs font-black uppercase disabled:opacity-50"
-          >
-            {contactActionLabel}: открыть чат
-          </button>
-            </>
-          )}
-        </div>
+                <div className="ds-deep-surface rounded-[26px] bg-[#171717] p-4 text-white">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-lg font-black leading-tight">{nextActionCopy.label}</p>
+                      <p className="mt-1 text-xs font-semibold leading-5 text-white/[0.58]">{nextActionCopy.helper}</p>
+                    </div>
+                    <button type="button" onClick={heroPrimaryAction.onClick} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-[20px] bg-amber-300 text-stone-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_12px_24px_rgba(245,158,11,0.22)]" aria-label={nextActionCopy.label}>
+                      <ChevronRight size={21} />
+                    </button>
+                  </div>
+                </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="ds-surface rounded-[22px] p-4">
+                    <p className="text-2xl font-black text-stone-950">{criticalReadinessMissing.length}</p>
+                    <p className="mt-0.5 text-[11px] font-black text-stone-400">missing</p>
+                    <p className="mt-1 text-xs font-semibold leading-5 text-stone-500">{criticalReadinessMissing[0] ? `${READINESS_COPY[criticalReadinessMissing[0].id] || 'Step'} is next` : 'Core data is ready'}</p>
+                  </div>
+                  <div className="ds-surface rounded-[22px] p-4">
+                    <p className="text-lg font-black text-stone-950">{shownNetProfit !== null ? formatDualMoney(shownNetProfit) : 'Unknown'}</p>
+                    <p className="mt-1 text-[11px] font-black text-stone-400">profit</p>
+                    <p className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-black ${profitTone}`}>{safetySummary.profit.level === 'healthy' ? 'Protected' : safetySummary.profit.level === 'unknown' ? 'Needs price' : 'Needs work'}</p>
+                  </div>
+                </div>
 
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[12px] font-black text-stone-600">Needs attention</p>
+                    <span className="text-[11px] font-black text-stone-500">{safetySummary.readiness.percent}% ready</span>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                    {(readinessMissing.length ? readinessMissing : safetySummary.readiness.items.slice(0, 3)).map((item) => (
+                      <span key={item.id} className={`shrink-0 rounded-full px-3 py-2 text-[11px] font-black ${item.done ? 'bg-emerald-50 text-emerald-700' : item.critical ? 'bg-stone-950 text-white' : 'bg-white/[0.72] text-stone-500'}`}>
+                        {item.done ? <Check size={12} className="mr-1 inline" /> : null}{READINESS_COPY[item.id] || item.id}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </section>
 
-        <div ref={vehicleSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <button type="button" onClick={() => setIsVehicleDetailsExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
-            <div>
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Автомобиль</p>
-              <p className="text-sm font-black text-slate-900">{order.brand} {order.model} {order.year}</p>
-            </div>
-            {isVehicleDetailsExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
-          </button>
-
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Марка</p>
-              <p className="mt-1 truncate font-black text-slate-800">{order.brand || '—'}</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Модель</p>
-              <p className="mt-1 truncate font-black text-slate-800">{order.model || '—'}</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Год</p>
-              <p className="mt-1 truncate font-black text-slate-800">{order.year || '—'}</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">VIN</p>
-              <p className="mt-1 truncate font-black text-slate-800">{order.vin || '—'}</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Двигатель</p>
-              <p className="mt-1 truncate font-black text-slate-800">{order.vehicleDetails?.engineType || order.vehicleDetails?.engineCode || '—'}</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Кузов</p>
-              <p className="mt-1 truncate font-black text-slate-800">{order.bodyType || '—'}</p>
-            </div>
-          </div>
-          {order.vehicleDetails?.additionalNotes ? (
-            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">{order.vehicleDetails.additionalNotes}</p>
-          ) : null}
-
-          {isVehicleDetailsExpanded && (
-            <>
-          <div className="grid grid-cols-2 gap-2">
-            {(isEditMode || (draftFields.vehicleDetails?.engineType ?? order.vehicleDetails?.engineType)) && <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Тип двигателя</label>
-              <input
-                type="text"
-                value={String((draftFields.vehicleDetails?.engineType) ?? (order.vehicleDetails?.engineType ?? ''))}
-                readOnly={!isEditMode}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), engineType: e.target.value })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                placeholder="V6 / Hybrid / Electric"
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              />
-            </div>}
-            {(isEditMode || (draftFields.vehicleDetails?.fuelType ?? order.vehicleDetails?.fuelType)) && <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Топливо</label>
-              <input
-                type="text"
-                value={String((draftFields.vehicleDetails?.fuelType) ?? (order.vehicleDetails?.fuelType ?? ''))}
-                readOnly={!isEditMode}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), fuelType: e.target.value })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                placeholder="Бензин / Дизель"
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              />
-            </div>}
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Привод</label>
-              <select
-                value={String((draftFields.vehicleDetails?.drivetrain) ?? (order.vehicleDetails?.drivetrain ?? ''))}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), drivetrain: (e.target.value || undefined) })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                disabled={!isEditMode}
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              >
-                <option value="">Не указано</option>
-                {VEHICLE_DRIVETRAIN_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Коробка</label>
-              <select
-                value={String((draftFields.vehicleDetails?.transmission) ?? (order.vehicleDetails?.transmission ?? ''))}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), transmission: (e.target.value || undefined) })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                disabled={!isEditMode}
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              >
-                <option value="">Не указано</option>
-                {VEHICLE_TRANSMISSION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Рынок / спецификация</label>
-              <select
-                value={String((draftFields.vehicleDetails?.marketRegion) ?? (order.vehicleDetails?.marketRegion ?? ''))}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), marketRegion: (e.target.value || undefined) })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                disabled={!isEditMode}
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              >
-                <option value="">Не указано</option>
-                {VEHICLE_MARKET_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Руль</label>
-              <select
-                value={String((draftFields.vehicleDetails?.steeringSide) ?? (order.vehicleDetails?.steeringSide ?? ''))}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), steeringSide: (e.target.value || undefined) })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                disabled={!isEditMode}
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              >
-                <option value="">Не указано</option>
-                {VEHICLE_STEERING_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-            </div>
-            {(isEditMode || (draftFields.vehicleDetails?.doors ?? order.vehicleDetails?.doors)) && <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Дверей</label>
-              <input
-                type="text"
-                value={String((draftFields.vehicleDetails?.doors) ?? (order.vehicleDetails?.doors ?? ''))}
-                readOnly={!isEditMode}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), doors: e.target.value })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                placeholder="2 / 4 / 5"
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              />
-            </div>}
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Цвет</label>
-              <input
-                type="text"
-                value={String((draftFields.vehicleDetails?.color) ?? (order.vehicleDetails?.color ?? ''))}
-                readOnly={!isEditMode}
-                onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), color: e.target.value })}
-                onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                placeholder="White / Black"
-                className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-2 py-2 outline-none border border-gray-100"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Дополнительные примечания</label>
-            <textarea
-              value={String((draftFields.vehicleDetails?.additionalNotes) ?? (order.vehicleDetails?.additionalNotes ?? ''))}
-              readOnly={!isEditMode}
-              onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), additionalNotes: e.target.value })}
-              onBlur={() => flushDeferredOrderField('vehicleDetails')}
-              rows={2}
-              placeholder="Особенности по двигателю, редуктору, версии и т.п."
-              className="w-full text-xs font-semibold bg-gray-50 rounded-xl px-3 py-2 outline-none border border-gray-100"
-            />
-          </div>
-            </>
-          )}
-        </div>
-      </div>
-      )}
-
-      {activeTab === 'search' && (
-      <div className="p-4 space-y-4">
-        <div ref={partsListRef} className="rounded-2xl border border-[#E7EAF3] bg-white p-3 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="font-black text-gray-900 text-xs uppercase tracking-[0.14em]">Запчасти</h2>
-              <p className="mt-1 text-xs font-semibold text-slate-500">{foundPartsCount} из {partsCount} с вариантами</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => partInputRef.current?.focus()}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-blue-600 px-3 text-[11px] font-black text-white"
-            >
-              <Plus size={14} /> Деталь
-            </button>
-          </div>
-
-          {order.parts.length === 0 ? (
-            <div className="mt-3 rounded-2xl border border-dashed border-gray-200 p-4 text-center">
-              <p className="text-sm font-bold text-slate-600">Деталей пока нет</p>
-              <button type="button" onClick={() => partInputRef.current?.focus()} className="mt-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white">Добавить первую деталь</button>
-            </div>
-          ) : (
-            <div className="mt-3 space-y-2">
-              {order.parts.map((part) => {
-                const partDisplayName = getPartDisplayName(part);
-                const groupItems = normalizeGroupItems(part.groupItems);
-                const partQuantity = normalizePartQuantity(part.quantity);
-                const variants = Array.isArray(part.variants) ? part.variants : [];
-                const bestVariant = variants.find((variant) => variant.id === part.bestOfferId || variant.isBest) || variants[0];
-                const partPhotos = (part.photos && part.photos.length > 0 ? part.photos : part.photoUrl ? [part.photoUrl] : []).filter(Boolean);
-                return (
-                  <article key={part.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => partPhotos.length > 0 && setGallery({ images: partPhotos, index: 0, partId: part.id })}
-                        className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white"
-                      >
-                        {partPhotos[0] ? <img src={partPhotos[0]} alt={partDisplayName} className="h-full w-full object-cover" /> : <Package size={18} className="text-slate-300" />}
+              <section className="space-y-3">
+                <button type="button" onClick={() => setIsClientBlockExpanded((prev) => !prev)} className="ds-press flex w-full items-center justify-between gap-3 py-2 text-left">
+                  <span>
+                    <span className="block text-[12px] font-black text-stone-500">Client</span>
+                    <span className="mt-1 block text-base font-black text-stone-950">{String(draftFields.clientName ?? order.clientName ?? 'Unnamed client')}</span>
+                  </span>
+                  {isClientBlockExpanded ? <ChevronUp size={17} className="text-stone-500" /> : <ChevronDown size={17} className="text-stone-500" />}
+                </button>
+                {isClientBlockExpanded && (
+                  <div className="ds-surface space-y-3 rounded-[24px] p-4">
+                    <div className="grid grid-cols-1 gap-3">
+                      <label className="space-y-1">
+                        <span className="flex items-center gap-1.5 text-[11px] font-bold text-stone-400"><User size={12} /> Client</span>
+                        <input type="text" value={String(draftFields.clientName ?? order.clientName ?? '')} readOnly={!isEditMode} onChange={(e) => updateOrderField('clientName', e.target.value)} onBlur={() => flushDeferredOrderField('clientName')} placeholder="Client name" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="flex items-center gap-1.5 text-[11px] font-bold text-stone-400"><Smartphone size={12} /> Phone</span>
+                        <div className="flex gap-2">
+                          <input type="tel" value={String(draftFields.customerContact ?? order.customerContact ?? '')} readOnly={!isEditMode} onChange={(e) => updateOrderField('customerContact', e.target.value)} onBlur={() => flushDeferredOrderField('customerContact')} placeholder="+971..." className="ds-input h-12 min-w-0 flex-1 rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
+                          <button type="button" onClick={() => void copyText(order.customerContact || '', 'Phone copied')} disabled={!order.customerContact} className="ds-press flex h-12 w-12 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:opacity-35" aria-label="Copy phone"><Copy size={16} /></button>
+                        </div>
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select value={String(draftFields.source ?? order.source)} onChange={(e) => updateOrderField('source', e.target.value)} disabled={!isEditMode} className="ds-input h-12 rounded-2xl border-0 px-3 text-xs font-black text-stone-800 outline-none">
+                        {SOURCES.map((source) => <option key={source} value={source}>{source}</option>)}
+                      </select>
+                      <select value={normalizedSelectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)} disabled={!isEditMode} className="ds-input h-12 rounded-2xl border-0 px-3 text-xs font-black text-stone-800 outline-none">
+                        {messageTemplates.map((template) => <option key={template} value={template}>{template}</option>)}
+                      </select>
+                    </div>
+                    {(sourceLabel.includes('instagram') || sourceLabel.includes('tiktok') || sourceLabel.includes('telegram')) && (
+                      <div className="ds-input flex items-center justify-between gap-2 rounded-2xl px-3 py-2">
+                        <span className="min-w-0 truncate text-xs font-bold text-stone-500">{(draftFields.socialNickname ?? order.socialNickname ?? '') ? 'Social link saved' : 'No social link'}</span>
+                        <button type="button" onClick={saveSocialNickname} className="rounded-full bg-white px-3 py-2 text-[11px] font-black text-stone-800">{(draftFields.socialNickname ?? order.socialNickname ?? '') ? 'Change' : 'Add'}</button>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                      <button type="button" onClick={openClientChannel} disabled={!getClientChannelLink() && (!(order.customerContact || '').replace(/[^\d]/g, '').length || (order.customerContact || '').replace(/[^\d]/g, '').length < 8)} className="ds-press inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.08em] text-white disabled:opacity-40">
+                        <MessageCircle size={16} /> {contactActionLabel}
                       </button>
-                      <div className="min-w-0 flex-1">
+                      <button type="button" onClick={() => setShowCustomerLogs(true)} className="ds-press inline-flex h-12 items-center justify-center rounded-2xl bg-stone-100 px-4 text-stone-700" aria-label="Customer logs"><History size={17} /></button>
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              <section ref={vehicleSectionRef} className="space-y-3">
+                <button type="button" onClick={() => setIsVehicleDetailsExpanded((prev) => !prev)} className="ds-press flex w-full items-center justify-between gap-3 py-2 text-left">
+                  <span>
+                    <span className="block text-[12px] font-black text-stone-500">Vehicle</span>
+                    <span className="mt-1 block text-base font-black text-stone-950">{order.brand || 'Brand'} {order.model || 'Model'} {order.year || ''}</span>
+                  </span>
+                  {isVehicleDetailsExpanded ? <ChevronUp size={17} className="text-stone-500" /> : <ChevronDown size={17} className="text-stone-500" />}
+                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    ['VIN', order.vin || 'Not set', vinIsValid ? 'Ready' : vinIsIncomplete ? 'Check' : 'Missing'],
+                    ['Market', heroMarketRegion, order.vehicleDetails?.marketRegion ? 'Set' : 'Open'],
+                    ['Engine', order.vehicleDetails?.engineType || order.vehicleDetails?.engineCode || 'Not set', 'Spec'],
+                    ['Body', order.bodyType || 'Not set', 'Body']
+                  ].map(([label, value, meta]) => (
+                    <div key={label} className="ds-surface rounded-[20px] px-4 py-3">
+                      <p className="text-[10px] font-black text-stone-400">{label}</p>
+                      <p className="mt-1 truncate text-sm font-black text-stone-950">{value}</p>
+                      <p className="mt-1 text-[10px] font-bold text-stone-400">{meta}</p>
+                    </div>
+                  ))}
+                </div>
+                {isVehicleDetailsExpanded && (
+                  <div className="ds-surface space-y-3 rounded-[24px] p-4">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="text" value={String(draftFields.vin ?? order.vin ?? '')} readOnly={!isEditMode} onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))} onBlur={() => flushDeferredOrderField('vin')} placeholder="VIN" className="ds-input col-span-2 h-12 rounded-2xl border-0 px-4 text-sm font-black uppercase text-stone-950 outline-none" />
+                      <button type="button" onClick={pasteVinFromClipboard} className="ds-press h-11 rounded-2xl bg-stone-950 px-3 text-xs font-black text-white">Paste VIN</button>
+                      <button type="button" onClick={() => carFileRef.current?.click()} className="ds-press h-11 rounded-2xl bg-stone-100 px-3 text-xs font-black text-stone-800">Add media</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select value={String((draftFields.vehicleDetails?.marketRegion) ?? (order.vehicleDetails?.marketRegion ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), marketRegion: (e.target.value || undefined) })} onBlur={() => flushDeferredOrderField('vehicleDetails')} disabled={!isEditMode} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none">
+                        <option value="">Market</option>
+                        {VEHICLE_MARKET_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                      </select>
+                      <select value={String((draftFields.vehicleDetails?.transmission) ?? (order.vehicleDetails?.transmission ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), transmission: (e.target.value || undefined) })} onBlur={() => flushDeferredOrderField('vehicleDetails')} disabled={!isEditMode} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none">
+                        <option value="">Transmission</option>
+                        {VEHICLE_TRANSMISSION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                      </select>
+                      <input type="text" value={String((draftFields.vehicleDetails?.engineType) ?? (order.vehicleDetails?.engineType ?? ''))} readOnly={!isEditMode} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), engineType: e.target.value })} onBlur={() => flushDeferredOrderField('vehicleDetails')} placeholder="Engine" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
+                      <input type="text" value={String((draftFields.vehicleDetails?.color) ?? (order.vehicleDetails?.color ?? ''))} readOnly={!isEditMode} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), color: e.target.value })} onBlur={() => flushDeferredOrderField('vehicleDetails')} placeholder="Color" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
+                    </div>
+                    {getCarPhotos().length > 0 && (
+                      <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                        {getCarPhotos().map((photo, index) => (
+                          <div key={`${photo}-${index}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-stone-200">
+                            <button type="button" onClick={() => setGallery({ images: getCarPhotos(), index })} className="h-full w-full"><img src={photo} alt="Vehicle" className="h-full w-full object-cover" /></button>
+                            {isEditMode && <button type="button" onClick={() => removeCarPhoto(index)} className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Remove photo"><X size={11} /></button>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+
+              {settings.orderZones && settings.orderZones.length > 0 && (
+                <section className="space-y-2">
+                  <p className="text-[12px] font-black text-stone-600">Service zone</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(order.zones && order.zones.length > 0 ? order.zones : order.zone ? [order.zone] : []).map((zone, index) => (
+                      <button key={`${zone}-${index}`} type="button" onClick={() => {
+                        const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
+                        updateOrderZones(current.filter((_, currentIndex) => currentIndex !== index));
+                      }} className="ds-press inline-flex items-center gap-2 rounded-full bg-stone-950 px-3 py-2 text-[11px] font-black text-white">
+                        {zone}<X size={12} />
+                      </button>
+                    ))}
+                    <select value="" onChange={(event) => {
+                      const selected = event.target.value;
+                      if (!selected) return;
+                      const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
+                      if (!current.includes(selected)) updateOrderZones([...current, selected]);
+                    }} className="ds-input h-9 rounded-full border-0 px-3 text-[11px] font-black text-stone-700 outline-none">
+                      <option value="">Add zone</option>
+                      {settings.orderZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+                    </select>
+                  </div>
+                </section>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'search' && (
+            <div className="ds-mode-enter space-y-6">
+              <section className="ds-deep-surface rounded-[28px] bg-[#16181D] p-4 text-white">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold text-white/[0.42]">Field sourcing</p>
+                    <h2 className="mt-1 text-[27px] font-black leading-tight tracking-normal">Move fast</h2>
+                    <p className="mt-1 text-xs font-semibold leading-5 text-white/[0.58]">{openPartsCount} open parts · {recommendedShops.length} supplier leads</p>
+                  </div>
+                  <button type="button" onClick={() => setShowOnlyOpenParts((prev) => !prev)} className={`ds-press rounded-full px-3 py-2 text-[11px] font-black ${showOnlyOpenParts ? 'bg-amber-300 text-stone-950' : 'bg-white/10 text-white'}`}>
+                    {showOnlyOpenParts ? 'Open only' : 'All parts'}
+                  </button>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  <button type="button" onClick={() => void copyText(safetySummary.supplierBroadcast, 'Supplier request copied')} className="ds-press inline-flex h-11 items-center justify-center gap-1 rounded-2xl bg-[#F7F3EA] px-2 text-[10px] font-black text-stone-950"><Send size={13} /> Request</button>
+                  <button type="button" onClick={contactAllRecommendedShops} disabled={recommendedShops.length === 0} className="ds-press inline-flex h-11 items-center justify-center gap-1 rounded-2xl bg-white/10 px-2 text-[10px] font-black text-white disabled:opacity-35"><Phone size={13} /> Chats</button>
+                  <button type="button" onClick={() => FEATURE_RADAR_V2 ? void launchRadarSession() : navigate('/database')} className="ds-press inline-flex h-11 items-center justify-center gap-1 rounded-2xl bg-white/10 px-2 text-[10px] font-black text-white"><Rocket size={13} /> {isLaunchingRadar ? 'Opening' : 'Radar'}</button>
+                </div>
+              </section>
+
+              <section ref={addPartSectionRef} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[12px] font-black text-stone-600">Add part</p>
+                  <span className="text-[11px] font-black text-stone-500">{order.parts.length} total</span>
+                </div>
+                <form onSubmit={(event) => { event.preventDefault(); addNewPart(); }} className="ds-surface rounded-[28px] p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="ds-input flex h-14 min-w-0 flex-1 items-center gap-2 rounded-2xl px-3">
+                      <Search size={18} className="shrink-0 text-stone-400" />
+                      <input ref={partInputRef} type="text" value={newPartName} onChange={(event) => setNewPartName(event.target.value)} placeholder="Type part name..." className="h-full min-w-0 flex-1 border-0 bg-transparent text-base font-black text-stone-950 outline-none placeholder:text-stone-400" />
+                    </div>
+                    <div className="ds-input flex h-14 w-[112px] shrink-0 items-center rounded-2xl p-1">
+                      <button type="button" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) - 1)))} className="ds-press flex h-12 w-9 items-center justify-center rounded-xl text-stone-700 active:bg-white" aria-label="Decrease quantity"><Minus size={16} /></button>
+                      <input type="number" min={1} value={newPartQuantity} onChange={(event) => setNewPartQuantity(event.target.value)} className="h-12 min-w-0 flex-1 border-0 bg-transparent text-center text-base font-black text-stone-950 outline-none" />
+                      <button type="button" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) + 1)))} className="ds-press flex h-12 w-9 items-center justify-center rounded-xl text-stone-700 active:bg-white" aria-label="Increase quantity"><Plus size={16} /></button>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => setNewPartKind('single')} className={`ds-press h-10 rounded-2xl text-[11px] font-black ${newPartKind === 'single' ? 'bg-stone-950 text-white' : 'bg-stone-100/80 text-stone-500'}`}>Single</button>
+                    <button type="button" onClick={() => { setNewPartKind('group'); setNewPartGroupItems((prev) => prev.length > 0 ? prev : [createGroupItemDraft()]); }} className={`ds-press h-10 rounded-2xl text-[11px] font-black ${newPartKind === 'group' ? 'bg-stone-950 text-white' : 'bg-stone-100/80 text-stone-500'}`}>Group</button>
+                  </div>
+                  {newPartKind === 'group' && (
+                    <div className="mt-3 space-y-2 rounded-[22px] bg-stone-100/70 p-3">
+                      {newPartGroupItems.map((item, index) => (
+                        <div key={item.id} className="flex items-center gap-2">
+                          <input type="text" value={item.name} onChange={(event) => updateGroupItemRow(item.id, 'name', event.target.value)} placeholder={`Part ${index + 1}`} className="ds-input h-10 min-w-0 flex-1 rounded-xl border-0 px-3 text-xs font-black outline-none" />
+                          <select value={item.quantity} onChange={(event) => updateGroupItemRow(item.id, 'quantity', event.target.value)} className="ds-input h-10 w-16 rounded-xl border-0 text-center text-xs font-black outline-none">
+                            {Array.from({ length: 20 }, (_, qtyIdx) => String(qtyIdx + 1)).map((qty) => <option key={qty} value={qty}>{qty}</option>)}
+                          </select>
+                          <button type="button" onClick={() => removeGroupItemRow(item.id)} className="ds-press flex h-10 w-10 items-center justify-center rounded-xl bg-white text-rose-600" aria-label="Remove group item"><X size={14} /></button>
+                        </div>
+                      ))}
+                      <button type="button" onClick={addGroupItemRow} className="ds-press h-9 rounded-xl bg-white px-3 text-[11px] font-black text-stone-700">Add row</button>
+                    </div>
+                  )}
+                  <textarea value={newPartComment} onChange={(event) => setNewPartComment(event.target.value)} placeholder="Notes, side, trim, OEM number..." rows={2} className="ds-input mt-3 w-full rounded-2xl border-0 px-3 py-3 text-sm font-bold text-stone-800 outline-none placeholder:text-stone-400" />
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto no-scrollbar">
+                      <button type="button" onClick={() => partFileRef.current?.click()} className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${newPartPhotos.length > 0 ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' : 'bg-stone-100/80 text-stone-400'}`} aria-label="Attach part photos">
+                        <ImageIcon size={18} />
+                      </button>
+                      {newPartPhotos.map((photo, index) => (
+                        <div key={`${photo}-${index}`} className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-stone-200">
+                          <img src={photo} alt="Part preview" className="h-full w-full object-cover" />
+                          <button type="button" onClick={() => removeNewPhoto(index)} className="absolute inset-0 flex items-center justify-center bg-black/[0.42] text-white opacity-0 transition hover:opacity-100" aria-label="Remove photo"><X size={13} /></button>
+                        </div>
+                      ))}
+                      <input type="file" ref={partFileRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
+                    </div>
+                    <button type="submit" className="ds-press inline-flex h-12 shrink-0 items-center gap-2 rounded-[20px] bg-stone-950 px-5 text-xs font-black uppercase tracking-[0.1em] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_12px_26px_rgba(23,23,23,0.22)]">
+                      <Plus size={16} /> Add
+                    </button>
+                  </div>
+                </form>
+              </section>
+
+              {recommendedShops.length > 0 && (
+                <section className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[12px] font-black text-stone-600">Supplier lane</p>
+                    {firstRecommendedShop && <span className="text-[11px] font-black text-stone-500">{firstRecommendedShop.name}</span>}
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                    {recommendedShops.slice(0, 8).map((shop) => (
+                      <div key={shop.id} className="ds-surface w-[220px] shrink-0 rounded-[22px] p-3">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-black text-slate-900">{partDisplayName}</p>
-                            <p className="mt-0.5 text-[11px] font-semibold text-slate-500">Qty: {partQuantity}{groupItems.length > 0 ? ` · ${groupItems.length} в группе` : ''}</p>
+                            <p className="truncate text-sm font-black text-stone-950">{shop.name}</p>
+                            <p className="mt-1 truncate text-[11px] font-bold text-stone-500">{shop.location || shop.category || 'Supplier'}</p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const mainScroller = document.querySelector('main');
-                              const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
-                              navigate(`/order/${order.id}/part/${part.id}`, {
-                                state: {
-                                  backTo: `/order/${order.id}`,
-                                  ...(typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {}),
-                                },
-                              });
-                            }}
-                            className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700"
-                          >
-                            Добавить вариант
-                          </button>
+                          <span className="rounded-full bg-stone-100 px-2 py-1 text-[10px] font-black text-stone-600">{getShopRecommendationLevel(shop, order)}</span>
                         </div>
-                        {part.comment ? <p className="mt-2 line-clamp-2 text-xs font-semibold text-slate-600">{part.comment}</p> : null}
-                        <div className="mt-2 rounded-xl border border-sky-100 bg-white p-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide text-sky-700">
-                              <Video size={12} /> Видео / Media Link
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const savedUrl = savePartMediaLink(part.id, partMediaLinkDrafts[part.id], { showToast: true });
-                                checkGoogleDriveLink(savedUrl, 'Добавьте Google Drive ссылку для детали');
-                              }}
-                              className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2 text-[10px] font-black text-sky-700 disabled:opacity-40"
-                            >
-                              <ExternalLink size={12} /> Проверить
+                        <div className="mt-3 grid grid-cols-3 gap-1.5">
+                          <button type="button" onClick={() => contactSupplier(shop.name)} className="ds-press flex h-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700" aria-label="Contact supplier"><Phone size={14} /></button>
+                          <button type="button" onClick={() => navigateToShop(shop)} className="ds-press flex h-9 items-center justify-center rounded-xl bg-stone-100 text-stone-700" aria-label="Map"><MapPin size={14} /></button>
+                          <button type="button" onClick={() => (order.recommendedShopIds || []).includes(shop.id) ? removeManualRecommendation(shop.id) : addManualRecommendation(shop.id)} className="ds-press flex h-9 items-center justify-center rounded-xl bg-stone-100 text-stone-700" aria-label="Pin supplier"><Star size={14} className={(order.recommendedShopIds || []).includes(shop.id) ? 'fill-amber-300 text-amber-500' : ''} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {(order.dismissedShopIds || []).length > 0 && (
+                    <button type="button" onClick={restoreDismissedRecommendations} className="ds-press ds-surface rounded-full px-3 py-2 text-[11px] font-black text-stone-600">Restore dismissed suppliers</button>
+                  )}
+                </section>
+              )}
+
+              <section ref={partsListRef} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[12px] font-black text-stone-600">Part queue</p>
+                  <span className="text-[11px] font-black text-stone-500">{foundPartsCount}/{partsCount} sourced</span>
+                </div>
+                {partQueue.length === 0 ? (
+                  <button type="button" onClick={() => partInputRef.current?.focus()} className="ds-press ds-soft-empty flex min-h-[118px] w-full flex-col items-center justify-center rounded-[26px] text-center">
+                    <Package size={24} className="text-stone-400" />
+                    <span className="mt-2 text-sm font-black text-stone-700">{showOnlyOpenParts ? 'All parts have options' : 'No parts yet'}</span>
+                    <span className="mt-1 text-xs font-semibold text-stone-400">Tap to capture the next item.</span>
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    {partQueue.map((part) => {
+                      const partDisplayName = getPartDisplayName(part);
+                      const groupItems = normalizeGroupItems(part.groupItems);
+                      const partQuantity = normalizePartQuantity(part.quantity);
+                      const variants = Array.isArray(part.variants) ? part.variants : [];
+                      const bestVariant = variants.find((variant) => variant.id === part.bestOfferId || variant.isBest) || variants[0];
+                      const partPhotos = getPartPreviewPhotos(part);
+                      const salePrice = Number((bestVariant?.salePriceAed ?? bestVariant?.priceAed) || 0);
+                      const purchasePrice = Number((bestVariant?.purchasePriceAed ?? bestVariant?.priceAed) || 0);
+                      const partReady = Boolean(part.isFound || variants.length > 0);
+                      return (
+                        <article key={part.id} className="ds-surface rounded-[26px] p-3">
+                          <div className="flex gap-3">
+                            <button type="button" onClick={(event) => openGallery(event, part)} className="ds-press flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-stone-100" aria-label="Open part media">
+                              {partPhotos[0] ? <img src={partPhotos[0]} alt={partDisplayName} className="h-full w-full object-cover" /> : <Package size={20} className="text-stone-300" />}
                             </button>
-                          </div>
-                          <input
-                            type="url"
-                            value={partMediaLinkDrafts[part.id] ?? ''}
-                            readOnly={!isEditMode}
-                            onChange={(e) => setPartMediaLinkDrafts((prev) => ({ ...prev, [part.id]: e.target.value }))}
-                            onBlur={(e) => savePartMediaLink(part.id, e.target.value)}
-                            placeholder="https://drive.google.com/..."
-                            className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-800 outline-none focus:border-sky-300 focus:bg-white"
-                          />
-                          <p className="mt-1 text-[10px] font-semibold text-slate-400">Google Drive: доступ Anyone with the link can view.</p>
-                        </div>
-                        <div className="mt-2 space-y-1">
-                          {variants.length === 0 ? (
-                            <p className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-400">Вариантов пока нет</p>
-                          ) : variants.slice(0, 3).map((variant) => {
-                            const isBest = bestVariant?.id === variant.id;
-                            const salePrice = Number((variant.salePriceAed ?? variant.priceAed) || 0);
-                            const purchasePrice = Number((variant.purchasePriceAed ?? variant.priceAed) || 0);
-                            return (
-                              <div key={variant.id} className={`flex items-center justify-between gap-2 rounded-xl border bg-white px-3 py-2 text-xs ${isBest ? 'border-emerald-200' : 'border-slate-200'}`}>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
-                                  <p className="truncate font-black text-slate-800">{variant.shopName || 'Поставщик не указан'}</p>
-                                  <p className="mt-0.5 text-[11px] font-semibold text-slate-500">{purchasePrice.toFixed(0)} AED закупка · {variant.condition || 'condition'} · {variant.availability || 'availability'}</p>
+                                  <p className="truncate text-base font-black text-stone-950">{partDisplayName}</p>
+                                  <p className="mt-1 truncate text-[11px] font-bold text-stone-500">Qty {partQuantity}{groupItems.length > 0 ? ` · ${groupItems.length} grouped` : ''}</p>
                                 </div>
-                                <div className="shrink-0 text-right">
-                                  <p className="font-black text-blue-700">{salePrice.toFixed(0)} AED</p>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const updatedParts = order.parts.map((p) => p.id === part.id ? { ...p, bestOfferId: variant.id, variants: (Array.isArray(p.variants) ? p.variants : []).map((v) => ({ ...v, isBest: v.id === variant.id })) } : p);
-                                      void updateOrder({ ...order, parts: updatedParts });
-                                    }}
-                                    className={`mt-1 rounded-lg px-2 py-0.5 text-[10px] font-black ${isBest ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
-                                  >
-                                    {isBest ? 'Рекомендован' : 'Рекомендовать'}
-                                  </button>
+                                <button type="button" onClick={() => togglePartFound(part.id)} className={`ds-press shrink-0 rounded-full px-3 py-1.5 text-[10px] font-black ${partReady ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-500'}`}>
+                                  {partReady ? 'Found' : 'Open'}
+                                </button>
+                              </div>
+                              {bestVariant ? (
+                                <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-stone-950/[0.04] px-3 py-2">
+                                  <div className="min-w-0">
+                                    <p className="truncate text-xs font-black text-stone-800">{bestVariant.shopName || 'Supplier'}</p>
+                                    <p className="mt-0.5 text-[10px] font-bold text-stone-500">{purchasePrice.toFixed(0)} AED buy · {bestVariant.condition || 'condition'}</p>
+                                  </div>
+                                  <p className="shrink-0 text-sm font-black text-stone-950">{salePrice.toFixed(0)} AED</p>
+                                </div>
+                              ) : (
+                                <p className="ds-soft-empty mt-3 rounded-2xl px-3 py-2 text-xs font-bold text-stone-500">No supplier option yet.</p>
+                              )}
+                              {partCommentExpanded[part.id] ? (
+                                <div className="mt-3 space-y-2">
+                                  <textarea value={partCommentDrafts[part.id] ?? ''} onChange={(event) => updatePartCommentDraft(part.id, event.target.value)} rows={2} className="ds-input w-full rounded-2xl border-0 px-3 py-2 text-xs font-bold text-stone-700 outline-none" />
+                                  <button type="button" onClick={() => savePartComment(part.id)} className="ds-press h-9 rounded-xl bg-stone-950 px-3 text-[11px] font-black text-white">Save note</button>
+                                </div>
+                              ) : part.comment ? <p className="mt-2 line-clamp-2 text-xs font-semibold text-stone-600">{part.comment}</p> : null}
+                              <div className="mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
+                                <button type="button" onClick={() => {
+                                  const mainScroller = document.querySelector('main');
+                                  const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
+                                  navigate(`/order/${order.id}/part/${part.id}`, { state: { backTo: `/order/${order.id}`, ...(typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {}) } });
+                                }} className="ds-press inline-flex h-9 shrink-0 items-center gap-1 rounded-xl bg-stone-950 px-3 text-[11px] font-black text-white">
+                                  <Plus size={13} /> Variant
+                                </button>
+                                <button type="button" onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: !prev[part.id] }))} className="ds-press h-9 shrink-0 rounded-xl bg-stone-100 px-3 text-[11px] font-black text-stone-600">Note</button>
+                                <button type="button" onClick={() => setDeletePartId(part.id)} className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600" aria-label="Delete part"><X size={14} /></button>
+                              </div>
+                              <div className="mt-2 flex gap-2">
+                                <input type="url" value={partMediaLinkDrafts[part.id] ?? ''} readOnly={!isEditMode} onChange={(event) => setPartMediaLinkDrafts((prev) => ({ ...prev, [part.id]: event.target.value }))} onBlur={(event) => savePartMediaLink(part.id, event.target.value)} placeholder="Drive media link" className="ds-input h-10 min-w-0 flex-1 rounded-xl border-0 px-3 text-xs font-bold text-stone-700 outline-none" />
+                                <button type="button" onClick={() => {
+                                  const savedUrl = savePartMediaLink(part.id, partMediaLinkDrafts[part.id], { showToast: true });
+                                  checkGoogleDriveLink(savedUrl, 'Add Drive media link');
+                                }} className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-700" aria-label="Open media"><ExternalLink size={14} /></button>
+                              </div>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
+          {activeTab === 'proof' && (
+            <div className="ds-mode-enter space-y-5">
+              <section className="ds-deep-surface rounded-[28px] bg-[#141619] p-4 text-white">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold text-white/[0.42]">Invisible safety</p>
+                    <h2 className="mt-1 text-2xl font-black tracking-normal">Proof is quietly running</h2>
+                    <p className="mt-1 text-xs font-semibold leading-5 text-white/[0.58]">{safetySummary.proofPack.completed}/{safetySummary.proofPack.total} captured · {criticalProofMissing.length} critical open</p>
+                  </div>
+                  <span className="rounded-full bg-white/10 px-3 py-2 text-[11px] font-black text-white">{Math.round((safetySummary.proofPack.completed / Math.max(1, safetySummary.proofPack.total)) * 100)}%</span>
+                </div>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-300 via-amber-200 to-white transition-all" style={{ width: `${Math.round((safetySummary.proofPack.completed / Math.max(1, safetySummary.proofPack.total)) * 100)}%` }} />
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setIsEstimateOpen(true)} className="ds-press inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white text-xs font-black text-stone-950"><Share2 size={14} /> Send quote</button>
+                  <button type="button" onClick={() => void copyText(safetySummary.supplierBroadcast, 'Supplier request copied')} className="ds-press inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white/10 text-xs font-black text-white"><Copy size={14} /> Supplier</button>
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[12px] font-black text-stone-600">Evidence gallery</p>
+                  <span className="text-[11px] font-black text-stone-500">{evidencePhotos.length} files</span>
+                </div>
+                {evidencePhotos.length > 0 ? (
+                  <div className="grid grid-cols-4 gap-2">
+                    {evidencePhotos.slice(0, 12).map((photo, index) => (
+                      <button key={`${photo}-${index}`} type="button" onClick={() => setGallery({ images: evidencePhotos, index })} className="ds-press aspect-square overflow-hidden rounded-2xl bg-stone-200">
+                        <img src={photo} alt="Evidence" className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="ds-soft-empty rounded-[26px] p-5 text-center">
+                    <Camera size={24} className="mx-auto text-stone-400" />
+                    <p className="mt-2 text-sm font-black text-stone-700">No proof media yet</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-400">Add part photos, notes, or Drive links while sourcing.</p>
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-3">
+                <p className="text-[12px] font-black text-stone-600">Missing proof</p>
+                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                  {(proofMissing.length ? proofMissing : safetySummary.proofPack.items.slice(0, 5)).map((item) => (
+                    <span key={item.id} className={`shrink-0 rounded-full px-3 py-2 text-[11px] font-black ${item.done ? 'bg-emerald-50 text-emerald-700' : item.critical ? 'bg-stone-950 text-white' : 'bg-white text-stone-500'}`}>
+                      {item.done ? <Check size={12} className="mr-1 inline" /> : null}{PROOF_COPY[item.id] || item.id}
+                    </span>
+                  ))}
+                </div>
+              </section>
+
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Order media folder</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-500">Attach a Drive folder for quote visibility.</p>
+                  </div>
+                  <FolderOpen size={19} className="text-stone-400" />
+                </div>
+                <div className="flex gap-2">
+                  <input type="url" value={orderMediaFolderDraft} readOnly={!isEditMode} onChange={(event) => setOrderMediaFolderDraft(event.target.value)} onBlur={(event) => saveOrderMediaFolder(event.target.value)} placeholder="https://drive.google.com/drive/folders/..." className="ds-input h-12 min-w-0 flex-1 rounded-2xl border-0 px-3 text-xs font-bold text-stone-800 outline-none" />
+                  <button type="button" onClick={() => {
+                    const savedUrl = saveOrderMediaFolder(orderMediaFolderDraft, { showToast: true });
+                    checkGoogleDriveLink(savedUrl, 'Add order Drive folder');
+                  }} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label="Open folder"><ExternalLink size={15} /></button>
+                </div>
+              </section>
+
+              <section className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => void copyText(safetySummary.paymentExplanation, 'Payment terms copied')} className="ds-press ds-surface inline-flex h-12 items-center justify-center gap-2 rounded-2xl text-xs font-black text-stone-800"><DollarSign size={14} /> Terms</button>
+                <button type="button" onClick={() => setIsEstimateOpen(true)} className="ds-press ds-surface inline-flex h-12 items-center justify-center gap-2 rounded-2xl text-xs font-black text-stone-800"><ReceiptText size={14} /> Public quote</button>
+                <button type="button" onClick={() => updateOrderField('isArchived', !order.isArchived)} className="ds-press ds-surface inline-flex h-12 items-center justify-center gap-2 rounded-2xl text-xs font-black text-stone-800"><Package size={14} /> {order.isArchived ? 'Unarchive' : 'Archive'}</button>
+                <button type="button" onClick={() => setDeleteOrderConfirmOpen(true)} className="ds-press inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-rose-50 text-xs font-black text-rose-700"><X size={14} /> Delete</button>
+              </section>
+            </div>
+          )}
+
+          {activeTab === 'finance' && (
+            <div className="ds-mode-enter space-y-5">
+              <section ref={markupSectionRef} className="ds-deep-surface rounded-[30px] bg-[#121418] p-5 text-white">
+                <p className="text-[11px] font-semibold text-white/[0.42]">Profitability cockpit</p>
+                <div className="mt-4 flex items-end justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-semibold text-white/[0.52]">Net profit</p>
+                    <h2 className="mt-1 text-[34px] font-black leading-none tracking-normal">{shownNetProfit !== null ? formatDualMoney(shownNetProfit) : 'Unknown'}</h2>
+                  </div>
+                  <span className={`rounded-full px-3 py-2 text-[11px] font-black ${profitTone}`}>{safetySummary.profit.level === 'healthy' ? 'Worth doing' : safetySummary.profit.level === 'unknown' ? 'Need prices' : 'Rework'}</span>
+                </div>
+                <div className="mt-5 grid grid-cols-3 gap-2">
+                  <div className="rounded-2xl bg-white/[0.075] px-3 py-2">
+                    <p className="text-[10px] font-black text-white/[0.38]">Client</p>
+                    <p className="mt-1 truncate text-sm font-black">{formatMoney(sellTotalAed, clientCurrency)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/[0.075] px-3 py-2">
+                    <p className="text-[10px] font-black text-white/[0.38]">Buy</p>
+                    <p className="mt-1 truncate text-sm font-black">{formatMoney(selectedOfferTotal)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/[0.075] px-3 py-2">
+                    <p className="text-[10px] font-black text-white/[0.38]">Margin</p>
+                    <p className="mt-1 truncate text-sm font-black">{marginPercent !== null ? `${marginPercent.toFixed(0)}%` : 'Open'}</p>
+                  </div>
+                </div>
+              </section>
+
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Margin control</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-500">{formatDualMoney(markupAed)} markup</p>
+                  </div>
+                  <div className="inline-flex rounded-full bg-stone-100 p-1">
+                    <button type="button" onClick={() => updateOrderField('markupType', 'percent')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${(order.markupType || 'percent') === 'percent' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>%</button>
+                    <button type="button" onClick={() => updateOrderField('markupType', 'fixed')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${(order.markupType || 'percent') === 'fixed' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>AED</button>
+                  </div>
+                </div>
+                {(order.markupType || 'percent') === 'percent' ? (
+                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                    {MARKUP_OPTIONS.map((option) => (
+                      <button key={option} type="button" onClick={() => updateOrderField('markupPercent', Number(option))} className={`ds-press h-11 shrink-0 rounded-2xl px-4 text-xs font-black ${Number(draftFields.markupPercent ?? order.markupPercent) === option ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-500'}`}>{option}%</button>
+                    ))}
+                  </div>
+                ) : (
+                  <input type="text" inputMode="numeric" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onBlur={() => { if (!markupFixedInput) setMarkupFixedInput('0'); flushMarkupCommit(); }} onChange={handleMarkupFixedChange} placeholder="Markup AED" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
+                )}
+                <label className="flex items-center gap-2 text-xs font-bold text-stone-500">
+                  <input type="checkbox" checked={!!order.useMarkupAsDefaultForNewParts} onChange={(event) => updateOrderField('useMarkupAsDefaultForNewParts', event.target.checked)} />
+                  Use this margin for new parts
+                </label>
+              </section>
+
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[12px] font-black text-stone-600">Logistics</p>
+                  <span className="text-[11px] font-black text-stone-500">{formatDualMoney(logisticsWithCargoTotal)}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { field: 'deliveryAed', label: 'Delivery' },
+                    { field: 'packingAed', label: 'Packing' },
+                    { field: 'serviceFeeAed', label: 'Service' }
+                  ] as const).map(({ field, label }) => (
+                    <label key={field} className="space-y-1">
+                      <span className="text-[10px] font-black text-stone-400">{label}</span>
+                      <input type="text" inputMode="numeric" value={logisticsDraft[field]} onChange={(event) => onLogisticsDraftChange(field, sanitizeNumericInput(event.target.value))} className="ds-input h-12 w-full rounded-2xl border-0 px-2 text-center text-sm font-black text-stone-950 outline-none" />
+                    </label>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={order.logistics?.deliveryType || 'uae'} onChange={(event) => updateLogisticsField('deliveryType', event.target.value)} className="ds-input h-12 rounded-2xl border-0 px-3 text-xs font-black outline-none">
+                    <option value="uae">UAE delivery</option>
+                    <option value="export">Export cargo</option>
+                  </select>
+                  <select value={order.logistics?.cargoCountry || cargoCalc.country} onChange={(event) => updateCargoField({ cargoCountry: event.target.value })} className="ds-input h-12 rounded-2xl border-0 px-3 text-xs font-black outline-none">
+                    {cargoTariffOptions.map((tariff) => <option key={tariff.country} value={tariff.country}>{tariff.country}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-3 gap-2 rounded-[22px] bg-stone-950/[0.04] p-3">
+                  <div>
+                    <p className="text-[10px] font-black text-stone-400">Weight</p>
+                    <p className="mt-1 text-sm font-black text-stone-950">{cargoCalc.chargeableWeight.toFixed(1)} kg</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-stone-400">Places</p>
+                    <p className="mt-1 text-sm font-black text-stone-950">{cargoCalc.totalPlaces}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-stone-400">ETA</p>
+                    <p className="mt-1 text-sm font-black text-stone-950">{cargoCalc.eta || '—'}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => void runAiCargoAssist()} disabled={isAiFillingCargo || !order.parts.length} className="ds-press h-11 flex-1 rounded-2xl bg-stone-100 px-3 text-xs font-black text-stone-700 disabled:opacity-35">{isAiFillingCargo ? 'Reading parts...' : 'AI cargo fill'}</button>
+                  <button type="button" onClick={saveLogisticsDraft} disabled={!hasPendingPricingChanges} className={`ds-press h-11 flex-1 rounded-2xl px-3 text-xs font-black ${hasPendingPricingChanges ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-400'}`}>Save</button>
+                </div>
+                {aiCargoNotice && <p className="rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">{aiCargoNotice}</p>}
+              </section>
+
+              {order.parts.length > 0 && (
+                <section className="space-y-2">
+                  <p className="text-[12px] font-black text-stone-600">Cargo per part</p>
+                  <div className="space-y-2">
+                    {order.parts.map((part) => {
+                      const draft = partCargoDrafts[part.id] || { weightKg: '', places: '', cargoPlaceGroup: '', isOversized: false };
+                      const completion = getCargoPartCompletion(parseCargoNumber(draft.weightKg), parseCargoNumber(draft.places));
+                      return (
+                        <div key={part.id} className="ds-surface rounded-[22px] p-3">
+                          <button type="button" onClick={() => toggleCargoPartDraft(part.id)} className="ds-press flex w-full items-center justify-between gap-3 text-left">
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-black text-stone-950">{getPartDisplayName(part)}</span>
+                              <span className="mt-1 block text-[11px] font-bold text-stone-500">{completion === 'ready' ? 'Cargo ready' : completion === 'partial' ? 'Partial cargo data' : 'Missing cargo data'}</span>
+                            </span>
+                            {expandedCargoPartIds[part.id] ? <ChevronUp size={16} className="text-stone-400" /> : <ChevronDown size={16} className="text-stone-400" />}
+                          </button>
+                          {expandedCargoPartIds[part.id] && (
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                              <input type="text" inputMode="decimal" value={draft.weightKg} onChange={(event) => onPartCargoDraftChange(part.id, 'weightKg', event.target.value)} placeholder="kg" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
+                              <input type="text" inputMode="numeric" value={draft.places} onChange={(event) => onPartCargoDraftChange(part.id, 'places', event.target.value)} placeholder="places" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
+                              <input type="text" value={draft.cargoPlaceGroup} onChange={(event) => onPartCargoDraftChange(part.id, 'cargoPlaceGroup', event.target.value)} placeholder="group" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
+                              <label className="ds-input flex h-11 items-center gap-2 rounded-2xl px-3 text-xs font-black text-stone-600">
+                                <input type="checkbox" checked={draft.isOversized} onChange={(event) => onPartCargoDraftChange(part.id, 'isOversized', event.target.checked)} />
+                                Oversized
+                              </label>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              <section className="grid grid-cols-3 gap-2">
+                <button type="button" onClick={openClientChannel} className="ds-press h-12 rounded-2xl bg-emerald-50 px-2 text-[11px] font-black text-emerald-700">{contactActionLabel}</button>
+                <button type="button" onClick={() => setIsEstimateOpen(true)} className="ds-press h-12 rounded-2xl bg-stone-950 px-2 text-[11px] font-black text-white">Quote</button>
+                <button type="button" onClick={handleSellClick} className="ds-press ds-surface h-12 rounded-2xl px-2 text-[11px] font-black text-stone-800">{order.isSold ? 'Reopen' : 'Sold'}</button>
+              </section>
+              {sellError && <div className="rounded-2xl bg-rose-50 px-4 py-3 text-xs font-black text-rose-700">{sellError}</div>}
+            </div>
+          )}
+
+          {activeTab === 'notes' && (
+            <div className="ds-mode-enter space-y-5">
+              <section ref={notesSectionRef} className="ds-surface space-y-3 rounded-[28px] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Transaction memory</p>
+                    <h2 className="mt-1 text-xl font-black text-stone-950">Notes and voice</h2>
+                  </div>
+                  {latestNote && <span className="rounded-full bg-stone-100 px-3 py-2 text-[10px] font-black text-stone-500">{new Date(latestNote.createdAt).toLocaleDateString()}</span>}
+                </div>
+                <textarea value={newNoteText} onChange={(event) => setNewNoteText(event.target.value)} placeholder="Add what happened, what client said, supplier details..." className="ds-input w-full rounded-2xl border-0 p-3 text-sm font-bold text-stone-800 outline-none placeholder:text-stone-400" rows={3} />
+                {recordingError && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{recordingError}</p>}
+                {recordingSavedLocally && <p className="rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Recording saved locally</p>}
+                <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                  <button type="button" onClick={() => noteFileRef.current?.click()} aria-label="Attach photo" className="ds-press inline-flex h-12 shrink-0 items-center gap-2 rounded-2xl bg-stone-100 px-4 text-xs font-black text-stone-700"><ImageIcon size={17} /> Photo</button>
+                  <button type="button" onClick={() => noteAudioFileRef.current?.click()} aria-label="Attach audio file" className="ds-press inline-flex h-12 shrink-0 items-center gap-2 rounded-2xl bg-stone-100 px-4 text-xs font-black text-stone-700"><FileAudio size={17} /> File</button>
+                  <button type="button" onClick={() => void toggleRecording()} aria-label="Voice" className={`ds-press inline-flex h-12 shrink-0 items-center gap-2 rounded-2xl px-4 text-xs font-black ${isRecording ? 'bg-rose-50 text-rose-700' : 'bg-stone-950 text-white'}`}><Mic size={16} /> Voice</button>
+                  {newNotePhotos.map((photo, index) => <img key={`${photo}-${index}`} src={photo} alt="New note" className="h-12 w-12 shrink-0 rounded-2xl object-cover" />)}
+                  {newNoteAudios.map((audioItem, index) => {
+                    const voice = toVoiceNoteAudio(audioItem);
+                    const audioId = `draft-audio-${voice.id}`;
+                    const isPlaying = playingAudioId === audioId;
+                    const progress = audioProgress[audioId] || 0;
+                    const bars = getWaveBars(voice.fileUrl.slice(0, 120));
+                    return (
+                      <div key={`draft-${voice.id}`} className="flex h-12 min-w-[240px] items-center gap-2 rounded-2xl bg-emerald-50 px-2">
+                        <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="ds-press flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white" aria-label="Play audio">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
+                        <div className="flex h-8 flex-1 items-end gap-[2px]">
+                          {bars.slice(0, 18).map((bar, barIndex) => {
+                            const active = (barIndex + 1) / 18 <= progress / 100;
+                            return <span key={`${audioId}-${barIndex}`} className={`w-[3px] rounded-full ${active ? 'bg-emerald-600' : 'bg-emerald-200'}`} style={{ height: `${Math.max(30, bar * 0.8)}%` }} />;
+                          })}
+                        </div>
+                        <button type="button" onClick={() => removeNewAudio(index)} className="ds-press rounded-lg px-2 py-1 text-[10px] font-black text-rose-600">Remove</button>
+                        <audio id={audioId} src={voice.fileUrl} preload="metadata" playsInline />
+                      </div>
+                    );
+                  })}
+                  <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
+                  <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
+                </div>
+                {isUploadingVoice && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-stone-500">Uploading voice note...</p>
+                    <div className="h-2 overflow-hidden rounded-full bg-stone-100"><div className="h-full bg-emerald-600 transition-all" style={{ width: `${voiceUploadProgress}%` }} /></div>
+                  </div>
+                )}
+                <button type="button" onClick={addNote} className="ds-press h-12 w-full rounded-2xl bg-stone-950 text-xs font-black uppercase tracking-[0.12em] text-white">Add memory</button>
+              </section>
+
+              {(order.notes || []).length > 0 && (
+                <section className="space-y-2">
+                  {(order.notes || []).map((note) => (
+                    <article key={note.id} className="ds-surface rounded-[24px] p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          {note.text && <p className="text-sm font-semibold leading-6 text-stone-800">{note.text}</p>}
+                          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.16em] text-stone-400">{new Date(note.createdAt).toLocaleString()}</p>
+                        </div>
+                        <button type="button" onClick={() => removeNoteById(note.id)} className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600" aria-label="Delete note"><X size={14} /></button>
+                      </div>
+                      {note.photos && note.photos.length > 0 && (
+                        <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar">
+                          {note.photos.map((photo, index) => (
+                            <div key={`${photo}-${index}`} className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl">
+                              <button type="button" onClick={() => setGallery({ images: note.photos || [], index })} className="ds-press h-full w-full"><img src={photo} alt="Note" className="h-full w-full object-cover" /></button>
+                              <button type="button" onClick={() => removeNotePhoto(note.id, index)} className="ds-press absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Remove photo"><X size={11} /></button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {note.audios && note.audios.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {note.audios.map((audioItem, index) => {
+                            const voice = toVoiceNoteAudio(audioItem);
+                            const audioId = `note-${note.id}-${voice.id}-${index}`;
+                            const isPlaying = playingAudioId === audioId;
+                            const progress = audioProgress[audioId] || 0;
+                            const bars = getWaveBars(voice.fileUrl.slice(0, 120));
+                            return (
+                              <div key={audioId} className="rounded-2xl bg-stone-950/[0.04] p-3">
+                                <div className="flex items-center gap-2">
+                                  <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="ds-press flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-stone-950 text-white" aria-label="Play note">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
+                                  <div className="flex h-8 flex-1 items-center gap-0.5">
+                                    {bars.map((height, barIndex) => {
+                                      const threshold = ((barIndex + 1) / bars.length) * 100;
+                                      const passed = progress >= threshold;
+                                      return <span key={`${audioId}-bar-${barIndex}`} className={`block flex-1 rounded-full ${passed ? 'bg-stone-950' : 'bg-stone-300'}`} style={{ height: `${height}%` }} />;
+                                    })}
+                                  </div>
+                                  <span className="text-xs font-black text-stone-500">{formatSeconds(voice.duration)}</span>
+                                </div>
+                                <audio id={audioId} src={voice.fileUrl} preload="metadata" playsInline />
+                                <div className="mt-2 flex gap-2">
+                                  <button type="button" onClick={() => removeNoteAudio(note.id, index)} className="ds-press rounded-xl bg-white px-3 py-1.5 text-[10px] font-black text-rose-600">Delete</button>
+                                  <a href={voice.fileUrl} download={`voice-note-${voice.id}.webm`} className="ds-press inline-flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 text-[10px] font-black text-stone-700"><Download size={11} /> Download</a>
                                 </div>
                               </div>
                             );
                           })}
-                          {variants.length > 3 ? <p className="px-1 text-[10px] font-semibold text-slate-400">Ещё {variants.length - 3} вариантов в карточке детали.</p> : null}
                         </div>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
+                      )}
+                    </article>
+                  ))}
+                </section>
+              )}
             </div>
           )}
         </div>
-      </div>
-      )}
-
-      {activeTab === 'finance' && (
-      <div className="p-4 space-y-4">
-        <div ref={markupSectionRef} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <button type="button" onClick={() => setIsPricingCargoExpanded((prev) => !prev)} className="flex w-full items-center justify-between text-left">
-            <div>
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Надценка</p>
-              <p className="text-xs font-semibold text-gray-600">{formatMoney(markupAed)}</p>
-            </div>
-            {isPricingCargoExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
-          </button>
-          {isPricingCargoExpanded && (
-        <div className="grid grid-cols-1 gap-3">
-          <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Margin</span>
-              <div className="inline-flex rounded-xl border border-gray-200 p-1">
-                <button type="button" onClick={() => updateOrderField('markupType', 'percent')} className={`px-3 py-1 text-xs font-bold rounded-lg ${(order.markupType || 'percent') === 'percent' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>%</button>
-                <button type="button" onClick={() => updateOrderField('markupType', 'fixed')} className={`px-3 py-1 text-xs font-bold rounded-lg ${(order.markupType || 'percent') === 'fixed' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>фикс</button>
-              </div>
-            </div>
-            {(order.markupType || 'percent') === 'percent' ? (
-              <select
-                value={Number(draftFields.markupPercent ?? order.markupPercent)}
-                onChange={(e) => updateOrderField('markupPercent', Number(e.target.value))}
-                onBlur={() => flushDeferredOrderField('markupPercent')}
-                className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100"
-              >
-                {MARKUP_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}%</option>)}
-              </select>
-            ) : (
-              <input type="text" inputMode="numeric" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onBlur={() => { if (!markupFixedInput) setMarkupFixedInput('0'); }}  onChange={handleMarkupFixedChange} className="w-full h-10 font-black bg-gray-50 rounded-xl px-3 outline-none border border-gray-100" placeholder="AED" />
-            )}
-            <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-gray-500">
-              <input type="checkbox" checked={!!order.useMarkupAsDefaultForNewParts} onChange={(e) => updateOrderField('useMarkupAsDefaultForNewParts', e.target.checked)} />
-              Apply margin to new parts
-            </label>
-          </div>
-          <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-2 gap-2">
-            {([
-              { field: 'deliveryAed', label: 'Доставка' },
-              { field: 'packingAed', label: 'Упаковка' },
-              { field: 'serviceFeeAed', label: 'Комиссия' }
-            ] as const).map(({ field, label }) => (
-              <LogisticsAmountInput
-                key={field}
-                field={field}
-                label={label}
-                value={logisticsDraft[field]}
-                onChange={onLogisticsDraftChange}
-              />
-            ))}
-            <div className="col-span-2 pt-1">
-              <button
-                type="button"
-                onClick={saveLogisticsDraft}
-                disabled={!hasPendingPricingChanges}
-                className={`h-10 w-full rounded-xl text-xs font-black uppercase tracking-wide transition ${hasPendingPricingChanges ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-              >
-                Сохранить
-              </button>
-            </div>
-          </div>
-
-<div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-2">
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Purchase</p><p className="font-black text-gray-800">{formatMoney(selectedOfferTotal)}</p></div>
-              <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-gray-400">Cargo</p><p className="font-black text-gray-800">{formatDualMoney(cargoTotalAed)}</p></div>
-              <div className="rounded-xl bg-blue-50 px-3 py-2"><p className="text-blue-500">Margin</p><p className="font-black text-blue-700">{formatDualMoney(markupAed)}</p></div>
-              <div className="rounded-xl bg-emerald-50 px-3 py-2"><p className="text-emerald-500">Client price</p><p className="font-black text-emerald-700">{formatMoney(sellTotalAed, clientCurrency)}</p></div>
-            </div>
-            <div className="rounded-xl bg-emerald-100 px-3 py-2 text-sm font-black text-emerald-800">Чистая прибыль: {canComputeProfit && netProfitAed !== null ? formatDualMoney(netProfitAed) : '—'}{marginPercent !== null ? ` · ${marginPercent.toFixed(0)}%` : ''}</div>
-            {!canComputeProfit && <div className="text-xs font-semibold text-gray-500">Добавьте варианты цен.</div>}
-            {isLoss && <div className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">Вы уходите в минус ⚠️</div>}
-            {isMarkupMissing && <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Наценка отсутствует. Прибыль = 0.</div>}
-            {lowMargin && <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Рекомендуемая маржа: 10-20%</div>}
-          </div>
-
-          <div className="grid grid-cols-1 gap-2">
-            <div className="grid grid-cols-3 gap-2">
-              <button type="button" onClick={openClientChannel} className="h-11 rounded-2xl bg-emerald-50 text-emerald-700 text-[11px] font-black uppercase">{contactActionLabel}</button>
-              <button type="button" onClick={() => partInputRef.current?.focus()} className="h-11 rounded-2xl bg-blue-50 px-2 text-blue-700 text-[11px] font-black">Добавить деталь</button>
-              <button type="button" onClick={() => navigate('/database')} className="h-11 rounded-2xl bg-slate-100 px-2 text-slate-700 text-[11px] font-black">Добавить поставщика</button>
-            </div>
-          </div>
-        </div>
-          )}
-        </div>
-
-
-        {sellError && (
-          <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in slide-in-from-top-2">
-            <AlertTriangle size={16} />
-            {sellError}
-          </div>
-        )}
-      </div>
-      )}
-
-      {activeTab === 'search' && (
-      <div className="p-4 pt-0 space-y-4">
-        <div ref={addPartSectionRef} className="bg-white p-4 rounded-[14px] border border-[#E7EAF3] shadow-[0_4px_12px_rgba(0,0,0,0.06)] space-y-4 transition-all duration-200 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:scale-[1.01]">
-          <h2 className="text-[14px] font-semibold text-[#8B8F98] uppercase tracking-[0.04em]">Add part</h2>
-          <form 
-            onSubmit={(e) => { e.preventDefault(); addNewPart(); }}
-            className="flex flex-col gap-3"
-          >
-            <div className="grid grid-cols-[minmax(0,1fr)_118px] gap-2">
-              <div className="flex-1 flex gap-2 items-center bg-[#F6F7FB] border border-[#E7EAF3] px-3 rounded-[12px] h-12">
-                <input 
-                  type="text" 
-                  ref={partInputRef} value={newPartName} 
-                  onChange={(e) => setNewPartName(e.target.value)}
-                  placeholder="Search part..."
-                  className="flex-1 bg-transparent outline-none p-1 text-[16px] font-medium text-[#1E1F23]"
-                />
-              </div>
-              <div className="flex w-[118px] shrink-0 items-center rounded-[12px] border border-[#E7EAF3] bg-white h-12 overflow-hidden">
-                <button type="button" className="h-12 w-9 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) - 1)))}>-</button>
-                <input
-                  type="number"
-                  min={1}
-                  value={newPartQuantity}
-                  onChange={(e) => setNewPartQuantity(e.target.value)}
-                  className="w-full min-w-0 bg-transparent text-center text-[16px] font-medium outline-none"
-                  placeholder="1"
-                />
-                <button type="button" className="h-12 w-9 text-lg font-semibold text-[#1E1F23]" onClick={() => setNewPartQuantity(String(Math.max(1, Number(newPartQuantity || 1) + 1)))}>+</button>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setNewPartKind('single')}
-                className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-wide ${newPartKind === 'single' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500'}`}
-              >
-                Обычная деталь
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setNewPartKind('group');
-                  setNewPartGroupItems((prev) => prev.length > 0 ? prev : [createGroupItemDraft()]);
-                }}
-                className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-wide ${newPartKind === 'group' ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-gray-200 bg-white text-gray-500'}`}
-              >
-                Группа деталей
-              </button>
-            </div>
-            {newPartKind === 'group' && (
-              <div className="space-y-2 rounded-xl border border-violet-100 bg-violet-50/60 p-3">
-                <p className="text-[11px] font-black uppercase tracking-wide text-violet-700">Состав группы</p>
-                {newPartGroupItems.map((item, index) => (
-                  <div key={item.id} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <input
-                      type="text"
-                      value={item.name}
-                      onChange={(e) => updateGroupItemRow(item.id, 'name', e.target.value)}
-                      placeholder={`Деталь #${index + 1}`}
-                      className="w-full flex-1 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm font-semibold outline-none"
-                    />
-                    <div className="flex items-center gap-2 sm:shrink-0">
-                      <select
-                        value={item.quantity}
-                        onChange={(e) => updateGroupItemRow(item.id, 'quantity', e.target.value)}
-                        className="w-20 rounded-lg border border-violet-100 bg-white px-2 py-2 text-center text-sm font-bold"
-                      >
-                        {Array.from({ length: 20 }, (_, qtyIdx) => String(qtyIdx + 1)).map((qty) => <option key={qty} value={qty}>{qty}</option>)}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => removeGroupItemRow(item.id)}
-                        className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-600"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <button type="button" onClick={addGroupItemRow} className="w-full rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-black uppercase tracking-wide text-violet-700 sm:w-auto">
-                  + Добавить деталь в группу
-                </button>
-              </div>
-            )}
-            <textarea
-              value={newPartComment}
-              onChange={(e) => setNewPartComment(e.target.value)}
-              placeholder={newPartKind === 'group' ? 'Описание к группе (необязательно)' : 'Описание к детали (необязательно)'}
-              className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm font-semibold outline-none"
-              rows={2}
-            />
-
-            <div className="flex items-end justify-between gap-3">
-              <div className="flex flex-1 gap-2 items-center overflow-x-auto no-scrollbar">
-                <button
-                  type="button" 
-                  onClick={() => partFileRef.current?.click()}
-                  className={`w-12 h-12 shrink-0 rounded-xl flex items-center justify-center border-2 border-dashed border-gray-200 transition-colors ${newPartPhotos.length > 0 ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-300'}`}
-                >
-                  <ImageIcon size={20} />
-                </button>
-                {newPartPhotos.map((p, i) => (
-                    <div key={i} className="relative w-12 h-12 shrink-0 rounded-xl overflow-hidden border border-gray-100">
-                        <img src={p} className="w-full h-full object-cover" />
-                        <button 
-                            type="button"
-                            onClick={() => removeNewPhoto(i)}
-                            className="absolute inset-0 bg-black/40 flex items-center justify-center text-white opacity-0 hover:opacity-100 transition-opacity"
-                        >
-                            <X size={12} />
-                        </button>
-                    </div>
-                ))}
-                <input type="file" ref={partFileRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
-              </div>
-              <button
-                type="submit"
-                className="h-12 w-full sm:w-auto shrink-0 rounded-[12px] bg-[#3B6AF7] px-6 text-[13px] font-semibold uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(59,106,247,0.35)] active:scale-[0.97] transition-transform duration-200"
-              >
-                ADD
-              </button>
-            </div>
-          </form>
-          <p className="mt-3 text-xs font-semibold text-gray-600">
-            Добавлено деталей: <span className="font-black text-gray-800">{order.parts.length}</span>
-            {order.parts.length > 0 ? <span className="text-gray-500"> · Последняя: {order.parts[order.parts.length - 1]?.name || '—'}</span> : null}
-          </p>
-        </div>
-      </div>
-      )}
-
-      {activeTab === 'notes' && (
-      <div className="p-4 space-y-4">
-        <div ref={notesSectionRef} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Заметки</h2>
-          <textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder="Текст заметки..." className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-semibold outline-none" rows={3} />
-
-          {recordingError && <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{recordingError}</p>}
-          {recordingSavedLocally && <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">Recording saved locally</p>}
-
-          <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            <button type="button" onClick={() => noteFileRef.current?.click()} aria-label="Attach photo" className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-4 text-gray-700 inline-flex items-center gap-2"><ImageIcon size={18} /> Фото</button>
-            <button type="button" onClick={() => noteAudioFileRef.current?.click()} aria-label="Attach audio file" className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-4 text-gray-700 inline-flex items-center gap-2"><FileAudio size={18} /> Файл</button>
-            <button type="button" onClick={() => void toggleRecording()} aria-label="Voice" className={`h-11 rounded-xl px-4 inline-flex items-center gap-2 transition-all ${isRecording ? 'border border-red-300 bg-red-50 text-red-700' : 'border border-gray-200 bg-gray-100 text-gray-700'}`}><Mic size={16} className={isRecording ? 'scale-110' : ''} /> Voice</button>
-            {newNotePhotos.map((p, i) => <img key={i} src={p} className="w-12 h-12 rounded-xl object-cover border border-gray-100" />)}
-            {newNoteAudios.map((audioItem, i) => {
-              const voice = toVoiceNoteAudio(audioItem);
-              const audioId = `draft-audio-${voice.id}`;
-              const isPlaying = playingAudioId === audioId;
-              const progress = audioProgress[audioId] || 0;
-              const bars = getWaveBars(voice.fileUrl.slice(0, 120));
-
-              return (
-                <div key={`na-${voice.id}`} className="flex h-12 items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-2 py-1 min-w-[250px]">
-                  <button type="button" onClick={() => toggleAudioPlayback(audioId)} aria-label="Play voice note" className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-white shrink-0">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
-                  <div className="flex h-8 flex-1 items-end gap-[2px] rounded-md bg-white/80 px-1">
-                    {bars.slice(0, 18).map((bar, barIndex) => {
-                      const completion = (barIndex + 1) / 18;
-                      const isActive = completion <= progress / 100;
-                      return <span key={`${audioId}-bar-${barIndex}`} className={`w-[3px] rounded-full ${isActive ? 'bg-blue-600' : 'bg-blue-200'}`} style={{ height: `${Math.max(30, bar * 0.8)}%` }} />;
-                    })}
-                  </div>
-                  <span className="text-[10px] font-bold text-slate-600">{formatSeconds(voice.duration)}</span>
-                  <button type="button" onClick={() => removeNewAudio(i)} aria-label="Delete voice note" className="rounded-md border border-rose-200 bg-white px-2 py-1 text-[10px] font-bold text-rose-600">Удалить</button>
-                  <audio id={audioId} src={voice.fileUrl} preload="metadata" playsInline />
-                </div>
-              );
-            })}
-            <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
-            <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
-          </div>
-
-          {isUploadingVoice && (
-            <div className="space-y-1">
-              <p className="text-xs font-semibold text-slate-600">Uploading voice note...</p>
-              <div className="h-2 rounded-full bg-slate-200 overflow-hidden"><div className="h-full bg-blue-600 transition-all" style={{ width: `${voiceUploadProgress}%` }} /></div>
-            </div>
-          )}
-
-          <button type="button" onClick={addNote} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-wide">Добавить заметку</button>
-          {(order.notes || []).length > 0 && (
-            <div className="space-y-2">
-              {(order.notes || []).map(n => (
-                <div key={n.id} className="bg-gray-50 border border-gray-100 rounded-xl p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    {n.text && <p className="text-sm font-semibold text-gray-700">{n.text}</p>}
-                    <button type="button" onClick={() => removeNoteById(n.id)} className="shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete заметку</button>
-                  </div>
-                  {n.photos && n.photos.length > 0 && <div className="flex gap-2 mt-2 overflow-x-auto no-scrollbar">{n.photos.map((ph, idx) => <div key={idx} className="relative w-12 h-12 rounded-lg overflow-hidden"><button type="button" onClick={() => setGallery({ images: n.photos || [], index: idx })} className="w-full h-full"><img src={ph} className="w-full h-full object-cover" /></button><button type="button" onClick={() => removeNotePhoto(n.id, idx)} className="absolute right-0.5 top-0.5 rounded-full bg-black/60 px-1 text-[9px] text-white">✕</button></div>)}</div>}
-                  {n.audios && n.audios.length > 0 && <div className="space-y-2 mt-2">{n.audios.map((audioItem, idx) => {
-                    const voice = toVoiceNoteAudio(audioItem);
-                    const audioId = `note-${n.id}-${voice.id}-${idx}`;
-                    const isPlaying = playingAudioId === audioId;
-                    const progress = audioProgress[audioId] || 0;
-                    const bars = getWaveBars(voice.fileUrl.slice(0, 120));
-
-                    return (
-                      <div key={audioId} className="space-y-2 rounded-2xl border border-gray-200 bg-white px-3 py-2">
-                        <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-slate-500">
-                          <p className="inline-flex items-center gap-1"><Mic size={12} /> Voice note</p>
-                          <p>{new Date(voice.createdAt).toLocaleString()}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button type="button" onClick={() => toggleAudioPlayback(audioId)} aria-label="Play" className="w-7 h-7 rounded-full bg-green-600 text-white flex items-center justify-center shrink-0">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
-                          <div className="flex-1 h-8 flex items-center gap-0.5">
-                            {bars.map((height, barIndex) => {
-                              const threshold = ((barIndex + 1) / bars.length) * 100;
-                              const isPassed = progress >= threshold;
-                              return <span key={`${audioId}-bar-${barIndex}`} className={`block flex-1 rounded-full transition-colors ${isPassed ? 'bg-green-500' : 'bg-gray-300'} ${isPlaying ? 'animate-pulse' : ''}`} style={{ height: `${height}%`, animationDelay: `${barIndex * 0.03}s` }} />;
-                            })}
-                          </div>
-                          <span className="text-xs font-semibold text-slate-600">{formatSeconds(voice.duration)}</span>
-                        </div>
-                        <audio id={audioId} src={voice.fileUrl} preload="metadata" playsInline />
-                        <div className="flex gap-2">
-                          <button type="button" onClick={() => removeNoteAudio(n.id, idx)} className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete</button>
-                          <a href={voice.fileUrl} download={`voice-note-${voice.id}.webm`} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700 inline-flex items-center gap-1"><Download size={11} />Download</a>
-                          <button type="button" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('Voice note')}`, '_blank')} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700 inline-flex items-center gap-1"><Share2 size={11} />Share</button>
-                        </div>
-                      </div>
-                    );
-                  })}</div>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-      )}
-
-      {activeTab === 'proof' && (
-      <div className="p-4 pt-0 space-y-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h2 className="font-black text-gray-400 text-[10px] uppercase tracking-[0.2em]">Действия</h2>
-          <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-wide text-sky-800">
-                <FolderOpen size={14} /> Материалы заказа
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  const savedUrl = saveOrderMediaFolder(orderMediaFolderDraft, { showToast: true });
-                  checkGoogleDriveLink(savedUrl, 'Добавьте Google Drive папку заказа');
-                }}
-                className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2 text-[10px] font-black text-sky-700"
-              >
-                <ExternalLink size={12} /> Проверить
-              </button>
-            </div>
-            <input
-              type="url"
-              value={orderMediaFolderDraft}
-              readOnly={!isEditMode}
-              onChange={(e) => setOrderMediaFolderDraft(e.target.value)}
-              onBlur={(e) => saveOrderMediaFolder(e.target.value)}
-              placeholder="https://drive.google.com/drive/folders/..."
-              className="mt-2 h-11 w-full rounded-xl border border-sky-100 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-sky-300"
-            />
-            <p className="mt-1 text-[10px] font-semibold text-sky-700/70">Папка появится внизу Public Quote. Доступ: Anyone with the link can view.</p>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setIsEstimateOpen(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 text-xs font-black text-white">
-              <Share2 size={14} /> Отправить
-            </button>
-            <button type="button" onClick={() => setIsEstimateOpen(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-black text-blue-700">
-              <FileText size={14} /> Public quote
-            </button>
-            <button type="button" onClick={() => setIsEstimateOpen(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700">
-              <Download size={14} /> Invoice
-            </button>
-            <button type="button" onClick={() => updateOrderField('isArchived', !order.isArchived)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700">
-              <Package size={14} /> {order.isArchived ? 'Вернуть' : 'Архив'}
-            </button>
-          </div>
-          <button type="button" onClick={() => setDeleteOrderConfirmOpen(true)} className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">
-            <X size={14} /> Удалить заказ
-          </button>
-        </div>
-      </div>
-      )}
 
         {isRecording && (
-          <div className="fixed inset-0 z-50 bg-slate-900/70 p-4">
-            <div className="mx-auto mt-16 w-full max-w-md rounded-2xl border border-rose-100 bg-white p-4 shadow-xl space-y-3">
-              <p className="text-sm font-bold text-slate-800">Recording...</p>
-              <div className="flex items-center justify-between text-sm font-semibold text-rose-700">
-                <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />●</span>
-                <span>{formatSeconds(recordingElapsedSeconds)}</span>
+          <div className="fixed inset-0 z-50 bg-slate-950/76 p-4 backdrop-blur-sm">
+            <div className="ds-mode-enter ds-surface mx-auto mt-16 w-full max-w-md space-y-3 rounded-[28px] p-4 text-stone-950 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-black">Recording</p>
+                <span className="font-mono text-sm font-black text-rose-700">{formatSeconds(recordingElapsedSeconds)}</span>
               </div>
-              <div className="h-14 rounded-xl border border-rose-100 bg-rose-50/40 px-2">
+              <div className="h-16 rounded-2xl bg-rose-50 px-2">
                 <canvas id="voice-recorder-wave" className="h-full w-full" aria-label="Recording waveform" />
-                <div className="-mt-14 flex h-14 items-end gap-0.5">
+                <div className="-mt-16 flex h-16 items-end gap-0.5">
                   {recordingWaveform.map((height, index) => <span key={`live-wave-${index}`} className="block flex-1 rounded-full bg-rose-400 transition-all" style={{ height: `${height}%` }} />)}
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                <button type="button" onClick={toggleRecordingPause} className="h-11 rounded-xl border border-amber-200 bg-amber-50 text-xs font-bold text-amber-700">{isRecordingPaused ? 'Resume' : 'Pause'}</button>
-                <button type="button" onClick={() => void toggleRecording()} className="h-11 rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-700">Stop</button>
-                <button type="button" onClick={requestCancelRecording} className="h-11 rounded-xl border border-rose-200 bg-rose-50 text-xs font-bold text-rose-700">Cancel</button>
+                <button type="button" onClick={toggleRecordingPause} className="ds-press h-12 rounded-2xl bg-amber-50 text-xs font-black text-amber-700">{isRecordingPaused ? 'Resume' : 'Pause'}</button>
+                <button type="button" onClick={() => void toggleRecording()} className="ds-press h-12 rounded-2xl bg-emerald-50 text-xs font-black text-emerald-700">Stop</button>
+                <button type="button" onClick={requestCancelRecording} className="ds-press h-12 rounded-2xl bg-rose-50 text-xs font-black text-rose-700">Cancel</button>
               </div>
-              <p className="text-[11px] font-semibold text-slate-500">Max length: 05:00 • Max size: 10MB</p>
+              <p className="text-[11px] font-semibold text-stone-500">Max length: 05:00 · Max size: 10MB</p>
             </div>
           </div>
         )}
 
         {isDiscardConfirmOpen && (
           <div className="fixed inset-0 z-[60] bg-black/50 p-4">
-            <div className="mx-auto mt-28 w-full max-w-sm rounded-2xl bg-white p-4 space-y-3">
-              <p className="text-sm font-bold text-slate-800">Discard recording?</p>
+            <div className="ds-mode-enter ds-surface mx-auto mt-28 w-full max-w-sm space-y-3 rounded-[24px] p-4 text-stone-950">
+              <p className="text-sm font-black">Discard recording?</p>
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={confirmDiscardRecording} className="h-10 rounded-xl border border-rose-200 bg-rose-50 text-xs font-bold text-rose-700">Discard</button>
-                <button type="button" onClick={() => setIsDiscardConfirmOpen(false)} className="h-10 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700">Continue recording</button>
+                <button type="button" onClick={confirmDiscardRecording} className="ds-press h-11 rounded-2xl bg-rose-50 text-xs font-black text-rose-700">Discard</button>
+                <button type="button" onClick={() => setIsDiscardConfirmOpen(false)} className="ds-press h-11 rounded-2xl bg-stone-100 text-xs font-black text-stone-700">Continue</button>
               </div>
             </div>
           </div>
         )}
 
+        <ConfirmModal isOpen={!!deletePartId} message="Вы уверены, что хотите удалить эту деталь?" onConfirm={confirmDeletePart} onCancel={() => setDeletePartId(null)} />
+        <ConfirmModal isOpen={deleteOrderConfirmOpen} message="Удалить заказ? Это действие удалит заказ и связанные детали." confirmLabel="Удалить" confirmClass="bg-red-600 active:bg-red-700" onConfirm={() => void confirmDeleteOrder()} onCancel={() => setDeleteOrderConfirmOpen(false)} />
+        <ConfirmModal isOpen={showSellConfirm} message={order.isSold ? "Вернуть заказ в активные?" : "Отметить заказ как проданный?"} confirmLabel={order.isSold ? "Да, вернуть" : "Да, продано"} confirmClass={order.isSold ? "bg-blue-600 active:bg-blue-700" : "bg-green-600 active:bg-green-700"} onConfirm={confirmSellOrder} onCancel={() => setShowSellConfirm(false)} />
 
-
-
-      <ConfirmModal 
-        isOpen={!!deletePartId} 
-        message="Вы уверены, что хотите удалить эту деталь?" 
-        onConfirm={confirmDeletePart} 
-        onCancel={() => setDeletePartId(null)} 
-      />
-
-      <ConfirmModal
-        isOpen={deleteOrderConfirmOpen}
-        message="Удалить заказ? Это действие удалит заказ и связанные детали."
-        confirmLabel="Удалить"
-        confirmClass="bg-red-600 active:bg-red-700"
-        onConfirm={() => void confirmDeleteOrder()}
-        onCancel={() => setDeleteOrderConfirmOpen(false)}
-      />
-
-      <ConfirmModal
-        isOpen={showSellConfirm}
-        message={order.isSold ? "Вернуть заказ в активные?" : "Отметить заказ как проданный?"}
-        confirmLabel={order.isSold ? "Да, вернуть" : "Да, продано"}
-        confirmClass={order.isSold ? "bg-blue-600 active:bg-blue-700" : "bg-green-600 active:bg-green-700"}
-        onConfirm={confirmSellOrder}
-        onCancel={() => setShowSellConfirm(false)}
-      />
-
-      {isEstimateOpen && <EstimateModal order={order} onClose={() => setIsEstimateOpen(false)} onShare={shareQuote} />}
-      {gallery && (
-        <ImagePreview
-          images={gallery.images}
-          initialIndex={gallery.index}
-          shareTitle="Vehicle details"
-          shareText={carPhotoShareText || 'Vehicle details'}
-          onClose={() => setGallery(null)}
-        />
-      )}
-      {showCustomerLogs && (
-        <div
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/45 p-3"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setShowCustomerLogs(false);
-          }}
-        >
-          <div className="w-full max-w-lg rounded-[24px] bg-white p-4 shadow-2xl">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Customer activity logs</p>
-                <h3 className="text-lg font-black text-slate-900">Логи клиента по заказу</h3>
-              </div>
-              <button type="button" onClick={() => setShowCustomerLogs(false)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-600">Закрыть</button>
-            </div>
-            <div className="mt-4 max-h-[70dvh] space-y-2 overflow-y-auto">
-              {customerLogs.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">Логи взаимодействия клиента пока пустые.</div>
-              ) : customerLogs.map((entry) => (
-                <div key={entry.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">{entry.channel}</span>
-                    <span className="text-[11px] text-slate-400">{new Date(entry.createdAt).toLocaleString()}</span>
-                  </div>
-                  <p className="mt-1 text-sm font-semibold text-slate-800">{entry.summary}</p>
-                  <p className="mt-1 text-[11px] text-slate-500">Тип: {entry.type} · Actor: {entry.actor}</p>
+        {isEstimateOpen && <EstimateModal order={order} onClose={() => setIsEstimateOpen(false)} onShare={shareQuote} />}
+        {gallery && (
+          <ImagePreview images={gallery.images} initialIndex={gallery.index} shareTitle="Vehicle details" shareText={carPhotoShareText || 'Vehicle details'} onClose={() => setGallery(null)} />
+        )}
+        {showCustomerLogs && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-3" onClick={(event) => { if (event.target === event.currentTarget) setShowCustomerLogs(false); }}>
+            <div className="ds-mode-enter ds-surface w-full max-w-lg rounded-[28px] p-4 text-stone-950 shadow-2xl">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[12px] font-black text-stone-600">Customer activity</p>
+                  <h3 className="text-lg font-black text-stone-950">Client log</h3>
                 </div>
-              ))}
+                <button type="button" onClick={() => setShowCustomerLogs(false)} className="ds-press rounded-2xl bg-stone-100 px-3 py-2 text-xs font-black text-stone-600">Close</button>
+              </div>
+              <div className="mt-4 max-h-[70dvh] space-y-2 overflow-y-auto">
+                {customerLogs.length === 0 ? (
+                  <div className="ds-soft-empty rounded-2xl p-4 text-sm font-semibold text-stone-500">No client activity yet.</div>
+                ) : customerLogs.map((entry) => (
+                  <div key={entry.id} className="rounded-2xl bg-stone-950/[0.04] px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[11px] font-black uppercase tracking-wide text-stone-500">{entry.channel}</span>
+                      <span className="text-[11px] text-stone-400">{new Date(entry.createdAt).toLocaleString()}</span>
+                    </div>
+                    <p className="mt-1 text-sm font-semibold text-stone-800">{entry.summary}</p>
+                    <p className="mt-1 text-[11px] text-stone-500">Type: {entry.type} · Actor: {entry.actor}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
 };
 
 export default OrderDetailsScreen;
