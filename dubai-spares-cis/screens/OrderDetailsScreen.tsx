@@ -2822,10 +2822,15 @@ const OrderDetailsScreen: React.FC = () => {
                       const salePrice = Number((bestVariant?.salePriceAed ?? bestVariant?.priceAed) || 0);
                       const purchasePrice = Number((bestVariant?.purchasePriceAed ?? bestVariant?.priceAed) || 0);
                       const partReady = Boolean(part.isFound || variants.length > 0);
+                      const openPartDetails = () => {
+                        const mainScroller = document.querySelector('main');
+                        const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
+                        navigate(`/order/${order.id}/part/${part.id}`, { state: { backTo: `/order/${order.id}`, ...(typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {}) } });
+                      };
                       return (
-                        <article key={part.id} className="ds-surface rounded-[26px] p-3">
+                        <article key={part.id} className="ds-surface rounded-[26px] p-3 cursor-pointer" onClick={openPartDetails} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openPartDetails(); } }}>
                           <div className="flex gap-3">
-                            <button type="button" onClick={(event) => openGallery(event, part)} className="ds-press flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-stone-100" aria-label="Open part media">
+                            <button type="button" onClick={(event) => { event.stopPropagation(); openGallery(event, part); }} className="ds-press flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-stone-100" aria-label="Open part media">
                               {partPhotos[0] ? <img src={partPhotos[0]} alt={partDisplayName} className="h-full w-full object-cover" /> : <Package size={20} className="text-stone-300" />}
                             </button>
                             <div className="min-w-0 flex-1">
@@ -2834,16 +2839,12 @@ const OrderDetailsScreen: React.FC = () => {
                                   <p className="truncate text-base font-black text-stone-950">{partDisplayName}</p>
                                   <p className="mt-1 truncate text-[11px] font-bold text-stone-500">Qty {partQuantity}{groupItems.length > 0 ? ` · ${groupItems.length} grouped` : ''}</p>
                                 </div>
-                                <button type="button" onClick={() => togglePartFound(part.id)} className={`ds-press shrink-0 rounded-full px-3 py-1.5 text-[10px] font-black ${partReady ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-500'}`}>
+                                <button type="button" onClick={(event) => { event.stopPropagation(); togglePartFound(part.id); }} className={`ds-press shrink-0 rounded-full px-3 py-1.5 text-[10px] font-black ${partReady ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-500'}`}>
                                   {partReady ? 'Found' : 'Open'}
                                 </button>
                               </div>
                               {bestVariant ? (
-                                <button type="button" onClick={() => {
-                                  const mainScroller = document.querySelector('main');
-                                  const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
-                                  navigate(`/order/${order.id}/part/${part.id}`, { state: { backTo: `/order/${order.id}`, ...(typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {}) } });
-                                }} className="mt-3 flex w-full items-center justify-between gap-3 rounded-2xl bg-stone-950/[0.04] px-3 py-2 text-left">
+                                <button type="button" onClick={(event) => { event.stopPropagation(); openPartDetails(); }} className="mt-3 flex w-full items-center justify-between gap-3 rounded-2xl bg-stone-950/[0.04] px-3 py-2 text-left">
                                   <div className="min-w-0">
                                     <p className="truncate text-xs font-black text-stone-800">{bestVariant.shopName || 'Supplier'}</p>
                                     <p className="mt-0.5 text-[10px] font-bold text-stone-500">{purchasePrice.toFixed(0)} AED buy · {bestVariant.condition || 'condition'}</p>
@@ -2860,19 +2861,16 @@ const OrderDetailsScreen: React.FC = () => {
                                 </div>
                               ) : part.comment ? <p className="mt-2 line-clamp-2 text-xs font-semibold text-stone-600">{part.comment}</p> : null}
                               <div className="mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
-                                <button type="button" disabled={!depositPaid} onClick={() => {
-                                  const mainScroller = document.querySelector('main');
-                                  const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
-                                  navigate(`/order/${order.id}/part/${part.id}`, { state: { backTo: `/order/${order.id}`, ...(typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {}) } });
-                                }} className="ds-press inline-flex h-9 shrink-0 items-center gap-1 rounded-xl bg-stone-950 px-3 text-[11px] font-black text-white disabled:opacity-35">
+                                <button type="button" disabled={!depositPaid} onClick={(event) => { event.stopPropagation(); openPartDetails(); }} className="ds-press inline-flex h-9 shrink-0 items-center gap-1 rounded-xl bg-stone-950 px-3 text-[11px] font-black text-white disabled:opacity-35">
                                   <Plus size={13} /> Variant
                                 </button>
-                                <button type="button" onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: !prev[part.id] }))} className="ds-press h-9 shrink-0 rounded-xl bg-stone-100 px-3 text-[11px] font-black text-stone-600">Note</button>
-                                <button type="button" onClick={() => setDeletePartId(part.id)} className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600" aria-label="Delete part"><X size={14} /></button>
+                                <button type="button" onClick={(event) => { event.stopPropagation(); setPartCommentExpanded((prev) => ({ ...prev, [part.id]: !prev[part.id] })); }} className="ds-press h-9 shrink-0 rounded-xl bg-stone-100 px-3 text-[11px] font-black text-stone-600">Note</button>
+                                <button type="button" onClick={(event) => { event.stopPropagation(); setDeletePartId(part.id); }} className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600" aria-label="Delete part"><X size={14} /></button>
                               </div>
                               <div className="mt-2 flex gap-2">
                                 <input type="url" value={partMediaLinkDrafts[part.id] ?? ''} readOnly={!isEditMode} onChange={(event) => setPartMediaLinkDrafts((prev) => ({ ...prev, [part.id]: event.target.value }))} onBlur={(event) => savePartMediaLink(part.id, event.target.value)} placeholder="Drive media link" className="ds-input h-10 min-w-0 flex-1 rounded-xl border-0 px-3 text-xs font-bold text-stone-700 outline-none" />
-                                <button type="button" onClick={() => {
+                                <button type="button" onClick={(event) => {
+                                  event.stopPropagation();
                                   const savedUrl = savePartMediaLink(part.id, partMediaLinkDrafts[part.id], { showToast: true });
                                   checkGoogleDriveLink(savedUrl, 'Add Drive media link');
                                 }} className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-700" aria-label="Open media"><ExternalLink size={14} /></button>
