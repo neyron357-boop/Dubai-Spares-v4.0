@@ -499,11 +499,8 @@ const NewOrderScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const draftData = toPersistableDraft({ creationType, mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource });
-      localStorage.setItem('new-order-draft-v2', JSON.stringify(draftData));
-    }, 450);
-    return () => window.clearTimeout(timer);
+    const draftData = toPersistableDraft({ creationType, mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource });
+    localStorage.setItem('new-order-draft-v2', JSON.stringify(draftData));
   }, [creationType, mode, vin, brand, model, year, bodyType, seriesCode, parts, notes, clientName, contactValue, leadSource]);
 
   useEffect(() => {
@@ -1258,7 +1255,7 @@ const NewOrderScreen: React.FC = () => {
 
         {mode === 'full' && !!chassisCodes.length && (
           <label className="space-y-1 transition-all duration-200">
-            <span className="text-xs font-semibold text-slate-500">Серия / код (необязательно)</span>
+            <span className="text-xs font-semibold text-slate-500">Series / Code (необязательно)</span>
             <SearchableDropdown value={seriesCode} placeholder="Выберите серию" options={chassisCodes} onChange={setSeriesCode} />
           </label>
         )}
@@ -1523,15 +1520,15 @@ const NewOrderScreen: React.FC = () => {
             onChange={(e) => setContactValue(e.target.value.replace(/\s+/g, ''))}
             placeholder={
               leadSource === Source.WHATSAPP
-                ? 'Ватсап / телефон (+971501234567)'
+                ? 'WhatsApp / телефон (+971501234567)'
                 : leadSource === Source.INSTAGRAM
-                  ? 'Инстаграм: @username или https://instagram.com/username'
+                  ? 'Instagram: @username или https://instagram.com/username'
                   : leadSource === Source.TIKTOK
-                    ? 'ТикТок: @username или https://www.tiktok.com/@username'
+                    ? 'TikTok: @username или https://www.tiktok.com/@username'
                     : leadSource === Source.TELEGRAM
-                      ? 'Телеграм: @username или https://t.me/username'
+                      ? 'Telegram: @username или https://t.me/username'
                       : leadSource === Source.FACEBOOK
-                        ? 'Фейсбук: ссылка на профиль'
+                        ? 'Facebook: ссылка на профиль'
                         : 'Ссылка/контакт'
             }
             className={inputClass}
@@ -1551,11 +1548,11 @@ const NewOrderScreen: React.FC = () => {
         <label className="space-y-1">
           <span className="text-xs font-semibold text-slate-500">Источник</span>
           <select value={leadSource} onChange={(e) => setLeadSource(e.target.value as Source)} className={inputClass}>
-            <option value={Source.INSTAGRAM}>Инстаграм</option>
-            <option value={Source.TIKTOK}>ТикТок</option>
-            <option value={Source.TELEGRAM}>Телеграм</option>
-            <option value={Source.FACEBOOK}>Фейсбук</option>
-            <option value={Source.WHATSAPP}>Ватсап</option>
+            <option value={Source.INSTAGRAM}>Instagram</option>
+            <option value={Source.TIKTOK}>TikTok</option>
+            <option value={Source.TELEGRAM}>Telegram</option>
+            <option value={Source.FACEBOOK}>Facebook</option>
+            <option value={Source.WHATSAPP}>WhatsApp</option>
             <option value={Source.OTHER}>Другое</option>
           </select>
         </label>
@@ -1589,7 +1586,7 @@ const NewOrderScreen: React.FC = () => {
               toast(`Заполните обязательные поля: ${missing.join(', ')}`, 'error');
             }}
             disabled={isSyncing || isSubmitting}
-            className={`h-14 w-full rounded-2xl text-sm font-black uppercase tracking-wide text-white transition-all duration-200 disabled:opacity-40 ${canCreate ? (creationType === 'lead' ? 'bg-blue-600 shadow-[0_8px_20px_rgba(37,99,235,0.35)]' : 'bg-emerald-600 shadow-[0_8px_20px_rgba(5,150,105,0.35)]') : 'bg-slate-500'}`}
+            className={`h-14 w-full rounded-2xl text-sm font-black uppercase tracking-wide text-white transition-all duration-200 disabled:opacity-40 ${canCreate ? (creationType === 'lead' ? 'bg-blue-600 shadow-[0_8px_20px_rgba(37,99,235,0.35)]' : 'bg-emerald-600 shadow-[0_8px_20px_rgba(5,150,105,0.35)]') : 'bg-slate-900'}`}
           >
             {isSubmitting ? 'Создание...' : creationType === 'lead' ? 'Создать лид' : 'Создать заказ'}
           </button>

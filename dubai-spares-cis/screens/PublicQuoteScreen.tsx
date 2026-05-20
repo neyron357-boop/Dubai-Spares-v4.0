@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
-  Copy,
   Download,
   ExternalLink,
   FileText,
@@ -20,7 +19,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
-import { copyToClipboard, parsePublicQuoteKey } from '../shareUtils';
+import { parsePublicQuoteKey } from '../shareUtils';
 import { publicQuoteGetPublicContactSettings, publicQuoteGetSnapshot } from '../publicQuoteApi';
 import { normalizePublicQuoteSnapshotPayload } from '../utils/publicQuoteSnapshot';
 import { buildInvoicePayloadFromSnapshot, openInvoicePrintWindow } from '../utils/invoiceDocument';
@@ -166,7 +165,6 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const [snapshotPayload, setSnapshotPayload] = useState<Record<string, any> | null>(null);
   const [expiresAt, setExpiresAt] = useState<string>('');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
-  const [copied, setCopied] = useState(false);
   const [displayCurrency, setDisplayCurrency] = useState<'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT'>('USD');
   const [translatedItemNames, setTranslatedItemNames] = useState<Record<string, string>>({});
   const [translatedWorkTerms, setTranslatedWorkTerms] = useState('');
@@ -308,12 +306,6 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
     if (!opened) window.alert(lang === 'ru' ? 'Не удалось открыть invoice. Проверьте блокировку всплывающих окон.' : 'Unable to open invoice. Please check your pop-up blocker.');
   };
 
-  const copyLink = async () => {
-    await copyToClipboard(window.location.href);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
-  };
-
   if (isLoading) {
     return <div className="min-h-[100dvh] bg-slate-100 p-6 text-slate-700">{t.loading}</div>;
   }
@@ -388,20 +380,14 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                   <MessageCircle size={17} /> {t.contactManager} <ChevronRight size={14} />
                 </a>
               )}
-              <button type="button" onClick={() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex h-12 items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-5 text-sm font-semibold text-white transition hover:bg-white/15 active:scale-[0.99]">
-                <Images size={16} /> {t.viewParts}
-              </button>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-600">
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-white"><ShieldCheck size={12} /> {t.trustedSupplierBadge}</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-white"><Clock3 size={12} /> {t.fastResponseBadge}</span>
               {expiresAt && <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-100 px-3 py-1.5 text-[11px] font-semibold text-amber-800"><Clock3 size={12} /> {t.validUntil}: {new Date(expiresAt).toLocaleDateString()}</span>}
             </div>
 
             <div className="mt-5 flex flex-wrap gap-2">
               <button type="button" onClick={() => setLang((prev) => prev === 'ru' ? 'en' : 'ru')} className="rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold">{lang === 'ru' ? 'EN' : 'RU'}</button>
-              <button type="button" onClick={() => void copyLink()} className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold"><Copy size={15} /> {copied ? t.copied : t.share}</button>
               <button type="button" onClick={() => void loadQuote()} className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold"><RefreshCcw size={15} /> {t.refresh}</button>
             </div>
           </div>

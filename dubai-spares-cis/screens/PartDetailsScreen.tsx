@@ -39,6 +39,7 @@ import { logger } from '../logging';
 import { readClipboardImageFiles } from '../utils/clipboardImages';
 import { toast } from '../feedback';
 import { isLikelyGoogleDriveUrl, normalizeExternalMediaUrl, openExternalMediaUrl } from '../utils/externalMedia';
+import { normalizeGroupItems } from '../utils/groupItems';
 
 interface OfferFormState {
   purchasePriceAed: string;
@@ -73,16 +74,16 @@ const DEFAULT_FORM: OfferFormState = {
 };
 
 const conditionLabels: Record<OfferCondition, string> = {
-  new: 'NEW',
-  used: 'USED',
-  scrapyard: 'SCRAPYARD'
+  new: 'Новая',
+  used: 'Б/у',
+  scrapyard: 'Разбор'
 };
 
 const availabilityLabels: Record<OfferAvailability, string> = {
-  in_stock: 'In stock',
-  '1d': '1 day',
-  '2_3d': '2–3 days',
-  by_order: 'By order'
+  in_stock: 'В наличии',
+  '1d': '1 день',
+  '2_3d': '2-3 дня',
+  by_order: 'Под заказ'
 };
 
 const etaLabels: Record<OfferFormState['deliveryEta'], string> = {
@@ -141,7 +142,7 @@ const createRandomSupplierName = (usedNames: Set<string>) => {
     if (usedNames.has(candidate.toLowerCase())) continue;
     return candidate;
   }
-  return `Supplier ${Date.now()}`;
+  return `Поставщик ${Date.now()}`;
 };
 
 const PartDetailsScreen: React.FC = () => {
@@ -158,9 +159,16 @@ const PartDetailsScreen: React.FC = () => {
   const order = orders.find((o) => o.id === orderId);
   const part = order?.parts.find((p) => p.id === partId);
   const partVariants = useMemo(() => (Array.isArray(part?.variants) ? part.variants : []), [part?.variants]);
+  const groupItems = useMemo(() => normalizeGroupItems((part as any)?.groupItems), [part?.groupItems]);
   const backTo = typeof (location.state as { backTo?: unknown } | null)?.backTo === 'string'
     ? String((location.state as { backTo?: unknown }).backTo)
     : `/order/${orderId}`;
+  const requestedVariantId = typeof (location.state as { openVariantId?: unknown } | null)?.openVariantId === 'string'
+    ? String((location.state as { openVariantId?: unknown }).openVariantId)
+    : '';
+  const orderActiveTab = typeof (location.state as { orderActiveTab?: unknown } | null)?.orderActiveTab === 'string'
+    ? String((location.state as { orderActiveTab?: unknown }).orderActiveTab)
+    : undefined;
 
   const [isAdding, setIsAdding] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -218,6 +226,14 @@ const PartDetailsScreen: React.FC = () => {
   }, [part?.id, (part as any)?.googleDriveVideoUrl]);
 
   useEffect(() => {
+    if (!requestedVariantId) return;
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(`variant-${requestedVariantId}`);
+      (target || variantsListRef.current)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [requestedVariantId, part?.id]);
+
+  useEffect(() => {
     if (!isAdding) {
       formSessionRef.current = null;
       return;
@@ -265,10 +281,14 @@ const PartDetailsScreen: React.FC = () => {
   }, [isAdding, isEditing, part, partVariants, editingVariantId, latestOrderVariant]);
 
   if (!order || !part) return <div className="p-10 text-center text-gray-400 font-bold">ДЕТАЛЬ НЕ НАЙДЕНА</div>;
+  const depositPaid = order.searchDepositStatus === 'paid' || order.paymentStatus === 'search_deposit_paid' || order.paymentStatus === 'full_prepayment_paid';
 
   const goBack = () => {
     const restoreScrollTop = (location.state as { orderScrollTop?: unknown } | null)?.orderScrollTop;
-    const backState = typeof restoreScrollTop === 'number' ? { restoreScrollTop } : undefined;
+    const backState = {
+      ...(typeof restoreScrollTop === 'number' ? { restoreScrollTop } : {}),
+      ...(orderActiveTab ? { restoreActiveTab: orderActiveTab } : {})
+    };
     navigate(backTo, { state: backState });
   };
 
@@ -386,6 +406,10 @@ const PartDetailsScreen: React.FC = () => {
   };
 
   const attachVariantFromLibrary = async (item: VariantLibraryItem) => {
+    if (!depositPaid) {
+      toast('Сначала подтвердите депозит в заказе.', 'error');
+      return;
+    }
     const variant = { ...cloneVariantForPart(item, part.id), orderId: order.id };
     const updatedParts = order.parts.map((p) => {
       if (p.id !== part.id) return p;
@@ -406,6 +430,10 @@ const PartDetailsScreen: React.FC = () => {
   };
 
   const saveVariant = async () => {
+    if (!depositPaid) {
+      alert('Сначала подтвердите депозит в заказе. После этого можно добавлять варианты.');
+      return;
+    }
     if (!canSave) {
       alert('Введите цену покупки, цену продажи и магазин');
       return;
@@ -656,7 +684,7 @@ const PartDetailsScreen: React.FC = () => {
   const openWhatsapp = (variant: PriceVariant) => {
     const phoneRaw = (variant.phone || '').replace(/[^\d+]/g, '');
     if (!phoneRaw) return;
-    const message = `Hello! I need ${part.name} for ${order.brand} ${order.model} ${order.year}.\nIs it available? Price? Condition?\nCould you share photos and the part number, please?${order.vin ? `\nVIN: ${order.vin}` : ''}`;
+    const message = `Здравствуйте. Нужна деталь: ${part.name} для ${order.brand} ${order.model} ${order.year}.\nЕсть в наличии? Какая цена и состояние?\nОтправьте, пожалуйста, фото и номер детали.${order.vin ? `\nVIN: ${order.vin}` : ''}`;
     window.open(`https://wa.me/${phoneRaw.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
@@ -708,7 +736,7 @@ const PartDetailsScreen: React.FC = () => {
     if (nextValue !== currentValue) {
       const updatedParts = order.parts.map((p) => (p.id === part.id ? { ...p, googleDriveVideoUrl: nextValue } : p));
       void updateOrder({ ...order, parts: updatedParts });
-      if (options?.showToast) toast(nextValue ? 'Media link сохранён' : 'Media link очищен', 'success');
+      if (options?.showToast) toast(nextValue ? 'Медиа-ссылка сохранена' : 'Медиа-ссылка очищена', 'success');
     }
     return nextValue;
   };
@@ -725,7 +753,7 @@ const PartDetailsScreen: React.FC = () => {
       return;
     }
     openExternalMediaUrl(url);
-    toast('Ссылка открыта. Проверьте доступ: Anyone with the link can view', 'success');
+    toast('Ссылка открыта. Проверьте доступ: любой по ссылке может просматривать.', 'success');
   };
 
 
@@ -980,30 +1008,45 @@ const PartDetailsScreen: React.FC = () => {
             <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-wide text-sky-800">
-                  <Video size={14} /> Видео / Media Link
+                  <Video size={14} /> Медиа
                 </p>
                 <button
                   type="button"
                   onClick={checkPartMediaLink}
                   className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2 text-[10px] font-black text-sky-700"
                 >
-                  <ExternalLink size={12} /> Проверить
+                  <ExternalLink size={12} /> Открыть
                 </button>
               </div>
-              <input
-                type="url"
-                value={partMediaLinkDraft}
-                onChange={(e) => setPartMediaLinkDraft(e.target.value)}
-                onBlur={(e) => savePartMediaLink(e.target.value)}
-                placeholder="https://drive.google.com/..."
-                className="mt-2 h-11 w-full rounded-xl border border-sky-100 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-sky-300"
-              />
-              <p className="mt-1 text-[10px] font-semibold text-sky-700/70">Не загружайте видео в Supabase. Для клиента включите доступ Anyone with the link can view.</p>
+              <p className="mt-2 text-xs font-semibold text-sky-800">
+                Ссылка редактируется только в разделе Пруфы заказа. Здесь доступен только просмотр.
+              </p>
             </div>
 
-            <button type="button" onClick={() => { setIsAdding(true); setEditingVariantId(null); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg uppercase text-xs"><Plus size={20} /> Добавить вариант</button>
+            {!depositPaid && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+                Активный поиск и варианты откроются после подтверждения депозита в заказе.
+              </div>
+            )}
+            {groupItems.length > 0 && (
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Состав группы</p>
+                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-500">{groupItems.length}</span>
+                </div>
+                <div className="space-y-1">
+                  {groupItems.map((item, index) => (
+                    <div key={`${part.id}-group-${item.id || index}`} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
+                      <span className="min-w-0 truncate text-xs font-black text-slate-800">{item.name}</span>
+                      <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-slate-500">×{item.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button type="button" disabled={!depositPaid} onClick={() => { if (!depositPaid) return; setIsAdding(true); setEditingVariantId(null); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg uppercase text-xs disabled:opacity-40"><Plus size={20} /> Добавить вариант</button>
             <button type="button" onClick={() => void handleSharePartPrice()} disabled={!resolveBestVariant(part)} className="w-full py-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-2xl font-black flex items-center justify-center gap-2 text-xs disabled:opacity-50"><Send size={16} /> Сгенерировать ценник</button>
-            <button type="button" onClick={() => setShowLibraryPicker(true)} className="w-full py-3 bg-white border border-gray-200 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-2 text-xs"><ClipboardPaste size={16} /> Прикрепить из Вариантов</button>
+            <button type="button" disabled={!depositPaid} onClick={() => setShowLibraryPicker(true)} className="w-full py-3 bg-white border border-gray-200 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-2 text-xs disabled:opacity-40"><ClipboardPaste size={16} /> Прикрепить из вариантов</button>
             {latestOrderVariant && (
               <button type="button" onClick={() => setForm((prev) => ({ ...prev, shopName: latestOrderVariant.shopName || '', phone: latestOrderVariant.phone || prev.phone, locationText: latestOrderVariant.locationText || latestOrderVariant.location || '' }))} className="w-full px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-black">Последний магазин: {latestOrderVariant.shopName}</button>
             )}
@@ -1173,7 +1216,7 @@ const PartDetailsScreen: React.FC = () => {
             const displayPhotos = getVariantPhotos(variant);
             const isBest = part.bestOfferId === variant.id || !!variant.isBest;
             return (
-              <div key={variant.id} className={`bg-white rounded-2xl border overflow-hidden ${isBest ? 'border-emerald-300' : 'border-gray-100'}`}>
+              <div id={`variant-${variant.id}`} key={variant.id} className={`bg-white rounded-2xl border overflow-hidden ${isBest ? 'border-emerald-300' : requestedVariantId === variant.id ? 'border-blue-300 ring-2 ring-blue-100' : 'border-gray-100'}`}>
                 <div className="p-4 flex gap-3">
                   <button type="button" onClick={(e) => openGallery(e, variant)} className="w-20 h-20 rounded-xl border border-gray-100 overflow-hidden shrink-0 bg-gray-50 flex items-center justify-center">
                     {(displayPhotos[0] && isPhotoVisible(displayPhotos[0]))
