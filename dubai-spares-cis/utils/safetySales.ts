@@ -262,10 +262,10 @@ const deriveCurrentStage = (order: Order, proofPack: ProofPackSummary): SafetySt
   const text = orderText(order);
   const depositPaid = order.searchDepositStatus === 'paid' || order.paymentStatus === 'search_deposit_paid' || order.paymentStatus === 'full_prepayment_paid';
   const fullPrepaid = order.paymentStatus === 'full_prepayment_paid' || order.salesStatus === 'Paid' || order.salesStatus === 'Completed';
-  const priced = (order.parts || []).some((part) => part.isFound || (part.variants || []).length > 0);
+  const quoteSent = order.salesStatus === 'Price Sent' || order.salesStatus === 'Pending Approval' || Boolean(order.publicQuoteToken);
   const hasData = hasVin(order) || hasCarPhoto(order) || hasPartRequest(order);
   const hasCoreData = hasVin(order) && hasPartRequest(order);
-  const purchased = (order.parts || []).some((part) => part.status === 'ordered') || fullPrepaid;
+  const purchased = (order.parts || []).some((part) => part.status === 'ordered');
   const inspected = (order.preSaleCheck?.defectPhotos || []).length > 0 || (order.preSaleCheck?.inspectionMedia || []).length > 0;
   const packed = hasAnyPattern(text, PACKING_PATTERNS);
   const handedCargo = hasAnyPattern(text, CARGO_HANDOVER_PATTERNS);
@@ -276,7 +276,7 @@ const deriveCurrentStage = (order: Order, proofPack: ProofPackSummary): SafetySt
   if (inspected || proofPack.completed >= 3) return 'inspection';
   if (purchased) return 'purchase';
   if (fullPrepaid) return 'full_prepayment';
-  if (priced || order.salesStatus === 'Price Sent' || order.salesStatus === 'Pending Approval') return 'final_quote';
+  if (quoteSent) return 'final_quote';
   if (depositPaid) return 'active_search';
   if (hasCoreData) return 'deposit_gate';
   if (hasData) return 'data_collection';
@@ -644,4 +644,3 @@ export const deriveSafetySalesSummary = (order: Order): SafetySalesSummary => {
     refusalMessage: buildRefusalMessage(order, dealRisk, profit)
   };
 };
-
