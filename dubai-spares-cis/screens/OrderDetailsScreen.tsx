@@ -1206,7 +1206,7 @@ const OrderDetailsScreen: React.FC = () => {
     if (!isEditMode) return;
     const keyStart = performance.now();
     const shouldDebounce = (typeof value === 'string' || typeof value === 'number')
-      && !['markupPercent', 'markupType', 'markupFixedAed', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType', 'customerContact', 'socialNickname'].includes(String(field));
+      && !['markupPercent', 'markupType', 'markupFixedAed', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType', 'socialNickname'].includes(String(field));
 
     if (!shouldDebounce) {
       commitDeferredOrderField(field, value);
@@ -2356,7 +2356,7 @@ const OrderDetailsScreen: React.FC = () => {
     : order.parts;
   const nextActionCopy = (() => {
     if (!order.vin || !heroPhoto) return { label: 'Complete identity', helper: 'VIN and vehicle photo unlock the flow.' };
-    if (!depositPaid) return { label: 'Request deposit', helper: 'Protect market time before supplier work.' };
+    if (!depositPaid) return { label: 'Подтверждение депозита', helper: 'До подтверждения депозита поиск и варианты недоступны.' };
     if (selectedOfferTotal <= 0) return { label: 'Start sourcing', helper: `${openPartsCount}/${partsCount || 0} parts still open.` };
     if (!fullPrepaymentPaid) return { label: 'Send quote', helper: 'Move from sourcing to client decision.' };
     return { label: 'Capture proof', helper: `${safetySummary.proofPack.completed}/${safetySummary.proofPack.total} proof points ready.` };
@@ -2379,7 +2379,7 @@ const OrderDetailsScreen: React.FC = () => {
   const firstRecommendedShop = recommendedShops[0];
 
   return (
-      <div className="min-h-full bg-[#07080A] pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-[58px] text-white">
+      <div className="min-h-full bg-[#07080A] pb-0 pt-[58px] text-white">
         <div className="fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 border-b border-white/10 bg-[#08090B]/92 px-3 py-2 backdrop-blur-xl">
           <div className="flex h-10 items-center justify-between gap-2">
             <button type="button" onClick={handleBackNavigation} className="ds-press flex h-10 w-10 items-center justify-center rounded-full text-white/[0.78] active:bg-white/10" aria-label="Back">
@@ -2395,8 +2395,8 @@ const OrderDetailsScreen: React.FC = () => {
               </button>
               {showActionsMenu && (
                 <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#15171D] p-1 text-xs font-bold text-white shadow-2xl">
-                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEditMode((prev) => !prev)}><FileText size={14} /> {isEditMode ? 'Lock editing' : 'Edit order'}</button>
-                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEstimateOpen(true)}><Share2 size={14} /> Quote / export</button>
+                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEditMode((prev) => !prev)}><FileText size={14} /> {isEditMode ? 'Завершить редактирование' : 'Редактировать заказ'}</button>
+                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEstimateOpen(true)}><Share2 size={14} /> Смета / экспорт</button>
                   <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => updateOrderField('isArchived', !order.isArchived)}><Package size={14} /> {order.isArchived ? 'Unarchive' : 'Archive'}</button>
                   <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-200 hover:bg-rose-500/10" onClick={() => { setShowActionsMenu(false); setDeleteOrderConfirmOpen(true); }}><X size={14} /> Delete</button>
                 </div>
@@ -2762,7 +2762,7 @@ const OrderDetailsScreen: React.FC = () => {
                       ))}
                       <input type="file" ref={partFileRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
                     </div>
-                    <button type="submit" className="ds-press inline-flex h-12 shrink-0 items-center gap-2 rounded-[20px] bg-stone-950 px-5 text-xs font-black uppercase tracking-[0.1em] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_12px_26px_rgba(23,23,23,0.22)]">
+                    <button type="submit" disabled={!depositPaid} className="ds-press inline-flex h-12 shrink-0 items-center gap-2 rounded-[20px] bg-stone-950 px-5 text-xs font-black uppercase tracking-[0.1em] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_12px_26px_rgba(23,23,23,0.22)] disabled:opacity-35">
                       <Plus size={16} /> Add
                     </button>
                   </div>
@@ -2839,13 +2839,17 @@ const OrderDetailsScreen: React.FC = () => {
                                 </button>
                               </div>
                               {bestVariant ? (
-                                <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-stone-950/[0.04] px-3 py-2">
+                                <button type="button" onClick={() => {
+                                  const mainScroller = document.querySelector('main');
+                                  const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
+                                  navigate(`/order/${order.id}/part/${part.id}`, { state: { backTo: `/order/${order.id}`, ...(typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {}) } });
+                                }} className="mt-3 flex w-full items-center justify-between gap-3 rounded-2xl bg-stone-950/[0.04] px-3 py-2 text-left">
                                   <div className="min-w-0">
                                     <p className="truncate text-xs font-black text-stone-800">{bestVariant.shopName || 'Supplier'}</p>
                                     <p className="mt-0.5 text-[10px] font-bold text-stone-500">{purchasePrice.toFixed(0)} AED buy · {bestVariant.condition || 'condition'}</p>
                                   </div>
                                   <p className="shrink-0 text-sm font-black text-stone-950">{salePrice.toFixed(0)} AED</p>
-                                </div>
+                                </button>
                               ) : (
                                 <p className="ds-soft-empty mt-3 rounded-2xl px-3 py-2 text-xs font-bold text-stone-500">No supplier option yet.</p>
                               )}
@@ -2856,11 +2860,11 @@ const OrderDetailsScreen: React.FC = () => {
                                 </div>
                               ) : part.comment ? <p className="mt-2 line-clamp-2 text-xs font-semibold text-stone-600">{part.comment}</p> : null}
                               <div className="mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
-                                <button type="button" onClick={() => {
+                                <button type="button" disabled={!depositPaid} onClick={() => {
                                   const mainScroller = document.querySelector('main');
                                   const restoreScrollTop = mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
                                   navigate(`/order/${order.id}/part/${part.id}`, { state: { backTo: `/order/${order.id}`, ...(typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {}) } });
-                                }} className="ds-press inline-flex h-9 shrink-0 items-center gap-1 rounded-xl bg-stone-950 px-3 text-[11px] font-black text-white">
+                                }} className="ds-press inline-flex h-9 shrink-0 items-center gap-1 rounded-xl bg-stone-950 px-3 text-[11px] font-black text-white disabled:opacity-35">
                                   <Plus size={13} /> Variant
                                 </button>
                                 <button type="button" onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: !prev[part.id] }))} className="ds-press h-9 shrink-0 rounded-xl bg-stone-100 px-3 text-[11px] font-black text-stone-600">Note</button>
@@ -3057,45 +3061,10 @@ const OrderDetailsScreen: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => void runAiCargoAssist()} disabled={isAiFillingCargo || !order.parts.length} className="ds-press h-11 flex-1 rounded-2xl bg-stone-100 px-3 text-xs font-black text-stone-700 disabled:opacity-35">{isAiFillingCargo ? 'Reading parts...' : 'AI cargo fill'}</button>
-                  <button type="button" onClick={saveLogisticsDraft} disabled={!hasPendingPricingChanges} className={`ds-press h-11 flex-1 rounded-2xl px-3 text-xs font-black ${hasPendingPricingChanges ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-400'}`}>Save</button>
+                  <button type="button" onClick={saveLogisticsDraft} disabled={!hasPendingPricingChanges} className={`ds-press h-11 flex-1 rounded-2xl px-3 text-xs font-black ${hasPendingPricingChanges ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-400'}`}>Сохранить</button>
                 </div>
                 {aiCargoNotice && <p className="rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">{aiCargoNotice}</p>}
               </section>
-
-              {order.parts.length > 0 && (
-                <section className="space-y-2">
-                  <p className="text-[12px] font-black text-stone-600">Cargo per part</p>
-                  <div className="space-y-2">
-                    {order.parts.map((part) => {
-                      const draft = partCargoDrafts[part.id] || { weightKg: '', places: '', cargoPlaceGroup: '', isOversized: false };
-                      const completion = getCargoPartCompletion(parseCargoNumber(draft.weightKg), parseCargoNumber(draft.places));
-                      return (
-                        <div key={part.id} className="ds-surface rounded-[22px] p-3">
-                          <button type="button" onClick={() => toggleCargoPartDraft(part.id)} className="ds-press flex w-full items-center justify-between gap-3 text-left">
-                            <span className="min-w-0">
-                              <span className="block truncate text-sm font-black text-stone-950">{getPartDisplayName(part)}</span>
-                              <span className="mt-1 block text-[11px] font-bold text-stone-500">{completion === 'ready' ? 'Cargo ready' : completion === 'partial' ? 'Partial cargo data' : 'Missing cargo data'}</span>
-                            </span>
-                            {expandedCargoPartIds[part.id] ? <ChevronUp size={16} className="text-stone-400" /> : <ChevronDown size={16} className="text-stone-400" />}
-                          </button>
-                          {expandedCargoPartIds[part.id] && (
-                            <div className="mt-3 grid grid-cols-2 gap-2">
-                              <input type="text" inputMode="decimal" value={draft.weightKg} onChange={(event) => onPartCargoDraftChange(part.id, 'weightKg', event.target.value)} placeholder="kg" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
-                              <input type="text" inputMode="numeric" value={draft.places} onChange={(event) => onPartCargoDraftChange(part.id, 'places', event.target.value)} placeholder="places" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
-                              <input type="text" value={draft.cargoPlaceGroup} onChange={(event) => onPartCargoDraftChange(part.id, 'cargoPlaceGroup', event.target.value)} placeholder="group" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
-                              <label className="ds-input flex h-11 items-center gap-2 rounded-2xl px-3 text-xs font-black text-stone-600">
-                                <input type="checkbox" checked={draft.isOversized} onChange={(event) => onPartCargoDraftChange(part.id, 'isOversized', event.target.checked)} />
-                                Oversized
-                              </label>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              )}
 
               <section className="grid grid-cols-3 gap-2">
                 <button type="button" onClick={openClientChannel} className="ds-press h-12 rounded-2xl bg-emerald-50 px-2 text-[11px] font-black text-emerald-700">{contactActionLabel}</button>
