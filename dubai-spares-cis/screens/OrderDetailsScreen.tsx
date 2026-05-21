@@ -719,7 +719,7 @@ const OrderDetailsScreen: React.FC = () => {
     );
   }
 
-  const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency; sendPublicQuote?: boolean }) => {
+  const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency; sendPublicQuote?: boolean; popupWindow?: Window | null }) => {
     if (orderMissing) return;
     const parsedRateInput = parseFloat(String(rateInput || '').replace(',', '.'));
     const quoteExchangeRate = Number.isFinite(parsedRateInput) && parsedRateInput > 0
@@ -766,11 +766,13 @@ const OrderDetailsScreen: React.FC = () => {
     const shareResult = await shareQuoteLink(quoteOrder, {
       ...options,
       snapshotToken: order.publicQuoteToken || undefined,
-      upsertByToken: !!order.publicQuoteToken
+      upsertByToken: !!order.publicQuoteToken,
+      popupWindow: options?.popupWindow
     });
     if (shareResult.token && shareResult.token !== order.publicQuoteToken) {
       await updateOrder({ ...quoteOrder, publicQuoteToken: shareResult.token });
     }
+    return { blockedPopupLink: shareResult.method === 'popup-blocked' ? shareResult.link : '' };
   };
 
   if (orderMissing) {

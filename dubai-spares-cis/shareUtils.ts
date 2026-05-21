@@ -236,6 +236,7 @@ interface BuildPublicQuoteLinkOptions {
   snapshotToken?: string;
   upsertByToken?: boolean;
   embedSnapshotInUrl?: boolean;
+  popupWindow?: Window | null;
 }
 
 const QUOTE_TOKEN_LENGTH = 32;
@@ -426,12 +427,32 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
   });
   const link = snapshot.url;
 
-  if (navigator.share) {
-    await navigator.share({
-      title: `Смета для ${order.brand} ${order.model} ${order.year}`.trim(),
-      url: link
-    });
-    return { method: 'native' as const, link, shareText: link, token: snapshot.token };
+  if (options?.popupWindow) {
+    options.popupWindow.location.href = link;
+    return { method: 'popup' as const, link, shareText: link, token: snapshot.token };
+  }
+
+  if (options?.popupWindow === null) {
+    await copyToClipboard(link);
+    return { method: 'popup-blocked' as const, link, shareText: link, token: snapshot.token };
+  }
+
+  const canNativeShare = typeof navigator !== 'undefined'
+    && typeof navigator.share === 'function'
+    && (!navigator.canShare || navigator.canShare({ url: link }));
+
+  if (canNativeShare) {
+    try {
+      await navigator.share({
+        title: `Смета для ${order.brand} ${order.model} ${order.year}`.trim(),
+        url: link
+      });
+      return { method: 'native' as const, link, shareText: link, token: snapshot.token };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return { method: 'cancelled' as const, link, shareText: link, token: snapshot.token };
+      }
+    }
   }
 
   const copied = await copyToClipboard(link);
