@@ -358,7 +358,6 @@ const OrdersScreen: React.FC = () => {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
-  const selectionCount = selectedOrderIds.length;
 
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
@@ -592,28 +591,12 @@ const OrdersScreen: React.FC = () => {
     toast(result.failed > 0 ? `Удалено: ${deletedCount}, ошибок: ${result.failed}` : `Удалено заказов: ${deletedCount}`, deletedCount > 0 ? 'success' : 'error');
   };
 
-  useEffect(() => {
-    const fab = document.querySelector('button[aria-label="Новый заказ"]') as HTMLElement | null;
-    if (!fab) return;
-    if (isSelectionMode) {
-      fab.style.visibility = 'hidden';
-      fab.style.pointerEvents = 'none';
-    } else {
-      fab.style.visibility = '';
-      fab.style.pointerEvents = '';
-    }
-    return () => {
-      fab.style.visibility = '';
-      fab.style.pointerEvents = '';
-    };
-  }, [isSelectionMode]);
-
   const activeFiltersCount = brandFilters.length + statusFilters.length + (priorityFilter !== 'all' ? 1 : 0) + (noResponseHours > 0 ? 1 : 0) + (issueFilter !== 'all' ? 1 : 0) + (yearFrom ? 1 : 0) + (yearTo ? 1 : 0);
 
   return (
-    <div className={`space-y-4 px-4 pt-4 overflow-x-hidden ${isSelectionMode ? 'pb-[calc(13rem+env(safe-area-inset-bottom))]' : 'pb-[calc(6rem+env(safe-area-inset-bottom))]'}`}>
+    <div className="space-y-4 px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))] overflow-x-hidden">
 
-      <header className="sticky top-0 z-20 space-y-3 bg-[#f7f8fc] pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
+      <header className="sticky top-0 z-20 space-y-3 bg-[#f7f8fc] pt-1 pb-2">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="text-[30px] leading-[34px] font-black tracking-tight text-slate-900">Заказы</h1>
@@ -740,40 +723,26 @@ const OrdersScreen: React.FC = () => {
               >
                 <div className={`rounded-2xl p-1 -m-1 ${isVipOrder ? 'bg-amber-50/70 border border-amber-200' : unreadLead ? 'bg-amber-50/60 border border-amber-200/70' : ''}`}>
                   <div className="flex items-start gap-3">
-                    <div className="relative h-16 w-16 shrink-0">
-                      {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? (
-                        <img
-                          src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl}
-                          alt={`${order.brand} ${order.model}`}
-                          className="h-16 w-16 rounded-2xl border border-slate-200 object-cover"
-                          onError={(event) => {
-                            const target = event.currentTarget;
-                            target.style.display = 'none';
-                            const fallback = target.parentElement?.querySelector('[data-thumb-fallback]') as HTMLElement | null;
-                            if (fallback) fallback.style.display = 'flex';
-                          }}
-                        />
-                      ) : null}
-                      <div
-                        data-thumb-fallback="true"
-                        className={`absolute inset-0 ${((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? 'hidden' : 'flex'} items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 text-lg font-black text-slate-400`}
+                    {isSelectionMode && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleOrderSelected(order.id);
+                        }}
+                        className={`mt-1 inline-flex h-7 w-7 items-center justify-center rounded-lg border ${selectedOrderIds.includes(order.id) ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-500'}`}
+                        aria-label={selectedOrderIds.includes(order.id) ? 'Снять выбор заказа' : 'Выбрать заказ'}
                       >
+                        {selectedOrderIds.includes(order.id) ? <CheckSquare size={14} /> : <Square size={14} />}
+                      </button>
+                    )}
+                    {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? (
+                      <img src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl} alt={`${order.brand} ${order.model}`} className="h-16 w-16 shrink-0 rounded-2xl object-cover border border-slate-200" />
+                    ) : (
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 text-lg font-black text-slate-400">
                         {order.brand?.[0] || '?'}
                       </div>
-                      {isSelectionMode && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleOrderSelected(order.id);
-                          }}
-                          className={`absolute -left-1.5 -top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-lg border shadow-sm ${selectedOrderIds.includes(order.id) ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-500'}`}
-                          aria-label={selectedOrderIds.includes(order.id) ? 'Снять выбор заказа' : 'Выбрать заказ'}
-                        >
-                          {selectedOrderIds.includes(order.id) ? <CheckSquare size={14} /> : <Square size={14} />}
-                        </button>
-                      )}
-                    </div>
+                    )}
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
@@ -804,9 +773,8 @@ const OrdersScreen: React.FC = () => {
                         {order.priority === Priority.HIGH && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-600">Срочно</span>}
                         {unreadLead && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">Новый лид</span>}
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600 inline-flex items-center gap-1"><Clock3 size={10} /> {ageLabel}</span>
-                        {!isSelectionMode && <span className={`rounded-full px-2 py-1 text-[10px] font-black ${leadQualityStyles[safety.leadQuality.level]}`}>{safety.leadQuality.label}</span>}
-                        {!isSelectionMode && <span className={`rounded-full px-2 py-1 text-[10px] font-black ${safetyRiskStyles[safety.dealRisk.level]}`}>{safety.dealRisk.label}</span>}
-                        {isSelectionMode && <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600">+2</span>}
+                        <span className={`rounded-full px-2 py-1 text-[10px] font-black ${leadQualityStyles[safety.leadQuality.level]}`}>{safety.leadQuality.label}</span>
+                        <span className={`rounded-full px-2 py-1 text-[10px] font-black ${safetyRiskStyles[safety.dealRisk.level]}`}>{safety.dealRisk.label}</span>
                       </div>
 
                       <div className="mt-3">
@@ -936,11 +904,11 @@ const OrdersScreen: React.FC = () => {
       {isIncomeOpen && <IncomeModal isOpen={isIncomeOpen} onClose={() => setIsIncomeOpen(false)} orders={orders} />}
 
       {isSelectionMode && (
-        <div className="fixed inset-x-3 bottom-[calc(78px+env(safe-area-inset-bottom))] z-40 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur">
+        <div className="fixed inset-x-3 bottom-[max(70px,calc(env(safe-area-inset-bottom)+58px))] z-40 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur">
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              disabled={selectionCount === 0}
+              disabled={selectedOrderIds.length === 0}
               onClick={() => void archiveSelectedOrders()}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 text-xs font-black disabled:opacity-50"
             >
@@ -948,7 +916,7 @@ const OrdersScreen: React.FC = () => {
             </button>
             <button
               type="button"
-              disabled={selectionCount === 0 || isBulkDeleting}
+              disabled={selectedOrderIds.length === 0 || isBulkDeleting}
               onClick={() => setDeleteId('__bulk__')}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-rose-600 text-xs font-black text-white disabled:opacity-50"
             >

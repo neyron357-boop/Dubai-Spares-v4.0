@@ -169,6 +169,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const [translatedItemNames, setTranslatedItemNames] = useState<Record<string, string>>({});
   const [translatedWorkTerms, setTranslatedWorkTerms] = useState('');
   const [translatedDeliveryTerms, setTranslatedDeliveryTerms] = useState('');
+  const [activePublicTab, setActivePublicTab] = useState<'quote' | 'proof'>('quote');
   const detailRef = useRef<HTMLDivElement | null>(null);
 
   const t = i18n[lang];
@@ -223,6 +224,10 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const commissionAed = normalizedSnapshot?.commissionAed || 0;
   const grandTotalAed = normalizedSnapshot?.grandTotalAed || 0;
   const orderMediaFolderUrl = normalizedSnapshot?.orderMediaFolderUrl || order.googleDriveFolderUrl || '';
+  const proofNotes = normalizedSnapshot?.proofNotes || [];
+  const proofPhotoCount = proofNotes.reduce((sum, note) => sum + note.photos.length, 0);
+  const proofVideoCount = proofNotes.reduce((sum, note) => sum + note.videoUrls.length, 0);
+  const proofAudioCount = proofNotes.reduce((sum, note) => sum + note.audios.length, 0);
   const activeCurrency = (displayCurrency || currency) as keyof typeof rates;
   const fx = rates[activeCurrency] || 1;
   const contact = normalizedSnapshot?.contact || { whatsapp: '', telegram: '', instagram: '', managerName: 'Stark Motors', logoUrl: '', signatureUrl: '', workTerms: '', deliveryTerms: '' };
@@ -393,6 +398,26 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
           </div>
             </section>
 
+        <nav className="grid grid-cols-2 gap-2 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm" aria-label="Quote tabs">
+          <button
+            type="button"
+            onClick={() => setActivePublicTab('quote')}
+            className={`h-12 rounded-2xl text-sm font-black ${activePublicTab === 'quote' ? 'bg-[#0f1f3d] text-white' : 'bg-slate-50 text-slate-600'}`}
+          >
+            {lang === 'ru' ? 'Смета' : 'Quote'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setActivePublicTab('proof')}
+            className={`h-12 rounded-2xl text-sm font-black ${activePublicTab === 'proof' ? 'bg-[#0f1f3d] text-white' : 'bg-slate-50 text-slate-600'}`}
+          >
+            Proof Pack
+            {(proofNotes.length > 0 || proofPhotoCount > 0 || proofVideoCount > 0) && <span className="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-[11px]">{proofNotes.length}</span>}
+          </button>
+        </nav>
+
+        {activePublicTab === 'quote' ? (
+        <>
         <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-3">
@@ -587,6 +612,64 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
             </div>
           </div>
         </section>
+        </>
+        ) : (
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Proof Pack</p>
+              <h2 className="mt-2 text-2xl font-black text-slate-900">{lang === 'ru' ? 'Фото, видео и комментарии по заказу' : 'Photos, videos and order notes'}</h2>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-2xl bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">Фото</p><p className="text-sm font-black text-slate-900">{proofPhotoCount}</p></div>
+              <div className="rounded-2xl bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">Видео</p><p className="text-sm font-black text-slate-900">{proofVideoCount}</p></div>
+              <div className="rounded-2xl bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">Голос</p><p className="text-sm font-black text-slate-900">{proofAudioCount}</p></div>
+            </div>
+          </div>
+
+          {proofNotes.length === 0 ? (
+            <div className="mt-5 rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
+              <Images size={24} className="mx-auto text-slate-400" />
+              <p className="mt-2 text-sm font-bold text-slate-500">{lang === 'ru' ? 'Пруфы пока не добавлены.' : 'No proof items have been added yet.'}</p>
+            </div>
+          ) : (
+            <div className="mt-5 space-y-4">
+              {proofNotes.map((note) => (
+                <article key={note.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  {note.text && <p className="whitespace-pre-line text-sm font-semibold leading-6 text-slate-700">{note.text}</p>}
+                  {note.photos.length > 0 && (
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {note.photos.map((photo, index) => (
+                        <button key={`${note.id}-${photo}-${index}`} type="button" onClick={() => setGallery({ images: note.photos, index })} className="relative aspect-square overflow-hidden rounded-2xl bg-slate-200">
+                          <img src={photo} alt="Proof" className="h-full w-full object-cover" onError={hideOnError} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {note.videoUrls.length > 0 && (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {note.videoUrls.map((url, index) => (
+                        <a key={`${note.id}-video-${index}`} href={url} target="_blank" rel="noreferrer" className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-3 text-sm font-bold text-sky-800">
+                          <PlayCircle size={16} /> {lang === 'ru' ? 'Смотреть видео' : 'Watch video'} <ExternalLink size={13} />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {note.audios.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {note.audios.map((audio, index) => (
+                        <div key={`${note.id}-audio-${audio.id}-${index}`} className="rounded-2xl bg-white p-3">
+                          <audio src={audio.fileUrl} controls preload="metadata" className="w-full" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+        )}
 
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">

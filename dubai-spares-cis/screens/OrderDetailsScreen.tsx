@@ -152,7 +152,7 @@ const STAGE_COPY: Record<string, { label: string; helper: string }> = {
   purchase: { label: 'Закупка', helper: 'Покупать только после защищённых условий.' },
   inspection: { label: 'Проверка', helper: 'Зафиксировать состояние, маркировки и дефекты.' },
   packing: { label: 'Упаковка', helper: 'Зафиксировать упаковку перед передачей в карго.' },
-  cargo_handover: { label: 'Карго', helper: 'Прикрепить квитанцию и закрыть риск.' },
+  cargo_handover: { label: 'Карго', helper: 'Только для export/cargo: фото упаковки или накладная перевозчика.' },
   completed: { label: 'Закрыто', helper: 'Сделка завершена.' }
 };
 
@@ -169,6 +169,10 @@ const READINESS_COPY: Record<string, string> = {
 };
 
 const PROOF_COPY: Record<string, string> = {
+  car_photo: 'Фото авто',
+  requested_parts: 'Список деталей',
+  supplier_offer: 'Оффер поставщика',
+  condition_media: 'Состояние детали',
   supplier_photos: 'Фото поставщика',
   serial_marking: 'Номер / маркировка',
   defects: 'Дефекты',
@@ -176,7 +180,7 @@ const PROOF_COPY: Record<string, string> = {
   before_purchase: 'До покупки',
   after_purchase: 'После покупки',
   packing: 'Упаковка',
-  cargo_handover: 'Квитанция карго',
+  cargo_handover: 'Передача в cargo',
   condition_comment: 'Комментарий состояния'
 };
 
@@ -388,9 +392,15 @@ const OrderDetailsScreen: React.FC = () => {
   const [newNoteText, setNewNoteText] = useState('');
   const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
   const [newNoteAudios, setNewNoteAudios] = useState<Array<string | VoiceNoteAudio>>([]);
+  const [newProofText, setNewProofText] = useState('');
+  const [newProofVideoUrl, setNewProofVideoUrl] = useState('');
+  const [newProofPhotos, setNewProofPhotos] = useState<string[]>([]);
+  const [newProofAudios, setNewProofAudios] = useState<Array<string | VoiceNoteAudio>>([]);
+  const [proofComposerMode, setProofComposerMode] = useState<'message' | 'video'>('message');
   const noteFileRef = useRef<HTMLInputElement>(null);
   const carFileRef = useRef<HTMLInputElement>(null);
   const noteAudioFileRef = useRef<HTMLInputElement>(null);
+  const proofFileRef = useRef<HTMLInputElement>(null);
 
   const resolvedCustomerStatus = order?.customerStatus === 'VIP'
     ? 'VIP'
@@ -404,6 +414,7 @@ const OrderDetailsScreen: React.FC = () => {
   const recordingStreamRef = useRef<MediaStream | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const waveformTimerRef = useRef<number | null>(null);
+  const recordingTargetRef = useRef<'note' | 'proof'>('note');
   const [recordingWaveform, setRecordingWaveform] = useState<number[]>(Array.from({ length: 40 }, () => 10));
   const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
@@ -1254,6 +1265,17 @@ const OrderDetailsScreen: React.FC = () => {
     setToast({ message: 'Предоплата подтверждена. Можно готовить закупку.' });
   }, [fullPrepaymentPaid, isEditMode, order, updateOrder]);
 
+  const completeOrder = useCallback(() => {
+    if (!isEditMode || order.isSold || order.salesStatus === 'Completed') return;
+    void updateOrder({
+      ...order,
+      isSold: true,
+      salesStatus: 'Completed',
+      status: 'sold'
+    });
+    setToast({ message: 'Заказ закрыт.' });
+  }, [isEditMode, order, updateOrder]);
+
   const checkGoogleDriveLink = useCallback((rawUrl: string, emptyMessage: string) => {
     const url = normalizeExternalMediaUrl(rawUrl);
     if (!url) {
@@ -1774,6 +1796,35 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
+  const handleProofPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isEditMode) {
+      setToast({ message: 'Включите редактирование, чтобы добавить пруф.' });
+      e.target.value = '';
+      return;
+    }
+    if (!e.target.files || e.target.files.length === 0) return;
+
+    const files = Array.from(e.target.files);
+    void Promise.all(files.map(async (file) => {
+      try {
+        return await optimizeImageForUpload(file, `order-details:proof:${file.name}`);
+      } catch {
+        const reader = new FileReader();
+        const fallback = await new Promise<string>((resolve) => {
+          reader.onloadend = () => resolve(String(reader.result || ''));
+          reader.readAsDataURL(file as Blob);
+        });
+        return fallback;
+      }
+    })).then((photos) => {
+      const cleanPhotos = photos.filter(Boolean);
+      if (cleanPhotos.length === 0) return;
+      setNewProofPhotos((prev) => [...prev, ...cleanPhotos]);
+      setToast({ message: cleanPhotos.length > 1 ? 'Фото добавлены в proof pack' : 'Фото добавлено в proof pack' });
+    });
+    e.target.value = '';
+  };
+
   const handleNoteAudioFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
 
@@ -1985,7 +2036,11 @@ const OrderDetailsScreen: React.FC = () => {
             createdAt: Date.now(),
             author: settings.managerName || 'Manager'
           };
-          setNewNoteAudios((prev) => [...prev, voice]);
+          if (recordingTargetRef.current === 'proof') {
+            setNewProofAudios((prev) => [...prev, voice]);
+          } else {
+            setNewNoteAudios((prev) => [...prev, voice]);
+          }
           setTimeout(() => {
             setIsUploadingVoice(false);
             setVoiceUploadProgress(0);
@@ -2012,11 +2067,12 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
-  const toggleRecording = async () => {
+  const toggleRecording = async (target: 'note' | 'proof' = 'note') => {
     if (isRecording) {
       recorderRef.current?.stop();
       return;
     }
+    recordingTargetRef.current = target;
     await startRecording();
   };
 
@@ -2073,6 +2129,43 @@ const OrderDetailsScreen: React.FC = () => {
       setPlayingAudioId(null);
       setAudioProgress(prev => ({ ...prev, [id]: 0 }));
     };
+  };
+
+
+  const addClientProofNote = () => {
+    if (!isEditMode) return;
+    const videoUrl = normalizeExternalMediaUrl(newProofVideoUrl);
+    if (proofComposerMode === 'video' && newProofVideoUrl.trim() && !videoUrl) {
+      setToast({ message: 'Проверьте ссылку на видео.' });
+      return;
+    }
+    if (!newProofText.trim() && newProofPhotos.length === 0 && newProofAudios.length === 0 && !videoUrl) return;
+
+    const note: OrderNote = {
+      id: Math.random().toString(36).slice(2, 9),
+      text: newProofText.trim() || (videoUrl ? 'Видео-пруф' : newProofPhotos.length > 0 ? 'Фото-пруф' : 'Голосовой пруф'),
+      photos: newProofPhotos,
+      audios: newProofAudios,
+      videoUrls: videoUrl ? [videoUrl] : [],
+      visibility: 'client',
+      kind: 'proof',
+      createdAt: Date.now()
+    };
+    updateOrder({ ...order, notes: [note, ...(order.notes || [])] });
+    setNewProofText('');
+    setNewProofVideoUrl('');
+    setNewProofPhotos([]);
+    setNewProofAudios([]);
+    setProofComposerMode('message');
+    setToast({ message: 'Пруф добавлен в публичную смету' });
+  };
+
+  const removeNewProofPhoto = (index: number) => {
+    setNewProofPhotos((prev) => prev.filter((_, photoIndex) => photoIndex !== index));
+  };
+
+  const removeNewProofAudio = (index: number) => {
+    setNewProofAudios((prev) => prev.filter((_, audioIndex) => audioIndex !== index));
   };
 
 
@@ -2173,6 +2266,7 @@ const OrderDetailsScreen: React.FC = () => {
   const heroCurrentStage = safetySummary.stages.find((stage) => stage.state === 'current') || safetySummary.stages[0];
   const heroRiskAccent = HERO_RISK_ACCENTS[safetySummary.dealRisk.level] || 'text-slate-800';
   const quoteWasSent = order.salesStatus === 'Price Sent' || order.salesStatus === 'Pending Approval' || Boolean(order.publicQuoteToken);
+  const proofReady = safetySummary.proofPack.total > 0 && safetySummary.proofPack.completed >= safetySummary.proofPack.total;
   const heroPrimaryAction = (() => {
     if (!order.vin || !heroPhoto) {
       return {
@@ -2216,10 +2310,26 @@ const OrderDetailsScreen: React.FC = () => {
       };
     }
 
+    if (!proofReady) {
+      return {
+        label: 'Собрать пруфы',
+        helper: `${safetySummary.proofPack.completed}/${safetySummary.proofPack.total} готово`,
+        onClick: () => setActiveTab('proof')
+      };
+    }
+
+    if (order.isSold || order.salesStatus === 'Completed') {
+      return {
+        label: 'Заказ закрыт',
+        helper: 'Пруфы собраны, сделка завершена',
+        onClick: () => setActiveTab('proof')
+      };
+    }
+
     return {
-      label: 'Собрать пруфы',
-      helper: `${safetySummary.proofPack.completed}/${safetySummary.proofPack.total} готово`,
-      onClick: () => setActiveTab('proof')
+      label: 'Завершить заказ',
+      helper: 'Пруфы собраны. Осталось закрыть статус заказа',
+      onClick: completeOrder
     };
   })();
 
@@ -2233,6 +2343,8 @@ const OrderDetailsScreen: React.FC = () => {
   const criticalReadinessMissing = safetySummary.readiness.items.filter((item) => item.critical && !item.done).slice(0, 4);
   const proofMissing = safetySummary.proofPack.items.filter((item) => !item.done).slice(0, 5);
   const criticalProofMissing = safetySummary.proofPack.items.filter((item) => item.critical && !item.done).slice(0, 4);
+  const proofPercent = Math.round((safetySummary.proofPack.completed / Math.max(1, safetySummary.proofPack.total)) * 100);
+  const firstMissingProof = proofMissing[0];
   const evidencePhotos = Array.from(new Set([
     ...getCarPhotos(),
     ...order.parts.flatMap((part) => [
@@ -2242,6 +2354,11 @@ const OrderDetailsScreen: React.FC = () => {
     ]),
     ...(order.notes || []).flatMap((note) => note.photos || [])
   ].filter(Boolean))) as string[];
+  const clientProofNotes = (order.notes || []).filter((note) => note.visibility === 'client' || note.kind === 'proof');
+  const clientProofPhotos = Array.from(new Set(clientProofNotes.flatMap((note) => note.photos || []).filter(Boolean))) as string[];
+  const clientProofVideoLinks = Array.from(new Set(clientProofNotes.flatMap((note) => note.videoUrls || []).filter(Boolean))) as string[];
+  const clientProofAudioCount = clientProofNotes.reduce((sum, note) => sum + (note.audios || []).length, 0);
+  const clientProofCount = clientProofNotes.length;
   const partQueue = showOnlyOpenParts
     ? order.parts.filter((part) => !(part.isFound || (part.variants || []).length > 0))
     : order.parts;
@@ -2251,7 +2368,9 @@ const OrderDetailsScreen: React.FC = () => {
     if (selectedOfferTotal <= 0) return { label: 'Начать поиск', helper: `${openPartsCount}/${partsCount || 0} деталей ещё открыто.` };
     if (quoteWasSent && !fullPrepaymentPaid) return { label: 'Подтвердить предоплату', helper: 'Смета отправлена. Следующий шаг — полная оплата.' };
     if (!fullPrepaymentPaid) return { label: 'Отправить смету', helper: 'Перевести поиск в решение клиента.' };
-    return { label: 'Собрать пруфы', helper: `${safetySummary.proofPack.completed}/${safetySummary.proofPack.total} пунктов готово.` };
+    if (!proofReady) return { label: 'Собрать пруфы', helper: `${safetySummary.proofPack.completed}/${safetySummary.proofPack.total} пунктов готово.` };
+    if (order.isSold || order.salesStatus === 'Completed') return { label: 'Заказ закрыт', helper: 'Пруфы собраны, сделка завершена.' };
+    return { label: 'Завершить заказ', helper: 'Пруфы собраны. Осталось закрыть статус заказа.' };
   })();
   const riskCopy: Record<string, { label: string; tone: string; line: string }> = {
     safe: { label: 'Спокойно', tone: 'text-emerald-700 bg-emerald-50', line: 'Нормальный ритм сделки.' },
@@ -2269,6 +2388,78 @@ const OrderDetailsScreen: React.FC = () => {
   const heroPhotoCount = getCarPhotos().length;
   const latestNote = (order.notes || [])[0];
   const firstRecommendedShop = recommendedShops[0];
+  const supplierShareText = (() => {
+    const stripLinks = (value: unknown) => String(value || '')
+      .replace(/https?:\/\/\S+|www\.\S+|(?:drive|docs)\.google\.com\/\S+/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const partLines = (order.parts || []).flatMap((part, index) => {
+      const quantity = normalizePartQuantity(part.quantity);
+      const groupItems = normalizeGroupItems(part.groupItems);
+      const comment = stripLinks(part.comment);
+      const baseLine = `${index + 1}. ${quantity > 1 ? `${quantity}x ` : ''}${stripLinks(getPartDisplayName(part) || part.name)}${comment ? ` - ${comment}` : ''}`;
+      const childLines = groupItems.map((item) => `   - ${item.quantity}x ${stripLinks(item.name)}`);
+      return [baseLine, ...childLines];
+    });
+    const vehicleDetails = [
+      heroCarName,
+      order.vin ? `VIN: ${order.vin}` : '',
+      order.bodyType ? `Body: ${order.bodyType}` : '',
+      heroMarketRegion !== 'Рынок не указан' ? `Market: ${heroMarketRegion}` : ''
+    ].filter(Boolean);
+
+    return [
+      'Need spare parts:',
+      ...vehicleDetails,
+      '',
+      'Parts:',
+      ...(partLines.length > 0 ? partLines : ['1. Please check requested parts']),
+      '',
+      'Please send price, real photos, condition, availability and shop location.'
+    ].join('\n').trim();
+  })();
+
+  const createShareImageFile = async (url: string) => {
+    if (!url) return null;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    if (!blob.type.startsWith('image/')) return null;
+    const extension = blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : 'jpg';
+    return new File([blob], `car-${order.id.slice(0, 8)}.${extension}`, { type: blob.type || 'image/jpeg' });
+  };
+
+  const shareSupplierRequest = async () => {
+    const firstCarPhoto = getCarPhotos()[0] || '';
+    let photoFile: File | null = null;
+    try {
+      photoFile = await createShareImageFile(firstCarPhoto);
+    } catch {
+      photoFile = null;
+    }
+
+    try {
+      if (navigator.share) {
+        const baseShare: ShareData = { title: `Запрос ${heroCarName}`, text: supplierShareText };
+        if (photoFile) {
+          const shareWithPhoto: ShareData = { ...baseShare, files: [photoFile] };
+          if (!navigator.canShare || navigator.canShare(shareWithPhoto)) {
+            await navigator.share(shareWithPhoto);
+            setToast({ message: 'Запрос отправлен с фото авто' });
+            return;
+          }
+        }
+        await navigator.share(baseShare);
+        setToast({ message: photoFile ? 'Запрос отправлен без фото: браузер не поддержал файл' : 'Запрос отправлен' });
+        return;
+      }
+
+      await copyText(supplierShareText, firstCarPhoto ? 'Текст запроса скопирован. Фото приложите вручную.' : 'Запрос поставщику скопирован');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      await copyText(supplierShareText, 'Запрос поставщику скопирован');
+    }
+  };
 
   return (
       <div className="min-h-full bg-[linear-gradient(to_bottom,#07080A_0,#07080A_560px,#F4F1EA_560px,#F4F1EA_100%)] pb-[calc(4rem+env(safe-area-inset-bottom))] pt-[58px] text-white">
@@ -2281,18 +2472,23 @@ const OrderDetailsScreen: React.FC = () => {
               <p className="truncate text-[13px] font-black text-white">{heroCarName}</p>
               <p className="truncate text-[10px] font-semibold tracking-[0.08em] text-white/[0.42]">{stageCopy.label} · {order.id.slice(0, 8)}</p>
             </div>
-            <div className="relative flex h-10 w-10 items-center justify-center">
-              <button type="button" onClick={() => setShowActionsMenu((value) => !value)} className="ds-press flex h-10 w-10 items-center justify-center rounded-full text-white/[0.72] active:bg-white/10" aria-label="Действия">
-                <MoreVertical size={18} />
+            <div className="flex h-10 items-center justify-end gap-1">
+              <button type="button" onClick={() => void shareSupplierRequest()} className="ds-press flex h-10 w-10 items-center justify-center rounded-full text-white/[0.78] active:bg-white/10" aria-label="Поделиться запросом поставщику">
+                <Send size={17} />
               </button>
-              {showActionsMenu && (
-                <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#15171D] p-1 text-xs font-bold text-white shadow-2xl">
-                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEditMode((prev) => !prev)}><FileText size={14} /> {isEditMode ? 'Закрыть правки' : 'Редактировать'}</button>
-                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEstimateOpen(true)}><Share2 size={14} /> Смета / экспорт</button>
-                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => updateOrderField('isArchived', !order.isArchived)}><Package size={14} /> {order.isArchived ? 'Вернуть из архива' : 'В архив'}</button>
-                  <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-200 hover:bg-rose-500/10" onClick={() => { setShowActionsMenu(false); setDeleteOrderConfirmOpen(true); }}><X size={14} /> Удалить</button>
-                </div>
-              )}
+              <div className="relative flex h-10 w-10 items-center justify-center">
+                <button type="button" onClick={() => setShowActionsMenu((value) => !value)} className="ds-press flex h-10 w-10 items-center justify-center rounded-full text-white/[0.72] active:bg-white/10" aria-label="Действия">
+                  <MoreVertical size={18} />
+                </button>
+                {showActionsMenu && (
+                  <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#15171D] p-1 text-xs font-bold text-white shadow-2xl">
+                    <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEditMode((prev) => !prev)}><FileText size={14} /> {isEditMode ? 'Закрыть правки' : 'Редактировать'}</button>
+                    <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEstimateOpen(true)}><Share2 size={14} /> Смета / экспорт</button>
+                    <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => updateOrderField('isArchived', !order.isArchived)}><Package size={14} /> {order.isArchived ? 'Вернуть из архива' : 'В архив'}</button>
+                    <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-200 hover:bg-rose-500/10" onClick={() => { setShowActionsMenu(false); setDeleteOrderConfirmOpen(true); }}><X size={14} /> Удалить</button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -2612,7 +2808,7 @@ const OrderDetailsScreen: React.FC = () => {
                   </button>
                 )}
                 <div className="mt-4 grid grid-cols-3 gap-2">
-                  <button type="button" onClick={() => void copyText(safetySummary.supplierBroadcast, 'Запрос поставщика скопирован')} disabled={sourcingLocked} className="ds-press inline-flex h-11 items-center justify-center gap-1 rounded-2xl bg-[#F7F3EA] px-2 text-[10px] font-black text-stone-950 disabled:opacity-35"><Send size={13} /> Запрос</button>
+                  <button type="button" onClick={() => void shareSupplierRequest()} disabled={sourcingLocked} className="ds-press inline-flex h-11 items-center justify-center gap-1 rounded-2xl bg-[#F7F3EA] px-2 text-[10px] font-black text-stone-950 disabled:opacity-35"><Send size={13} /> Запрос</button>
                   <button type="button" onClick={contactAllRecommendedShops} disabled={sourcingLocked || recommendedShops.length === 0} className="ds-press inline-flex h-11 items-center justify-center gap-1 rounded-2xl bg-white/10 px-2 text-[10px] font-black text-white disabled:opacity-35"><Phone size={13} /> Чаты</button>
                   <button type="button" onClick={() => FEATURE_RADAR_V2 ? void launchRadarSession() : navigate('/database')} disabled={sourcingLocked} className="ds-press inline-flex h-11 items-center justify-center gap-1 rounded-2xl bg-white/10 px-2 text-[10px] font-black text-white disabled:opacity-35"><Rocket size={13} /> {isLaunchingRadar ? 'Открываем' : 'Радар'}</button>
                 </div>
@@ -2807,7 +3003,8 @@ const OrderDetailsScreen: React.FC = () => {
 
               <form
                 onSubmit={(event) => { event.preventDefault(); addNewPart(); }}
-                className="space-y-2"
+                className="hidden"
+                aria-hidden="true"
               >
                 {newPartKind === 'group' && (
                   <div className="mb-2 max-h-32 space-y-1 overflow-y-auto rounded-2xl bg-white/80 p-2">
@@ -2848,49 +3045,96 @@ const OrderDetailsScreen: React.FC = () => {
                     <button type="submit" className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label="Добавить деталь"><Send size={17} /></button>
                   </div>
                 )}
-                <input type="file" ref={partFileRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
               </form>
             </div>
           )}
 
           {activeTab === 'proof' && (
             <div className="ds-mode-enter space-y-5">
-              <section className="ds-deep-surface rounded-[28px] bg-[#141619] p-4 text-white">
+              <section className="ds-surface rounded-[26px] p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-[11px] font-semibold text-white/[0.42]">Invisible safety</p>
-                    <h2 className="mt-1 text-2xl font-black tracking-normal">Пруфы собираются спокойно</h2>
-                    <p className="mt-1 text-xs font-semibold leading-5 text-white/[0.58]">{safetySummary.proofPack.completed}/{safetySummary.proofPack.total} собрано · критичных: {criticalProofMissing.length}</p>
+                    <p className="text-[12px] font-black text-stone-600">Публичный Proof Pack</p>
+                    <p className="mt-1 text-xs font-semibold leading-5 text-stone-500">Эти фото, видео-ссылки, текст и голос будут видны клиенту в отдельной вкладке сметы.</p>
                   </div>
-                  <span className="rounded-full bg-white/10 px-3 py-2 text-[11px] font-black text-white">{Math.round((safetySummary.proofPack.completed / Math.max(1, safetySummary.proofPack.total)) * 100)}%</span>
+                  <button type="button" onClick={() => setIsEstimateOpen(true)} className="ds-press inline-flex h-10 shrink-0 items-center gap-2 rounded-2xl bg-stone-950 px-3 text-[11px] font-black text-white"><Share2 size={13} /> Смета</button>
                 </div>
-                <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-300 via-amber-200 to-white transition-all" style={{ width: `${Math.round((safetySummary.proofPack.completed / Math.max(1, safetySummary.proofPack.total)) * 100)}%` }} />
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => setIsEstimateOpen(true)} className="ds-press inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white text-xs font-black text-stone-950"><Share2 size={14} /> Отправить смету</button>
-                  <button type="button" onClick={() => void copyText(safetySummary.supplierBroadcast, 'Запрос поставщику скопирован')} className="ds-press inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white/10 text-xs font-black text-white"><Copy size={14} /> Поставщику</button>
+                <div className="mt-3 grid grid-cols-4 gap-2">
+                  <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                    <p className="text-[9px] font-black text-stone-400">Записей</p>
+                    <p className="mt-0.5 text-sm font-black text-stone-950">{clientProofCount}</p>
+                  </div>
+                  <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                    <p className="text-[9px] font-black text-stone-400">Фото</p>
+                    <p className="mt-0.5 text-sm font-black text-stone-950">{clientProofPhotos.length}</p>
+                  </div>
+                  <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                    <p className="text-[9px] font-black text-stone-400">Видео</p>
+                    <p className="mt-0.5 text-sm font-black text-stone-950">{clientProofVideoLinks.length}</p>
+                  </div>
+                  <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                    <p className="text-[9px] font-black text-stone-400">Голос</p>
+                    <p className="mt-0.5 text-sm font-black text-stone-950">{clientProofAudioCount}</p>
+                  </div>
                 </div>
               </section>
 
               <section className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-[12px] font-black text-stone-600">Галерея доказательств</p>
-                  <span className="text-[11px] font-black text-stone-500">{evidencePhotos.length} файлов</span>
+                  <p className="text-[12px] font-black text-stone-600">Лента для клиента</p>
+                  <span className="text-[11px] font-black text-stone-500">публично в смете</span>
                 </div>
-                {evidencePhotos.length > 0 ? (
-                  <div className="grid grid-cols-4 gap-2">
-                    {evidencePhotos.slice(0, 12).map((photo, index) => (
-                      <button key={`${photo}-${index}`} type="button" onClick={() => setGallery({ images: evidencePhotos, index })} className="ds-press aspect-square overflow-hidden rounded-2xl bg-stone-200">
-                        <img src={photo} alt="Доказательство" className="h-full w-full object-cover" />
-                      </button>
+                {clientProofNotes.length > 0 ? (
+                  <div className="space-y-3">
+                    {clientProofNotes.map((note) => (
+                      <article key={note.id} className="ds-surface rounded-[24px] p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="min-w-0 whitespace-pre-line text-sm font-bold leading-5 text-stone-800">{note.text || 'Пруф заказа'}</p>
+                          <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">client</span>
+                        </div>
+                        {(note.photos || []).length > 0 && (
+                          <div className="mt-3 grid grid-cols-4 gap-2">
+                            {(note.photos || []).slice(0, 8).map((photo, index) => (
+                              <button key={`${note.id}-${photo}-${index}`} type="button" onClick={() => setGallery({ images: note.photos || [], index })} className="ds-press aspect-square overflow-hidden rounded-2xl bg-stone-200">
+                                <img src={photo} alt="Proof" className="h-full w-full object-cover" />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {(note.videoUrls || []).length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {(note.videoUrls || []).map((url, index) => (
+                              <a key={`${note.id}-video-${index}`} href={url} target="_blank" rel="noreferrer" className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl bg-sky-50 text-xs font-black text-sky-800"><Video size={14} /> Видео {index + 1}<ExternalLink size={12} /></a>
+                            ))}
+                          </div>
+                        )}
+                        {(note.audios || []).length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {(note.audios || []).map((audioItem, index) => {
+                              const voice = toVoiceNoteAudio(audioItem);
+                              const audioId = `proof-${note.id}-${voice.id}-${index}`;
+                              return (
+                                <div key={audioId} className="rounded-2xl bg-stone-100 p-2">
+                                  <div className="flex items-center gap-2">
+                                    <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="ds-press flex h-9 w-9 items-center justify-center rounded-xl bg-white text-stone-800">
+                                      {playingAudioId === audioId ? <Pause size={14} /> : <Play size={14} />}
+                                    </button>
+                                    <span className="text-xs font-black text-stone-500">{formatSeconds(voice.duration)}</span>
+                                    <audio id={audioId} src={voice.fileUrl} preload="metadata" playsInline />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </article>
                     ))}
                   </div>
                 ) : (
                   <div className="ds-soft-empty rounded-[26px] p-5 text-center">
                     <Camera size={24} className="mx-auto text-stone-400" />
-                    <p className="mt-2 text-sm font-black text-stone-700">Пруфов пока нет</p>
-                    <p className="mt-1 text-xs font-semibold text-stone-400">Добавьте фото деталей, заметки или ссылки Drive в процессе поиска.</p>
+                    <p className="mt-2 text-sm font-black text-stone-700">Публичных пруфов пока нет</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-400">Добавьте фото, видео-ссылку, текст или голос через нижний блок.</p>
                   </div>
                 )}
               </section>
@@ -2922,17 +3166,6 @@ const OrderDetailsScreen: React.FC = () => {
                     <p className="mt-1 truncate text-sm font-black text-stone-950">{shownNetProfit !== null ? formatDualMoney(shownNetProfit) : 'Нет данных'}</p>
                     <p className="mt-1 truncate text-xs font-bold text-stone-500">{marginPercent !== null ? `${marginPercent.toFixed(0)}% маржа` : 'ожидает цены'}</p>
                   </div>
-                </div>
-              </section>
-
-              <section className="space-y-3">
-                <p className="text-[12px] font-black text-stone-600">Чего не хватает</p>
-                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                  {(proofMissing.length ? proofMissing : safetySummary.proofPack.items.slice(0, 5)).map((item) => (
-                    <span key={item.id} className={`shrink-0 rounded-full px-3 py-2 text-[11px] font-black ${item.done ? 'bg-emerald-50 text-emerald-700' : item.critical ? 'bg-stone-950 text-white' : 'bg-white text-stone-500'}`}>
-                      {item.done ? <Check size={12} className="mr-1 inline" /> : null}{PROOF_COPY[item.id] || item.id}
-                    </span>
-                  ))}
                 </div>
               </section>
 
@@ -3197,22 +3430,25 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
+        <input type="file" ref={partFileRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
+        <input type="file" ref={proofFileRef} onChange={handleProofPhotoChange} className="hidden" accept="image/*" multiple />
+
+        {!(activeTab === 'search' && sourcingLocked) && (
         <div className="fixed bottom-0 left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl" style={{ paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING }}>
-          {activeTab === 'search' && (
-            <form onSubmit={(event) => { event.preventDefault(); addNewPart(); }} className="space-y-2">
-              {newPartKind === 'group' && (
-                <div className="rounded-2xl bg-white px-3 py-2 text-xs font-bold text-stone-600">Групповой режим добавления включён.</div>
-              )}
-              <div className="flex items-end gap-2">
-                <button type="button" onClick={() => partFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Фото детали"><ImageIcon size={18} /></button>
-                <button type="button" onClick={() => { setNewPartKind((value) => value === 'group' ? 'single' : 'group'); setNewPartGroupItems((prev) => prev.length > 0 ? prev : [createGroupItemDraft()]); }} className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${newPartKind === 'group' ? 'bg-stone-950 text-white' : 'bg-white text-stone-700'}`} aria-label="Группа деталей"><Package size={17} /></button>
-                <button type="button" onClick={() => void copyText(safetySummary.supplierBroadcast, 'Запрос поставщика скопирован')} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Поставщику"><Send size={16} /></button>
-                <div className="flex min-w-0 flex-1 items-center rounded-2xl bg-white px-3">
-                  <input ref={partInputRef} type="text" value={newPartName} onChange={(event) => setNewPartName(event.target.value)} placeholder="Добавить деталь..." className="h-12 min-w-0 flex-1 border-0 bg-transparent text-sm font-black text-stone-950 outline-none placeholder:text-stone-400" />
+          {activeTab === 'search' && !sourcingLocked && (
+              <form onSubmit={(event) => { event.preventDefault(); addNewPart(); }} className="space-y-2">
+                {newPartKind === 'group' && (
+                  <div className="rounded-2xl bg-white px-3 py-2 text-xs font-bold text-stone-600">Групповой режим добавления включён.</div>
+                )}
+                <div className="flex items-end gap-2">
+                  <button type="button" onClick={() => partFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Фото детали"><ImageIcon size={18} /></button>
+                  <button type="button" onClick={() => { setNewPartKind((value) => value === 'group' ? 'single' : 'group'); setNewPartGroupItems((prev) => prev.length > 0 ? prev : [createGroupItemDraft()]); }} className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${newPartKind === 'group' ? 'bg-stone-950 text-white' : 'bg-white text-stone-700'}`} aria-label="Группа деталей"><Package size={17} /></button>
+                  <div className="flex min-w-0 flex-1 items-center rounded-2xl bg-white px-3">
+                    <input ref={partInputRef} type="text" value={newPartName} onChange={(event) => setNewPartName(event.target.value)} placeholder="Добавить деталь..." className="h-12 min-w-0 flex-1 border-0 bg-transparent text-sm font-black text-stone-950 outline-none placeholder:text-stone-400" />
+                  </div>
+                  <button type="submit" className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label="Добавить деталь"><Plus size={17} /></button>
                 </div>
-                <button type="submit" className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label="Добавить деталь"><Plus size={17} /></button>
-              </div>
-            </form>
+              </form>
           )}
           {activeTab === 'notes' && (
             <form onSubmit={(event) => { event.preventDefault(); addNote(); }} className="space-y-2">
@@ -3229,8 +3465,49 @@ const OrderDetailsScreen: React.FC = () => {
           )}
           {activeTab === 'finance' && <div className="grid grid-cols-4 gap-2"><div className="rounded-2xl bg-stone-950 px-3 py-2 text-white"><p className="text-[9px] font-black text-white/45">Прибыль</p><p className="mt-0.5 truncate text-[13px] font-black">{shownNetProfit !== null ? formatMoney(shownNetProfit) : '—'}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Клиент</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(sellTotalAed, clientCurrency)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Закуп</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(selectedOfferTotal)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Маржа</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{marginPercent !== null ? `${marginPercent.toFixed(0)}%` : '—'}</p></div></div>}
           {activeTab === 'overview' && <button type="button" onClick={heroPrimaryAction.onClick} className="ds-press flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-stone-950 text-xs font-black uppercase tracking-[0.08em] text-white">{nextActionCopy.label}<ChevronRight size={15} /></button>}
-          {activeTab === 'proof' && <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => partFileRef.current?.click()} className="ds-press h-12 rounded-2xl bg-white text-xs font-black text-stone-800">Добавить медиа</button><button type="button" onClick={() => { const photos = getCarPhotos(); if (photos.length) setGallery({ images: photos, index: 0 }); }} className="ds-press h-12 rounded-2xl bg-stone-950 text-xs font-black text-white">Открыть пруфы</button></div>}
+          {activeTab === 'proof' && (
+            <form onSubmit={(event) => { event.preventDefault(); addClientProofNote(); }} className="space-y-2">
+              {(newProofPhotos.length > 0 || newProofAudios.length > 0) && (
+                <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                  {newProofPhotos.map((photo, index) => (
+                    <div key={`${photo}-${index}`} className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-stone-200">
+                      <img src={photo} alt="Proof draft" className="h-full w-full object-cover" />
+                      <button type="button" onClick={() => removeNewProofPhoto(index)} className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Удалить фото"><X size={11} /></button>
+                    </div>
+                  ))}
+                  {newProofAudios.map((audioItem, index) => {
+                    const voice = toVoiceNoteAudio(audioItem);
+                    return (
+                      <button key={`proof-draft-audio-${voice.id}`} type="button" onClick={() => removeNewProofAudio(index)} className="ds-press inline-flex h-12 shrink-0 items-center gap-2 rounded-2xl bg-white px-3 text-[11px] font-black text-stone-700">
+                        <Mic size={14} /> {formatSeconds(voice.duration)} <X size={11} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {proofComposerMode === 'video' ? (
+                <div className="flex items-end gap-2">
+                  <button type="button" onClick={() => setProofComposerMode('message')} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Текст"><FileText size={18} /></button>
+                  <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2">
+                    <input type="url" value={newProofVideoUrl} onChange={(event) => setNewProofVideoUrl(event.target.value)} placeholder="Ссылка на видео..." className="h-8 w-full border-0 bg-transparent text-sm font-bold text-stone-900 outline-none placeholder:text-stone-400" />
+                  </div>
+                  <button type="submit" disabled={!isEditMode || !newProofVideoUrl.trim()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить видео"><Send size={17} /></button>
+                </div>
+              ) : (
+                <div className="flex items-end gap-2">
+                  <button type="button" onClick={() => proofFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Добавить фото"><ImageIcon size={18} /></button>
+                  <button type="button" onClick={() => setProofComposerMode('video')} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Добавить видео"><Video size={18} /></button>
+                  <button type="button" onClick={() => void toggleRecording('proof')} className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${isRecording ? 'bg-rose-50 text-rose-700' : 'bg-white text-stone-700'}`} aria-label="Записать голос">{isRecording ? <Square size={17} /> : <Mic size={18} />}</button>
+                  <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2">
+                    <textarea value={newProofText} onChange={(event) => setNewProofText(event.target.value)} placeholder="Текст клиенту..." rows={1} className="no-scrollbar max-h-24 min-h-8 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-bold leading-6 text-stone-900 outline-none placeholder:text-stone-400" />
+                  </div>
+                  <button type="submit" disabled={!isEditMode || (!newProofText.trim() && newProofPhotos.length === 0 && newProofAudios.length === 0)} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить пруф"><Send size={17} /></button>
+                </div>
+              )}
+            </form>
+          )}
         </div>
+        )}
 
         {isRecording && (
           <div className="fixed inset-0 z-50 bg-slate-950/76 p-4 backdrop-blur-sm">
