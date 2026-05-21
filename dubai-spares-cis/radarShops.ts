@@ -497,7 +497,7 @@ export const upsertSupplierToShops = async (supplier: Supplier) => {
   if (!supabase) return;
 
   const normalized = normalizeSupplierMetadata(supplier);
-  const shopId = ensureUuid(normalized.id);
+  const shopId = String(normalized.id || '').trim() || ensureUuid();
 
   const payload = {
     id: shopId,
@@ -535,7 +535,8 @@ export const deleteSupplierFromShops = async (supplierId: string) => {
   shopsCache = null;
   if (!supabase) return;
 
-  const normalizedShopId = ensureUuid(supplierId);
+  const normalizedShopId = String(supplierId || '').trim();
+  if (!normalizedShopId) return;
   const { error } = await supabase
     .from('shops')
     .delete()

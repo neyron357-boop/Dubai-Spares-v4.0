@@ -1,0 +1,134 @@
+[2m16:10:30[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\screens\PublicQuoteScreen.tsx: Expected corresponding JSX closing tag for <>. (651:6)
+
+[0m [90m 649 |[31m           [33m<[31m[33m/[31m[33msection[31m[33m>[31m
+ [90m 650 |[31m         )}
+[31m[1m>[22m[31m[90m 651 |[31m       [33m<[31m[33m/[31m[33mmain[31m[33m>[31m
+ [90m     |[31m       [31m[1m^[22m[31m
+ [90m 652 |[31m       {gallery [33m&&[31m [33m<[31m[33mImagePreview[31m images[33m=[31m{gallery[33m.[31mimages} initialIndex[33m=[31m{gallery[33m.[31mindex} onClose[33m=[31m{() [33m=>[31m setGallery([36mnull[31m)} [33m/[31m[33m>[31m}
+ [90m 653 |[31m       {whatsappHref [33m&&[31m grandTotalAed [33m>[31m [35m0[31m [33m&&[31m (
+ [90m 654 |[31m         [33m<[31m[33mdiv[31m className[33m=[31m[32m"fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur-sm"[31m[33m>[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/HP/Documents/Codex/Dubai-Spares235234/Dubai-Spares-v4.0-main/dubai-spares-cis/screens/PublicQuoteScreen.tsx[39m:651:6
+[33m  649|            </section>
+  650|          )}
+  651|        </main>
+     |        ^
+  652|        {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
+  653|        {whatsappHref && grandTotalAed > 0 && ([39m
+      at constructor (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4720:14)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10831:21)
+      at C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9775:39
+      at TypeScriptParserMixin.tryParse (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:6907:20)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9775:18)
+      at C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11675:28)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11331:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9786:20)
+      at C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseConditional (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10891:30)
+      at TypeScriptParserMixin.parseConditional (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9603:18)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10885:17)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseExpression (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4632:31)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4711:36)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4698:32)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11081:23)
+[2m16:10:30[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\screens\PublicQuoteScreen.tsx: Expected corresponding JSX closing tag for <>. (651:6)
+
+[0m [90m 649 |[31m           [33m<[31m[33m/[31m[33msection[31m[33m>[31m
+ [90m 650 |[31m         )}
+[31m[1m>[22m[31m[90m 651 |[31m       [33m<[31m[33m/[31m[33mmain[31m[33m>[31m
+ [90m     |[31m       [31m[1m^[22m[31m
+ [90m 652 |[31m       {gallery [33m&&[31m [33m<[31m[33mImagePreview[31m images[33m=[31m{gallery[33m.[31mimages} initialIndex[33m=[31m{gallery[33m.[31mindex} onClose[33m=[31m{() [33m=>[31m setGallery([36mnull[31m)} [33m/[31m[33m>[31m}
+ [90m 653 |[31m       {whatsappHref [33m&&[31m grandTotalAed [33m>[31m [35m0[31m [33m&&[31m (
+ [90m 654 |[31m         [33m<[31m[33mdiv[31m className[33m=[31m[32m"fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur-sm"[31m[33m>[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/HP/Documents/Codex/Dubai-Spares235234/Dubai-Spares-v4.0-main/dubai-spares-cis/screens/PublicQuoteScreen.tsx[39m:651:6
+[33m  649|            </section>
+  650|          )}
+  651|        </main>
+     |        ^
+  652|        {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
+  653|        {whatsappHref && grandTotalAed > 0 && ([39m
+      at constructor (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4720:14)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10831:21)
+      at C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9775:39
+      at TypeScriptParserMixin.tryParse (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:6907:20)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9775:18)
+      at C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11675:28)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11331:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9786:20)
+      at C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseConditional (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10891:30)
+      at TypeScriptParserMixin.parseConditional (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9603:18)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10885:17)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseExpression (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4632:31)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4711:36)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4698:32)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\HP\Documents\Codex\Dubai-Spares235234\Dubai-Spares-v4.0-main\dubai-spares-cis\node_modules\@babel\parser\lib\index.js:11081:23)

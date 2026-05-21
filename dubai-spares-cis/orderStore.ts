@@ -42,6 +42,15 @@ const createUuid = () =>
     : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 const ensureUuid = (value?: string) => (value && isUuid(value) ? value : createUuid());
+const ensureStableId = (value?: string) => {
+  const trimmed = String(value || '').trim();
+  return trimmed || createUuid();
+};
+
+const safeStorageSegment = (value?: string) => {
+  const trimmed = ensureStableId(value);
+  return trimmed.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 160) || createUuid();
+};
 
 const getStatus = (order: Pick<Order, 'isSold' | 'isArchived' | 'isVip' | 'isLead' | 'status'>): OrderStatus => {
   if (order.isSold) return 'sold';
@@ -694,7 +703,7 @@ const processOfflineMutation = async (mutation: OfflineMutation): Promise<Mutati
         .upsert(mutation.payload as Record<string, unknown>, { onConflict: 'token' });
       if (error) throw error;
     } else if (mutation.type === 'delete') {
-      if (isUuid(mutation.orderId)) await deleteRemoteOrderWithStorageCleanup(mutation.orderId);
+      await deleteRemoteOrderWithStorageCleanup(mutation.orderId);
     } else if (mutation.patch && !mutation.payload) {
       await persistOrderPatch(mutation.orderId, mutation.patch as Partial<Order>);
     } else if (mutation.payload) {
@@ -1111,15 +1120,16 @@ const classifySyncError = (error: unknown): 'network' | 'schema' | 'unknown' => 
 };
 
 const deleteRemoteOrderWithStorageCleanup = async (orderId: string) => {
-  if (!supabase || !isUuid(orderId)) return;
+  const normalizedOrderId = String(orderId || '').trim();
+  if (!supabase || !normalizedOrderId) return;
 
-  const { error } = await supabase.from('orders').delete().eq('id', orderId);
+  const { error } = await supabase.from('orders').delete().eq('id', normalizedOrderId);
   if (error) throw error;
 
   try {
-    await deleteOrderFolderFromStorage(orderId);
+    await deleteOrderFolderFromStorage(safeStorageSegment(normalizedOrderId));
   } catch (storageError) {
-    await logger.warn('storage:cleanup', `Storage cleanup warning for order ${orderId}`, {
+    await logger.warn('storage:cleanup', `Storage cleanup warning for order ${normalizedOrderId}`, {
       error: serializeError(storageError)
     });
   }
@@ -1237,13 +1247,14 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
 });
 
 const withUploadedPhotos = async (order: Order): Promise<Order> => {
-  const orderId = ensureUuid(order.id);
+  const orderId = ensureStableId(order.id);
+  const storageOrderId = safeStorageSegment(orderId);
   const skipUpload = !!order.localOnlyPhotos;
   // Use a dedicated car/ subfolder so that cleanupExtraFiles does NOT recursively
   // delete part-example, variant, and note photos which live in sibling subfolders.
   // All car photos are preserved (no more slice(0,1) truncation).
   const carSource = order.carPhotos || [];
-  const carPhotos = await ensurePublicImageUrls(carSource, `orders/${orderId}/car`, {
+  const carPhotos = await ensurePublicImageUrls(carSource, `orders/${storageOrderId}/car`, {
     skipUpload,
     fileNames: carSource.map((_, i) => `${i}.jpg`),
     cleanupExtraFiles: true
@@ -1260,16 +1271,18 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
 
   const notes = await Promise.all(
     (order.notes || []).map(async (note, noteIndex) => {
-      const notePhotos = await ensurePublicImageUrls(note.photos || [], `orders/${orderId}/notes/${note.id || noteIndex}`, { skipUpload });
+      const noteFolderId = safeStorageSegment(note.id || String(noteIndex));
+      const notePhotos = await ensurePublicImageUrls(note.photos || [], `orders/${storageOrderId}/notes/${noteFolderId}`, { skipUpload });
       return { ...note, photos: notePhotos };
     })
   );
 
   const parts: Part[] = await Promise.all(
     (order.parts || []).map(async (part) => {
-      const partId = ensureUuid(part.id);
+      const partId = ensureStableId(part.id);
+      const storagePartId = safeStorageSegment(partId);
       const partPhotoNames = (part.photos || []).map((_, photoIndex) => `${photoIndex}.jpg`);
-      const partPhotos = await ensurePublicImageUrls(part.photos || [], `orders/${orderId}/parts/${partId}/example`, {
+      const partPhotos = await ensurePublicImageUrls(part.photos || [], `orders/${storageOrderId}/parts/${storagePartId}/example`, {
         skipUpload,
         fileNames: partPhotoNames,
         cleanupExtraFiles: true
@@ -1285,10 +1298,11 @@ const withUploadedPhotos = async (order: Order): Promise<Order> => {
 
       const variants = await Promise.all(
         (part.variants || []).map(async (variant) => {
-          const variantId = ensureUuid(variant.id);
+          const variantId = ensureStableId(variant.id);
+          const storageVariantId = safeStorageSegment(variantId);
           const variantPhotos = await ensurePublicImageUrls(
             variant.photos || [],
-            `orders/${orderId}/parts/${partId}/variants/${variantId}`,
+            `orders/${storageOrderId}/parts/${storagePartId}/variants/${storageVariantId}`,
             {
               skipUpload,
               fileNames: (variant.photos || []).map((_, photoIndex) => `${photoIndex}.jpg`),
@@ -1913,6 +1927,12 @@ export const subscribeOrderStore = (listener: () => void) => {
 
 export const getOrderState = () => state;
 
+const orderFreshness = (order?: Pick<Order, 'updatedAt' | 'createdAt'> | null) =>
+  Number(order?.updatedAt || order?.createdAt || 0);
+
+const isLocalOrderNewer = (localOrder?: Order | null, cloudOrder?: Order | null) =>
+  !!localOrder && !!cloudOrder && orderFreshness(localOrder) > orderFreshness(cloudOrder) + 1000;
+
 export const fetchOrders = async () => runWithSyncMutex(async () => {
   const now = Date.now();
   const shouldThrottleFetch = state.isHydrated
@@ -2009,8 +2029,16 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
   syncPerf.setQueueLength(cachedQueueLength);
   await logger.info('sync:fetch', `Queue currently has ${pendingMutations.length} mutations`);
 
-  if (orders.length === 0 && localOrders.length > 0 && pendingMutations.length > 0) {
-    setState({ orders: localOrders.map(normalizeOrder), isLoading: false, isHydrated: true, error: null });
+  if (orders.length === 0 && localOrders.length > 0) {
+    const recoveredLocal = localOrders.map(normalizeOrder);
+    await logger.warn('sync:fetch', 'Cloud returned an empty order snapshot; keeping local IndexedDB orders and re-queueing them for upload', {
+      localCount: recoveredLocal.length,
+      pendingCount: pendingMutations.length
+    });
+    setState({ orders: recoveredLocal, isLoading: false, isHydrated: true, error: null });
+    for (const localOrder of recoveredLocal) {
+      await queueMutation('upsert', localOrder, localOrder.id);
+    }
     void flushOfflineMutations();
     return;
   }
@@ -2023,11 +2051,21 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
   );
   const pendingDeleteIds = new Set(pendingMutations.filter((mutation) => mutation.type === 'delete').map((mutation) => mutation.orderId));
 
+  const locallyNewerOrders: Order[] = [];
   const mergedOrders = orders
     .filter((cloudOrder) => !pendingDeleteIds.has(cloudOrder.id))
     .map((cloudOrder) => {
       const localOrder = localById.get(cloudOrder.id);
       if (pendingUpsertIds.has(cloudOrder.id)) return localOrder || cloudOrder;
+      if (isLocalOrderNewer(localOrder, cloudOrder)) {
+        const mergedLocal = normalizeOrder({
+          ...cloudOrder,
+          ...localOrder,
+          publicQuoteToken: localOrder?.publicQuoteToken || cloudOrder.publicQuoteToken
+        });
+        locallyNewerOrders.push(mergedLocal);
+        return mergedLocal;
+      }
       return mergeChecklistFromLocal(cloudOrder, localOrder);
     });
 
@@ -2052,6 +2090,10 @@ export const fetchOrders = async () => runWithSyncMutex(async () => {
 
   for (const recoveredOrder of recoveredLocalOrders) {
     await queueMutation('upsert', recoveredOrder, recoveredOrder.id);
+  }
+
+  for (const localOrder of locallyNewerOrders) {
+    await queueMutation('upsert', localOrder, localOrder.id);
   }
 
   await orderRepository.saveOrders(mergedOrders);
@@ -2100,7 +2142,7 @@ const refreshLeadsOnly = async () => {
 };
 
 export const fetchOrderDetails = async (orderId: string) => {
-  if (!orderId || !isUuid(orderId) || ordersTableUnavailable || LOCAL_ONLY || !supabase || !navigator.onLine || !isCloudSyncConfigured) return;
+  if (!orderId || ordersTableUnavailable || LOCAL_ONLY || !supabase || !navigator.onLine || !isCloudSyncConfigured) return;
   const orderColumns = getSelectableColumns('orders');
   const query = `${orderColumns.join(',')}, parts(*, price_variants(*))`;
   const response = await supabase.from('orders').select(query).eq('id', orderId).maybeSingle();
@@ -2113,6 +2155,18 @@ export const fetchOrderDetails = async (orderId: string) => {
   }
 
   const details = mapDbOrder(response.data as DbOrderGraphRow);
+  const localOrder = state.orders.find((order) => order.id === details.id);
+  if (isLocalOrderNewer(localOrder, details)) {
+    await logger.info('sync:fetch-details', 'Keeping newer local order details over stale cloud snapshot', {
+      orderId,
+      localUpdatedAt: localOrder?.updatedAt || localOrder?.createdAt || null,
+      cloudUpdatedAt: details.updatedAt || details.createdAt || null
+    });
+    if (localOrder) {
+      await queueMutation('upsert', localOrder, localOrder.id);
+    }
+    return;
+  }
   const next = state.orders.map((order) => (order.id === details.id ? normalizeOrder({ ...order, ...details }) : order));
   setState({ orders: next });
   enqueueExistingImagesForCompression(next);
@@ -2173,22 +2227,26 @@ const compressOrderImagesForAddFlow = async (order: Order): Promise<Order> => {
 export const addOrderItem = async (order: Order) => {
   forgetLeadSyncOverrides(order.id);
   const compressedOrder = await compressOrderImagesForAddFlow(order);
-  const localOrder = normalizeOrder({ ...compressedOrder, id: ensureUuid(compressedOrder.id) });
+  const localOrder = normalizeOrder({ ...compressedOrder, id: ensureStableId(compressedOrder.id), updatedAt: compressedOrder.updatedAt || Date.now() });
+  const next = [localOrder, ...state.orders.filter((o) => o.id !== localOrder.id)];
+  setState({ orders: next, error: null });
+  await orderRepository.saveOrder(localOrder);
 
   try {
     if (shouldSyncDirectly()) {
       await retrySync(() => persistOrderGraph(localOrder));
+    } else {
+      await queueMutation('upsert', localOrder, localOrder.id);
     }
 
-    const next = [localOrder, ...state.orders.filter((o) => o.id !== localOrder.id)];
-    setState({ orders: next, error: null });
-    await orderRepository.saveOrder(localOrder);
     window.dispatchEvent(new CustomEvent('cloud-save-success'));
     return true;
   } catch (error) {
-    await logger.error('order:add', 'Failed to add order', { error: serializeError(error), orderId: localOrder.id });
+    await logger.warn('order:add', 'Order saved locally; remote add failed and will be retried', { error: serializeError(error), orderId: localOrder.id });
+    await queueMutation('upsert', localOrder, localOrder.id);
+    setState({ orders: next, error: null });
+    return true;
     setState({ error: getErrorMessage(error, 'Не удалось сохранить заказ') });
-    return false;
   }
 };
 
@@ -2230,7 +2288,10 @@ export const updateOrderItem = async (order: Order) => {
     window.dispatchEvent(new CustomEvent('cloud-save-success'));
     return true;
   } catch (error) {
-    await logger.error('order:update', 'Failed to update order', { orderId: normalized.id, error: serializeError(error) });
+    await logger.warn('order:update', 'Order saved locally; remote update failed and will be retried', { orderId: normalized.id, error: serializeError(error) });
+    await queueMutation('upsert', normalized, normalized.id);
+    setState({ orders: next, error: null });
+    return true;
     setState({ orders: previousOrders, error: getErrorMessage(error, 'Не удалось обновить заказ') });
     return false;
   }
@@ -2241,6 +2302,9 @@ export const deleteOrderItem = async (orderId: string) => {
   const targetOrder = previousOrders.find((order) => order.id === orderId);
   const isPublicLeadOrder = targetOrder?.leadSource === 'public_form' || targetOrder?.isLead === true;
   if (isPublicLeadOrder) rememberLeadDeleted(orderId, targetOrder?.leadCloudId, targetOrder?.leadOrderId);
+  const next = previousOrders.filter((o) => o.id !== orderId);
+  setState({ orders: next, error: null });
+  await orderRepository.deleteOrder(orderId);
 
   try {
     if (shouldSyncDirectly()) {
@@ -2255,6 +2319,8 @@ export const deleteOrderItem = async (orderId: string) => {
           });
         }
       }
+    } else {
+      await queueMutation('delete', undefined, orderId);
     }
 
     const next = previousOrders.filter((o) => o.id !== orderId);
@@ -2263,6 +2329,10 @@ export const deleteOrderItem = async (orderId: string) => {
     window.dispatchEvent(new CustomEvent('cloud-save-success'));
     return true;
   } catch (error) {
+    await logger.warn('order:delete', 'Order deleted locally; remote delete failed and will be retried', { orderId, error: serializeError(error) });
+    await queueMutation('delete', undefined, orderId);
+    setState({ orders: next, error: null });
+    return true;
     if (isPublicLeadOrder) forgetLeadSyncOverrides(orderId);
     await logger.error('order:delete', 'Failed to delete order', { orderId, error: serializeError(error) });
     setState({ orders: previousOrders, error: getErrorMessage(error, 'Не удалось удалить заказ') });
@@ -2299,6 +2369,11 @@ export const deleteOrderItems = async (orderIds: string[]) => {
   targets.forEach((order) => {
     if (publicLeadIds.has(order.id)) rememberLeadDeleted(order.id, order.leadCloudId, order.leadOrderId);
   });
+  const targetIds = targets.map((order) => order.id);
+  const targetSet = new Set(targetIds);
+  const locallyDeletedOrders = previousOrders.filter((order) => !targetSet.has(order.id));
+  setState({ orders: locallyDeletedOrders, error: null });
+  await orderRepository.deleteOrders(targetIds);
 
   const failedIds = new Set<string>();
 
@@ -2307,11 +2382,11 @@ export const deleteOrderItems = async (orderIds: string[]) => {
       try {
         await retrySync(() => deleteRemoteOrderWithStorageCleanup(order.id));
       } catch (error) {
-        failedIds.add(order.id);
         await logger.warn('order:bulk-delete', 'Failed to delete remote order during bulk delete', {
           orderId: order.id,
           error: serializeError(error)
         });
+        await queueMutation('delete', undefined, order.id);
       }
 
       if (publicLeadIds.has(order.id)) {
@@ -2324,6 +2399,10 @@ export const deleteOrderItems = async (orderIds: string[]) => {
           });
         }
       }
+    });
+  } else {
+    await runLimited(targets, 4, async (order) => {
+      await queueMutation('delete', undefined, order.id);
     });
   }
 
@@ -2378,7 +2457,7 @@ export const removePartItem = async (orderId: string, partId: string) => {
   const previousPart = order.parts.find((part) => part.id === partId);
   const partName = previousPart?.name || 'Деталь';
   const parts = order.parts.filter((part) => part.id !== partId);
-  await deletePartFolderFromStorage(orderId, partId);
+  await deletePartFolderFromStorage(safeStorageSegment(orderId), safeStorageSegment(partId));
   await updateOrderItem({ ...order, parts });
   void publishDomainEvent('PART_DELETED', {
     entityType: 'part',

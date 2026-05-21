@@ -322,6 +322,9 @@ export interface OrderNote {
   text: string;
   photos?: string[];
   audios?: Array<string | VoiceNoteAudio>;
+  videoUrls?: string[];
+  visibility?: 'internal' | 'client';
+  kind?: 'note' | 'proof';
   createdAt: number;
 }
 

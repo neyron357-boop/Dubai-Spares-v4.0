@@ -4,7 +4,7 @@ import OrdersScreen from './screens/OrdersScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
-import { CarFront, Check, Layers, PlusCircle, Settings, UserRound } from 'lucide-react';
+import { CarFront, Check, Layers, PlusCircle, RefreshCw, Settings, UserRound } from 'lucide-react';
 import { initNotificationsFromServer } from './notificationCenter';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
 import { DebugIndex, DebugIndexProvider, useDebugIndex } from './components/DebugIndex';
@@ -59,10 +59,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { toggle } = useDebugIndex();
   const location = useLocation();
   const navigate = useNavigate();
-  const { orders } = useStore();
+  const { orders, fetchOrders, fetchOrderDetails } = useStore();
   const mainRef = useRef<HTMLElement>(null);
   const scrollPositions = useRef<Record<string, number>>({});
   const prevPathname = useRef(location.pathname);
+  const pullStartYRef = useRef<number | null>(null);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
 
   const isOrderWorkspace = /^\/order\/[^/]+(?:\/parts|\/part\/[^/]+)?$/.test(location.pathname.replace(/\/+$/, ''));
   const hideNav = resolveBottomTab(location.pathname) === null || isOrderWorkspace;
@@ -121,6 +124,49 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const tabBarHeightClass = 'h-[calc(64px+env(safe-area-inset-bottom))]';
   const tabBarBottomOffsetClass = 'pb-[calc(88px+env(safe-area-inset-bottom))]';
   const tabBarPaddingBottomClass = 'pb-[max(8px,env(safe-area-inset-bottom))]';
+  const pullProgress = Math.min(1, pullDistance / 78);
+
+  const refreshCurrentScreen = async () => {
+    if (isPullRefreshing) return;
+    setIsPullRefreshing(true);
+    try {
+      const orderMatch = location.pathname.match(/^\/order\/([^/]+)/);
+      if (orderMatch?.[1]) {
+        await fetchOrderDetails(orderMatch[1]);
+      } else {
+        await fetchOrders();
+      }
+    } finally {
+      setPullDistance(0);
+      setIsPullRefreshing(false);
+    }
+  };
+
+  const handlePullStart = (event: React.TouchEvent<HTMLElement>) => {
+    if (isPullRefreshing || window.scrollY > 0 || (mainRef.current?.scrollTop || 0) > 0) return;
+    pullStartYRef.current = event.touches[0]?.clientY ?? null;
+  };
+
+  const handlePullMove = (event: React.TouchEvent<HTMLElement>) => {
+    if (pullStartYRef.current === null) return;
+    const currentY = event.touches[0]?.clientY ?? pullStartYRef.current;
+    const rawDistance = currentY - pullStartYRef.current;
+    if (rawDistance <= 0) {
+      setPullDistance(0);
+      return;
+    }
+    setPullDistance(Math.min(98, rawDistance * 0.55));
+  };
+
+  const handlePullEnd = () => {
+    const shouldRefresh = pullDistance >= 78;
+    pullStartYRef.current = null;
+    if (shouldRefresh) {
+      void refreshCurrentScreen();
+      return;
+    }
+    setPullDistance(0);
+  };
 
   return (
       <MobileLayoutContainer>
@@ -128,7 +174,20 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         <main
           ref={mainRef}
           className={`flex-1 min-h-0 overscroll-contain no-scrollbar relative ${hideNav ? 'pb-0' : tabBarBottomOffsetClass}`}
+          onTouchStart={handlePullStart}
+          onTouchMove={handlePullMove}
+          onTouchEnd={handlePullEnd}
         >
+          {(pullDistance > 0 || isPullRefreshing) && (
+            <div className="pointer-events-none sticky top-0 z-[70] flex h-0 justify-center">
+              <div
+                className="mt-3 flex h-10 min-w-10 items-center justify-center rounded-full bg-white/95 px-3 text-blue-600 shadow-lg ring-1 ring-black/5 backdrop-blur"
+                style={{ transform: `translateY(${Math.max(0, pullDistance - 46)}px) scale(${0.82 + pullProgress * 0.18})`, opacity: Math.max(0.45, pullProgress) }}
+              >
+                <RefreshCw size={18} className={isPullRefreshing ? 'animate-spin' : ''} />
+              </div>
+            </div>
+          )}
           {children}
         </main>
         </DebugIndex>

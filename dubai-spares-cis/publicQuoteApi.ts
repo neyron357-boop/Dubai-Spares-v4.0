@@ -147,6 +147,20 @@ export type PublicQuotePayloadV1 = {
     disclaimer: string;
     checked_at?: string;
   };
+  proof_notes?: Array<{
+    id: string;
+    text: string;
+    photos: string[];
+    video_urls: string[];
+    audios: Array<{
+      id: string;
+      file_url: string;
+      duration: number;
+      created_at: number;
+      author: string;
+    }>;
+    created_at: number;
+  }>;
 };
 
 type SnapshotRow = {
@@ -787,6 +801,34 @@ const buildSnapshotPayload = (
   const normalizedTelegram = publicSettings?.publicTelegramUrl || '';
   const normalizedInstagram = publicSettings?.publicInstagramUrl || '';
   const preSaleCheck = order.preSaleCheck || { defectPhotos: [], inspectionMedia: [] };
+  const proofNotes = (order.notes || [])
+    .filter((note) => note.visibility === 'client' || note.kind === 'proof')
+    .map((note) => ({
+      id: String(note.id || `proof-${Date.now()}`),
+      text: String(note.text || '').trim(),
+      photos: dedupePhotoUrls(note.photos || []),
+      video_urls: (note.videoUrls || []).map((url) => String(url || '').trim()).filter(Boolean),
+      audios: (note.audios || []).map((audio, index) => {
+        if (typeof audio === 'string') {
+          return {
+            id: `audio-${index}`,
+            file_url: audio,
+            duration: 0,
+            created_at: note.createdAt || Date.now(),
+            author: owner.displayName || 'Stark Motors'
+          };
+        }
+        return {
+          id: String(audio.id || `audio-${index}`),
+          file_url: String(audio.fileUrl || ''),
+          duration: Number(audio.duration || 0),
+          created_at: Number(audio.createdAt || note.createdAt || Date.now()),
+          author: String(audio.author || owner.displayName || 'Stark Motors')
+        };
+      }).filter((audio) => audio.file_url),
+      created_at: Number(note.createdAt || Date.now())
+    }))
+    .filter((note) => note.text || note.photos.length > 0 || note.video_urls.length > 0 || note.audios.length > 0);
 
   return {
     version: 'public_quote_payload_v1',
@@ -879,6 +921,7 @@ const buildSnapshotPayload = (
       disclaimer: 'Товар проверен. После передачи в карго претензии не принимаются',
       checked_at: preSaleCheck.checkedAt ? new Date(preSaleCheck.checkedAt).toISOString() : undefined
     },
+    proof_notes: proofNotes,
     meta: {
       oid: order.id,
       exp: expiresAtMs,

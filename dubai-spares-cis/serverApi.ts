@@ -28,6 +28,7 @@ const singleFlight = new Map<string, Promise<Result<unknown>>>();
 const MIN_ENDPOINT_INTERVAL_MS = 1000;
 const RETRYABLE_CODES = new Set(['aborted_or_timeout', 'network_error']);
 const SCHEMA_MISMATCH_CODES = new Set(['PGRST205', 'PGRST204', 'SCHEMA_MISMATCH']);
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 
 const LEADS_SYNC_VARIANT_STORAGE_KEY = 'server_api_leads_sync_variant_v3';
@@ -495,9 +496,9 @@ export const deletePublicQuoteSnapshot = async (snapshotIdOrToken: string, optio
   try {
     const encoded = encodeURIComponent(normalized);
     const endpoints = [
-      `public_quote_snapshots?id=eq.${encoded}`,
       `public_quote_snapshots?snapshot_id=eq.${encoded}`,
-      `public_quote_snapshots?token=eq.${encoded}`
+      `public_quote_snapshots?token=eq.${encoded}`,
+      `public_quote_snapshots?id=eq.${encoded}`
     ];
 
     for (const endpoint of endpoints) {
@@ -714,13 +715,15 @@ export const purgePublicLeadArtifacts = async (
     if (!removeLeadByOrderId.ok) return recordCall('purgePublicLeadArtifacts', removeLeadByOrderId);
     removedLeadRows += Array.isArray(removeLeadByOrderId.data) ? removeLeadByOrderId.data.length : 0;
 
-    const removeLeadById = await callRest<unknown[]>('client_leads?select=id&id=eq.' + encodeURIComponent(normalizedOrderId), 'DELETE', undefined, {
-      ...(options || {}),
-      timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
-      preferRepresentation: true
-    });
-    if (!removeLeadById.ok) return recordCall('purgePublicLeadArtifacts', removeLeadById);
-    removedLeadRows += Array.isArray(removeLeadById.data) ? removeLeadById.data.length : 0;
+    if (UUID_REGEX.test(normalizedOrderId)) {
+      const removeLeadById = await callRest<unknown[]>('client_leads?select=id&id=eq.' + encodeURIComponent(normalizedOrderId), 'DELETE', undefined, {
+        ...(options || {}),
+        timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
+        preferRepresentation: true
+      });
+      if (!removeLeadById.ok) return recordCall('purgePublicLeadArtifacts', removeLeadById);
+      removedLeadRows += Array.isArray(removeLeadById.data) ? removeLeadById.data.length : 0;
+    }
 
     const removeSnapshotsByOrderId = await callRest<unknown[]>('public_quote_snapshots?select=token&order_id=eq.' + encodeURIComponent(normalizedOrderId), 'DELETE', undefined, {
       ...(options || {}),

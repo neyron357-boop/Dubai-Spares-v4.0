@@ -1,12 +1,12 @@
 export const ORDER_GRAPH_COLUMNS = [
-  'id','brand','model','year','body_type','vin','vin_photo_url','google_drive_folder_url','priority','client_name','source','car_photo_url','car_photos','markup_percent','markup_type','markup_fixed_aed','use_markup_as_default_for_new_parts','client_currency','fx_updated_at','logistics','cargo_country','delivery_aed','packing_aed','service_fee_aed','exchange_rate','created_at','is_archived','is_sold','sold_profit_usd','is_vip','is_pinned','is_lead','customer_status','status_changed_at','status_changed_by','notes','status','sales_status','customer_contact','social_nickname','contact_links','updated_at','recommended_shop_ids','dismissed_shop_ids','lead_unread','lead_source','lead_read_at','pricing_events','vendor_contacts','vendor_checklist','vehicle_details'
+  'id','brand','model','year','body_type','vin','vin_photo_url','google_drive_folder_url','priority','client_name','source','car_photo_url','car_photos','markup_percent','markup_type','markup_fixed_aed','use_markup_as_default_for_new_parts','client_currency','fx_updated_at','logistics','cargo_country','delivery_aed','packing_aed','service_fee_aed','exchange_rate','created_at','is_archived','is_sold','sold_profit_usd','is_vip','is_pinned','is_lead','customer_status','status_changed_at','status_changed_by','notes','status','sales_status','payment_status','search_deposit_status','customer_contact','social_nickname','contact_links','updated_at','recommended_shop_ids','dismissed_shop_ids','lead_unread','lead_source','lead_read_at','pricing_events','vendor_contacts','vendor_checklist','vehicle_details','hunt_status','public_quote_token'
 ] as const;
 
 export const COMPAT_TABLE_COLUMNS = {
   orders: [...ORDER_GRAPH_COLUMNS],
-  parts: ['id','order_id','name','comment','google_drive_video_url','quantity','part_kind','group_items','photo_url','photos','is_found','weight_kg','length_cm','width_cm','height_cm','places','cargo_place_group','is_oversized'],
+  parts: ['id','order_id','name','comment','google_drive_video_url','quantity','part_kind','group_items','photo_url','photos','is_found','part_type','weight_kg','length_cm','width_cm','height_cm','places','cargo_place_group','is_oversized'],
   price_variants: ['id','order_id','part_id','price_aed','purchase_price_aed','sale_price_aed','currency','condition','availability','delivery_eta','shop_name','shop_id','phone','location','location_text','maps_url','photo_url','photos','is_best','note','created_at','updated_at'],
-  public_quote_snapshots: ['token','order_id','payload','created_at','expires_at','original_url','short_url']
+  public_quote_snapshots: ['id','token','snapshot','snapshot_id','order_id','payload','payload_json','payload_b64','payload_codec','image_manifest','created_at','updated_at','expires_at','original_url','short_url']
 } as const;
 
 type CompatTableName = keyof typeof COMPAT_TABLE_COLUMNS;

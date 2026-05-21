@@ -234,6 +234,7 @@ interface BuildPublicQuoteLinkOptions {
   expiresAt?: number;
   snapshot?: Record<string, unknown>;
   snapshotToken?: string;
+  upsertByToken?: boolean;
   embedSnapshotInUrl?: boolean;
 }
 
@@ -269,7 +270,7 @@ const uniquePhotos = (photos: string[]) => {
 
 const buildQuoteSnapshot = (order: Pick<Order,
   'id' | 'brand' | 'model' | 'year' | 'bodyType' | 'vin' | 'vinPhotoUrl' | 'googleDriveFolderUrl' | 'carPhotoUrl' | 'carPhotos' |
-  'markupType' | 'markupPercent' | 'markupFixedAed' | 'exchangeRate' | 'clientCurrency' | 'logistics' | 'pricingEvents' | 'parts'>) => {
+  'markupType' | 'markupPercent' | 'markupFixedAed' | 'exchangeRate' | 'clientCurrency' | 'logistics' | 'pricingEvents' | 'parts' | 'notes'>) => {
   const pricedParts = (order.parts || []).filter((part) => part.isFound && part.variants.length > 0);
   const partsSumAed = pricedParts.reduce((sum, part) => sum + Number(part.variants[0]?.priceAed || 0), 0);
   const cargoTotalCostUsd = Number(order.logistics?.cargoTotalCostUsd || 0);
@@ -321,6 +322,18 @@ const buildQuoteSnapshot = (order: Pick<Order,
     created_at: new Date().toISOString()
   },
   pricingEvents: order.pricingEvents || [],
+  proof_notes: (order.notes || [])
+    .filter((note) => note.visibility === 'client' || note.kind === 'proof')
+    .map((note) => ({
+      id: note.id,
+      text: note.text || '',
+      photos: uniquePhotos(note.photos || []),
+      video_urls: (note.videoUrls || []).filter(Boolean),
+      audios: (note.audios || []).map((audio, index) => typeof audio === 'string'
+        ? { id: `audio-${index}`, file_url: audio, duration: 0, created_at: note.createdAt, author: 'Stark Motors' }
+        : { id: audio.id, file_url: audio.fileUrl, duration: audio.duration, created_at: audio.createdAt, author: audio.author }),
+      created_at: note.createdAt
+    })),
   parts: (order.parts || []).map((part) => ({
     id: part.id,
     name: part.name,
@@ -389,6 +402,8 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
   const snapshot = await publicQuoteCreateSnapshot(order, {
     currency: options?.currency,
     exchangeRate: options?.rates?.[options?.currency || 'USD'],
+    token: options?.snapshotToken,
+    upsertByToken: options?.upsertByToken || !!options?.snapshotToken,
     owner: {
       whatsappPhone: settings.publicWhatsappNumber,
       displayName: 'Stark Motors'
