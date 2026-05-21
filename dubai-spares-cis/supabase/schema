@@ -1,1 +1,565 @@
+-- Dubai Spares clean Supabase schema.
+-- Apply this after backing up local app data and after dropping old server tables.
+-- App images are compressed client-side before upload (see storage/photos.ts).
+
+create extension if not exists pgcrypto;
+
+drop view if exists public.v_radar_active_targets cascade;
+drop view if exists public.v_shops_enriched cascade;
+
+drop table if exists public.radar_target_items cascade;
+drop table if exists public.radar_targets cascade;
+drop table if exists public.radar_events cascade;
+drop table if exists public.radar_sessions cascade;
+drop table if exists public.order_items cascade;
+drop table if exists public.activity_notifications cascade;
+drop table if exists public.client_leads cascade;
+drop table if exists public.public_quote_snapshots cascade;
+drop table if exists public.price_variants cascade;
+drop table if exists public.parts cascade;
+drop table if exists public.orders cascade;
+drop table if exists public.shops cascade;
+drop table if exists public.backups cascade;
+drop table if exists public.app_state cascade;
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.updated_at is null or new.updated_at is not distinct from old.updated_at then
+    new.updated_at = now();
+  end if;
+  return new;
+end;
+$$;
+
+create table public.app_state (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.orders (
+  id text primary key,
+  brand text not null default '',
+  model text not null default '',
+  year text not null default '',
+  body_type text,
+  vin text not null default '',
+  vin_photo_url text,
+  google_drive_folder_url text,
+  priority text not null default 'MEDIUM',
+  client_name text not null default '',
+  source text not null default 'Other',
+  car_photo_url text,
+  car_photos text[] not null default '{}'::text[],
+  markup_percent numeric not null default 0,
+  markup_type text not null default 'percent',
+  markup_fixed_aed numeric not null default 0,
+  use_markup_as_default_for_new_parts boolean not null default false,
+  client_currency text not null default 'AED',
+  fx_updated_at timestamptz,
+  logistics jsonb not null default '{}'::jsonb,
+  cargo_country text not null default '',
+  delivery_aed numeric not null default 0,
+  packing_aed numeric not null default 0,
+  service_fee_aed numeric not null default 0,
+  exchange_rate numeric not null default 3.67,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  is_archived boolean not null default false,
+  is_sold boolean not null default false,
+  sold_profit_usd numeric,
+  is_vip boolean not null default false,
+  is_pinned boolean not null default false,
+  is_lead boolean not null default false,
+  customer_status text,
+  status_changed_at timestamptz,
+  status_changed_by text,
+  notes jsonb not null default '[]'::jsonb,
+  status text not null default 'active',
+  sales_status text not null default 'Inquiry',
+  payment_status text not null default 'none',
+  search_deposit_status text not null default 'not_required',
+  customer_contact text not null default '',
+  social_nickname text not null default '',
+  contact_links jsonb,
+  recommended_shop_ids text[] not null default '{}'::text[],
+  dismissed_shop_ids text[] not null default '{}'::text[],
+  lead_unread boolean not null default false,
+  lead_source text not null default 'manual',
+  lead_read_at timestamptz,
+  pricing_events jsonb not null default '[]'::jsonb,
+  vendor_contacts jsonb not null default '[]'::jsonb,
+  vendor_checklist jsonb not null default '[]'::jsonb,
+  vehicle_details jsonb not null default '{}'::jsonb,
+  hunt_status text not null default 'data_gathering',
+  public_quote_token text
+);
+
+create table public.parts (
+  id text primary key,
+  order_id text not null references public.orders(id) on delete cascade,
+  name text not null default '',
+  comment text,
+  google_drive_video_url text,
+  quantity integer not null default 1,
+  part_kind text not null default 'single',
+  group_items jsonb not null default '[]'::jsonb,
+  photo_url text,
+  photos text[] not null default '{}'::text[],
+  is_found boolean not null default false,
+  part_type text not null default 'regular',
+  weight_kg numeric,
+  length_cm numeric,
+  width_cm numeric,
+  height_cm numeric,
+  places integer,
+  cargo_place_group text,
+  is_oversized boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.price_variants (
+  id text primary key,
+  order_id text references public.orders(id) on delete cascade,
+  part_id text not null references public.parts(id) on delete cascade,
+  price_aed numeric not null default 0,
+  purchase_price_aed numeric,
+  sale_price_aed numeric,
+  currency text not null default 'AED',
+  condition text,
+  availability text,
+  delivery_eta text,
+  shop_name text not null default '',
+  shop_id text,
+  phone text not null default '',
+  location text not null default '',
+  location_text text,
+  maps_url text,
+  photo_url text,
+  photos text[] not null default '{}'::text[],
+  is_best boolean not null default false,
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.shops (
+  id text primary key,
+  name text not null default '',
+  phone text not null default '',
+  whatsapp text,
+  location text not null default '',
+  latitude numeric,
+  longitude numeric,
+  zone text not null default '',
+  shop_type text not null default 'new_parts',
+  heat_level numeric not null default 0,
+  metrics_heat_level numeric not null default 0,
+  auto_trust_score numeric not null default 0,
+  manual_trust_level text,
+  success_rate numeric not null default 0,
+  last_interaction_at timestamptz,
+  total_interactions integer not null default 0,
+  total_found integer not null default 0,
+  total_not_found integer not null default 0,
+  total_wrong_info integer not null default 0,
+  has_delivery boolean not null default false,
+  fast_whatsapp boolean not null default false,
+  main_brands text[] not null default '{}'::text[],
+  specialization text[] not null default '{}'::text[],
+  specialization_tag text not null default '',
+  specialization_models text[] not null default '{}'::text[],
+  specialization_years integer[] not null default '{}'::integer[],
+  specialization_body_types text[] not null default '{}'::text[],
+  specialization_brands text[] not null default '{}'::text[],
+  specialization_categories text[] not null default '{}'::text[],
+  business_hours jsonb,
+  business_hours_timezone text,
+  linked_parts jsonb not null default '[]'::jsonb,
+  needs_manual_fix boolean not null default false,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.public_quote_snapshots (
+  id text primary key default (gen_random_uuid())::text,
+  token text not null unique,
+  snapshot text,
+  snapshot_id text,
+  order_id text references public.orders(id) on delete set null,
+  payload jsonb not null default '{}'::jsonb,
+  payload_json jsonb,
+  payload_b64 text,
+  payload_codec text,
+  image_manifest jsonb not null default '[]'::jsonb,
+  original_url text,
+  short_url text,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.client_leads (
+  id text primary key default (gen_random_uuid())::text,
+  name text not null default '',
+  phone text not null default '',
+  message text not null default '',
+  order_id text,
+  payload jsonb not null default '{}'::jsonb,
+  payload_json jsonb,
+  payload_b64 text,
+  payload_codec text,
+  image_manifest jsonb not null default '[]'::jsonb,
+  idempotency_key text unique,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.backups (
+  id text primary key default (gen_random_uuid())::text,
+  payload jsonb not null default '{}'::jsonb,
+  payload_b64 text,
+  payload_codec text,
+  image_manifest jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table public.activity_notifications (
+  id uuid primary key default gen_random_uuid(),
+  client_id text not null unique,
+  created_at timestamptz not null default now(),
+  type text not null default 'info',
+  title text not null default '',
+  message text not null default '',
+  severity text not null default 'info',
+  source text,
+  order_id text,
+  supplier_id text,
+  part_id text,
+  route text,
+  payload jsonb not null default '{}'::jsonb,
+  read_at timestamptz,
+  archived_at timestamptz,
+  signature text,
+  snooze_until bigint,
+  follow_up_at bigint,
+  entity_type text,
+  entity_id text,
+  radar_session_id text,
+  phone text,
+  map_url text,
+  lat numeric,
+  lng numeric,
+  distance_m numeric,
+  brand text,
+  car_model text,
+  car_year integer,
+  offline boolean not null default false
+);
+
+create table public.radar_sessions (
+  id uuid primary key default gen_random_uuid(),
+  order_id text not null references public.orders(id) on delete cascade,
+  radius_km numeric not null default 10,
+  mode text not null default 'smart',
+  is_active boolean not null default true,
+  ended_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.radar_targets (
+  id uuid primary key default gen_random_uuid(),
+  radar_session_id uuid not null references public.radar_sessions(id) on delete cascade,
+  shop_id text not null references public.shops(id) on delete cascade,
+  score numeric,
+  status text not null default 'planned',
+  distance_km numeric,
+  eta_min integer,
+  route_order integer,
+  score_breakdown jsonb not null default '{}'::jsonb,
+  matched_brands text[] not null default '{}'::text[],
+  matched_categories text[] not null default '{}'::text[],
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (radar_session_id, shop_id)
+);
+
+create table public.order_items (
+  id uuid primary key default gen_random_uuid(),
+  order_id text not null references public.orders(id) on delete cascade,
+  part_name text not null default '',
+  brand text,
+  model text,
+  year integer,
+  quantity integer,
+  created_at timestamptz not null default now()
+);
+
+create table public.radar_target_items (
+  id uuid primary key default gen_random_uuid(),
+  radar_target_id uuid not null references public.radar_targets(id) on delete cascade,
+  order_item_id uuid not null references public.order_items(id) on delete cascade,
+  item_status text not null default 'pending',
+  price_aed numeric,
+  notes text,
+  updated_at timestamptz not null default now(),
+  unique (radar_target_id, order_item_id)
+);
+
+create table public.radar_events (
+  id uuid primary key default gen_random_uuid(),
+  radar_session_id uuid not null references public.radar_sessions(id) on delete cascade,
+  event_type text not null,
+  client_event_id text unique,
+  target_id uuid,
+  target_item_id uuid,
+  shop_id text,
+  payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index idx_orders_updated_at on public.orders(updated_at desc);
+create index idx_orders_public_quote_token on public.orders(public_quote_token);
+create index idx_parts_order_id on public.parts(order_id);
+create index idx_price_variants_part_id on public.price_variants(part_id);
+create index idx_price_variants_order_id on public.price_variants(order_id);
+create index idx_public_quote_order_id on public.public_quote_snapshots(order_id);
+create index idx_public_quote_snapshot_id on public.public_quote_snapshots(snapshot_id);
+create index idx_client_leads_created_at on public.client_leads(created_at desc);
+create index idx_client_leads_order_id on public.client_leads(order_id);
+create index idx_shops_active_geo on public.shops(is_active, latitude, longitude);
+create index idx_activity_notifications_created_at on public.activity_notifications(created_at desc);
+create index idx_radar_sessions_order_active on public.radar_sessions(order_id, is_active);
+create index idx_radar_targets_session on public.radar_targets(radar_session_id, route_order, score desc);
+
+create trigger app_state_set_updated_at
+before update on public.app_state
+for each row execute function public.set_updated_at();
+
+create trigger orders_set_updated_at
+before update on public.orders
+for each row execute function public.set_updated_at();
+
+create trigger parts_set_updated_at
+before update on public.parts
+for each row execute function public.set_updated_at();
+
+create trigger price_variants_set_updated_at
+before update on public.price_variants
+for each row execute function public.set_updated_at();
+
+create trigger shops_set_updated_at
+before update on public.shops
+for each row execute function public.set_updated_at();
+
+create trigger public_quote_snapshots_set_updated_at
+before update on public.public_quote_snapshots
+for each row execute function public.set_updated_at();
+
+create trigger client_leads_set_updated_at
+before update on public.client_leads
+for each row execute function public.set_updated_at();
+
+create trigger radar_sessions_set_updated_at
+before update on public.radar_sessions
+for each row execute function public.set_updated_at();
+
+create trigger radar_targets_set_updated_at
+before update on public.radar_targets
+for each row execute function public.set_updated_at();
+
+create view public.v_shops_enriched as
+select
+  s.*,
+  coalesce(s.metrics_heat_level, s.heat_level, 0) as metrics_heat_level_safe
+from public.shops s
+where s.is_active = true;
+
+create view public.v_radar_active_targets as
+select
+  rt.id,
+  rt.radar_session_id,
+  rt.shop_id,
+  rt.score,
+  rt.status,
+  rt.distance_km,
+  rt.eta_min,
+  rt.route_order,
+  rt.score_breakdown,
+  rt.matched_brands,
+  rt.matched_categories,
+  rt.created_at,
+  rt.updated_at
+from public.radar_targets rt
+join public.radar_sessions rs on rs.id = rt.radar_session_id
+where rs.is_active = true;
+
+create or replace function public.refresh_schema_cache()
+returns void
+language plpgsql
+as $$
+begin
+  perform 1;
+end;
+$$;
+
+create or replace function public.radar_apply_event(p_event_payload jsonb, p_client_event_id text)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_session uuid := nullif(p_event_payload->>'radar_session_id', '')::uuid;
+  v_target uuid := nullif(p_event_payload->>'target_id', '')::uuid;
+  v_target_item uuid := nullif(p_event_payload->>'target_item_id', '')::uuid;
+begin
+  insert into public.radar_events (
+    radar_session_id,
+    event_type,
+    client_event_id,
+    target_id,
+    target_item_id,
+    shop_id,
+    payload
+  )
+  values (
+    v_session,
+    coalesce(p_event_payload->>'event_type', 'event'),
+    p_client_event_id,
+    v_target,
+    v_target_item,
+    p_event_payload->>'shop_id',
+    p_event_payload
+  )
+  on conflict (client_event_id) do nothing;
+
+  if v_target is not null and p_event_payload ? 'status' then
+    update public.radar_targets
+    set status = p_event_payload->>'status', updated_at = now()
+    where id = v_target;
+  end if;
+
+  if v_target_item is not null and p_event_payload ? 'item_status' then
+    update public.radar_target_items
+    set
+      item_status = p_event_payload->>'item_status',
+      price_aed = nullif(p_event_payload #>> '{payload,price_aed}', '')::numeric,
+      notes = p_event_payload #>> '{payload,notes}',
+      updated_at = now()
+    where id = v_target_item;
+  end if;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.radar_generate_targets(
+  p_session_id uuid,
+  p_max_targets integer default 30,
+  p_user_lat numeric default null,
+  p_user_lng numeric default null
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  inserted_count integer := 0;
+begin
+  insert into public.radar_targets (
+    radar_session_id,
+    shop_id,
+    score,
+    distance_km,
+    route_order,
+    matched_brands,
+    matched_categories
+  )
+  select
+    p_session_id,
+    s.id,
+    coalesce(s.metrics_heat_level, s.heat_level, 0),
+    case
+      when p_user_lat is not null and p_user_lng is not null and s.latitude is not null and s.longitude is not null
+        then sqrt(power((s.latitude - p_user_lat)::numeric, 2) + power((s.longitude - p_user_lng)::numeric, 2)) * 111.32
+      else null
+    end,
+    row_number() over (order by coalesce(s.metrics_heat_level, s.heat_level, 0) desc),
+    coalesce(s.main_brands, '{}'::text[]),
+    coalesce(s.specialization_categories, '{}'::text[])
+  from public.shops s
+  where s.is_active = true
+  order by coalesce(s.metrics_heat_level, s.heat_level, 0) desc
+  limit greatest(1, coalesce(p_max_targets, 30))
+  on conflict (radar_session_id, shop_id) do update
+    set score = excluded.score,
+        distance_km = excluded.distance_km,
+        route_order = excluded.route_order,
+        matched_brands = excluded.matched_brands,
+        matched_categories = excluded.matched_categories,
+        updated_at = now();
+
+  get diagnostics inserted_count = row_count;
+  return jsonb_build_object('ok', true, 'count', inserted_count);
+end;
+$$;
+
+do $$
+begin
+  if exists (select 1 from information_schema.schemata where schema_name = 'storage') then
+    insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    values
+      ('images', 'images', true, 10485760, array['image/jpeg','image/png','image/webp','image/gif']),
+      ('order-images', 'order-images', true, 10485760, array['image/jpeg','image/png','image/webp','image/gif'])
+    on conflict (id) do update
+      set public = excluded.public,
+          file_size_limit = excluded.file_size_limit,
+          allowed_mime_types = excluded.allowed_mime_types;
+  end if;
+end $$;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'storage'
+      and table_name = 'objects'
+  ) then
+    execute 'drop policy if exists images_public_select on storage.objects';
+    execute 'drop policy if exists images_anon_insert on storage.objects';
+    execute 'drop policy if exists images_anon_update on storage.objects';
+    execute 'drop policy if exists images_anon_delete on storage.objects';
+
+    execute $policy$
+      create policy images_public_select
+        on storage.objects for select
+        using (bucket_id in ('images', 'order-images'))
+    $policy$;
+
+    execute $policy$
+      create policy images_anon_insert
+        on storage.objects for insert
+        with check (bucket_id in ('images', 'order-images'))
+    $policy$;
+
+    execute $policy$
+      create policy images_anon_update
+        on storage.objects for update
+        using (bucket_id in ('images', 'order-images'))
+        with check (bucket_id in ('images', 'order-images'))
+    $policy$;
+
+    execute $policy$
+      create policy images_anon_delete
+        on storage.objects for delete
+        using (bucket_id in ('images', 'order-images'))
+    $policy$;
+  end if;
+end $$;
 
