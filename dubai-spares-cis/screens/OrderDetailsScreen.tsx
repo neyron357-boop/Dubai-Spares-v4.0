@@ -84,11 +84,9 @@ const resolveOrderDetailsTab = (value: unknown): OrderDetailsTab | null => (
 );
 
 
-const ORDER_DETAILS_BOTTOM_NAV_HEIGHT = '6.5rem';
 const ORDER_DETAILS_SAFE_BOTTOM = 'env(safe-area-inset-bottom)';
-const ORDER_DETAILS_DOCK_OFFSET = `calc(${ORDER_DETAILS_BOTTOM_NAV_HEIGHT} + ${ORDER_DETAILS_SAFE_BOTTOM})`;
 const ORDER_DETAILS_DOCK_SAFE_PADDING = `calc(10px + ${ORDER_DETAILS_SAFE_BOTTOM})`;
-const ORDER_DETAILS_SCROLL_PADDING = `calc(4.75rem + ${ORDER_DETAILS_BOTTOM_NAV_HEIGHT} + ${ORDER_DETAILS_SAFE_BOTTOM} + 8px)`;
+const ORDER_DETAILS_SCROLL_PADDING = `calc(4.75rem + ${ORDER_DETAILS_SAFE_BOTTOM} + 8px)`;
 
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
@@ -2413,7 +2411,7 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </nav>
 
-        <div className="min-h-[52dvh] rounded-t-[30px] bg-[#F4F1EA] px-4 pt-6 pb-[calc(4.75rem+6.5rem+env(safe-area-inset-bottom)+8px)] text-[#171717] shadow-[0_-18px_60px_rgba(0,0,0,0.28)]">
+        <div className="min-h-[52dvh] rounded-t-[30px] bg-[#F4F1EA] px-4 pt-6 text-[#171717] shadow-[0_-18px_60px_rgba(0,0,0,0.28)]" style={{ paddingBottom: ORDER_DETAILS_SCROLL_PADDING }}>
           {activeTab === 'overview' && (
             <div className="ds-mode-enter space-y-7">
               <section className="hidden">
@@ -3199,7 +3197,7 @@ const OrderDetailsScreen: React.FC = () => {
           )}
         </div>
 
-        <div className="fixed inset-x-0 z-40 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl" style={{ bottom: ORDER_DETAILS_DOCK_OFFSET, paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING }}>
+        <div className="fixed bottom-0 left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl" style={{ paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING }}>
           {activeTab === 'search' && (
             <form onSubmit={(event) => { event.preventDefault(); addNewPart(); }} className="space-y-2">
               {newPartKind === 'group' && (
