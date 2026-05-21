@@ -24,7 +24,6 @@ import {
   Check,
   ExternalLink,
   Images,
-  Send,
   Video
 } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
@@ -34,7 +33,6 @@ import { upsertSupplierToShops } from '../radarShops';
 import { createUuid } from '../id';
 import { optimizeImageForUpload, uploadImageToStorage } from '../storage/photos';
 import { cloneVariantForPart, VariantLibraryItem } from '../variantLibraryStore';
-import { generatePartPriceCard, resolveBestVariant, shareGeneratedPriceImage } from '../utils/partPriceShare';
 import { logger } from '../logging';
 import { readClipboardImageFiles } from '../utils/clipboardImages';
 import { toast } from '../feedback';
@@ -847,22 +845,6 @@ const PartDetailsScreen: React.FC = () => {
     }
   };
 
-  const handleSharePartPrice = async () => {
-    const variant = resolveBestVariant(part);
-    if (!variant) {
-      alert('Сначала добавьте вариант с ценой.');
-      return;
-    }
-    try {
-      const blob = await generatePartPriceCard(order, part, variant);
-      const result = await shareGeneratedPriceImage(blob, `part-${part.id}.png`, 'Цена поставщика', `${part.name} — ${variant.purchasePriceAed ?? variant.priceAed} AED`);
-      if (result === 'downloaded') alert('Картинка сохранена. Теперь её можно отправить клиенту.');
-    } catch (error) {
-      console.error(error);
-      alert('Не удалось сформировать картинку по детали.');
-    }
-  };
-
   const submitPartName = () => {
     const nextName = partNameDraft.trim();
     if (!nextName || nextName === part.name) {
@@ -923,94 +905,62 @@ const PartDetailsScreen: React.FC = () => {
       <div className="p-4 space-y-4">
         {!isAdding ? (
           <div className="space-y-3">
-            <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-black uppercase tracking-wide text-blue-700">Описание детали</p>
+            <section className="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.14em] text-gray-400">Деталь</p>
+                  <p className="mt-1 text-sm font-black leading-5 text-gray-950">{String(part.comment || part.name || 'Описание пока не добавлено')}</p>
+                </div>
                 {!isEditingPartDescription && (
-                  <button
-                    type="button"
-                    onClick={startEditPartDescription}
-                    className="rounded-md border border-blue-200 bg-white px-2 py-1 text-[10px] font-bold text-blue-700"
-                  >
-                    Изменить
-                  </button>
+                  <button type="button" onClick={startEditPartDescription} className="shrink-0 rounded-xl bg-gray-100 px-3 py-2 text-[10px] font-black text-gray-700">Изменить</button>
                 )}
               </div>
-              {isEditingPartDescription ? (
-                <div className="mt-2 space-y-2">
-                  <textarea
-                    autoFocus
-                    value={partDescriptionDraft}
-                    onChange={(e) => setPartDescriptionDraft(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-900"
-                    placeholder="Добавьте описание детали"
-                  />
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingPartDescription(false)}
-                      className="rounded-md border border-blue-200 bg-white px-2 py-1 text-[10px] font-bold text-blue-700"
-                    >
-                      Отмена
-                    </button>
-                    <button
-                      type="button"
-                      onClick={submitPartDescription}
-                      className="rounded-md bg-blue-600 px-2 py-1 text-[10px] font-bold text-white"
-                    >
-                      Сохранить
-                    </button>
+              {isEditingPartDescription && (
+                <div className="mt-3 space-y-2">
+                  <textarea autoFocus value={partDescriptionDraft} onChange={(e) => setPartDescriptionDraft(e.target.value)} rows={3} className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 outline-none" placeholder="Добавьте описание детали" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => setIsEditingPartDescription(false)} className="h-10 rounded-xl bg-gray-100 text-xs font-black text-gray-700">Отмена</button>
+                    <button type="button" onClick={submitPartDescription} className="h-10 rounded-xl bg-blue-600 text-xs font-black text-white">Сохранить</button>
                   </div>
                 </div>
-              ) : (
-                <p className="mt-1 text-xs font-semibold text-blue-900">{String(part.comment || part.name || 'Описание пока не добавлено')}</p>
               )}
-            </div>
-            <div className="rounded-2xl border border-gray-200 bg-white p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Пример фото деталей</p>
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => void handleSamplePhotosFromClipboard()} className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-600">Вставить</button>
-                  <button type="button" onClick={() => sampleFileInputRef.current?.click()} className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-600">Добавить</button>
-                </div>
-              </div>
-              {getSamplePhotos().length > 0 ? (
-                <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                  {getSamplePhotos().map((photo, photoIndex) => (
-                    <div key={`${part.id}-sample-${photoIndex}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white">
-                      <button type="button" onClick={() => setGallery({ images: getSamplePhotos(), index: photoIndex })} className="h-full w-full">
-                        <img src={photo} className="h-full w-full object-cover" />
-                      </button>
-                      <button type="button" onClick={() => removeSamplePhoto(photoIndex)} className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white" aria-label="Удалить пример фото">
-                        <X size={10} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[10px] font-semibold text-gray-400">Пока нет пример-фото.</p>
-              )}
-              <input type="file" ref={sampleFileInputRef} onChange={handleSamplePhotoChange} className="hidden" accept="image/*" multiple />
-            </div>
+            </section>
 
-            <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-wide text-sky-800">
-                  <Video size={14} /> Медиа
-                </p>
-                <button
-                  type="button"
-                  onClick={checkPartMediaLink}
-                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2 text-[10px] font-black text-sky-700"
-                >
-                  <ExternalLink size={12} /> Открыть
-                </button>
+            <section className="grid grid-cols-2 gap-2">
+              <div className="rounded-2xl border border-gray-100 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500"><Video size={13} /> Медиа</p>
+                  <button type="button" onClick={checkPartMediaLink} className="inline-flex h-8 items-center gap-1 rounded-xl bg-gray-950 px-2.5 text-[10px] font-black text-white">
+                    <ExternalLink size={12} /> Открыть
+                  </button>
+                </div>
               </div>
-              <p className="mt-2 text-xs font-semibold text-sky-800">
-                Ссылка редактируется только в разделе Пруфы заказа. Здесь доступен только просмотр.
-              </p>
-            </div>
+              <div className="rounded-2xl border border-gray-100 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Фото-пример</p>
+                  <div className="flex gap-1">
+                    <button type="button" onClick={() => void handleSamplePhotosFromClipboard()} className="h-8 rounded-xl bg-gray-100 px-2 text-[10px] font-black text-gray-700">Вставить</button>
+                    <button type="button" onClick={() => sampleFileInputRef.current?.click()} className="h-8 rounded-xl bg-gray-950 px-2 text-[10px] font-black text-white">+</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {getSamplePhotos().length > 0 && (
+              <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                {getSamplePhotos().map((photo, photoIndex) => (
+                  <div key={`${part.id}-sample-${photoIndex}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-white">
+                    <button type="button" onClick={() => setGallery({ images: getSamplePhotos(), index: photoIndex })} className="h-full w-full">
+                      <img src={photo} className="h-full w-full object-cover" />
+                    </button>
+                    <button type="button" onClick={() => removeSamplePhoto(photoIndex)} className="absolute right-1 top-1 rounded-full bg-black/60 p-0.5 text-white" aria-label="Удалить пример фото">
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <input type="file" ref={sampleFileInputRef} onChange={handleSamplePhotoChange} className="hidden" accept="image/*" multiple />
 
             {!depositPaid && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
@@ -1018,7 +968,7 @@ const PartDetailsScreen: React.FC = () => {
               </div>
             )}
             {groupItems.length > 0 && (
-              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <section className="rounded-3xl border border-slate-200 bg-white p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Состав группы</p>
                   <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-500">{groupItems.length}</span>
@@ -1031,149 +981,151 @@ const PartDetailsScreen: React.FC = () => {
                     </div>
                   ))}
                 </div>
-              </div>
+              </section>
             )}
-            <button type="button" disabled={!depositPaid} onClick={() => { if (!depositPaid) return; setIsAdding(true); setEditingVariantId(null); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg uppercase text-xs disabled:opacity-40"><Plus size={20} /> Добавить вариант</button>
-            <button type="button" onClick={() => void handleSharePartPrice()} disabled={!resolveBestVariant(part)} className="w-full py-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-2xl font-black flex items-center justify-center gap-2 text-xs disabled:opacity-50"><Send size={16} /> Сгенерировать ценник</button>
-            <button type="button" disabled={!depositPaid} onClick={() => setShowLibraryPicker(true)} className="w-full py-3 bg-white border border-gray-200 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-2 text-xs disabled:opacity-40"><ClipboardPaste size={16} /> Прикрепить из вариантов</button>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" disabled={!depositPaid} onClick={() => { if (!depositPaid) return; setIsAdding(true); setEditingVariantId(null); }} className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-blue-600 text-xs font-black uppercase text-white shadow-sm disabled:opacity-40"><Plus size={18} /> Вариант</button>
+              <button type="button" disabled={!depositPaid} onClick={() => setShowLibraryPicker(true)} className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white text-xs font-black text-gray-700 disabled:opacity-40"><ClipboardPaste size={16} /> Из базы</button>
+            </div>
             {latestOrderVariant && (
-              <button type="button" onClick={() => setForm((prev) => ({ ...prev, shopName: latestOrderVariant.shopName || '', phone: latestOrderVariant.phone || prev.phone, locationText: latestOrderVariant.locationText || latestOrderVariant.location || '' }))} className="w-full px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-black">Последний магазин: {latestOrderVariant.shopName}</button>
+              <button type="button" onClick={() => setForm((prev) => ({ ...prev, shopName: latestOrderVariant.shopName || '', phone: latestOrderVariant.phone || prev.phone, locationText: latestOrderVariant.locationText || latestOrderVariant.location || '' }))} className="w-full rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">Последний магазин: {latestOrderVariant.shopName}</button>
             )}
           </div>
         ) : (
-          <form onSubmit={async (e) => { e.preventDefault(); await saveVariant(); }} className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-4 space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="font-black text-blue-700">{isEditing ? 'Редактировать вариант' : 'Новая цена'}</h3>
-                <button type="button" onClick={closeEditor} className="p-2 text-gray-400 active:text-gray-600"><X size={20} /></button>
+          <form onSubmit={async (e) => { e.preventDefault(); await saveVariant(); }} className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
+            <div className="border-b border-gray-100 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-gray-400">{isEditing ? 'Правка варианта' : 'Новый вариант'}</p>
+                  <h3 className="mt-1 text-lg font-black text-gray-950">{isEditing ? 'Обновить предложение' : 'Добавить цену поставщика'}</h3>
+                </div>
+                <button type="button" onClick={closeEditor} className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gray-100 text-gray-600"><X size={18} /></button>
               </div>
+            </div>
 
-              <div>
-                <label className="text-xs font-black text-gray-700">Фото</label>
-                <div className="flex gap-2 overflow-x-auto mt-2 pb-1">
-                  <button type="button" onClick={() => fileInputRef.current?.click()} className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-300 flex flex-col justify-center items-center shrink-0"><Camera size={20} className="text-gray-400" /><span className="text-[10px] font-black text-gray-500">+ Фото</span></button>
-                  <button type="button" onClick={() => void handleVariantPhotosFromClipboard()} className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-300 flex flex-col justify-center items-center shrink-0"><ClipboardPaste size={20} className="text-gray-400" /><span className="text-[10px] font-black text-gray-500">Вставить</span></button>
+            <div className="space-y-4 p-4">
+              <section className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-gray-700">Фото варианта</label>
+                  <span className="text-[10px] font-bold text-gray-400">{form.photos.length} фото</span>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 bg-gray-50 text-gray-500"><Camera size={18} /><span className="mt-1 text-[10px] font-black">Фото</span></button>
+                  <button type="button" onClick={() => void handleVariantPhotosFromClipboard()} className="flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-2xl border border-gray-200 bg-white text-gray-500"><ClipboardPaste size={18} /><span className="mt-1 text-[10px] font-black">Вставить</span></button>
                   {form.photos.map((photo, index) => (
-                    <div key={`${photo}-${index}`} className="relative w-24 h-24 shrink-0 rounded-xl overflow-hidden border border-gray-200">
+                    <div key={`${photo}-${index}`} className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
                       {isPhotoVisible(photo)
-                        ? <img src={photo} className="w-full h-full object-cover" onError={() => setBrokenPhotoUrls((prev) => ({ ...prev, [photo]: true }))} />
-                        : <div className="w-full h-full bg-gray-100 grid place-items-center text-gray-400"><Images size={14} /></div>}
-                      <button type="button" onClick={() => removeVariantPhoto(index)} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"><X size={12} /></button>
+                        ? <img src={photo} className="h-full w-full object-cover" onError={() => setBrokenPhotoUrls((prev) => ({ ...prev, [photo]: true }))} />
+                        : <div className="grid h-full w-full place-items-center text-gray-400"><Images size={14} /></div>}
+                      <button type="button" onClick={() => removeVariantPhoto(index)} className="absolute right-1 top-1 rounded-full bg-black/55 p-1 text-white"><X size={11} /></button>
                     </div>
                   ))}
                   <input type="file" ref={fileInputRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
                 </div>
-              </div>
+              </section>
 
-              <div className="grid grid-cols-1 gap-4">
-                <div>
-                  <label className="text-xs font-black text-gray-700">Цена покупки (AED)</label>
-                  <div className="flex items-center gap-2">
-                    <input type="text" autoFocus value={form.purchasePriceAed} onChange={(e) => handleFormPatch('purchasePriceAed', e.target.value.replace(/[^\d]/g, ''))} placeholder="200" className="h-12 px-4 text-2xl font-black text-slate-700 w-full border border-gray-200 rounded-xl" />
-                    <button type="button" onClick={() => pasteFromClipboard('purchasePriceAed')} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><ClipboardPaste size={16} /></button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">Цена для поставщика. Продажная цена задаётся в разделе «Финансы» заказа.</p>
+              <section className="space-y-1">
+                <label className="text-xs font-black text-gray-700">Цена покупки, AED</label>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <input type="text" autoFocus value={form.purchasePriceAed} onChange={(e) => handleFormPatch('purchasePriceAed', e.target.value.replace(/[^\d]/g, ''))} placeholder="200" className="h-14 min-w-0 rounded-2xl border border-gray-200 px-4 text-2xl font-black text-gray-950 outline-none" />
+                  <button type="button" onClick={() => pasteFromClipboard('purchasePriceAed')} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-200 text-gray-600"><ClipboardPaste size={17} /></button>
                 </div>
-              </div>
+                <p className="text-[11px] font-semibold text-gray-500">Продажная цена задаётся в финансах заказа.</p>
+              </section>
 
-              <div>
-                <label className="text-xs font-black text-gray-700">Состояние</label>
-                <div className="grid grid-cols-3 gap-2 mt-2">
-                  {(Object.keys(conditionLabels) as OfferCondition[]).map((condition) => (
-                    <button key={condition} type="button" onClick={() => handleFormPatch('condition', condition)} className={`h-10 rounded-xl text-xs font-black border ${form.condition === condition ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-700'}`}>{conditionLabels[condition]}</button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
+              <section className="space-y-3 rounded-2xl bg-gray-50 p-3">
                 <div>
-                  <label className="text-xs font-black text-gray-700">Наличие</label>
-                  <div className="mt-1 space-y-1">
-                    {(Object.keys(availabilityLabels) as OfferAvailability[]).map((value) => (
-                      <button key={value} type="button" onClick={() => handleFormPatch('availability', value)} className={`w-full h-9 rounded-lg border text-xs font-bold ${form.availability === value ? 'border-blue-600 text-blue-700 bg-blue-50' : 'border-gray-200'}`}>{availabilityLabels[value]}</button>
+                  <label className="text-[10px] font-black uppercase tracking-wide text-gray-500">Состояние</label>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {(Object.keys(conditionLabels) as OfferCondition[]).map((condition) => (
+                      <button key={condition} type="button" onClick={() => handleFormPatch('condition', condition)} className={`h-10 rounded-xl text-xs font-black ${form.condition === condition ? 'bg-gray-950 text-white' : 'bg-white text-gray-700'}`}>{conditionLabels[condition]}</button>
                     ))}
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wide text-gray-500">Наличие</label>
+                    <div className="mt-2 grid gap-1">
+                      {(Object.keys(availabilityLabels) as OfferAvailability[]).map((value) => (
+                        <button key={value} type="button" onClick={() => handleFormPatch('availability', value)} className={`h-9 rounded-xl text-xs font-bold ${form.availability === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}>{availabilityLabels[value]}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wide text-gray-500">Срок</label>
+                    <div className="mt-2 grid gap-1">
+                      {(Object.keys(etaLabels) as OfferFormState['deliveryEta'][]).map((value) => (
+                        <button key={value} type="button" onClick={() => handleFormPatch('deliveryEta', value)} className={`h-9 rounded-xl text-xs font-bold ${form.deliveryEta === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}>{etaLabels[value]}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <div className="relative">
+                  <label className="text-xs font-black text-gray-700">Магазин</label>
+                  <div className="mt-1 grid h-12 grid-cols-[auto_1fr_auto] items-center gap-2 rounded-2xl border border-gray-200 px-3">
+                    <Store size={16} className="text-gray-500" />
+                    <input value={form.shopName} onChange={(e) => { handleFormPatch('shopName', e.target.value); handleFormPatch('supplierId', undefined); setShowSuggestions(true); }} className="min-w-0 bg-transparent text-sm font-bold outline-none" placeholder="Поиск или новый магазин" />
+                    <button type="button" onClick={generateShopName} className="rounded-xl bg-violet-50 px-2 py-1 text-[10px] font-black text-violet-700">Рандом</button>
+                  </div>
+                  {showSuggestions && form.shopName && filteredSuppliers.length > 0 && (
+                    <div className="absolute left-0 right-0 top-16 z-20 max-h-56 overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-xl">
+                      {filteredSuppliers.map((supplier) => (
+                        <button key={supplier.id} type="button" onClick={() => handleShopSelect(supplier)} className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50">
+                          <p className="font-bold">{supplier.name}</p>
+                          <p className="text-xs text-gray-500">{supplier.phone || 'без телефона'} · {supplier.location || 'без локации'}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div>
-                  <label className="text-xs font-black text-gray-700">Срок до склада</label>
-                  <div className="mt-1 space-y-1">
-                    {(Object.keys(etaLabels) as OfferFormState['deliveryEta'][]).map((value) => (
-                      <button key={value} type="button" onClick={() => handleFormPatch('deliveryEta', value)} className={`w-full h-9 rounded-lg border text-xs font-bold ${form.deliveryEta === value ? 'border-blue-600 text-blue-700 bg-blue-50' : 'border-gray-200'}`}>{etaLabels[value]}</button>
-                    ))}
+                  <label className="text-xs font-black text-gray-700">Телефон</label>
+                  <div className="mt-1 grid grid-cols-[1fr_auto_auto_auto] gap-2">
+                    <div className="flex h-12 min-w-0 items-center gap-2 rounded-2xl border border-gray-200 px-3">
+                      <Phone size={16} className="shrink-0 text-gray-500" />
+                      <input value={form.phone} onChange={(e) => handleFormPatch('phone', formatPhone(e.target.value))} className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none" />
+                    </div>
+                    <button type="button" onClick={() => pasteFromClipboard('phone')} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-gray-200"><ClipboardPaste size={16} /></button>
+                    <button type="button" onClick={() => navigator.clipboard.writeText(form.phone)} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-gray-200"><Copy size={16} /></button>
+                    <button type="button" onClick={() => openWhatsapp({ ...DEFAULT_FORM, ...form, id: 'tmp', priceAed: numericSalePrice, purchasePriceAed: numericPurchasePrice, salePriceAed: numericSalePrice, location: form.locationText, createdAt: Date.now() } as PriceVariant)} className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"><MessageCircle size={16} /></button>
                   </div>
                 </div>
-              </div>
+              </section>
 
-              <div className="relative">
-                <label className="text-xs font-black text-gray-700">Магазин</label>
-                <div className="flex items-center gap-2 h-12 px-3 mt-1 border border-gray-200 rounded-xl">
-                  <Store size={16} className="text-gray-500" />
-                  <input value={form.shopName} onChange={(e) => { handleFormPatch('shopName', e.target.value); handleFormPatch('supplierId', undefined); setShowSuggestions(true); }} className="flex-1 bg-transparent outline-none text-sm font-bold" placeholder="Поиск или новый магазин" />
-                  <button type="button" onClick={generateShopName} className="rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[10px] font-black text-violet-700">Рандом</button>
-                </div>
-                {showSuggestions && form.shopName && filteredSuppliers.length > 0 && (
-                  <div className="absolute top-16 left-0 right-0 z-20 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
-                    {filteredSuppliers.map((supplier) => (
-                      <button key={supplier.id} type="button" onClick={() => handleShopSelect(supplier)} className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50">
-                        <p className="font-bold">{supplier.name}</p>
-                        <p className="text-xs text-gray-500">{supplier.phone || 'без телефона'} · {supplier.location || 'без локации'}</p>
-                      </button>
-                    ))}
+              <section className="space-y-3">
+                <label className="block">
+                  <span className="text-xs font-black text-gray-700">Локация</span>
+                  <div className="mt-1 grid grid-cols-[1fr_auto] gap-2">
+                    <div className="flex h-12 min-w-0 items-center gap-2 rounded-2xl border border-gray-200 px-3">
+                      <MapPin size={16} className="shrink-0 text-gray-500" />
+                      <input value={form.locationText} onChange={(e) => { handleFormPatch('locationText', e.target.value); setLocationParseNotice(null); }} className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none" placeholder="Ряд / зона / адрес" />
+                    </div>
+                    <button type="button" onClick={getCurrentLocation} disabled={isLocating} className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white disabled:opacity-60"><Navigation size={16} className={isLocating ? 'animate-pulse' : ''} /></button>
                   </div>
-                )}
-              </div>
-
-              <div>
-                <label className="text-xs font-black text-gray-700">Телефон</label>
-                <div className="flex items-center gap-2 mt-1">
-                  <div className="flex items-center gap-2 h-12 px-3 border border-gray-200 rounded-xl flex-1">
-                    <Phone size={16} className="text-gray-500" />
-                    <input value={form.phone} onChange={(e) => handleFormPatch('phone', formatPhone(e.target.value))} className="flex-1 bg-transparent outline-none text-sm font-bold" />
-                  </div>
-                  <button type="button" onClick={() => pasteFromClipboard('phone')} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><ClipboardPaste size={16} /></button>
-                  <button type="button" onClick={() => navigator.clipboard.writeText(form.phone)} className="h-12 w-12 rounded-xl border border-gray-200 flex items-center justify-center"><Copy size={16} /></button>
-                  <button type="button" onClick={() => openWhatsapp({ ...DEFAULT_FORM, ...form, id: 'tmp', priceAed: numericSalePrice, purchasePriceAed: numericPurchasePrice, salePriceAed: numericSalePrice, location: form.locationText, createdAt: Date.now() } as PriceVariant)} className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center"><MessageCircle size={16} /></button>
+                </label>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <input value={form.mapsUrl} onChange={(e) => handleFormPatch('mapsUrl', e.target.value)} className="h-11 min-w-0 rounded-2xl border border-gray-200 px-3 text-sm font-bold outline-none" placeholder="Google Maps URL" />
+                  <button type="button" onClick={() => pasteFromClipboard('mapsUrl')} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-gray-200"><ClipboardPaste size={15} /></button>
                 </div>
-              </div>
+                {locationParseNotice && <p className="text-xs text-amber-700">{locationParseNotice}</p>}
+              </section>
 
-              <div>
+              <section className="space-y-2">
                 <label className="text-xs font-black text-gray-700">Заметка по варианту</label>
-                <textarea
-                  value={form.note}
-                  onChange={(e) => handleFormPatch('note', e.target.value)}
-                  rows={3}
-                  placeholder="Комментарий для этого варианта"
-                  className="mt-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-black text-gray-700">Локация</label>
-                <div className="grid grid-cols-[1fr_auto] gap-2 mt-1">
-                  <div className="h-12 px-3 border border-gray-200 rounded-xl flex items-center gap-2">
-                    <MapPin size={16} className="text-gray-500" />
-                    <input value={form.locationText} onChange={(e) => { handleFormPatch('locationText', e.target.value); setLocationParseNotice(null); }} className="flex-1 bg-transparent outline-none text-sm font-bold" placeholder="Ряд / зона / адрес" />
-                  </div>
-                  <button type="button" onClick={getCurrentLocation} disabled={isLocating} className="h-12 w-12 rounded-xl bg-blue-600 text-white flex items-center justify-center disabled:opacity-60"><Navigation size={16} className={isLocating ? 'animate-pulse' : ''} /></button>
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <input value={form.mapsUrl} onChange={(e) => handleFormPatch('mapsUrl', e.target.value)} className="h-11 px-3 border border-gray-200 rounded-xl flex-1 text-sm font-bold" placeholder="Google Maps URL" />
-                  <button type="button" onClick={() => pasteFromClipboard('mapsUrl')} className="h-11 w-11 rounded-xl border border-gray-200 flex items-center justify-center"><ClipboardPaste size={15} /></button>
-                </div>
-                {locationParseNotice && <p className="text-xs text-amber-700 mt-1">{locationParseNotice}</p>}
-              </div>
-
-              <button type="button" onClick={() => handleFormPatch('isBest', !form.isBest)} className={`w-full h-11 rounded-xl border font-black text-sm flex items-center justify-center gap-2 ${form.isBest ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-600'}`}><Star size={16} /> Лучший вариант</button>
-
-              {isEditing && (
-                <p className="text-xs text-gray-500">Создан: {new Date(partVariants.find((v) => v.id === editingVariantId)?.createdAt || Date.now()).toLocaleString()}</p>
-              )}
+                <textarea value={form.note} onChange={(e) => handleFormPatch('note', e.target.value)} rows={3} placeholder="Комментарий для этого варианта" className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm font-semibold outline-none" />
+                <button type="button" onClick={() => handleFormPatch('isBest', !form.isBest)} className={`flex h-11 w-full items-center justify-center gap-2 rounded-2xl font-black text-sm ${form.isBest ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-gray-100 text-gray-700'}`}><Star size={16} /> Лучший вариант</button>
+                {isEditing && <p className="text-xs text-gray-500">Создан: {new Date(partVariants.find((v) => v.id === editingVariantId)?.createdAt || Date.now()).toLocaleString()}</p>}
+              </section>
             </div>
 
-            <div className="sticky bottom-0 bg-white/95 backdrop-blur border-t border-gray-100 p-3">
-              <button type="submit" disabled={!canSave || isResolvingLocation} className="w-full h-12 rounded-xl bg-blue-600 text-white font-black text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2">{isResolvingLocation ? <><Loader2 size={14} className="animate-spin" /> Сохранение...</> : isEditing ? 'Сохранить изменения' : 'Сохранить вариант'}</button>
-              {!canSave && <p className="text-xs text-gray-500 mt-1">Введите цену и магазин.</p>}
-              {!navigator.onLine && <p className="text-xs text-amber-700 mt-1">⏳ Нет интернета: вариант будет синхронизирован позже.</p>}
+            <div className="sticky bottom-0 border-t border-gray-100 bg-white/95 p-3 backdrop-blur">
+              <button type="submit" disabled={!canSave || isResolvingLocation} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 text-sm font-black text-white disabled:opacity-50">{isResolvingLocation ? <><Loader2 size={14} className="animate-spin" /> Сохранение...</> : isEditing ? 'Сохранить изменения' : 'Сохранить вариант'}</button>
+              {!canSave && <p className="mt-1 text-xs text-gray-500">Введите цену покупки и магазин.</p>}
+              {!navigator.onLine && <p className="mt-1 text-xs text-amber-700">Нет интернета: вариант будет синхронизирован позже.</p>}
             </div>
           </form>
         )}
@@ -1257,8 +1209,8 @@ const PartDetailsScreen: React.FC = () => {
 
 
       {showLibraryPicker && (
-        <div className="fixed inset-0 z-[130] bg-black/30 flex items-end">
-          <div className="w-full max-w-md mx-auto bg-white rounded-t-3xl p-4 max-h-[70dvh] overflow-y-auto space-y-2">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl max-h-[82dvh] overflow-y-auto space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-black">Выбрать вариант</h3>
               <button type="button" onClick={() => setShowLibraryPicker(false)} className="p-2 rounded-lg hover:bg-gray-100"><X size={16} /></button>

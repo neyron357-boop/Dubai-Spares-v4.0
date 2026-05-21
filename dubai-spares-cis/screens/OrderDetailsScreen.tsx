@@ -118,7 +118,11 @@ const buildQuoteRateInputs = (rates: QuoteRates) => ({
   UZS: String(Number(rates.UZS || DEFAULT_QUOTE_RATES.UZS))
 });
 
-const sanitizeDecimalInput = (raw: string) => raw.replace(/[^\d.,]/g, '').replace(',', '.');
+const sanitizeDecimalInput = (raw: string) => {
+  const normalized = raw.replace(/,/g, '.').replace(/[^\d.]/g, '');
+  const [head = '', ...tail] = normalized.split('.');
+  return tail.length > 0 ? `${head}.${tail.join('')}` : head;
+};
 
 
 const ORDER_DETAILS_SAFE_BOTTOM = 'env(safe-area-inset-bottom)';
@@ -504,6 +508,8 @@ const OrderDetailsScreen: React.FC = () => {
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [isLaunchingRadar, setIsLaunchingRadar] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [editingOverviewBlock, setEditingOverviewBlock] = useState<'client' | 'vehicle' | null>(null);
+  const [isQuoteRatesExpanded, setIsQuoteRatesExpanded] = useState(false);
   const [isClientBlockExpanded, setIsClientBlockExpanded] = useState(false);
   const [isVehicleBlockExpanded, setIsVehicleBlockExpanded] = useState(false);
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
@@ -533,6 +539,8 @@ const OrderDetailsScreen: React.FC = () => {
   const orderRef = useRef<Order | undefined>(order);
   const [draftFields, setDraftFields] = useState<Partial<Record<keyof Order, any>>>({});
   const lastKeystrokeAtRef = useRef<number>(0);
+  const isClientEditMode = editingOverviewBlock === 'client' || isEditMode;
+  const isVehicleEditMode = editingOverviewBlock === 'vehicle' || isEditMode;
 
   useEffect(() => {
     orderRef.current = order;
@@ -781,57 +789,71 @@ const OrderDetailsScreen: React.FC = () => {
 
   const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency; sendPublicQuote?: boolean }) => {
     if (orderMissing) return;
-    const parsedRateInput = parseFloat(String(rateInput || '').replace(',', '.'));
-    const quoteExchangeRate = Number.isFinite(parsedRateInput) && parsedRateInput > 0
-      ? parsedRateInput
-      : preferredExchangeRate;
-    updateSettings({ defaultExchangeRate: quoteExchangeRate, defaultQuoteRates: currentQuoteRates });
-    const nextParts = order.parts || [];
-    const draftLogistics = {
-      ...(order.logistics || {}),
-      deliveryAed: Number(logisticsDraft.deliveryAed || 0),
-      packingAed: Number(logisticsDraft.packingAed || 0),
-      serviceFeeAed: Number(logisticsDraft.serviceFeeAed || 0)
-    };
-    const draftCargo = calculateCargo({ ...order, parts: nextParts, logistics: draftLogistics }, settings);
-    const draftEstimates = calculateCargoEstimates({ ...order, parts: nextParts, logistics: draftLogistics }, settings);
-    // Only override saved cargo values with freshly-computed values when parts actually have cargo data.
-    // This prevents zeroing out previously-saved logistics when cargo fields on individual parts haven't been filled yet.
-    const hasPartCargoData = nextParts.some((p) => Number((p as any).weightKg || 0) > 0 || Number((p as any).places || 0) > 0);
-    const quoteOrder = {
-      ...order,
-      parts: nextParts,
-      salesStatus: 'Price Sent',
-      status: order.status === 'lead' || order.status === 'waiting_deposit' ? 'in_progress' : order.status,
-      logistics: {
-        ...draftLogistics,
-        cargoEtaDays: hasPartCargoData ? draftCargo.eta : (draftLogistics.cargoEtaDays || draftCargo.eta),
-        cargoTotalWeightKg: hasPartCargoData ? draftCargo.realWeight : (draftLogistics.cargoTotalWeightKg ?? draftCargo.realWeight),
-        cargoChargeableWeightKg: hasPartCargoData ? draftCargo.chargeableWeight : (draftLogistics.cargoChargeableWeightKg ?? draftCargo.chargeableWeight),
-        cargoTotalPlaces: hasPartCargoData ? draftCargo.totalPlaces : (draftLogistics.cargoTotalPlaces ?? draftCargo.totalPlaces),
-        cargoBaseCostUsd: hasPartCargoData ? draftCargo.baseCostUsd : (draftLogistics.cargoBaseCostUsd ?? draftCargo.baseCostUsd),
-        cargoTotalCostUsd: hasPartCargoData ? draftCargo.totalCostUsd : (draftLogistics.cargoTotalCostUsd ?? draftCargo.totalCostUsd),
-        cargoAirEtaDays: hasPartCargoData ? draftEstimates.air.eta : (draftLogistics.cargoAirEtaDays || draftEstimates.air.eta),
-        cargoAirCostUsd: hasPartCargoData ? draftEstimates.air.totalCostUsd : (draftLogistics.cargoAirCostUsd ?? draftEstimates.air.totalCostUsd),
-        cargoContainerEtaDays: hasPartCargoData ? draftEstimates.container.eta : (draftLogistics.cargoContainerEtaDays || draftEstimates.container.eta),
-        cargoContainerCostUsd: hasPartCargoData ? draftEstimates.container.totalCostUsd : (draftLogistics.cargoContainerCostUsd ?? draftEstimates.container.totalCostUsd)
-      },
-      markupFixedAed: Number(markupFixedInput || order.markupFixedAed || 0),
-      exchangeRate: quoteExchangeRate
-    };
+    try {
+      setToast({ message: 'Создаю ссылку на смету...' });
+      const parsedRateInput = parseFloat(sanitizeDecimalInput(String(rateInput || '')));
+      const quoteExchangeRate = Number.isFinite(parsedRateInput) && parsedRateInput > 0
+        ? parsedRateInput
+        : preferredExchangeRate;
+      updateSettings({ defaultExchangeRate: quoteExchangeRate, defaultQuoteRates: currentQuoteRates });
+      const nextParts = order.parts || [];
+      const draftLogistics = {
+        ...(order.logistics || {}),
+        deliveryAed: Number(logisticsDraft.deliveryAed || 0),
+        packingAed: Number(logisticsDraft.packingAed || 0),
+        serviceFeeAed: Number(logisticsDraft.serviceFeeAed || 0)
+      };
+      const draftCargo = calculateCargo({ ...order, parts: nextParts, logistics: draftLogistics }, settings);
+      const draftEstimates = calculateCargoEstimates({ ...order, parts: nextParts, logistics: draftLogistics }, settings);
+      // Only override saved cargo values with freshly-computed values when parts actually have cargo data.
+      // This prevents zeroing out previously-saved logistics when cargo fields on individual parts haven't been filled yet.
+      const hasPartCargoData = nextParts.some((p) => Number((p as any).weightKg || 0) > 0 || Number((p as any).places || 0) > 0);
+      const quoteOrder = {
+        ...order,
+        parts: nextParts,
+        salesStatus: 'Price Sent',
+        status: order.status === 'lead' || order.status === 'waiting_deposit' ? 'in_progress' : order.status,
+        logistics: {
+          ...draftLogistics,
+          cargoEtaDays: hasPartCargoData ? draftCargo.eta : (draftLogistics.cargoEtaDays || draftCargo.eta),
+          cargoTotalWeightKg: hasPartCargoData ? draftCargo.realWeight : (draftLogistics.cargoTotalWeightKg ?? draftCargo.realWeight),
+          cargoChargeableWeightKg: hasPartCargoData ? draftCargo.chargeableWeight : (draftLogistics.cargoChargeableWeightKg ?? draftCargo.chargeableWeight),
+          cargoTotalPlaces: hasPartCargoData ? draftCargo.totalPlaces : (draftLogistics.cargoTotalPlaces ?? draftCargo.totalPlaces),
+          cargoBaseCostUsd: hasPartCargoData ? draftCargo.baseCostUsd : (draftLogistics.cargoBaseCostUsd ?? draftCargo.baseCostUsd),
+          cargoTotalCostUsd: hasPartCargoData ? draftCargo.totalCostUsd : (draftLogistics.cargoTotalCostUsd ?? draftCargo.totalCostUsd),
+          cargoAirEtaDays: hasPartCargoData ? draftEstimates.air.eta : (draftLogistics.cargoAirEtaDays || draftEstimates.air.eta),
+          cargoAirCostUsd: hasPartCargoData ? draftEstimates.air.totalCostUsd : (draftLogistics.cargoAirCostUsd ?? draftEstimates.air.totalCostUsd),
+          cargoContainerEtaDays: hasPartCargoData ? draftEstimates.container.eta : (draftLogistics.cargoContainerEtaDays || draftEstimates.container.eta),
+          cargoContainerCostUsd: hasPartCargoData ? draftEstimates.container.totalCostUsd : (draftLogistics.cargoContainerCostUsd ?? draftEstimates.container.totalCostUsd)
+        },
+        markupFixedAed: Number(markupFixedInput || order.markupFixedAed || 0),
+        exchangeRate: quoteExchangeRate
+      };
 
-    await updateOrder(quoteOrder);
-    if (options?.sendPublicQuote === false) {
-      return;
-    }
-    const shareResult = await shareQuoteLink(quoteOrder, {
-      ...options,
-      rates: options?.rates || currentQuoteRates,
-      snapshotToken: order.publicQuoteToken || undefined,
-      upsertByToken: !!order.publicQuoteToken
-    });
-    if (shareResult.token && shareResult.token !== order.publicQuoteToken) {
-      await updateOrder({ ...quoteOrder, publicQuoteToken: shareResult.token });
+      const saveOrderPromise = updateOrder(quoteOrder);
+      if (options?.sendPublicQuote === false) {
+        const saved = await saveOrderPromise;
+        if (saved === false) throw new Error('Не удалось сохранить заказ перед отправкой');
+        setToast({ message: 'Смета обновлена' });
+        return;
+      }
+      const shareQuotePromise = shareQuoteLink(quoteOrder, {
+        ...options,
+        rates: options?.rates || currentQuoteRates,
+        snapshotToken: order.publicQuoteToken || undefined,
+        upsertByToken: !!order.publicQuoteToken
+      });
+      const saved = await saveOrderPromise;
+      if (saved === false) throw new Error('Не удалось сохранить заказ перед отправкой');
+      const shareResult = await shareQuotePromise;
+      if (shareResult.token && shareResult.token !== order.publicQuoteToken) {
+        await updateOrder({ ...quoteOrder, publicQuoteToken: shareResult.token });
+      }
+      setToast({ message: shareResult.method === 'native' ? 'Смета готова к отправке' : 'Ссылка скопирована и открыта для отправки' });
+      return shareResult;
+    } catch (error) {
+      console.error('[shareQuote] failed', error);
+      setToast({ message: error instanceof Error ? `Смета не отправлена: ${error.message}` : 'Смета не отправлена' });
     }
   };
 
@@ -1077,7 +1099,7 @@ const OrderDetailsScreen: React.FC = () => {
         : 'WhatsApp';
 
   const saveSocialNickname = () => {
-    if (!isEditMode) return;
+    if (!isClientEditMode) return;
     const rawValue = window.prompt(
       sourceLabel.includes('telegram')
         ? 'Вставьте ссылку Telegram, @username или номер (+971...)'
@@ -1090,7 +1112,7 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const updateCustomerStatus = (nextStatus: 'Lead' | 'VIP' | 'Inquiry') => {
-    if (!isEditMode) return;
+    if (!isClientEditMode) return;
     const prevStatus = resolvedCustomerStatus;
     if (prevStatus === nextStatus) return;
     const previousOrderStatus = order.status;
@@ -1324,11 +1346,11 @@ const OrderDetailsScreen: React.FC = () => {
   }, [getDepositRate, order.clientCurrency, order.searchDepositAmount, order.searchDepositCurrency]);
 
   const submitDeposit = useCallback(() => {
-    const amount = Number(String(depositAmountInput || '0').replace(',', '.'));
+    const amount = Number(sanitizeDecimalInput(String(depositAmountInput || '0')));
     const safeAmount = Number.isFinite(amount) && amount > 0 ? amount : 0;
     const rate = depositCurrencyInput === 'AED'
       ? 1
-      : Number(String(depositRateInput || '').replace(',', '.')) || getDepositRate(depositCurrencyInput);
+      : Number(sanitizeDecimalInput(String(depositRateInput || ''))) || getDepositRate(depositCurrencyInput);
     const safeRate = Number.isFinite(rate) && rate > 0 ? rate : getDepositRate(depositCurrencyInput);
     const amountAed = depositCurrencyInput === 'AED' ? safeAmount : safeAmount * safeRate;
     const paidAt = Date.now();
@@ -1617,10 +1639,11 @@ const OrderDetailsScreen: React.FC = () => {
 
     setRateInput(rawVal);
 
-    const normalized = rawVal.replace(',', '.');
+    const normalized = sanitizeDecimalInput(rawVal);
+    const isCompleteDecimal = normalized !== '' && normalized !== '.' && !normalized.endsWith('.');
     const num = parseFloat(normalized);
 
-    if (!isNaN(num) && num > 0) {
+    if (isCompleteDecimal && !isNaN(num) && num > 0) {
       if (exchangeRateCommitTimerRef.current) window.clearTimeout(exchangeRateCommitTimerRef.current);
       exchangeRateCommitTimerRef.current = window.setTimeout(() => {
         saveQuoteRates({ ...currentQuoteRates, USD: 1 / num }, num);
@@ -2758,7 +2781,7 @@ const OrderDetailsScreen: React.FC = () => {
                 </button>
                 {showActionsMenu && (
                   <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#15171D] p-1 text-xs font-bold text-white shadow-2xl">
-                    <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEditMode((prev) => !prev)}><FileText size={14} /> {isEditMode ? 'Закрыть правки' : 'Редактировать'}</button>
+                    <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => { setEditingOverviewBlock(null); setIsEditMode((prev) => !prev); }}><FileText size={14} /> {isEditMode ? 'Закрыть правки' : 'Редактировать'}</button>
                     <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => { setShowActionsMenu(false); void shareQuote(); }}><Share2 size={14} /> Отправить / обновить смету</button>
                     <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => updateOrderField('isArchived', !order.isArchived)}><Package size={14} /> {order.isArchived ? 'Вернуть из архива' : 'В архив'}</button>
                     <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-200 hover:bg-rose-500/10" onClick={() => { setShowActionsMenu(false); setDeleteOrderConfirmOpen(true); }}><X size={14} /> Удалить</button>
@@ -2943,9 +2966,9 @@ const OrderDetailsScreen: React.FC = () => {
                         <p className="mt-1 truncate text-lg font-black text-stone-950">{order.clientName || 'Без имени'}</p>
                         <p className="mt-1 truncate text-sm font-bold text-stone-500">{order.customerContact || 'Телефон не указан'}</p>
                       </div>
-                      <button type="button" onClick={() => setIsEditMode((prev) => !prev)} className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label={isEditMode ? 'Закрыть редактирование' : 'Редактировать клиента'}>{isEditMode ? <Check size={15} /> : <FileText size={15} />}</button>
-                    </div>
-                    {isEditMode && (
+                    <button type="button" onClick={() => { setIsEditMode(false); setEditingOverviewBlock((prev) => prev === 'client' ? null : 'client'); }} className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label={isClientEditMode ? 'Закрыть редактирование' : 'Редактировать клиента'}>{isClientEditMode ? <Check size={15} /> : <FileText size={15} />}</button>
+                  </div>
+                    {isClientEditMode && (
                       <div className="mt-3 space-y-2">
                         <input type="text" value={String(draftFields.clientName ?? order.clientName ?? '')} onChange={(e) => updateOrderField('clientName', e.target.value)} onBlur={() => flushDeferredOrderField('clientName')} placeholder="Имя клиента" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
                         <div className="flex gap-2">
@@ -2978,7 +3001,7 @@ const OrderDetailsScreen: React.FC = () => {
                         <p className="mt-1 truncate text-lg font-black text-stone-950">{heroCarName}</p>
                         <p className="mt-1 break-all font-mono text-xs font-bold text-stone-500">{order.vin || 'VIN не указан'}</p>
                       </div>
-                      <button type="button" onClick={() => setIsEditMode((prev) => !prev)} className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label={isEditMode ? 'Закрыть редактирование' : 'Редактировать авто'}>{isEditMode ? <Check size={15} /> : <FileText size={15} />}</button>
+                      <button type="button" onClick={() => { setIsEditMode(false); setEditingOverviewBlock((prev) => prev === 'vehicle' ? null : 'vehicle'); }} className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label={isVehicleEditMode ? 'Закрыть редактирование' : 'Редактировать авто'}>{isVehicleEditMode ? <Check size={15} /> : <FileText size={15} />}</button>
                     </div>
                     <div className="mt-3 grid grid-cols-3 gap-2">
                       <div className="rounded-2xl bg-stone-100 px-3 py-2">
@@ -2994,7 +3017,7 @@ const OrderDetailsScreen: React.FC = () => {
                         <p className="mt-0.5 truncate text-xs font-black text-stone-800">{order.bodyType || 'Нет'}</p>
                       </div>
                     </div>
-                    {isEditMode && (
+                    {isVehicleEditMode && (
                       <div className="mt-3 space-y-2">
                         <div className="grid grid-cols-2 gap-2">
                           <input type="text" value={String(draftFields.vin ?? order.vin ?? '')} onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))} onBlur={() => flushDeferredOrderField('vin')} placeholder="VIN" className="ds-input col-span-2 h-12 rounded-2xl border-0 px-4 text-sm font-black uppercase text-stone-950 outline-none" />
@@ -3023,7 +3046,7 @@ const OrderDetailsScreen: React.FC = () => {
                             <button type="button" onClick={() => setGallery({ images: getCarPhotos(), index })} className="ds-press h-full w-full">
                               <img src={photo} alt="Автомобиль" className="h-full w-full object-cover" />
                             </button>
-                            {isEditMode && <button type="button" onClick={() => removeCarPhoto(index)} className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Удалить фото"><X size={11} /></button>}
+                            {isVehicleEditMode && <button type="button" onClick={() => removeCarPhoto(index)} className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Удалить фото"><X size={11} /></button>}
                           </div>
                         ))}
                       </div>
@@ -3163,36 +3186,46 @@ const OrderDetailsScreen: React.FC = () => {
               </section>
               )}
 
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+              <section className="ds-surface rounded-[26px] p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[12px] font-black text-stone-600">Смета и курс</p>
-                    <p className="mt-1 text-xs font-semibold text-stone-500">Этот курс сохраняется как общий для новых и обновляемых смет.</p>
-                  </div>
+                  <button type="button" onClick={() => setIsQuoteRatesExpanded((prev) => !prev)} className="ds-press flex min-w-0 flex-1 items-center justify-between gap-3 text-left" aria-expanded={isQuoteRatesExpanded}>
+                    <span className="min-w-0">
+                      <span className="block text-[12px] font-black text-stone-600">Смета и курс</span>
+                      <span className="mt-1 block truncate text-xs font-semibold text-stone-500">
+                        {formatMoney(balanceDueAed, clientCurrency)} · USD {rateInput || preferredExchangeRate}
+                      </span>
+                    </span>
+                    {isQuoteRatesExpanded ? <ChevronUp size={17} className="shrink-0 text-stone-500" /> : <ChevronDown size={17} className="shrink-0 text-stone-500" />}
+                  </button>
                   <button type="button" onClick={() => void shareQuote()} className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label="Отправить смету"><Share2 size={16} /></button>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {QUOTE_RATE_FIELDS.map((field) => (
-                    <label key={field.code} className="space-y-1">
-                      <span className="text-[10px] font-black text-stone-400">{field.helper}</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={field.code === 'USD' ? rateInput : (quoteRateInputs[field.code] ?? '')}
-                        onChange={(event) => field.code === 'USD'
-                          ? handleRateChange(event)
-                          : handleQuoteRateInputChange(field.code as Exclude<QuoteCurrency, 'AED' | 'USD'>, event.target.value)}
-                        onBlur={field.code === 'USD' ? flushExchangeRateCommit : flushQuoteRateCommit}
-                        className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none"
-                      />
-                    </label>
-                  ))}
-                  <div className="col-span-2 rounded-2xl bg-stone-100 px-3 py-2 text-right">
-                    <p className="text-[10px] font-black text-stone-400">К оплате</p>
-                    <p className="mt-1 text-sm font-black text-stone-950">{formatMoney(balanceDueAed, clientCurrency)}</p>
+                {isQuoteRatesExpanded && (
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      {QUOTE_RATE_FIELDS.map((field) => (
+                        <label key={field.code} className="space-y-1">
+                          <span className="text-[10px] font-black text-stone-400">{field.helper}</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={field.code === 'USD' ? rateInput : (quoteRateInputs[field.code] ?? '')}
+                            onChange={(event) => field.code === 'USD'
+                              ? handleRateChange(event)
+                              : handleQuoteRateInputChange(field.code as Exclude<QuoteCurrency, 'AED' | 'USD'>, event.target.value)}
+                            onBlur={field.code === 'USD' ? flushExchangeRateCommit : flushQuoteRateCommit}
+                            placeholder={field.decimals === 0 ? '0' : '0.00'}
+                            className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="rounded-2xl bg-stone-100 px-3 py-2 text-right">
+                      <p className="text-[10px] font-black text-stone-400">К оплате</p>
+                      <p className="mt-1 text-sm font-black text-stone-950">{formatMoney(balanceDueAed, clientCurrency)}</p>
+                    </div>
+                    {depositAmountAed > 0 && <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">Депозит учтён: -{formatMoney(depositAmountAed)}</p>}
                   </div>
-                </div>
-                {depositAmountAed > 0 && <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">Депозит учтён: -{formatMoney(depositAmountAed)}</p>}
+                )}
               </section>
 
               <section className="ds-surface space-y-3 rounded-[26px] p-4">
@@ -4002,26 +4035,32 @@ const OrderDetailsScreen: React.FC = () => {
         )}
 
         {isDepositDialogOpen && (
-          <div className="fixed inset-0 z-[60] bg-black/50 p-4 backdrop-blur-sm">
-            <div className="ds-mode-enter ds-surface mx-auto mt-24 w-full max-w-sm space-y-4 rounded-[28px] p-4 text-stone-950 shadow-2xl">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+            <div className="ds-mode-enter ds-surface w-full max-w-sm space-y-4 rounded-[28px] p-4 text-stone-950 shadow-2xl">
               <div>
                 <p className="text-sm font-black">Подтвердить депозит</p>
-                <p className="mt-1 text-xs font-semibold text-stone-500">Укажите сумму и валюту. Если сумма 0, депозит не попадёт в смету и invoice.</p>
+                <p className="mt-1 text-xs font-semibold leading-5 text-stone-500">Сумма может быть 0. Тогда депозит сохранится только как факт оплаты и не попадёт в расчёты.</p>
               </div>
-              <div className="grid grid-cols-[1fr_96px] gap-2">
-                <input type="text" inputMode="decimal" value={depositAmountInput} onChange={(event) => setDepositAmountInput(sanitizeNumericInput(event.target.value))} placeholder="Сумма" className="ds-input h-12 rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none" />
-                <select value={depositCurrencyInput} onChange={(event) => {
-                  const currency = event.target.value as NonNullable<Order['searchDepositCurrency']>;
-                  setDepositCurrencyInput(currency);
-                  setDepositRateInput(String(getDepositRate(currency)));
-                }} className="ds-input h-12 rounded-2xl border-0 px-3 text-xs font-black text-stone-950 outline-none">
-                  {(['AED', 'USD', 'RUB', 'TJS', 'KZT', 'UZS'] as const).map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-                </select>
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(92px,112px)] gap-2">
+                <label className="min-w-0 space-y-1">
+                  <span className="text-[10px] font-black text-stone-400">Сумма</span>
+                  <input type="text" inputMode="decimal" value={depositAmountInput} onChange={(event) => setDepositAmountInput(sanitizeDecimalInput(event.target.value))} placeholder="0" className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none" />
+                </label>
+                <label className="min-w-0 space-y-1">
+                  <span className="text-[10px] font-black text-stone-400">Валюта</span>
+                  <select value={depositCurrencyInput} onChange={(event) => {
+                    const currency = event.target.value as NonNullable<Order['searchDepositCurrency']>;
+                    setDepositCurrencyInput(currency);
+                    setDepositRateInput(String(getDepositRate(currency)));
+                  }} className="ds-input h-12 w-full rounded-2xl border-0 px-2 text-xs font-black text-stone-950 outline-none">
+                    {(['AED', 'USD', 'RUB', 'TJS', 'KZT', 'UZS'] as const).map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                  </select>
+                </label>
               </div>
               {depositCurrencyInput !== 'AED' && (
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-black text-stone-400">Курс в AED</span>
-                  <input type="text" inputMode="decimal" value={depositRateInput} onChange={(event) => setDepositRateInput(event.target.value.replace(',', '.'))} className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none" />
+                  <span className="text-[10px] font-black text-stone-400">1 {depositCurrencyInput} = AED</span>
+                  <input type="text" inputMode="decimal" value={depositRateInput} onChange={(event) => setDepositRateInput(sanitizeDecimalInput(event.target.value))} placeholder="0.00" className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none" />
                 </label>
               )}
               <div className="grid grid-cols-2 gap-2">
