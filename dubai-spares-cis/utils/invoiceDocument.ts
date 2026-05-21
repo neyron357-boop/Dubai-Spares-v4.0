@@ -28,6 +28,8 @@ export type InvoicePayload = {
   commissionAed: number;
   taxAed: number;
   totalAed: number;
+  depositAed: number;
+  balanceDueAed: number;
   paymentTerms: string[];
   invoiceTo: string;
   company: {
@@ -122,6 +124,8 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
   const packingAed = Number(order.logistics?.packingAed || 0);
   const commissionAed = Number(order.logistics?.serviceFeeAed || 0);
   const totalAed = subtotalAed + deliveryAed + packingAed + commissionAed;
+  const depositAed = Math.max(0, Number((order as any).searchDepositAmountAed || 0));
+  const balanceDueAed = Math.max(0, totalAed - depositAed);
   const createdAt = new Date();
   const carTitle = [order.brand, order.model, order.year].filter(Boolean).join(' ');
 
@@ -140,6 +144,8 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
     commissionAed: commissionAed * rate,
     taxAed: 0,
     totalAed: totalAed * rate,
+    depositAed: depositAed * rate,
+    balanceDueAed: balanceDueAed * rate,
     paymentTerms: resolveTerms(settings.publicWorkTerms),
     invoiceTo: String(order.clientName || order.customerContact || order.socialNickname || 'Client details to be confirmed'),
     currencyCode,
@@ -182,6 +188,8 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
     commissionAed: snapshot.commissionAed * rate,
     taxAed: 0,
     totalAed: snapshot.grandTotalAed * rate,
+    depositAed: snapshot.depositAed * rate,
+    balanceDueAed: snapshot.balanceDueAed * rate,
     paymentTerms: resolveTerms(snapshot.contact.workTerms),
     invoiceTo: String(snapshot.raw.order?.clientName || snapshot.raw.order?.client_name || snapshot.raw.order?.customerContact || 'Client details to be confirmed'),
     currencyCode,
@@ -369,6 +377,7 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
             <div class="total-line"><span>COMMISSION</span><strong>${esc(money(payload.commissionAed, payload.currencyCode))}</strong></div>
             <div class="total-line"><span>TAX</span><strong>${esc(money(payload.taxAed, payload.currencyCode))}</strong></div>
             <div class="total-line grand"><span>TOTAL</span><strong>${esc(money(payload.totalAed, payload.currencyCode))}</strong></div>
+            ${payload.depositAed > 0 ? `<div class="total-line"><span>DEPOSIT</span><strong>-${esc(money(payload.depositAed, payload.currencyCode))}</strong></div><div class="total-line grand"><span>BALANCE DUE</span><strong>${esc(money(payload.balanceDueAed, payload.currencyCode))}</strong></div>` : ''}
           </div>
         </div>
 

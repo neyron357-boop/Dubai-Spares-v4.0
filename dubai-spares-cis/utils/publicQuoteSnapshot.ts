@@ -67,6 +67,8 @@ export type NormalizedPublicQuoteSnapshot = {
   packingAed: number;
   commissionAed: number;
   grandTotalAed: number;
+  depositAed: number;
+  balanceDueAed: number;
   subtotalAed: number;
   contact: QuoteContact;
   cargoInput: {
@@ -221,9 +223,11 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
   const commissionAed = firstNumber(breakdown.commission, fees.commission, logistics.serviceFeeAed, totals.commission_aed);
   const totalsGrand = firstNumber(breakdown.total, totals.grand_total_aed, totals.grand_total);
   const grandTotalAed = totalsGrand > 0 ? totalsGrand : subtotalAed + deliveryAed + packingAed + commissionAed;
+  const depositAed = Math.max(0, firstNumber(breakdown.deposit, breakdown.deposit_aed, totals.deposit_aed, order.searchDepositAmountAed, order.search_deposit_amount_aed));
+  const balanceDueAed = Math.max(0, firstNumber(breakdown.balance_due, breakdown.balance_due_aed, totals.balance_due_aed, grandTotalAed - depositAed));
   const rates = normalizeRates(pricing.rates || breakdown.rates);
   const rawCurrency = String(pricing.currency || breakdown.currency || 'USD').toUpperCase();
-  const currency = (['AED', 'USD', 'RUB', 'TJS', 'KZT'].includes(rawCurrency) ? rawCurrency : 'USD') as QuoteCurrency;
+  const currency = (['AED', 'USD', 'RUB', 'TJS', 'KZT', 'UZS'].includes(rawCurrency) ? rawCurrency : 'USD') as QuoteCurrency;
   const orderMediaFolderUrl = normalizeExternalMediaUrl(firstString(
     order.googleDriveFolderUrl,
     order.google_drive_folder_url,
@@ -297,6 +301,8 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
     packingAed,
     commissionAed,
     grandTotalAed,
+    depositAed,
+    balanceDueAed,
     subtotalAed,
     contact,
     cargoInput: {
