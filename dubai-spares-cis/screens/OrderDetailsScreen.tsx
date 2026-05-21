@@ -83,6 +83,13 @@ const resolveOrderDetailsTab = (value: unknown): OrderDetailsTab | null => (
   ORDER_DETAILS_TABS.some((tab) => tab.id === value) ? value as OrderDetailsTab : null
 );
 
+
+const ORDER_DETAILS_BOTTOM_NAV_HEIGHT = '6.5rem';
+const ORDER_DETAILS_SAFE_BOTTOM = 'env(safe-area-inset-bottom)';
+const ORDER_DETAILS_DOCK_OFFSET = `calc(${ORDER_DETAILS_BOTTOM_NAV_HEIGHT} + ${ORDER_DETAILS_SAFE_BOTTOM})`;
+const ORDER_DETAILS_DOCK_SAFE_PADDING = `calc(10px + ${ORDER_DETAILS_SAFE_BOTTOM})`;
+const ORDER_DETAILS_SCROLL_PADDING = `calc(4.75rem + ${ORDER_DETAILS_BOTTOM_NAV_HEIGHT} + ${ORDER_DETAILS_SAFE_BOTTOM} + 8px)`;
+
 const SALES_STATUSES = ['Inquiry', 'Price Sent', 'Pending Approval', 'Paid', 'Completed'] as const;
 
 const CUSTOMER_STATUSES = ['Lead', 'VIP', 'Inquiry'] as const;
@@ -2266,7 +2273,7 @@ const OrderDetailsScreen: React.FC = () => {
   const firstRecommendedShop = recommendedShops[0];
 
   return (
-      <div className="min-h-full bg-[linear-gradient(to_bottom,#07080A_0,#07080A_560px,#F4F1EA_560px,#F4F1EA_100%)] pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-[58px] text-white">
+      <div className="min-h-full bg-[linear-gradient(to_bottom,#07080A_0,#07080A_560px,#F4F1EA_560px,#F4F1EA_100%)] pb-[calc(4rem+env(safe-area-inset-bottom))] pt-[58px] text-white">
         <div className="fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 border-b border-white/10 bg-[#08090B]/92 px-3 py-2 backdrop-blur-xl">
           <div className="flex h-10 items-center justify-between gap-2">
             <button type="button" onClick={handleBackNavigation} className="ds-press flex h-10 w-10 items-center justify-center rounded-full text-white/[0.78] active:bg-white/10" aria-label="Назад">
@@ -2406,7 +2413,7 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </nav>
 
-        <div className="min-h-[52dvh] rounded-t-[30px] bg-[#F4F1EA] px-4 pt-6 pb-[calc(12.5rem+env(safe-area-inset-bottom))] text-[#171717] shadow-[0_-18px_60px_rgba(0,0,0,0.28)]">
+        <div className="min-h-[52dvh] rounded-t-[30px] bg-[#F4F1EA] px-4 pt-6 pb-[calc(4.75rem+6.5rem+env(safe-area-inset-bottom)+8px)] text-[#171717] shadow-[0_-18px_60px_rgba(0,0,0,0.28)]">
           {activeTab === 'overview' && (
             <div className="ds-mode-enter space-y-7">
               <section className="hidden">
@@ -3067,26 +3074,6 @@ const OrderDetailsScreen: React.FC = () => {
               </section>
 
               {sellError && <div className="rounded-2xl bg-rose-50 px-4 py-3 text-xs font-black text-rose-700">{sellError}</div>}
-              <div className="space-y-2">
-                <div className="grid grid-cols-4 gap-2">
-                  <div className="rounded-2xl bg-stone-950 px-3 py-2 text-white">
-                    <p className="text-[9px] font-black text-white/45">Прибыль</p>
-                    <p className="mt-0.5 truncate text-[13px] font-black">{shownNetProfit !== null ? formatMoney(shownNetProfit) : '—'}</p>
-                  </div>
-                  <div className="rounded-2xl bg-white px-3 py-2">
-                    <p className="text-[9px] font-black text-stone-400">Клиент</p>
-                    <p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(sellTotalAed, clientCurrency)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-white px-3 py-2">
-                    <p className="text-[9px] font-black text-stone-400">Закуп</p>
-                    <p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(selectedOfferTotal)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-white px-3 py-2">
-                    <p className="text-[9px] font-black text-stone-400">Маржа</p>
-                    <p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{marginPercent !== null ? `${marginPercent.toFixed(0)}%` : '—'}</p>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
@@ -3208,67 +3195,11 @@ const OrderDetailsScreen: React.FC = () => {
                 </section>
               )}
 
-              <form
-                onSubmit={(event) => { event.preventDefault(); addNote(); }}
-                className="space-y-2"
-              >
-                {recordingError && <p className="mb-2 rounded-2xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{recordingError}</p>}
-                {recordingSavedLocally && <p className="mb-2 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Голос сохранён локально</p>}
-                {(newNotePhotos.length > 0 || newNoteAudios.length > 0) && (
-                  <div className="mb-2 flex gap-2 overflow-x-auto no-scrollbar">
-                    {newNotePhotos.map((photo, index) => (
-                      <div key={`${photo}-${index}`} className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-stone-200">
-                        <img src={photo} alt="Новая заметка" className="h-full w-full object-cover" />
-                        <button type="button" onClick={() => setNewNotePhotos((prev) => prev.filter((_, photoIndex) => photoIndex !== index))} className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Удалить фото"><X size={11} /></button>
-                      </div>
-                    ))}
-                    {newNoteAudios.map((audioItem, index) => {
-                      const voice = toVoiceNoteAudio(audioItem);
-                      const audioId = `draft-audio-fixed-${voice.id}`;
-                      const isPlaying = playingAudioId === audioId;
-                      const progress = audioProgress[audioId] || 0;
-                      const bars = getWaveBars(voice.fileUrl.slice(0, 120));
-                      return (
-                        <div key={`draft-fixed-${voice.id}`} className="flex h-12 min-w-[210px] items-center gap-2 rounded-2xl bg-white px-2">
-                          <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="ds-press flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-stone-950 text-white" aria-label="Прослушать голос">{isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}</button>
-                          <div className="flex h-8 flex-1 items-end gap-[2px]">
-                            {bars.slice(0, 18).map((bar, barIndex) => {
-                              const active = (barIndex + 1) / 18 <= progress / 100;
-                              return <span key={`${audioId}-${barIndex}`} className={`w-[3px] rounded-full ${active ? 'bg-stone-950' : 'bg-stone-200'}`} style={{ height: `${Math.max(30, bar * 0.8)}%` }} />;
-                            })}
-                          </div>
-                          <button type="button" onClick={() => removeNewAudio(index)} className="ds-press flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600" aria-label="Удалить голос"><X size={12} /></button>
-                          <audio id={audioId} src={voice.fileUrl} preload="metadata" playsInline />
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {isUploadingVoice && (
-                  <div className="mb-2 space-y-1">
-                    <p className="text-[11px] font-bold text-stone-500">Загружаем голос...</p>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-stone-200"><div className="h-full bg-stone-950 transition-all" style={{ width: `${voiceUploadProgress}%` }} /></div>
-                  </div>
-                )}
-                <div className="flex items-end gap-2">
-                  <button type="button" onClick={() => noteFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Прикрепить фото"><ImageIcon size={18} /></button>
-                  <button type="button" onClick={() => noteAudioFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Прикрепить аудио"><FileAudio size={18} /></button>
-                  <button type="button" onClick={() => void toggleRecording()} className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${isRecording ? 'bg-rose-50 text-rose-700' : 'bg-white text-stone-700'}`} aria-label={isRecording ? 'Остановить запись' : 'Записать голос'}>
-                    {isRecording ? <Square size={17} /> : <Mic size={18} />}
-                  </button>
-                  <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2">
-                    <textarea value={newNoteText} onChange={(event) => setNewNoteText(event.target.value)} placeholder="Сообщение..." rows={1} className="no-scrollbar max-h-24 min-h-8 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-bold leading-6 text-stone-900 outline-none placeholder:text-stone-400" />
-                  </div>
-                  <button type="submit" disabled={!isEditMode || (!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0)} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить заметку"><Send size={17} /></button>
-                </div>
-                <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
-                <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
-              </form>
             </div>
           )}
         </div>
 
-        <div className="fixed inset-x-0 z-40 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl" style={{ bottom: 'calc(6.5rem + env(safe-area-inset-bottom))' }}>
+        <div className="fixed inset-x-0 z-40 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl" style={{ bottom: ORDER_DETAILS_DOCK_OFFSET, paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING }}>
           {activeTab === 'search' && (
             <form onSubmit={(event) => { event.preventDefault(); addNewPart(); }} className="space-y-2">
               {newPartKind === 'group' && (
@@ -3294,6 +3225,8 @@ const OrderDetailsScreen: React.FC = () => {
                 <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2"><textarea value={newNoteText} onChange={(event) => setNewNoteText(event.target.value)} placeholder="Сообщение..." rows={1} className="no-scrollbar max-h-24 min-h-8 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-bold leading-6 text-stone-900 outline-none placeholder:text-stone-400" /></div>
                 <button type="submit" disabled={!isEditMode || (!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0)} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить заметку"><Send size={17} /></button>
               </div>
+              <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
+              <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
             </form>
           )}
           {activeTab === 'finance' && <div className="grid grid-cols-4 gap-2"><div className="rounded-2xl bg-stone-950 px-3 py-2 text-white"><p className="text-[9px] font-black text-white/45">Прибыль</p><p className="mt-0.5 truncate text-[13px] font-black">{shownNetProfit !== null ? formatMoney(shownNetProfit) : '—'}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Клиент</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(sellTotalAed, clientCurrency)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Закуп</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(selectedOfferTotal)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Маржа</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{marginPercent !== null ? `${marginPercent.toFixed(0)}%` : '—'}</p></div></div>}
