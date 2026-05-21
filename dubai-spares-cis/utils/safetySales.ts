@@ -173,7 +173,7 @@ const AGGRESSIVE_PATTERNS = [
 ];
 
 const PACKING_PATTERNS = [/упаков/i, /packing/i, /packed/i, /box/i, /короб/i, /пленк/i];
-const CARGO_HANDOVER_PATTERNS = [/cargo/i, /карго/i, /receipt/i, /накладн/i, /передан/i, /handover/i];
+const CARGO_HANDOVER_PATTERNS = [/cargo/i, /карго/i, /receipt/i, /накладн/i, /handover/i];
 const DEFECT_PATTERNS = [/defect/i, /дефект/i, /царап/i, /трещ/i, /скол/i, /повреж/i];
 
 const asNumber = (value: unknown) => {
@@ -269,12 +269,14 @@ const deriveCurrentStage = (order: Order, proofPack: ProofPackSummary): SafetySt
   const inspected = (order.preSaleCheck?.defectPhotos || []).length > 0 || (order.preSaleCheck?.inspectionMedia || []).length > 0;
   const packed = hasAnyPattern(text, PACKING_PATTERNS);
   const handedCargo = hasAnyPattern(text, CARGO_HANDOVER_PATTERNS);
+  const proofPackReady = proofPack.total > 0 && proofPack.completed >= proofPack.total;
 
   if (order.isSold || order.salesStatus === 'Completed') return 'completed';
-  if (handedCargo) return 'cargo_handover';
-  if (packed) return 'packing';
-  if (inspected || proofPack.completed >= 3) return 'inspection';
-  if (purchased) return 'purchase';
+  if (fullPrepaid && proofPackReady) return 'completed';
+  if (fullPrepaid && handedCargo) return 'cargo_handover';
+  if (fullPrepaid && packed) return 'packing';
+  if (fullPrepaid && (inspected || proofPack.completed > 0)) return 'inspection';
+  if (fullPrepaid && purchased) return 'purchase';
   if (fullPrepaid) return 'full_prepayment';
   if (quoteSent) return 'final_quote';
   if (depositPaid) return 'active_search';
@@ -388,20 +390,68 @@ const deriveProofPack = (order: Order): ProofPackSummary => {
   const supplierPhotos = (order.parts || []).flatMap((part) => (part.variants || []).flatMap((variant) => [variant.photoUrl || '', ...(variant.photos || [])])).filter(Boolean);
   const partPhotos = (order.parts || []).flatMap((part) => [part.photoUrl || '', ...(part.photos || [])]).filter(Boolean);
   const notePhotos = (order.notes || []).flatMap((note) => note.photos || []).filter(Boolean);
+  const publicProofNotes = (order.notes || []).filter((note) => note.visibility === 'client' || note.kind === 'proof');
+  const publicProofVideoLinks = publicProofNotes.flatMap((note) => note.videoUrls || []).filter(Boolean);
+  const publicProofAudios = publicProofNotes.flatMap((note) => note.audios || []).filter(Boolean);
+  const publicProofTexts = publicProofNotes.map((note) => normalizeText(note.text)).filter(Boolean);
   const inspectionMedia = order.preSaleCheck?.inspectionMedia || [];
   const defectPhotos = order.preSaleCheck?.defectPhotos || [];
-  const hasVideo = inspectionMedia.length > 0 || (order.parts || []).some((part) => normalizeText(part.googleDriveVideoUrl));
+  const hasVideo = inspectionMedia.length > 0
+    || publicProofVideoLinks.length > 0
+    || (order.parts || []).some((part) => normalizeText(part.googleDriveVideoUrl));
+  const hasPricedOffer = (order.parts || []).some((part) => (part.variants || []).some((variant) => (
+    asNumber(variant.salePriceAed ?? variant.priceAed) > 0 || asNumber(variant.purchasePriceAed) > 0
+  )));
+  const hasConditionMedia = supplierPhotos.length > 0
+    || partPhotos.length > 0
+    || notePhotos.length > 0
+    || publicProofTexts.length > 0
+    || publicProofAudios.length > 0
+    || inspectionMedia.length > 0
+    || defectPhotos.length > 0
+    || hasVideo
+    || hasAnyPattern(text, DEFECT_PATTERNS);
+  const exportDelivery = order.logistics?.deliveryType === 'export';
+  const explicitCargoProof = hasAnyPattern(text, CARGO_HANDOVER_PATTERNS);
+  const cargoPackingProof = exportDelivery && hasAnyPattern(text, PACKING_PATTERNS);
+  const needsCargoProof = exportDelivery || explicitCargoProof;
 
   const items: ChecklistItem[] = [
-    { id: 'supplier_photos', label: 'Фото детали у поставщика', done: supplierPhotos.length > 0, critical: true },
-    { id: 'serial_marking', label: 'Серийные номера / маркировки', done: /serial|marking|номер|маркиров/i.test(text), critical: false },
-    { id: 'defects', label: 'Фото дефектов и состояния', done: defectPhotos.length > 0 || hasAnyPattern(text, DEFECT_PATTERNS), critical: true },
-    { id: 'inspection_video', label: 'Видео проверки', done: hasVideo, critical: true },
-    { id: 'before_purchase', label: 'Фото до покупки', done: partPhotos.length > 0 || supplierPhotos.length > 0, critical: false },
-    { id: 'after_purchase', label: 'Фото после покупки', done: notePhotos.length > 0 || inspectionMedia.length > 0, critical: false },
-    { id: 'packing', label: 'Фото/видео упаковки', done: hasAnyPattern(text, PACKING_PATTERNS), critical: true },
-    { id: 'cargo_handover', label: 'Передача в cargo + receipt', done: hasAnyPattern(text, CARGO_HANDOVER_PATTERNS), critical: true },
-    { id: 'condition_comment', label: 'Комментарий по состоянию', done: (order.parts || []).some((part) => normalizeText(part.comment).length > 8) || (order.notes || []).some((note) => normalizeText(note.text).length > 12), critical: false }
+    {
+      id: 'car_photo',
+      label: 'Фото автомобиля',
+      done: hasCarPhoto(order),
+      critical: true,
+      helper: 'Нужно, чтобы поставщик видел машину и кузов.'
+    },
+    {
+      id: 'requested_parts',
+      label: 'Список нужных деталей',
+      done: hasPartRequest(order),
+      critical: true,
+      helper: 'Добавьте детали в Поиске: название, сторона, количество.'
+    },
+    {
+      id: 'supplier_offer',
+      label: 'Оффер поставщика',
+      done: supplierPhotos.length > 0 || hasPricedOffer,
+      critical: true,
+      helper: 'Достаточно цены или фото варианта от поставщика.'
+    },
+    {
+      id: 'condition_media',
+      label: 'Состояние детали',
+      done: hasConditionMedia,
+      critical: true,
+      helper: 'Фото, видео, Drive-ссылка или заметка о дефектах.'
+    },
+    ...(needsCargoProof ? [{
+      id: 'cargo_handover',
+      label: 'Передача в cargo',
+      done: explicitCargoProof || cargoPackingProof,
+      critical: true,
+      helper: 'Только для export/cargo: добавьте фото упаковки, накладной или receipt через кнопку "Добавить медиа" в Пруфах.'
+    }] : [])
   ];
 
   return {
@@ -577,11 +627,6 @@ export const buildSupplierBroadcastMessage = (order: Order) => {
   }).join('\n');
   const market = order.vehicleDetails?.marketRegion ? `Market: ${order.vehicleDetails.marketRegion.toUpperCase()}` : '';
   const body = order.bodyType ? `Body: ${order.bodyType}` : '';
-  const photos = [
-    ...(order.carPhotos || []),
-    ...(order.parts || []).flatMap((part) => part.photos || [])
-  ].filter(Boolean).slice(0, 4);
-
   return [
     `Need price/photos/location for: ${order.brand} ${order.model} ${order.year}`.trim(),
     order.vin ? `VIN: ${order.vin}` : 'VIN: not provided',
@@ -589,7 +634,6 @@ export const buildSupplierBroadcastMessage = (order: Order) => {
     market,
     'Parts:',
     parts || '- please check requested part',
-    photos.length > 0 ? `Photos: ${photos.join(' ')}` : 'Photos: will send separately',
     'Please send price, real photos, condition and shop location.'
   ].filter(Boolean).join('\n');
 };

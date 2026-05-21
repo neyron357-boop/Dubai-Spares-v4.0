@@ -34,6 +34,21 @@ export type QuoteDocument = {
   kind: 'invoice' | 'cargo' | 'pdf' | 'document';
 };
 
+export type QuoteProofNote = {
+  id: string;
+  text: string;
+  photos: string[];
+  videoUrls: string[];
+  audios: Array<{
+    id: string;
+    fileUrl: string;
+    duration: number;
+    createdAt: number;
+    author: string;
+  }>;
+  createdAt: number;
+};
+
 export type NormalizedPublicQuoteSnapshot = {
   raw: Record<string, any>;
   order: {
@@ -68,6 +83,7 @@ export type NormalizedPublicQuoteSnapshot = {
     disclaimer: string;
     checkedAt?: string;
   };
+  proofNotes: QuoteProofNote[];
 };
 
 const digits = (value: string | null | undefined) => (value || '').replace(/\D/g, '');
@@ -160,6 +176,31 @@ const normalizeItems = (payload: Record<string, any>): QuoteItem[] => {
   }).filter((item) => item.totalAed > 0 || item.photos.length > 0 || item.name);
 };
 
+const normalizeProofNotes = (payload: Record<string, any>): QuoteProofNote[] => {
+  return asArray(payload.proof_notes || payload.proofNotes).map((note: any, index) => {
+    const noteObj = asObject(note);
+    const audios = asArray(noteObj.audios).map((audio: any, audioIndex) => {
+      const audioObj = asObject(audio);
+      return {
+        id: String(audioObj.id || `proof-audio-${index}-${audioIndex}`),
+        fileUrl: firstString(audioObj.file_url, audioObj.fileUrl, audioObj.url, typeof audio === 'string' ? audio : '') || '',
+        duration: firstNumber(audioObj.duration),
+        createdAt: firstNumber(audioObj.created_at, audioObj.createdAt),
+        author: firstString(audioObj.author) || 'Stark Motors'
+      };
+    }).filter((audio) => audio.fileUrl);
+
+    return {
+      id: String(noteObj.id || `proof-${index}`),
+      text: firstString(noteObj.text, noteObj.message, noteObj.caption) || '',
+      photos: asArray(noteObj.photos || noteObj.photo_urls || noteObj.photoUrls).filter(Boolean),
+      videoUrls: asArray(noteObj.video_urls || noteObj.videoUrls || noteObj.videos).map((url) => normalizeExternalMediaUrl(String(url || ''))).filter(Boolean),
+      audios,
+      createdAt: firstNumber(noteObj.created_at, noteObj.createdAt)
+    };
+  }).filter((note) => note.text || note.photos.length > 0 || note.videoUrls.length > 0 || note.audios.length > 0);
+};
+
 export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?: Record<string, any> | null): NormalizedPublicQuoteSnapshot | null => {
   if (!payload || typeof payload !== 'object') return null;
 
@@ -173,6 +214,7 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
   const payloadSettings = asObject(raw.public_settings);
   const mergedSettings = { ...payloadSettings, ...asObject(settings) };
   const items = normalizeItems({ ...raw, public_settings: mergedSettings });
+  const proofNotes = normalizeProofNotes(raw);
   const subtotalAed = items.reduce((sum, item) => sum + item.totalAed, 0);
   const deliveryAed = firstNumber(breakdown.delivery, fees.logistics, logistics.deliveryAed, totals.logistics_aed);
   const packingAed = firstNumber(breakdown.packaging, fees.packaging, logistics.packingAed, totals.packing_aed);
@@ -273,6 +315,7 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
       disclaimer: firstString(raw.pre_sale_check?.disclaimer) || 'Товар проверен. После передачи в карго претензии не принимаются',
       checkedAt: firstString(raw.pre_sale_check?.checked_at),
     },
+    proofNotes,
     pdfHref: firstString(raw.pdf_url, raw.invoice_url, raw.documents?.pdf, raw.documents?.invoice) || '',
     documents,
     orderMediaFolderUrl,
