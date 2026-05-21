@@ -14,7 +14,7 @@ const getVariantSalePriceAed = (variant: any) => Number(variant?.salePriceAed ??
 interface Props {
   order: Order;
   onClose: () => void;
-  onShare: (options: { rates: QuoteRates; currency: QuoteCurrency; sendPublicQuote: boolean }) => void | Promise<void>;
+  onShare: (options: { rates: QuoteRates; currency: QuoteCurrency; sendPublicQuote: boolean; popupWindow?: Window | null }) => void | Promise<void>;
 }
 
 const CURRENCY_META: Record<QuoteCurrency, { label: string; symbol: string }> = {
@@ -66,6 +66,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const [sendPublicQuote, setSendPublicQuote] = useState(true);
+  const [blockedShareLink, setBlockedShareLink] = useState('');
   const [invoiceLanguage, setInvoiceLanguage] = useState<'en' | 'ru'>('en');
   const { settings } = useAppSettings();
 
@@ -130,13 +131,27 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   };
 
   const runShare = async () => {
+    let popupWindow: Window | null | undefined;
+    setBlockedShareLink('');
+    if (sendPublicQuote) {
+      popupWindow = window.open('about:blank', '_blank');
+      if (!popupWindow) {
+        toast('Разрешите всплывающие окна или скопируйте ссылку вручную', 'error');
+      }
+    }
+
     setIsSharing(true);
     try {
-      await onShare({ rates, currency, sendPublicQuote });
+      const result = await onShare({ rates, currency, sendPublicQuote, popupWindow });
+      const resultWithLink = result as { blockedPopupLink?: string } | void;
+      if (resultWithLink?.blockedPopupLink) {
+        setBlockedShareLink(resultWithLink.blockedPopupLink);
+        return;
+      }
       onClose();
     } catch (error) {
       const message = error instanceof Error && error.message.trim() ? error.message : 'Сервер недоступен, попробуйте снова';
-      toast(message, 'error');
+      toast(message.includes('not allowed by the user agent') ? 'Браузер заблокировал отправку. Ссылка скопирована — отправьте её вручную.' : message, 'error');
     } finally {
       setIsSharing(false);
     }
@@ -333,7 +348,20 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
             </button>
           </div>
           <p className="text-center text-[11px] font-medium text-slate-400">Invoice opens as an A4 print-ready PDF document in a new tab.</p>
-        </div>
+        
+          {blockedShareLink && (
+            <div className="mx-4 mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs font-semibold text-amber-800">Браузер заблокировал отправку. Ссылка скопирована — отправьте её вручную.</p>
+              <button
+                type="button"
+                onClick={() => void copyToClipboard(blockedShareLink).then(() => toast('Ссылка скопирована', 'success'))}
+                className="mt-2 inline-flex h-9 items-center justify-center rounded-xl border border-amber-300 bg-white px-3 text-xs font-bold text-amber-900"
+              >
+                Скопировать ссылку
+              </button>
+            </div>
+          )}
+</div>
       </div>
 
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
