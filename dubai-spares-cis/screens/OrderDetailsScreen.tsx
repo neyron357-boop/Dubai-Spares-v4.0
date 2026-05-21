@@ -48,8 +48,7 @@ import {
   Minus,
   Upload,
   MapPin,
-  Phone,
-  ReceiptText
+  Phone
 } from 'lucide-react';
 import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
@@ -415,6 +414,7 @@ const OrderDetailsScreen: React.FC = () => {
   const recordingTimerRef = useRef<number | null>(null);
   const waveformTimerRef = useRef<number | null>(null);
   const recordingTargetRef = useRef<'note' | 'proof'>('note');
+  const recordingStartedAtRef = useRef<number | null>(null);
   const [recordingWaveform, setRecordingWaveform] = useState<number[]>(Array.from({ length: 40 }, () => 10));
   const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
@@ -444,11 +444,13 @@ const OrderDetailsScreen: React.FC = () => {
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
   const [partMediaLinkDrafts, setPartMediaLinkDrafts] = useState<Record<string, string>>({});
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
+  const [partSwipeOffsets, setPartSwipeOffsets] = useState<Record<string, number>>({});
   // Multiple photos for new part
   const [newPartPhotos, setNewPartPhotos] = useState<string[]>([]);
   const partFileRef = useRef<HTMLInputElement>(null);
   const partInputRef = useRef<HTMLInputElement>(null);
   const partsListRef = useRef<HTMLDivElement>(null);
+  const partSwipeRef = useRef<{ id: string; startX: number; startY: number } | null>(null);
   const vehicleSectionRef = useRef<HTMLDivElement>(null);
   const markupSectionRef = useRef<HTMLDivElement>(null);
   const addPartSectionRef = useRef<HTMLDivElement>(null);
@@ -460,7 +462,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [isLaunchingRadar, setIsLaunchingRadar] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(true);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [isClientBlockExpanded, setIsClientBlockExpanded] = useState(false);
   const [isVehicleBlockExpanded, setIsVehicleBlockExpanded] = useState(false);
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
@@ -761,7 +763,14 @@ const OrderDetailsScreen: React.FC = () => {
     if (options?.sendPublicQuote === false) {
       return;
     }
-    await shareQuoteLink(quoteOrder, options);
+    const shareResult = await shareQuoteLink(quoteOrder, {
+      ...options,
+      snapshotToken: order.publicQuoteToken || undefined,
+      upsertByToken: !!order.publicQuoteToken
+    });
+    if (shareResult.token && shareResult.token !== order.publicQuoteToken) {
+      await updateOrder({ ...quoteOrder, publicQuoteToken: shareResult.token });
+    }
   };
 
   if (orderMissing) {
@@ -816,12 +825,16 @@ const OrderDetailsScreen: React.FC = () => {
   }
 
 
+  const getFinanceVariant = (part: Part) => {
+    const variants = Array.isArray(part.variants) ? part.variants : [];
+    return variants.find((variant) => variant.id === part.bestOfferId || variant.isBest) || variants[0] || null;
+  };
+
   const selectedOfferTotals = useMemo(() => order.parts.reduce((sum, part) => {
-    const pricedVariants = (part.variants || []).filter((variant) => Number(variant.salePriceAed ?? variant.priceAed) > 0);
+    const matchingVariant = getFinanceVariant(part);
     const quantity = Math.max(1, Number(part.quantity || 1));
-    if (pricedVariants.length === 0) return sum;
-    const bestSale = Math.min(...pricedVariants.map((variant) => Number(variant.salePriceAed ?? variant.priceAed) || 0));
-    const matchingVariant = pricedVariants.find((variant) => Number(variant.salePriceAed ?? variant.priceAed) === bestSale) || pricedVariants[0];
+    if (!matchingVariant) return sum;
+    const bestSale = Number(matchingVariant.salePriceAed ?? matchingVariant.priceAed ?? 0);
     const bestPurchase = Number(matchingVariant.purchasePriceAed ?? matchingVariant.priceAed ?? 0);
     return {
       sale: sum.sale + (bestSale * quantity),
@@ -1241,7 +1254,7 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const confirmDeposit = useCallback(() => {
-    if (!isEditMode || depositPaid) return;
+    if (depositPaid) return;
     void updateOrder({
       ...order,
       searchDepositStatus: 'paid',
@@ -1250,10 +1263,10 @@ const OrderDetailsScreen: React.FC = () => {
       customerStatus: order.customerStatus === 'LEAD' ? 'INQUIRY' : order.customerStatus
     });
     setToast({ message: 'Депозит подтверждён. Поиск и варианты разблокированы.' });
-  }, [depositPaid, isEditMode, order, updateOrder]);
+  }, [depositPaid, order, updateOrder]);
 
   const confirmFullPrepayment = useCallback(() => {
-    if (!isEditMode || fullPrepaymentPaid) return;
+    if (fullPrepaymentPaid) return;
     void updateOrder({
       ...order,
       searchDepositStatus: 'paid',
@@ -1263,10 +1276,10 @@ const OrderDetailsScreen: React.FC = () => {
       customerStatus: order.customerStatus === 'LEAD' ? 'INQUIRY' : order.customerStatus
     });
     setToast({ message: 'Предоплата подтверждена. Можно готовить закупку.' });
-  }, [fullPrepaymentPaid, isEditMode, order, updateOrder]);
+  }, [fullPrepaymentPaid, order, updateOrder]);
 
   const completeOrder = useCallback(() => {
-    if (!isEditMode || order.isSold || order.salesStatus === 'Completed') return;
+    if (order.isSold || order.salesStatus === 'Completed') return;
     void updateOrder({
       ...order,
       isSold: true,
@@ -1274,7 +1287,7 @@ const OrderDetailsScreen: React.FC = () => {
       status: 'sold'
     });
     setToast({ message: 'Заказ закрыт.' });
-  }, [isEditMode, order, updateOrder]);
+  }, [order, updateOrder]);
 
   const checkGoogleDriveLink = useCallback((rawUrl: string, emptyMessage: string) => {
     const url = normalizeExternalMediaUrl(rawUrl);
@@ -1341,6 +1354,32 @@ const OrderDetailsScreen: React.FC = () => {
   const onLogisticsDraftChange = useCallback((field: 'deliveryAed' | 'packingAed' | 'serviceFeeAed', nextValue: string) => {
     setLogisticsDraft((prev) => ({ ...prev, [field]: nextValue }));
   }, []);
+
+  const updatePartSalePrice = useCallback((partId: string, rawValue: string) => {
+    if (!isEditMode) return;
+    const nextSalePrice = Number(sanitizeNumericInput(rawValue) || 0);
+    const currentOrder = orderRef.current;
+    if (!currentOrder) return;
+    const nextParts = (currentOrder.parts || []).map((part) => {
+      if (part.id !== partId) return part;
+      const variants = Array.isArray(part.variants) ? part.variants : [];
+      const targetVariant = variants.find((variant) => variant.id === part.bestOfferId || variant.isBest) || variants[0];
+      if (!targetVariant) return part;
+      return {
+        ...part,
+        variants: variants.map((variant) => variant.id === targetVariant.id
+          ? {
+              ...variant,
+              salePriceAed: nextSalePrice,
+              priceAed: nextSalePrice,
+              updatedAt: Date.now()
+            }
+          : variant)
+      };
+    });
+    void updateOrder({ ...currentOrder, parts: nextParts });
+  }, [isEditMode, updateOrder]);
+
   const hasPendingPricingChanges = useMemo(() => {
     if (!order) return false;
     const hasLogisticsDiff = (['deliveryAed', 'packingAed', 'serviceFeeAed'] as const).some((field) => {
@@ -1640,15 +1679,43 @@ const OrderDetailsScreen: React.FC = () => {
     });
   };
 
+  const handlePartSwipeStart = (partId: string, event: React.TouchEvent) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    partSwipeRef.current = { id: partId, startX: touch.clientX, startY: touch.clientY };
+  };
+
+  const handlePartSwipeMove = (partId: string, event: React.TouchEvent) => {
+    const start = partSwipeRef.current;
+    const touch = event.touches[0];
+    if (!start || start.id !== partId || !touch) return;
+    const deltaX = touch.clientX - start.startX;
+    const deltaY = touch.clientY - start.startY;
+    if (Math.abs(deltaY) > Math.abs(deltaX) + 10) return;
+    if (deltaX < 0) {
+      setPartSwipeOffsets((prev) => ({ ...prev, [partId]: Math.max(-88, deltaX) }));
+    } else if ((partSwipeOffsets[partId] || 0) < 0) {
+      setPartSwipeOffsets((prev) => ({ ...prev, [partId]: Math.min(0, deltaX - 88) }));
+    }
+  };
+
+  const handlePartSwipeEnd = (partId: string) => {
+    const offset = partSwipeOffsets[partId] || 0;
+    partSwipeRef.current = null;
+    if (offset <= -70) {
+      setDeletePartId(partId);
+    }
+    setPartSwipeOffsets((prev) => ({ ...prev, [partId]: 0 }));
+  };
+
   const addNewPart = () => {
-    if (!isEditMode) return;
     if (sourcingLocked) {
       setToast({ message: 'Сначала подтвердите депозит.' });
       return;
     }
-    if (!newPartName.trim()) return;
-    const capturedPartName = newPartName.trim();
     const parsedGroupItems = newPartKind === 'group' ? normalizeGroupItems(newPartGroupItems) : [];
+    if (!newPartName.trim() && parsedGroupItems.length === 0) return;
+    const capturedPartName = newPartName.trim() || 'Группа деталей';
     const newPart: Part = {
       id: Math.random().toString(36).substr(2, 9),
       name: capturedPartName,
@@ -1907,11 +1974,35 @@ const OrderDetailsScreen: React.FC = () => {
     stopStreamTracks();
     recorderRef.current = null;
     audioChunksRef.current = [];
+    recordingStartedAtRef.current = null;
     setIsRecording(false);
     setIsRecordingPaused(false);
     setRecordingStartedAt(null);
     setRecordingElapsedSeconds(0);
     setRecordingWaveform(Array.from({ length: 40 }, () => 10));
+  };
+
+  const stopActiveRecording = () => {
+    const recorder = recorderRef.current;
+    stopVoiceTimers();
+    setIsRecording(false);
+    setIsRecordingPaused(false);
+    if (!recorder || recorder.state === 'inactive') {
+      resetVoiceRecordingState();
+      return;
+    }
+    try {
+      recorder.requestData();
+    } catch {
+      // Some mobile browsers throw when there is no buffered chunk yet.
+    }
+    try {
+      recorder.stop();
+    } catch {
+      resetVoiceRecordingState();
+    } finally {
+      stopStreamTracks();
+    }
   };
 
   useEffect(() => {
@@ -1920,7 +2011,7 @@ const OrderDetailsScreen: React.FC = () => {
       setRecordingElapsedSeconds((prev) => {
         if (prev >= MAX_VOICE_RECORD_SECONDS) {
           setRecordingError('Recording limit reached');
-          recorderRef.current?.stop();
+          stopActiveRecording();
           return MAX_VOICE_RECORD_SECONDS;
         }
         return prev + 1;
@@ -1959,6 +2050,21 @@ const OrderDetailsScreen: React.FC = () => {
       document.body.style.overflow = '';
     };
   }, [isRecording]);
+
+  useEffect(() => {
+    return () => {
+      if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+        recorderRef.current.onstop = null;
+        try {
+          recorderRef.current.stop();
+        } catch {
+          // no-op
+        }
+      }
+      stopVoiceTimers();
+      stopStreamTracks();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isRecording) return;
@@ -2010,6 +2116,7 @@ const OrderDetailsScreen: React.FC = () => {
       recorder.onstop = () => {
         const mimeType = recorder.mimeType || 'audio/webm';
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const durationSeconds = Math.max(1, Math.round((Date.now() - (recordingStartedAtRef.current || Date.now())) / 1000));
         resetVoiceRecordingState();
 
         if (blob.size > MAX_VOICE_FILE_SIZE_MB * 1024 * 1024) {
@@ -2032,7 +2139,7 @@ const OrderDetailsScreen: React.FC = () => {
           const voice: VoiceNoteAudio = {
             id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `voice-${Date.now()}`,
             fileUrl: String(reader.result || ''),
-            duration: recordingElapsedSeconds,
+            duration: durationSeconds,
             createdAt: Date.now(),
             author: settings.managerName || 'Manager'
           };
@@ -2058,9 +2165,10 @@ const OrderDetailsScreen: React.FC = () => {
       };
 
       recorder.start(200);
+      recordingStartedAtRef.current = Date.now();
       setIsRecording(true);
       setIsRecordingPaused(false);
-      setRecordingStartedAt(Date.now());
+      setRecordingStartedAt(recordingStartedAtRef.current);
     } catch (e) {
       console.error('Audio recording failed', e);
       setRecordingError('Microphone access required');
@@ -2069,7 +2177,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   const toggleRecording = async (target: 'note' | 'proof' = 'note') => {
     if (isRecording) {
-      recorderRef.current?.stop();
+      stopActiveRecording();
       return;
     }
     recordingTargetRef.current = target;
@@ -2095,7 +2203,11 @@ const OrderDetailsScreen: React.FC = () => {
   const confirmDiscardRecording = () => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.onstop = null;
-      recorderRef.current.stop();
+      try {
+        recorderRef.current.stop();
+      } catch {
+        // Recorder may already be inactive on mobile Safari.
+      }
     }
     resetVoiceRecordingState();
     setIsDiscardConfirmOpen(false);
@@ -2338,7 +2450,7 @@ const OrderDetailsScreen: React.FC = () => {
   const stageCopy = STAGE_COPY[heroCurrentStage?.id || safetySummary.currentStage] || STAGE_COPY.inquiry;
   const paymentCopy = PAYMENT_STATUS_SHORT[order.paymentStatus || 'none'] || PAYMENT_STATUS_SHORT.none;
   const openPartsCount = order.parts.filter((part) => !(part.isFound || (part.variants || []).length > 0)).length;
-  const pricedPartsCount = order.parts.filter((part) => (part.variants || []).some((variant) => Number(variant.salePriceAed ?? variant.priceAed) > 0)).length;
+  const pricedPartsCount = order.parts.filter((part) => Number(getFinanceVariant(part)?.salePriceAed ?? getFinanceVariant(part)?.priceAed ?? 0) > 0).length;
   const readinessMissing = safetySummary.readiness.items.filter((item) => !item.done).slice(0, 5);
   const criticalReadinessMissing = safetySummary.readiness.items.filter((item) => item.critical && !item.done).slice(0, 4);
   const proofMissing = safetySummary.proofPack.items.filter((item) => !item.done).slice(0, 5);
@@ -2355,10 +2467,6 @@ const OrderDetailsScreen: React.FC = () => {
     ...(order.notes || []).flatMap((note) => note.photos || [])
   ].filter(Boolean))) as string[];
   const clientProofNotes = (order.notes || []).filter((note) => note.visibility === 'client' || note.kind === 'proof');
-  const clientProofPhotos = Array.from(new Set(clientProofNotes.flatMap((note) => note.photos || []).filter(Boolean))) as string[];
-  const clientProofVideoLinks = Array.from(new Set(clientProofNotes.flatMap((note) => note.videoUrls || []).filter(Boolean))) as string[];
-  const clientProofAudioCount = clientProofNotes.reduce((sum, note) => sum + (note.audios || []).length, 0);
-  const clientProofCount = clientProofNotes.length;
   const partQueue = showOnlyOpenParts
     ? order.parts.filter((part) => !(part.isFound || (part.variants || []).length > 0))
     : order.parts;
@@ -2659,6 +2767,103 @@ const OrderDetailsScreen: React.FC = () => {
                 </div>
               </section>
 
+              <section className="grid gap-3">
+                  <div className="ds-surface rounded-[24px] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-black uppercase tracking-[0.14em] text-stone-400">Клиент</p>
+                        <p className="mt-1 truncate text-lg font-black text-stone-950">{order.clientName || 'Без имени'}</p>
+                        <p className="mt-1 truncate text-sm font-bold text-stone-500">{order.customerContact || 'Телефон не указан'}</p>
+                      </div>
+                      <button type="button" onClick={() => setIsEditMode((prev) => !prev)} className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label={isEditMode ? 'Закрыть редактирование' : 'Редактировать клиента'}>{isEditMode ? <Check size={15} /> : <FileText size={15} />}</button>
+                    </div>
+                    {isEditMode && (
+                      <div className="mt-3 space-y-2">
+                        <input type="text" value={String(draftFields.clientName ?? order.clientName ?? '')} onChange={(e) => updateOrderField('clientName', e.target.value)} onBlur={() => flushDeferredOrderField('clientName')} placeholder="Имя клиента" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
+                        <div className="flex gap-2">
+                          <input type="tel" value={String(draftFields.customerContact ?? order.customerContact ?? '')} onChange={(e) => updateOrderField('customerContact', e.target.value)} onBlur={() => flushDeferredOrderField('customerContact')} placeholder="+971..." className="ds-input h-12 min-w-0 flex-1 rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
+                          <button type="button" onClick={() => void copyText(order.customerContact || '', 'Телефон скопирован')} disabled={!order.customerContact} className="ds-press flex h-12 w-12 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:opacity-35" aria-label="Скопировать телефон"><Copy size={16} /></button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <select value={String(draftFields.source ?? order.source)} onChange={(e) => updateOrderField('source', e.target.value)} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black text-stone-800 outline-none">
+                            {SOURCES.map((source) => <option key={source} value={source}>{source}</option>)}
+                          </select>
+                          <select value={normalizedSelectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black text-stone-800 outline-none">
+                            {messageTemplates.map((template) => <option key={template} value={template}>{template}</option>)}
+                          </select>
+                        </div>
+                        {(sourceLabel.includes('instagram') || sourceLabel.includes('tiktok') || sourceLabel.includes('telegram')) && (
+                          <button type="button" onClick={saveSocialNickname} className="ds-press h-11 w-full rounded-2xl bg-stone-100 px-3 text-xs font-black text-stone-800">{(draftFields.socialNickname ?? order.socialNickname ?? '') ? 'Изменить соцсеть' : 'Добавить соцсеть'}</button>
+                        )}
+                      </div>
+                    )}
+                    <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                      <button type="button" onClick={openClientChannel} disabled={!getClientChannelLink() && (!(order.customerContact || '').replace(/[^\d]/g, '').length || (order.customerContact || '').replace(/[^\d]/g, '').length < 8)} className="ds-press inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 text-xs font-black text-white disabled:opacity-35"><MessageCircle size={15} /> {contactActionLabel}</button>
+                      <button type="button" onClick={() => setShowCustomerLogs(true)} className="ds-press flex h-11 w-11 items-center justify-center rounded-2xl bg-stone-100 text-stone-700" aria-label="История клиента"><History size={16} /></button>
+                    </div>
+                  </div>
+
+                  <div ref={vehicleSectionRef} className="ds-surface rounded-[24px] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-black uppercase tracking-[0.14em] text-stone-400">Автомобиль</p>
+                        <p className="mt-1 truncate text-lg font-black text-stone-950">{heroCarName}</p>
+                        <p className="mt-1 break-all font-mono text-xs font-bold text-stone-500">{order.vin || 'VIN не указан'}</p>
+                      </div>
+                      <button type="button" onClick={() => setIsEditMode((prev) => !prev)} className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label={isEditMode ? 'Закрыть редактирование' : 'Редактировать авто'}>{isEditMode ? <Check size={15} /> : <FileText size={15} />}</button>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                        <p className="text-[9px] font-black text-stone-400">Рынок</p>
+                        <p className="mt-0.5 truncate text-xs font-black text-stone-800">{heroMarketRegion}</p>
+                      </div>
+                      <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                        <p className="text-[9px] font-black text-stone-400">Двигатель</p>
+                        <p className="mt-0.5 truncate text-xs font-black text-stone-800">{order.vehicleDetails?.engineType || order.vehicleDetails?.engineCode || 'Нет'}</p>
+                      </div>
+                      <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                        <p className="text-[9px] font-black text-stone-400">Кузов</p>
+                        <p className="mt-0.5 truncate text-xs font-black text-stone-800">{order.bodyType || 'Нет'}</p>
+                      </div>
+                    </div>
+                    {isEditMode && (
+                      <div className="mt-3 space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <input type="text" value={String(draftFields.vin ?? order.vin ?? '')} onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))} onBlur={() => flushDeferredOrderField('vin')} placeholder="VIN" className="ds-input col-span-2 h-12 rounded-2xl border-0 px-4 text-sm font-black uppercase text-stone-950 outline-none" />
+                          <button type="button" onClick={pasteVinFromClipboard} className="ds-press h-11 rounded-2xl bg-stone-950 px-3 text-xs font-black text-white">Вставить VIN</button>
+                          <button type="button" onClick={() => carFileRef.current?.click()} className="ds-press h-11 rounded-2xl bg-stone-100 px-3 text-xs font-black text-stone-800">Добавить медиа</button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <select value={String((draftFields.vehicleDetails?.marketRegion) ?? (order.vehicleDetails?.marketRegion ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), marketRegion: (e.target.value || undefined) })} onBlur={() => flushDeferredOrderField('vehicleDetails')} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none">
+                            <option value="">Рынок</option>
+                            {VEHICLE_MARKET_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                          </select>
+                          <select value={String((draftFields.vehicleDetails?.transmission) ?? (order.vehicleDetails?.transmission ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), transmission: (e.target.value || undefined) })} onBlur={() => flushDeferredOrderField('vehicleDetails')} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none">
+                            <option value="">КПП</option>
+                            {VEHICLE_TRANSMISSION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                          </select>
+                          <input type="text" value={String((draftFields.vehicleDetails?.engineType) ?? (order.vehicleDetails?.engineType ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), engineType: e.target.value })} onBlur={() => flushDeferredOrderField('vehicleDetails')} placeholder="Двигатель" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
+                          <input type="text" value={String((draftFields.vehicleDetails?.color) ?? (order.vehicleDetails?.color ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), color: e.target.value })} onBlur={() => flushDeferredOrderField('vehicleDetails')} placeholder="Цвет" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
+                          <input type="text" value={String(draftFields.bodyType ?? order.bodyType ?? '')} onChange={(e) => updateOrderField('bodyType', e.target.value)} onBlur={() => flushDeferredOrderField('bodyType')} placeholder="Кузов" className="ds-input col-span-2 h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
+                        </div>
+                      </div>
+                    )}
+                    {getCarPhotos().length > 0 && (
+                      <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar">
+                        {getCarPhotos().slice(0, 6).map((photo, index) => (
+                          <div key={`${photo}-${index}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-stone-200">
+                            <button type="button" onClick={() => setGallery({ images: getCarPhotos(), index })} className="ds-press h-full w-full">
+                              <img src={photo} alt="Автомобиль" className="h-full w-full object-cover" />
+                            </button>
+                            {isEditMode && <button type="button" onClick={() => removeCarPhoto(index)} className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Удалить фото"><X size={11} /></button>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+              {false && isEditMode && (
               <section className="space-y-3">
                 <button type="button" onClick={() => setIsClientBlockExpanded((prev) => !prev)} className="ds-press flex w-full items-center justify-between gap-3 py-2 text-left">
                   <span>
@@ -2705,7 +2910,9 @@ const OrderDetailsScreen: React.FC = () => {
                   </div>
                 )}
               </section>
+              )}
 
+              {false && isEditMode && (
               <section ref={vehicleSectionRef} className="space-y-3">
                 <button type="button" onClick={() => setIsVehicleDetailsExpanded((prev) => !prev)} className="ds-press flex w-full items-center justify-between gap-3 py-2 text-left">
                   <span>
@@ -2761,6 +2968,7 @@ const OrderDetailsScreen: React.FC = () => {
                   </div>
                 )}
               </section>
+              )}
 
               {settings.orderZones && settings.orderZones.length > 0 && (
                 <section className="space-y-2">
@@ -2839,7 +3047,7 @@ const OrderDetailsScreen: React.FC = () => {
                     <div className="mt-3 space-y-2 rounded-[22px] bg-stone-100/70 p-3">
                       {newPartGroupItems.map((item, index) => (
                         <div key={item.id} className="flex items-center gap-2">
-                          <input type="text" value={item.name} onChange={(event) => updateGroupItemRow(item.id, 'name', event.target.value)} placeholder={`Деталь ${index + 1}`} className="ds-input h-10 min-w-0 flex-1 rounded-xl border-0 px-3 text-xs font-black outline-none" />
+                          <input type="text" value={item.name} onChange={(event) => updateGroupItemRow(item.id, 'name', event.target.value)} placeholder={`Деталь ${index + 1}`} className="ds-input h-10 min-w-0 flex-1 rounded-xl border-0 px-3 text-xs font-black text-stone-950 outline-none placeholder:text-stone-400" />
                           <select value={item.quantity} onChange={(event) => updateGroupItemRow(item.id, 'quantity', event.target.value)} className="ds-input h-10 w-16 rounded-xl border-0 text-center text-xs font-black outline-none">
                             {Array.from({ length: 20 }, (_, qtyIdx) => String(qtyIdx + 1)).map((qty) => <option key={qty} value={qty}>{qty}</option>)}
                           </select>
@@ -2930,11 +3138,16 @@ const OrderDetailsScreen: React.FC = () => {
                       const salePrice = Number((bestVariant?.salePriceAed ?? bestVariant?.priceAed) || 0);
                       const purchasePrice = Number((bestVariant?.purchasePriceAed ?? bestVariant?.priceAed) || 0);
                       const partReady = Boolean(part.isFound || variants.length > 0);
+                      const swipeOffset = partSwipeOffsets[part.id] || 0;
                       return (
+                        <div key={part.id} className="relative overflow-hidden rounded-[18px]">
+                          <button type="button" onClick={() => setDeletePartId(part.id)} className="absolute inset-y-0 right-0 flex w-20 items-center justify-center bg-rose-600 text-white transition-opacity duration-150" style={{ opacity: swipeOffset < -8 ? 1 : 0, pointerEvents: swipeOffset < -8 ? 'auto' : 'none' }} aria-label="Удалить деталь"><X size={18} /></button>
                         <article
-                          key={part.id}
                           role="button"
                           tabIndex={0}
+                          onTouchStart={(event) => handlePartSwipeStart(part.id, event)}
+                          onTouchMove={(event) => handlePartSwipeMove(part.id, event)}
+                          onTouchEnd={() => handlePartSwipeEnd(part.id)}
                           onClick={(event) => {
                             if ((event.target as HTMLElement).closest('button,input,textarea,select,a')) return;
                             openPartDetails(part.id);
@@ -2946,6 +3159,7 @@ const OrderDetailsScreen: React.FC = () => {
                             }
                           }}
                           className="ds-press ds-surface cursor-pointer rounded-[18px] px-2.5 py-2 outline-none focus:ring-2 focus:ring-stone-950/10"
+                          style={{ transform: `translateX(${swipeOffset}px)`, transition: partSwipeRef.current?.id === part.id ? 'none' : 'transform 160ms ease' }}
                         >
                           <div className="flex min-h-[56px] items-center gap-2">
                             <button type="button" onClick={(event) => openGallery(event, part)} className="ds-press flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-stone-100" aria-label="Открыть медиа детали">
@@ -2976,25 +3190,16 @@ const OrderDetailsScreen: React.FC = () => {
                               ) : null}
                             </div>
                             <div className="flex shrink-0 items-center gap-1">
-                              <button type="button" onClick={() => {
-                                if (sourcingLocked) {
-                                  setToast({ message: 'Сначала подтвердите депозит.' });
-                                  return;
-                                }
-                                openPartDetails(part.id);
-                              }} disabled={sourcingLocked} className="ds-press flex h-9 w-9 items-center justify-center rounded-xl bg-stone-950 text-white disabled:opacity-35" aria-label="Добавить вариант">
-                                <Plus size={14} />
-                              </button>
                               <button type="button" onClick={() => setPartCommentExpanded((prev) => ({ ...prev, [part.id]: !prev[part.id] }))} className="ds-press flex h-9 w-9 items-center justify-center rounded-xl bg-stone-100 text-stone-600" aria-label="Заметка">
                                 <FileText size={14} />
                               </button>
                               <button type="button" onClick={() => checkGoogleDriveLink(String((part as any).googleDriveVideoUrl || ''), 'Медиа-ссылка добавляется в Пруфах')} className="ds-press flex h-9 w-9 items-center justify-center rounded-xl bg-stone-100 text-stone-600" aria-label="Открыть медиа">
                                 <ExternalLink size={14} />
                               </button>
-                              <button type="button" onClick={() => setDeletePartId(part.id)} className="ds-press flex h-9 w-9 items-center justify-center rounded-xl bg-rose-50 text-rose-600" aria-label="Удалить деталь"><X size={14} /></button>
                             </div>
                           </div>
                         </article>
+                        </div>
                       );
                     })}
                   </div>
@@ -3010,7 +3215,7 @@ const OrderDetailsScreen: React.FC = () => {
                   <div className="mb-2 max-h-32 space-y-1 overflow-y-auto rounded-2xl bg-white/80 p-2">
                     {newPartGroupItems.map((item, index) => (
                       <div key={item.id} className="flex items-center gap-2">
-                        <input type="text" value={item.name} onChange={(event) => updateGroupItemRow(item.id, 'name', event.target.value)} placeholder={`Деталь ${index + 1}`} className="h-9 min-w-0 flex-1 rounded-xl border-0 bg-stone-100 px-3 text-xs font-black outline-none" />
+                        <input type="text" value={item.name} onChange={(event) => updateGroupItemRow(item.id, 'name', event.target.value)} placeholder={`Деталь ${index + 1}`} className="h-9 min-w-0 flex-1 rounded-xl border-0 bg-stone-100 px-3 text-xs font-black text-stone-950 outline-none placeholder:text-stone-400" />
                         <select value={item.quantity} onChange={(event) => updateGroupItemRow(item.id, 'quantity', event.target.value)} className="h-9 w-14 rounded-xl border-0 bg-stone-100 text-center text-xs font-black outline-none">
                           {Array.from({ length: 20 }, (_, qtyIdx) => String(qtyIdx + 1)).map((qty) => <option key={qty} value={qty}>{qty}</option>)}
                         </select>
@@ -3051,34 +3256,6 @@ const OrderDetailsScreen: React.FC = () => {
 
           {activeTab === 'proof' && (
             <div className="ds-mode-enter space-y-5">
-              <section className="ds-surface rounded-[26px] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[12px] font-black text-stone-600">Публичный Proof Pack</p>
-                    <p className="mt-1 text-xs font-semibold leading-5 text-stone-500">Эти фото, видео-ссылки, текст и голос будут видны клиенту в отдельной вкладке сметы.</p>
-                  </div>
-                  <button type="button" onClick={() => setIsEstimateOpen(true)} className="ds-press inline-flex h-10 shrink-0 items-center gap-2 rounded-2xl bg-stone-950 px-3 text-[11px] font-black text-white"><Share2 size={13} /> Смета</button>
-                </div>
-                <div className="mt-3 grid grid-cols-4 gap-2">
-                  <div className="rounded-2xl bg-stone-100 px-3 py-2">
-                    <p className="text-[9px] font-black text-stone-400">Записей</p>
-                    <p className="mt-0.5 text-sm font-black text-stone-950">{clientProofCount}</p>
-                  </div>
-                  <div className="rounded-2xl bg-stone-100 px-3 py-2">
-                    <p className="text-[9px] font-black text-stone-400">Фото</p>
-                    <p className="mt-0.5 text-sm font-black text-stone-950">{clientProofPhotos.length}</p>
-                  </div>
-                  <div className="rounded-2xl bg-stone-100 px-3 py-2">
-                    <p className="text-[9px] font-black text-stone-400">Видео</p>
-                    <p className="mt-0.5 text-sm font-black text-stone-950">{clientProofVideoLinks.length}</p>
-                  </div>
-                  <div className="rounded-2xl bg-stone-100 px-3 py-2">
-                    <p className="text-[9px] font-black text-stone-400">Голос</p>
-                    <p className="mt-0.5 text-sm font-black text-stone-950">{clientProofAudioCount}</p>
-                  </div>
-                </div>
-              </section>
-
               <section className="space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-[12px] font-black text-stone-600">Лента для клиента</p>
@@ -3139,36 +3316,6 @@ const OrderDetailsScreen: React.FC = () => {
                 )}
               </section>
 
-              <section className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="ds-surface col-span-2 rounded-[24px] p-4">
-                    <p className="text-[11px] font-black text-stone-400">Клиент</p>
-                    <p className="mt-1 truncate text-lg font-black text-stone-950">{order.clientName || 'Без имени'}</p>
-                    <p className="mt-1 truncate text-xs font-bold text-stone-500">{order.customerContact || 'Телефон не указан'}</p>
-                  </div>
-                  <div className="ds-surface rounded-[22px] p-4">
-                    <p className="text-[11px] font-black text-stone-400">Авто</p>
-                    <p className="mt-1 truncate text-sm font-black text-stone-950">{heroCarName}</p>
-                    <p className="mt-1 truncate text-xs font-bold text-stone-500">{order.vin || 'VIN не указан'}</p>
-                  </div>
-                  <div className="ds-surface rounded-[22px] p-4">
-                    <p className="text-[11px] font-black text-stone-400">Оплата</p>
-                    <p className="mt-1 truncate text-sm font-black text-stone-950">{paymentCopy.label}</p>
-                    <p className="mt-1 truncate text-xs font-bold text-stone-500">{stageCopy.label}</p>
-                  </div>
-                  <div className="ds-surface rounded-[22px] p-4">
-                    <p className="text-[11px] font-black text-stone-400">Детали</p>
-                    <p className="mt-1 text-sm font-black text-stone-950">{foundPartsCount}/{partsCount}</p>
-                    <p className="mt-1 truncate text-xs font-bold text-stone-500">найдено</p>
-                  </div>
-                  <div className="ds-surface rounded-[22px] p-4">
-                    <p className="text-[11px] font-black text-stone-400">Прибыль</p>
-                    <p className="mt-1 truncate text-sm font-black text-stone-950">{shownNetProfit !== null ? formatDualMoney(shownNetProfit) : 'Нет данных'}</p>
-                    <p className="mt-1 truncate text-xs font-bold text-stone-500">{marginPercent !== null ? `${marginPercent.toFixed(0)}% маржа` : 'ожидает цены'}</p>
-                  </div>
-                </div>
-              </section>
-
               <section className="ds-surface space-y-3 rounded-[26px] p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -3222,12 +3369,6 @@ const OrderDetailsScreen: React.FC = () => {
                 </div>
               </section>
 
-              <section className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => void copyText(safetySummary.paymentExplanation, 'Условия оплаты скопированы')} className="ds-press ds-surface inline-flex h-12 items-center justify-center gap-2 rounded-2xl text-xs font-black text-stone-800"><DollarSign size={14} /> Условия</button>
-                <button type="button" onClick={() => setIsEstimateOpen(true)} className="ds-press ds-surface inline-flex h-12 items-center justify-center gap-2 rounded-2xl text-xs font-black text-stone-800"><ReceiptText size={14} /> Смета</button>
-                <button type="button" onClick={() => updateOrderField('isArchived', !order.isArchived)} className="ds-press ds-surface inline-flex h-12 items-center justify-center gap-2 rounded-2xl text-xs font-black text-stone-800"><Package size={14} /> {order.isArchived ? 'Вернуть' : 'В архив'}</button>
-                <button type="button" onClick={() => setDeleteOrderConfirmOpen(true)} className="ds-press inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-rose-50 text-xs font-black text-rose-700"><X size={14} /> Удалить</button>
-              </section>
             </div>
           )}
 
@@ -3256,6 +3397,53 @@ const OrderDetailsScreen: React.FC = () => {
                     <p className="mt-1 truncate text-sm font-black">{marginPercent !== null ? `${marginPercent.toFixed(0)}%` : 'Открыто'}</p>
                   </div>
                 </div>
+              </section>
+
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Цены продажи</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-500">Закупка берётся из варианта, клиентская цена задаётся здесь.</p>
+                  </div>
+                  <span className="rounded-full bg-stone-100 px-3 py-2 text-[11px] font-black text-stone-600">{pricedPartsCount}/{partsCount || 0}</span>
+                </div>
+                {(order.parts || []).length > 0 ? (
+                  <div className="space-y-2">
+                    {(order.parts || []).map((part) => {
+                      const variant = getFinanceVariant(part);
+                      const quantity = normalizePartQuantity(part.quantity);
+                      const purchasePrice = Number(variant?.purchasePriceAed ?? variant?.priceAed ?? 0);
+                      const salePrice = Number(variant?.salePriceAed ?? variant?.priceAed ?? 0);
+                      return (
+                        <div key={`finance-sale-${part.id}`} className="rounded-2xl bg-stone-950/[0.04] p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-black text-stone-950">{getPartDisplayName(part)}</p>
+                              <p className="mt-1 truncate text-[11px] font-bold text-stone-500">{variant ? `${variant.shopName || 'Поставщик'} · закуп ${purchasePrice.toFixed(0)} AED · ${quantity} шт` : 'Сначала добавьте вариант с ценой закупки'}</p>
+                            </div>
+                            <button type="button" onClick={() => openPartDetails(part.id, variant?.id)} className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-stone-700" aria-label="Открыть деталь"><ChevronRight size={15} /></button>
+                          </div>
+                          <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={variant && salePrice > 0 ? String(salePrice) : ''}
+                              disabled={!variant || !isEditMode}
+                              onChange={(event) => updatePartSalePrice(part.id, event.target.value)}
+                              placeholder="Цена продажи AED"
+                              className="ds-input h-12 min-w-0 rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none disabled:opacity-45"
+                            />
+                            <div className={`flex h-12 min-w-[86px] items-center justify-center rounded-2xl px-3 text-xs font-black ${salePrice >= purchasePrice && salePrice > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                              {variant ? `${(salePrice - purchasePrice).toFixed(0)} AED` : '—'}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="ds-soft-empty rounded-2xl p-4 text-center text-xs font-bold text-stone-500">Деталей пока нет.</div>
+                )}
               </section>
 
               <section ref={markupSectionRef} className="ds-surface space-y-3 rounded-[26px] p-4">
@@ -3297,7 +3485,7 @@ const OrderDetailsScreen: React.FC = () => {
                   ] as const).map(({ field, label }) => (
                     <label key={field} className="space-y-1">
                       <span className="text-[10px] font-black text-stone-400">{label}</span>
-                      <input type="text" inputMode="numeric" value={logisticsDraft[field]} onChange={(event) => onLogisticsDraftChange(field, sanitizeNumericInput(event.target.value))} className="ds-input h-12 w-full rounded-2xl border-0 px-2 text-center text-sm font-black text-stone-950 outline-none" />
+                      <input type="text" inputMode="numeric" value={logisticsDraft[field]} onFocus={() => { if (logisticsDraft[field] === '0') onLogisticsDraftChange(field, ''); }} onBlur={() => { if (!logisticsDraft[field]) onLogisticsDraftChange(field, '0'); }} onChange={(event) => onLogisticsDraftChange(field, sanitizeNumericInput(event.target.value))} className="ds-input h-12 w-full rounded-2xl border-0 px-2 text-center text-sm font-black text-stone-950 outline-none" />
                     </label>
                   ))}
                 </div>
@@ -3438,7 +3626,18 @@ const OrderDetailsScreen: React.FC = () => {
           {activeTab === 'search' && !sourcingLocked && (
               <form onSubmit={(event) => { event.preventDefault(); addNewPart(); }} className="space-y-2">
                 {newPartKind === 'group' && (
-                  <div className="rounded-2xl bg-white px-3 py-2 text-xs font-bold text-stone-600">Групповой режим добавления включён.</div>
+                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-2xl bg-white p-2">
+                    {newPartGroupItems.map((item, index) => (
+                      <div key={item.id} className="flex items-center gap-2">
+                        <input type="text" value={item.name} onChange={(event) => updateGroupItemRow(item.id, 'name', event.target.value)} placeholder={`Деталь ${index + 1}`} className="h-10 min-w-0 flex-1 rounded-xl border-0 bg-stone-100 px-3 text-xs font-black text-stone-950 outline-none placeholder:text-stone-400" />
+                        <select value={item.quantity} onChange={(event) => updateGroupItemRow(item.id, 'quantity', event.target.value)} className="h-10 w-14 rounded-xl border-0 bg-stone-100 text-center text-xs font-black outline-none">
+                          {Array.from({ length: 20 }, (_, qtyIdx) => String(qtyIdx + 1)).map((qty) => <option key={qty} value={qty}>{qty}</option>)}
+                        </select>
+                        <button type="button" onClick={() => removeGroupItemRow(item.id)} className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-600" aria-label="Удалить строку"><X size={13} /></button>
+                      </div>
+                    ))}
+                    <button type="button" onClick={addGroupItemRow} className="h-9 w-full rounded-xl bg-stone-950 text-[11px] font-black text-white">Добавить деталь в группу</button>
+                  </div>
                 )}
                 <div className="flex items-end gap-2">
                   <button type="button" onClick={() => partFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Фото детали"><ImageIcon size={18} /></button>
