@@ -9,6 +9,7 @@ import { logger } from '../logging';
 import { optimizeImageForUpload } from '../storage/photos';
 import { toast } from '../feedback';
 import { readClipboardImageFiles } from '../utils/clipboardImages';
+import { useAppSettings } from '../appSettings';
 
 type VinDecoded = {
   brand?: string;
@@ -319,6 +320,7 @@ const NewOrderScreen: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { addOrder, isSyncing } = useStore();
+  const { settings } = useAppSettings();
 
   const [creationType, setCreationType] = useState<CreationType>(() => (
     new URLSearchParams(location.search).get('type') === 'lead' ? 'lead' : 'order'
@@ -923,7 +925,7 @@ const NewOrderScreen: React.FC = () => {
         isFound: false
       })),
       markupPercent: DEFAULT_MARKUP,
-      exchangeRate: DEFAULT_RATE,
+      exchangeRate: Number(settings.defaultExchangeRate || DEFAULT_RATE),
       clientCurrency: 'AED',
       createdAt: now,
       isArchived: false,

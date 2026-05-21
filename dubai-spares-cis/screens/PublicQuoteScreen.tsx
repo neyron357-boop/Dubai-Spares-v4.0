@@ -165,7 +165,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const [snapshotPayload, setSnapshotPayload] = useState<Record<string, any> | null>(null);
   const [expiresAt, setExpiresAt] = useState<string>('');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
-  const [displayCurrency, setDisplayCurrency] = useState<'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT'>('USD');
+  const [displayCurrency, setDisplayCurrency] = useState<'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS'>('USD');
   const [translatedItemNames, setTranslatedItemNames] = useState<Record<string, string>>({});
   const [translatedWorkTerms, setTranslatedWorkTerms] = useState('');
   const [translatedDeliveryTerms, setTranslatedDeliveryTerms] = useState('');
@@ -215,7 +215,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
 
   const normalizedSnapshot = useMemo(() => normalizePublicQuoteSnapshotPayload(snapshotPayload), [snapshotPayload]);
   const order = normalizedSnapshot?.order || { brand: '—', model: '', year: '', vin: '—', bodyType: '', carPhotoUrl: '', googleDriveFolderUrl: '' };
-  const rates = normalizedSnapshot?.rates || { AED: 1, USD: 0.27, RUB: 21, TJS: 2.6 };
+  const rates = normalizedSnapshot?.rates || { AED: 1, USD: 0.27, RUB: 21, TJS: 2.6, KZT: 125, UZS: 3400 };
   const currency = normalizedSnapshot?.currency || 'USD';
   const items = normalizedSnapshot?.items || [];
   const subtotalAed = normalizedSnapshot?.subtotalAed || 0;
@@ -223,6 +223,9 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const packingAed = normalizedSnapshot?.packingAed || 0;
   const commissionAed = normalizedSnapshot?.commissionAed || 0;
   const grandTotalAed = normalizedSnapshot?.grandTotalAed || 0;
+  const depositAed = normalizedSnapshot?.depositAed || 0;
+  const balanceDueAed = normalizedSnapshot?.balanceDueAed ?? grandTotalAed;
+  const payableTotalAed = depositAed > 0 ? balanceDueAed : grandTotalAed;
   const orderMediaFolderUrl = normalizedSnapshot?.orderMediaFolderUrl || order.googleDriveFolderUrl || '';
   const proofNotes = normalizedSnapshot?.proofNotes || [];
   const proofPhotoCount = proofNotes.reduce((sum, note) => sum + note.photos.length, 0);
@@ -245,8 +248,8 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const trustPageHref = `${window.location.origin}${window.location.pathname}#/trust`;
 
   const whatsappConfirmationText = lang === 'ru'
-    ? `Здравствуйте! Подтверждаю смету по ${normalizedSnapshot?.vehicleLabel || 'моему авто'} на сумму ${(grandTotalAed * fx).toFixed(2)} ${activeCurrency}.`
-    : `Hello! I confirm the quote for ${normalizedSnapshot?.vehicleLabel || 'my car'} for ${(grandTotalAed * fx).toFixed(2)} ${activeCurrency}.`;
+    ? `Здравствуйте! Подтверждаю смету по ${normalizedSnapshot?.vehicleLabel || 'моему авто'} на сумму ${(payableTotalAed * fx).toFixed(2)} ${activeCurrency}.`
+    : `Hello! I confirm the quote for ${normalizedSnapshot?.vehicleLabel || 'my car'} for ${(payableTotalAed * fx).toFixed(2)} ${activeCurrency}.`;
   const whatsappHref = contact.whatsapp ? `https://wa.me/${contact.whatsapp}` : '';
   const whatsappConfirmHref = contact.whatsapp
     ? `https://wa.me/${contact.whatsapp}?text=${encodeURIComponent(whatsappConfirmationText)}`
@@ -262,7 +265,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   }, [normalizedSnapshot?.documents, t.downloadFile, t.downloadPdf]);
 
   useEffect(() => {
-    setDisplayCurrency((normalizedSnapshot?.currency || 'USD') as 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT');
+    setDisplayCurrency((normalizedSnapshot?.currency || 'USD') as 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS');
   }, [normalizedSnapshot?.currency]);
 
   useEffect(() => {
@@ -362,8 +365,13 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
               </div>
               <div className="min-w-[220px] rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-900 shadow-none">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t.quoteTotal}</p>
-                <p className="mt-1 text-4xl font-black leading-none text-[#0f1f3d]">{(grandTotalAed * fx).toFixed(2)}</p>
+                <p className="mt-1 text-4xl font-black leading-none text-[#0f1f3d]">{(payableTotalAed * fx).toFixed(2)}</p>
                 <p className="mt-0.5 text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">{activeCurrency}</p>
+                {depositAed > 0 && (
+                  <p className="mt-2 text-xs font-bold text-emerald-700">
+                    {lang === 'ru' ? 'Депозит учтён' : 'Deposit applied'}: {money(depositAed * fx, activeCurrency)}
+                  </p>
+                )}
                 <div className="mt-3 flex flex-wrap gap-1">
                   {(Object.keys(rates) as Array<keyof typeof rates>).map((code) => (
                     <button
@@ -569,7 +577,9 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
             <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.delivery}</span><strong className="text-slate-900">{money(deliveryAed * fx, activeCurrency)}</strong></div>
             <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.packing}</span><strong className="text-slate-900">{money(packingAed * fx, activeCurrency)}</strong></div>
             <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.commission}</span><strong className="text-slate-900">{money(commissionAed * fx, activeCurrency)}</strong></div>
+            {depositAed > 0 && <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{lang === 'ru' ? 'Депозит' : 'Deposit'}</span><strong className="text-emerald-700">-{money(depositAed * fx, activeCurrency)}</strong></div>}
             <div className="flex items-center justify-between py-3 text-base font-bold"><span className="text-slate-900">{t.total}</span><span className="text-[#0f1f3d]">{money(grandTotalAed * fx, activeCurrency)}</span></div>
+            {depositAed > 0 && <div className="flex items-center justify-between py-3 text-base font-black"><span className="text-slate-900">{lang === 'ru' ? 'К оплате' : 'Balance due'}</span><span className="text-[#0f1f3d]">{money(balanceDueAed * fx, activeCurrency)}</span></div>}
           </div>
         </section>
 
@@ -636,6 +646,11 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
             <div className="mt-5 space-y-4">
               {proofNotes.map((note) => (
                 <article key={note.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  {note.createdAt > 0 && (
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                      {new Date(note.createdAt).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-GB')}
+                    </p>
+                  )}
                   {note.text && <p className="whitespace-pre-line text-sm font-semibold leading-6 text-slate-700">{note.text}</p>}
                   {note.photos.length > 0 && (
                     <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -713,7 +728,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t.quoteTotal}</p>
-              <p className="text-xl font-black leading-none text-[#0f1f3d]">{(grandTotalAed * fx).toFixed(2)} <span className="text-sm font-semibold text-slate-500">{activeCurrency}</span></p>
+              <p className="text-xl font-black leading-none text-[#0f1f3d]">{(payableTotalAed * fx).toFixed(2)} <span className="text-sm font-semibold text-slate-500">{activeCurrency}</span></p>
             </div>
             <a href={whatsappConfirmHref || whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-12 shrink-0 items-center gap-2 rounded-2xl bg-emerald-500 px-5 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-400 active:scale-[0.98]">
               <MessageCircle size={17} /> {t.contactManager}

@@ -50,10 +50,9 @@ import {
   MapPin,
   Phone
 } from 'lucide-react';
-import EstimateModal from '../components/EstimateModal';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
-import { QuoteCurrency, QuoteRates, shareQuoteLink } from '../shareUtils';
+import { DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates, shareQuoteLink } from '../shareUtils';
 import { supabase } from '../supabase';
 import { fetchRadarShops } from '../radarShops';
 import { logger } from '../logging';
@@ -81,6 +80,45 @@ const ORDER_DETAILS_TABS: Array<{ id: OrderDetailsTab; label: string; helper: st
 const resolveOrderDetailsTab = (value: unknown): OrderDetailsTab | null => (
   ORDER_DETAILS_TABS.some((tab) => tab.id === value) ? value as OrderDetailsTab : null
 );
+
+const QUOTE_RATE_FIELDS: Array<{ code: Exclude<QuoteCurrency, 'AED'>; label: string; helper: string; decimals: number }> = [
+  { code: 'USD', label: 'USD', helper: '1 USD = AED', decimals: 4 },
+  { code: 'TJS', label: 'TJS', helper: '1 AED = сомони', decimals: 3 },
+  { code: 'KZT', label: 'Tenge', helper: '1 AED = тенге', decimals: 2 },
+  { code: 'RUB', label: 'RUB', helper: '1 AED = рубль', decimals: 2 },
+  { code: 'UZS', label: 'UZB', helper: '1 AED = сум', decimals: 0 }
+];
+
+const normalizeQuoteRates = (raw: Partial<QuoteRates> | undefined, usdToAed?: number): QuoteRates => {
+  const next: QuoteRates = { ...DEFAULT_QUOTE_RATES, ...(raw || {}), AED: 1 };
+  (Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[]).forEach((code) => {
+    const parsed = Number(next[code]);
+    next[code] = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_QUOTE_RATES[code];
+  });
+  if ((!raw?.USD || !Number.isFinite(Number(raw.USD))) && Number.isFinite(Number(usdToAed)) && Number(usdToAed) > 0) {
+    next.USD = 1 / Number(usdToAed);
+  }
+  next.AED = 1;
+  return next;
+};
+
+const usdToAedFromQuoteRates = (rates: QuoteRates) => {
+  const usdPerAed = Number(rates.USD || 0);
+  return usdPerAed > 0 ? 1 / usdPerAed : 3.67;
+};
+
+const quoteCurrencyDecimals = (currency: string) => (
+  currency === 'AED' || currency === 'RUB' || currency === 'KZT' || currency === 'UZS' ? 0 : 2
+);
+
+const buildQuoteRateInputs = (rates: QuoteRates) => ({
+  TJS: String(Number(rates.TJS || DEFAULT_QUOTE_RATES.TJS)),
+  KZT: String(Number(rates.KZT || DEFAULT_QUOTE_RATES.KZT)),
+  RUB: String(Number(rates.RUB || DEFAULT_QUOTE_RATES.RUB)),
+  UZS: String(Number(rates.UZS || DEFAULT_QUOTE_RATES.UZS))
+});
+
+const sanitizeDecimalInput = (raw: string) => raw.replace(/[^\d.,]/g, '').replace(',', '.');
 
 
 const ORDER_DETAILS_SAFE_BOTTOM = 'env(safe-area-inset-bottom)';
@@ -360,7 +398,7 @@ const OrderDetailsScreen: React.FC = () => {
     || resolveOrderDetailsTab((location.state as { restoreActiveTab?: unknown; orderActiveTab?: unknown } | null)?.orderActiveTab)
     || 'overview';
   const { orders, isLoading, updateOrder, deleteOrder, removePart, suppliers, fetchOrderDetails } = useStore();
-  const { settings } = useAppSettings();
+  const { settings, updateSettings } = useAppSettings();
   const foundOrder = orders.find(o => o.id === id);
   const orderMissing = !foundOrder;
   const order = foundOrder ?? ({
@@ -379,13 +417,14 @@ const OrderDetailsScreen: React.FC = () => {
     isArchived: false,
     isSold: false
   } satisfies Order);
+  const savedQuoteRates = useMemo(() => normalizeQuoteRates(settings.defaultQuoteRates, settings.defaultExchangeRate || order.exchangeRate || 3.67), [order.exchangeRate, settings.defaultExchangeRate, settings.defaultQuoteRates]);
+  const preferredExchangeRate = Number(settings.defaultExchangeRate || usdToAedFromQuoteRates(savedQuoteRates) || order.exchangeRate || 3.67);
   
   // State for handling missing order
   const [retryAttempts, setRetryAttempts] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
 
   const [activeTab, setActiveTab] = useState<OrderDetailsTab>(restoredTab);
-  const [isEstimateOpen, setIsEstimateOpen] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number; partId?: string } | null>(null);
   const [deletePartId, setDeletePartId] = useState<string | null>(null);
   const [newNoteText, setNewNoteText] = useState('');
@@ -415,6 +454,7 @@ const OrderDetailsScreen: React.FC = () => {
   const waveformTimerRef = useRef<number | null>(null);
   const recordingTargetRef = useRef<'note' | 'proof'>('note');
   const recordingStartedAtRef = useRef<number | null>(null);
+  const recordingStopRequestedRef = useRef(false);
   const [recordingWaveform, setRecordingWaveform] = useState<number[]>(Array.from({ length: 40 }, () => 10));
   const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
@@ -459,7 +499,8 @@ const OrderDetailsScreen: React.FC = () => {
   const [showOnlyOpenParts, setShowOnlyOpenParts] = useState(false);
 
   // Exchange Rate Input State (Controlled)
-  const [rateInput, setRateInput] = useState(order ? order.exchangeRate.toString() : '3.67');
+  const [rateInput, setRateInput] = useState(order ? preferredExchangeRate.toString() : '3.67');
+  const [quoteRateInputs, setQuoteRateInputs] = useState<Record<string, string>>(() => buildQuoteRateInputs(savedQuoteRates));
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [isLaunchingRadar, setIsLaunchingRadar] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -468,6 +509,10 @@ const OrderDetailsScreen: React.FC = () => {
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
   const [deleteOrderConfirmOpen, setDeleteOrderConfirmOpen] = useState(false);
+  const [isDepositDialogOpen, setIsDepositDialogOpen] = useState(false);
+  const [depositAmountInput, setDepositAmountInput] = useState('');
+  const [depositCurrencyInput, setDepositCurrencyInput] = useState<NonNullable<Order['searchDepositCurrency']>>('AED');
+  const [depositRateInput, setDepositRateInput] = useState('1');
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
   const [orderMediaFolderDraft, setOrderMediaFolderDraft] = useState(order?.googleDriveFolderUrl || '');
@@ -495,8 +540,9 @@ const OrderDetailsScreen: React.FC = () => {
 
   // Sync local rate input if order changes
   useEffect(() => {
-    if (order) setRateInput(order.exchangeRate.toString());
-  }, [order?.id, order?.exchangeRate]);
+    if (order) setRateInput(preferredExchangeRate.toString());
+    setQuoteRateInputs(buildQuoteRateInputs(savedQuoteRates));
+  }, [order?.id, order?.exchangeRate, preferredExchangeRate, savedQuoteRates]);
 
   useEffect(() => {
     setMarkupFixedInput((order?.markupFixedAed || 0).toString());
@@ -565,6 +611,7 @@ const OrderDetailsScreen: React.FC = () => {
       const latestOrder = orderRef.current;
       if (latestOrder && Number.isFinite(normalizedRate) && normalizedRate > 0 && normalizedRate !== Number(latestOrder.exchangeRate || 0)) {
         void updateOrder({ ...latestOrder, exchangeRate: normalizedRate });
+        updateSettings({ defaultExchangeRate: normalizedRate, defaultQuoteRates: { ...currentQuoteRates, USD: 1 / normalizedRate } });
       }
     }
 
@@ -708,6 +755,19 @@ const OrderDetailsScreen: React.FC = () => {
     };
   }, [id, orderMissing, isLoading, isRetrying, retryAttempts, fetchOrderDetails]);
 
+  const currentQuoteRates = useMemo(() => {
+    const next = normalizeQuoteRates(savedQuoteRates, preferredExchangeRate);
+    const usdToAed = Number(sanitizeDecimalInput(rateInput));
+    if (Number.isFinite(usdToAed) && usdToAed > 0) next.USD = 1 / usdToAed;
+    QUOTE_RATE_FIELDS.forEach(({ code }) => {
+      if (code === 'USD') return;
+      const parsed = Number(sanitizeDecimalInput(quoteRateInputs[code] || ''));
+      if (Number.isFinite(parsed) && parsed > 0) next[code] = parsed;
+    });
+    next.AED = 1;
+    return next;
+  }, [preferredExchangeRate, quoteRateInputs, rateInput, savedQuoteRates]);
+
   if (orderMissing && isLoading) {
     return (
       <div className="p-4 space-y-4 animate-pulse">
@@ -719,12 +779,13 @@ const OrderDetailsScreen: React.FC = () => {
     );
   }
 
-  const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency; sendPublicQuote?: boolean; popupWindow?: Window | null }) => {
+  const shareQuote = async (options?: { rates: QuoteRates; currency: QuoteCurrency; sendPublicQuote?: boolean }) => {
     if (orderMissing) return;
     const parsedRateInput = parseFloat(String(rateInput || '').replace(',', '.'));
     const quoteExchangeRate = Number.isFinite(parsedRateInput) && parsedRateInput > 0
       ? parsedRateInput
-      : Number(order.exchangeRate || 3.67);
+      : preferredExchangeRate;
+    updateSettings({ defaultExchangeRate: quoteExchangeRate, defaultQuoteRates: currentQuoteRates });
     const nextParts = order.parts || [];
     const draftLogistics = {
       ...(order.logistics || {}),
@@ -765,14 +826,13 @@ const OrderDetailsScreen: React.FC = () => {
     }
     const shareResult = await shareQuoteLink(quoteOrder, {
       ...options,
+      rates: options?.rates || currentQuoteRates,
       snapshotToken: order.publicQuoteToken || undefined,
-      upsertByToken: !!order.publicQuoteToken,
-      popupWindow: options?.popupWindow
+      upsertByToken: !!order.publicQuoteToken
     });
     if (shareResult.token && shareResult.token !== order.publicQuoteToken) {
       await updateOrder({ ...quoteOrder, publicQuoteToken: shareResult.token });
     }
-    return { blockedPopupLink: shareResult.method === 'popup-blocked' ? shareResult.link : '' };
   };
 
   if (orderMissing) {
@@ -852,8 +912,9 @@ const OrderDetailsScreen: React.FC = () => {
   }), [order.logistics?.deliveryType, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed]);
   const logisticsTotal = useMemo(() => logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed, [logistics.deliveryAed, logistics.packingAed, logistics.serviceFeeAed]);
   const cargoCalc = useMemo(() => calculateCargo(order, settings), [order, settings]);
+  const effectiveExchangeRate = usdToAedFromQuoteRates(currentQuoteRates) || preferredExchangeRate;
   const cargoTotalUsd = Number(order.logistics?.cargoTotalCostUsd ?? 0);
-  const cargoTotalAed = cargoTotalUsd * (order.exchangeRate || 3.67);
+  const cargoTotalAed = cargoTotalUsd * effectiveExchangeRate;
   const logisticsWithCargoTotal = logisticsTotal + cargoTotalAed;
   const cargoEstimates = useMemo(() => calculateCargoEstimates(order, settings), [order, settings]);
   const cargoTariffOptions = (settings.cargoTariffs?.length ? settings.cargoTariffs : DEFAULT_CARGO_TARIFFS);
@@ -863,6 +924,8 @@ const OrderDetailsScreen: React.FC = () => {
     ? Number(markupFixedInput || 0)
     : selectedOfferTotal * (effectiveMarkupPercent / 100)), [markupType, markupFixedInput, selectedOfferTotal, effectiveMarkupPercent]);
   const sellTotalAed = selectedOfferTotal + logisticsWithCargoTotal + markupAed;
+  const depositAmountAed = Math.max(0, Number(order.searchDepositAmountAed || 0));
+  const balanceDueAed = Math.max(0, sellTotalAed - depositAmountAed);
   const canComputeProfit = selectedOfferTotal > 0;
   const baseMarginAed = canComputeProfit ? selectedOfferTotals.sale - selectedOfferTotals.purchase : 0;
   const netProfitAed = canComputeProfit ? baseMarginAed + markupAed : null;
@@ -883,17 +946,13 @@ const OrderDetailsScreen: React.FC = () => {
   const fullPrepaymentPaid = order.paymentStatus === 'full_prepayment_paid' || order.salesStatus === 'Paid';
   const safetyProgressText = `${safetySummary.readiness.completed}/${safetySummary.readiness.total}`;
 
-  const rateByCurrency: Record<string, number> = {
-    AED: 1,
-    USD: order.exchangeRate || 3.67,
-    RUB: 0.04,
-    TJS: 0.34
-  };
+  const rateByCurrency: Record<string, number> = currentQuoteRates;
   const clientCurrency = order.clientCurrency || 'AED';
-  const clientRate = rateByCurrency[clientCurrency] || order.exchangeRate || 3.67;
+  const clientRate = rateByCurrency[clientCurrency] || 1;
   const formatMoney = (value: number, currency = 'AED') => {
-    const amount = currency === 'AED' ? value : value / clientRate;
-    return `${amount.toFixed(currency === 'AED' ? 0 : 2)} ${currency}`;
+    const targetRate = currency === 'AED' ? 1 : (rateByCurrency[currency] || clientRate || 1);
+    const amount = currency === 'AED' ? value : value * targetRate;
+    return `${amount.toFixed(quoteCurrencyDecimals(currency))} ${currency}`;
   };
   const formatDualMoney = (value: number) => {
     if (clientCurrency === 'AED') return formatMoney(value);
@@ -902,7 +961,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   const calculateCurrentProfit = () => {
     if (!canComputeProfit || netProfitAed === null) return 0;
-    return netProfitAed / (order.exchangeRate || 3.67);
+    return netProfitAed / effectiveExchangeRate;
   };
 
   const profitUsd = order.isSold && order.soldProfitUsd !== undefined
@@ -1194,7 +1253,6 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const updateOrderField = (field: keyof Order, value: any) => {
-    if (!isEditMode) return;
     const keyStart = performance.now();
     const shouldDebounce = (typeof value === 'string' || typeof value === 'number')
       && !['markupPercent', 'markupType', 'markupFixedAed', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType', 'socialNickname'].includes(String(field));
@@ -1223,7 +1281,6 @@ const OrderDetailsScreen: React.FC = () => {
   }, [backTo, navigate]);
 
   const updateOrderZones = useCallback((zones: string[]) => {
-    if (!isEditMode) return;
     const currentOrder = orderRef.current;
     if (!currentOrder) return;
 
@@ -1233,10 +1290,9 @@ const OrderDetailsScreen: React.FC = () => {
       zones: nextZones.length > 0 ? nextZones : undefined,
       zone: nextZones[0] || undefined
     });
-  }, [isEditMode, updateOrder]);
+  }, [updateOrder]);
 
   const updatePriority = (nextPriority: Priority) => {
-    if (!isEditMode) return;
     updateOrder({ ...order, priority: nextPriority, priorityChangedAt: Date.now() });
   };
 
@@ -1255,17 +1311,58 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
+  const getDepositRate = useCallback((currency: NonNullable<Order['searchDepositCurrency']>) => (
+    currency === 'AED' ? 1 : 1 / Number(rateByCurrency[currency] || 1)
+  ), [rateByCurrency]);
+
   const confirmDeposit = useCallback(() => {
-    if (depositPaid) return;
+    const currency = order.searchDepositCurrency || order.clientCurrency || 'AED';
+    setDepositCurrencyInput(currency);
+    setDepositAmountInput(order.searchDepositAmount ? String(order.searchDepositAmount) : '');
+    setDepositRateInput(String(getDepositRate(currency)));
+    setIsDepositDialogOpen(true);
+  }, [getDepositRate, order.clientCurrency, order.searchDepositAmount, order.searchDepositCurrency]);
+
+  const submitDeposit = useCallback(() => {
+    const amount = Number(String(depositAmountInput || '0').replace(',', '.'));
+    const safeAmount = Number.isFinite(amount) && amount > 0 ? amount : 0;
+    const rate = depositCurrencyInput === 'AED'
+      ? 1
+      : Number(String(depositRateInput || '').replace(',', '.')) || getDepositRate(depositCurrencyInput);
+    const safeRate = Number.isFinite(rate) && rate > 0 ? rate : getDepositRate(depositCurrencyInput);
+    const amountAed = depositCurrencyInput === 'AED' ? safeAmount : safeAmount * safeRate;
+    const paidAt = Date.now();
+    const noteText = safeAmount > 0
+      ? [
+          `Депозит: ${safeAmount.toFixed(depositCurrencyInput === 'AED' ? 0 : 2)} ${depositCurrencyInput}`,
+          depositCurrencyInput !== 'AED' ? `В AED: ${amountAed.toFixed(0)} AED, курс ${safeRate}` : '',
+          `Время: ${new Date(paidAt).toLocaleString('ru-RU')}`
+        ].filter(Boolean).join('\n')
+      : `Депозит подтверждён: 0\nВремя: ${new Date(paidAt).toLocaleString('ru-RU')}`;
+    const depositNote: OrderNote = {
+      id: `deposit-${paidAt}`,
+      text: noteText,
+      photos: [],
+      audios: [],
+      kind: 'note',
+      createdAt: paidAt
+    };
     void updateOrder({
       ...order,
       searchDepositStatus: 'paid',
+      searchDepositAmount: safeAmount,
+      searchDepositCurrency: depositCurrencyInput,
+      searchDepositExchangeRate: safeRate,
+      searchDepositAmountAed: Math.round(amountAed * 100) / 100,
+      searchDepositPaidAt: paidAt,
       paymentStatus: 'search_deposit_paid',
       status: order.status === 'lead' || order.status === 'waiting_deposit' ? 'in_progress' : order.status,
-      customerStatus: order.customerStatus === 'LEAD' ? 'INQUIRY' : order.customerStatus
+      customerStatus: order.customerStatus === 'LEAD' ? 'INQUIRY' : order.customerStatus,
+      notes: [depositNote, ...(order.notes || [])]
     });
-    setToast({ message: 'Депозит подтверждён. Поиск и варианты разблокированы.' });
-  }, [depositPaid, order, updateOrder]);
+    setIsDepositDialogOpen(false);
+    setToast({ message: safeAmount > 0 ? `Депозит сохранён: ${formatMoney(amountAed)}` : 'Депозит подтверждён без суммы.' });
+  }, [depositAmountInput, depositCurrencyInput, depositRateInput, formatMoney, getDepositRate, order, updateOrder]);
 
   const confirmFullPrepayment = useCallback(() => {
     if (fullPrepaymentPaid) return;
@@ -1307,7 +1404,6 @@ const OrderDetailsScreen: React.FC = () => {
   }, []);
 
   const saveOrderMediaFolder = useCallback((rawValue = orderMediaFolderDraft, options?: { showToast?: boolean }) => {
-    if (!isEditMode) return String(rawValue || '').trim();
     const currentOrder = orderRef.current;
     if (!currentOrder) return String(rawValue || '').trim();
     const nextValue = String(rawValue || '').trim();
@@ -1317,11 +1413,10 @@ const OrderDetailsScreen: React.FC = () => {
       if (options?.showToast) setToast({ message: nextValue ? 'Папка заказа сохранена' : 'Папка заказа очищена' });
     }
     return nextValue;
-  }, [isEditMode, orderMediaFolderDraft, updateOrder]);
+  }, [orderMediaFolderDraft, updateOrder]);
 
   const savePartMediaLink = useCallback((partId: string, rawValue?: string, options?: { showToast?: boolean }) => {
     const nextValue = String(rawValue ?? partMediaLinkDrafts[partId] ?? '').trim();
-    if (!isEditMode) return nextValue;
     const currentOrder = orderRef.current;
     if (!currentOrder) return nextValue;
     const currentPart = (currentOrder.parts || []).find((item) => item.id === partId);
@@ -1334,7 +1429,7 @@ const OrderDetailsScreen: React.FC = () => {
       if (options?.showToast) setToast({ message: nextValue ? 'Медиа-ссылка сохранена' : 'Медиа-ссылка очищена' });
     }
     return nextValue;
-  }, [isEditMode, partMediaLinkDrafts, updateOrder]);
+  }, [partMediaLinkDrafts, updateOrder]);
 
   const pasteVinFromClipboard = async () => {
     try {
@@ -1358,7 +1453,6 @@ const OrderDetailsScreen: React.FC = () => {
   }, []);
 
   const updatePartSalePrice = useCallback((partId: string, rawValue: string) => {
-    if (!isEditMode) return;
     const nextSalePrice = Number(sanitizeNumericInput(rawValue) || 0);
     const currentOrder = orderRef.current;
     if (!currentOrder) return;
@@ -1380,7 +1474,7 @@ const OrderDetailsScreen: React.FC = () => {
       };
     });
     void updateOrder({ ...currentOrder, parts: nextParts });
-  }, [isEditMode, updateOrder]);
+  }, [updateOrder]);
 
   const hasPendingPricingChanges = useMemo(() => {
     if (!order) return false;
@@ -1395,7 +1489,6 @@ const OrderDetailsScreen: React.FC = () => {
   }, [logisticsDraft, markupFixedInput, order]);
 
   const saveLogisticsDraft = useCallback(() => {
-    if (!isEditMode) return;
     if (!hasPendingPricingChanges) return
 
     const eventLabels: Record<'deliveryAed' | 'packingAed' | 'serviceFeeAed', string> = {
@@ -1465,7 +1558,7 @@ const OrderDetailsScreen: React.FC = () => {
   }, [hasPendingPricingChanges, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, markupFixedInput, order, scheduleDebouncedSaveLog, settings, updateOrder]);
 
   useEffect(() => {
-    if (!isEditMode || !hasPendingPricingChanges) return;
+    if (!hasPendingPricingChanges) return;
     if (pricingAutoSaveTimerRef.current) window.clearTimeout(pricingAutoSaveTimerRef.current);
     pricingAutoSaveTimerRef.current = window.setTimeout(() => {
       pricingAutoSaveTimerRef.current = null;
@@ -1478,10 +1571,9 @@ const OrderDetailsScreen: React.FC = () => {
         pricingAutoSaveTimerRef.current = null;
       }
     };
-  }, [hasPendingPricingChanges, isEditMode, saveLogisticsDraft]);
+  }, [hasPendingPricingChanges, saveLogisticsDraft]);
 
   const updateLogisticsField = (field: 'deliveryType', value: string) => {
-    if (!isEditMode) return value;
     const event = createPricingEvent('logistics.deliveryType', 'Тип доставки', order.logistics?.deliveryType || 'uae', value);
     updateOrder({ ...order, logistics: { ...order.logistics, deliveryType: value }, pricingEvents: event ? [event, ...(order.pricingEvents || [])] : order.pricingEvents });
     return value;
@@ -1489,7 +1581,6 @@ const OrderDetailsScreen: React.FC = () => {
 
 
   const updateCargoField = (patch: Record<string, unknown>) => {
-    if (!isEditMode) return;
     const next = calculateCargo({ ...order, logistics: { ...order.logistics, ...patch } }, settings);
     const estimates = calculateCargoEstimates({ ...order, logistics: { ...order.logistics, ...patch } }, settings);
     updateOrder({
@@ -1510,6 +1601,15 @@ const OrderDetailsScreen: React.FC = () => {
       }
     });
   };
+
+  const saveQuoteRates = useCallback((rates = currentQuoteRates, usdToAed = usdToAedFromQuoteRates(rates)) => {
+    const nextUsdToAed = Number.isFinite(usdToAed) && usdToAed > 0 ? usdToAed : preferredExchangeRate;
+    updateSettings({ defaultExchangeRate: nextUsdToAed, defaultQuoteRates: rates });
+    if (nextUsdToAed !== Number(order.exchangeRate || 0)) {
+      updateOrderField('exchangeRate', nextUsdToAed);
+    }
+  }, [currentQuoteRates, order.exchangeRate, preferredExchangeRate, updateSettings]);
+
   const handleRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const startedAt = performance.now();
     const rawVal = e.target.value;
@@ -1523,11 +1623,17 @@ const OrderDetailsScreen: React.FC = () => {
     if (!isNaN(num) && num > 0) {
       if (exchangeRateCommitTimerRef.current) window.clearTimeout(exchangeRateCommitTimerRef.current);
       exchangeRateCommitTimerRef.current = window.setTimeout(() => {
-        updateOrderField('exchangeRate', num);
+        saveQuoteRates({ ...currentQuoteRates, USD: 1 / num }, num);
         exchangeRateCommitTimerRef.current = null;
       }, 600);
       syncPerf.recordTypingSample(Math.round((performance.now() - startedAt) * 100) / 100);
     }
+  };
+
+  const handleQuoteRateInputChange = (code: Exclude<QuoteCurrency, 'AED' | 'USD'>, rawValue: string) => {
+    const sanitized = sanitizeDecimalInput(rawValue);
+    if (!/^[\d]*[.]?[\d]*$/.test(sanitized)) return;
+    setQuoteRateInputs((prev) => ({ ...prev, [code]: sanitized }));
   };
 
 
@@ -1539,10 +1645,12 @@ const OrderDetailsScreen: React.FC = () => {
       window.clearTimeout(exchangeRateCommitTimerRef.current);
       exchangeRateCommitTimerRef.current = null;
     }
-    if (num !== Number(order.exchangeRate || 0)) {
-      updateOrderField('exchangeRate', num);
-    }
-  }, [order.exchangeRate, rateInput]);
+    saveQuoteRates({ ...currentQuoteRates, USD: 1 / num }, num);
+  }, [currentQuoteRates, rateInput, saveQuoteRates]);
+
+  const flushQuoteRateCommit = useCallback(() => {
+    saveQuoteRates(currentQuoteRates);
+  }, [currentQuoteRates, saveQuoteRates]);
 
   const commitMarkupFixed = useCallback((forcedValue?: number) => {
     const nextValue = forcedValue ?? Number(markupFixedInput || 0);
@@ -1866,11 +1974,6 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const handleProofPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!isEditMode) {
-      setToast({ message: 'Включите редактирование, чтобы добавить пруф.' });
-      e.target.value = '';
-      return;
-    }
     if (!e.target.files || e.target.files.length === 0) return;
 
     const files = Array.from(e.target.files);
@@ -1966,8 +2069,20 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
-  const stopStreamTracks = () => {
-    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+  const stopStreamTracks = (...streams: Array<MediaStream | null | undefined>) => {
+    const uniqueTracks = new Set<MediaStreamTrack>();
+    [recordingStreamRef.current, recorderRef.current?.stream, ...streams].forEach((stream) => {
+      stream?.getTracks().forEach((track) => uniqueTracks.add(track));
+    });
+    uniqueTracks.forEach((track) => {
+      try {
+        track.onended = null;
+        track.enabled = false;
+        track.stop();
+      } catch {
+        // Mobile browsers can throw when the track is already stopped.
+      }
+    });
     recordingStreamRef.current = null;
   };
 
@@ -1977,6 +2092,7 @@ const OrderDetailsScreen: React.FC = () => {
     recorderRef.current = null;
     audioChunksRef.current = [];
     recordingStartedAtRef.current = null;
+    recordingStopRequestedRef.current = false;
     setIsRecording(false);
     setIsRecordingPaused(false);
     setRecordingStartedAt(null);
@@ -1986,10 +2102,13 @@ const OrderDetailsScreen: React.FC = () => {
 
   const stopActiveRecording = () => {
     const recorder = recorderRef.current;
+    const stream = recordingStreamRef.current || recorder?.stream || null;
+    recordingStopRequestedRef.current = true;
     stopVoiceTimers();
     setIsRecording(false);
     setIsRecordingPaused(false);
     if (!recorder || recorder.state === 'inactive') {
+      stopStreamTracks(stream);
       resetVoiceRecordingState();
       return;
     }
@@ -1998,13 +2117,13 @@ const OrderDetailsScreen: React.FC = () => {
     } catch {
       // Some mobile browsers throw when there is no buffered chunk yet.
     }
+    stopStreamTracks(stream);
     try {
       recorder.stop();
     } catch {
       resetVoiceRecordingState();
-    } finally {
-      stopStreamTracks();
     }
+    window.setTimeout(() => stopStreamTracks(stream), 250);
   };
 
   useEffect(() => {
@@ -2057,6 +2176,7 @@ const OrderDetailsScreen: React.FC = () => {
     return () => {
       if (recorderRef.current && recorderRef.current.state !== 'inactive') {
         recorderRef.current.onstop = null;
+        stopStreamTracks(recorderRef.current.stream);
         try {
           recorderRef.current.stop();
         } catch {
@@ -2097,13 +2217,23 @@ const OrderDetailsScreen: React.FC = () => {
     }
 
     try {
+      if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+        stopActiveRecording();
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => {
+        track.onended = () => {
+          if (recordingStopRequestedRef.current) return;
+          stopActiveRecording();
+        };
+      });
       recordingStreamRef.current = stream;
       const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
       const supportedMimeType = mimeTypes.find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
       const recorder = new MediaRecorder(stream, supportedMimeType ? { mimeType: supportedMimeType } : undefined);
       recorderRef.current = recorder;
       audioChunksRef.current = [];
+      recordingStopRequestedRef.current = false;
       setRecordingError(null);
       setRecordingElapsedSeconds(0);
       setRecordingSavedLocally(false);
@@ -2116,10 +2246,16 @@ const OrderDetailsScreen: React.FC = () => {
       recorder.onresume = () => setIsRecordingPaused(false);
 
       recorder.onstop = () => {
+        stopStreamTracks(stream);
         const mimeType = recorder.mimeType || 'audio/webm';
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
         const durationSeconds = Math.max(1, Math.round((Date.now() - (recordingStartedAtRef.current || Date.now())) / 1000));
         resetVoiceRecordingState();
+
+        if (blob.size <= 0) {
+          setRecordingError('Запись пустая. Попробуйте ещё раз.');
+          return;
+        }
 
         if (blob.size > MAX_VOICE_FILE_SIZE_MB * 1024 * 1024) {
           setRecordingError(`Voice note must be smaller than ${MAX_VOICE_FILE_SIZE_MB}MB`);
@@ -2205,6 +2341,7 @@ const OrderDetailsScreen: React.FC = () => {
   const confirmDiscardRecording = () => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.onstop = null;
+      stopStreamTracks(recorderRef.current.stream);
       try {
         recorderRef.current.stop();
       } catch {
@@ -2247,7 +2384,6 @@ const OrderDetailsScreen: React.FC = () => {
 
 
   const addClientProofNote = () => {
-    if (!isEditMode) return;
     const videoUrl = normalizeExternalMediaUrl(newProofVideoUrl);
     if (proofComposerMode === 'video' && newProofVideoUrl.trim() && !videoUrl) {
       setToast({ message: 'Проверьте ссылку на видео.' });
@@ -2284,7 +2420,6 @@ const OrderDetailsScreen: React.FC = () => {
 
 
   const addNote = () => {
-    if (!isEditMode) return;
     if (!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0) return;
     const note: OrderNote = {
       id: Math.random().toString(36).slice(2, 9),
@@ -2420,7 +2555,7 @@ const OrderDetailsScreen: React.FC = () => {
       return {
         label: 'Отправить смету',
         helper: 'Зафиксировать условия',
-        onClick: () => setIsEstimateOpen(true)
+        onClick: () => void shareQuote()
       };
     }
 
@@ -2571,6 +2706,37 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
+  const buildShortQuoteText = () => {
+    const pricedLines = (order.parts || [])
+      .map((part, index) => {
+        const variant = getFinanceVariant(part);
+        const quantity = normalizePartQuantity(part.quantity);
+        const unit = Number(variant?.salePriceAed ?? variant?.priceAed ?? 0);
+        if (!variant || unit <= 0) return '';
+        return `${index + 1}. ${getPartDisplayName(part)} x${quantity}: ${formatMoney(unit * quantity, clientCurrency)}`;
+      })
+      .filter(Boolean);
+    return [
+      [order.brand, order.model, order.year].filter(Boolean).join(' ').trim(),
+      order.vin ? `VIN: ${order.vin}` : '',
+      ...pricedLines,
+      logisticsWithCargoTotal > 0 ? `Логистика: ${formatMoney(logisticsWithCargoTotal, clientCurrency)}` : '',
+      markupAed > 0 ? `Сервис: ${formatMoney(markupAed, clientCurrency)}` : '',
+      `Итого: ${formatMoney(sellTotalAed, clientCurrency)}`,
+      depositAmountAed > 0 ? `Депозит: -${formatMoney(depositAmountAed, clientCurrency)}` : '',
+      depositAmountAed > 0 ? `К оплате: ${formatMoney(balanceDueAed, clientCurrency)}` : ''
+    ].filter(Boolean).join('\n');
+  };
+
+  const sendFinanceTextQuote = async () => {
+    const text = buildShortQuoteText();
+    const digits = String(order.customerContact || '').replace(/\D/g, '');
+    const href = digits.length >= 8
+      ? `https://wa.me/${digits}?text=${encodeURIComponent(text)}`
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(href, '_blank', 'noopener,noreferrer');
+  };
+
   return (
       <div className="min-h-full bg-[linear-gradient(to_bottom,#07080A_0,#07080A_560px,#F4F1EA_560px,#F4F1EA_100%)] pb-[calc(4rem+env(safe-area-inset-bottom))] pt-[58px] text-white">
         <div className="fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 border-b border-white/10 bg-[#08090B]/92 px-3 py-2 backdrop-blur-xl">
@@ -2593,7 +2759,7 @@ const OrderDetailsScreen: React.FC = () => {
                 {showActionsMenu && (
                   <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#15171D] p-1 text-xs font-bold text-white shadow-2xl">
                     <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEditMode((prev) => !prev)}><FileText size={14} /> {isEditMode ? 'Закрыть правки' : 'Редактировать'}</button>
-                    <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => setIsEstimateOpen(true)}><Share2 size={14} /> Смета / экспорт</button>
+                    <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => { setShowActionsMenu(false); void shareQuote(); }}><Share2 size={14} /> Отправить / обновить смету</button>
                     <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => updateOrderField('isArchived', !order.isArchived)}><Package size={14} /> {order.isArchived ? 'Вернуть из архива' : 'В архив'}</button>
                     <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-200 hover:bg-rose-500/10" onClick={() => { setShowActionsMenu(false); setDeleteOrderConfirmOpen(true); }}><X size={14} /> Удалить</button>
                   </div>
@@ -2865,6 +3031,31 @@ const OrderDetailsScreen: React.FC = () => {
                   </div>
                 </section>
 
+              {settings.orderZones && settings.orderZones.length > 0 && (
+                <section className="space-y-2">
+                  <p className="text-[12px] font-black text-stone-600">Зона сервиса</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(order.zones && order.zones.length > 0 ? order.zones : order.zone ? [order.zone] : []).map((zone, index) => (
+                      <button key={`${zone}-${index}`} type="button" onClick={() => {
+                        const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
+                        updateOrderZones(current.filter((_, currentIndex) => currentIndex !== index));
+                      }} className="ds-press inline-flex items-center gap-2 rounded-full bg-stone-950 px-3 py-2 text-[11px] font-black text-white">
+                        {zone}<X size={12} />
+                      </button>
+                    ))}
+                    <select value="" onChange={(event) => {
+                      const selected = event.target.value;
+                      if (!selected) return;
+                      const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
+                      if (!current.includes(selected)) updateOrderZones([...current, selected]);
+                    }} className="ds-input h-9 rounded-full border-0 px-3 text-[11px] font-black text-stone-700 outline-none">
+                      <option value="">Добавить зону</option>
+                      {settings.orderZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+                    </select>
+                  </div>
+                </section>
+              )}
+
               {false && isEditMode && (
               <section className="space-y-3">
                 <button type="button" onClick={() => setIsClientBlockExpanded((prev) => !prev)} className="ds-press flex w-full items-center justify-between gap-3 py-2 text-left">
@@ -2972,7 +3163,91 @@ const OrderDetailsScreen: React.FC = () => {
               </section>
               )}
 
-              {settings.orderZones && settings.orderZones.length > 0 && (
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Смета и курс</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-500">Этот курс сохраняется как общий для новых и обновляемых смет.</p>
+                  </div>
+                  <button type="button" onClick={() => void shareQuote()} className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label="Отправить смету"><Share2 size={16} /></button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {QUOTE_RATE_FIELDS.map((field) => (
+                    <label key={field.code} className="space-y-1">
+                      <span className="text-[10px] font-black text-stone-400">{field.helper}</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={field.code === 'USD' ? rateInput : (quoteRateInputs[field.code] ?? '')}
+                        onChange={(event) => field.code === 'USD'
+                          ? handleRateChange(event)
+                          : handleQuoteRateInputChange(field.code as Exclude<QuoteCurrency, 'AED' | 'USD'>, event.target.value)}
+                        onBlur={field.code === 'USD' ? flushExchangeRateCommit : flushQuoteRateCommit}
+                        className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none"
+                      />
+                    </label>
+                  ))}
+                  <div className="col-span-2 rounded-2xl bg-stone-100 px-3 py-2 text-right">
+                    <p className="text-[10px] font-black text-stone-400">К оплате</p>
+                    <p className="mt-1 text-sm font-black text-stone-950">{formatMoney(balanceDueAed, clientCurrency)}</p>
+                  </div>
+                </div>
+                {depositAmountAed > 0 && <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">Депозит учтён: -{formatMoney(depositAmountAed)}</p>}
+              </section>
+
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Медиа по деталям</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-500">Drive-ссылки остаются привязаны к конкретной детали.</p>
+                  </div>
+                  <Video size={18} className="text-stone-400" />
+                </div>
+                {(order.parts || []).length > 0 ? (
+                  <div className="space-y-2">
+                    {order.parts.map((part) => (
+                      <div key={`overview-media-${part.id}`} className="rounded-2xl bg-stone-950/[0.04] p-3">
+                        <p className="truncate text-sm font-black text-stone-950">{getPartDisplayName(part)}</p>
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            type="url"
+                            value={partMediaLinkDrafts[part.id] ?? ''}
+                            onChange={(event) => setPartMediaLinkDrafts((prev) => ({ ...prev, [part.id]: event.target.value }))}
+                            onBlur={(event) => savePartMediaLink(part.id, event.target.value)}
+                            placeholder="Ссылка Google Drive"
+                            className="ds-input h-11 min-w-0 flex-1 rounded-2xl border-0 px-3 text-xs font-bold text-stone-800 outline-none"
+                          />
+                          <button type="button" onClick={() => {
+                            const savedUrl = savePartMediaLink(part.id, partMediaLinkDrafts[part.id], { showToast: true });
+                            checkGoogleDriveLink(savedUrl, 'Добавьте ссылку на медиа');
+                          }} className="ds-press flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label="Открыть медиа"><ExternalLink size={15} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="ds-soft-empty rounded-2xl p-4 text-center text-xs font-bold text-stone-500">Сначала добавьте детали в заказ.</div>
+                )}
+              </section>
+
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Папка медиа заказа</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-500">Общая папка для фото, видео и материалов по заказу.</p>
+                  </div>
+                  <FolderOpen size={19} className="text-stone-400" />
+                </div>
+                <div className="flex gap-2">
+                  <input type="url" value={orderMediaFolderDraft} onChange={(event) => setOrderMediaFolderDraft(event.target.value)} onBlur={(event) => saveOrderMediaFolder(event.target.value)} placeholder="https://drive.google.com/drive/folders/..." className="ds-input h-12 min-w-0 flex-1 rounded-2xl border-0 px-3 text-xs font-bold text-stone-800 outline-none" />
+                  <button type="button" onClick={() => {
+                    const savedUrl = saveOrderMediaFolder(orderMediaFolderDraft, { showToast: true });
+                    checkGoogleDriveLink(savedUrl, 'Добавьте Drive-папку заказа');
+                  }} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label="Открыть папку"><ExternalLink size={15} /></button>
+                </div>
+              </section>
+
+              {false && settings.orderZones && settings.orderZones.length > 0 && (
                 <section className="space-y-2">
                   <p className="text-[12px] font-black text-stone-600">Зона сервиса</p>
                   <div className="flex flex-wrap gap-2">
@@ -3271,6 +3546,7 @@ const OrderDetailsScreen: React.FC = () => {
                           <p className="min-w-0 whitespace-pre-line text-sm font-bold leading-5 text-stone-800">{note.text || 'Пруф заказа'}</p>
                           <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">client</span>
                         </div>
+                        <p className="mt-2 text-[10px] font-black text-stone-400">{new Date(note.createdAt).toLocaleString('ru-RU')}</p>
                         {(note.photos || []).length > 0 && (
                           <div className="mt-3 grid grid-cols-4 gap-2">
                             {(note.photos || []).slice(0, 8).map((photo, index) => (
@@ -3318,7 +3594,7 @@ const OrderDetailsScreen: React.FC = () => {
                 )}
               </section>
 
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+              <section className="hidden ds-surface space-y-3 rounded-[26px] p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-[12px] font-black text-stone-600">Медиа по деталям</p>
@@ -3354,7 +3630,7 @@ const OrderDetailsScreen: React.FC = () => {
                 )}
               </section>
 
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+              <section className="hidden ds-surface space-y-3 rounded-[26px] p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-[12px] font-black text-stone-600">Папка медиа заказа</p>
@@ -3430,7 +3706,7 @@ const OrderDetailsScreen: React.FC = () => {
                               type="text"
                               inputMode="numeric"
                               value={variant && salePrice > 0 ? String(salePrice) : ''}
-                              disabled={!variant || !isEditMode}
+                              disabled={!variant}
                               onChange={(event) => updatePartSalePrice(part.id, event.target.value)}
                               placeholder="Цена продажи AED"
                               className="ds-input h-12 min-w-0 rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none disabled:opacity-45"
@@ -3493,6 +3769,21 @@ const OrderDetailsScreen: React.FC = () => {
                 </div>
                 <button type="button" onClick={saveLogisticsDraft} disabled={!hasPendingPricingChanges} className={`ds-press h-11 w-full rounded-2xl px-3 text-xs font-black ${hasPendingPricingChanges ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-400'}`}>Сохранить логистику</button>
               </section>
+
+              {depositAmountAed > 0 && (
+                <section className="ds-surface rounded-[26px] p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[12px] font-black text-stone-600">Депозит</p>
+                      <p className="mt-1 text-xs font-semibold text-stone-500">{order.searchDepositAmount} {order.searchDepositCurrency || 'AED'}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-black text-emerald-700">-{formatMoney(depositAmountAed)}</p>
+                      <p className="mt-1 text-xs font-black text-stone-950">К оплате {formatMoney(balanceDueAed, clientCurrency)}</p>
+                    </div>
+                  </div>
+                </section>
+              )}
 
               {sellError && <div className="rounded-2xl bg-rose-50 px-4 py-3 text-xs font-black text-rose-700">{sellError}</div>}
             </div>
@@ -3658,14 +3949,14 @@ const OrderDetailsScreen: React.FC = () => {
                 <button type="button" onClick={() => noteFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Прикрепить фото"><ImageIcon size={18} /></button>
                 <button type="button" onClick={() => void toggleRecording()} className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${isRecording ? 'bg-rose-50 text-rose-700' : 'bg-white text-stone-700'}`} aria-label="Записать голос">{isRecording ? <Square size={17} /> : <Mic size={18} />}</button>
                 <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2"><textarea value={newNoteText} onChange={(event) => setNewNoteText(event.target.value)} placeholder="Сообщение..." rows={1} className="no-scrollbar max-h-24 min-h-8 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-bold leading-6 text-stone-900 outline-none placeholder:text-stone-400" /></div>
-                <button type="submit" disabled={!isEditMode || (!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0)} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить заметку"><Send size={17} /></button>
+                <button type="submit" disabled={!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить заметку"><Send size={17} /></button>
               </div>
               <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
               <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
             </form>
           )}
-          {activeTab === 'finance' && <div className="grid grid-cols-4 gap-2"><div className="rounded-2xl bg-stone-950 px-3 py-2 text-white"><p className="text-[9px] font-black text-white/45">Прибыль</p><p className="mt-0.5 truncate text-[13px] font-black">{shownNetProfit !== null ? formatMoney(shownNetProfit) : '—'}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Клиент</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(sellTotalAed, clientCurrency)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Закуп</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(selectedOfferTotal)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Маржа</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{marginPercent !== null ? `${marginPercent.toFixed(0)}%` : '—'}</p></div></div>}
-          {activeTab === 'overview' && <button type="button" onClick={heroPrimaryAction.onClick} className="ds-press flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-stone-950 text-xs font-black uppercase tracking-[0.08em] text-white">{nextActionCopy.label}<ChevronRight size={15} /></button>}
+          {activeTab === 'finance' && <div className="space-y-2"><div className="grid grid-cols-4 gap-2"><div className="rounded-2xl bg-stone-950 px-3 py-2 text-white"><p className="text-[9px] font-black text-white/45">Прибыль</p><p className="mt-0.5 truncate text-[13px] font-black">{shownNetProfit !== null ? formatMoney(shownNetProfit) : '—'}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">К оплате</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(balanceDueAed, clientCurrency)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Закуп</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(selectedOfferTotal)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Маржа</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{marginPercent !== null ? `${marginPercent.toFixed(0)}%` : '—'}</p></div></div><button type="button" onClick={() => void sendFinanceTextQuote()} className="ds-press flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-xs font-black uppercase tracking-[0.08em] text-white"><MessageCircle size={16} /> Текстовая смета WhatsApp</button></div>}
+          {activeTab === 'overview' && <button type="button" onClick={() => void shareQuote()} className="ds-press flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-stone-950 text-xs font-black uppercase tracking-[0.08em] text-white">Отправить / обновить смету<ChevronRight size={15} /></button>}
           {activeTab === 'proof' && (
             <form onSubmit={(event) => { event.preventDefault(); addClientProofNote(); }} className="space-y-2">
               {(newProofPhotos.length > 0 || newProofAudios.length > 0) && (
@@ -3692,7 +3983,7 @@ const OrderDetailsScreen: React.FC = () => {
                   <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2">
                     <input type="url" value={newProofVideoUrl} onChange={(event) => setNewProofVideoUrl(event.target.value)} placeholder="Ссылка на видео..." className="h-8 w-full border-0 bg-transparent text-sm font-bold text-stone-900 outline-none placeholder:text-stone-400" />
                   </div>
-                  <button type="submit" disabled={!isEditMode || !newProofVideoUrl.trim()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить видео"><Send size={17} /></button>
+                  <button type="submit" disabled={!newProofVideoUrl.trim()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить видео"><Send size={17} /></button>
                 </div>
               ) : (
                 <div className="flex items-end gap-2">
@@ -3702,12 +3993,43 @@ const OrderDetailsScreen: React.FC = () => {
                   <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2">
                     <textarea value={newProofText} onChange={(event) => setNewProofText(event.target.value)} placeholder="Текст клиенту..." rows={1} className="no-scrollbar max-h-24 min-h-8 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-bold leading-6 text-stone-900 outline-none placeholder:text-stone-400" />
                   </div>
-                  <button type="submit" disabled={!isEditMode || (!newProofText.trim() && newProofPhotos.length === 0 && newProofAudios.length === 0)} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить пруф"><Send size={17} /></button>
+                  <button type="submit" disabled={!newProofText.trim() && newProofPhotos.length === 0 && newProofAudios.length === 0} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить пруф"><Send size={17} /></button>
                 </div>
               )}
             </form>
           )}
         </div>
+        )}
+
+        {isDepositDialogOpen && (
+          <div className="fixed inset-0 z-[60] bg-black/50 p-4 backdrop-blur-sm">
+            <div className="ds-mode-enter ds-surface mx-auto mt-24 w-full max-w-sm space-y-4 rounded-[28px] p-4 text-stone-950 shadow-2xl">
+              <div>
+                <p className="text-sm font-black">Подтвердить депозит</p>
+                <p className="mt-1 text-xs font-semibold text-stone-500">Укажите сумму и валюту. Если сумма 0, депозит не попадёт в смету и invoice.</p>
+              </div>
+              <div className="grid grid-cols-[1fr_96px] gap-2">
+                <input type="text" inputMode="decimal" value={depositAmountInput} onChange={(event) => setDepositAmountInput(sanitizeNumericInput(event.target.value))} placeholder="Сумма" className="ds-input h-12 rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none" />
+                <select value={depositCurrencyInput} onChange={(event) => {
+                  const currency = event.target.value as NonNullable<Order['searchDepositCurrency']>;
+                  setDepositCurrencyInput(currency);
+                  setDepositRateInput(String(getDepositRate(currency)));
+                }} className="ds-input h-12 rounded-2xl border-0 px-3 text-xs font-black text-stone-950 outline-none">
+                  {(['AED', 'USD', 'RUB', 'TJS', 'KZT', 'UZS'] as const).map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                </select>
+              </div>
+              {depositCurrencyInput !== 'AED' && (
+                <label className="block space-y-1">
+                  <span className="text-[10px] font-black text-stone-400">Курс в AED</span>
+                  <input type="text" inputMode="decimal" value={depositRateInput} onChange={(event) => setDepositRateInput(event.target.value.replace(',', '.'))} className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none" />
+                </label>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setIsDepositDialogOpen(false)} className="ds-press h-11 rounded-2xl bg-stone-100 text-xs font-black text-stone-700">Отмена</button>
+                <button type="button" onClick={submitDeposit} className="ds-press h-11 rounded-2xl bg-stone-950 text-xs font-black text-white">Сохранить</button>
+              </div>
+            </div>
+          </div>
         )}
 
         {isRecording && (
@@ -3749,7 +4071,6 @@ const OrderDetailsScreen: React.FC = () => {
         <ConfirmModal isOpen={deleteOrderConfirmOpen} message="Удалить заказ? Это действие удалит заказ и связанные детали." confirmLabel="Удалить" confirmClass="bg-red-600 active:bg-red-700" onConfirm={() => void confirmDeleteOrder()} onCancel={() => setDeleteOrderConfirmOpen(false)} />
         <ConfirmModal isOpen={showSellConfirm} message={order.isSold ? "Вернуть заказ в активные?" : "Отметить заказ как проданный?"} confirmLabel={order.isSold ? "Да, вернуть" : "Да, продано"} confirmClass={order.isSold ? "bg-blue-600 active:bg-blue-700" : "bg-green-600 active:bg-green-700"} onConfirm={confirmSellOrder} onCancel={() => setShowSellConfirm(false)} />
 
-        {isEstimateOpen && <EstimateModal order={order} onClose={() => setIsEstimateOpen(false)} onShare={shareQuote} />}
         {gallery && (
           <ImagePreview images={gallery.images} initialIndex={gallery.index} shareTitle="Фото автомобиля" shareText={carPhotoShareText || 'Фото автомобиля'} onClose={() => setGallery(null)} />
         )}
