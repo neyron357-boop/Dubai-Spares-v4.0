@@ -1216,6 +1216,13 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
       ? (row as any).payment_status
       : 'none',
     searchDepositStatus: normalizeSearchDepositStatus((row as any).search_deposit_status),
+    searchDepositAmount: Number.isFinite(Number((row as any).search_deposit_amount)) ? Number((row as any).search_deposit_amount) : undefined,
+    searchDepositCurrency: (['AED', 'USD', 'RUB', 'TJS', 'KZT', 'UZS'] as const).includes((row as any).search_deposit_currency)
+      ? (row as any).search_deposit_currency
+      : undefined,
+    searchDepositExchangeRate: Number.isFinite(Number((row as any).search_deposit_exchange_rate)) ? Number((row as any).search_deposit_exchange_rate) : undefined,
+    searchDepositAmountAed: Number.isFinite(Number((row as any).search_deposit_amount_aed)) ? Number((row as any).search_deposit_amount_aed) : undefined,
+    searchDepositPaidAt: (row as any).search_deposit_paid_at ? parseTimestamp((row as any).search_deposit_paid_at) : undefined,
     salesStatus: row.sales_status || 'Inquiry',
     customerStatus: (row as any).customer_status || undefined,
     statusChangedAt: Number.isFinite(Number((row as any).status_changed_at))
@@ -1422,9 +1429,13 @@ const persistOrderGraph = async (order: Order) => {
       : {},
     hunt_status: uploadedOrder.huntStatus || 'data_gathering',
     public_quote_token: uploadedOrder.publicQuoteToken || null,
-    payment_status: uploadedOrder.paymentStatus || 'none'
-    ,
-    search_deposit_status: normalizeSearchDepositStatus(uploadedOrder.searchDepositStatus)
+    payment_status: uploadedOrder.paymentStatus || 'none',
+    search_deposit_status: normalizeSearchDepositStatus(uploadedOrder.searchDepositStatus),
+    search_deposit_amount: Number(uploadedOrder.searchDepositAmount || 0),
+    search_deposit_currency: uploadedOrder.searchDepositCurrency || null,
+    search_deposit_exchange_rate: Number(uploadedOrder.searchDepositExchangeRate || 0),
+    search_deposit_amount_aed: Number(uploadedOrder.searchDepositAmountAed || 0),
+    search_deposit_paid_at: uploadedOrder.searchDepositPaidAt ? toIsoTimestamp(uploadedOrder.searchDepositPaidAt) : null
   });
 
   const upsertOrderWithSchemaFallbacks = async () => {
@@ -1449,6 +1460,11 @@ const persistOrderGraph = async (order: Order) => {
       'status_changed_by',
       'payment_status',
       'search_deposit_status',
+      'search_deposit_amount',
+      'search_deposit_currency',
+      'search_deposit_exchange_rate',
+      'search_deposit_amount_aed',
+      'search_deposit_paid_at',
       'lead_unread',
       'lead_source',
       'lead_read_at',
@@ -1762,6 +1778,11 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   status: patch.status,
   payment_status: patch.paymentStatus,
   search_deposit_status: patch.searchDepositStatus,
+  search_deposit_amount: patch.searchDepositAmount,
+  search_deposit_currency: patch.searchDepositCurrency,
+  search_deposit_exchange_rate: patch.searchDepositExchangeRate,
+  search_deposit_amount_aed: patch.searchDepositAmountAed,
+  search_deposit_paid_at: patch.searchDepositPaidAt ? toIsoTimestamp(patch.searchDepositPaidAt) : undefined,
   brand: patch.brand,
   model: patch.model,
   year: patch.year,

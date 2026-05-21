@@ -2,7 +2,7 @@ import { Order, Part } from './types';
 import { publicQuoteCreateSnapshot } from './publicQuoteApi';
 import { loadAppSettings } from './appSettings';
 
-export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT';
+export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS';
 export type QuoteRates = Record<QuoteCurrency, number>;
 
 export const DEFAULT_QUOTE_RATES: QuoteRates = {
@@ -11,6 +11,7 @@ export const DEFAULT_QUOTE_RATES: QuoteRates = {
   RUB: 21,
   TJS: 2.60,
   KZT: 125,
+  UZS: 3400,
 };
 
 const firstHttpPhoto = (images: string[]) => images.find((item) => item.startsWith('http'));
@@ -236,7 +237,6 @@ interface BuildPublicQuoteLinkOptions {
   snapshotToken?: string;
   upsertByToken?: boolean;
   embedSnapshotInUrl?: boolean;
-  popupWindow?: Window | null;
 }
 
 const QUOTE_TOKEN_LENGTH = 32;
@@ -413,11 +413,16 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
       publicWhatsappNumber: settings.publicWhatsappNumber,
       publicTelegramUrl: settings.publicTelegramUrl,
       publicInstagramUrl: settings.publicInstagramUrl,
+      publicWebsiteUrl: settings.publicWebsiteUrl,
+      publicEmail: settings.publicEmail,
       publicDeliveryTerms: settings.publicDeliveryTerms,
       publicWorkTerms: settings.publicWorkTerms,
       publicCompanyLogoUrl: settings.publicCompanyLogoUrl,
       publicInvoiceSignatureUrl: settings.publicInvoiceSignatureUrl,
       publicManagerName: settings.publicManagerName,
+      invoicePaymentAccountNo: settings.invoicePaymentAccountNo,
+      invoicePaymentBeneficiary: settings.invoicePaymentBeneficiary,
+      invoicePaymentBankAccount: settings.invoicePaymentBankAccount,
       publicTermsFileUrl: settings.publicTermsFileUrl,
       publicTermsFileName: settings.publicTermsFileName,
       executorPhotoUrl: settings.executorPhotoUrl,
@@ -427,32 +432,12 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
   });
   const link = snapshot.url;
 
-  if (options?.popupWindow) {
-    options.popupWindow.location.href = link;
-    return { method: 'popup' as const, link, shareText: link, token: snapshot.token };
-  }
-
-  if (options?.popupWindow === null) {
-    await copyToClipboard(link);
-    return { method: 'popup-blocked' as const, link, shareText: link, token: snapshot.token };
-  }
-
-  const canNativeShare = typeof navigator !== 'undefined'
-    && typeof navigator.share === 'function'
-    && (!navigator.canShare || navigator.canShare({ url: link }));
-
-  if (canNativeShare) {
-    try {
-      await navigator.share({
-        title: `Смета для ${order.brand} ${order.model} ${order.year}`.trim(),
-        url: link
-      });
-      return { method: 'native' as const, link, shareText: link, token: snapshot.token };
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return { method: 'cancelled' as const, link, shareText: link, token: snapshot.token };
-      }
-    }
+  if (navigator.share) {
+    await navigator.share({
+      title: `Смета для ${order.brand} ${order.model} ${order.year}`.trim(),
+      url: link
+    });
+    return { method: 'native' as const, link, shareText: link, token: snapshot.token };
   }
 
   const copied = await copyToClipboard(link);

@@ -14,6 +14,17 @@ export type TimezoneMode = 'auto' | 'manual';
 export type RadarDefaultMode = 'field' | 'detail';
 export type RadarDefaultFilter = 'all' | 'new_only' | 'used_only' | 'open_now';
 export type GpsUpdateInterval = '10s' | '30s' | 'manual';
+export type AppQuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS';
+export type AppQuoteRates = Record<AppQuoteCurrency, number>;
+
+export const DEFAULT_APP_QUOTE_RATES: AppQuoteRates = {
+  AED: 1,
+  USD: 0.27,
+  RUB: 21,
+  TJS: 2.6,
+  KZT: 125,
+  UZS: 3400
+};
 
 export interface AppSettings {
   defaultVendorChecklist: string[];
@@ -21,6 +32,7 @@ export interface AppSettings {
   waTemplateLanguage: WhatsAppTemplateLanguage;
   currencyFormat: CurrencyFormat;
   defaultExchangeRate: number;
+  defaultQuoteRates: AppQuoteRates;
   timezoneMode: TimezoneMode;
   manualTimezone: string;
   offlineFirst: boolean;
@@ -73,6 +85,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   waTemplateLanguage: 'ru',
   currencyFormat: 'AED',
   defaultExchangeRate: 3.67,
+  defaultQuoteRates: DEFAULT_APP_QUOTE_RATES,
   timezoneMode: 'auto',
   manualTimezone: '',
   offlineFirst: true,
@@ -116,10 +129,26 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   aiCoreApiKey: ''
 };
 
+const normalizeQuoteRates = (raw: unknown, fallbackUsdToAed?: unknown): AppQuoteRates => {
+  const source = raw && typeof raw === 'object' ? raw as Partial<Record<AppQuoteCurrency, unknown>> : {};
+  const next: AppQuoteRates = { ...DEFAULT_APP_QUOTE_RATES };
+  (Object.keys(DEFAULT_APP_QUOTE_RATES) as AppQuoteCurrency[]).forEach((code) => {
+    const parsed = Number(source[code]);
+    if (Number.isFinite(parsed) && parsed > 0) next[code] = parsed;
+  });
+  const usdToAed = Number(fallbackUsdToAed);
+  if ((!source.USD || !Number.isFinite(Number(source.USD))) && Number.isFinite(usdToAed) && usdToAed > 0) {
+    next.USD = 1 / usdToAed;
+  }
+  next.AED = 1;
+  return next;
+};
+
 const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSettings => ({
   ...DEFAULT_APP_SETTINGS,
   ...(raw || {}),
   defaultExchangeRate: Number.isFinite(Number(raw?.defaultExchangeRate)) ? Number(raw?.defaultExchangeRate) : DEFAULT_APP_SETTINGS.defaultExchangeRate,
+  defaultQuoteRates: normalizeQuoteRates(raw?.defaultQuoteRates, raw?.defaultExchangeRate),
   manualTimezone: typeof raw?.manualTimezone === 'string' ? raw.manualTimezone : '',
   publicWhatsappNumber: typeof raw?.publicWhatsappNumber === 'string'
     ? raw.publicWhatsappNumber.replace(/[^\d]/g, '')
@@ -291,7 +320,7 @@ export const loadAppSettings = (): AppSettings => {
 };
 
 export const saveAppSettings = (patch: Partial<AppSettings>): AppSettings => {
-  const touchesPublicContacts = ['publicWhatsappNumber', 'publicTelegramUrl', 'publicInstagramUrl', 'publicDeliveryTerms', 'publicWorkTerms', 'publicCompanyLogoUrl', 'publicInvoiceSignatureUrl', 'publicManagerName', 'publicTermsFileUrl', 'publicTermsFileName', 'executorPhotoUrl', 'executorRole']
+  const touchesPublicContacts = ['publicWhatsappNumber', 'publicTelegramUrl', 'publicInstagramUrl', 'publicWebsiteUrl', 'publicEmail', 'publicDeliveryTerms', 'publicWorkTerms', 'publicCompanyLogoUrl', 'publicInvoiceSignatureUrl', 'publicManagerName', 'invoicePaymentAccountNo', 'invoicePaymentBeneficiary', 'invoicePaymentBankAccount', 'publicTermsFileUrl', 'publicTermsFileName', 'executorPhotoUrl', 'executorRole']
     .some((field) => Object.prototype.hasOwnProperty.call(patch, field));
   const next = normalizeSettings({
     ...loadAppSettings(),

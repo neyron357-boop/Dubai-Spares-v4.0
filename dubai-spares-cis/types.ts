@@ -136,6 +136,11 @@ export interface Order {
   status?: OrderStatus;
   paymentStatus?: PaymentStatus;
   searchDepositStatus?: SearchDepositStatus;
+  searchDepositAmount?: number;
+  searchDepositCurrency?: 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS';
+  searchDepositExchangeRate?: number;
+  searchDepositAmountAed?: number;
+  searchDepositPaidAt?: number;
   priority: Priority;
   clientName: string;
   source: Source;
@@ -179,7 +184,7 @@ export interface Order {
   markupType?: 'percent' | 'fixed';
   markupFixedAed?: number;
   useMarkupAsDefaultForNewParts?: boolean;
-  clientCurrency?: 'AED' | 'USD' | 'RUB' | 'TJS';
+  clientCurrency?: 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS';
   fxUpdatedAt?: number;
   logistics?: OrderLogistics;
   pricingEvents?: OrderPricingEvent[];
@@ -494,7 +499,7 @@ export interface DbOrderRow {
   markup_type?: 'percent' | 'fixed';
   markup_fixed_aed?: number;
   use_markup_as_default_for_new_parts?: boolean;
-  client_currency?: 'AED' | 'USD' | 'RUB' | 'TJS';
+  client_currency?: 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS';
   fx_updated_at?: number | string | null;
   logistics?: OrderLogistics;
   pricing_events?: OrderPricingEvent[];
@@ -513,6 +518,11 @@ export interface DbOrderRow {
   sales_status?: SalesStatus;
   payment_status?: PaymentStatus;
   search_deposit_status?: SearchDepositStatus;
+  search_deposit_amount?: number | null;
+  search_deposit_currency?: 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS' | null;
+  search_deposit_exchange_rate?: number | null;
+  search_deposit_amount_aed?: number | null;
+  search_deposit_paid_at?: number | string | null;
   customer_status?: 'VIP' | 'LEAD' | 'INQUIRY' | null;
   customer_contact?: string;
   social_nickname?: string;

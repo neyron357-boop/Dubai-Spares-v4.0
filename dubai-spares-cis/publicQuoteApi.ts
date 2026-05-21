@@ -23,6 +23,16 @@ export type PublicQuotePayloadV1 = {
     markup_fixed_aed?: number;
     markupPercent?: number;
     markup_percent?: number;
+    searchDepositAmount?: number;
+    searchDepositCurrency?: string;
+    searchDepositExchangeRate?: number;
+    searchDepositAmountAed?: number;
+    searchDepositPaidAt?: number | null;
+    search_deposit_amount?: number;
+    search_deposit_currency?: string;
+    search_deposit_exchange_rate?: number;
+    search_deposit_amount_aed?: number;
+    search_deposit_paid_at?: number | null;
     googleDriveFolderUrl?: string;
     google_drive_folder_url?: string;
   };
@@ -37,6 +47,8 @@ export type PublicQuotePayloadV1 = {
     packing_aed: number;
     commission_aed: number;
     grand_total_aed: number;
+    deposit_aed?: number;
+    balance_due_aed?: number;
   };
   parts: Array<{
     id: string;
@@ -71,6 +83,8 @@ export type PublicQuotePayloadV1 = {
     packaging: number;
     commission: number;
     total: number;
+    deposit?: number;
+    balance_due?: number;
     currency: string;
     fx_rate: number;
     rates?: Record<string, number>;
@@ -91,11 +105,20 @@ export type PublicQuotePayloadV1 = {
     publicWhatsappNumber?: string;
     publicTelegramUrl?: string;
     publicInstagramUrl?: string;
+    publicWebsiteUrl?: string;
+    publicEmail?: string;
     publicDeliveryTerms?: string;
     publicWorkTerms?: string;
     publicCompanyLogoUrl?: string;
     publicInvoiceSignatureUrl?: string;
     publicManagerName?: string;
+    invoicePaymentAccountNo?: string;
+    invoicePaymentBeneficiary?: string;
+    invoicePaymentBankAccount?: string;
+    publicTermsFileUrl?: string;
+    publicTermsFileName?: string;
+    executorPhotoUrl?: string;
+    executorRole?: string;
     whatsapp_phone?: string | null;
   };
   logistics?: {
@@ -184,11 +207,18 @@ type AppStatePublicSettingsRow = {
     publicWhatsappNumber?: string;
     publicTelegramUrl?: string;
     publicInstagramUrl?: string;
+    publicWebsiteUrl?: string;
+    publicEmail?: string;
     publicDeliveryTerms?: string;
     publicWorkTerms?: string;
     publicCompanyLogoUrl?: string;
     publicInvoiceSignatureUrl?: string;
     publicManagerName?: string;
+    invoicePaymentAccountNo?: string;
+    invoicePaymentBeneficiary?: string;
+    invoicePaymentBankAccount?: string;
+    publicTermsFileUrl?: string;
+    publicTermsFileName?: string;
   };
 };
 
@@ -196,11 +226,18 @@ export type PublicContactSettings = {
   publicWhatsappNumber: string;
   publicTelegramUrl: string;
   publicInstagramUrl: string;
+  publicWebsiteUrl: string;
+  publicEmail: string;
   publicDeliveryTerms: string;
   publicWorkTerms: string;
   publicCompanyLogoUrl: string;
   publicInvoiceSignatureUrl: string;
   publicManagerName: string;
+  invoicePaymentAccountNo: string;
+  invoicePaymentBeneficiary: string;
+  invoicePaymentBankAccount: string;
+  publicTermsFileUrl: string;
+  publicTermsFileName: string;
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -710,11 +747,18 @@ const buildSnapshotPayload = (
     publicWhatsappNumber?: string;
     publicTelegramUrl?: string;
     publicInstagramUrl?: string;
+    publicWebsiteUrl?: string;
+    publicEmail?: string;
     publicDeliveryTerms?: string;
     publicWorkTerms?: string;
     publicCompanyLogoUrl?: string;
     publicInvoiceSignatureUrl?: string;
     publicManagerName?: string;
+    invoicePaymentAccountNo?: string;
+    invoicePaymentBeneficiary?: string;
+    invoicePaymentBankAccount?: string;
+    publicTermsFileUrl?: string;
+    publicTermsFileName?: string;
     executorPhotoUrl?: string;
     executorRole?: string;
   },
@@ -797,6 +841,8 @@ const buildSnapshotPayload = (
   });
   const partsSumAed = computed.partsTotal;
   const grandTotalAed = computed.grandTotal;
+  const searchDepositAmountAed = Math.max(0, parseMoney((order as any).searchDepositAmountAed));
+  const balanceDueAed = Math.max(0, round2(grandTotalAed - searchDepositAmountAed));
   const normalizedWhatsapp = toDigits(publicSettings?.publicWhatsappNumber) || toDigits(owner.whatsappPhone);
   const normalizedTelegram = publicSettings?.publicTelegramUrl || '';
   const normalizedInstagram = publicSettings?.publicInstagramUrl || '';
@@ -858,6 +904,16 @@ const buildSnapshotPayload = (
       markup_fixed_aed: parseMoney(order.markupFixedAed) || 0,
       markupPercent: parseMoney(order.markupPercent) || 0,
       markup_percent: parseMoney(order.markupPercent) || 0,
+      searchDepositAmount: parseMoney((order as any).searchDepositAmount),
+      searchDepositCurrency: String((order as any).searchDepositCurrency || ''),
+      searchDepositExchangeRate: parseMoney((order as any).searchDepositExchangeRate),
+      searchDepositAmountAed,
+      searchDepositPaidAt: (order as any).searchDepositPaidAt || null,
+      search_deposit_amount: parseMoney((order as any).searchDepositAmount),
+      search_deposit_currency: String((order as any).searchDepositCurrency || ''),
+      search_deposit_exchange_rate: parseMoney((order as any).searchDepositExchangeRate),
+      search_deposit_amount_aed: searchDepositAmountAed,
+      search_deposit_paid_at: (order as any).searchDepositPaidAt || null,
       googleDriveFolderUrl: String((order as any).googleDriveFolderUrl || '').trim(),
       google_drive_folder_url: String((order as any).googleDriveFolderUrl || '').trim()
     },
@@ -871,7 +927,9 @@ const buildSnapshotPayload = (
       logistics_aed: deliveryAed,
       packing_aed: packingAed,
       commission_aed: commissionAed,
-      grand_total_aed: grandTotalAed
+      grand_total_aed: grandTotalAed,
+      deposit_aed: searchDepositAmountAed,
+      balance_due_aed: balanceDueAed
     },
     breakdown: {
       parts_total: partsSumAed,
@@ -879,6 +937,8 @@ const buildSnapshotPayload = (
       packaging: packingAed,
       commission: commissionAed,
       total: grandTotalAed,
+      deposit: searchDepositAmountAed,
+      balance_due: balanceDueAed,
       currency,
       fx_rate: exchangeRate,
       rates
@@ -961,11 +1021,18 @@ const buildSnapshotPayload = (
       publicWhatsappNumber: publicSettings?.publicWhatsappNumber || '',
       publicTelegramUrl: publicSettings?.publicTelegramUrl || '',
       publicInstagramUrl: publicSettings?.publicInstagramUrl || '',
+      publicWebsiteUrl: publicSettings?.publicWebsiteUrl || '',
+      publicEmail: publicSettings?.publicEmail || '',
       publicDeliveryTerms: publicSettings?.publicDeliveryTerms || '',
       publicWorkTerms: publicSettings?.publicWorkTerms || '',
       publicCompanyLogoUrl: publicSettings?.publicCompanyLogoUrl || '',
       publicInvoiceSignatureUrl: publicSettings?.publicInvoiceSignatureUrl || '',
       publicManagerName: publicSettings?.publicManagerName || '',
+      invoicePaymentAccountNo: publicSettings?.invoicePaymentAccountNo || '',
+      invoicePaymentBeneficiary: publicSettings?.invoicePaymentBeneficiary || '',
+      invoicePaymentBankAccount: publicSettings?.invoicePaymentBankAccount || '',
+      publicTermsFileUrl: publicSettings?.publicTermsFileUrl || '',
+      publicTermsFileName: publicSettings?.publicTermsFileName || '',
       executorPhotoUrl: publicSettings?.executorPhotoUrl || '',
       executorRole: publicSettings?.executorRole || '',
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone)
@@ -974,7 +1041,7 @@ const buildSnapshotPayload = (
 
 export const publicQuoteCreateSnapshot = async (
   order: Order,
-  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; publicSettings?: { publicWhatsappNumber?: string; publicTelegramUrl?: string; publicInstagramUrl?: string; publicDeliveryTerms?: string; publicWorkTerms?: string; publicCompanyLogoUrl?: string; publicInvoiceSignatureUrl?: string; executorPhotoUrl?: string; executorRole?: string }; signal?: AbortSignal; timeoutMs?: number; token?: string; snapshotId?: string; upsertByToken?: boolean }
+  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; publicSettings?: { publicWhatsappNumber?: string; publicTelegramUrl?: string; publicInstagramUrl?: string; publicWebsiteUrl?: string; publicEmail?: string; publicDeliveryTerms?: string; publicWorkTerms?: string; publicCompanyLogoUrl?: string; publicInvoiceSignatureUrl?: string; publicManagerName?: string; invoicePaymentAccountNo?: string; invoicePaymentBeneficiary?: string; invoicePaymentBankAccount?: string; publicTermsFileUrl?: string; publicTermsFileName?: string; executorPhotoUrl?: string; executorRole?: string }; signal?: AbortSignal; timeoutMs?: number; token?: string; snapshotId?: string; upsertByToken?: boolean }
 ) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
   const key = order.id;
@@ -1334,11 +1401,18 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
       publicWhatsappNumber: toDigits(first('publicWhatsappNumber', 'public_whatsapp_number', 'whatsapp_phone', 'whatsappPhone', 'whatsapp', 'phone')),
       publicTelegramUrl: first('publicTelegramUrl', 'public_telegram_url', 'telegram', 'telegramUrl'),
       publicInstagramUrl: first('publicInstagramUrl', 'public_instagram_url', 'instagram', 'instagramUrl'),
+      publicWebsiteUrl: first('publicWebsiteUrl', 'public_website_url', 'website', 'websiteUrl'),
+      publicEmail: first('publicEmail', 'public_email', 'email'),
       publicDeliveryTerms: first('publicDeliveryTerms', 'public_delivery_terms', 'deliveryTerms', 'delivery_terms'),
       publicWorkTerms: first('publicWorkTerms', 'public_work_terms', 'workTerms', 'work_terms'),
       publicCompanyLogoUrl: first('publicCompanyLogoUrl', 'public_company_logo_url', 'companyLogoUrl', 'logo', 'logoUrl'),
       publicInvoiceSignatureUrl: first('publicInvoiceSignatureUrl', 'public_invoice_signature_url', 'invoiceSignatureUrl', 'signature', 'signatureUrl'),
-      publicManagerName: first('publicManagerName', 'public_manager_name', 'managerName', 'manager_name', 'ownerName', 'owner_name')
+      publicManagerName: first('publicManagerName', 'public_manager_name', 'managerName', 'manager_name', 'ownerName', 'owner_name'),
+      invoicePaymentAccountNo: first('invoicePaymentAccountNo', 'invoice_payment_account_no', 'paymentAccountNo'),
+      invoicePaymentBeneficiary: first('invoicePaymentBeneficiary', 'invoice_payment_beneficiary', 'paymentBeneficiary'),
+      invoicePaymentBankAccount: first('invoicePaymentBankAccount', 'invoice_payment_bank_account', 'paymentBankAccount'),
+      publicTermsFileUrl: first('publicTermsFileUrl', 'public_terms_file_url', 'termsFileUrl'),
+      publicTermsFileName: first('publicTermsFileName', 'public_terms_file_name', 'termsFileName')
     };
   };
 
@@ -1346,11 +1420,18 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
     publicWhatsappNumber: preferred.publicWhatsappNumber || fallback?.publicWhatsappNumber || '',
     publicTelegramUrl: preferred.publicTelegramUrl || fallback?.publicTelegramUrl || '',
     publicInstagramUrl: preferred.publicInstagramUrl || fallback?.publicInstagramUrl || '',
+    publicWebsiteUrl: preferred.publicWebsiteUrl || fallback?.publicWebsiteUrl || '',
+    publicEmail: preferred.publicEmail || fallback?.publicEmail || '',
     publicDeliveryTerms: preferred.publicDeliveryTerms || fallback?.publicDeliveryTerms || '',
     publicWorkTerms: preferred.publicWorkTerms || fallback?.publicWorkTerms || '',
     publicCompanyLogoUrl: preferred.publicCompanyLogoUrl || fallback?.publicCompanyLogoUrl || '',
     publicInvoiceSignatureUrl: preferred.publicInvoiceSignatureUrl || fallback?.publicInvoiceSignatureUrl || '',
-    publicManagerName: preferred.publicManagerName || fallback?.publicManagerName || ''
+    publicManagerName: preferred.publicManagerName || fallback?.publicManagerName || '',
+    invoicePaymentAccountNo: preferred.invoicePaymentAccountNo || fallback?.invoicePaymentAccountNo || '',
+    invoicePaymentBeneficiary: preferred.invoicePaymentBeneficiary || fallback?.invoicePaymentBeneficiary || '',
+    invoicePaymentBankAccount: preferred.invoicePaymentBankAccount || fallback?.invoicePaymentBankAccount || '',
+    publicTermsFileUrl: preferred.publicTermsFileUrl || fallback?.publicTermsFileUrl || '',
+    publicTermsFileName: preferred.publicTermsFileName || fallback?.publicTermsFileName || ''
   });
 
   try {
@@ -1366,7 +1447,7 @@ export const publicQuoteGetPublicContactSettings = async (options?: { signal?: A
     const fromPublicSettings = readPublicContactSettings((byId.get('public_settings')?.data || null) as Record<string, any> | null);
     const fromGlobal = readPublicContactSettings((byId.get('global')?.data || null) as Record<string, any> | null);
     const merged = mergeSettings(fromPublicSettings, fromGlobal);
-    if (merged.publicWhatsappNumber || merged.publicTelegramUrl || merged.publicInstagramUrl || merged.publicDeliveryTerms || merged.publicWorkTerms || merged.publicCompanyLogoUrl || merged.publicInvoiceSignatureUrl || merged.publicManagerName) {
+    if (merged.publicWhatsappNumber || merged.publicTelegramUrl || merged.publicInstagramUrl || merged.publicWebsiteUrl || merged.publicEmail || merged.publicDeliveryTerms || merged.publicWorkTerms || merged.publicCompanyLogoUrl || merged.publicInvoiceSignatureUrl || merged.publicManagerName || merged.invoicePaymentAccountNo || merged.publicTermsFileUrl) {
       return merged;
     }
     return null;
