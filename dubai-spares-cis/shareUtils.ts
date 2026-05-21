@@ -400,11 +400,41 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
 
 export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
   const settings = loadAppSettings();
+  const hasPricedItems = (order.parts || []).some((part) => (
+    part.isFound && (part.variants || []).some((variant) => Number(variant.priceAed || variant.salePriceAed || variant.purchasePriceAed || 0) > 0)
+  ));
+  if (!hasPricedItems) throw new Error('Нет цен по позициям');
+
+  const quoteToken = options?.snapshotToken || createQuoteToken();
+  const provisionalLink = buildPublicQuoteLink(order, {
+    ...options,
+    snapshotToken: quoteToken,
+    upsertByToken: true
+  });
+  const provisionalShareText = buildPublicQuoteShareMessage(order, provisionalLink);
+  let nativeShare: Promise<'shared' | 'aborted' | 'failed'> | null = null;
+  if (navigator.share) {
+    try {
+      nativeShare = navigator.share({
+        title: `Смета для ${order.brand} ${order.model} ${order.year}`.trim(),
+        text: provisionalShareText,
+        url: provisionalLink
+      }).then(() => 'shared' as const).catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return 'aborted' as const;
+        console.warn('[shareQuoteLink] Native share failed, falling back after snapshot', error);
+        return 'failed' as const;
+      });
+    } catch (error) {
+      console.warn('[shareQuoteLink] Native share failed synchronously, falling back after snapshot', error);
+      nativeShare = Promise.resolve('failed' as const);
+    }
+  }
+
   const snapshot = await publicQuoteCreateSnapshot(order, {
     currency: options?.currency,
     exchangeRate: options?.rates?.[options?.currency || 'USD'],
-    token: options?.snapshotToken,
-    upsertByToken: options?.upsertByToken || !!options?.snapshotToken,
+    token: quoteToken,
+    upsertByToken: true,
     owner: {
       whatsappPhone: settings.publicWhatsappNumber,
       displayName: 'Stark Motors'
@@ -431,22 +461,23 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
     rates: options?.rates
   });
   const link = snapshot.url;
+  const shareText = buildPublicQuoteShareMessage(order, link);
 
-  if (navigator.share) {
-    await navigator.share({
-      title: `Смета для ${order.brand} ${order.model} ${order.year}`.trim(),
-      url: link
-    });
-    return { method: 'native' as const, link, shareText: link, token: snapshot.token };
+  if (nativeShare) {
+    const nativeShareResult = await nativeShare;
+    if (nativeShareResult === 'shared' || nativeShareResult === 'aborted') {
+      return { method: 'native' as const, link: provisionalLink, shareText: provisionalShareText, token: snapshot.token };
+    }
   }
 
   const copied = await copyToClipboard(link);
   if (copied) {
-    return { method: 'clipboard' as const, link, shareText: link, token: snapshot.token };
+    openShareFallback(shareText);
+    return { method: 'clipboard' as const, link, shareText, token: snapshot.token };
   }
 
-  await shareMessage(link);
-  return { method: 'fallback' as const, link, shareText: link, token: snapshot.token };
+  openShareFallback(shareText);
+  return { method: 'fallback' as const, link, shareText, token: snapshot.token };
 };
 
 export const copyToClipboard = async (text: string) => {
