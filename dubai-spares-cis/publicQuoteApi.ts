@@ -5,6 +5,7 @@ import { buildPublicQuoteSlug, QuoteRates } from './shareUtils';
 import { Order } from './types';
 import { logger } from './logging';
 import { normalizeGroupItems, normalizePartQuantity } from './utils/groupItems';
+import { getPricedPartLines } from './utils/quotePricing';
 
 export type PublicQuotePayloadV1 = {
   version: 'public_quote_payload_v1';
@@ -58,6 +59,7 @@ export type PublicQuotePayloadV1 = {
     qty: number;
     supplier_price_aed: number;
     client_price_aed: number;
+    client_line_total_aed?: number;
     photo_urls: string[];
     googleDriveVideoUrl?: string;
     google_drive_video_url?: string;
@@ -141,6 +143,8 @@ export type PublicQuotePayloadV1 = {
   items?: Array<{
     id?: string;
     name: string;
+    part_kind?: 'single' | 'group';
+    group_items?: Array<{ id: string; name: string; quantity: number }>;
     qty: number;
     unit_price: number;
     line_total: number;
@@ -784,52 +788,38 @@ const buildSnapshotPayload = (
   const cargoContainerEtaDays = String(order.logistics?.cargoContainerEtaDays || '').trim();
   const additionalCostsUsd = order.logistics?.additionalCostsUsd || undefined;
 
-  const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
-  const fixedMarkupTotal = parseMoney(order.markupFixedAed) || 0;
-  const readyPartsForMarkup = (order.parts || []).filter((part) => part.isFound && part.variants.length > 0);
-  const fixedMarkupPerPart = isFixedMarkup && readyPartsForMarkup.length > 0
-    ? fixedMarkupTotal / readyPartsForMarkup.length
-    : 0;
-
-  const pricedParts = readyPartsForMarkup
-    .map((part) => {
-      const variant = part.variants[0];
-      const supplierAed = parseMoney(variant?.salePriceAed ?? variant?.priceAed);
-      const clientAed = isFixedMarkup
-        ? round2(supplierAed + fixedMarkupPerPart)
-        : resolveClientUnitPriceAed(variant as unknown as Record<string, unknown>, {
-            markupPercent: parseMoney(order.markupPercent)
-          });
-
-      return {
-        id: String(part.id),
-        name: String(part.name || 'Part'),
-        comment: String(part.comment || ''),
-        part_kind: part.partKind === 'group' ? 'group' : 'single',
-        group_items: normalizeGroupItems((part as any).groupItems).map((item) => ({
-          id: item.id,
-          name: item.name,
-          quantity: item.quantity
-        })),
-        qty: normalizePartQuantity((part as any).quantity),
-        supplier_price_aed: supplierAed,
-        client_price_aed: round2(clientAed),
-        photo_urls: dedupePhotoUrls([part.photoUrl || '', ...(part.photos || []), variant?.photoUrl || '', ...(variant?.photos || [])]),
-        googleDriveVideoUrl: String((part as any).googleDriveVideoUrl || '').trim(),
-        google_drive_video_url: String((part as any).googleDriveVideoUrl || '').trim(),
-        weight_kg: parseMoney((part as any).weightKg),
-        places: parseMoney((part as any).places),
-        cargo_place_group: String((part as any).cargoPlaceGroup || '').trim() || undefined,
-        is_oversized: !!(part as any).isOversized
-      };
-    });
+  const pricedParts = getPricedPartLines(order)
+    .map(({ part, variant, quantity, baseUnitAed, clientUnitAed, clientLineTotalAed }) => ({
+      id: String(part.id),
+      name: String(part.name || 'Part'),
+      comment: String(part.comment || ''),
+      part_kind: part.partKind === 'group' ? 'group' : 'single',
+      group_items: normalizeGroupItems((part as any).groupItems).map((item) => ({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity
+      })),
+      qty: quantity,
+      supplier_price_aed: baseUnitAed,
+      client_price_aed: round2(clientUnitAed),
+      client_line_total_aed: round2(clientLineTotalAed),
+      photo_urls: dedupePhotoUrls([part.photoUrl || '', ...(part.photos || []), variant?.photoUrl || '', ...(variant?.photos || [])]),
+      googleDriveVideoUrl: String((part as any).googleDriveVideoUrl || '').trim(),
+      google_drive_video_url: String((part as any).googleDriveVideoUrl || '').trim(),
+      weight_kg: parseMoney((part as any).weightKg),
+      places: parseMoney((part as any).places),
+      cargo_place_group: String((part as any).cargoPlaceGroup || '').trim() || undefined,
+      is_oversized: !!(part as any).isOversized
+    }));
 
   const snapshotItems = pricedParts.map((part) => ({
     id: part.id,
     name: part.name,
+    part_kind: part.part_kind,
+    group_items: part.group_items,
     qty: part.qty,
     unit_price: part.client_price_aed,
-    line_total: round2(part.client_price_aed * part.qty),
+    line_total: part.client_line_total_aed,
     currency: 'AED',
     googleDriveVideoUrl: part.googleDriveVideoUrl,
     google_drive_video_url: part.google_drive_video_url

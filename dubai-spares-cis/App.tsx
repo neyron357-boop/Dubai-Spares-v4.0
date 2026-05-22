@@ -68,6 +68,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
 
   const isOrderWorkspace = /^\/order\/[^/]+(?:\/parts|\/part\/[^/]+)?$/.test(location.pathname.replace(/\/+$/, ''));
+  const isNewOrderPath = location.pathname.replace(/\/+$/, '') === '/new';
   const hideNav = resolveBottomTab(location.pathname) === null || isOrderWorkspace;
 
   const leadNavStats = useMemo(() => ({
@@ -197,16 +198,17 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <NavLink to={tabPaths.vendors} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('vendors'); }} className={() => `flex flex-col items-center gap-1 pb-1 ${resolveBottomTab(location.pathname) === 'vendors' ? 'text-blue-600' : 'text-gray-400'}`}><Layers size={22} /><span className="text-[10px] font-medium">Поставщики</span></NavLink>
             {/* Center: New Order FAB */}
             <button
-              type="button"
+              type={isNewOrderPath ? 'submit' : 'button'}
+              form={isNewOrderPath ? 'new-order-form' : undefined}
               data-debug-id="1.13"
-              onClick={() => { playSound('navigate'); navigate('/new'); }}
+              onClick={isNewOrderPath ? () => { playSound('tap'); } : () => { playSound('navigate'); navigate('/new'); }}
               className="flex flex-col items-center gap-0.5 -translate-y-3"
-              aria-label="Новый заказ"
+              aria-label={isNewOrderPath ? 'Сохранить' : 'Новый заказ'}
             >
-              <span className="w-14 h-14 rounded-full bg-blue-600 flex items-center justify-center shadow-lg border-[3px] border-white">
-                <PlusCircle size={26} className="text-white" />
+              <span className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-[3px] border-white ${isNewOrderPath ? 'bg-emerald-600' : 'bg-blue-600'}`}>
+                {isNewOrderPath ? <Check size={28} strokeWidth={3} className="text-white" /> : <PlusCircle size={26} className="text-white" />}
               </span>
-              <span className="text-[10px] font-medium text-gray-500">Новый</span>
+              <span className="text-[10px] font-medium text-gray-500">{isNewOrderPath ? 'Сохранить' : 'Новый'}</span>
             </button>
             <NavLink to={tabPaths.leads} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('leads'); }} className={() => `flex flex-col items-center gap-1 pb-1 relative ${resolveBottomTab(location.pathname) === 'leads' ? 'text-blue-600' : 'text-gray-400'}`}>
               <span className="relative"><UserRound size={22} />{leadNavStats.total > 0 && <span className={`absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full text-white text-[8px] font-black flex items-center justify-center ${leadNavStats.unread > 0 ? 'bg-amber-500' : 'bg-blue-500'}`}>{leadNavStats.unread > 0 ? (leadNavStats.unread > 99 ? '99+' : leadNavStats.unread) : leadNavStats.total > 99 ? '99+' : leadNavStats.total}</span>}</span>
