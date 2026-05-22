@@ -5,7 +5,7 @@ import { buildPublicQuoteSlug, QuoteRates } from './shareUtils';
 import { Order } from './types';
 import { logger } from './logging';
 import { normalizeGroupItems, normalizePartQuantity } from './utils/groupItems';
-import { getPricedPartLines } from './utils/quotePricing';
+import { calculateOrderDiscountAed, getPricedPartLines } from './utils/quotePricing';
 
 export type PublicQuotePayloadV1 = {
   version: 'public_quote_payload_v1';
@@ -842,7 +842,8 @@ const buildSnapshotPayload = (
   const additionalCostsUsd = order.logistics?.additionalCostsUsd || undefined;
 
   const pricedPartLines = getPricedPartLines(order);
-  const discountAed = round2(pricedPartLines.reduce((sum, line) => sum + line.discountShareAed, 0));
+  const grossPartsTotalAed = round2(pricedPartLines.reduce((sum, line) => sum + line.grossClientLineTotalAed, 0));
+  const discountAed = round2(calculateOrderDiscountAed(grossPartsTotalAed + deliveryAed + packingAed + commissionAed, order));
   const pricedParts = pricedPartLines
     .map(({ part, variant, quantity, baseUnitAed, clientUnitAed, clientLineTotalAed, grossClientLineTotalAed, discountShareAed }) => ({
       id: String(part.id),
@@ -860,7 +861,7 @@ const buildSnapshotPayload = (
       client_line_total_aed: round2(clientLineTotalAed),
       gross_client_line_total_aed: round2(grossClientLineTotalAed),
       discount_share_aed: round2(discountShareAed),
-      photo_urls: dedupePhotoUrls([variant?.photoUrl || '', ...(variant?.photos || [])]),
+      photo_urls: dedupePhotoUrls([variant?.photoUrl || '', ...(variant?.photos || []), ...(part.photos || [])]),
       googleDriveVideoUrl: String((part as any).googleDriveVideoUrl || '').trim(),
       google_drive_video_url: String((part as any).googleDriveVideoUrl || '').trim(),
       weight_kg: parseMoney((part as any).weightKg),
@@ -887,7 +888,7 @@ const buildSnapshotPayload = (
     commission: commissionAed
   });
   const partsSumAed = computed.partsTotal;
-  const grandTotalAed = computed.grandTotal;
+  const grandTotalAed = Math.max(0, round2(computed.grandTotal - discountAed));
   const searchDepositAmountAed = Math.max(0, parseMoney((order as any).searchDepositAmountAed));
   const balanceDueAed = Math.max(0, round2(grandTotalAed - searchDepositAmountAed));
   const normalizedWhatsapp = toDigits(publicSettings?.publicWhatsappNumber) || toDigits(owner.whatsappPhone);

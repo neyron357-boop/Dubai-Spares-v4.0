@@ -66,7 +66,7 @@ import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '
 import { getOrderCustomerLogs } from '../customerEngagement';
 import { isLikelyGoogleDriveUrl, normalizeExternalMediaUrl, openExternalMediaUrl } from '../utils/externalMedia';
 import { deriveSafetySalesSummary } from '../utils/safetySales';
-import { getFinanceVariant as resolveFinanceVariant, getPricedPartLines } from '../utils/quotePricing';
+import { calculateOrderDiscountAed, getFinanceVariant as resolveFinanceVariant, getPricedPartLines } from '../utils/quotePricing';
 import { publicQuoteCreateSnapshot } from '../publicQuoteApi';
 
 type OrderDetailsTab = 'overview' | 'search' | 'proof' | 'finance' | 'notes';
@@ -1009,8 +1009,8 @@ const OrderDetailsScreen: React.FC = () => {
     discountFixedAed: discountType === 'fixed' ? Number(discountFixedInput || 0) : order.discountFixedAed
   }), [discountFixedInput, discountType, effectiveDiscountPercent, effectiveMarkupPercent, markupFixedInput, markupType, order]);
   const markupAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.markupShareAed, 0), [pricedPartLines]);
-  const discountAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.discountShareAed, 0), [pricedPartLines]);
   const sellPartsTotalAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.clientLineTotalAed, 0), [pricedPartLines]);
+  const discountAed = useMemo(() => calculateOrderDiscountAed(sellPartsTotalAed + logisticsWithCargoTotal, pricingPreviewOrder), [logisticsWithCargoTotal, pricingPreviewOrder, sellPartsTotalAed]);
   const sellTotalAed = sellPartsTotalAed + logisticsWithCargoTotal;
   const depositAmountAed = Math.max(0, Number(order.searchDepositAmountAed || 0));
   const balanceDueAed = Math.max(0, sellTotalAed - depositAmountAed);
@@ -2595,6 +2595,28 @@ const OrderDetailsScreen: React.FC = () => {
   const MARKUP_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
   const DISCOUNT_OPTIONS = [0, 3, 5, 7, 10, 15, 20];
 
+  const tabSwipeRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTabSwipeStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    tabSwipeRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleTabSwipeEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    const start = tabSwipeRef.current;
+    tabSwipeRef.current = null;
+    const touch = event.changedTouches[0];
+    if (!start || !touch) return;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy)) return;
+    const index = ORDER_DETAILS_TABS.findIndex((tab) => tab.id === activeTab);
+    if (index < 0) return;
+    const nextIndex = dx < 0 ? Math.min(ORDER_DETAILS_TABS.length - 1, index + 1) : Math.max(0, index - 1);
+    if (nextIndex !== index) setActiveTab(ORDER_DETAILS_TABS[nextIndex].id);
+  };
+
   const launchRadarSession = async () => {
     if (!FEATURE_RADAR_V2 || isLaunchingRadar) return;
     setIsLaunchingRadar(true);
@@ -3008,7 +3030,7 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </nav>
 
-        <div className="min-h-[52dvh] rounded-t-[30px] bg-[#F4F1EA] px-4 pt-6 text-[#171717] shadow-[0_-18px_60px_rgba(0,0,0,0.28)]" style={{ paddingBottom: ORDER_DETAILS_SCROLL_PADDING }}>
+        <div className="min-h-[52dvh] rounded-t-[30px] bg-[#F4F1EA] px-4 pt-6 text-[#171717] shadow-[0_-18px_60px_rgba(0,0,0,0.28)]" style={{ paddingBottom: ORDER_DETAILS_SCROLL_PADDING }} onTouchStart={handleTabSwipeStart} onTouchEnd={handleTabSwipeEnd}>
           {activeTab === 'overview' && (
             <div className="ds-mode-enter space-y-7">
               <section className="hidden">
@@ -3330,43 +3352,7 @@ const OrderDetailsScreen: React.FC = () => {
                 )}
               </section>
 
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[12px] font-black text-stone-600">Валюта клиента</p>
-                    <p className="mt-1 text-xs font-semibold text-stone-500">{formatMoney(balanceDueAed, clientCurrency)} для сметы и invoice</p>
-                  </div>
-                  <select
-                    value={clientCurrency}
-                    onChange={(event) => updateOrderField('clientCurrency', event.target.value as Order['clientCurrency'])}
-                    className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black text-stone-950 outline-none"
-                  >
-                    {(['AED', 'USD', 'RUB', 'TJS', 'KZT', 'UZS'] as const).map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-                  </select>
-                </div>
-              </section>
-
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[12px] font-black text-stone-600">Скидка</p>
-                    <p className="mt-1 text-xs font-semibold text-stone-500">{discountAed > 0 ? `-${formatDualMoney(discountAed)}` : 'Без скидки'}</p>
-                  </div>
-                  <div className="inline-flex rounded-full bg-stone-100 p-1">
-                    <button type="button" onClick={() => updateOrderField('discountType', 'percent')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${discountType === 'percent' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>%</button>
-                    <button type="button" onClick={() => updateOrderField('discountType', 'fixed')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${discountType === 'fixed' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>AED</button>
-                  </div>
-                </div>
-                {discountType === 'percent' ? (
-                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                    {DISCOUNT_OPTIONS.map((option) => (
-                      <button key={option} type="button" onClick={() => updateOrderField('discountPercent', Number(option))} className={`ds-press h-11 shrink-0 rounded-2xl px-4 text-xs font-black ${Number(draftFields.discountPercent ?? order.discountPercent ?? 0) === option ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-500'}`}>{option}%</button>
-                    ))}
-                  </div>
-                ) : (
-                  <input type="text" inputMode="numeric" pattern="[0-9]*" value={discountFixedInput} onFocus={() => { if (discountFixedInput === '0') setDiscountFixedInput(''); }} onBlur={() => { if (!discountFixedInput) setDiscountFixedInput('0'); flushDiscountCommit(); }} onChange={handleDiscountFixedChange} placeholder="Discount AED" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
-                )}
-              </section>
+              
 
               <section className="ds-surface space-y-3 rounded-[26px] p-4">
                 <div className="flex items-center justify-between gap-3">

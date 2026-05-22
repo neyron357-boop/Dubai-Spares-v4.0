@@ -25,6 +25,17 @@ export const getVariantClientBasePriceAed = (variant?: PriceVariant | null) => (
   Number(variant?.salePriceAed ?? variant?.priceAed ?? 0)
 );
 
+export const calculateOrderDiscountAed = (
+  grossTotalAed: number,
+  order: Pick<Order, 'discountType' | 'discountPercent' | 'discountFixedAed'>
+) => {
+  const discountType = order.discountType || 'percent';
+  const rawDiscountAed = discountType === 'fixed'
+    ? Number(order.discountFixedAed || 0)
+    : grossTotalAed * (Number(order.discountPercent || 0) / 100);
+  return Math.min(grossTotalAed, Math.max(0, round2(rawDiscountAed)));
+};
+
 export const getPricedPartLines = (
   order: Pick<Order, 'parts' | 'markupType' | 'markupPercent' | 'markupFixedAed' | 'discountType' | 'discountPercent' | 'discountFixedAed'>,
 ): PricedPartLine[] => {
@@ -67,22 +78,9 @@ export const getPricedPartLines = (
     };
   });
 
-  const grossTotalAed = round2(grossLines.reduce((sum, line) => sum + line.grossClientLineTotalAed, 0));
-  const discountType = order.discountType || 'percent';
-  const rawDiscountAed = discountType === 'fixed'
-    ? Number(order.discountFixedAed || 0)
-    : grossTotalAed * (Number(order.discountPercent || 0) / 100);
-  const discountTotalAed = Math.min(grossTotalAed, Math.max(0, round2(rawDiscountAed)));
-
-  let allocatedDiscount = 0;
   return grossLines.map((item, index) => {
-    const discountShareAed = discountTotalAed > 0 && grossTotalAed > 0
-      ? (index === grossLines.length - 1
-        ? round2(discountTotalAed - allocatedDiscount)
-        : round2(discountTotalAed * (item.grossClientLineTotalAed / grossTotalAed)))
-      : 0;
-    allocatedDiscount = round2(allocatedDiscount + discountShareAed);
-    const clientLineTotalAed = round2(Math.max(0, item.grossClientLineTotalAed - discountShareAed));
+    const discountShareAed = 0;
+    const clientLineTotalAed = item.grossClientLineTotalAed;
     return {
       ...item,
       discountShareAed,
