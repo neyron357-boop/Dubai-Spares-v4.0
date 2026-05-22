@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Building2,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Clock3,
   Download,
@@ -169,8 +170,12 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const [translatedItemNames, setTranslatedItemNames] = useState<Record<string, string>>({});
   const [translatedWorkTerms, setTranslatedWorkTerms] = useState('');
   const [translatedDeliveryTerms, setTranslatedDeliveryTerms] = useState('');
-  const [activePublicTab, setActivePublicTab] = useState<'quote' | 'proof'>('quote');
+  const [activePublicTab, setActivePublicTab] = useState<'quote' | 'proof' | 'deal'>('quote');
+  const [isSafeDealOpen, setIsSafeDealOpen] = useState(false);
+  const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
+  const [expandedQuoteGroups, setExpandedQuoteGroups] = useState<Record<string, boolean>>({});
   const detailRef = useRef<HTMLDivElement | null>(null);
+  const headerMenuRef = useRef<HTMLDivElement | null>(null);
 
   const t = i18n[lang];
   const publicKey = useMemo(() => {
@@ -213,6 +218,17 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
 
   useEffect(() => { void loadQuote(); }, [loadQuote]);
 
+  useEffect(() => {
+    if (!isHeaderMenuOpen) return;
+    const onOutside = (event: MouseEvent) => {
+      if (!headerMenuRef.current?.contains(event.target as Node)) {
+        setIsHeaderMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onOutside);
+    return () => document.removeEventListener('mousedown', onOutside);
+  }, [isHeaderMenuOpen]);
+
   const normalizedSnapshot = useMemo(() => normalizePublicQuoteSnapshotPayload(snapshotPayload), [snapshotPayload]);
   const order = normalizedSnapshot?.order || { brand: '—', model: '', year: '', vin: '—', bodyType: '', carPhotoUrl: '', googleDriveFolderUrl: '' };
   const rates = normalizedSnapshot?.rates || { AED: 1, USD: 0.27, RUB: 21, TJS: 2.6, KZT: 125, UZS: 3400 };
@@ -254,6 +270,13 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const whatsappConfirmHref = contact.whatsapp
     ? `https://wa.me/${contact.whatsapp}?text=${encodeURIComponent(whatsappConfirmationText)}`
     : '';
+  const priceBreakdownRows = [
+    { label: t.partsSubtotal, value: money(subtotalAed * fx, activeCurrency), emphasis: false },
+    { label: t.delivery, value: money(deliveryAed * fx, activeCurrency), emphasis: false },
+    { label: t.packing, value: money(packingAed * fx, activeCurrency), emphasis: false },
+    { label: t.commission, value: money(commissionAed * fx, activeCurrency), emphasis: false },
+    ...(depositAed > 0 ? [{ label: lang === 'ru' ? 'Депозит' : 'Deposit', value: `-${money(depositAed * fx, activeCurrency)}`, emphasis: true }] : []),
+  ];
   const documentButtons = useMemo(() => {
     const docs = (normalizedSnapshot?.documents || []).filter((doc) => doc.kind !== 'cargo');
     return dedupeDocuments(docs.map((doc) => {
@@ -338,141 +361,131 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-slate-100 px-3 py-4 pb-[calc(104px+env(safe-area-inset-bottom))] sm:px-6">
-      <main className="mx-auto flex max-w-5xl flex-col gap-4">
-        <section className="overflow-hidden rounded-3xl bg-[#0f1f3d] text-white shadow-[0_16px_40px_rgba(15,31,61,0.24)]">
-          {order.carPhotoUrl && (
-            <div className="relative h-52 w-full sm:h-64">
-              <img
-                src={order.carPhotoUrl}
-                alt={`${order.brand} ${order.model}`}
-                className="h-full w-full object-cover"
-                onError={hideOnError}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#0f1f3d]/80 via-transparent to-transparent" />
-            </div>
-          )}
-          <div className="p-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">{t.commercialOffer}</p>
-                <h1 className="mt-2 text-3xl font-black">🚘 {order.brand} {order.model} {order.year}</h1>
-                <p className="mt-3 text-sm text-blue-100">{t.finalOffer}</p>
-                <div className="mt-4 space-y-1 text-sm text-blue-100">
-                  <p>VIN: {order.vin}</p>
-                  {order.bodyType && <p>{order.bodyType}</p>}
-                </div>
-              </div>
-              <div className="min-w-[220px] rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-900 shadow-none">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t.quoteTotal}</p>
-                <p className="mt-1 text-4xl font-black leading-none text-[#0f1f3d]">{(payableTotalAed * fx).toFixed(2)}</p>
-                <p className="mt-0.5 text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">{activeCurrency}</p>
-                {depositAed > 0 && (
-                  <p className="mt-2 text-xs font-bold text-emerald-700">
-                    {lang === 'ru' ? 'Депозит учтён' : 'Deposit applied'}: {money(depositAed * fx, activeCurrency)}
-                  </p>
-                )}
-                <div className="mt-3 flex flex-wrap gap-1">
-                  {(Object.keys(rates) as Array<keyof typeof rates>).map((code) => (
-                    <button
-                      key={code}
-                      type="button"
-                      onClick={() => setDisplayCurrency(code)}
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${activeCurrency === code ? 'bg-[#0f1f3d] text-white' : 'bg-white text-slate-600 border border-slate-200'}`}
-                    >
-                      {code}
-                    </button>
-                  ))}
-                </div>
+    <div className="min-h-[100dvh] bg-[#f4f6f8] px-3 pb-[calc(104px+env(safe-area-inset-bottom))] pt-[calc(58px+0.75rem)] sm:px-6">
+      <main className="mx-auto flex max-w-5xl flex-col gap-3 sm:gap-4">
+        <header className="fixed left-0 right-0 top-0 z-[60] border-b border-white/10 bg-[#08090B] px-3 py-1 text-white shadow-[0_10px_26px_rgba(15,23,42,0.24)] sm:px-6">
+          <div className="mx-auto flex h-[50px] max-w-5xl items-center gap-3">
+            <button
+              type="button"
+              onClick={() => order.carPhotoUrl && setGallery({ images: [order.carPhotoUrl], index: 0 })}
+              disabled={!order.carPhotoUrl}
+              className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/10 text-left shadow-sm transition active:scale-[0.98] disabled:cursor-default"
+              aria-label={lang === 'ru' ? 'Открыть фото авто' : 'Open vehicle photo'}
+            >
+              {order.carPhotoUrl ? (
+                <img src={order.carPhotoUrl} alt={`${order.brand} ${order.model}`} className="h-full w-full object-cover" onError={hideOnError} />
+              ) : (
+                <div className="grid h-full w-full place-items-center text-sm font-black text-white/55">{order.brand?.[0] || '?'}</div>
+              )}
+            </button>
+
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[15px] font-black leading-5 text-white">
+                {order.brand} {order.model} {order.year}
+              </p>
+              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] font-bold">
+                <span className="truncate text-white/50">{order.bodyType || 'Body'} · VIN {order.vin || '—'}</span>
+                <span className="shrink-0 text-emerald-300">{(payableTotalAed * fx).toFixed(2)} {activeCurrency}</span>
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap gap-2.5">
-              {whatsappHref && (
-                <a href={whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-12 items-center gap-2 rounded-2xl bg-emerald-500 px-5 text-sm font-semibold text-white transition hover:bg-emerald-400 active:scale-[0.98]">
-                  <MessageCircle size={17} /> {t.contactManager} <ChevronRight size={14} />
-                </a>
+            <div ref={headerMenuRef} className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsHeaderMenuOpen((prev) => !prev)}
+                className="flex h-10 items-center gap-1.5 rounded-xl border border-white/10 bg-white/10 px-3 text-xs font-black text-white shadow-sm active:scale-[0.98]"
+                aria-expanded={isHeaderMenuOpen}
+                aria-haspopup="menu"
+                aria-label={lang === 'ru' ? 'Настройки сметы' : 'Quote settings'}
+              >
+                {activeCurrency}
+                <ChevronDown size={14} className={`transition-transform ${isHeaderMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isHeaderMenuOpen && (
+                <div className="absolute right-0 top-12 z-[70] w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 text-slate-900 shadow-2xl">
+                  <p className="px-2 pb-1 pt-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+                    {lang === 'ru' ? 'Валюта сметы' : 'Quote currency'}
+                  </p>
+                  <div className="grid grid-cols-3 gap-1">
+                    {(Object.keys(rates) as Array<keyof typeof rates>).map((code) => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => {
+                          setDisplayCurrency(code);
+                          setIsHeaderMenuOpen(false);
+                        }}
+                        className={`h-9 rounded-xl text-xs font-black ${activeCurrency === code ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                      >
+                        {code}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-2 gap-1 border-t border-slate-100 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLang((prev) => prev === 'ru' ? 'en' : 'ru');
+                        setIsHeaderMenuOpen(false);
+                      }}
+                      className="h-10 rounded-xl bg-slate-50 text-xs font-black text-slate-700 hover:bg-slate-100"
+                    >
+                      {lang === 'ru' ? 'English' : 'Русский'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsHeaderMenuOpen(false);
+                        void loadQuote();
+                      }}
+                      className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-slate-950 text-xs font-black text-white"
+                    >
+                      <RefreshCcw size={13} /> {t.refresh}
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
-
-            <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-600">
-              {expiresAt && <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-100 px-3 py-1.5 text-[11px] font-semibold text-amber-800"><Clock3 size={12} /> {t.validUntil}: {new Date(expiresAt).toLocaleDateString()}</span>}
-            </div>
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              <button type="button" onClick={() => setLang((prev) => prev === 'ru' ? 'en' : 'ru')} className="rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold">{lang === 'ru' ? 'EN' : 'RU'}</button>
-              <button type="button" onClick={() => void loadQuote()} className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold"><RefreshCcw size={15} /> {t.refresh}</button>
-            </div>
           </div>
-            </section>
+        </header>
 
-        <nav className="grid grid-cols-2 gap-2 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm" aria-label="Quote tabs">
+        {expiresAt && (
+          <section className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 shadow-sm">
+            <span className="inline-flex items-center gap-1.5"><Clock3 size={13} /> {t.validUntil}: {new Date(expiresAt).toLocaleDateString()}</span>
+          </section>
+        )}
+
+        <nav className="grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm" aria-label="Quote tabs">
           <button
             type="button"
             onClick={() => setActivePublicTab('quote')}
-            className={`h-12 rounded-2xl text-sm font-black ${activePublicTab === 'quote' ? 'bg-[#0f1f3d] text-white' : 'bg-slate-50 text-slate-600'}`}
+            className={`h-10 rounded-lg text-xs font-black transition sm:text-sm ${activePublicTab === 'quote' ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
           >
             {lang === 'ru' ? 'Смета' : 'Quote'}
           </button>
           <button
             type="button"
             onClick={() => setActivePublicTab('proof')}
-            className={`h-12 rounded-2xl text-sm font-black ${activePublicTab === 'proof' ? 'bg-[#0f1f3d] text-white' : 'bg-slate-50 text-slate-600'}`}
+            className={`h-10 rounded-lg text-xs font-black transition sm:text-sm ${activePublicTab === 'proof' ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
           >
             Proof Pack
             {(proofNotes.length > 0 || proofPhotoCount > 0 || proofVideoCount > 0) && <span className="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-[11px]">{proofNotes.length}</span>}
+          </button>
+          <button
+            type="button"
+            onClick={() => setActivePublicTab('deal')}
+            className={`h-10 rounded-lg text-xs font-black transition sm:text-sm ${activePublicTab === 'deal' ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            {lang === 'ru' ? 'Сделка' : 'Deal'}
           </button>
         </nav>
 
         {activePublicTab === 'quote' ? (
         <>
-        <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Безопасная сделка' : 'Safe sales process'}</p>
-                <h2 className="mt-2 text-xl font-black text-slate-900">{lang === 'ru' ? 'Сначала условия и оплата, потом закупка' : 'Terms and payment first, purchase second'}</h2>
-              </div>
-              <a href={trustPageHref} target="_blank" rel="noreferrer" className="inline-flex h-10 shrink-0 items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700">
-                <ShieldCheck size={14} /> {lang === 'ru' ? 'Как мы работаем' : 'How it works'}
-              </a>
-            </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              {(lang === 'ru'
-                ? [
-                  'Депозит запускает реальный поиск и работу с поставщиками.',
-                  'Полная предоплата нужна до закупки детали под конкретного клиента.',
-                  'Фото, видео и состояние фиксируются в Proof Pack.',
-                  'После передачи в cargo ответственность за перевозку несёт перевозчик.'
-                ]
-                : [
-                  'A deposit starts real supplier search and market work.',
-                  'Full prepayment is required before buying a client-specific part.',
-                  'Photos, videos and condition notes are kept in the Proof Pack.',
-                  'After cargo handover, transport liability belongs to the carrier.'
-                ]).map((line) => (
-                <div key={line} className="flex items-start gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                  <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-emerald-500" /> {line}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Статус заказа' : 'Order timeline'}</p>
-            <div className="mt-4 space-y-2">
-              {publicTimeline.map((step) => (
-                <div key={step.label} className={`flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold ${step.done ? 'bg-emerald-50 text-emerald-800' : step.current ? 'bg-blue-50 text-blue-800' : 'bg-slate-50 text-slate-500'}`}>
-                  {step.done ? <CheckCircle2 size={15} className="shrink-0" /> : <Clock3 size={15} className="shrink-0" />}
-                  <span>{step.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
         {hasCargoRiskMode && (
-          <section className="rounded-3xl border border-orange-200 bg-orange-50 p-5 text-orange-900 shadow-sm">
+          <section className="rounded-xl border border-orange-200 bg-orange-50 p-4 text-orange-900 shadow-sm">
             <div className="flex items-start gap-3">
               <AlertCircle size={20} className="mt-0.5 shrink-0" />
               <div>
@@ -495,54 +508,91 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
           </section>
         )}
 
-        <section ref={detailRef} className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <section ref={detailRef} className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4">
             <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.parts}</h2>
           </div>
-          <div className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
             {items.length === 0 && <p className="px-2 text-sm text-slate-500">{t.noPositions}</p>}
-            {items.map((item) => (
-              <article key={item.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
-                <button type="button" className="relative flex h-52 w-full items-center justify-center bg-slate-200" onClick={() => item.photos.length && setGallery({ images: item.photos, index: 0 })}>
-                  {item.photos[0]
-                    ? <img src={item.photos[0]} alt={translatedItemNames[item.id] || item.name} className="h-full w-full object-cover" onError={hideOnError} />
-                    : <div className="flex flex-col items-center gap-2 text-slate-500"><Images size={20} /><span className="text-xs">{t.noPhotos}</span></div>
-                  }
-                  {item.status && (
-                    <span className="absolute bottom-2 left-2 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm backdrop-blur-sm">
-                      {item.status}
-                    </span>
-                  )}
-                </button>
-                <div className="space-y-2 p-4">
-                  <h3 className="text-base font-bold text-slate-900">{translatedItemNames[item.id] || item.name}</h3>
-                  {item.note && <p className="text-sm text-slate-500">{item.note}</p>}
-                  {item.googleDriveVideoUrl && (
-                    <a
-                      href={item.googleDriveVideoUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-3 text-sm font-bold text-sky-800 shadow-sm transition hover:bg-sky-100 active:scale-[0.99]"
-                    >
-                      <PlayCircle size={16} /> {t.watchVideo} <ExternalLink size={13} />
-                    </a>
-                  )}
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="rounded-2xl bg-white p-3"><span className="block text-xs uppercase text-slate-400">{t.qty}</span><strong className="text-slate-900">{item.qty}</strong></div>
-                    <div className="rounded-2xl bg-white p-3"><span className="block text-xs uppercase text-slate-400">{activeCurrency}</span><strong className="text-slate-900">{(item.unitPriceAed * fx).toFixed(2)}</strong></div>
+            {items.map((item) => {
+              const groupItems = item.groupItems || [];
+              const isGroupExpanded = !!expandedQuoteGroups[item.id];
+              return (
+                <article key={item.id} className="grid min-h-[112px] grid-cols-[104px_minmax(0,1fr)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <button
+                    type="button"
+                    className="relative flex h-full min-h-[112px] w-full items-center justify-center bg-slate-100"
+                    onClick={() => item.photos.length && setGallery({ images: item.photos, index: 0 })}
+                    aria-label={lang === 'ru' ? 'Открыть фото детали' : 'Open part photo'}
+                  >
+                    {item.photos[0]
+                      ? <img src={item.photos[0]} alt={translatedItemNames[item.id] || item.name} className="h-full w-full object-cover" onError={hideOnError} />
+                      : <div className="flex flex-col items-center gap-1.5 px-2 text-center text-slate-400"><Images size={18} /><span className="text-[10px] font-bold leading-tight">{t.noPhotos}</span></div>
+                    }
+                    {item.status && (
+                      <span className="absolute bottom-1.5 left-1.5 max-w-[88px] truncate rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-slate-700 shadow-sm backdrop-blur-sm">
+                        {item.status}
+                      </span>
+                    )}
+                    {item.photos.length > 1 && (
+                      <span className="absolute right-1.5 top-1.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-black text-white">
+                        +{item.photos.length - 1}
+                      </span>
+                    )}
+                  </button>
+                  <div className="min-w-0 p-3">
+                    <h3 className="overflow-hidden text-sm font-black leading-5 text-slate-950 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{translatedItemNames[item.id] || item.name}</h3>
+                    {item.note && <p className="mt-1 truncate text-xs font-semibold text-slate-500">{item.note}</p>}
+                    {groupItems.length > 0 && (
+                      <div className="mt-1.5 rounded-lg bg-slate-50 px-2 py-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedQuoteGroups((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+                          className="flex w-full items-center justify-between gap-2 text-left text-[10px] font-black text-slate-600"
+                          aria-expanded={isGroupExpanded}
+                        >
+                          <span className="truncate">{lang === 'ru' ? 'Состав группы' : 'Group items'} · {groupItems.length}</span>
+                          <ChevronDown size={12} className={`shrink-0 transition-transform ${isGroupExpanded ? 'rotate-180' : ''}`} />
+                        </button>
+                        {isGroupExpanded && (
+                          <div className="mt-1 grid gap-1">
+                            {groupItems.map((groupItem, groupIndex) => (
+                              <div key={`${item.id}-group-${groupItem.id || groupIndex}`} className="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1 text-[10px] font-bold text-slate-600">
+                                <span className="min-w-0 truncate">{groupItem.name}</span>
+                                <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-slate-500">×{groupItem.quantity}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div className="mt-2 grid grid-cols-3 gap-1.5 text-xs">
+                      <div className="rounded-md bg-slate-50 px-2 py-1.5"><span className="block text-[10px] uppercase text-slate-400">{t.qty}</span><strong className="text-slate-900">{item.qty}</strong></div>
+                      <div className="rounded-md bg-slate-50 px-2 py-1.5"><span className="block text-[10px] uppercase text-slate-400">{activeCurrency}</span><strong className="text-slate-900">{(item.unitPriceAed * fx).toFixed(2)}</strong></div>
+                      <div className="rounded-md bg-slate-950 px-2 py-1.5 text-white"><span className="block text-[10px] uppercase text-white/45">{t.total}</span><strong>{(item.totalAed * fx).toFixed(2)}</strong></div>
+                    </div>
+                    {item.googleDriveVideoUrl && (
+                      <a
+                        href={item.googleDriveVideoUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 text-xs font-black text-sky-800 shadow-sm transition hover:bg-sky-100 active:scale-[0.99]"
+                      >
+                        <PlayCircle size={14} /> {lang === 'ru' ? 'Видео' : 'Video'} <ExternalLink size={12} />
+                      </a>
+                    )}
                   </div>
-                  <div className="rounded-2xl bg-white p-3 text-sm"><span className="block text-xs uppercase text-slate-400">{t.total}</span><strong className="text-slate-900">{money(item.totalAed * fx, activeCurrency)}</strong></div>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         </section>
 
         {orderMediaFolderUrl && (
-          <section className="rounded-3xl border border-sky-200 bg-white p-5 shadow-sm">
+          <section className="rounded-xl border border-sky-200 bg-white p-4 shadow-sm">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
-                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-sky-50 text-sky-700">
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-sky-50 text-sky-700">
                   <FolderOpen size={20} />
                 </div>
                 <div>
@@ -554,7 +604,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                 href={orderMediaFolderUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.99]"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.99]"
               >
                 <FolderOpen size={16} /> {t.openFolder} <ExternalLink size={13} />
               </a>
@@ -562,28 +612,41 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
           </section>
         )}
 
-        <section className="overflow-hidden rounded-3xl border border-amber-200/80 bg-gradient-to-b from-amber-50 to-white p-5 text-sm text-amber-900 shadow-[0_12px_26px_rgba(180,83,9,0.09)]">
+        <section className="overflow-hidden rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm">
           <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em]"><Info size={14} /> {t.policyTitle}</p>
           {(translatedWorkTerms || contact.workTerms) && <p className="mt-2 whitespace-pre-line">{translatedWorkTerms || contact.workTerms}</p>}
           <p className="mt-2 text-amber-800/90">{t.policyBody}</p>
         </section>
 
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
-          <div className="border-b border-slate-100 px-5 py-3">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-4 py-3">
             <h2 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-500">{t.priceBreakdown}</h2>
           </div>
-          <div className="divide-y divide-slate-100 px-5">
-            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.partsSubtotal}</span><strong className="text-slate-900">{money(subtotalAed * fx, activeCurrency)}</strong></div>
-            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.delivery}</span><strong className="text-slate-900">{money(deliveryAed * fx, activeCurrency)}</strong></div>
-            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.packing}</span><strong className="text-slate-900">{money(packingAed * fx, activeCurrency)}</strong></div>
-            <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{t.commission}</span><strong className="text-slate-900">{money(commissionAed * fx, activeCurrency)}</strong></div>
-            {depositAed > 0 && <div className="flex items-center justify-between py-3 text-sm"><span className="text-slate-600">{lang === 'ru' ? 'Депозит' : 'Deposit'}</span><strong className="text-emerald-700">-{money(depositAed * fx, activeCurrency)}</strong></div>}
-            <div className="flex items-center justify-between py-3 text-base font-bold"><span className="text-slate-900">{t.total}</span><span className="text-[#0f1f3d]">{money(grandTotalAed * fx, activeCurrency)}</span></div>
-            {depositAed > 0 && <div className="flex items-center justify-between py-3 text-base font-black"><span className="text-slate-900">{lang === 'ru' ? 'К оплате' : 'Balance due'}</span><span className="text-[#0f1f3d]">{money(balanceDueAed * fx, activeCurrency)}</span></div>}
+          <div className="p-3">
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+              {priceBreakdownRows.map((row) => (
+                <div key={row.label} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+                  <span className="block truncate text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">{row.label}</span>
+                  <strong className={`mt-1 block truncate text-sm ${row.emphasis ? 'text-emerald-700' : 'text-slate-900'}`}>{row.value}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg bg-slate-950 px-4 py-3 text-white">
+                <span className="block text-[11px] font-bold uppercase tracking-[0.1em] text-white/50">{t.total}</span>
+                <strong className="mt-1 block text-lg leading-none">{money(grandTotalAed * fx, activeCurrency)}</strong>
+              </div>
+              {depositAed > 0 && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-900">
+                  <span className="block text-[11px] font-bold uppercase tracking-[0.1em] text-emerald-600">{lang === 'ru' ? 'К оплате' : 'Balance due'}</span>
+                  <strong className="mt-1 block text-lg leading-none">{money(balanceDueAed * fx, activeCurrency)}</strong>
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{t.workTerms}</h2></div>
           <div className="space-y-4 p-5">
             {(translatedWorkTerms || contact.workTerms) ? <p className="text-sm whitespace-pre-line text-slate-700">{translatedWorkTerms || contact.workTerms}</p> : <p className="text-sm text-slate-500">—</p>}
@@ -591,12 +654,12 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
               <button
                 type="button"
                 onClick={handleOpenInvoice}
-                className="inline-flex h-11 items-center gap-2 self-start rounded-2xl border border-[#2b648d]/20 bg-[#f4f8fb] px-4 text-sm font-semibold text-[#2b648d] shadow-sm transition hover:bg-[#edf5fa] active:scale-[0.99]"
+                className="inline-flex h-10 items-center gap-2 self-start rounded-lg border border-[#2b648d]/20 bg-[#f4f8fb] px-3 text-sm font-semibold text-[#2b648d] shadow-sm transition hover:bg-[#edf5fa] active:scale-[0.99]"
               >
                 <FileText size={15} /> Invoice A4
               </button>
               {documentButtons.map((doc) => (
-                <a key={`${doc.kind}-${doc.href}`} href={doc.href} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 self-start rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 active:scale-[0.99]">
+                <a key={`${doc.kind}-${doc.href}`} href={doc.href} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 self-start rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 active:scale-[0.99]">
                   <Download size={15} /> {doc.label}
                 </a>
               ))}
@@ -604,7 +667,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="grid gap-6 p-5 lg:grid-cols-[0.9fr_1.1fr]">
             <div className="space-y-4">
               <ul className="space-y-2 text-sm text-slate-700">
@@ -613,9 +676,9 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                 <li className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2"><CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-500" /> {lang === 'ru' ? 'Скорость ответа: обычно 5–15 минут.' : 'Response time: usually 5–15 min.'}</li>
               </ul>
             </div>
-            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50 to-white p-5 space-y-4">
+            <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center justify-between gap-3">
-                <p className="inline-flex items-center gap-2 font-bold text-slate-800"><Building2 size={16} /> {t.companyProfile}: {contact.managerName || 'Stark Motors'}</p>
+                <p className="inline-flex items-center gap-2 font-bold text-slate-800"><Building2 size={16} /> {t.companyProfile}: Stark Motors</p>
                 {contact.logoUrl && <img src={contact.logoUrl} alt="Company logo" className="h-20 w-auto max-w-[360px] object-contain" />}
               </div>
               <p className="text-sm text-slate-600">{t.trustNote}</p>
@@ -623,29 +686,29 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
           </div>
         </section>
         </>
-        ) : (
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        ) : activePublicTab === 'proof' ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Proof Pack</p>
-              <h2 className="mt-2 text-2xl font-black text-slate-900">{lang === 'ru' ? 'Фото, видео и комментарии по заказу' : 'Photos, videos and order notes'}</h2>
+              <h2 className="mt-1 text-xl font-black text-slate-900">{lang === 'ru' ? 'Фото, видео и комментарии по заказу' : 'Photos, videos and order notes'}</h2>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-2xl bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">Фото</p><p className="text-sm font-black text-slate-900">{proofPhotoCount}</p></div>
-              <div className="rounded-2xl bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">Видео</p><p className="text-sm font-black text-slate-900">{proofVideoCount}</p></div>
-              <div className="rounded-2xl bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">Голос</p><p className="text-sm font-black text-slate-900">{proofAudioCount}</p></div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">Фото</p><p className="text-sm font-black text-slate-900">{proofPhotoCount}</p></div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">Видео</p><p className="text-sm font-black text-slate-900">{proofVideoCount}</p></div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">Голос</p><p className="text-sm font-black text-slate-900">{proofAudioCount}</p></div>
             </div>
           </div>
 
           {proofNotes.length === 0 ? (
-            <div className="mt-5 rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
+            <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
               <Images size={24} className="mx-auto text-slate-400" />
               <p className="mt-2 text-sm font-bold text-slate-500">{lang === 'ru' ? 'Пруфы пока не добавлены.' : 'No proof items have been added yet.'}</p>
             </div>
           ) : (
             <div className="mt-5 space-y-4">
               {proofNotes.map((note) => (
-                <article key={note.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <article key={note.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                   {note.createdAt > 0 && (
                     <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">
                       {new Date(note.createdAt).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-GB')}
@@ -655,7 +718,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                   {note.photos.length > 0 && (
                     <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                       {note.photos.map((photo, index) => (
-                        <button key={`${note.id}-${photo}-${index}`} type="button" onClick={() => setGallery({ images: note.photos, index })} className="relative aspect-square overflow-hidden rounded-2xl bg-slate-200">
+                        <button key={`${note.id}-${photo}-${index}`} type="button" onClick={() => setGallery({ images: note.photos, index })} className="relative aspect-square overflow-hidden rounded-lg bg-slate-200">
                           <img src={photo} alt="Proof" className="h-full w-full object-cover" onError={hideOnError} />
                         </button>
                       ))}
@@ -664,7 +727,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                   {note.videoUrls.length > 0 && (
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                       {note.videoUrls.map((url, index) => (
-                        <a key={`${note.id}-video-${index}`} href={url} target="_blank" rel="noreferrer" className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-3 text-sm font-bold text-sky-800">
+                        <a key={`${note.id}-video-${index}`} href={url} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 text-sm font-bold text-sky-800">
                           <PlayCircle size={16} /> {lang === 'ru' ? 'Смотреть видео' : 'Watch video'} <ExternalLink size={13} />
                         </a>
                       ))}
@@ -673,7 +736,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                   {note.audios.length > 0 && (
                     <div className="mt-3 space-y-2">
                       {note.audios.map((audio, index) => (
-                        <div key={`${note.id}-audio-${audio.id}-${index}`} className="rounded-2xl bg-white p-3">
+                        <div key={`${note.id}-audio-${audio.id}-${index}`} className="rounded-lg bg-white p-3">
                           <audio src={audio.fileUrl} controls preload="metadata" className="w-full" />
                         </div>
                       ))}
@@ -684,39 +747,90 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
             </div>
           )}
         </section>
+        ) : (
+        <section className="grid gap-3 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <button
+              type="button"
+              onClick={() => setIsSafeDealOpen((prev) => !prev)}
+              className="flex w-full items-center justify-between gap-3 p-4 text-left"
+              aria-expanded={isSafeDealOpen}
+            >
+              <span className="flex min-w-0 items-start gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700">
+                  <ShieldCheck size={19} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-xs font-black uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Безопасная сделка' : 'Safe sales process'}</span>
+                  <span className="mt-1 block text-base font-black text-slate-950">{lang === 'ru' ? 'Условия сделки и защита клиента' : 'Deal terms and client protection'}</span>
+                </span>
+              </span>
+              <ChevronRight size={18} className={`shrink-0 text-slate-400 transition-transform ${isSafeDealOpen ? 'rotate-90' : ''}`} />
+            </button>
+
+            {isSafeDealOpen && (
+              <div className="border-t border-slate-100 p-4 pt-3">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {(lang === 'ru'
+                    ? [
+                      'Депозит запускает реальный поиск и работу с поставщиками.',
+                      'Полная предоплата нужна до закупки детали под конкретного клиента.',
+                      'Фото, видео и состояние фиксируются в Proof Pack.',
+                      'После передачи в cargo ответственность за перевозку несёт перевозчик.'
+                    ]
+                    : [
+                      'A deposit starts real supplier search and market work.',
+                      'Full prepayment is required before buying a client-specific part.',
+                      'Photos, videos and condition notes are kept in the Proof Pack.',
+                      'After cargo handover, transport liability belongs to the carrier.'
+                    ]).map((line) => (
+                    <div key={line} className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                      <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-emerald-500" /> {line}
+                    </div>
+                  ))}
+                </div>
+                <a href={trustPageHref} target="_blank" rel="noreferrer" className="mt-3 inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700">
+                  <ShieldCheck size={14} /> {lang === 'ru' ? 'Как мы работаем' : 'How it works'} <ExternalLink size={12} />
+                </a>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">{lang === 'ru' ? 'Статус заказа' : 'Order timeline'}</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+              {publicTimeline.map((step) => (
+                <div key={step.label} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${step.done ? 'bg-emerald-50 text-emerald-800' : step.current ? 'bg-blue-50 text-blue-800' : 'bg-slate-50 text-slate-500'}`}>
+                  {step.done ? <CheckCircle2 size={15} className="shrink-0" /> : <Clock3 size={15} className="shrink-0" />}
+                  <span>{step.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
         )}
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.14em] text-slate-500"><Building2 size={15} /> {t.contacts}</p>
-              <h2 className="mt-2 text-2xl font-bold text-slate-900">{contact.managerName}</h2>
+              <h2 className="mt-1 text-xl font-black text-slate-900">{contact.managerName}</h2>
             </div>
             <div className="flex flex-wrap gap-2">
-              {whatsappHref && <a href={whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-2xl bg-emerald-500 px-4 text-sm font-semibold text-white shadow-sm"><MessageCircle size={15} /> WhatsApp</a>}
-              {contact.telegram && <a href={contact.telegram} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800"><Send size={15} /> Telegram</a>}
-              {contact.instagram && <a href={contact.instagram} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"><Instagram size={15} /> Instagram</a>}
+              {whatsappHref && <a href={whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-500 px-3 text-sm font-semibold text-white shadow-sm"><MessageCircle size={15} /> WhatsApp</a>}
+              {contact.telegram && <a href={contact.telegram} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 text-sm font-semibold text-sky-800"><Send size={15} /> Telegram</a>}
+              {contact.instagram && <a href={contact.instagram} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700"><Instagram size={15} /> Instagram</a>}
             </div>
           </div>
         </section>
 
-        {(contact.signatureUrl || contact.managerName) && (
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+        {contact.signatureUrl && (
+          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-500">{t.officialSignature}</p>
-            <div className="mt-3 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-[1fr_auto] sm:items-end">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{lang === 'ru' ? 'Имя и фамилия' : 'Name'}</p>
-                <p className="mt-2 text-lg font-bold text-[#0f1f3d]">{contact.managerName || (lang === 'ru' ? 'Не указано' : 'Not specified')}</p>
-              </div>
-              <div className="sm:text-right">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{t.signature}</p>
-                <div className="mt-2 min-h-[74px]">
-                  {contact.signatureUrl ? (
-                    <img src={contact.signatureUrl} alt="Owner signature" className="h-20 w-auto object-contain sm:ml-auto" />
-                  ) : (
-                    <p className="text-sm text-slate-400">{t.signatureMissing}</p>
-                  )}
-                </div>
+            <div className="mt-3 border-t border-slate-100 pt-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{t.signature}</p>
+              <div className="mt-2 min-h-[74px]">
+                <img src={contact.signatureUrl} alt="Owner signature" className="h-20 w-auto object-contain" />
               </div>
             </div>
           </section>
@@ -730,7 +844,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t.quoteTotal}</p>
               <p className="text-xl font-black leading-none text-[#0f1f3d]">{(payableTotalAed * fx).toFixed(2)} <span className="text-sm font-semibold text-slate-500">{activeCurrency}</span></p>
             </div>
-            <a href={whatsappConfirmHref || whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-12 shrink-0 items-center gap-2 rounded-2xl bg-emerald-500 px-5 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-400 active:scale-[0.98]">
+            <a href={whatsappConfirmHref || whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-12 shrink-0 items-center gap-2 rounded-lg bg-emerald-500 px-5 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-400 active:scale-[0.98]">
               <MessageCircle size={17} /> {t.contactManager}
             </a>
           </div>

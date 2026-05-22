@@ -66,6 +66,8 @@ import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '
 import { getOrderCustomerLogs } from '../customerEngagement';
 import { isLikelyGoogleDriveUrl, normalizeExternalMediaUrl, openExternalMediaUrl } from '../utils/externalMedia';
 import { deriveSafetySalesSummary } from '../utils/safetySales';
+import { getFinanceVariant as resolveFinanceVariant, getPricedPartLines } from '../utils/quotePricing';
+import { publicQuoteCreateSnapshot } from '../publicQuoteApi';
 
 type OrderDetailsTab = 'overview' | 'search' | 'proof' | 'finance' | 'notes';
 
@@ -73,7 +75,7 @@ const ORDER_DETAILS_TABS: Array<{ id: OrderDetailsTab; label: string; helper: st
   { id: 'overview', label: 'Обзор', helper: 'Клиент, авто, статус' },
   { id: 'search', label: 'Поиск', helper: 'Детали и варианты' },
   { id: 'proof', label: 'Пруфы', helper: 'Материалы и проверки' },
-  { id: 'finance', label: 'Финансы', helper: 'Маржа и логистика' },
+  { id: 'finance', label: 'Финансы', helper: 'Маржа и услуги' },
   { id: 'notes', label: 'Заметки', helper: 'Заметки и голос' }
 ];
 
@@ -488,6 +490,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
   const [partMediaLinkDrafts, setPartMediaLinkDrafts] = useState<Record<string, string>>({});
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
+  const [partGroupExpanded, setPartGroupExpanded] = useState<Record<string, boolean>>({});
   const [partSwipeOffsets, setPartSwipeOffsets] = useState<Record<string, number>>({});
   // Multiple photos for new part
   const [newPartPhotos, setNewPartPhotos] = useState<string[]>([]);
@@ -857,6 +860,47 @@ const OrderDetailsScreen: React.FC = () => {
     }
   };
 
+  const refreshPublicQuoteSnapshot = async (nextOrder: Order) => {
+    if (!nextOrder.publicQuoteToken) return;
+    try {
+      await publicQuoteCreateSnapshot(nextOrder, {
+        currency: nextOrder.clientCurrency || 'USD',
+        exchangeRate: Number(nextOrder.exchangeRate || preferredExchangeRate || 3.67),
+        token: nextOrder.publicQuoteToken,
+        upsertByToken: true,
+        owner: {
+          whatsappPhone: settings.publicWhatsappNumber,
+          displayName: 'Stark Motors'
+        },
+        publicSettings: {
+          publicWhatsappNumber: settings.publicWhatsappNumber,
+          publicTelegramUrl: settings.publicTelegramUrl,
+          publicInstagramUrl: settings.publicInstagramUrl,
+          publicWebsiteUrl: settings.publicWebsiteUrl,
+          publicEmail: settings.publicEmail,
+          publicDeliveryTerms: settings.publicDeliveryTerms,
+          publicWorkTerms: settings.publicWorkTerms,
+          publicCompanyLogoUrl: settings.publicCompanyLogoUrl,
+          publicInvoiceSignatureUrl: settings.publicInvoiceSignatureUrl,
+          publicManagerName: settings.publicManagerName,
+          invoicePaymentAccountNo: settings.invoicePaymentAccountNo,
+          invoicePaymentBeneficiary: settings.invoicePaymentBeneficiary,
+          invoicePaymentBankAccount: settings.invoicePaymentBankAccount,
+          publicTermsFileUrl: settings.publicTermsFileUrl,
+          publicTermsFileName: settings.publicTermsFileName,
+          executorPhotoUrl: settings.executorPhotoUrl,
+          executorRole: settings.executorRole
+        },
+        rates: currentQuoteRates
+      });
+    } catch (error) {
+      void logger.warn('order-details:proof-public-quote-refresh', 'Unable to refresh public quote after proof update', {
+        orderId: nextOrder.id,
+        error: error instanceof Error ? error.message : 'unknown'
+      });
+    }
+  };
+
   if (orderMissing) {
     return (
       <div className="flex min-h-[100dvh] flex-col items-center justify-center space-y-4 p-4">
@@ -910,8 +954,7 @@ const OrderDetailsScreen: React.FC = () => {
 
 
   const getFinanceVariant = (part: Part) => {
-    const variants = Array.isArray(part.variants) ? part.variants : [];
-    return variants.find((variant) => variant.id === part.bestOfferId || variant.isBest) || variants[0] || null;
+    return resolveFinanceVariant(part);
   };
 
   const selectedOfferTotals = useMemo(() => order.parts.reduce((sum, part) => {
@@ -1576,7 +1619,7 @@ const OrderDetailsScreen: React.FC = () => {
       pricingEvents: mergedEvents.length ? [...mergedEvents, ...(order.pricingEvents || [])] : order.pricingEvents
     });
     scheduleDebouncedSaveLog();
-    setToast({ message: 'Логистика сохранена' });
+    setToast({ message: 'Услуги сохранены' });
   }, [hasPendingPricingChanges, logisticsDraft.deliveryAed, logisticsDraft.packingAed, logisticsDraft.serviceFeeAed, markupFixedInput, order, scheduleDebouncedSaveLog, settings, updateOrder]);
 
   useEffect(() => {
@@ -2424,13 +2467,17 @@ const OrderDetailsScreen: React.FC = () => {
       kind: 'proof',
       createdAt: Date.now()
     };
-    updateOrder({ ...order, notes: [note, ...(order.notes || [])] });
+    const nextOrder = { ...order, notes: [note, ...(order.notes || [])] };
+    updateOrder(nextOrder);
+    if (nextOrder.publicQuoteToken) {
+      void refreshPublicQuoteSnapshot(nextOrder);
+    }
     setNewProofText('');
     setNewProofVideoUrl('');
     setNewProofPhotos([]);
     setNewProofAudios([]);
     setProofComposerMode('message');
-    setToast({ message: 'Пруф добавлен в публичную смету' });
+    setToast({ message: nextOrder.publicQuoteToken ? 'Пруф добавлен, публичная смета обновляется' : 'Пруф добавлен в публичную смету' });
   };
 
   const removeNewProofPhoto = (index: number) => {
@@ -2730,21 +2777,28 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const buildShortQuoteText = () => {
-    const pricedLines = (order.parts || [])
-      .map((part, index) => {
-        const variant = getFinanceVariant(part);
-        const quantity = normalizePartQuantity(part.quantity);
-        const unit = Number(variant?.salePriceAed ?? variant?.priceAed ?? 0);
-        if (!variant || unit <= 0) return '';
-        return `${index + 1}. ${getPartDisplayName(part)} x${quantity}: ${formatMoney(unit * quantity, clientCurrency)}`;
-      })
-      .filter(Boolean);
+    const pricedLines = getPricedPartLines({
+      ...order,
+      markupPercent: effectiveMarkupPercent,
+      markupFixedAed: markupType === 'fixed' ? Number(markupFixedInput || 0) : order.markupFixedAed
+    })
+      .flatMap((line, index) => {
+        const groupItems = normalizeGroupItems(line.part.groupItems);
+        const title = `${index + 1}. ${getPartDisplayName(line.part)} x${line.quantity}: ${formatMoney(line.clientLineTotalAed, clientCurrency)}`;
+        const children = groupItems.map((item) => `   - ${item.name} x${item.quantity}`);
+        return [title, ...children];
+      });
+    const serviceLines = [
+      logistics.deliveryAed > 0 ? `- Доставка: ${formatMoney(logistics.deliveryAed, clientCurrency)}` : '',
+      logistics.packingAed > 0 ? `- Упаковка: ${formatMoney(logistics.packingAed, clientCurrency)}` : '',
+      logistics.serviceFeeAed > 0 ? `- Сервис: ${formatMoney(logistics.serviceFeeAed, clientCurrency)}` : '',
+      cargoTotalAed > 0 ? `- Cargo: ${formatMoney(cargoTotalAed, clientCurrency)}` : ''
+    ].filter(Boolean);
     return [
       [order.brand, order.model, order.year].filter(Boolean).join(' ').trim(),
       order.vin ? `VIN: ${order.vin}` : '',
       ...pricedLines,
-      logisticsWithCargoTotal > 0 ? `Логистика: ${formatMoney(logisticsWithCargoTotal, clientCurrency)}` : '',
-      markupAed > 0 ? `Сервис: ${formatMoney(markupAed, clientCurrency)}` : '',
+      ...(serviceLines.length > 0 ? ['Услуги:', ...serviceLines] : []),
       `Итого: ${formatMoney(sellTotalAed, clientCurrency)}`,
       depositAmountAed > 0 ? `Депозит: -${formatMoney(depositAmountAed, clientCurrency)}` : '',
       depositAmountAed > 0 ? `К оплате: ${formatMoney(balanceDueAed, clientCurrency)}` : ''
@@ -3358,7 +3412,7 @@ const OrderDetailsScreen: React.FC = () => {
                       {newPartGroupItems.map((item, index) => (
                         <div key={item.id} className="flex items-center gap-2">
                           <input type="text" value={item.name} onChange={(event) => updateGroupItemRow(item.id, 'name', event.target.value)} placeholder={`Деталь ${index + 1}`} className="ds-input h-10 min-w-0 flex-1 rounded-xl border-0 px-3 text-xs font-black text-stone-950 outline-none placeholder:text-stone-400" />
-                          <select value={item.quantity} onChange={(event) => updateGroupItemRow(item.id, 'quantity', event.target.value)} className="ds-input h-10 w-16 rounded-xl border-0 text-center text-xs font-black outline-none">
+                          <select value={item.quantity} onChange={(event) => updateGroupItemRow(item.id, 'quantity', event.target.value)} className="ds-input h-10 w-16 rounded-xl border-0 text-center text-xs font-black text-stone-950 outline-none">
                             {Array.from({ length: 20 }, (_, qtyIdx) => String(qtyIdx + 1)).map((qty) => <option key={qty} value={qty}>{qty}</option>)}
                           </select>
                           <button type="button" onClick={() => removeGroupItemRow(item.id)} className="ds-press flex h-10 w-10 items-center justify-center rounded-xl bg-white text-rose-600" aria-label="Remove group item"><X size={14} /></button>
@@ -3485,6 +3539,29 @@ const OrderDetailsScreen: React.FC = () => {
                               <p className="mt-1 truncate text-[10px] font-bold text-stone-500">
                                 {partQuantity} шт{groupItems.length > 0 ? ` · группа ${groupItems.length}` : ''}{bestVariant ? ` · ${salePrice.toFixed(0)} AED` : ' · без варианта'}
                               </p>
+                              {groupItems.length > 0 && (
+                                <div className="mt-1.5 rounded-xl bg-stone-950/[0.035] px-2 py-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setPartGroupExpanded((prev) => ({ ...prev, [part.id]: !prev[part.id] }))}
+                                    className="flex w-full items-center justify-between gap-2 text-left text-[10px] font-black text-stone-600"
+                                    aria-expanded={!!partGroupExpanded[part.id]}
+                                  >
+                                    <span className="truncate">Состав группы · {groupItems.length}</span>
+                                    <ChevronDown size={12} className={`shrink-0 transition-transform ${partGroupExpanded[part.id] ? 'rotate-180' : ''}`} />
+                                  </button>
+                                  {partGroupExpanded[part.id] && (
+                                    <div className="mt-1 grid gap-1">
+                                      {groupItems.map((item, itemIndex) => (
+                                        <div key={`${part.id}-group-preview-${item.id || itemIndex}`} className="flex items-center justify-between gap-2 rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-stone-600">
+                                          <span className="min-w-0 truncate">{item.name}</span>
+                                          <span className="shrink-0 rounded-full bg-stone-100 px-1.5 py-0.5 text-stone-500">×{item.quantity}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               {bestVariant ? (
                                 <button type="button" onClick={() => openPartDetails(part.id, bestVariant.id)} className="ds-press mt-1 max-w-full truncate rounded-lg bg-stone-950/[0.04] px-2 py-1 text-left text-[10px] font-bold text-stone-500" aria-label="Открыть вариант">
                                   {bestVariant.shopName || 'Поставщик'} · закуп {purchasePrice.toFixed(0)}
@@ -3526,7 +3603,7 @@ const OrderDetailsScreen: React.FC = () => {
                     {newPartGroupItems.map((item, index) => (
                       <div key={item.id} className="flex items-center gap-2">
                         <input type="text" value={item.name} onChange={(event) => updateGroupItemRow(item.id, 'name', event.target.value)} placeholder={`Деталь ${index + 1}`} className="h-9 min-w-0 flex-1 rounded-xl border-0 bg-stone-100 px-3 text-xs font-black text-stone-950 outline-none placeholder:text-stone-400" />
-                        <select value={item.quantity} onChange={(event) => updateGroupItemRow(item.id, 'quantity', event.target.value)} className="h-9 w-14 rounded-xl border-0 bg-stone-100 text-center text-xs font-black outline-none">
+                        <select value={item.quantity} onChange={(event) => updateGroupItemRow(item.id, 'quantity', event.target.value)} className="h-9 w-14 rounded-xl border-0 bg-stone-100 text-center text-xs font-black text-stone-950 outline-none">
                           {Array.from({ length: 20 }, (_, qtyIdx) => String(qtyIdx + 1)).map((qty) => <option key={qty} value={qty}>{qty}</option>)}
                         </select>
                         <button type="button" onClick={() => removeGroupItemRow(item.id)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-rose-600" aria-label="Удалить строку"><X size={13} /></button>
@@ -3785,7 +3862,7 @@ const OrderDetailsScreen: React.FC = () => {
 
               <section className="ds-surface space-y-3 rounded-[26px] p-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-[12px] font-black text-stone-600">Логистика</p>
+                    <p className="text-[12px] font-black text-stone-600">Услуги</p>
                   <span className="text-[11px] font-black text-stone-500">{formatDualMoney(logisticsWithCargoTotal)}</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
@@ -3800,7 +3877,7 @@ const OrderDetailsScreen: React.FC = () => {
                     </label>
                   ))}
                 </div>
-                <button type="button" onClick={saveLogisticsDraft} disabled={!hasPendingPricingChanges} className={`ds-press h-11 w-full rounded-2xl px-3 text-xs font-black ${hasPendingPricingChanges ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-400'}`}>Сохранить логистику</button>
+                <button type="button" onClick={saveLogisticsDraft} disabled={!hasPendingPricingChanges} className={`ds-press h-11 w-full rounded-2xl px-3 text-xs font-black ${hasPendingPricingChanges ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-400'}`}>Сохранить услуги</button>
               </section>
 
               {depositAmountAed > 0 && (
@@ -3956,7 +4033,7 @@ const OrderDetailsScreen: React.FC = () => {
                     {newPartGroupItems.map((item, index) => (
                       <div key={item.id} className="flex items-center gap-2">
                         <input type="text" value={item.name} onChange={(event) => updateGroupItemRow(item.id, 'name', event.target.value)} placeholder={`Деталь ${index + 1}`} className="h-10 min-w-0 flex-1 rounded-xl border-0 bg-stone-100 px-3 text-xs font-black text-stone-950 outline-none placeholder:text-stone-400" />
-                        <select value={item.quantity} onChange={(event) => updateGroupItemRow(item.id, 'quantity', event.target.value)} className="h-10 w-14 rounded-xl border-0 bg-stone-100 text-center text-xs font-black outline-none">
+                        <select value={item.quantity} onChange={(event) => updateGroupItemRow(item.id, 'quantity', event.target.value)} className="h-10 w-14 rounded-xl border-0 bg-stone-100 text-center text-xs font-black text-stone-950 outline-none">
                           {Array.from({ length: 20 }, (_, qtyIdx) => String(qtyIdx + 1)).map((qty) => <option key={qty} value={qty}>{qty}</option>)}
                         </select>
                         <button type="button" onClick={() => removeGroupItemRow(item.id)} className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-600" aria-label="Удалить строку"><X size={13} /></button>
