@@ -68,6 +68,7 @@ export type NormalizedPublicQuoteSnapshot = {
   deliveryAed: number;
   packingAed: number;
   commissionAed: number;
+  discountAed: number;
   grandTotalAed: number;
   depositAed: number;
   balanceDueAed: number;
@@ -227,6 +228,7 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
   const deliveryAed = firstNumber(breakdown.delivery, fees.logistics, logistics.deliveryAed, totals.logistics_aed);
   const packingAed = firstNumber(breakdown.packaging, fees.packaging, logistics.packingAed, totals.packing_aed);
   const commissionAed = firstNumber(breakdown.commission, fees.commission, logistics.serviceFeeAed, totals.commission_aed);
+  const discountAed = Math.max(0, firstNumber(breakdown.discount, totals.discount_aed, raw.pricingBreakdown?.discount_aed));
   const totalsGrand = firstNumber(breakdown.total, totals.grand_total_aed, totals.grand_total);
   const grandTotalAed = totalsGrand > 0 ? totalsGrand : subtotalAed + deliveryAed + packingAed + commissionAed;
   const depositAed = Math.max(0, firstNumber(breakdown.deposit, breakdown.deposit_aed, totals.deposit_aed, order.searchDepositAmountAed, order.search_deposit_amount_aed));
@@ -306,6 +308,7 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
     deliveryAed,
     packingAed,
     commissionAed,
+    discountAed,
     grandTotalAed,
     depositAed,
     balanceDueAed,

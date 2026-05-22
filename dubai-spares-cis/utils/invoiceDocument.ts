@@ -29,6 +29,7 @@ export type InvoicePayload = {
   deliveryAed: number;
   packingAed: number;
   commissionAed: number;
+  discountAed: number;
   taxAed: number;
   totalAed: number;
   depositAed: number;
@@ -113,6 +114,7 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
     });
 
   const subtotalAed = items.reduce((sum, item) => sum + item.totalAed, 0);
+  const discountAed = getPricedPartLines(order).reduce((sum, line) => sum + line.discountShareAed, 0);
   const deliveryAed = Number(order.logistics?.deliveryAed || 0);
   const packingAed = Number(order.logistics?.packingAed || 0);
   const commissionAed = Number(order.logistics?.serviceFeeAed || 0);
@@ -135,6 +137,7 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
     deliveryAed: deliveryAed * rate,
     packingAed: packingAed * rate,
     commissionAed: commissionAed * rate,
+    discountAed: discountAed * rate,
     taxAed: 0,
     totalAed: totalAed * rate,
     depositAed: depositAed * rate,
@@ -180,6 +183,7 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
     deliveryAed: snapshot.deliveryAed * rate,
     packingAed: snapshot.packingAed * rate,
     commissionAed: snapshot.commissionAed * rate,
+    discountAed: snapshot.discountAed * rate,
     taxAed: 0,
     totalAed: snapshot.grandTotalAed * rate,
     depositAed: snapshot.depositAed * rate,
@@ -222,6 +226,16 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
   const signatureMarkup = payload.company.signatureUrl
     ? `<img src="${esc(payload.company.signatureUrl)}" alt="Authorised sign" class="signature-image" />`
     : `<div class="signature-placeholder"></div>`;
+  const totalsMarkup = [
+    `<div class="total-line"><span>SUB TOTAL</span><strong>${esc(money(payload.subtotalAed, payload.currencyCode))}</strong></div>`,
+    payload.deliveryAed > 0 ? `<div class="total-line"><span>DELIVERY</span><strong>${esc(money(payload.deliveryAed, payload.currencyCode))}</strong></div>` : '',
+    payload.packingAed > 0 ? `<div class="total-line"><span>PACKING</span><strong>${esc(money(payload.packingAed, payload.currencyCode))}</strong></div>` : '',
+    payload.commissionAed > 0 ? `<div class="total-line"><span>COMMISSION</span><strong>${esc(money(payload.commissionAed, payload.currencyCode))}</strong></div>` : '',
+    payload.discountAed > 0 ? `<div class="total-line"><span>DISCOUNT INCLUDED</span><strong>-${esc(money(payload.discountAed, payload.currencyCode))}</strong></div>` : '',
+    payload.taxAed > 0 ? `<div class="total-line"><span>TAX</span><strong>${esc(money(payload.taxAed, payload.currencyCode))}</strong></div>` : '',
+    `<div class="total-line grand"><span>TOTAL</span><strong>${esc(money(payload.totalAed, payload.currencyCode))}</strong></div>`,
+    payload.depositAed > 0 ? `<div class="total-line"><span>DEPOSIT</span><strong>-${esc(money(payload.depositAed, payload.currencyCode))}</strong></div><div class="total-line grand"><span>BALANCE DUE</span><strong>${esc(money(payload.balanceDueAed, payload.currencyCode))}</strong></div>` : ''
+  ].filter(Boolean).join('');
 
   return `<!doctype html>
 <html>
@@ -370,13 +384,7 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
             <div class="info-line"><span>Prepared by</span><strong>${esc(payload.company.managerName)}</strong></div>
           </div>
           <div class="totals">
-            <div class="total-line"><span>SUB TOTAL</span><strong>${esc(money(payload.subtotalAed, payload.currencyCode))}</strong></div>
-            <div class="total-line"><span>DELIVERY</span><strong>${esc(money(payload.deliveryAed, payload.currencyCode))}</strong></div>
-            <div class="total-line"><span>PACKING</span><strong>${esc(money(payload.packingAed, payload.currencyCode))}</strong></div>
-            <div class="total-line"><span>COMMISSION</span><strong>${esc(money(payload.commissionAed, payload.currencyCode))}</strong></div>
-            <div class="total-line"><span>TAX</span><strong>${esc(money(payload.taxAed, payload.currencyCode))}</strong></div>
-            <div class="total-line grand"><span>TOTAL</span><strong>${esc(money(payload.totalAed, payload.currencyCode))}</strong></div>
-            ${payload.depositAed > 0 ? `<div class="total-line"><span>DEPOSIT</span><strong>-${esc(money(payload.depositAed, payload.currencyCode))}</strong></div><div class="total-line grand"><span>BALANCE DUE</span><strong>${esc(money(payload.balanceDueAed, payload.currencyCode))}</strong></div>` : ''}
+            ${totalsMarkup}
           </div>
         </div>
 
