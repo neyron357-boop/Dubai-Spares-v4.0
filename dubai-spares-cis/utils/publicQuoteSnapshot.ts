@@ -19,6 +19,8 @@ export type QuoteContact = {
 export type QuoteItem = {
   id: string;
   name: string;
+  kind: 'single' | 'group';
+  groupItems: Array<{ id: string; name: string; quantity: number }>;
   qty: number;
   unitPriceAed: number;
   totalAed: number;
@@ -142,16 +144,18 @@ const normalizeItems = (payload: Record<string, any>): QuoteItem[] => {
   const partItems = rawParts.map((part: any, index: number) => {
     const qty = normalizePartQuantity(part.qty ?? part.quantity ?? 1);
     const groupItems = normalizeGroupItems(part.group_items || part.groupItems || []);
-    const displayName = part.part_kind === 'group' && groupItems.length
-      ? `${part.name || 'Group'}: ${groupItems.map((item) => `${item.name} ×${item.quantity}`).join(', ')}`
-      : (part.name || `Part ${index + 1}`);
+    const kind = part.part_kind === 'group' || part.partKind === 'group' ? 'group' : 'single';
+    const displayName = part.name || (kind === 'group' ? 'Group' : `Part ${index + 1}`);
     const unitPriceAed = resolveClientUnitPriceAed(part, { markupPercent: 0 });
+    const totalAed = firstNumber(part.client_line_total_aed, part.clientLineTotalAed, part.line_total, part.lineTotal, unitPriceAed * qty);
     return {
       id: String(part.id || `part-${index}`),
       name: displayName,
+      kind,
+      groupItems,
       qty,
       unitPriceAed,
-      totalAed: unitPriceAed * qty,
+      totalAed,
       photos: asArray(part.photo_urls).filter(Boolean).length ? asArray(part.photo_urls).filter(Boolean) : asArray(part.photos).filter(Boolean),
       googleDriveVideoUrl: normalizeExternalMediaUrl(firstString(part.googleDriveVideoUrl, part.google_drive_video_url, part.driveVideoUrl, part.drive_video_url, part.videoUrl, part.video_url, part.mediaUrl, part.media_url)),
       note: firstString(part.note, part.comment),
@@ -167,6 +171,8 @@ const normalizeItems = (payload: Record<string, any>): QuoteItem[] => {
     return {
       id: String(item.id || `item-${index}`),
       name: firstString(item.name, item.title, item.label) || `Part ${index + 1}`,
+      kind: item.part_kind === 'group' || item.partKind === 'group' ? 'group' : 'single',
+      groupItems: normalizeGroupItems(item.group_items || item.groupItems || []),
       qty,
       unitPriceAed,
       totalAed: firstNumber(item.line_total, item.lineTotal, unitPriceAed * qty),

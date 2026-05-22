@@ -1,7 +1,9 @@
 import type { Order } from '../types';
 import type { AppSettings } from '../appSettings';
 import type { NormalizedPublicQuoteSnapshot } from './publicQuoteSnapshot';
-import { normalizePartQuantity } from './groupItems';
+import type { NormalizedGroupItem } from './groupItems';
+import { getPartDisplayName, normalizeGroupItems } from './groupItems';
+import { getPricedPartLines } from './quotePricing';
 
 const BLUE = '#1f3f5f';
 const YELLOW = '#b88a1d';
@@ -10,6 +12,7 @@ export type InvoiceItem = {
   id: string;
   title: string;
   subtitle?: string;
+  groupItems?: NormalizedGroupItem[];
   qty: number;
   unitPriceAed: number;
   totalAed: number;
@@ -94,28 +97,18 @@ const createInvoiceNumber = (seed: string, date: Date) => {
 };
 
 export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings, options?: { currency?: string; rate?: number; language?: 'en' | 'ru' }): InvoicePayload => {
-  const foundParts = order.parts.filter((part) => part.isFound && part.variants.length > 0);
-  const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
-  const fixedMarkupPerPart = isFixedMarkup && foundParts.length > 0
-    ? Number(order.markupFixedAed || 0) / foundParts.length
-    : 0;
-
-  const items = foundParts
-    .map((part, index) => {
-      const qty = normalizePartQuantity((part as any).quantity);
-      const variant = part.variants[0];
-      const basePriceAed = Number(variant?.salePriceAed ?? variant?.priceAed ?? 0);
-      const unitPriceAed = isFixedMarkup
-        ? basePriceAed + fixedMarkupPerPart
-        : basePriceAed * (1 + Number(order.markupPercent || 0) / 100);
+  const items = getPricedPartLines(order)
+    .map((line, index) => {
+      const { part } = line;
       const comment = String(part.comment || '').trim();
       return {
         id: String(part.id || index),
-        title: String(part.name || `Part ${index + 1}`),
+        title: getPartDisplayName(part, `Part ${index + 1}`),
         subtitle: comment || undefined,
-        qty,
-        unitPriceAed,
-        totalAed: unitPriceAed * qty,
+        groupItems: line.part.partKind === 'group' ? normalizeGroupItems(line.part.groupItems) : [],
+        qty: line.quantity,
+        unitPriceAed: line.clientUnitAed,
+        totalAed: line.clientLineTotalAed,
       };
     });
 
@@ -169,6 +162,7 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
     id: item.id,
     title: item.name,
     subtitle: item.note || item.status || undefined,
+    groupItems: item.groupItems || [],
     qty: item.qty,
     unitPriceAed: item.unitPriceAed,
     totalAed: item.totalAed,
@@ -212,6 +206,7 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
     <tr>
       <td>
         <div class="desc-main">${esc(item.title)}</div>
+        ${item.groupItems?.length ? `<div class="group-list">${item.groupItems.map((groupItem) => `<div><span>${esc(groupItem.name)}</span><strong>×${esc(groupItem.quantity)}</strong></div>`).join('')}</div>` : ''}
         ${item.subtitle ? `<div class="desc-sub">${esc(item.subtitle)}</div>` : ''}
       </td>
       <td class="num">${esc(item.qty)}</td>
@@ -282,6 +277,10 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
   tbody td.total-cell { font-weight: 700; }
   .desc-main { font-weight: 600; line-height: 1.2; }
   .desc-sub { font-size: 8px; margin-top: 1px; color: rgba(43, 100, 141, 0.76); line-height: 1.15; }
+  .group-list { margin-top: 3px; display: grid; gap: 1px; font-size: 8px; color: rgba(43, 100, 141, 0.82); }
+  .group-list div { display: flex; justify-content: space-between; gap: 6px; max-width: 100%; }
+  .group-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .group-list strong { white-space: nowrap; color: #0f172a; }
   .bottom-grid { align-items: flex-start; }
   .section-title { color: #0f172a; font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; margin: 0 0 5px; }
   .info-block { width: 54%; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px; background: #f8fafc; }
