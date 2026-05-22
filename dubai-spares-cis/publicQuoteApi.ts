@@ -24,6 +24,12 @@ export type PublicQuotePayloadV1 = {
     markup_fixed_aed?: number;
     markupPercent?: number;
     markup_percent?: number;
+    discountType?: string;
+    discount_type?: string;
+    discountFixedAed?: number;
+    discount_fixed_aed?: number;
+    discountPercent?: number;
+    discount_percent?: number;
     searchDepositAmount?: number;
     searchDepositCurrency?: string;
     searchDepositExchangeRate?: number;
@@ -47,6 +53,7 @@ export type PublicQuotePayloadV1 = {
     logistics_aed: number;
     packing_aed: number;
     commission_aed: number;
+    discount_aed?: number;
     grand_total_aed: number;
     deposit_aed?: number;
     balance_due_aed?: number;
@@ -60,6 +67,8 @@ export type PublicQuotePayloadV1 = {
     supplier_price_aed: number;
     client_price_aed: number;
     client_line_total_aed?: number;
+    gross_client_line_total_aed?: number;
+    discount_share_aed?: number;
     photo_urls: string[];
     googleDriveVideoUrl?: string;
     google_drive_video_url?: string;
@@ -84,6 +93,7 @@ export type PublicQuotePayloadV1 = {
     delivery: number;
     packaging: number;
     commission: number;
+    discount?: number;
     total: number;
     deposit?: number;
     balance_due?: number;
@@ -149,6 +159,7 @@ export type PublicQuotePayloadV1 = {
     unit_price: number;
     line_total: number;
     currency: string;
+    photo_urls?: string[];
     googleDriveVideoUrl?: string;
     google_drive_video_url?: string;
   }>;
@@ -385,12 +396,16 @@ const computeTotalsFromItems = (items: Array<Record<string, unknown>>, fees: { l
   };
 };
 
+const isStablePublicImageUrl = (photo: string) => (
+  /^https?:\/\//i.test(photo) || /^data:image\//i.test(photo)
+);
+
 const dedupePhotoUrls = (photos: Array<string | null | undefined>) => {
   const seen = new Set<string>();
   return photos
     .map((photo) => String(photo || '').trim())
     .filter((photo) => {
-      if (!photo || seen.has(photo)) return false;
+      if (!photo || seen.has(photo) || !isStablePublicImageUrl(photo)) return false;
       seen.add(photo);
       return true;
     });
@@ -417,17 +432,30 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
   ) || 0);
   const legacyParts = Array.isArray(payload.parts) ? payload.parts as Array<Record<string, unknown>> : [];
   const items = legacyParts.map((part, index) => {
-    const variants = Array.isArray(part.variants) ? part.variants as Array<Record<string, unknown>> : [];
-    const variant = variants[0] || {};
     const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
-    const unitPrice = resolveClientUnitPriceAed({ ...part, ...variant }, { markupPercent });
+    const unitPrice = parseMoney(
+      part.client_price_aed,
+      part.clientPriceAed,
+      part.unit_price,
+      part.unitPrice,
+      resolveClientUnitPriceAed(part, { markupPercent })
+    );
+    const lineTotal = round2(parseMoney(
+      part.client_line_total_aed,
+      part.clientLineTotalAed,
+      part.line_total,
+      part.lineTotal,
+      unitPrice * qty
+    ));
 
     return {
       id: String(part.id || `part-${index}`),
       name: String(part.name || 'Part'),
+      part_kind: part.part_kind,
+      group_items: Array.isArray(part.group_items) ? part.group_items : [],
       qty,
       unit_price: unitPrice,
-      line_total: round2(unitPrice * qty),
+      line_total: lineTotal,
       googleDriveVideoUrl: String(part.googleDriveVideoUrl || part.google_drive_video_url || ''),
       google_drive_video_url: String(part.google_drive_video_url || part.googleDriveVideoUrl || '')
     };
@@ -454,6 +482,7 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
   const logistics = parseMoney((payload.logistics as any)?.deliveryAed, (payload.fees as any)?.logistics, (payload.totals as any)?.logistics_aed);
   const commission = parseMoney((payload.logistics as any)?.serviceFeeAed, (payload.fees as any)?.commission, (payload.totals as any)?.commission_aed);
   const packaging = parseMoney((payload.logistics as any)?.packingAed, (payload.fees as any)?.packaging, (payload.totals as any)?.packing_aed);
+  const discount = parseMoney((payload.totals as any)?.discount_aed, (payload.breakdown as any)?.discount);
   const grandTotal = round2(partsTotal + logistics + commission + packaging);
 
   const contacts = payload.contacts && typeof payload.contacts === 'object'
@@ -505,6 +534,7 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
       logistics_aed: logistics,
       packing_aed: packaging,
       commission_aed: commission,
+      discount_aed: discount,
       grand_total_aed: grandTotal
     },
     contacts: {
@@ -535,13 +565,28 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
   ) || 0);
   const normalizedItemsFromParts = partRows.map((part, index) => {
     const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
-    const unitPrice = resolveClientUnitPriceAed(part, { markupPercent });
+    const unitPrice = parseMoney(
+      part.client_price_aed,
+      part.clientPriceAed,
+      part.unit_price,
+      part.unitPrice,
+      resolveClientUnitPriceAed(part, { markupPercent })
+    );
+    const lineTotal = round2(parseMoney(
+      part.client_line_total_aed,
+      part.clientLineTotalAed,
+      part.line_total,
+      part.lineTotal,
+      unitPrice * qty
+    ));
     return {
       id: String(part.id || `part-${index}`),
       name: String(part.name || 'Part'),
+      part_kind: part.part_kind,
+      group_items: Array.isArray(part.group_items) ? part.group_items : [],
       qty,
       unit_price: unitPrice,
-      line_total: round2(unitPrice * qty),
+      line_total: lineTotal,
       currency: 'AED',
       googleDriveVideoUrl: String(part.googleDriveVideoUrl || part.google_drive_video_url || ''),
       google_drive_video_url: String(part.google_drive_video_url || part.googleDriveVideoUrl || '')
@@ -565,6 +610,8 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
     });
   const computed = computeTotalsFromItems(normalizedItems as Array<Record<string, unknown>>, { logistics, packaging, commission });
   const existingTotals = basePayload.totals && typeof basePayload.totals === 'object' ? basePayload.totals as Record<string, unknown> : {};
+  const existingBreakdown = basePayload.breakdown && typeof basePayload.breakdown === 'object' ? basePayload.breakdown as Record<string, unknown> : {};
+  const discount = parseMoney(existingTotals.discount_aed, existingBreakdown.discount);
 
   const nextContacts = basePayload.contacts && typeof basePayload.contacts === 'object'
     ? basePayload.contacts as Record<string, unknown>
@@ -584,6 +631,7 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
       logistics_aed: parseMoney(existingTotals.logistics_aed, logistics),
       packing_aed: parseMoney(existingTotals.packing_aed, packaging),
       commission_aed: parseMoney(existingTotals.commission_aed, commission),
+      discount_aed: discount,
       grand_total: round2(computed.grandTotal),
       grand_total_aed: round2(computed.grandTotal)
     },
@@ -719,7 +767,11 @@ const trimPayloadForSize = (payload: PublicQuotePayloadV1): { payload: PublicQuo
     parts: payload.parts.map((part) => ({
       ...part,
       photo_urls: dedupePhotoUrls(part.photo_urls || []).slice(0, Math.max(0, maxPhotosPerPart))
-    }))
+    })),
+    items: payload.items?.map((item) => ({
+      ...item,
+      photo_urls: dedupePhotoUrls((item as any).photo_urls || []).slice(0, Math.max(0, maxPhotosPerPart))
+    })) as PublicQuotePayloadV1['items']
   });
 
   const payloadWithTwoPhotos = withPhotoLimit(2);
@@ -737,7 +789,8 @@ const trimPayloadForSize = (payload: PublicQuotePayloadV1): { payload: PublicQuo
     payload: {
       ...payload,
       order: { ...payload.order, photo_omitted_notice: 'Photos omitted to keep link fast' },
-      parts: payload.parts.map((part) => ({ ...part, photo_urls: [] }))
+      parts: payload.parts.map((part) => ({ ...part, photo_urls: [] })),
+      items: payload.items?.map((item) => ({ ...item, photo_urls: [] })) as PublicQuotePayloadV1['items']
     }
   };
 };
@@ -788,8 +841,10 @@ const buildSnapshotPayload = (
   const cargoContainerEtaDays = String(order.logistics?.cargoContainerEtaDays || '').trim();
   const additionalCostsUsd = order.logistics?.additionalCostsUsd || undefined;
 
-  const pricedParts = getPricedPartLines(order)
-    .map(({ part, variant, quantity, baseUnitAed, clientUnitAed, clientLineTotalAed }) => ({
+  const pricedPartLines = getPricedPartLines(order);
+  const discountAed = round2(pricedPartLines.reduce((sum, line) => sum + line.discountShareAed, 0));
+  const pricedParts = pricedPartLines
+    .map(({ part, variant, quantity, baseUnitAed, clientUnitAed, clientLineTotalAed, grossClientLineTotalAed, discountShareAed }) => ({
       id: String(part.id),
       name: String(part.name || 'Part'),
       comment: String(part.comment || ''),
@@ -803,7 +858,9 @@ const buildSnapshotPayload = (
       supplier_price_aed: baseUnitAed,
       client_price_aed: round2(clientUnitAed),
       client_line_total_aed: round2(clientLineTotalAed),
-      photo_urls: dedupePhotoUrls([part.photoUrl || '', ...(part.photos || []), variant?.photoUrl || '', ...(variant?.photos || [])]),
+      gross_client_line_total_aed: round2(grossClientLineTotalAed),
+      discount_share_aed: round2(discountShareAed),
+      photo_urls: dedupePhotoUrls([variant?.photoUrl || '', ...(variant?.photos || [])]),
       googleDriveVideoUrl: String((part as any).googleDriveVideoUrl || '').trim(),
       google_drive_video_url: String((part as any).googleDriveVideoUrl || '').trim(),
       weight_kg: parseMoney((part as any).weightKg),
@@ -894,6 +951,12 @@ const buildSnapshotPayload = (
       markup_fixed_aed: parseMoney(order.markupFixedAed) || 0,
       markupPercent: parseMoney(order.markupPercent) || 0,
       markup_percent: parseMoney(order.markupPercent) || 0,
+      discountType: order.discountType || 'percent',
+      discount_type: order.discountType || 'percent',
+      discountFixedAed: parseMoney(order.discountFixedAed) || 0,
+      discount_fixed_aed: parseMoney(order.discountFixedAed) || 0,
+      discountPercent: parseMoney(order.discountPercent) || 0,
+      discount_percent: parseMoney(order.discountPercent) || 0,
       searchDepositAmount: parseMoney((order as any).searchDepositAmount),
       searchDepositCurrency: String((order as any).searchDepositCurrency || ''),
       searchDepositExchangeRate: parseMoney((order as any).searchDepositExchangeRate),
@@ -917,6 +980,7 @@ const buildSnapshotPayload = (
       logistics_aed: deliveryAed,
       packing_aed: packingAed,
       commission_aed: commissionAed,
+      discount_aed: discountAed,
       grand_total_aed: grandTotalAed,
       deposit_aed: searchDepositAmountAed,
       balance_due_aed: balanceDueAed
@@ -926,6 +990,7 @@ const buildSnapshotPayload = (
       delivery: deliveryAed,
       packaging: packingAed,
       commission: commissionAed,
+      discount: discountAed,
       total: grandTotalAed,
       deposit: searchDepositAmountAed,
       balance_due: balanceDueAed,

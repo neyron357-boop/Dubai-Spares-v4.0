@@ -172,7 +172,7 @@ const getVariantBaseMarginAed = (variant: Pick<PriceVariant, 'purchasePriceAed' 
   return sale - purchase;
 };
 
-const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | 'markupType' | 'markupFixedAed' | 'exchangeRate'>): number => {
+const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | 'markupType' | 'markupFixedAed' | 'discountPercent' | 'discountType' | 'discountFixedAed' | 'exchangeRate'>): number => {
   let totalSaleAed = 0;
   let totalBaseMarginAed = 0;
   (order.parts || []).forEach((part) => {
@@ -186,7 +186,11 @@ const estimateOrderProfitUsd = (order: Pick<Order, 'parts' | 'markupPercent' | '
   const markupAed = (order.markupType || 'percent') === 'fixed'
     ? Number(order.markupFixedAed || 0)
     : totalSaleAed * (Number(order.markupPercent || 0) / 100);
-  return (totalBaseMarginAed + markupAed) / (Number(order.exchangeRate || 0) || 3.67);
+  const grossClientTotalAed = totalSaleAed + markupAed;
+  const discountAed = (order.discountType || 'percent') === 'fixed'
+    ? Number(order.discountFixedAed || 0)
+    : grossClientTotalAed * (Number(order.discountPercent || 0) / 100);
+  return (totalBaseMarginAed + markupAed - Math.max(0, discountAed)) / (Number(order.exchangeRate || 0) || 3.67);
 };
 
 const normalizeLogistics = (raw: unknown, row?: Record<string, unknown>): Order['logistics'] | undefined => {
@@ -320,6 +324,9 @@ const normalizeOrder = (order: Order): Order => {
     googleDriveFolderUrl: typeof order.googleDriveFolderUrl === 'string' ? order.googleDriveFolderUrl.trim() : '',
     bodyType: order.bodyType || '',
     parts,
+    discountType: order.discountType === 'fixed' ? 'fixed' : 'percent',
+    discountPercent: Number.isFinite(Number(order.discountPercent)) ? Number(order.discountPercent) : 0,
+    discountFixedAed: Number.isFinite(Number(order.discountFixedAed)) ? Number(order.discountFixedAed) : 0,
     updatedAt: order.updatedAt ?? order.createdAt ?? Date.now(),
     recommendedShopIds: Array.isArray(order.recommendedShopIds) ? order.recommendedShopIds : [],
     dismissedShopIds: Array.isArray(order.dismissedShopIds) ? order.dismissedShopIds : [],
@@ -608,6 +615,9 @@ const hotFieldKeys: Array<keyof Order> = [
   'markupPercent',
   'markupType',
   'markupFixedAed',
+  'discountType',
+  'discountPercent',
+  'discountFixedAed',
   'exchangeRate',
   'clientCurrency',
   'fxUpdatedAt',
@@ -1199,6 +1209,9 @@ const mapDbOrder = (row: DbOrderGraphRow): Order => ({
     markupType: row.markup_type || 'percent',
     markupFixedAed: Number(row.markup_fixed_aed || 0),
     useMarkupAsDefaultForNewParts: !!row.use_markup_as_default_for_new_parts,
+    discountType: (row as any).discount_type === 'fixed' ? 'fixed' : 'percent',
+    discountPercent: Number((row as any).discount_percent || 0),
+    discountFixedAed: Number((row as any).discount_fixed_aed || 0),
     clientCurrency: row.client_currency || 'USD',
     fxUpdatedAt: Number.isFinite(Number(row.fx_updated_at)) ? Number(row.fx_updated_at) : undefined,
     logistics: normalizeLogistics(row.logistics, row as unknown as Record<string, unknown>),
@@ -1386,6 +1399,9 @@ const persistOrderGraph = async (order: Order) => {
     markup_type: uploadedOrder.markupType || 'percent',
     markup_fixed_aed: Number(uploadedOrder.markupFixedAed || 0),
     use_markup_as_default_for_new_parts: !!uploadedOrder.useMarkupAsDefaultForNewParts,
+    discount_type: uploadedOrder.discountType || 'percent',
+    discount_percent: Number(uploadedOrder.discountPercent || 0),
+    discount_fixed_aed: Number(uploadedOrder.discountFixedAed || 0),
     client_currency: uploadedOrder.clientCurrency || 'USD',
     fx_updated_at: uploadedOrder.fxUpdatedAt ? toIsoTimestamp(uploadedOrder.fxUpdatedAt) : null,
     logistics: uploadedOrder.logistics || null,
@@ -1470,6 +1486,9 @@ const persistOrderGraph = async (order: Order) => {
       'lead_read_at',
       'markup_type',
       'markup_fixed_aed',
+      'discount_type',
+      'discount_percent',
+      'discount_fixed_aed',
       'use_markup_as_default_for_new_parts',
       'client_currency',
       'fx_updated_at',
@@ -1691,6 +1710,9 @@ const hasCriticalFinancialPatch = (patch: Partial<Order>) => {
     patch.markupPercent !== undefined
     || patch.markupType !== undefined
     || patch.markupFixedAed !== undefined
+    || patch.discountType !== undefined
+    || patch.discountPercent !== undefined
+    || patch.discountFixedAed !== undefined
     || patch.logistics !== undefined
     || patch.pricingEvents !== undefined
   );
@@ -1759,6 +1781,9 @@ const toOrderPatchPayload = (patch: Partial<Order>) => ({
   markup_percent: patch.markupPercent,
   markup_type: patch.markupType,
   markup_fixed_aed: patch.markupFixedAed,
+  discount_type: patch.discountType,
+  discount_percent: patch.discountPercent,
+  discount_fixed_aed: patch.discountFixedAed,
   exchange_rate: patch.exchangeRate,
   client_currency: patch.clientCurrency,
   fx_updated_at: patch.fxUpdatedAt ? toIsoTimestamp(patch.fxUpdatedAt) : undefined,

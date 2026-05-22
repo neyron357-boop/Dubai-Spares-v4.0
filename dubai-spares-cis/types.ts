@@ -184,6 +184,9 @@ export interface Order {
   markupType?: 'percent' | 'fixed';
   markupFixedAed?: number;
   useMarkupAsDefaultForNewParts?: boolean;
+  discountType?: 'percent' | 'fixed';
+  discountPercent?: number;
+  discountFixedAed?: number;
   clientCurrency?: 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS';
   fxUpdatedAt?: number;
   logistics?: OrderLogistics;
@@ -295,6 +298,9 @@ export type PricingFieldKey =
   | 'markupType'
   | 'markupPercent'
   | 'markupFixedAed'
+  | 'discountType'
+  | 'discountPercent'
+  | 'discountFixedAed'
   | 'exchangeRate'
   | 'clientCurrency'
   | 'logistics.deliveryType'
@@ -499,6 +505,9 @@ export interface DbOrderRow {
   markup_type?: 'percent' | 'fixed';
   markup_fixed_aed?: number;
   use_markup_as_default_for_new_parts?: boolean;
+  discount_type?: 'percent' | 'fixed';
+  discount_percent?: number;
+  discount_fixed_aed?: number;
   client_currency?: 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS';
   fx_updated_at?: number | string | null;
   logistics?: OrderLogistics;
