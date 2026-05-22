@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Order } from '../types';
 import { X, Share2, RefreshCcw, Images, CheckCircle2, FileText, ChevronDown } from 'lucide-react';
 import { copyToClipboard, DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
@@ -62,7 +62,7 @@ const buildRatesFromOrder = (order: Order): QuoteRates => {
 const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const foundParts = order.parts.filter(p => p.isFound && p.variants.length > 0);
   const [rates, setRates] = useState<QuoteRates>(() => buildRatesFromOrder(order));
-  const [currency, setCurrency] = useState<QuoteCurrency>('USD');
+  const [currency, setCurrency] = useState<QuoteCurrency>((order.clientCurrency || 'AED') as QuoteCurrency);
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
   const [rateNotice, setRateNotice] = useState('');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
@@ -72,8 +72,13 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const { settings } = useAppSettings();
 
+  useEffect(() => {
+    setCurrency((order.clientCurrency || 'AED') as QuoteCurrency);
+  }, [order.clientCurrency, order.id]);
+
   const pricedPartLines = useMemo(() => getPricedPartLines(order), [order]);
   const totalAed = pricedPartLines.reduce((sum, line) => sum + line.clientLineTotalAed, 0);
+  const discountAed = pricedPartLines.reduce((sum, line) => sum + line.discountShareAed, 0);
 
   const logistics = {
     deliveryAed: Number(order.logistics?.deliveryAed || 0),
@@ -89,10 +94,7 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const previewParts = useMemo(
     () => pricedPartLines.map((line) => {
       const { part, variant, quantity: qty } = line;
-      const variantWithPhoto = part.variants.find((item) => [item.photoUrl || '', ...(item.photos || [])].some(Boolean)) || variant;
-      const variantPhotos = [variantWithPhoto?.photoUrl || '', ...(variantWithPhoto?.photos || [])].filter(Boolean);
-      const partPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean);
-      const photos = Array.from(new Set((variantPhotos.length > 0 ? variantPhotos : partPhotos) as string[]));
+      const photos = Array.from(new Set([variant?.photoUrl || '', ...(variant?.photos || [])].filter(Boolean) as string[]));
       return {
         part,
         qty,
@@ -258,6 +260,12 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
                 <div className="flex items-center justify-between">
                   <span className="text-slate-600">Комиссия</span>
                   <span className="font-semibold text-slate-700">{(logistics.serviceFeeAed * rates[currency]).toFixed(2)} {currency}</span>
+                </div>
+              )}
+              {discountAed > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600">Скидка учтена</span>
+                  <span className="font-semibold text-emerald-700">-{(discountAed * rates[currency]).toFixed(2)} {currency}</span>
                 </div>
               )}
               <div className="flex items-center justify-between border-t border-slate-100 pt-2 mt-1">
