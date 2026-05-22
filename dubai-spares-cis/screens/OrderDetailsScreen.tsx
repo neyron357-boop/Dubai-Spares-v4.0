@@ -524,6 +524,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [depositRateInput, setDepositRateInput] = useState('1');
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
+  const [discountFixedInput, setDiscountFixedInput] = useState(order?.discountFixedAed?.toString() || '0');
   const [orderMediaFolderDraft, setOrderMediaFolderDraft] = useState(order?.googleDriveFolderUrl || '');
   const [showCustomerLogs, setShowCustomerLogs] = useState(false);
   const [customerLogs, setCustomerLogs] = useState(() => getOrderCustomerLogs(order?.id || ''));
@@ -536,6 +537,7 @@ const OrderDetailsScreen: React.FC = () => {
   const pricingSaveDebounceRef = useRef<number | null>(null);
   const pricingAutoSaveTimerRef = useRef<number | null>(null);
   const markupCommitTimerRef = useRef<number | null>(null);
+  const discountCommitTimerRef = useRef<number | null>(null);
   const exchangeRateCommitTimerRef = useRef<number | null>(null);
   const deferredFieldTimersRef = useRef<Partial<Record<keyof Order, number>>>({});
   const deferredFieldValuesRef = useRef<Partial<Record<keyof Order, any>>>({});
@@ -558,6 +560,10 @@ const OrderDetailsScreen: React.FC = () => {
   useEffect(() => {
     setMarkupFixedInput((order?.markupFixedAed || 0).toString());
   }, [order?.id, order?.markupFixedAed]);
+
+  useEffect(() => {
+    setDiscountFixedInput((order?.discountFixedAed || 0).toString());
+  }, [order?.id, order?.discountFixedAed]);
 
   useEffect(() => {
     if (orderMissing) return;
@@ -613,6 +619,11 @@ const OrderDetailsScreen: React.FC = () => {
     if (markupCommitTimerRef.current) {
       window.clearTimeout(markupCommitTimerRef.current);
       markupCommitTimerRef.current = null;
+    }
+
+    if (discountCommitTimerRef.current) {
+      window.clearTimeout(discountCommitTimerRef.current);
+      discountCommitTimerRef.current = null;
     }
 
     if (exchangeRateCommitTimerRef.current) {
@@ -830,6 +841,9 @@ const OrderDetailsScreen: React.FC = () => {
           cargoContainerCostUsd: hasPartCargoData ? draftEstimates.container.totalCostUsd : (draftLogistics.cargoContainerCostUsd ?? draftEstimates.container.totalCostUsd)
         },
         markupFixedAed: Number(markupFixedInput || order.markupFixedAed || 0),
+        discountType,
+        discountPercent: effectiveDiscountPercent,
+        discountFixedAed: Number(discountFixedInput || order.discountFixedAed || 0),
         exchangeRate: quoteExchangeRate
       };
 
@@ -985,15 +999,24 @@ const OrderDetailsScreen: React.FC = () => {
   const cargoTariffOptions = (settings.cargoTariffs?.length ? settings.cargoTariffs : DEFAULT_CARGO_TARIFFS);
   const markupType = order.markupType || 'percent';
   const effectiveMarkupPercent = Number(draftFields.markupPercent ?? order.markupPercent ?? 0);
-  const markupAed = useMemo(() => (markupType === 'fixed'
-    ? Number(markupFixedInput || 0)
-    : selectedOfferTotal * (effectiveMarkupPercent / 100)), [markupType, markupFixedInput, selectedOfferTotal, effectiveMarkupPercent]);
-  const sellTotalAed = selectedOfferTotal + logisticsWithCargoTotal + markupAed;
+  const discountType = order.discountType || 'percent';
+  const effectiveDiscountPercent = Number(draftFields.discountPercent ?? order.discountPercent ?? 0);
+  const pricedPartLines = useMemo(() => getPricedPartLines({
+    ...order,
+    markupPercent: effectiveMarkupPercent,
+    markupFixedAed: markupType === 'fixed' ? Number(markupFixedInput || 0) : order.markupFixedAed,
+    discountPercent: effectiveDiscountPercent,
+    discountFixedAed: discountType === 'fixed' ? Number(discountFixedInput || 0) : order.discountFixedAed
+  }), [discountFixedInput, discountType, effectiveDiscountPercent, effectiveMarkupPercent, markupFixedInput, markupType, order]);
+  const markupAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.markupShareAed, 0), [pricedPartLines]);
+  const discountAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.discountShareAed, 0), [pricedPartLines]);
+  const sellPartsTotalAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.clientLineTotalAed, 0), [pricedPartLines]);
+  const sellTotalAed = sellPartsTotalAed + logisticsWithCargoTotal;
   const depositAmountAed = Math.max(0, Number(order.searchDepositAmountAed || 0));
   const balanceDueAed = Math.max(0, sellTotalAed - depositAmountAed);
   const canComputeProfit = selectedOfferTotal > 0;
   const baseMarginAed = canComputeProfit ? selectedOfferTotals.sale - selectedOfferTotals.purchase : 0;
-  const netProfitAed = canComputeProfit ? baseMarginAed + markupAed : null;
+  const netProfitAed = canComputeProfit ? baseMarginAed + markupAed - discountAed : null;
   const marginPercent = canComputeProfit && netProfitAed !== null && sellTotalAed > 0 ? (netProfitAed / sellTotalAed) * 100 : null;
   const isMarkupMissing = canComputeProfit && markupAed <= 0;
   const lowMargin = canComputeProfit && selectedOfferTotal > 0 && markupAed > 0 && markupAed / selectedOfferTotal < 0.03;
@@ -1006,8 +1029,9 @@ const OrderDetailsScreen: React.FC = () => {
       packingAed: logistics.packingAed,
       serviceFeeAed: logistics.serviceFeeAed
     },
-    markupFixedAed: (order.markupType || 'percent') === 'fixed' ? Number(markupFixedInput || 0) : order.markupFixedAed
-  }), [logistics.deliveryAed, logistics.packingAed, logistics.serviceFeeAed, markupFixedInput, order]);
+    markupFixedAed: (order.markupType || 'percent') === 'fixed' ? Number(markupFixedInput || 0) : order.markupFixedAed,
+    discountFixedAed: (order.discountType || 'percent') === 'fixed' ? Number(discountFixedInput || 0) : order.discountFixedAed
+  }), [discountFixedInput, logistics.deliveryAed, logistics.packingAed, logistics.serviceFeeAed, markupFixedInput, order]);
   const fullPrepaymentPaid = order.paymentStatus === 'full_prepayment_paid' || order.salesStatus === 'Paid';
   const safetyProgressText = `${safetySummary.readiness.completed}/${safetySummary.readiness.total}`;
 
@@ -1290,6 +1314,10 @@ const OrderDetailsScreen: React.FC = () => {
       clientCurrency: 'Валюта клиента'
     };
 
+    trackedFieldLabels.discountPercent = 'Скидка %';
+    trackedFieldLabels.discountType = 'Тип скидки';
+    trackedFieldLabels.discountFixedAed = 'Скидка (фикс AED)';
+
     const trackedLabel = trackedFieldLabels[field];
     const event = trackedLabel
       ? createPricingEvent(field as OrderPricingEvent['field'], trackedLabel, currentOrder[field], value)
@@ -1320,7 +1348,7 @@ const OrderDetailsScreen: React.FC = () => {
   const updateOrderField = (field: keyof Order, value: any) => {
     const keyStart = performance.now();
     const shouldDebounce = (typeof value === 'string' || typeof value === 'number')
-      && !['markupPercent', 'markupType', 'markupFixedAed', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType', 'socialNickname'].includes(String(field));
+      && !['markupPercent', 'markupType', 'markupFixedAed', 'discountPercent', 'discountType', 'discountFixedAed', 'clientCurrency', 'salesStatus', 'priority', 'deliveryType', 'socialNickname'].includes(String(field));
 
     if (!shouldDebounce) {
       commitDeferredOrderField(field, value);
@@ -1379,6 +1407,14 @@ const OrderDetailsScreen: React.FC = () => {
   const getDepositRate = useCallback((currency: NonNullable<Order['searchDepositCurrency']>) => (
     currency === 'AED' ? 1 : 1 / Number(rateByCurrency[currency] || 1)
   ), [rateByCurrency]);
+
+  useEffect(() => {
+    if (orderMissing) return;
+    const currency = order.searchDepositCurrency || order.clientCurrency || 'AED';
+    setDepositCurrencyInput(currency);
+    setDepositAmountInput(order.searchDepositAmount ? String(order.searchDepositAmount) : '');
+    setDepositRateInput(String(order.searchDepositExchangeRate || getDepositRate(currency)));
+  }, [getDepositRate, order.clientCurrency, order.id, order.searchDepositAmount, order.searchDepositCurrency, order.searchDepositExchangeRate, order.searchDepositPaidAt, orderMissing]);
 
   const confirmDeposit = useCallback(() => {
     const currency = order.searchDepositCurrency || order.clientCurrency || 'AED';
@@ -1745,6 +1781,35 @@ const OrderDetailsScreen: React.FC = () => {
     if (markupCommitTimerRef.current) {
       window.clearTimeout(markupCommitTimerRef.current);
       markupCommitTimerRef.current = null;
+    }
+    syncPerf.recordTypingSample(Math.round((performance.now() - startedAt) * 100) / 100);
+  };
+
+  const commitDiscountFixed = useCallback((forcedValue?: number) => {
+    const nextValue = forcedValue ?? Number(discountFixedInput || 0);
+    const previousValue = Number(order.discountFixedAed || 0);
+    const previousType = order.discountType || 'percent';
+    if (nextValue === previousValue && previousType === 'fixed') return;
+
+    const amountEvent = createPricingEvent('discountFixedAed', 'Скидка (фикс AED)', previousValue, nextValue);
+    const typeEvent = createPricingEvent('discountType', 'Тип скидки', previousType, 'fixed');
+    const nextEvents = [amountEvent, typeEvent].filter(Boolean) as OrderPricingEvent[];
+    updateOrder({ ...order, discountFixedAed: nextValue, discountType: 'fixed', pricingEvents: nextEvents.length ? [...nextEvents, ...(order.pricingEvents || [])] : order.pricingEvents });
+    scheduleDebouncedSaveLog();
+  }, [discountFixedInput, order, scheduleDebouncedSaveLog, updateOrder]);
+
+  const flushDiscountCommit = useCallback(() => {
+    if (discountCommitTimerRef.current) window.clearTimeout(discountCommitTimerRef.current);
+    commitDiscountFixed();
+    discountCommitTimerRef.current = null;
+  }, [commitDiscountFixed]);
+
+  const handleDiscountFixedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const startedAt = performance.now();
+    setDiscountFixedInput(sanitizeNumericInput(e.target.value));
+    if (discountCommitTimerRef.current) {
+      window.clearTimeout(discountCommitTimerRef.current);
+      discountCommitTimerRef.current = null;
     }
     syncPerf.recordTypingSample(Math.round((performance.now() - startedAt) * 100) / 100);
   };
@@ -2528,6 +2593,7 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const MARKUP_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
+  const DISCOUNT_OPTIONS = [0, 3, 5, 7, 10, 15, 20];
 
   const launchRadarSession = async () => {
     if (!FEATURE_RADAR_V2 || isLaunchingRadar) return;
@@ -2777,11 +2843,7 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const buildShortQuoteText = () => {
-    const pricedLines = getPricedPartLines({
-      ...order,
-      markupPercent: effectiveMarkupPercent,
-      markupFixedAed: markupType === 'fixed' ? Number(markupFixedInput || 0) : order.markupFixedAed
-    })
+    const pricedLines = pricedPartLines
       .flatMap((line, index) => {
         const groupItems = normalizeGroupItems(line.part.groupItems);
         const title = `${index + 1}. ${getPartDisplayName(line.part)} x${line.quantity}: ${formatMoney(line.clientLineTotalAed, clientCurrency)}`;
@@ -2798,6 +2860,7 @@ const OrderDetailsScreen: React.FC = () => {
       [order.brand, order.model, order.year].filter(Boolean).join(' ').trim(),
       order.vin ? `VIN: ${order.vin}` : '',
       ...pricedLines,
+      discountAed > 0 ? `Скидка учтена в ценах: -${formatMoney(discountAed, clientCurrency)}` : '',
       ...(serviceLines.length > 0 ? ['Услуги:', ...serviceLines] : []),
       `Итого: ${formatMoney(sellTotalAed, clientCurrency)}`,
       depositAmountAed > 0 ? `Депозит: -${formatMoney(depositAmountAed, clientCurrency)}` : '',
@@ -2815,7 +2878,7 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   return (
-      <div className="min-h-full bg-[linear-gradient(to_bottom,#07080A_0,#07080A_560px,#F4F1EA_560px,#F4F1EA_100%)] pb-[calc(4rem+env(safe-area-inset-bottom))] pt-[58px] text-white">
+      <div className="min-h-full bg-[linear-gradient(to_bottom,#07080A_0,#07080A_260px,#F4F1EA_260px,#F4F1EA_100%)] pb-[calc(4rem+env(safe-area-inset-bottom))] pt-[58px] text-white">
         <div className="fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 border-b border-white/10 bg-[#08090B]/92 px-3 py-2 backdrop-blur-xl">
           <div className="flex h-10 items-center justify-between gap-2">
             <button type="button" onClick={handleBackNavigation} className="ds-press flex h-10 w-10 items-center justify-center rounded-full text-white/[0.78] active:bg-white/10" aria-label="Назад">
@@ -2846,10 +2909,10 @@ const OrderDetailsScreen: React.FC = () => {
           </div>
         </div>
 
-        <section ref={detailsScreenSectionRef} className="px-3 pb-4 pt-3">
-          <div className="ds-deep-surface relative overflow-hidden rounded-[32px] bg-[#111318]">
-            <div className="absolute inset-x-10 top-8 h-32 rounded-full bg-amber-300/10 blur-3xl" />
-            <div className="relative min-h-[300px]">
+        <section ref={detailsScreenSectionRef} className="px-3 pb-3 pt-2">
+          <div className="ds-deep-surface relative overflow-hidden rounded-[24px] bg-[#111318]">
+            <div className="absolute inset-x-10 top-5 h-20 rounded-full bg-amber-300/10 blur-3xl" />
+            <div className="relative min-h-[118px]">
               {heroPhoto ? (
                 <button
                   type="button"
@@ -2870,16 +2933,16 @@ const OrderDetailsScreen: React.FC = () => {
                   aria-label="Добавить фото автомобиля"
                 >
                   <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_32%,rgba(245,158,11,0.15),transparent_36%)]" />
-                  <div className="absolute bottom-11 left-7 h-20 w-[80%] rounded-[999px] border border-white/10 bg-white/[0.025] shadow-[inset_0_0_34px_rgba(255,255,255,0.04)]" />
-                  <div className="absolute bottom-[88px] left-12 h-px w-[62%] bg-gradient-to-r from-transparent via-white/[0.18] to-transparent" />
-                  <div className="absolute right-8 top-24 flex h-36 w-36 items-center justify-center rounded-full border border-white/10 bg-white/[0.02] text-7xl font-black text-white/[0.075]">
+                  <div className="absolute bottom-5 left-7 h-12 w-[76%] rounded-[999px] border border-white/10 bg-white/[0.025] shadow-[inset_0_0_26px_rgba(255,255,255,0.04)]" />
+                  <div className="absolute bottom-[72px] left-12 h-px w-[62%] bg-gradient-to-r from-transparent via-white/[0.18] to-transparent" />
+                  <div className="absolute right-6 top-7 flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/[0.02] text-4xl font-black text-white/[0.075]">
                     {order.brand?.[0] || '?'}
                   </div>
                 </button>
               )}
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#08090B] via-[#08090B]/[0.42] to-black/[0.12]" />
               <div
-                className="relative flex min-h-[300px] flex-col justify-between p-5"
+                className="relative flex min-h-[118px] flex-col justify-between p-3"
                 onClick={(event) => {
                   if ((event.target as HTMLElement).closest('button,input,textarea,select,a')) return;
                   const photos = getCarPhotos();
@@ -2887,40 +2950,25 @@ const OrderDetailsScreen: React.FC = () => {
                 }}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-black/[0.28] px-3 py-2 text-[11px] font-semibold text-white/70 ring-1 ring-white/10 backdrop-blur">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-black/[0.28] px-2.5 py-1.5 text-[10px] font-semibold text-white/70 ring-1 ring-white/10 backdrop-blur">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-300 shadow-[0_0_16px_rgba(252,211,77,0.8)]" />
                     Живой заказ
                   </div>
-                  <button type="button" onClick={() => carFileRef.current?.click()} className="ds-press inline-flex h-10 items-center gap-2 rounded-full bg-white/10 px-3 text-[11px] font-black text-white ring-1 ring-white/[0.12] backdrop-blur">
+                  <button type="button" onClick={() => carFileRef.current?.click()} className="ds-press inline-flex h-8 items-center gap-1.5 rounded-full bg-white/10 px-2.5 text-[10px] font-black text-white ring-1 ring-white/[0.12] backdrop-blur">
                     {heroPhoto ? <Camera size={14} /> : <Upload size={14} />}
                     {heroPhoto ? `${heroPhotoCount} фото` : 'Добавить фото'}
                   </button>
                   <input type="file" ref={carFileRef} onChange={handleCarPhotoChange} className="hidden" accept="image/*" multiple />
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-2">
                   <div>
-                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                       <span className="rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-black text-white ring-1 ring-white/10">{stageCopy.label}</span>
                       <span className={`rounded-full px-3 py-1.5 text-[11px] font-black ring-1 ${paymentCopy.tone}`}>{paymentCopy.label}</span>
                     </div>
-                    <h1 className="max-w-[16rem] text-[30px] font-black leading-[0.94] tracking-normal text-white">{heroCarName}</h1>
-                    <p className="mt-3 max-w-[18rem] truncate text-[12px] font-semibold tracking-[0.08em] text-white/[0.62]">VIN {order.vin || 'not set'}</p>
-                  </div>
-
-                  <div className="rounded-[22px] border border-white/10 bg-black/[0.28] p-3 backdrop-blur-xl">
-                    <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-white/[0.12]">
-                      <div className="h-full rounded-full bg-gradient-to-r from-amber-300 via-white to-emerald-300 transition-all duration-500" style={{ width: `${stageProgress}%` }} />
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-semibold leading-5 text-white/[0.62]">{nextActionCopy.helper}</p>
-                      </div>
-                      <button type="button" onClick={heroPrimaryAction.onClick} className="ds-press inline-flex h-12 shrink-0 items-center gap-2 rounded-[20px] bg-[#F7F3EA] px-4 text-[12px] font-black text-[#101114] shadow-[inset_0_1px_0_rgba(255,255,255,0.86),0_14px_28px_rgba(0,0,0,0.26)]">
-                        {nextActionCopy.label}
-                        <ChevronRight size={15} />
-                      </button>
-                    </div>
+                    <h1 className="max-w-[16rem] truncate text-[22px] font-black leading-none tracking-normal text-white">{heroCarName}</h1>
+                    <p className="mt-1 max-w-[18rem] truncate text-[11px] font-semibold tracking-[0.08em] text-white/[0.62]">VIN {order.vin || 'not set'}</p>
                   </div>
                 </div>
               </div>
@@ -3279,6 +3327,44 @@ const OrderDetailsScreen: React.FC = () => {
                     </div>
                     {depositAmountAed > 0 && <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">Депозит учтён: -{formatMoney(depositAmountAed)}</p>}
                   </div>
+                )}
+              </section>
+
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Валюта клиента</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-500">{formatMoney(balanceDueAed, clientCurrency)} для сметы и invoice</p>
+                  </div>
+                  <select
+                    value={clientCurrency}
+                    onChange={(event) => updateOrderField('clientCurrency', event.target.value as Order['clientCurrency'])}
+                    className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black text-stone-950 outline-none"
+                  >
+                    {(['AED', 'USD', 'RUB', 'TJS', 'KZT', 'UZS'] as const).map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                  </select>
+                </div>
+              </section>
+
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Скидка</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-500">{discountAed > 0 ? `-${formatDualMoney(discountAed)}` : 'Без скидки'}</p>
+                  </div>
+                  <div className="inline-flex rounded-full bg-stone-100 p-1">
+                    <button type="button" onClick={() => updateOrderField('discountType', 'percent')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${discountType === 'percent' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>%</button>
+                    <button type="button" onClick={() => updateOrderField('discountType', 'fixed')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${discountType === 'fixed' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>AED</button>
+                  </div>
+                </div>
+                {discountType === 'percent' ? (
+                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                    {DISCOUNT_OPTIONS.map((option) => (
+                      <button key={option} type="button" onClick={() => updateOrderField('discountPercent', Number(option))} className={`ds-press h-11 shrink-0 rounded-2xl px-4 text-xs font-black ${Number(draftFields.discountPercent ?? order.discountPercent ?? 0) === option ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-500'}`}>{option}%</button>
+                    ))}
+                  </div>
+                ) : (
+                  <input type="text" inputMode="numeric" pattern="[0-9]*" value={discountFixedInput} onFocus={() => { if (discountFixedInput === '0') setDiscountFixedInput(''); }} onBlur={() => { if (!discountFixedInput) setDiscountFixedInput('0'); flushDiscountCommit(); }} onChange={handleDiscountFixedChange} placeholder="Discount AED" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
                 )}
               </section>
 
@@ -3815,6 +3901,8 @@ const OrderDetailsScreen: React.FC = () => {
                             <input
                               type="text"
                               inputMode="numeric"
+                              pattern="[0-9]*"
+                              autoComplete="off"
                               value={variant && salePrice > 0 ? String(salePrice) : ''}
                               disabled={!variant}
                               onChange={(event) => updatePartSalePrice(part.id, event.target.value)}
@@ -3852,12 +3940,50 @@ const OrderDetailsScreen: React.FC = () => {
                     ))}
                   </div>
                 ) : (
-                  <input type="text" inputMode="numeric" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onBlur={() => { if (!markupFixedInput) setMarkupFixedInput('0'); flushMarkupCommit(); }} onChange={handleMarkupFixedChange} placeholder="Markup AED" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
+                  <input type="text" inputMode="numeric" pattern="[0-9]*" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onBlur={() => { if (!markupFixedInput) setMarkupFixedInput('0'); flushMarkupCommit(); }} onChange={handleMarkupFixedChange} placeholder="Markup AED" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
                 )}
                 <label className="flex items-center gap-2 text-xs font-bold text-stone-500">
                   <input type="checkbox" checked={!!order.useMarkupAsDefaultForNewParts} onChange={(event) => updateOrderField('useMarkupAsDefaultForNewParts', event.target.checked)} />
                   Использовать эту маржу для новых деталей
                 </label>
+              </section>
+
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Валюта клиента</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-500">Смета, текстовая смета и invoice</p>
+                  </div>
+                  <select
+                    value={clientCurrency}
+                    onChange={(event) => updateOrderField('clientCurrency', event.target.value as Order['clientCurrency'])}
+                    className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black text-stone-950 outline-none"
+                  >
+                    {(['AED', 'USD', 'RUB', 'TJS', 'KZT', 'UZS'] as const).map((currency) => <option key={`finance-currency-${currency}`} value={currency}>{currency}</option>)}
+                  </select>
+                </div>
+              </section>
+
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Скидка</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-500">{discountAed > 0 ? `-${formatDualMoney(discountAed)}` : 'Без скидки'}</p>
+                  </div>
+                  <div className="inline-flex rounded-full bg-stone-100 p-1">
+                    <button type="button" onClick={() => updateOrderField('discountType', 'percent')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${discountType === 'percent' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>%</button>
+                    <button type="button" onClick={() => updateOrderField('discountType', 'fixed')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${discountType === 'fixed' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>AED</button>
+                  </div>
+                </div>
+                {discountType === 'percent' ? (
+                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                    {DISCOUNT_OPTIONS.map((option) => (
+                      <button key={`finance-discount-${option}`} type="button" onClick={() => updateOrderField('discountPercent', Number(option))} className={`ds-press h-11 shrink-0 rounded-2xl px-4 text-xs font-black ${Number(draftFields.discountPercent ?? order.discountPercent ?? 0) === option ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-500'}`}>{option}%</button>
+                    ))}
+                  </div>
+                ) : (
+                  <input type="text" inputMode="numeric" pattern="[0-9]*" value={discountFixedInput} onFocus={() => { if (discountFixedInput === '0') setDiscountFixedInput(''); }} onBlur={() => { if (!discountFixedInput) setDiscountFixedInput('0'); flushDiscountCommit(); }} onChange={handleDiscountFixedChange} placeholder="Discount AED" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
+                )}
               </section>
 
               <section className="ds-surface space-y-3 rounded-[26px] p-4">
@@ -3873,11 +3999,47 @@ const OrderDetailsScreen: React.FC = () => {
                   ] as const).map(({ field, label }) => (
                     <label key={field} className="space-y-1">
                       <span className="text-[10px] font-black text-stone-400">{label}</span>
-                      <input type="text" inputMode="numeric" value={logisticsDraft[field]} onFocus={() => { if (logisticsDraft[field] === '0') onLogisticsDraftChange(field, ''); }} onBlur={() => { if (!logisticsDraft[field]) onLogisticsDraftChange(field, '0'); }} onChange={(event) => onLogisticsDraftChange(field, sanitizeNumericInput(event.target.value))} className="ds-input h-12 w-full rounded-2xl border-0 px-2 text-center text-sm font-black text-stone-950 outline-none" />
+                      <input type="text" inputMode="numeric" pattern="[0-9]*" value={logisticsDraft[field]} onFocus={() => { if (logisticsDraft[field] === '0') onLogisticsDraftChange(field, ''); }} onBlur={() => { if (!logisticsDraft[field]) onLogisticsDraftChange(field, '0'); }} onChange={(event) => onLogisticsDraftChange(field, sanitizeNumericInput(event.target.value))} className="ds-input h-12 w-full rounded-2xl border-0 px-2 text-center text-sm font-black text-stone-950 outline-none" />
                     </label>
                   ))}
                 </div>
                 <button type="button" onClick={saveLogisticsDraft} disabled={!hasPendingPricingChanges} className={`ds-press h-11 w-full rounded-2xl px-3 text-xs font-black ${hasPendingPricingChanges ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-400'}`}>Сохранить услуги</button>
+              </section>
+
+              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-stone-600">Депозит</p>
+                    <p className="mt-1 text-xs font-semibold text-stone-500">Добавление и изменение через финансы</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-black text-emerald-700">-{formatMoney(depositAmountAed)}</p>
+                    <p className="mt-1 text-xs font-black text-stone-950">К оплате {formatMoney(balanceDueAed, clientCurrency)}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(92px,112px)] gap-2">
+                  <label className="min-w-0 space-y-1">
+                    <span className="text-[10px] font-black text-stone-400">Сумма</span>
+                    <input type="text" inputMode="decimal" value={depositAmountInput} onChange={(event) => setDepositAmountInput(sanitizeDecimalInput(event.target.value))} placeholder="0" className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none" />
+                  </label>
+                  <label className="min-w-0 space-y-1">
+                    <span className="text-[10px] font-black text-stone-400">Валюта</span>
+                    <select value={depositCurrencyInput} onChange={(event) => {
+                      const currency = event.target.value as NonNullable<Order['searchDepositCurrency']>;
+                      setDepositCurrencyInput(currency);
+                      setDepositRateInput(String(getDepositRate(currency)));
+                    }} className="ds-input h-12 w-full rounded-2xl border-0 px-2 text-xs font-black text-stone-950 outline-none">
+                      {(['AED', 'USD', 'RUB', 'TJS', 'KZT', 'UZS'] as const).map((currency) => <option key={`finance-deposit-${currency}`} value={currency}>{currency}</option>)}
+                    </select>
+                  </label>
+                </div>
+                {depositCurrencyInput !== 'AED' && (
+                  <label className="block space-y-1">
+                    <span className="text-[10px] font-black text-stone-400">1 {depositCurrencyInput} = AED</span>
+                    <input type="text" inputMode="decimal" value={depositRateInput} onChange={(event) => setDepositRateInput(sanitizeDecimalInput(event.target.value))} placeholder="0.00" className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none" />
+                  </label>
+                )}
+                <button type="button" onClick={submitDeposit} className="ds-press h-11 w-full rounded-2xl bg-stone-950 px-3 text-xs font-black text-white">Сохранить депозит</button>
               </section>
 
               {depositAmountAed > 0 && (

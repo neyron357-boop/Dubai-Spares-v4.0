@@ -618,10 +618,10 @@ const VariantsScreen: React.FC = () => {
                 <input value={shopName} onChange={(event) => setShopName(event.target.value)} placeholder="Поставщик" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
                 <input value={partName} onChange={(event) => setPartName(event.target.value)} placeholder="Деталь / название варианта" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
                 <div className="grid grid-cols-2 gap-2">
-                  <input value={purchasePriceAed} type="number" onChange={(event) => setPurchasePriceAed(event.target.value)} placeholder="Цена покупки" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+                  <input value={purchasePriceAed} type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" onChange={(event) => setPurchasePriceAed(event.target.value.replace(/[^\d]/g, ''))} placeholder="Цена покупки" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <input value={salePriceAed} type="number" onChange={(event) => setSalePriceAed(event.target.value)} placeholder="Цена продажи" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
+                  <input value={salePriceAed} type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" onChange={(event) => setSalePriceAed(event.target.value.replace(/[^\d]/g, ''))} placeholder="Цена продажи" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none" />
                   <div className="flex h-[52px] items-center rounded-2xl border border-[#E7EAF0] px-3 text-sm text-[#667085]">AED</div>
                 </div>
                 <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Комментарий" className="min-h-[120px] w-full rounded-2xl border border-[#E7EAF0] px-3 py-2 text-sm outline-none" />
@@ -690,8 +690,14 @@ const VariantsScreen: React.FC = () => {
             {isEditMode ? (
               <div className="mt-4 space-y-2">
                 <input value={selectedVariant.shopName || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, shopName: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Поставщик" />
-                <input value={String((selectedVariant.purchasePriceAed ?? selectedVariant.priceAed) || '')} type="number" onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, purchasePriceAed: Number(event.target.value || 0) } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Цена покупки" />
-                <input value={String((selectedVariant.salePriceAed ?? selectedVariant.priceAed) || '')} type="number" onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, priceAed: Number(event.target.value || 0), salePriceAed: Number(event.target.value || 0) } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Цена продажи" />
+                <input value={String((selectedVariant.purchasePriceAed ?? selectedVariant.priceAed) || '')} type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" onChange={(event) => {
+                  const value = Number(event.target.value.replace(/[^\d]/g, '') || 0);
+                  setSelectedVariant((prev) => prev ? { ...prev, purchasePriceAed: value } : prev);
+                }} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Цена покупки" />
+                <input value={String((selectedVariant.salePriceAed ?? selectedVariant.priceAed) || '')} type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" onChange={(event) => {
+                  const value = Number(event.target.value.replace(/[^\d]/g, '') || 0);
+                  setSelectedVariant((prev) => prev ? { ...prev, priceAed: value, salePriceAed: value } : prev);
+                }} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Цена продажи" />
                 <input value={selectedVariant.phone || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, phone: event.target.value.replace(/[^\d+]/g, '') } : prev)} inputMode="numeric" type="tel" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Телефон" />
                 <input value={selectedVariant.locationText || selectedVariant.location || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, locationText: event.target.value, location: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Локация" />
                 <button type="button" onClick={() => void applyCurrentLocationToSelected()} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-[#D0D5DD] px-3 text-sm font-semibold text-[#475467] disabled:opacity-50" disabled={isResolvingLocation}>{isResolvingLocation ? 'Определяем GPS...' : '📍 Текущее местоположение'}</button>

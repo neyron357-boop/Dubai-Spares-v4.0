@@ -1027,7 +1027,7 @@ const PartDetailsScreen: React.FC = () => {
               <section className="space-y-1">
                 <label className="text-xs font-black text-gray-700">Цена покупки, AED</label>
                 <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <input type="text" autoFocus value={form.purchasePriceAed} onChange={(e) => handleFormPatch('purchasePriceAed', e.target.value.replace(/[^\d]/g, ''))} placeholder="200" className="h-14 min-w-0 rounded-2xl border border-gray-200 px-4 text-2xl font-black text-gray-950 outline-none" />
+                  <input type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" autoFocus value={form.purchasePriceAed} onChange={(e) => handleFormPatch('purchasePriceAed', e.target.value.replace(/[^\d]/g, ''))} placeholder="200" className="h-14 min-w-0 rounded-2xl border border-gray-200 px-4 text-2xl font-black text-gray-950 outline-none" />
                   <button type="button" onClick={() => pasteFromClipboard('purchasePriceAed')} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-200 text-gray-600"><ClipboardPaste size={17} /></button>
                 </div>
                 <p className="text-[11px] font-semibold text-gray-500">Продажная цена задаётся в финансах заказа.</p>

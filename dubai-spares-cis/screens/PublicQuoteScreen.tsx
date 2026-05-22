@@ -238,6 +238,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const deliveryAed = normalizedSnapshot?.deliveryAed || 0;
   const packingAed = normalizedSnapshot?.packingAed || 0;
   const commissionAed = normalizedSnapshot?.commissionAed || 0;
+  const discountAed = normalizedSnapshot?.discountAed || 0;
   const grandTotalAed = normalizedSnapshot?.grandTotalAed || 0;
   const depositAed = normalizedSnapshot?.depositAed || 0;
   const balanceDueAed = normalizedSnapshot?.balanceDueAed ?? grandTotalAed;
@@ -272,9 +273,10 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
     : '';
   const priceBreakdownRows = [
     { label: t.partsSubtotal, value: money(subtotalAed * fx, activeCurrency), emphasis: false },
-    { label: t.delivery, value: money(deliveryAed * fx, activeCurrency), emphasis: false },
-    { label: t.packing, value: money(packingAed * fx, activeCurrency), emphasis: false },
-    { label: t.commission, value: money(commissionAed * fx, activeCurrency), emphasis: false },
+    ...(deliveryAed > 0 ? [{ label: t.delivery, value: money(deliveryAed * fx, activeCurrency), emphasis: false }] : []),
+    ...(packingAed > 0 ? [{ label: t.packing, value: money(packingAed * fx, activeCurrency), emphasis: false }] : []),
+    ...(commissionAed > 0 ? [{ label: t.commission, value: money(commissionAed * fx, activeCurrency), emphasis: false }] : []),
+    ...(discountAed > 0 ? [{ label: lang === 'ru' ? 'Скидка учтена' : 'Discount included', value: `-${money(discountAed * fx, activeCurrency)}`, emphasis: true }] : []),
     ...(depositAed > 0 ? [{ label: lang === 'ru' ? 'Депозит' : 'Deposit', value: `-${money(depositAed * fx, activeCurrency)}`, emphasis: true }] : []),
   ];
   const documentButtons = useMemo(() => {
