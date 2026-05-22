@@ -1,14 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { Order } from '../types';
-import { X, Share2, RefreshCcw, Images, CheckCircle2, FileText } from 'lucide-react';
+import { X, Share2, RefreshCcw, Images, CheckCircle2, FileText, ChevronDown } from 'lucide-react';
 import { copyToClipboard, DEFAULT_QUOTE_RATES, QuoteCurrency, QuoteRates } from '../shareUtils';
 import ImagePreview from './ImagePreview';
 import { useAppSettings } from '../appSettings';
 import { toast } from '../feedback';
-import { normalizeGroupItems, normalizePartQuantity } from '../utils/groupItems';
+import { getPartDisplayName, normalizeGroupItems } from '../utils/groupItems';
 import { buildInvoicePayloadFromOrder, openInvoicePrintWindow } from '../utils/invoiceDocument';
-
-const getVariantSalePriceAed = (variant: any) => Number(variant?.salePriceAed ?? variant?.priceAed ?? 0);
+import { getPricedPartLines } from '../utils/quotePricing';
 
 
 interface Props {
@@ -70,20 +69,11 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const [isSharing, setIsSharing] = useState(false);
   const [sendPublicQuote, setSendPublicQuote] = useState(true);
   const [invoiceLanguage, setInvoiceLanguage] = useState<'en' | 'ru'>('en');
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const { settings } = useAppSettings();
 
-  const isFixedMarkup = (order.markupType || 'percent') === 'fixed';
-  const fixedMarkupTotal = Number(order.markupFixedAed || 0);
-  const fixedMarkupPerPart = isFixedMarkup && foundParts.length > 0 ? fixedMarkupTotal / foundParts.length : 0;
-
-  const totalAed = foundParts.reduce((sum, p) => {
-    const qty = normalizePartQuantity((p as any).quantity);
-    const costAed = getVariantSalePriceAed(p.variants[0]);
-    const sellAed = isFixedMarkup
-      ? costAed + fixedMarkupPerPart
-      : costAed * (1 + order.markupPercent / 100);
-    return sum + (sellAed * qty);
-  }, 0);
+  const pricedPartLines = useMemo(() => getPricedPartLines(order), [order]);
+  const totalAed = pricedPartLines.reduce((sum, line) => sum + line.clientLineTotalAed, 0);
 
   const logistics = {
     deliveryAed: Number(order.logistics?.deliveryAed || 0),
@@ -97,27 +87,21 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
   const carPhoto = (order.carPhotos && order.carPhotos.length > 0) ? order.carPhotos[0] : order.carPhotoUrl;
 
   const previewParts = useMemo(
-    () => foundParts.map((part) => {
-      const qty = normalizePartQuantity((part as any).quantity);
-      const cheapestVariant = part.variants[0];
-      const variantWithPhoto = part.variants.find((variant) => [variant.photoUrl || '', ...(variant.photos || [])].some(Boolean)) || cheapestVariant;
-      const costAed = getVariantSalePriceAed(cheapestVariant);
-      const sellAed = isFixedMarkup
-        ? costAed + fixedMarkupPerPart
-        : costAed * (1 + order.markupPercent / 100);
+    () => pricedPartLines.map((line) => {
+      const { part, variant, quantity: qty } = line;
+      const variantWithPhoto = part.variants.find((item) => [item.photoUrl || '', ...(item.photos || [])].some(Boolean)) || variant;
       const variantPhotos = [variantWithPhoto?.photoUrl || '', ...(variantWithPhoto?.photos || [])].filter(Boolean);
       const partPhotos = [part.photoUrl || '', ...(part.photos || [])].filter(Boolean);
       const photos = Array.from(new Set((variantPhotos.length > 0 ? variantPhotos : partPhotos) as string[]));
       return {
         part,
         qty,
-        sellAed,
-        sellConverted: sellAed * qty * rates[currency],
+        sellConverted: line.clientLineTotalAed * rates[currency],
         photo: photos[0] || '',
         photos
       };
     }),
-    [currency, foundParts, order.markupPercent, order.markupType, rates, fixedMarkupPerPart, isFixedMarkup]
+    [currency, pricedPartLines, rates]
   );
 
 
@@ -194,8 +178,11 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
             {previewParts.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-400">Нет найденных деталей</div>
             ) : (
-              previewParts.map(({ part, qty, sellConverted, photo, photos }) => (
-                <div key={part.id} className="flex items-center gap-3 rounded-2xl bg-white border border-slate-100 p-3 shadow-sm">
+              previewParts.map(({ part, qty, sellConverted, photo, photos }) => {
+                const groupItems = normalizeGroupItems((part as any).groupItems);
+                const isGroupExpanded = !!expandedGroups[part.id];
+                return (
+                <div key={part.id} className="flex items-start gap-3 rounded-2xl bg-white border border-slate-100 p-3 shadow-sm">
                   <button type="button"
                     onClick={() => photos.length > 0 && setGallery({ images: photos, index: 0 })}
                     className="relative shrink-0 h-16 w-16 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center"
@@ -206,10 +193,28 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
                     {photos.length > 1 && <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 px-1 text-[8px] font-bold text-white">{photos.length}</span>}
                   </button>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm text-slate-900 leading-snug">{part.name}{qty > 1 ? ` ×${qty}` : ''}</p>
-                    {part.partKind === 'group' && (
-                      <div className="mt-1 space-y-0.5 text-[10px] text-slate-500">
-                        {normalizeGroupItems((part as any).groupItems).map((item, idx) => <p key={`${part.id}-estimate-group-${idx}`} className="truncate">• {item.name} ×{item.quantity}</p>)}
+                    <p className="font-bold text-sm text-slate-900 leading-snug">{getPartDisplayName(part)}{qty > 1 ? ` ×${qty}` : ''}</p>
+                    {groupItems.length > 0 && (
+                      <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedGroups((prev) => ({ ...prev, [part.id]: !prev[part.id] }))}
+                          className="flex w-full items-center justify-between gap-2 text-left text-[10px] font-black text-slate-600"
+                          aria-expanded={isGroupExpanded}
+                        >
+                          <span className="truncate">Состав группы · {groupItems.length}</span>
+                          <ChevronDown size={12} className={`shrink-0 transition-transform ${isGroupExpanded ? 'rotate-180' : ''}`} />
+                        </button>
+                        {isGroupExpanded && (
+                          <div className="mt-1 grid gap-1">
+                            {groupItems.map((item, idx) => (
+                              <div key={`${part.id}-estimate-group-${idx}`} className="flex items-center justify-between gap-2 rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-slate-600">
+                                <span className="min-w-0 truncate">{item.name}</span>
+                                <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-slate-500">×{item.quantity}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                     <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600">
@@ -221,7 +226,8 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
                     <p className="text-[10px] font-semibold text-slate-400">{currency}</p>
                   </div>
                 </div>
-              ))
+              );
+              })
             )}
           </div>
 
