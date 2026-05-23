@@ -790,13 +790,31 @@ const OrderDetailsScreen: React.FC = () => {
     return next;
   }, [preferredExchangeRate, quoteRateInputs, rateInput, savedQuoteRates]);
 
-  if (orderMissing && isLoading) {
+  if (orderMissing && (isLoading || isRetrying || retryAttempts < MAX_RETRY_ATTEMPTS)) {
     return (
       <div className="p-4 space-y-4 animate-pulse">
         <div className="h-10 bg-gray-200 rounded-2xl" />
         <div className="h-24 bg-gray-200 rounded-2xl" />
         <div className="h-24 bg-gray-100 rounded-2xl" />
         <div className="h-24 bg-gray-100 rounded-2xl" />
+      </div>
+    );
+  }
+
+  if (orderMissing) {
+    return (
+      <div className="min-h-[60vh] px-4 py-8">
+        <div className="mx-auto max-w-md rounded-3xl border border-stone-200 bg-white p-6 text-center shadow-sm">
+          <h1 className="text-lg font-black text-stone-900">Заказ не найден</h1>
+          <p className="mt-2 text-sm font-medium text-stone-500">
+            Не удалось загрузить карточку заказа. Попробуйте вернуться в список и открыть заказ снова.
+          </p>
+          <div className="mt-5 flex items-center justify-center gap-2">
+            <button type="button" onClick={() => navigate(backTo)} className="ds-press inline-flex h-11 items-center justify-center rounded-2xl bg-stone-950 px-4 text-xs font-black uppercase tracking-[0.08em] text-white">
+              Вернуться к заказам
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
