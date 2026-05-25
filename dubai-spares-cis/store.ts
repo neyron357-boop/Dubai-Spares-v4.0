@@ -4,6 +4,7 @@ import { useOrderStore, subscribeOrderStore, getOrderState, restoreOrdersExterna
 import { ensureUuid } from './id';
 import { deleteSupplierFromShops, fetchSuppliersFromShops } from './radarShops';
 import { pushActivityNotification } from './notificationCenter';
+import { toast } from './feedback';
 import {
   deleteStandaloneVariant,
   getVariantLibraryItems,
