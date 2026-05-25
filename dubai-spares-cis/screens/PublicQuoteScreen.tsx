@@ -520,33 +520,20 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
               const groupItems = item.groupItems || [];
               const isGroupExpanded = !!expandedQuoteGroups[item.id];
               return (
-                <article key={item.id} className="grid min-h-[112px] grid-cols-[104px_minmax(0,1fr)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <button
-                    type="button"
-                    className="relative flex h-full min-h-[112px] w-full items-center justify-center bg-slate-100"
-                    onClick={() => item.photos.length && setGallery({ images: item.photos, index: 0 })}
-                    aria-label={lang === 'ru' ? 'Открыть фото детали' : 'Open part photo'}
-                  >
-                    {item.photos[0]
-                      ? <img src={item.photos[0]} alt={translatedItemNames[item.id] || item.name} className="h-full w-full object-cover" onError={hideOnError} />
-                      : <div className="flex flex-col items-center gap-1.5 px-2 text-center text-slate-400"><Images size={18} /><span className="text-[10px] font-bold leading-tight">{t.noPhotos}</span></div>
-                    }
-                    {item.status && (
-                      <span className="absolute bottom-1.5 left-1.5 max-w-[88px] truncate rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-slate-700 shadow-sm backdrop-blur-sm">
-                        {item.status}
-                      </span>
-                    )}
-                    {item.photos.length > 1 && (
-                      <span className="absolute right-1.5 top-1.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-black text-white">
-                        +{item.photos.length - 1}
-                      </span>
-                    )}
-                  </button>
-                  <div className="min-w-0 p-3">
-                    <h3 className="overflow-hidden text-sm font-black leading-5 text-slate-950 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{translatedItemNames[item.id] || item.name}</h3>
-                    {item.note && <p className="mt-1 truncate text-xs font-semibold text-slate-500">{item.note}</p>}
+                <article key={item.id} className="flex flex-col justify-between overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
+                  <div className="min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="text-sm font-black leading-5 text-slate-950">{translatedItemNames[item.id] || item.name}</h3>
+                      {item.status && (
+                        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                          {item.status}
+                        </span>
+                      )}
+                    </div>
+                    {item.note && <p className="mt-1.5 text-xs font-semibold text-slate-500 whitespace-pre-line">{item.note}</p>}
+                    
                     {groupItems.length > 0 && (
-                      <div className="mt-1.5 rounded-lg bg-slate-50 px-2 py-1.5">
+                      <div className="mt-2 rounded-lg bg-slate-50 px-2 py-1.5">
                         <button
                           type="button"
                           onClick={() => setExpandedQuoteGroups((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
@@ -557,7 +544,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                           <ChevronDown size={12} className={`shrink-0 transition-transform ${isGroupExpanded ? 'rotate-180' : ''}`} />
                         </button>
                         {isGroupExpanded && (
-                          <div className="mt-1 grid gap-1">
+                          <div className="mt-1.5 grid gap-1">
                             {groupItems.map((groupItem, groupIndex) => (
                               <div key={`${item.id}-group-${groupItem.id || groupIndex}`} className="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1 text-[10px] font-bold text-slate-600">
                                 <span className="min-w-0 truncate">{groupItem.name}</span>
@@ -568,10 +555,38 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                         )}
                       </div>
                     )}
-                    <div className="mt-2 grid grid-cols-3 gap-1.5 text-xs">
-                      <div className="rounded-md bg-slate-50 px-2 py-1.5"><span className="block text-[10px] uppercase text-slate-400">{t.qty}</span><strong className="text-slate-900">{item.qty}</strong></div>
-                      <div className="rounded-md bg-slate-50 px-2 py-1.5"><span className="block text-[10px] uppercase text-slate-400">{activeCurrency}</span><strong className="text-slate-900">{(item.unitPriceAed * fx).toFixed(2)}</strong></div>
-                      <div className="rounded-md bg-slate-950 px-2 py-1.5 text-white"><span className="block text-[10px] uppercase text-white/45">{t.total}</span><strong>{(item.totalAed * fx).toFixed(2)}</strong></div>
+
+                    {item.photos.length > 0 && (
+                      <div className="mt-2.5 flex flex-wrap gap-1.5">
+                        {item.photos.map((photo, index) => (
+                          <button
+                            key={`${item.id}-photo-${index}`}
+                            type="button"
+                            onClick={() => setGallery({ images: item.photos, index })}
+                            className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition active:scale-95"
+                            aria-label={lang === 'ru' ? `Просмотр фото ${index + 1}` : `View photo ${index + 1}`}
+                          >
+                            <img src={photo} alt="" className="h-full w-full object-cover" onError={hideOnError} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="grid grid-cols-3 gap-1.5 text-xs">
+                      <div className="rounded-md bg-slate-50 px-2 py-1.5">
+                        <span className="block text-[9px] uppercase font-bold tracking-wider text-slate-400">{t.qty}</span>
+                        <strong className="text-slate-900">{item.qty}</strong>
+                      </div>
+                      <div className="rounded-md bg-slate-50 px-2 py-1.5">
+                        <span className="block text-[9px] uppercase font-bold tracking-wider text-slate-400">{activeCurrency}</span>
+                        <strong className="text-slate-900">{(item.unitPriceAed * fx).toFixed(2)}</strong>
+                      </div>
+                      <div className="rounded-md bg-slate-950 px-2 py-1.5 text-white">
+                        <span className="block text-[9px] uppercase font-bold tracking-wider text-white/45">{t.total}</span>
+                        <strong>{(item.totalAed * fx).toFixed(2)}</strong>
+                      </div>
                     </div>
                     {item.googleDriveVideoUrl && (
                       <a
@@ -813,10 +828,15 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
         )}
 
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.14em] text-slate-500"><Building2 size={15} /> {t.contacts}</p>
-              <h2 className="mt-1 text-xl font-black text-slate-900">{contact.managerName}</h2>
+              <div className="flex items-center gap-3 mt-1">
+                <h2 className="text-xl font-black text-slate-900">{contact.managerName}</h2>
+                {contact.signatureUrl && (
+                  <img src={contact.signatureUrl} alt="Signature" className="h-8 w-auto object-contain" />
+                )}
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               {whatsappHref && <a href={whatsappHref} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-500 px-3 text-sm font-semibold text-white shadow-sm"><MessageCircle size={15} /> WhatsApp</a>}
@@ -825,18 +845,6 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
             </div>
           </div>
         </section>
-
-        {contact.signatureUrl && (
-          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-500">{t.officialSignature}</p>
-            <div className="mt-3 border-t border-slate-100 pt-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{t.signature}</p>
-              <div className="mt-2 min-h-[74px]">
-                <img src={contact.signatureUrl} alt="Owner signature" className="h-20 w-auto object-contain" />
-              </div>
-            </div>
-          </section>
-        )}
       </main>
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
       {whatsappHref && grandTotalAed > 0 && (
