@@ -861,7 +861,7 @@ const buildSnapshotPayload = (
       client_line_total_aed: round2(clientLineTotalAed),
       gross_client_line_total_aed: round2(grossClientLineTotalAed),
       discount_share_aed: round2(discountShareAed),
-      photo_urls: dedupePhotoUrls([variant?.photoUrl || '', ...(variant?.photos || []), ...(part.photos || [])]),
+      photo_urls: dedupePhotoUrls([variant?.photoUrl || '', ...(variant?.photos || [])]),
       googleDriveVideoUrl: String((part as any).googleDriveVideoUrl || '').trim(),
       google_drive_video_url: String((part as any).googleDriveVideoUrl || '').trim(),
       weight_kg: parseMoney((part as any).weightKg),
