@@ -1019,13 +1019,14 @@ const OrderDetailsScreen: React.FC = () => {
   const effectiveMarkupPercent = Number(draftFields.markupPercent ?? order.markupPercent ?? 0);
   const discountType = order.discountType || 'percent';
   const effectiveDiscountPercent = Number(draftFields.discountPercent ?? order.discountPercent ?? 0);
-  const pricedPartLines = useMemo(() => getPricedPartLines({
+  const pricingPreviewOrder = useMemo(() => ({
     ...order,
     markupPercent: effectiveMarkupPercent,
     markupFixedAed: markupType === 'fixed' ? Number(markupFixedInput || 0) : order.markupFixedAed,
     discountPercent: effectiveDiscountPercent,
     discountFixedAed: discountType === 'fixed' ? Number(discountFixedInput || 0) : order.discountFixedAed
-  }), [discountFixedInput, discountType, effectiveDiscountPercent, effectiveMarkupPercent, markupFixedInput, markupType, order]);
+  }), [order, effectiveMarkupPercent, markupType, markupFixedInput, effectiveDiscountPercent, discountType, discountFixedInput]);
+  const pricedPartLines = useMemo(() => getPricedPartLines(pricingPreviewOrder), [pricingPreviewOrder]);
   const markupAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.markupShareAed, 0), [pricedPartLines]);
   const sellPartsTotalAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.clientLineTotalAed, 0), [pricedPartLines]);
   const discountAed = useMemo(() => calculateOrderDiscountAed(sellPartsTotalAed + logisticsWithCargoTotal, pricingPreviewOrder), [logisticsWithCargoTotal, pricingPreviewOrder, sellPartsTotalAed]);
