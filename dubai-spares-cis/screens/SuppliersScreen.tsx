@@ -383,6 +383,8 @@ const SuppliersScreen: React.FC = () => {
   const [visitComment, setVisitComment] = useState('');
   const [visitPhotos, setVisitPhotos] = useState<string[]>([]);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+  const [isSearchMode, setIsSearchMode] = useState(true);
+  const [searchModeNoteDraft, setSearchModeNoteDraft] = useState('');
   const [isBrandsDrawerOpen, setIsBrandsDrawerOpen] = useState(false);
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
   const [expandedAddedPartsIds, setExpandedAddedPartsIds] = useState<Set<string>>(new Set());
@@ -1709,6 +1711,18 @@ const SuppliersScreen: React.FC = () => {
   };
 
 
+
+  const searchModeSuppliers = filteredSuppliers.slice(0, 8);
+  const searchModeTargetLabel = selectedPartForTop?.name || activeOrderForTop?.parts?.[0]?.name || 'Выберите деталь';
+
+  const appendSearchModeNote = () => {
+    const value = searchModeNoteDraft.trim();
+    if (!value) return;
+    setBulkBroadcastNote((prev) => prev ? `${prev}\n${value}` : value);
+    setSearchModeNoteDraft('');
+    toast('Заметка добавлена в broadcast', 'success');
+  };
+
   const requiredReady = !!toTitle(name.trim()) && isValidE164(currentPhone) && !!location.trim();
 
   useEffect(() => {
@@ -1785,6 +1799,59 @@ const SuppliersScreen: React.FC = () => {
       </section>
 
       <section className="space-y-3">
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-2">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.14em] text-indigo-500">Dedicated Search</p>
+              <p className="text-sm font-black text-indigo-900">Search mode для работы в поле</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsSearchMode((prev) => !prev)}
+              className={`h-11 rounded-2xl px-4 text-xs font-black ${isSearchMode ? 'bg-indigo-700 text-white' : 'border border-indigo-200 bg-white text-indigo-700'}`}
+            >
+              {isSearchMode ? 'ON' : 'OFF'}
+            </button>
+          </div>
+        </div>
+
+        {isSearchMode && (
+          <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3">
+            <div className="rounded-2xl bg-slate-900 p-3 text-white">
+              <p className="text-[10px] font-black uppercase text-slate-300">Current target part</p>
+              <p className="mt-1 text-base font-black">{searchModeTargetLabel}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setFastWhatsappFilter('fast')} className="h-11 rounded-xl bg-emerald-600 px-2 text-[11px] font-black text-white">Fast WA</button>
+              <button type="button" onClick={() => setSortByExtended('near')} className="h-11 rounded-xl bg-blue-600 px-2 text-[11px] font-black text-white">Nearest</button>
+              <button type="button" onClick={() => startBulkSend(5)} className="h-11 rounded-xl bg-indigo-600 px-2 text-[11px] font-black text-white">Broadcast TOP-5</button>
+              <button type="button" onClick={() => quickPhotoInputRef.current?.click()} className="h-11 rounded-xl border border-slate-300 bg-white px-2 text-[11px] font-black text-slate-700">Quick photo</button>
+            </div>
+            <div className="flex gap-2">
+              <input value={searchModeNoteDraft} onChange={(e) => setSearchModeNoteDraft(e.target.value)} placeholder="Quick note" className="h-11 flex-1 rounded-xl border border-slate-200 px-3 text-sm font-semibold" />
+              <button type="button" onClick={appendSearchModeNote} className="h-11 rounded-xl bg-slate-900 px-3 text-xs font-black text-white">Save</button>
+            </div>
+
+            <div className="space-y-2">
+              {searchModeSuppliers.map((s) => (
+                <article key={`search-mode-${s.id}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black text-slate-900">{s.name}</p>
+                      <p className="truncate text-[11px] font-semibold text-slate-500">{s.location || 'No location'} · {timelineLabel(s.lastContactAt)}</p>
+                    </div>
+                    <button type="button" onClick={() => openWhatsApp(s)} className="h-11 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white">WhatsApp</button>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <button type="button" onClick={() => openPhone(s)} className="h-10 rounded-xl border border-slate-300 bg-white text-[10px] font-black text-slate-700">Call</button>
+                    <button type="button" onClick={() => { setQuickPhotoSupplierId(s.id); quickPhotoInputRef.current?.click(); }} className="h-10 rounded-xl border border-slate-300 bg-white text-[10px] font-black text-slate-700">Photo</button>
+                    <button type="button" onClick={() => markResponded(s)} className="h-10 rounded-xl border border-emerald-200 bg-emerald-50 text-[10px] font-black text-emerald-700">Replied</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <input
             value={supplierSearchQuery}
