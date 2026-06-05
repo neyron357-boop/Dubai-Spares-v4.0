@@ -4,17 +4,15 @@ import OrdersScreen from './screens/OrdersScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import NotFoundScreen from './screens/NotFoundScreen';
-import { CarFront, Check, Layers, PlusCircle, RefreshCw, Settings, UserRound } from 'lucide-react';
+import { CarFront, Check, Layers, Package, Plus, RefreshCw, Settings } from 'lucide-react';
 import { initNotificationsFromServer } from './notificationCenter';
 import { DebugRouteBoundary } from './screens/DebugRouteBoundary';
 import { DebugIndex, DebugIndexProvider, useDebugIndex } from './components/DebugIndex';
 import { playSound } from './utils/sounds';
 import { useStore } from './store';
-import { isLeadOrder, isUnreadLeadOrder } from './utils/orderClassification';
 
 const DebugLogsScreen = lazy(() => import('./screens/DebugLogsScreen'));
 const MorningBossScreen = lazy(() => import('./screens/MorningBossScreen'));
-const LeadsScreen = lazy(() => import('./screens/LeadsScreen'));
 const NewOrderScreen = lazy(() => import('./screens/NewOrderScreen'));
 const OrderDetailsScreen = lazy(() => import('./screens/OrderDetailsScreen'));
 const PartDetailsScreen = lazy(() => import('./screens/PartDetailsScreen'));
@@ -36,20 +34,21 @@ const HashPublicQuoteRoute: React.FC = () => {
   return <PublicQuoteScreen orderId={orderId} />;
 };
 
-type BottomTab = 'orders' | 'vendors' | 'leads' | 'settings' | null;
+type BottomTab = 'orders' | 'vendors' | 'new' | 'variants' | 'settings' | null;
 
 const resolveBottomTab = (pathname: string): BottomTab => {
   const normalizedPath = pathname.replace(/\/+$/, '') || '/';
-  if (normalizedPath === '/orders' || normalizedPath.startsWith('/order/') || normalizedPath === '/new') return 'orders';
-  if (normalizedPath.startsWith('/database') || normalizedPath.startsWith('/variants')) return 'vendors';
-  if (normalizedPath.startsWith('/leads')) return 'leads';
+  if (normalizedPath === '/new') return 'new';
+  if (normalizedPath === '/orders' || normalizedPath.startsWith('/order/')) return 'orders';
+  if (normalizedPath.startsWith('/database')) return 'vendors';
+  if (normalizedPath.startsWith('/variants')) return 'variants';
   if (normalizedPath.startsWith('/settings')) return 'settings';
   return null;
 };
 
 const MobileLayoutContainer: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="min-h-[100dvh] w-full bg-slate-100">
-    <div className="relative mx-auto flex min-h-[100dvh] w-full max-w-md flex-col bg-gray-50 shadow-sm">
+    <div className="relative mx-auto flex min-h-[100dvh] w-full max-w-md flex-col bg-[#f6f8fb] shadow-sm">
       {children}
     </div>
   </div>
@@ -59,7 +58,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { toggle } = useDebugIndex();
   const location = useLocation();
   const navigate = useNavigate();
-  const { orders, fetchOrders, fetchOrderDetails } = useStore();
+  const { fetchOrders, fetchOrderDetails } = useStore();
   const mainRef = useRef<HTMLElement>(null);
   const scrollPositions = useRef<Record<string, number>>({});
   const prevPathname = useRef(location.pathname);
@@ -69,17 +68,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const isOrderWorkspace = /^\/order\/[^/]+(?:\/parts|\/part\/[^/]+)?$/.test(location.pathname.replace(/\/+$/, ''));
   const isNewOrderPath = location.pathname.replace(/\/+$/, '') === '/new';
-  const hideNav = resolveBottomTab(location.pathname) === null || isOrderWorkspace;
-
-  const leadNavStats = useMemo(() => ({
-    total: orders.filter((order) => !order.isArchived && !order.isSold && isLeadOrder(order)).length,
-    unread: orders.filter((order) => !order.isSold && isUnreadLeadOrder(order)).length
-  }), [orders]);
+  const normalizedCurrentPath = location.pathname.replace(/\/+$/, '') || '/';
+  const hideNav = resolveBottomTab(location.pathname) === null || isOrderWorkspace || isNewOrderPath;
+  const showOrdersCreateButton = normalizedCurrentPath === '/orders';
 
   const [tabPaths, setTabPaths] = useState<Record<Exclude<BottomTab, null>, string>>({
     orders: '/orders',
     vendors: '/database',
-    leads: '/leads',
+    new: '/new',
+    variants: '/variants',
     settings: '/settings',
   });
 
@@ -108,7 +105,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const rootByTab: Record<Exclude<BottomTab, null>, string> = {
       orders: '/orders',
       vendors: '/database',
-      leads: '/leads',
+      new: '/new',
+      variants: '/variants',
       settings: '/settings',
     };
 
@@ -122,8 +120,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     navigate(destination);
   };
 
-  const tabBarHeightClass = 'h-[calc(64px+env(safe-area-inset-bottom))]';
-  const tabBarBottomOffsetClass = 'pb-[calc(88px+env(safe-area-inset-bottom))]';
+  const tabBarHeightClass = 'h-[calc(66px+env(safe-area-inset-bottom))]';
+  const tabBarBottomOffsetClass = 'pb-[calc(100px+env(safe-area-inset-bottom))]';
   const tabBarPaddingBottomClass = 'pb-[max(8px,env(safe-area-inset-bottom))]';
   const pullProgress = Math.min(1, pullDistance / 78);
 
@@ -193,29 +191,29 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </main>
         </DebugIndex>
         {!hideNav && (
-          <DebugIndex indexId="1.10"><nav className={`fixed inset-x-0 bottom-0 mx-auto w-full max-w-md bg-white/95 backdrop-blur border-t border-gray-200 flex items-end justify-around px-2 ${tabBarHeightClass} ${tabBarPaddingBottomClass} shrink-0 z-50 overflow-visible`}>
-            <NavLink to={tabPaths.orders} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('orders'); }} className={() => `flex flex-col items-center gap-1 pb-1 ${resolveBottomTab(location.pathname) === 'orders' ? 'text-blue-600' : 'text-gray-400'}`}><CarFront size={24} /><span className="text-[10px] font-medium">Заказы</span></NavLink>
-            <NavLink to={tabPaths.vendors} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('vendors'); }} className={() => `flex flex-col items-center gap-1 pb-1 ${resolveBottomTab(location.pathname) === 'vendors' ? 'text-blue-600' : 'text-gray-400'}`}><Layers size={22} /><span className="text-[10px] font-medium">Поставщики</span></NavLink>
-            {/* Center: New Order FAB */}
-            <button
-              type={isNewOrderPath ? 'submit' : 'button'}
-              form={isNewOrderPath ? 'new-order-form' : undefined}
-              data-debug-id="1.13"
-              onClick={isNewOrderPath ? () => { playSound('tap'); } : () => { playSound('navigate'); navigate('/new'); }}
-              className="flex flex-col items-center gap-0.5 -translate-y-3"
-              aria-label={isNewOrderPath ? 'Сохранить' : 'Новый заказ'}
-            >
-              <span className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-[3px] border-white ${isNewOrderPath ? 'bg-emerald-600' : 'bg-blue-600'}`}>
-                {isNewOrderPath ? <Check size={28} strokeWidth={3} className="text-white" /> : <PlusCircle size={26} className="text-white" />}
-              </span>
-              <span className="text-[10px] font-medium text-gray-500">{isNewOrderPath ? 'Сохранить' : 'Новый'}</span>
-            </button>
-            <NavLink to={tabPaths.leads} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('leads'); }} className={() => `flex flex-col items-center gap-1 pb-1 relative ${resolveBottomTab(location.pathname) === 'leads' ? 'text-blue-600' : 'text-gray-400'}`}>
-              <span className="relative"><UserRound size={22} />{leadNavStats.total > 0 && <span className={`absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full text-white text-[8px] font-black flex items-center justify-center ${leadNavStats.unread > 0 ? 'bg-amber-500' : 'bg-blue-500'}`}>{leadNavStats.unread > 0 ? (leadNavStats.unread > 99 ? '99+' : leadNavStats.unread) : leadNavStats.total > 99 ? '99+' : leadNavStats.total}</span>}</span>
-              <span className="text-[10px] font-medium">Лиды</span>
-            </NavLink>
-            <NavLink to={tabPaths.settings} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('settings'); }} className={() => `flex flex-col items-center gap-1 pb-1 ${resolveBottomTab(location.pathname) === 'settings' ? 'text-blue-600' : 'text-gray-400'}`}><Settings size={22} /><span className="text-[10px] font-medium">Настройки</span></NavLink>
+          <>
+          {showOrdersCreateButton && (
+            <div className="pointer-events-none fixed bottom-[calc(92px+env(safe-area-inset-bottom))] left-1/2 z-50 w-[calc(100%-24px)] max-w-[408px] -translate-x-1/2">
+              <div className="flex justify-end pr-2">
+                <button
+                  type="button"
+                  onClick={() => { playSound('navigate'); navigate('/new'); }}
+                  className="pointer-events-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-[0_16px_34px_rgba(37,99,235,0.34)] ring-4 ring-white/85 transition active:scale-[0.96]"
+                  aria-label="Новый заказ"
+                >
+                  <Plus size={24} strokeWidth={2.8} />
+                </button>
+              </div>
+            </div>
+          )}
+          <DebugIndex indexId="1.10"><nav className={`fixed bottom-3 left-1/2 z-50 mx-auto grid w-[calc(100%-24px)] max-w-[408px] -translate-x-1/2 grid-cols-5 items-center gap-1 overflow-hidden rounded-[26px] border border-white/80 bg-white/84 px-2 pt-2 shadow-[0_18px_48px_rgba(15,23,42,0.14)] ring-1 ring-slate-900/[0.03] backdrop-blur-xl ${tabBarHeightClass} ${tabBarPaddingBottomClass} shrink-0`}>
+            <NavLink to={tabPaths.orders} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('orders'); }} className={() => `flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-[18px] px-1 transition active:scale-[0.97] ${resolveBottomTab(location.pathname) === 'orders' ? 'bg-blue-50 text-blue-600 shadow-[inset_0_0_0_1px_rgba(37,99,235,0.08)]' : 'text-slate-400'}`}><CarFront size={21} /><span className="max-w-full truncate text-[10px] font-semibold">Заказы</span></NavLink>
+            <NavLink to={tabPaths.vendors} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('vendors'); }} className={() => `flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-[18px] px-1 transition active:scale-[0.97] ${resolveBottomTab(location.pathname) === 'vendors' ? 'bg-blue-50 text-blue-600 shadow-[inset_0_0_0_1px_rgba(37,99,235,0.08)]' : 'text-slate-400'}`}><Layers size={21} /><span className="max-w-full truncate text-[10px] font-semibold">Поставщики</span></NavLink>
+            <NavLink to={tabPaths.new} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('new'); }} className={() => `flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-[18px] px-1 text-slate-400 transition active:scale-[0.97]`}><Plus size={21} /><span className="max-w-full truncate text-[10px] font-semibold">Новый</span></NavLink>
+            <NavLink to={tabPaths.variants} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('variants'); }} className={() => `flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-[18px] px-1 transition active:scale-[0.97] ${resolveBottomTab(location.pathname) === 'variants' ? 'bg-blue-50 text-blue-600 shadow-[inset_0_0_0_1px_rgba(37,99,235,0.08)]' : 'text-slate-400'}`}><Package size={21} /><span className="max-w-full truncate text-[10px] font-semibold">Варианты</span></NavLink>
+            <NavLink to={tabPaths.settings} onClick={(event) => { event.preventDefault(); playSound('navigate'); handleTabNavigate('settings'); }} className={() => `flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-[18px] px-1 transition active:scale-[0.97] ${resolveBottomTab(location.pathname) === 'settings' ? 'bg-blue-50 text-blue-600 shadow-[inset_0_0_0_1px_rgba(37,99,235,0.08)]' : 'text-slate-400'}`}><Settings size={21} /><span className="max-w-full truncate text-[10px] font-semibold">Настройки</span></NavLink>
           </nav></DebugIndex>
+          </>
         )}
         <button
           type="button"
@@ -242,7 +240,7 @@ const CachedRoutes: React.FC = () => {
     <>
       {stablePaths.map((pathname) => {
         const isActive = pathname === location.pathname;
-        const keepMountedWhenHidden = ['/orders', '/database', '/leads', '/notifications', '/settings', '/new'].includes(pathname);
+        const keepMountedWhenHidden = ['/orders', '/database', '/variants', '/notifications', '/settings', '/new'].includes(pathname);
         if (!isActive && !keepMountedWhenHidden) return null;
         return (
           <div key={pathname} className={isActive ? 'h-full' : 'hidden'}>
@@ -251,7 +249,7 @@ const CachedRoutes: React.FC = () => {
               <Route path="/" element={<Navigate to="/orders" replace />} />
               <Route path="/morning" element={<MorningBossScreen />} />
               <Route path="/orders" element={<OrdersScreen />} />
-              <Route path="/leads" element={<LeadsScreen />} />
+              <Route path="/leads" element={<Navigate to="/variants" replace />} />
               <Route path="/new" element={<NewOrderScreen />} />
               <Route path="/order/:id" element={<OrderDetailsScreen />} />
               <Route path="/order/:orderId/parts" element={<OrderPartsScreen />} />

@@ -3,23 +3,27 @@ import {
   Camera,
   Check,
   ChevronDown,
+  Copy,
   Heart,
   Link2,
   MapPin,
   MessageCircle,
+  MoreHorizontal,
   Phone,
   Pin,
   Plus,
   Search,
   Send,
+  SlidersHorizontal,
   Sparkles,
+  Star,
   StickyNote,
   X
 } from 'lucide-react';
 import { useStore } from '../store';
 import { createUuid } from '../id';
 import { PriceVariant } from '../types';
-import { VariantLibraryItem } from '../variantLibraryStore';
+import { cloneVariantForPart, VariantLibraryItem } from '../variantLibraryStore';
 import { optimizeImageForUpload } from '../storage/photos';
 import { useNavigate } from 'react-router-dom';
 
@@ -81,6 +85,9 @@ const VariantsScreen: React.FC = () => {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [isResolvingLocation, setIsResolvingLocation] = useState(false);
   const [deleteCandidate, setDeleteCandidate] = useState<VariantLibraryItem | null>(null);
+  const [menuVariant, setMenuVariant] = useState<VariantLibraryItem | null>(null);
+  const [orderPickerVariant, setOrderPickerVariant] = useState<VariantLibraryItem | null>(null);
+  const [isAddingToOrder, setIsAddingToOrder] = useState(false);
 
   useEffect(() => {
     const onOnline = () => setIsOnline(true);
@@ -471,47 +478,146 @@ const VariantsScreen: React.FC = () => {
     longPressTimerRef.current = null;
   };
 
+  const primaryFilterOptions = filterOptions.filter((option) => ['all', 'standalone', 'order', 'pinned', 'favorite'].includes(option.key));
+  const activeOrdersForPicker = useMemo(
+    () => orders
+      .filter((order) => !order.isArchived && !order.isSold)
+      .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))
+      .slice(0, 12),
+    [orders]
+  );
+
+  const showToast = (message: string, tone: 'error' | 'success' | 'info' = 'info') => {
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, tone } }));
+  };
+
+  const openVariantDetail = (variant: VariantLibraryItem) => {
+    setSelectedVariant(variant);
+    setIsEditMode(false);
+  };
+
+  const toggleVariantFlag = (variant: VariantLibraryItem, key: 'isPinned' | 'isFavorite') => {
+    persistVariant({ ...variant, [key]: !variant[key] });
+  };
+
+  const getVariantTitle = (variant: VariantLibraryItem) => variant.sourcePartName || variant.vehicleInfo || variant.note || 'Деталь не указана';
+  const getVariantLocation = (variant: VariantLibraryItem) => {
+    const raw = (variant.locationText || variant.location || '').trim();
+    if (!raw) return 'Dubai, UAE';
+    if (/^-?\d+(?:\.\d+)?,\s*-?\d+(?:\.\d+)?$/.test(raw.replace(/[()]/g, ''))) return 'Sharjah, UAE';
+    if (/sharjah/i.test(raw)) return 'Sharjah, UAE';
+    if (/dubai/i.test(raw)) return 'Dubai, UAE';
+    if (/abu\s*dhabi/i.test(raw)) return 'Abu Dhabi, UAE';
+    return raw;
+  };
+  const getVariantSupplier = (variant: VariantLibraryItem) => variant.shopName || 'Без поставщика';
+  const getVariantPhone = (variant: VariantLibraryItem) => (variant.phone && variant.phone !== '+971' ? variant.phone : '');
+
+  const getStatusMeta = (variant: VariantLibraryItem) => {
+    if (variant.isPinned) return { label: 'Закреплённый', className: 'bg-emerald-50 text-emerald-700' };
+    if (variant.origin === 'order') return { label: 'Из заказа', className: 'bg-blue-50 text-blue-700' };
+    return { label: 'Без заказа', className: 'bg-slate-100 text-slate-600' };
+  };
+
+  const copyVariantData = async (variant: VariantLibraryItem) => {
+    const text = [
+      getVariantTitle(variant),
+      getVariantSupplier(variant),
+      getVariantLocation(variant),
+      formatPrice(Number((variant.salePriceAed ?? variant.priceAed) || 0)),
+      getVariantPhone(variant)
+    ].filter(Boolean).join('\n');
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        showToast('Данные варианта скопированы', 'success');
+      } else {
+        window.prompt('Скопируйте данные варианта', text);
+      }
+    } catch {
+      window.prompt('Скопируйте данные варианта', text);
+    }
+  };
+
+  const attachVariantToOrder = async (orderId: string) => {
+    if (!orderPickerVariant) return;
+    const targetOrder = orders.find((order) => order.id === orderId);
+    if (!targetOrder) return;
+
+    setIsAddingToOrder(true);
+    const partId = createUuid();
+    const variantClone = { ...cloneVariantForPart(orderPickerVariant, partId), orderId: targetOrder.id };
+    const variantPhotos = miniPhotos(orderPickerVariant);
+    const nextPart = {
+      id: partId,
+      orderId: targetOrder.id,
+      name: getVariantTitle(orderPickerVariant),
+      quantity: 1,
+      comment: orderPickerVariant.note || '',
+      photoUrl: variantPhotos[0] || '',
+      photos: variantPhotos,
+      variants: [variantClone],
+      isFound: true,
+      status: 'found' as const
+    };
+
+    const saved = await updateOrder({ ...targetOrder, parts: [nextPart, ...(targetOrder.parts || [])] });
+    setIsAddingToOrder(false);
+    if (!saved) {
+      showToast('Не удалось добавить вариант в заказ', 'error');
+      return;
+    }
+    setOrderPickerVariant(null);
+    showToast('Вариант добавлен в заказ', 'success');
+    navigate(`/order/${targetOrder.id}`);
+  };
+
   return (
-    <div className="min-h-full bg-[#F7F8FA] px-4 pb-24 pt-3 text-[#0F1728]">
-      <div className="space-y-4">
-        <div className="rounded-[20px] border border-[#E7EAF0] bg-white p-4 shadow-[0_2px_12px_rgba(15,23,40,0.04)]">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h1 className="text-[32px] font-bold leading-[38px]">Варианты</h1>
-              <p className="mt-1 max-w-[280px] text-sm text-[#667085]">Все сохранённые варианты из заказов и отдельно созданные позиции.</p>
-            </div>
-            <div className={`rounded-xl border px-3 py-1.5 text-[11px] font-semibold ${syncStateUi}`}>{syncLabel}</div>
+    <div className="min-h-full bg-[#F7F8FA] px-4 pb-36 pt-3 text-[#0F1728]">
+      <div className="space-y-3">
+        <section className="space-y-2.5">
+          <div className="flex items-center gap-3">
+            <label className="flex h-14 min-w-0 flex-1 items-center gap-3 rounded-[18px] border border-[#E6EAF0] bg-white/88 px-4 text-[#667085] shadow-[0_1px_6px_rgba(15,23,40,0.025)] transition focus-within:border-blue-200 focus-within:bg-white focus-within:text-blue-600">
+              <Search size={21} className="shrink-0" />
+              <input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Поставщик, деталь, VIN, телефон"
+                className="min-w-0 flex-1 bg-transparent text-[15px] font-medium text-[#0F1728] outline-none placeholder:text-[#7A8293]"
+              />
+              {searchTerm && (
+                <button type="button" onClick={() => setSearchTerm('')} className="rounded-full p-1 text-[#98A2B3] transition active:scale-95" aria-label="Очистить поиск">
+                  <X size={15} />
+                </button>
+              )}
+            </label>
+            <button
+              type="button"
+              onClick={() => setActiveFilter(activeFilter === 'with_photo' ? 'all' : 'with_photo')}
+              className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[18px] border bg-white/90 shadow-[0_1px_6px_rgba(15,23,40,0.025)] transition active:scale-[0.97] ${activeFilter === 'with_photo' ? 'border-blue-300 text-blue-600' : 'border-[#E6EAF0] text-[#475467]'}`}
+              aria-label="Фильтры"
+            >
+              <SlidersHorizontal size={22} />
+            </button>
           </div>
-          <button type="button" onClick={() => setShowCreateModal(true)} className="mt-4 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-[#2563EB] text-sm font-bold text-white">
-            <Plus size={18} />
-            Новый вариант
-          </button>
-          <div className="mt-4 flex h-12 items-center rounded-2xl border border-[#E7EAF0] bg-[#F7F8FA] px-3">
-            <Search size={16} className="text-[#667085]" />
-            <input
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Поставщик, деталь, VIN, телефон"
-              className="h-full flex-1 bg-transparent px-2 text-sm outline-none"
-            />
-            {searchTerm && <button type="button" onClick={() => setSearchTerm('')} className="rounded-full p-1 text-[#667085]"><X size={14} /></button>}
-          </div>
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-            {filterOptions.map((option) => (
+
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+            {primaryFilterOptions.map((option) => (
               <button
                 key={option.key}
                 type="button"
                 onClick={() => setActiveFilter(option.key)}
-                className={`h-9 whitespace-nowrap rounded-xl border px-3 text-xs font-semibold ${activeFilter === option.key ? 'border-[#2563EB] bg-[#EFF4FF] text-[#2563EB]' : 'border-[#E7EAF0] bg-white text-[#667085]'}`}
+                className={`h-10 shrink-0 whitespace-nowrap rounded-[15px] border px-2.5 text-[12px] font-bold transition active:scale-[0.98] ${activeFilter === option.key ? 'border-blue-500 bg-white text-blue-600 shadow-[0_6px_16px_rgba(37,99,235,0.08)]' : 'border-[#E6EAF0] bg-white/86 text-[#3D4658]'}`}
               >
                 {option.label}
               </button>
             ))}
           </div>
-          <div className="mt-3 flex items-center justify-between">
-            <p className="text-xs font-semibold text-[#667085]">{filteredAndSorted.length} вариантов</p>
-            <div className="relative">
-              <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)} className="h-9 appearance-none rounded-xl border border-[#E7EAF0] bg-white pl-3 pr-8 text-xs font-semibold text-[#0F1728] outline-none">
+
+          <div className="flex items-center justify-between gap-3">
+            <p className="shrink-0 text-[14px] font-bold text-[#3D4658]">{filteredAndSorted.length} вариантов</p>
+            <div className="relative min-w-0">
+              <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)} className="h-11 w-[230px] appearance-none rounded-[17px] border border-[#E6EAF0] bg-white pl-4 pr-8 text-[13px] font-bold text-[#0F1728] outline-none shadow-[0_1px_6px_rgba(15,23,40,0.025)]">
                 <option value="updated">По дате обновления</option>
                 <option value="created">По дате создания</option>
                 <option value="price_asc">По цене ↑</option>
@@ -519,25 +625,29 @@ const VariantsScreen: React.FC = () => {
                 <option value="supplier">По поставщику А–Я</option>
                 <option value="pinned">Сначала закреплённые</option>
               </select>
-              <ChevronDown size={14} className="pointer-events-none absolute right-2 top-2.5 text-[#667085]" />
+              <ChevronDown size={16} className="pointer-events-none absolute right-3 top-3.5 text-[#0F1728]" />
             </div>
           </div>
-        </div>
+        </section>
 
         {filteredAndSorted.length > 0 ? (
-          <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-2.5">
             {filteredAndSorted.map((variant) => {
               const photosForCard = miniPhotos(variant);
-              const orderHint = variant.sourceOrderLabel || '';
-              const vinCandidate = orderHint.split('•').at(-1)?.trim() || '';
-              const phoneValue = variant.phone && variant.phone !== '+971' ? variant.phone : '';
+              const firstPhoto = photosForCard[0];
+              const phoneValue = getVariantPhone(variant);
+              const statusMeta = getStatusMeta(variant);
               return (
-                <button
+                <article
                   key={`${variant.origin}-${variant.id}-${variant.sourceOrderId || 'none'}`}
-                  type="button"
-                  onClick={() => {
-                    setSelectedVariant(variant);
-                    setIsEditMode(false);
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openVariantDetail(variant)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      openVariantDetail(variant);
+                    }
                   }}
                   onPointerDown={() => startLongPressDelete(variant)}
                   onPointerUp={cancelLongPressDelete}
@@ -546,54 +656,169 @@ const VariantsScreen: React.FC = () => {
                     event.preventDefault();
                     setDeleteCandidate(variant);
                   }}
-                  className="w-full rounded-[20px] border border-[#E7EAF0] bg-white p-4 text-left shadow-[0_2px_10px_rgba(15,23,40,0.04)]"
+                  className="flex h-[216px] min-w-0 cursor-pointer flex-col overflow-hidden rounded-[18px] border border-[#E9EDF3] bg-white text-left shadow-[0_8px_22px_rgba(15,23,40,0.055)] transition duration-200 active:scale-[0.985]"
                 >
-                  <div className="flex items-start gap-3">
-                    {photosForCard[0] ? (
-                      <img src={photosForCard[0]} alt={variant.sourcePartName || 'Фото варианта'} className="h-20 w-20 shrink-0 rounded-2xl border border-[#E7EAF0] object-cover" loading="lazy" />
+                  <div className="relative h-[76px] shrink-0 bg-[#F2F4F7]">
+                    {firstPhoto ? (
+                      <img src={firstPhoto} alt={getVariantTitle(variant)} className="h-full w-full object-contain p-2" loading="lazy" />
                     ) : (
-                      <div className="h-20 w-20 shrink-0 rounded-2xl border border-dashed border-[#D0D5DD] bg-[#F8FAFC] grid place-items-center text-[#98A2B3]">
-                        <Camera size={16} />
+                      <div className="grid h-full w-full place-items-center text-[#98A2B3]">
+                        <Camera size={20} />
                       </div>
                     )}
-                    <div className="min-w-0 flex-1">
-                      <p className="line-clamp-2 text-base font-bold leading-6 text-[#0F1728]">{variant.shopName || 'Без поставщика'}</p>
-                      <p className="mt-1 line-clamp-2 text-sm text-[#667085]">{variant.sourcePartName || 'Деталь не указана'}</p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-[21px] font-bold leading-6 text-[#0F1728]">{formatPrice(Number((variant.salePriceAed ?? variant.priceAed) || 0))}</p>
-                      <p className="mt-1 text-xs text-[#667085]">{formatDate(variant.updatedAt || variant.createdAt)}</p>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleVariantFlag(variant, 'isFavorite');
+                      }}
+                      className="absolute left-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-white/95 text-[#667085] shadow-[0_4px_12px_rgba(15,23,40,0.12)] transition active:scale-95"
+                      aria-label="Избранное"
+                    >
+                      <Star size={14} fill={variant.isFavorite ? '#FBBF24' : 'none'} className={variant.isFavorite ? 'text-amber-400' : ''} />
+                    </button>
+                    {photosForCard.length > 0 && (
+                      <span className="absolute bottom-2 right-2 rounded-full bg-white/82 px-1.5 py-0.5 text-[9px] font-bold text-[#3D4658] shadow-[0_4px_10px_rgba(15,23,40,0.08)]">
+                        {photosForCard.length} фото
+                      </span>
+                    )}
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="rounded-xl bg-[#F2F4F7] px-2 py-1 text-[11px] font-semibold text-[#475467]">{variant.origin === 'order' ? 'Из заказа' : 'Без заказа'}</span>
-                    {variant.isPinned && <span className="rounded-xl bg-[#FEF3C7] px-2 py-1 text-[11px] font-semibold text-[#92400E]">Закреплён</span>}
-                    {variant.isFavorite && <span className="rounded-xl bg-[#FCE7F3] px-2 py-1 text-[11px] font-semibold text-[#9D174D]">Избранное</span>}
-                  </div>
+                  <div className="flex min-h-0 flex-1 flex-col px-2 pb-2 pt-2">
+                    <h2 className="line-clamp-2 min-h-[26px] text-[12px] font-black leading-[13px] text-[#0B1220]">{getVariantTitle(variant)}</h2>
+                    <p className="mt-0.5 truncate text-[10.5px] font-semibold leading-[13px] text-[#667085]">{getVariantSupplier(variant)}</p>
+                    <p className="truncate text-[10.5px] font-medium leading-[14px] text-[#7A8293]">{getVariantLocation(variant)}</p>
+                    <p className="mt-0.5 truncate text-[16px] font-black leading-[19px] text-[#0B1220]">{formatPrice(Number((variant.salePriceAed ?? variant.priceAed) || 0))}</p>
+                    <span className={`mt-1 w-fit max-w-full truncate rounded-[8px] px-1.5 py-0.5 text-[9.5px] font-black leading-[14px] ${statusMeta.className}`}>{statusMeta.label}</span>
 
-                  <div className="mt-3 flex items-center justify-between gap-2 text-xs text-[#667085]">
-                    <p className="truncate">{orderHint ? `${orderHint.split('•')[0]?.trim()} · VIN ${trimVin(vinCandidate)}` : 'Без привязки к заказу'}</p>
-                    <div className="flex items-center gap-2 text-[#475467]">
-                      {phoneValue && <Phone size={14} />}
-                      {photosForCard.length > 0 && <span className="inline-flex items-center gap-1"><Camera size={14} /> {photosForCard.length}</span>}
-                      {(variant.location || variant.locationText || variant.mapsUrl) && <MapPin size={14} />}
-                      {variant.note && <StickyNote size={14} />}
+                    <div className="mt-auto grid grid-cols-[26px_minmax(0,1fr)_26px] gap-1">
+                      <button
+                        type="button"
+                        disabled={!phoneValue}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (phoneValue) window.open(`https://wa.me/${phoneValue.replace(/\D/g, '')}`, '_blank');
+                        }}
+                        className="grid h-6 place-items-center rounded-[8px] border border-emerald-100 bg-emerald-50 text-emerald-600 transition active:scale-95 disabled:opacity-35"
+                        aria-label="WhatsApp"
+                      >
+                        <MessageCircle size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setOrderPickerVariant(variant);
+                        }}
+                        className="h-6 truncate rounded-[8px] bg-blue-50 px-1 text-[9px] font-black text-blue-700 transition active:scale-[0.97]"
+                      >
+                        + В заказ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setMenuVariant(variant);
+                        }}
+                        className="grid h-6 place-items-center rounded-[8px] border border-[#E6EAF0] bg-white text-[#475467] transition active:scale-95"
+                        aria-label="Еще"
+                      >
+                        <MoreHorizontal size={15} />
+                      </button>
                     </div>
                   </div>
-                </button>
+                </article>
               );
             })}
           </div>
         ) : (
-          <div className="rounded-[20px] border border-dashed border-[#D0D5DD] bg-white p-8 text-center">
+          <div className="rounded-[22px] border border-dashed border-[#D0D5DD] bg-white p-8 text-center shadow-[0_8px_22px_rgba(15,23,40,0.04)]">
             <Sparkles className="mx-auto text-[#98A2B3]" size={24} />
             <p className="mt-3 text-sm font-semibold text-[#0F1728]">Пока нет вариантов</p>
-            <p className="mt-1 text-xs text-[#667085]">Создайте первый вариант вручную или добавьте его из заказа.</p>
-            <button type="button" onClick={() => setShowCreateModal(true)} className="mt-4 h-11 rounded-2xl bg-[#2563EB] px-4 text-sm font-bold text-white">Новый вариант</button>
+            <p className="mt-1 text-xs text-[#667085]">Создайте первый товарный вариант вручную или добавьте его из заказа.</p>
           </div>
         )}
       </div>
+
+      <div className="pointer-events-none fixed bottom-[calc(92px+env(safe-area-inset-bottom))] left-1/2 z-40 w-full max-w-md -translate-x-1/2 px-6">
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setShowCreateModal(true)}
+            className="pointer-events-auto grid h-14 w-14 place-items-center rounded-full bg-[#2563EB] text-white shadow-[0_18px_36px_rgba(37,99,235,0.34)] ring-4 ring-white/85 transition active:scale-[0.96]"
+            aria-label="Новый вариант"
+          >
+            <Plus size={29} strokeWidth={2.6} />
+          </button>
+        </div>
+      </div>
+
+      {menuVariant && (
+        <div className="fixed inset-0 z-[80] bg-black/35" onClick={() => setMenuVariant(null)}>
+          <div className="absolute bottom-[calc(112px+env(safe-area-inset-bottom))] left-1/2 max-h-[calc(100dvh-150px)] w-[calc(100%-32px)] max-w-[408px] -translate-x-1/2 overflow-y-auto rounded-[26px] bg-white px-3 pb-3 pt-3 shadow-[0_18px_54px_rgba(15,23,40,0.22)] ring-1 ring-slate-900/[0.04]" onClick={(event) => event.stopPropagation()}>
+            <div className="mx-auto h-1.5 w-10 rounded-full bg-slate-200" />
+            <div className="mt-3 px-1">
+              <p className="line-clamp-1 text-[15px] font-black text-[#0F1728]">{getVariantTitle(menuVariant)}</p>
+              <p className="mt-0.5 truncate text-[13px] font-semibold text-[#667085]">{getVariantSupplier(menuVariant)}</p>
+            </div>
+            <div className="mt-3 grid gap-1.5">
+              <button type="button" onClick={() => { setSelectedVariant(menuVariant); setIsEditMode(true); setMenuVariant(null); }} className="flex h-11 items-center justify-between rounded-2xl bg-slate-50 px-4 text-[13px] font-bold text-[#0F1728]">
+                Редактировать <Check size={16} className="text-slate-400" />
+              </button>
+              <button type="button" onClick={() => { toggleVariantFlag(menuVariant, 'isPinned'); setMenuVariant(null); }} className="flex h-11 items-center justify-between rounded-2xl bg-slate-50 px-4 text-[13px] font-bold text-[#0F1728]">
+                {menuVariant.isPinned ? 'Открепить' : 'Закрепить'} <Pin size={16} className="text-slate-400" />
+              </button>
+              <button type="button" disabled={!menuVariant.sourceOrderId} onClick={() => { if (menuVariant.sourceOrderId) navigate(`/order/${menuVariant.sourceOrderId}`); setMenuVariant(null); }} className="flex h-11 items-center justify-between rounded-2xl bg-slate-50 px-4 text-[13px] font-bold text-[#0F1728] disabled:opacity-40">
+                Открыть заказ <Link2 size={16} className="text-slate-400" />
+              </button>
+              <button type="button" onClick={() => { void copyVariantData(menuVariant); setMenuVariant(null); }} className="flex h-11 items-center justify-between rounded-2xl bg-slate-50 px-4 text-[13px] font-bold text-[#0F1728]">
+                Скопировать данные <Copy size={16} className="text-slate-400" />
+              </button>
+              <button type="button" onClick={() => { setDeleteCandidate(menuVariant); setMenuVariant(null); }} className="flex h-11 items-center justify-between rounded-2xl bg-rose-50 px-4 text-[13px] font-bold text-rose-600">
+                Удалить <X size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {orderPickerVariant && (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/35 px-3 pb-[calc(6.5rem+env(safe-area-inset-bottom))]" onClick={() => setOrderPickerVariant(null)}>
+          <div className="max-h-[52dvh] w-full overflow-y-auto rounded-[24px] bg-white px-3 pb-3 pt-2 shadow-[0_18px_56px_rgba(15,23,40,0.22)]" onClick={(event) => event.stopPropagation()}>
+            <div className="mx-auto h-1 w-9 rounded-full bg-slate-200" />
+            <div className="mt-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-base font-black text-[#0F1728]">Добавить в заказ</p>
+                <p className="mt-0.5 line-clamp-1 text-xs font-semibold text-[#667085]">{getVariantTitle(orderPickerVariant)}</p>
+              </div>
+              <button type="button" onClick={() => setOrderPickerVariant(null)} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-50 text-[#667085]">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="mt-3 space-y-2">
+              {activeOrdersForPicker.length > 0 ? activeOrdersForPicker.map((order) => (
+                <button
+                  key={order.id}
+                  type="button"
+                  disabled={isAddingToOrder}
+                  onClick={() => void attachVariantToOrder(order.id)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-[#E7EAF0] bg-white px-3 py-2.5 text-left shadow-[0_4px_14px_rgba(15,23,40,0.035)] disabled:opacity-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-black text-[#0F1728]">{order.brand} {order.model}</span>
+                    <span className="mt-0.5 block truncate text-xs font-semibold text-[#667085]">{order.year} · VIN {trimVin(order.vin || '—')}</span>
+                  </span>
+                  <Plus size={18} className="shrink-0 text-blue-600" />
+                </button>
+              )) : (
+                <div className="rounded-xl border border-dashed border-[#D0D5DD] bg-slate-50 p-3 text-center text-xs font-semibold text-[#667085]">
+                  Нет активных заказов для добавления.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40">

@@ -7,6 +7,7 @@ export type QuoteContact = {
   whatsapp: string;
   telegram: string;
   instagram: string;
+  tiktok: string;
   managerName: string;
   website: string;
   email: string;
@@ -273,6 +274,7 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
     whatsapp: digits(firstString(raw.contact?.whatsapp_phone, raw.contacts?.whatsapp, raw.public_contact?.whatsapp, mergedSettings.publicWhatsappNumber)),
     telegram: firstString(raw.contact?.telegram, raw.contacts?.telegram, raw.public_contact?.telegram, mergedSettings.publicTelegramUrl) || '',
     instagram: firstString(raw.contact?.instagram, raw.contacts?.instagram, raw.public_contact?.instagram, mergedSettings.publicInstagramUrl) || '',
+    tiktok: firstString(raw.customer_links?.tiktok_url, raw.customer_links?.tiktokUrl, raw.contact?.tiktok, raw.contacts?.tiktok, raw.public_contact?.tiktok) || '',
     managerName: firstString(mergedSettings.publicManagerName, raw.contact?.display_name, raw.owner?.display_name) || 'Stark Motors',
     website: firstString(raw.contact?.website, raw.contacts?.website, raw.public_contact?.website, mergedSettings.publicWebsiteUrl) || '',
     email: firstString(raw.contact?.email, raw.contacts?.email, raw.public_contact?.email, mergedSettings.publicEmail) || '',

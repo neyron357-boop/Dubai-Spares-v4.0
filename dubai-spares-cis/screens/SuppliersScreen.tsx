@@ -28,7 +28,9 @@ import {
   MoreHorizontal,
   Menu,
   SlidersHorizontal,
-  Pin
+  Pin,
+  Search,
+  Camera
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import ImagePreview from '../components/ImagePreview';
@@ -50,6 +52,17 @@ const FIELD_TYPES: Array<{ value: SupplierType; label: string; icon: React.React
   { value: 'dealer', label: 'Dealer', icon: <Store size={12} /> },
   { value: 'warehouse', label: 'Warehouse', icon: <Store size={12} /> }
 ];
+
+const FIELD_TYPE_RU_LABELS: Record<SupplierType, string> = {
+  new_parts: 'Новые детали',
+  scrapyard: 'Разбор',
+  engine_specialist: 'Двигатели',
+  body_parts: 'Кузов',
+  electrical: 'Электрика',
+  mixed: 'Смешанный',
+  dealer: 'Дилер',
+  warehouse: 'Склад'
+};
 
 const ZONE_GEOFENCES = [
   { name: 'Sajaa', bounds: { minLat: 25.29, maxLat: 25.37, minLng: 55.48, maxLng: 55.58 } },
@@ -1753,95 +1766,72 @@ const SuppliersScreen: React.FC = () => {
   }, [availableBrands, brandFilter]);
 
   return (
-    <div className="space-y-4 overflow-x-hidden bg-slate-50 px-3 pb-32 pt-3 text-slate-950">
-      <section className="sticky top-0 z-30 -mx-3 border-b border-slate-200 bg-white/95 px-3 pb-3 pt-3 shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Поставщики</p>
-            <h1 className="truncate text-xl font-black tracking-tight text-slate-950">База поставщиков</h1>
-            <p className="mt-0.5 text-xs font-semibold text-slate-500">{displayedSuppliers.length} из {supplierOverview.total} · {activeSupplierFilterCount ? `${activeSupplierFilterCount} фильтр.` : 'весь список'}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button type="button" onClick={() => navigate('/variants')} className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700">Варианты</button>
-            <button type="button" onClick={() => setIsAdding(true)} className="inline-flex h-10 items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 text-xs font-black text-white">
-              <UserPlus size={14} /> Добавить
+    <div className="min-h-[100dvh] space-y-4 overflow-x-hidden bg-[#f6f8fb] px-4 pb-32 pt-3 text-slate-950 antialiased">
+      <section className="space-y-3">
+        <div className="rounded-[26px] border border-white/80 bg-white/75 p-2 shadow-[0_16px_40px_rgba(15,23,42,0.055)] ring-1 ring-slate-900/[0.025] backdrop-blur">
+          <div className="flex items-center gap-2">
+            <label className="flex h-14 min-w-0 flex-1 items-center gap-3 rounded-[20px] bg-slate-50/90 px-3 text-slate-500 ring-1 ring-slate-900/[0.04] transition focus-within:bg-white focus-within:text-blue-600 focus-within:ring-blue-200">
+              <Search size={18} className="shrink-0" />
+              <input
+                value={supplierSearchQuery}
+                onChange={(e) => setSupplierSearchQuery(e.target.value)}
+                placeholder="Поиск поставщиков · название, зона, бренд..."
+                aria-label="Поиск поставщика"
+                className="min-w-0 flex-1 bg-transparent text-[14px] font-semibold text-slate-900 outline-none placeholder:text-slate-400"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsFiltersOpen((prev) => !prev)}
+              className={`ds-press inline-flex h-14 w-12 shrink-0 items-center justify-center rounded-[20px] border text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] ${isFiltersOpen ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200/80 bg-white/90'}`}
+              aria-label="Открыть фильтры"
+            >
+              <SlidersHorizontal size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBrandsDrawerOpen(true)}
+              className="ds-press inline-flex h-14 w-12 shrink-0 items-center justify-center rounded-[20px] border border-slate-200/80 bg-white/90 text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)]"
+              aria-label="Открыть бренды"
+            >
+              <Menu size={18} />
             </button>
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-4 gap-2">
-          {[
-            { label: 'Всего', value: supplierOverview.total },
-            { label: 'Надёжные', value: supplierOverview.trusted },
-            { label: 'Fast WA', value: supplierOverview.fast },
-            { label: 'Без контакта', value: supplierOverview.missingContacts }
-          ].map((item) => (
-            <div key={item.label} className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2">
-              <p className="text-[9px] font-black uppercase text-slate-400">{item.label}</p>
-              <p className="mt-0.5 text-base font-black text-slate-900">{item.value}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <input
-            value={supplierSearchQuery}
-            onChange={(e) => setSupplierSearchQuery(e.target.value)}
-            placeholder="Поиск: название, зона, бренд, модель"
-            aria-label="Поиск поставщика"
-            className="h-12 min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-          />
-          <button
-            type="button"
-            onClick={() => setIsFiltersOpen((prev) => !prev)}
-            className={`inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${isFiltersOpen ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700'}`}
-            aria-label="Открыть фильтры"
-          >
-            <SlidersHorizontal size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsBrandsDrawerOpen(true)}
-            className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700"
-            aria-label="Открыть бренды"
-          >
-            <Menu size={18} />
-          </button>
+        <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
+          <button type="button" onClick={resetSupplierFilters} className={`ds-press shrink-0 rounded-full px-3.5 py-2 text-[11px] font-semibold ${activeSupplierFilterCount === 0 ? 'bg-slate-950 text-white shadow-[0_10px_22px_rgba(15,23,42,0.18)]' : 'border border-slate-200/80 bg-white/85 text-slate-600'}`}>Все</button>
+          <button type="button" onClick={() => setFavoriteFilter((value) => value === 'favorites' ? 'all' : 'favorites')} className={`ds-press shrink-0 rounded-full px-3.5 py-2 text-[11px] font-semibold ${favoriteFilter === 'favorites' ? 'bg-slate-950 text-white shadow-[0_10px_22px_rgba(15,23,42,0.18)]' : 'border border-slate-200/80 bg-white/85 text-slate-600'}`}>Избранные {supplierOverview.favorites}</button>
+          <button type="button" onClick={() => setFastWhatsappFilter((value) => value === 'fast' ? 'all' : 'fast')} className={`ds-press shrink-0 rounded-full px-3.5 py-2 text-[11px] font-semibold ${fastWhatsappFilter === 'fast' ? 'bg-slate-950 text-white shadow-[0_10px_22px_rgba(15,23,42,0.18)]' : 'border border-slate-200/80 bg-white/85 text-slate-600'}`}>Fast WhatsApp</button>
+          <button type="button" onClick={() => setSortByExtended(sortByExtended === 'near' ? 'smart' : 'near')} className={`ds-press shrink-0 rounded-full px-3.5 py-2 text-[11px] font-semibold ${sortByExtended === 'near' ? 'bg-slate-950 text-white shadow-[0_10px_22px_rgba(15,23,42,0.18)]' : 'border border-slate-200/80 bg-white/85 text-slate-600'}`}>Рядом</button>
+          <button type="button" onClick={() => setVisitTodayFilter((value) => value === 'visit_today' ? 'all' : 'visit_today')} className={`ds-press shrink-0 rounded-full px-3.5 py-2 text-[11px] font-semibold ${visitTodayFilter === 'visit_today' ? 'bg-slate-950 text-white shadow-[0_10px_22px_rgba(15,23,42,0.18)]' : 'border border-slate-200/80 bg-white/85 text-slate-600'}`}>Visit today</button>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
-          <button type="button" onClick={resetSupplierFilters} className={`shrink-0 rounded-full px-3 py-2 text-[11px] font-black ${activeSupplierFilterCount === 0 ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>Все</button>
-          <button type="button" onClick={() => setFavoriteFilter((value) => value === 'favorites' ? 'all' : 'favorites')} className={`shrink-0 rounded-full px-3 py-2 text-[11px] font-black ${favoriteFilter === 'favorites' ? 'bg-rose-600 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>Избранные {supplierOverview.favorites}</button>
-          <button type="button" onClick={() => setFastWhatsappFilter((value) => value === 'fast' ? 'all' : 'fast')} className={`shrink-0 rounded-full px-3 py-2 text-[11px] font-black ${fastWhatsappFilter === 'fast' ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>Fast WhatsApp</button>
-          <button type="button" onClick={() => setSortByExtended(sortByExtended === 'near' ? 'smart' : 'near')} className={`shrink-0 rounded-full px-3 py-2 text-[11px] font-black ${sortByExtended === 'near' ? 'bg-blue-600 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>Рядом</button>
-          <button type="button" onClick={() => setVisitTodayFilter((value) => value === 'visit_today' ? 'all' : 'visit_today')} className={`shrink-0 rounded-full px-3 py-2 text-[11px] font-black ${visitTodayFilter === 'visit_today' ? 'bg-violet-600 text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>Visit today</button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              if (isSelectionMode || selectedSupplierIds.length > 0) clearSupplierSelection();
-              else setIsSelectionMode(true);
-            }}
-            className={`rounded-xl border px-3 py-2 text-xs font-black ${isSelectionMode || selectedSupplierIds.length > 0 ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-white text-slate-600'}`}
-          >
-            {isSelectionMode || selectedSupplierIds.length > 0 ? 'Отмена выбора' : 'Выбрать'}
-          </button>
-          {selectedSupplierIds.length > 0 && (
-            <>
-              <span className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">Выбрано: {selectedSupplierIds.length}</span>
-              <button type="button" onClick={() => setDeleteSupplierId('__bulk__')} className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-black text-white">Удалить</button>
-            </>
-          )}
-          {selectedBrandView && <span className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">Бренд: {selectedBrandView}</span>}
-        </div>
+        {(isSelectionMode || selectedSupplierIds.length > 0 || selectedBrandView) && (
+          <div className="flex flex-wrap items-center gap-2 rounded-[20px] border border-white/80 bg-white/70 p-2 shadow-[0_10px_26px_rgba(15,23,42,0.04)]">
+            <button
+              type="button"
+              onClick={() => {
+                if (isSelectionMode || selectedSupplierIds.length > 0) clearSupplierSelection();
+                else setIsSelectionMode(true);
+              }}
+              className={`ds-press rounded-[14px] border px-3 py-2 text-xs font-semibold ${isSelectionMode || selectedSupplierIds.length > 0 ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-white text-slate-600'}`}
+            >
+              {isSelectionMode || selectedSupplierIds.length > 0 ? 'Отмена выбора' : 'Выбрать'}
+            </button>
+            {selectedSupplierIds.length > 0 && (
+              <>
+                <span className="rounded-[14px] border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">Выбрано: {selectedSupplierIds.length}</span>
+                <button type="button" onClick={() => setDeleteSupplierId('__bulk__')} className="ds-press rounded-[14px] bg-rose-600 px-3 py-2 text-xs font-bold text-white">Удалить</button>
+              </>
+            )}
+            {selectedBrandView && <span className="rounded-[14px] border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">Бренд: {selectedBrandView}</span>}
+          </div>
+        )}
 
         {isFiltersOpen && (
-          <div className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
+          <div className="grid grid-cols-2 gap-2 rounded-[24px] border border-white/80 bg-white/82 p-3 shadow-[0_16px_36px_rgba(15,23,42,0.055)] ring-1 ring-slate-900/[0.025] backdrop-blur">
+            <select className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" value={sortByExtended} onChange={(e) => setSortByExtended(e.target.value as any)}>
               <option value="smart">Умная сортировка</option>
               <option value="fast">Сначала быстрые</option>
               <option value="trust">По надёжности</option>
@@ -1849,23 +1839,23 @@ const SuppliersScreen: React.FC = () => {
               <option value="near">По расстоянию</option>
               <option value="name">A-Z</option>
             </select>
-            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={favoriteFilter} onChange={(e) => setFavoriteFilter(e.target.value as 'all' | 'favorites')}>
+            <select className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" value={favoriteFilter} onChange={(e) => setFavoriteFilter(e.target.value as 'all' | 'favorites')}>
               <option value="all">Все поставщики</option>
               <option value="favorites">Избранные</option>
             </select>
-            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={fastWhatsappFilter} onChange={(e) => setFastWhatsappFilter(e.target.value as 'all' | 'fast')}>
+            <select className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" value={fastWhatsappFilter} onChange={(e) => setFastWhatsappFilter(e.target.value as 'all' | 'fast')}>
               <option value="all">Любая скорость WA</option>
               <option value="fast">Только fast WA</option>
             </select>
-            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={visitTodayFilter} onChange={(e) => setVisitTodayFilter(e.target.value as 'all' | 'visit_today')}>
+            <select className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" value={visitTodayFilter} onChange={(e) => setVisitTodayFilter(e.target.value as 'all' | 'visit_today')}>
               <option value="all">Без визита</option>
               <option value="visit_today">Visit today</option>
             </select>
-            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
+            <select className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
               <option value="all">Все годы</option>
               {supplierFilterOptions.years.map((year) => <option key={year} value={year}>{year}</option>)}
             </select>
-            <select className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold" value={partCategoryFilter} onChange={(e) => setPartCategoryFilter(e.target.value)}>
+            <select className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" value={partCategoryFilter} onChange={(e) => setPartCategoryFilter(e.target.value)}>
               <option value="all">Все категории</option>
               {supplierFilterOptions.partCategories.map((category) => <option key={category} value={category}>{category}</option>)}
             </select>
@@ -2010,160 +2000,194 @@ const SuppliersScreen: React.FC = () => {
       {showSuccess && <div className="bg-green-50 text-green-600 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 border border-green-100"><CheckCircle2 size={16} />Данные успешно восстановлены!</div>}
 
       {isAdding && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm" onClick={() => { setIsAdding(false); resetAddForm(); }}>
-          <form onSubmit={(e) => { e.preventDefault(); void handleSave(); }} className="bg-white w-full max-w-md rounded-3xl p-4 sm:p-5 shadow-2xl space-y-4 max-h-[85dvh] sm:max-h-[90dvh] overflow-y-auto overflow-x-hidden pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="text-xl font-bold">{editingSupplierId ? "Редактировать поставщика" : "Добавить поставщика"}</h2>
-                <p className="text-xs text-gray-400 font-semibold">Field Mode</p>
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/38 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" onClick={() => { setIsAdding(false); resetAddForm(); }}>
+          <form onSubmit={(e) => { e.preventDefault(); void handleSave(); }} className="flex max-h-[92dvh] w-full max-w-[460px] flex-col overflow-hidden rounded-t-[32px] bg-[#F5F7FB] shadow-[0_28px_80px_rgba(15,23,42,0.28)] ring-1 ring-white/70 sm:rounded-[32px]" onClick={(e) => e.stopPropagation()}>
+            <div className="shrink-0 border-b border-slate-200/70 bg-white px-4 pb-4 pt-3">
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-200 sm:hidden" />
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-blue-600">{editingSupplierId ? 'Редактирование' : 'Новый контакт'}</p>
+                  <h2 className="mt-1 truncate text-[24px] font-black leading-7 text-slate-950">{editingSupplierId ? 'Поставщик' : 'Добавить поставщика'}</h2>
+                </div>
+                <button type="button" onClick={() => { setIsAdding(false); resetAddForm(); }} className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-slate-100 text-xl font-black text-slate-500 shadow-inner transition active:scale-95" aria-label="Закрыть форму">×</button>
               </div>
-              <button type="button" onClick={() => { setIsAdding(false); resetAddForm(); }} className="text-xs font-black text-gray-500">Cancel</button>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Название *</label>
-                <button type="button" onClick={generateUniqueSupplierName} className="text-[10px] font-black uppercase text-blue-700 inline-flex items-center gap-1"><Shuffle size={11} /> Генерировать</button>
-              </div>
-              <input placeholder="Dubai Parts LTD" value={name} onChange={(e) => setName(toTitle(e.target.value))} autoComplete="off" className="w-full bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
-              {duplicateWarning && <p className="text-[11px] text-amber-700 font-semibold mt-1">⚠️ {duplicateWarning}</p>}
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Телефон (E.164) *</label>
-              <div className="flex gap-2">
-                <input placeholder="+971..." value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="off" className="flex-1 bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
-                {currentPhone && <a href={`tel:${currentPhone}`} className="px-3 rounded-xl bg-green-50 text-green-700 text-[10px] font-black inline-flex items-center gap-1"><Phone size={12} />Call</a>}
-              </div>
-              <p className={`text-[10px] mt-1 font-semibold ${isValidE164(currentPhone) ? 'text-green-700' : 'text-red-600'}`}>{isValidE164(currentPhone) ? `✔ ${currentPhone} · WhatsApp ${hasWhatsapp ? 'detected' : 'not detected'}` : 'Введите корректный E.164 (+971...)'}</p>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">GPS / Maps *</label>
-                <button type="button" onClick={autofillLocationFromGps} className="text-[10px] font-black uppercase text-blue-600 inline-flex items-center gap-1"><LocateFixed size={12} /> Определить местоположение</button>
-              </div>
-              <input placeholder="Ссылка Google Maps или адрес" value={location} onChange={(e) => { setLocation(e.target.value); setLocationParseNotice(null); }} autoComplete="off" className="w-full bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
-              {gpsAccuracy !== null && <p className="text-[10px] text-blue-700 font-semibold mt-1">Точность: {gpsAccuracy}м</p>}
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Тип магазина</label>
-              <div className="grid grid-cols-2 gap-2 mt-1">
-                {FIELD_TYPES.map((type) => (
-                  <button key={type.value} type="button" onClick={() => toggleShopType(type.value)} className={`rounded-xl border px-3 py-2 text-[10px] font-black inline-flex items-center justify-center gap-2 ${shopTypes.includes(type.value) ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-gray-200 text-gray-500'}`}>{type.icon} {type.label}</button>
-                ))}
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <span className={`rounded-2xl px-2.5 py-2 text-center text-[10px] font-black ${name.trim() ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Имя</span>
+                <span className={`rounded-2xl px-2.5 py-2 text-center text-[10px] font-black ${isValidE164(currentPhone) ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Телефон</span>
+                <span className={`rounded-2xl px-2.5 py-2 text-center text-[10px] font-black ${location.trim() ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Локация</span>
               </div>
             </div>
 
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Зона (Geo-Fence)</label>
-              <input placeholder="Автоподсказка по GPS" value={zone} onChange={(e) => setZone(e.target.value)} autoComplete="off" className="w-full bg-gray-50 border border-gray-100 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-base" />
-            </div>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+              <section className="overflow-hidden rounded-[24px] border border-white bg-white shadow-[0_12px_34px_rgba(15,23,42,0.055)]">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                  <div>
+                    <p className="text-[12px] font-black uppercase tracking-[0.14em] text-slate-400">Карточка</p>
+                    <p className="mt-0.5 text-xs font-semibold text-slate-500">Основные данные поставщика</p>
+                  </div>
+                  <button type="button" onClick={generateUniqueSupplierName} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-2xl bg-blue-50 px-3 text-[11px] font-black text-blue-700 transition active:scale-95"><Shuffle size={13} /> Имя</button>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  <label className="block px-4 py-3">
+                    <span className="text-[11px] font-black uppercase tracking-[0.1em] text-slate-400">Название</span>
+                    <input placeholder="MB Motors" value={name} onChange={(e) => setName(toTitle(e.target.value))} autoComplete="off" className="mt-1 h-9 w-full bg-transparent text-[18px] font-black text-slate-950 outline-none placeholder:text-slate-300" />
+                  </label>
+                  <label className="block px-4 py-3">
+                    <span className="text-[11px] font-black uppercase tracking-[0.1em] text-slate-400">Телефон / WhatsApp</span>
+                    <div className="mt-1 grid grid-cols-[1fr_auto] items-center gap-2">
+                      <input placeholder="+971..." value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="off" className="h-9 min-w-0 bg-transparent text-[17px] font-black text-slate-950 outline-none placeholder:text-slate-300" />
+                      {isValidE164(currentPhone) && <a href={`tel:${currentPhone}`} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-2xl bg-emerald-50 px-3 text-[11px] font-black text-emerald-700"><Phone size={14} /> Звонок</a>}
+                    </div>
+                    <span className={`mt-1 block text-[11px] font-bold ${isValidE164(currentPhone) ? 'text-emerald-700' : 'text-slate-400'}`}>{isValidE164(currentPhone) ? `${currentPhone} · WhatsApp ${hasWhatsapp ? 'найден' : 'не найден'}` : 'Формат E.164: +971...'}</span>
+                  </label>
+                  <label className="block px-4 py-3">
+                    <span className="flex items-center justify-between gap-2 text-[11px] font-black uppercase tracking-[0.1em] text-slate-400">
+                      Локация
+                      <button type="button" onClick={autofillLocationFromGps} className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-2 py-1 text-[10px] font-black normal-case tracking-normal text-blue-700"><LocateFixed size={12} /> GPS</button>
+                    </span>
+                    <input placeholder="Google Maps или адрес" value={location} onChange={(e) => { setLocation(e.target.value); setLocationParseNotice(null); }} autoComplete="off" className="mt-1 h-9 w-full bg-transparent text-[15px] font-bold text-slate-950 outline-none placeholder:text-slate-300" />
+                    {gpsAccuracy !== null && <span className="mt-1 block text-[11px] font-bold text-blue-700">Точность GPS: {gpsAccuracy}м</span>}
+                  </label>
+                  <label className="block px-4 py-3">
+                    <span className="text-[11px] font-black uppercase tracking-[0.1em] text-slate-400">Зона</span>
+                    <input placeholder="Sajaa, Ras Al Khor..." value={zone} onChange={(e) => setZone(e.target.value)} autoComplete="off" className="mt-1 h-9 w-full bg-transparent text-[15px] font-bold text-slate-950 outline-none placeholder:text-slate-300" />
+                  </label>
+                </div>
+                {(duplicateWarning || locationParseNotice) && (
+                  <div className="space-y-2 border-t border-slate-100 px-4 py-3">
+                    {duplicateWarning && <p className="rounded-2xl bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">{duplicateWarning}</p>}
+                    {locationParseNotice && <p className="rounded-2xl bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">{locationParseNotice}</p>}
+                  </div>
+                )}
+              </section>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Main Brands</label>
-                <button type="button" onClick={() => setIsFastBrandMode((prev) => !prev)} className="text-[10px] font-black text-blue-700">Multi-select fast mode: {isFastBrandMode ? 'ON' : 'OFF'}</button>
-              </div>
-              <input value={brandSearch} onChange={(e) => setBrandSearch(e.target.value)} placeholder="Поиск бренда" className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
-              <div className="max-h-28 overflow-y-auto rounded-xl border border-gray-100 p-2 bg-gray-50 flex flex-wrap gap-1.5">
-                {filteredBrandOptions.map((brand) => (
-                  <button key={brand} type="button" onClick={() => toggleMainBrand(brand)} className={`px-2 py-1 rounded-lg text-[10px] font-black border ${mainBrands.includes(brand) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>
-                    {brand}
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input value={customBrand} onChange={(e) => setCustomBrand(e.target.value)} placeholder="Добавить свой бренд" className="flex-1 bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
-                <button type="button" onClick={addCustomBrand} className="px-3 rounded-xl bg-gray-100 text-gray-700 text-xs font-black">+ Add</button>
-                <button type="button" onClick={importFromSimilar} className="px-3 rounded-xl bg-violet-50 text-violet-700 text-xs font-black">Импорт похожего</button>
-              </div>
-              <select className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" value={primaryBrand} onChange={(e) => setPrimaryBrand(e.target.value)}>
-                <option value="">Primary brand</option>
-                {mainBrands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
-              </select>
-              <div className="rounded-xl border border-gray-100 bg-white p-2">
-                <p className="text-[10px] font-bold text-gray-500 uppercase mb-1">Категория: Марка → Модель → Год</p>
-                <p className="text-[11px] text-slate-600">
-                  {(mainBrands[0] || '—')} → {(supplierModelsInput.split(',').map((item) => item.trim()).filter(Boolean)[0] || '—')} → {(supplierYearsInput.split(',').map((item) => item.trim()).filter(Boolean)[0] || '—')}
-                </p>
-              </div>
-              <input value={supplierModelsInput} onChange={(e) => setSupplierModelsInput(e.target.value)} placeholder="Модели через запятую (Camry, Corolla)" className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
-              <input value={supplierYearsInput} onChange={(e) => setSupplierYearsInput(e.target.value.replace(/[^\d, ]/g, ''))} placeholder="Годы через запятую (2018, 2019)" className="w-full bg-gray-50 border border-gray-100 p-2 rounded-xl outline-none text-xs font-semibold" />
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
-                <label className="text-[10px] font-bold text-gray-500 uppercase">Основные категории деталей</label>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {SUPPLIER_PART_CATEGORIES.map((category) => (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() => toggleMainPartCategory(category)}
-                      className={`px-2 py-1 rounded-lg text-[10px] font-black border ${mainPartCategories.includes(category) ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-600 border-gray-200'}`}
-                    >
-                      {category}
-                    </button>
+              <section className="rounded-[24px] border border-white bg-white p-4 shadow-[0_12px_34px_rgba(15,23,42,0.055)]">
+                <p className="text-[12px] font-black uppercase tracking-[0.14em] text-slate-400">Профиль</p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {FIELD_TYPES.map((type) => (
+                    <button key={type.value} type="button" onClick={() => toggleShopType(type.value)} className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-2xl border px-2 text-[11px] font-black transition active:scale-[0.98] ${shopTypes.includes(type.value) ? 'border-blue-200 bg-blue-50 text-blue-700 shadow-sm' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{type.icon} {FIELD_TYPE_RU_LABELS[type.value] || type.label}</button>
                   ))}
                 </div>
-              </div>
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-2">
-                <label className="text-[10px] font-bold text-gray-500 uppercase">Фото поставщика (опционально)</label>
-                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-                  <label className="inline-flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 text-[10px] font-black text-gray-500">
-                    +Фото
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setWhatsappFast((value) => !value)} className={`h-11 rounded-2xl border text-xs font-black transition active:scale-[0.98] ${whatsappFast ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>Fast WhatsApp</button>
+                  <button type="button" onClick={() => setHasDelivery((value) => !value)} className={`h-11 rounded-2xl border text-xs font-black transition active:scale-[0.98] ${hasDelivery ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>Доставка</button>
+                </div>
+              </section>
+
+              <section className="rounded-[24px] border border-white bg-white p-4 shadow-[0_12px_34px_rgba(15,23,42,0.055)]">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[12px] font-black uppercase tracking-[0.14em] text-slate-400">Специализация</p>
+                  <button type="button" onClick={() => setIsFastBrandMode((prev) => !prev)} className={`rounded-2xl px-3 py-1.5 text-[10px] font-black ${isFastBrandMode ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>Быстрый выбор</button>
+                </div>
+                {mainBrands.length > 0 && (
+                  <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
+                    {mainBrands.map((brand) => (
+                      <button key={`selected-${brand}`} type="button" onClick={() => toggleMainBrand(brand)} className="shrink-0 rounded-2xl bg-slate-950 px-3 py-1.5 text-[11px] font-black text-white">{brand}</button>
+                    ))}
+                  </div>
+                )}
+                <input value={brandSearch} onChange={(e) => setBrandSearch(e.target.value)} placeholder="Поиск бренда" className="mt-3 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50" />
+                <div className="mt-2 max-h-24 overflow-y-auto rounded-[20px] border border-slate-100 bg-slate-50 p-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {filteredBrandOptions.map((brand) => (
+                      <button key={brand} type="button" onClick={() => toggleMainBrand(brand)} className={`rounded-xl border px-2 py-1 text-[10px] font-black ${mainBrands.includes(brand) ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>{brand}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
+                  <input value={customBrand} onChange={(e) => setCustomBrand(e.target.value)} placeholder="Свой бренд" className="h-10 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold outline-none" />
+                  <button type="button" onClick={addCustomBrand} className="h-10 rounded-2xl bg-slate-950 px-3 text-xs font-black text-white">Добавить</button>
+                </div>
+                <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
+                  <select className="h-10 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold outline-none" value={primaryBrand} onChange={(e) => setPrimaryBrand(e.target.value)}>
+                    <option value="">Основной бренд</option>
+                    {mainBrands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+                  </select>
+                  <button type="button" onClick={importFromSimilar} className="h-10 rounded-2xl bg-violet-50 px-3 text-xs font-black text-violet-700">Импорт</button>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <input value={supplierModelsInput} onChange={(e) => setSupplierModelsInput(e.target.value)} placeholder="Модели" className="h-10 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold outline-none" />
+                  <input value={supplierYearsInput} onChange={(e) => setSupplierYearsInput(e.target.value.replace(/[^\d, ]/g, ''))} placeholder="Годы" className="h-10 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold outline-none" />
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-1.5">
+                  {SUPPLIER_PART_CATEGORIES.map((category) => (
+                    <button key={category} type="button" onClick={() => toggleMainPartCategory(category)} className={`min-h-8 rounded-xl border px-2 py-1 text-[10px] font-black leading-tight ${mainPartCategories.includes(category) ? 'border-violet-600 bg-violet-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>{category}</button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-[24px] border border-white bg-white p-4 shadow-[0_12px_34px_rgba(15,23,42,0.055)]">
+                <div className="flex items-center justify-between">
+                  <p className="text-[12px] font-black uppercase tracking-[0.14em] text-slate-400">Фото</p>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-500">{supplierPhotos.length} фото</span>
+                </div>
+                <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                  <label className="inline-flex h-20 w-20 shrink-0 cursor-pointer flex-col items-center justify-center rounded-[20px] border border-dashed border-slate-300 bg-slate-50 text-[10px] font-black text-slate-500 transition active:scale-95">
+                    <Camera size={18} />
+                    Добавить
                     <input type="file" className="hidden" accept="image/*" multiple onChange={onSupplierPhotoChange} />
                   </label>
                   {supplierPhotos.map((photo, index) => (
-                    <div key={`${photo}-${index}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200">
+                    <div key={`${photo}-${index}`} className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[20px] border border-slate-200 bg-slate-100">
                       <button type="button" onClick={() => setGallery({ images: supplierPhotos, index })} className="h-full w-full">
                         <img src={photo} alt="supplier" className="h-full w-full object-cover" />
                       </button>
-                      <button type="button" onClick={() => removeSupplierPhoto(index)} className="absolute right-0.5 top-0.5 rounded-full bg-black/60 px-1 text-[9px] text-white">×</button>
+                      <button type="button" onClick={() => removeSupplierPhoto(index)} className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-[11px] font-black text-white">×</button>
                     </div>
                   ))}
                 </div>
+              </section>
+
+              <section className="overflow-hidden rounded-[24px] border border-white bg-white shadow-[0_12px_34px_rgba(15,23,42,0.055)]">
+                <button type="button" onClick={() => setShowAdvanced((prev) => !prev)} className="flex w-full items-center justify-between px-4 py-3 text-left text-[12px] font-black uppercase tracking-[0.14em] text-slate-500">
+                  Дополнительно <ChevronDown size={16} className={`transition ${showAdvanced ? 'rotate-180' : ''}`} />
+                </button>
+                {showAdvanced && (
+                  <div className="space-y-2 border-t border-slate-100 px-4 py-3">
+                    <div className="rounded-2xl bg-slate-50 px-3 py-2">
+                      <label className="block text-[11px] font-black uppercase tracking-[0.1em] text-slate-400">Доверие: {trustLevel}/5</label>
+                      <input type="range" min={1} max={5} value={trustLevel} onChange={(e) => setTrustLevel(Number(e.target.value))} className="mt-2 w-full" />
+                    </div>
+                    <input value={workingHours} onChange={(e) => setWorkingHours(e.target.value)} placeholder="Рабочие часы" className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold outline-none" />
+                    <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="Сайт / профиль" className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold outline-none" />
+                    <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none" rows={2} />
+                  </div>
+                )}
+              </section>
+
+              {!navigator.onLine && <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600">Offline: поставщик будет сохранён как pending sync.</div>}
+            </div>
+
+            <div className="shrink-0 border-t border-slate-200/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] pt-3 backdrop-blur">
+              {!requiredReady && <p className="mb-2 text-center text-[11px] font-bold text-slate-400">Нужно заполнить название, телефон и локацию</p>}
+              <div className="grid grid-cols-[0.8fr_1.2fr] gap-2">
+                <button type="button" onClick={() => { setIsAdding(false); resetAddForm(); }} className="h-12 rounded-2xl bg-slate-100 text-sm font-black text-slate-600 transition active:scale-[0.98]">Отмена</button>
+                <button type="submit" disabled={isSavingSupplier || !requiredReady} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-blue-600 text-sm font-black text-white shadow-[0_12px_26px_rgba(37,99,235,0.24)] transition active:scale-[0.98] disabled:bg-slate-300 disabled:shadow-none">{isSavingSupplier ? <><Loader2 size={15} className="animate-spin" />Сохранение...</> : (editingSupplierId ? 'Сохранить' : 'Добавить')}</button>
               </div>
-            </div>
-
-            <div className="rounded-xl border border-gray-100 bg-gray-50">
-              <button type="button" onClick={() => setShowAdvanced((prev) => !prev)} className="w-full p-3 text-left text-xs font-black text-gray-600 inline-flex items-center justify-between">Дополнительно <ChevronDown size={14} className={showAdvanced ? 'rotate-180' : ''} /></button>
-              {showAdvanced && (
-                <div className="p-3 pt-0 space-y-2">
-                  <input value={workingHours} onChange={(e) => setWorkingHours(e.target.value)} placeholder="Рабочие часы" className="w-full bg-white border border-gray-200 p-2 rounded-lg text-xs font-semibold" />
-                  <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="Website (AI suggest)" className="w-full bg-white border border-gray-200 p-2 rounded-lg text-xs font-semibold" />
-                  <label className="text-xs font-semibold text-gray-600">Уровень доверия: {trustLevel}/5</label>
-                  <input type="range" min={1} max={5} value={trustLevel} onChange={(e) => setTrustLevel(Number(e.target.value))} className="w-full" />
-                  <label className="text-xs font-semibold text-gray-700 inline-flex items-center gap-2"><input type="checkbox" checked={hasDelivery} onChange={(e) => setHasDelivery(e.target.checked)} /> Есть доставка</label>
-                  <label className="text-xs font-semibold text-gray-700 inline-flex items-center gap-2"><input type="checkbox" checked={whatsappFast} onChange={(e) => setWhatsappFast(e.target.checked)} /> Быстро отвечает в WhatsApp</label>
-                  <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className="w-full bg-white border border-gray-200 p-2 rounded-lg text-xs font-semibold" rows={2} />
-                </div>
-              )}
-            </div>
-
-            {locationParseNotice && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">{locationParseNotice}</div>}
-            {!navigator.onLine && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">⏳ Offline mode: поставщик будет сохранён как pending sync.</div>}
-
-            <div className="sticky bottom-0 -mx-4 sm:-mx-5 mt-1 px-4 sm:px-5 pt-2 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] bg-white/95 backdrop-blur border-t border-gray-100 flex gap-3">
-              <button type="button" onClick={() => { setIsAdding(false); resetAddForm(); }} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-2xl font-bold uppercase text-xs">Cancel</button>
-              <button type="submit" disabled={isSavingSupplier || !requiredReady} className="flex-1 py-3 bg-blue-600 text-white rounded-2xl font-bold uppercase text-xs disabled:opacity-40 inline-flex items-center justify-center gap-2">{isSavingSupplier ? <><Loader2 size={14} className="animate-spin" />Сохранение...</> : (editingSupplierId ? 'Update' : 'Save')}</button>
             </div>
           </form>
         </div>
       )}
 
-      <section className="space-y-3">
+      <section className="space-y-2.5">
         {isInitialSuppliersLoading ? (
-          <div className="space-y-3">
+          <div className="space-y-3.5">
             {Array.from({ length: 4 }).map((_, index) => (
-              <div key={`skeleton-supplier-${index}`} className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_6px_24px_rgba(15,23,42,0.08)]">
-                <div className="h-24 rounded-2xl bg-slate-100/80" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
-                <div className="mt-3 h-4 w-2/3 rounded bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
-                <div className="mt-2 h-3 w-1/2 rounded bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+              <div key={`skeleton-supplier-${index}`} className="overflow-hidden rounded-[26px] border border-white/80 bg-white/82 p-4 shadow-[0_14px_34px_rgba(15,23,42,0.055)] ring-1 ring-slate-900/[0.025]">
+                <div className="flex items-start gap-3">
+                  <div className="h-6 w-6 rounded-full bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+                  <div className="h-16 w-16 rounded-full bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+                  <div className="min-w-0 flex-1">
+                    <div className="h-4 w-2/3 rounded bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+                    <div className="mt-3 h-3 w-full rounded bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+                    <div className="mt-2 h-3 w-1/2 rounded bg-slate-100" style={{ backgroundImage: 'linear-gradient(90deg, #e5e7eb 0%, #f8fafc 50%, #e5e7eb 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.2s infinite linear' }} />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
         ) : displayedSuppliers.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center text-sm font-semibold text-slate-500">
+          <div className="rounded-[28px] border border-dashed border-slate-300/80 bg-white/80 px-5 py-14 text-center text-sm font-semibold text-slate-500 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
             Поставщики не найдены по текущим фильтрам.
           </div>
         ) : displayedSuppliers.map((supplier) => {
@@ -2177,8 +2201,19 @@ const SuppliersScreen: React.FC = () => {
             .slice(0, 2);
           const trustValue = Math.max(1, Math.min(5, Math.round(Number(supplier.trustLevel ?? supplier.autoTrustScore ?? 0) || 0)));
           const hasContact = !!String(supplier.whatsapp || supplier.phone || '').trim();
+          const avatarPalettes = [
+            'linear-gradient(135deg, #2563eb 0%, #38bdf8 100%)',
+            'linear-gradient(135deg, #0f766e 0%, #34d399 100%)',
+            'linear-gradient(135deg, #334155 0%, #94a3b8 100%)',
+            'linear-gradient(135deg, #b45309 0%, #fbbf24 100%)'
+          ];
+          const avatarIndex = supplier.name.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) % avatarPalettes.length;
+          const distanceLabel = Number.isFinite(distanceKm) ? `${Math.max(0.1, Number(distanceKm.toFixed(1)))} km` : 'n/a';
+          const contactLabel = hasContact ? 'Contact OK' : 'No contact';
+          const replyLabel = isReplied ? 'Replied' : isContacted ? 'Written' : null;
           return (
             <div
+              id={`supplier-card-${supplier.id}`}
               key={supplier.id}
               role="button"
               tabIndex={0}
@@ -2200,9 +2235,9 @@ const SuppliersScreen: React.FC = () => {
               onPointerUp={finishLongPress}
               onPointerCancel={() => cancelLongPress()}
               onPointerLeave={() => cancelLongPress()}
-              className={`w-full rounded-2xl border bg-white px-3 py-3 text-left shadow-sm transition-all duration-200 ${isSelected ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'} active:scale-[0.99]`}
+              className={`group w-full rounded-[20px] border px-2.5 py-2 text-left shadow-[0_10px_24px_rgba(15,23,42,0.045)] ring-1 ring-white/70 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(15,23,42,0.065)] active:scale-[0.992] ${isSelected ? 'border-blue-300 bg-blue-50/70 ring-blue-100' : 'border-white/85 bg-white/88'}`}
             >
-              <div className="flex items-center gap-3">
+              <div className="flex min-h-[72px] items-center gap-2">
                 <button
                   type="button"
                   onClick={(event) => {
@@ -2210,57 +2245,41 @@ const SuppliersScreen: React.FC = () => {
                     setIsSelectionMode(true);
                     toggleSupplierSelection(supplier.id);
                   }}
-                  className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-black ${isSelected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-transparent'}`}
+                  className={`ds-press inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[9px] font-black shadow-[0_4px_10px_rgba(15,23,42,0.04)] ${isSelected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300/80 bg-white text-transparent'}`}
                   aria-label={isSelected ? 'Снять выбор с поставщика' : 'Выбрать поставщика'}
                 >
                   ✓
                 </button>
                 {((supplier.photos && supplier.photos.length > 0) || supplier.photoUrl) ? (
-                  <img src={((supplier.photos && supplier.photos[0]) || supplier.photoUrl) as string} alt={supplier.name} className="h-14 w-14 shrink-0 rounded-full object-cover" />
+                  <img src={((supplier.photos && supplier.photos[0]) || supplier.photoUrl) as string} alt={supplier.name} className="h-11 w-11 shrink-0 rounded-full object-cover shadow-[0_8px_18px_rgba(15,23,42,0.11)] ring-1 ring-white" />
                 ) : (
-                  <div className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-sm font-black text-white">{supplierInitials(supplier.name)}</div>
+                  <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[11px] font-black text-white shadow-[0_8px_18px_rgba(15,23,42,0.11)] ring-1 ring-white" style={{ background: avatarPalettes[avatarIndex] }}>{supplierInitials(supplier.name)}</div>
                 )}
-                <div className="min-w-0 flex-1 border-b border-slate-100 pb-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-[15px] font-black text-slate-900">{supplier.name}</p>
-                        {supplier.isPinned && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-black text-amber-700">PIN</span>}
-                        {supplier.isFavorite && <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-black text-rose-600">★</span>}
-                      </div>
-                      <p className="mt-0.5 truncate text-xs font-semibold text-slate-500">{brands.join(', ') || 'Марки не указаны'}</p>
-                      <p className="mt-1 truncate text-[11px] font-medium text-slate-400">{supplier.location || 'Локация не указана'}</p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-[11px] font-semibold text-slate-400">{timelineLabel(supplier.lastContactAt)}</p>
-                      <p className="mt-1 text-[12px] font-black text-slate-700">{Number.isFinite(distanceKm) ? `${Math.max(0.1, Number(distanceKm.toFixed(1)))} km` : 'n/a'}</p>
-                    </div>
+                <div className="min-w-0 flex-1 self-center">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <p className="truncate text-[14px] font-black leading-tight tracking-normal text-slate-950">{supplier.name}</p>
+                    {supplier.isPinned && <span className="shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[8px] font-bold uppercase text-amber-700">PIN</span>}
+                    {supplier.isFavorite && <Heart size={12} className="shrink-0 fill-rose-500 text-rose-500" />}
                   </div>
-                  <div className="mt-2 flex items-center gap-2 text-[10px] font-black uppercase">
-                    <span className={`rounded-full px-2 py-1 ${supplier.whatsappFast ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{supplier.whatsappFast ? 'FAST reply' : 'Standard'}</span>
-                    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">⭐ {Math.max(1, Math.min(5, Math.round(Number(supplier.trustLevel ?? supplier.autoTrustScore ?? 0) || 0)))}/5</span>
-                    {isContacted && <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">Written</span>}
-                    {isReplied && <span className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">Replied</span>}
-                    <span className={`rounded-full px-2 py-1 ${hasContact ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>{hasContact ? 'Contact ok' : 'No contact'}</span>
-                    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">Trust {trustValue}/5</span>
+                  <p className="mt-0.5 truncate text-[11px] font-semibold leading-tight text-slate-500">{brands.slice(0, 2).join(', ') || 'Марки не указаны'} · {supplier.zone || supplier.location || 'Локация не указана'}</p>
+                  <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold uppercase leading-none tracking-[0.04em]">
+                    <span className="shrink-0 rounded-full bg-slate-100/90 px-1.5 py-1 text-slate-500">STD</span>
+                    <span className="shrink-0 rounded-full bg-slate-100/90 px-1.5 py-1 text-slate-500">T{trustValue}/5</span>
+                    <span className={`shrink-0 rounded-full px-1.5 py-1 ${hasContact ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-700'}`}>{contactLabel}</span>
+                    {replyLabel && <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-1 text-emerald-700">{replyLabel}</span>}
                   </div>
+                  <p className="mt-1.5 truncate text-[10px] font-medium leading-none text-slate-400">{typeLabels.join(' + ') || 'Supplier'} · {((supplier.models || []).slice(0, 2).join(' • ')) || 'Модели не указаны'} · {distanceLabel}</p>
                 </div>
-              </div>
-              <div className="mt-3 ml-[calc(3.5rem+2.25rem)] flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-black text-slate-800">{typeLabels.join(' + ') || 'Supplier'}</p>
-                  <p className="truncate text-xs font-semibold text-slate-600">{((supplier.models || []).slice(0, 3).join(' • ')) || 'Модели не указаны'}</p>
-                  <p className="truncate text-[11px] text-slate-400">{daysAgoLabel(supplier.lastContactAt)}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsApp(supplier); }} className="rounded-full bg-emerald-500 px-3 py-2 text-[11px] font-black text-white">WhatsApp</button>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); openPhone(supplier); }} className="rounded-full bg-slate-100 px-3 py-2 text-[11px] font-black text-slate-700">Call</button>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); openSupplierActions(supplier.id); }} className="rounded-full border border-slate-200 bg-white px-2.5 py-2 text-slate-600" aria-label="Действия поставщика"><MoreHorizontal size={14} /></button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button type="button" onClick={(e) => { e.stopPropagation(); openWhatsApp(supplier); }} className="ds-press inline-flex h-9 w-9 items-center justify-center rounded-[14px] bg-emerald-500 text-white shadow-[0_8px_18px_rgba(16,185,129,0.2)]" aria-label="WhatsApp"><MessageCircle size={15} /></button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); openPhone(supplier); }} className="ds-press inline-flex h-9 w-9 items-center justify-center rounded-[14px] border border-slate-200/80 bg-slate-50/90 text-slate-700" aria-label="Call"><Phone size={15} /></button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); openSupplierActions(supplier.id); }} className="ds-press inline-flex h-9 w-9 items-center justify-center rounded-[14px] border border-slate-200/80 bg-white/90 text-slate-600" aria-label="Действия поставщика"><MoreHorizontal size={15} /></button>
                 </div>
               </div>
             </div>
           );
-        })}      </section>
+        })}
+      </section>
 
       {isBrandsDrawerOpen && (
         <div className="fixed inset-0 z-[75] bg-black/40" onClick={() => setIsBrandsDrawerOpen(false)}>
@@ -2658,6 +2677,19 @@ const SuppliersScreen: React.FC = () => {
       </div>
 
 
+      <div className="pointer-events-none fixed bottom-[calc(92px+env(safe-area-inset-bottom))] left-1/2 z-40 w-full max-w-md -translate-x-1/2 px-6">
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setIsAdding(true)}
+            className="pointer-events-auto grid h-14 w-14 place-items-center rounded-full bg-blue-600 text-white shadow-[0_18px_36px_rgba(37,99,235,0.34)] ring-4 ring-white/85 transition active:scale-[0.96]"
+            aria-label="Добавить поставщика"
+          >
+            <UserPlus size={25} strokeWidth={2.5} />
+          </button>
+        </div>
+      </div>
+
       <input
         ref={quickPhotoInputRef}
         type="file"
@@ -2877,7 +2909,7 @@ const SuppliersScreen: React.FC = () => {
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => { togglePinned(actionSupplier); setActionModalSupplierId(null); }} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs font-black text-slate-700"><Pin size={14} />{actionSupplier.isPinned ? 'Открепить' : 'Закрепить'}</button>
                 <button type="button" onClick={() => { toggleFavorite(actionSupplier); setActionModalSupplierId(null); }} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs font-black text-slate-700"><Heart size={14} />{actionSupplier.isFavorite ? 'Убрать' : 'Избранное'}</button>
-                <button type="button" onClick={() => { openQuickPhotoPicker(actionSupplier.id); setActionModalSupplierId(null); }} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs font-black text-slate-700">📷 Фото</button>
+                <button type="button" onClick={() => { openQuickPhotoPicker(actionSupplier.id); setActionModalSupplierId(null); }} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs font-black text-slate-700"><Camera size={14} />Фото</button>
                 <button type="button" onClick={() => { startEditSupplier(actionSupplier); setActionModalSupplierId(null); }} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs font-black text-slate-700"><Pencil size={14} />Редактировать</button>
                 <button type="button" onClick={() => { setDeleteSupplierId(actionSupplier.id); setActionModalSupplierId(null); }} className="col-span-2 inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-xs font-black text-rose-700"><Trash2 size={14} />Удалить</button>
               </div>
@@ -2915,14 +2947,6 @@ const SuppliersScreen: React.FC = () => {
       <ConfirmModal isOpen={deleteSupplierId === '__bulk__'} message={`Удалить выбранных поставщиков (${selectedSupplierIds.length})?`} confirmLabel="Удалить" cancelLabel="Отмена" confirmClass="bg-red-600" onConfirm={confirmBulkDeleteSuppliers} onCancel={() => setDeleteSupplierId(null)} />
       <ConfirmModal isOpen={!!deleteSupplierId && deleteSupplierId !== '__bulk__'} message="Вы уверены, что хотите удалить этого поставщика?" onConfirm={confirmDeleteSupplier} onCancel={() => setDeleteSupplierId(null)} />
       {gallery && <ImagePreview images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
-      <button
-        type="button"
-        onClick={() => setIsAdding(true)}
-        className="fixed right-6 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-[0_10px_24px_rgba(37,99,235,0.45)] transition active:scale-95 bottom-[calc(env(safe-area-inset-bottom,0px)+5.5rem)]"
-        aria-label="Add supplier"
-      >
-        <UserPlus size={20} />
-      </button>
 
       <ConfirmModal
         isOpen={!!importFile}

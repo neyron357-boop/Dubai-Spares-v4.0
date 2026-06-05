@@ -489,6 +489,7 @@ const OrderDetailsScreen: React.FC = () => {
   const [newPartComment, setNewPartComment] = useState('');
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
   const [partMediaLinkDrafts, setPartMediaLinkDrafts] = useState<Record<string, string>>({});
+  const [partMediaLinkEditing, setPartMediaLinkEditing] = useState<Record<string, boolean>>({});
   const [partCommentExpanded, setPartCommentExpanded] = useState<Record<string, boolean>>({});
   const [partGroupExpanded, setPartGroupExpanded] = useState<Record<string, boolean>>({});
   const [partSwipeOffsets, setPartSwipeOffsets] = useState<Record<string, number>>({});
@@ -517,15 +518,16 @@ const OrderDetailsScreen: React.FC = () => {
   const [isVehicleBlockExpanded, setIsVehicleBlockExpanded] = useState(false);
   const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(false);
   const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null);
+  const [manualCopyValue, setManualCopyValue] = useState('');
   const [deleteOrderConfirmOpen, setDeleteOrderConfirmOpen] = useState(false);
   const [isDepositDialogOpen, setIsDepositDialogOpen] = useState(false);
   const [depositAmountInput, setDepositAmountInput] = useState('');
   const [depositCurrencyInput, setDepositCurrencyInput] = useState<NonNullable<Order['searchDepositCurrency']>>('AED');
   const [depositRateInput, setDepositRateInput] = useState('1');
-  const [selectedTemplate, setSelectedTemplate] = useState('');
   const [markupFixedInput, setMarkupFixedInput] = useState(order?.markupFixedAed?.toString() || '0');
   const [discountFixedInput, setDiscountFixedInput] = useState(order?.discountFixedAed?.toString() || '0');
   const [orderMediaFolderDraft, setOrderMediaFolderDraft] = useState(order?.googleDriveFolderUrl || '');
+  const [isOrderMediaFolderEditing, setIsOrderMediaFolderEditing] = useState(false);
   const [showCustomerLogs, setShowCustomerLogs] = useState(false);
   const [customerLogs, setCustomerLogs] = useState(() => getOrderCustomerLogs(order?.id || ''));
 
@@ -542,6 +544,7 @@ const OrderDetailsScreen: React.FC = () => {
   const deferredFieldTimersRef = useRef<Partial<Record<keyof Order, number>>>({});
   const deferredFieldValuesRef = useRef<Partial<Record<keyof Order, any>>>({});
   const orderRef = useRef<Order | undefined>(order);
+  const manualCopyInputRef = useRef<HTMLInputElement>(null);
   const [draftFields, setDraftFields] = useState<Partial<Record<keyof Order, any>>>({});
   const lastKeystrokeAtRef = useRef<number>(0);
   const isClientEditMode = editingOverviewBlock === 'client' || isEditMode;
@@ -660,6 +663,15 @@ const OrderDetailsScreen: React.FC = () => {
     const timer = window.setTimeout(() => setToast(null), 5000);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    if (!manualCopyValue) return;
+    const timer = window.setTimeout(() => {
+      manualCopyInputRef.current?.focus();
+      manualCopyInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [manualCopyValue]);
 
 
   useEffect(() => {
@@ -1086,7 +1098,7 @@ const OrderDetailsScreen: React.FC = () => {
   const messageTemplates = MESSAGE_TEMPLATES_BY_LANGUAGE[templateLanguage] || MESSAGE_TEMPLATES_BY_LANGUAGE.ru;
 
 
-  const normalizedSelectedTemplate = messageTemplates.includes(selectedTemplate) ? selectedTemplate : (messageTemplates[0] || '');
+  const normalizedSelectedTemplate = messageTemplates[0] || '';
 
   const applyTemplate = (template: string) => (template || normalizedSelectedTemplate || '')
     .replace('{client_name}', order.clientName || 'клиент')
@@ -1415,12 +1427,46 @@ const OrderDetailsScreen: React.FC = () => {
 
   const copyText = async (value: string, success = 'Скопировано') => {
     if (!value) return;
+    const copyWithFallback = () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '0';
+      textarea.style.top = '0';
+      textarea.style.width = '1px';
+      textarea.style.height = '1px';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, value.length);
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return copied;
+    };
+
     try {
-      await navigator.clipboard.writeText(value);
-      setToast({ message: success });
+      if (copyWithFallback()) {
+        setManualCopyValue('');
+        setToast({ message: success });
+        return;
+      }
     } catch {
-      setToast({ message: 'Не удалось скопировать' });
+      // Try the async Clipboard API below.
     }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        setManualCopyValue('');
+        setToast({ message: success });
+        return;
+      }
+    } catch {
+      // Fall through to manual copy UI.
+    }
+    setToast(null);
+    setManualCopyValue(value);
   };
 
   const getDepositRate = useCallback((currency: NonNullable<Order['searchDepositCurrency']>) => (
@@ -1532,6 +1578,7 @@ const OrderDetailsScreen: React.FC = () => {
       void updateOrder({ ...currentOrder, googleDriveFolderUrl: nextValue });
       if (options?.showToast) setToast({ message: nextValue ? 'Папка заказа сохранена' : 'Папка заказа очищена' });
     }
+    if (nextValue) setIsOrderMediaFolderEditing(false);
     return nextValue;
   }, [orderMediaFolderDraft, updateOrder]);
 
@@ -1548,6 +1595,7 @@ const OrderDetailsScreen: React.FC = () => {
       void updateOrder({ ...currentOrder, parts: updatedParts });
       if (options?.showToast) setToast({ message: nextValue ? 'Медиа-ссылка сохранена' : 'Медиа-ссылка очищена' });
     }
+    if (nextValue) setPartMediaLinkEditing((prev) => ({ ...prev, [partId]: false }));
     return nextValue;
   }, [partMediaLinkDrafts, updateOrder]);
 
@@ -2939,8 +2987,6 @@ const OrderDetailsScreen: React.FC = () => {
                 </button>
                 {showActionsMenu && (
                   <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#15171D] p-1 text-xs font-bold text-white shadow-2xl">
-                    <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => { setEditingOverviewBlock(null); setIsEditMode((prev) => !prev); }}><FileText size={14} /> {isEditMode ? 'Закрыть правки' : 'Редактировать'}</button>
-                    <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => { setShowActionsMenu(false); void shareQuote(); }}><Share2 size={14} /> Отправить / обновить смету</button>
                     <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10" onClick={() => updateOrderField('isArchived', !order.isArchived)}><Package size={14} /> {order.isArchived ? 'Вернуть из архива' : 'В архив'}</button>
                     <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-200 hover:bg-rose-500/10" onClick={() => { setShowActionsMenu(false); setDeleteOrderConfirmOpen(true); }}><X size={14} /> Удалить</button>
                   </div>
@@ -3009,13 +3055,41 @@ const OrderDetailsScreen: React.FC = () => {
                       <span className={`rounded-full px-3 py-1.5 text-[11px] font-black ring-1 ${paymentCopy.tone}`}>{paymentCopy.label}</span>
                     </div>
                     <h1 className="max-w-[16rem] truncate text-[22px] font-black leading-none tracking-normal text-white">{heroCarName}</h1>
-                    <p className="mt-1 max-w-[18rem] truncate text-[11px] font-semibold tracking-[0.08em] text-white/[0.62]">VIN {order.vin || 'not set'}</p>
+                    <button
+                      type="button"
+                      onClick={() => void copyText(order.vin || '', 'VIN скопирован')}
+                      disabled={!order.vin}
+                      className="ds-press mt-1 inline-flex max-w-[18rem] items-center gap-1.5 rounded-full py-0.5 pr-2 text-[11px] font-semibold tracking-[0.08em] text-white/[0.62] transition hover:text-white disabled:cursor-default disabled:hover:text-white/[0.62]"
+                      aria-label="Скопировать VIN"
+                    >
+                      <span className="truncate">VIN {order.vin || 'not set'}</span>
+                      {order.vin && <Copy size={12} className="shrink-0 opacity-70" />}
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         </section>
+
+        {manualCopyValue && (
+          <div className="fixed bottom-[calc(7.25rem+env(safe-area-inset-bottom))] left-1/2 z-[60] w-[calc(100%-32px)] max-w-sm -translate-x-1/2 rounded-2xl border border-white/10 bg-[#111318] p-3 text-white shadow-2xl">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-[11px] font-black uppercase tracking-[0.12em] text-white/55">Скопируйте вручную</p>
+              <button type="button" onClick={() => setManualCopyValue('')} className="ds-press flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-white/70" aria-label="Закрыть копирование">
+                <X size={14} />
+              </button>
+            </div>
+            <input
+              ref={manualCopyInputRef}
+              value={manualCopyValue}
+              readOnly
+              onFocus={(event) => event.currentTarget.select()}
+              onClick={(event) => event.currentTarget.select()}
+              className="h-10 w-full rounded-xl border border-white/10 bg-white/[0.08] px-3 font-mono text-sm font-black text-white outline-none selection:bg-blue-500/80"
+            />
+          </div>
+        )}
 
         {toast && (
           <div className="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#111318] px-4 py-3 text-xs font-black text-white shadow-2xl">
@@ -3118,14 +3192,9 @@ const OrderDetailsScreen: React.FC = () => {
                           <input type="tel" value={String(draftFields.customerContact ?? order.customerContact ?? '')} onChange={(e) => updateOrderField('customerContact', e.target.value)} onBlur={() => flushDeferredOrderField('customerContact')} placeholder="+971..." className="ds-input h-12 min-w-0 flex-1 rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
                           <button type="button" onClick={() => void copyText(order.customerContact || '', 'Телефон скопирован')} disabled={!order.customerContact} className="ds-press flex h-12 w-12 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:opacity-35" aria-label="Скопировать телефон"><Copy size={16} /></button>
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <select value={String(draftFields.source ?? order.source)} onChange={(e) => updateOrderField('source', e.target.value)} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black text-stone-800 outline-none">
-                            {SOURCES.map((source) => <option key={source} value={source}>{source}</option>)}
-                          </select>
-                          <select value={normalizedSelectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black text-stone-800 outline-none">
-                            {messageTemplates.map((template) => <option key={template} value={template}>{template}</option>)}
-                          </select>
-                        </div>
+                        <select value={String(draftFields.source ?? order.source)} onChange={(e) => updateOrderField('source', e.target.value)} className="ds-input h-11 w-full rounded-2xl border-0 px-3 text-xs font-black text-stone-800 outline-none">
+                          {SOURCES.map((source) => <option key={source} value={source}>{source}</option>)}
+                        </select>
                         {(sourceLabel.includes('instagram') || sourceLabel.includes('tiktok') || sourceLabel.includes('telegram')) && (
                           <button type="button" onClick={saveSocialNickname} className="ds-press h-11 w-full rounded-2xl bg-stone-100 px-3 text-xs font-black text-stone-800">{(draftFields.socialNickname ?? order.socialNickname ?? '') ? 'Изменить соцсеть' : 'Добавить соцсеть'}</button>
                         )}
@@ -3140,45 +3209,47 @@ const OrderDetailsScreen: React.FC = () => {
                   <div ref={vehicleSectionRef} className="ds-surface rounded-[24px] p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-[11px] font-black uppercase tracking-[0.14em] text-stone-400">Автомобиль</p>
-                        <p className="mt-1 truncate text-lg font-black text-stone-950">{heroCarName}</p>
-                        <p className="mt-1 break-all font-mono text-xs font-bold text-stone-500">{order.vin || 'VIN не указан'}</p>
+                        <p className="text-[11px] font-black uppercase tracking-[0.14em] text-stone-400">Доп. информация</p>
+                        <p className="mt-1 break-all font-mono text-sm font-black text-stone-950">{order.vin || 'VIN не указан'}</p>
+                        <p className="mt-1 text-xs font-bold text-stone-500">Технические данные автомобиля</p>
                       </div>
                       <button type="button" onClick={() => { setIsEditMode(false); setEditingOverviewBlock((prev) => prev === 'vehicle' ? null : 'vehicle'); }} className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label={isVehicleEditMode ? 'Закрыть редактирование' : 'Редактировать авто'}>{isVehicleEditMode ? <Check size={15} /> : <FileText size={15} />}</button>
                     </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      <div className="rounded-2xl bg-stone-100 px-3 py-2">
-                        <p className="text-[9px] font-black text-stone-400">Рынок</p>
-                        <p className="mt-0.5 truncate text-xs font-black text-stone-800">{heroMarketRegion}</p>
-                      </div>
-                      <div className="rounded-2xl bg-stone-100 px-3 py-2">
-                        <p className="text-[9px] font-black text-stone-400">Двигатель</p>
-                        <p className="mt-0.5 truncate text-xs font-black text-stone-800">{order.vehicleDetails?.engineType || order.vehicleDetails?.engineCode || 'Нет'}</p>
-                      </div>
-                      <div className="rounded-2xl bg-stone-100 px-3 py-2">
-                        <p className="text-[9px] font-black text-stone-400">Кузов</p>
-                        <p className="mt-0.5 truncate text-xs font-black text-stone-800">{order.bodyType || 'Нет'}</p>
-                      </div>
-                    </div>
-                    {isVehicleEditMode && (
-                      <div className="mt-3 space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <input type="text" value={String(draftFields.vin ?? order.vin ?? '')} onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))} onBlur={() => flushDeferredOrderField('vin')} placeholder="VIN" className="ds-input col-span-2 h-12 rounded-2xl border-0 px-4 text-sm font-black uppercase text-stone-950 outline-none" />
-                          <button type="button" onClick={pasteVinFromClipboard} className="ds-press h-11 rounded-2xl bg-stone-950 px-3 text-xs font-black text-white">Вставить VIN</button>
-                          <button type="button" onClick={() => carFileRef.current?.click()} className="ds-press h-11 rounded-2xl bg-stone-100 px-3 text-xs font-black text-stone-800">Добавить медиа</button>
+                    {!isVehicleEditMode && (
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                          <p className="text-[9px] font-black text-stone-400">Рынок</p>
+                          <p className="mt-0.5 truncate text-xs font-black text-stone-800">{heroMarketRegion}</p>
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <select value={String((draftFields.vehicleDetails?.marketRegion) ?? (order.vehicleDetails?.marketRegion ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), marketRegion: (e.target.value || undefined) })} onBlur={() => flushDeferredOrderField('vehicleDetails')} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none">
+                        <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                          <p className="text-[9px] font-black text-stone-400">Двигатель</p>
+                          <p className="mt-0.5 truncate text-xs font-black text-stone-800">{order.vehicleDetails?.engineType || order.vehicleDetails?.engineCode || 'Нет'}</p>
+                        </div>
+                        <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                          <p className="text-[9px] font-black text-stone-400">Кузов</p>
+                          <p className="mt-0.5 truncate text-xs font-black text-stone-800">{order.bodyType || 'Нет'}</p>
+                        </div>
+                      </div>
+                    )}
+                    {isVehicleEditMode && (
+                      <div className="mt-2 rounded-[16px] bg-stone-50/90 p-1.5 ring-1 ring-stone-200/70">
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1">
+                          <input type="text" value={String(draftFields.vin ?? order.vin ?? '')} onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))} onBlur={() => flushDeferredOrderField('vin')} placeholder="VIN" className="ds-input h-8 min-w-0 rounded-lg border-0 px-2 text-[10px] font-black uppercase text-stone-950 outline-none" />
+                          <button type="button" onClick={pasteVinFromClipboard} className="ds-press h-8 rounded-lg bg-stone-950 px-2 text-[9px] font-black text-white">VIN</button>
+                          <button type="button" onClick={() => carFileRef.current?.click()} className="ds-press h-8 rounded-lg bg-white px-2 text-[9px] font-black text-stone-700 ring-1 ring-stone-200">Медиа</button>
+                        </div>
+                        <div className="mt-1 grid grid-cols-3 gap-1">
+                          <select value={String((draftFields.vehicleDetails?.marketRegion) ?? (order.vehicleDetails?.marketRegion ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), marketRegion: (e.target.value || undefined) })} onBlur={() => flushDeferredOrderField('vehicleDetails')} className="ds-input h-8 rounded-lg border-0 px-2 text-[10px] font-black outline-none">
                             <option value="">Рынок</option>
                             {VEHICLE_MARKET_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                           </select>
-                          <select value={String((draftFields.vehicleDetails?.transmission) ?? (order.vehicleDetails?.transmission ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), transmission: (e.target.value || undefined) })} onBlur={() => flushDeferredOrderField('vehicleDetails')} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none">
+                          <select value={String((draftFields.vehicleDetails?.transmission) ?? (order.vehicleDetails?.transmission ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), transmission: (e.target.value || undefined) })} onBlur={() => flushDeferredOrderField('vehicleDetails')} className="ds-input h-8 rounded-lg border-0 px-2 text-[10px] font-black outline-none">
                             <option value="">КПП</option>
                             {VEHICLE_TRANSMISSION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                           </select>
-                          <input type="text" value={String((draftFields.vehicleDetails?.engineType) ?? (order.vehicleDetails?.engineType ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), engineType: e.target.value })} onBlur={() => flushDeferredOrderField('vehicleDetails')} placeholder="Двигатель" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
-                          <input type="text" value={String((draftFields.vehicleDetails?.color) ?? (order.vehicleDetails?.color ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), color: e.target.value })} onBlur={() => flushDeferredOrderField('vehicleDetails')} placeholder="Цвет" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
-                          <input type="text" value={String(draftFields.bodyType ?? order.bodyType ?? '')} onChange={(e) => updateOrderField('bodyType', e.target.value)} onBlur={() => flushDeferredOrderField('bodyType')} placeholder="Кузов" className="ds-input col-span-2 h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
+                          <input type="text" value={String((draftFields.vehicleDetails?.engineType) ?? (order.vehicleDetails?.engineType ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), engineType: e.target.value })} onBlur={() => flushDeferredOrderField('vehicleDetails')} placeholder="Двигатель" className="ds-input h-8 rounded-lg border-0 px-2 text-[10px] font-black outline-none" />
+                          <input type="text" value={String((draftFields.vehicleDetails?.color) ?? (order.vehicleDetails?.color ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), color: e.target.value })} onBlur={() => flushDeferredOrderField('vehicleDetails')} placeholder="Цвет" className="ds-input h-8 rounded-lg border-0 px-2 text-[10px] font-black outline-none" />
+                          <input type="text" value={String(draftFields.bodyType ?? order.bodyType ?? '')} onChange={(e) => updateOrderField('bodyType', e.target.value)} onBlur={() => flushDeferredOrderField('bodyType')} placeholder="Кузов" className="ds-input col-span-2 h-8 rounded-lg border-0 px-2 text-[10px] font-black outline-none" />
                         </div>
                       </div>
                     )}
@@ -3246,12 +3317,9 @@ const OrderDetailsScreen: React.FC = () => {
                         </div>
                       </label>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2">
                       <select value={String(draftFields.source ?? order.source)} onChange={(e) => updateOrderField('source', e.target.value)} disabled={!isEditMode} className="ds-input h-12 rounded-2xl border-0 px-3 text-xs font-black text-stone-800 outline-none">
                         {SOURCES.map((source) => <option key={source} value={source}>{source}</option>)}
-                      </select>
-                      <select value={normalizedSelectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)} disabled={!isEditMode} className="ds-input h-12 rounded-2xl border-0 px-3 text-xs font-black text-stone-800 outline-none">
-                        {messageTemplates.map((template) => <option key={template} value={template}>{template}</option>)}
                       </select>
                     </div>
                     {(sourceLabel.includes('instagram') || sourceLabel.includes('tiktok') || sourceLabel.includes('telegram')) && (
@@ -3373,56 +3441,82 @@ const OrderDetailsScreen: React.FC = () => {
 
               
 
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+              <section className="ds-surface space-y-2 rounded-[22px] p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-[12px] font-black text-stone-600">Медиа по деталям</p>
-                    <p className="mt-1 text-xs font-semibold text-stone-500">Drive-ссылки остаются привязаны к конкретной детали.</p>
+                    <p className="text-[11px] font-black text-stone-600">Медиа по деталям</p>
+                    <p className="mt-0.5 text-[11px] font-semibold text-stone-500">Drive-ссылки по деталям.</p>
                   </div>
-                  <Video size={18} className="text-stone-400" />
+                  <Video size={16} className="text-stone-400" />
                 </div>
                 {(order.parts || []).length > 0 ? (
-                  <div className="space-y-2">
-                    {order.parts.map((part) => (
-                      <div key={`overview-media-${part.id}`} className="rounded-2xl bg-stone-950/[0.04] p-3">
-                        <p className="truncate text-sm font-black text-stone-950">{getPartDisplayName(part)}</p>
-                        <div className="mt-2 flex gap-2">
-                          <input
-                            type="url"
-                            value={partMediaLinkDrafts[part.id] ?? ''}
-                            onChange={(event) => setPartMediaLinkDrafts((prev) => ({ ...prev, [part.id]: event.target.value }))}
-                            onBlur={(event) => savePartMediaLink(part.id, event.target.value)}
-                            placeholder="Ссылка Google Drive"
-                            className="ds-input h-11 min-w-0 flex-1 rounded-2xl border-0 px-3 text-xs font-bold text-stone-800 outline-none"
-                          />
-                          <button type="button" onClick={() => {
-                            const savedUrl = savePartMediaLink(part.id, partMediaLinkDrafts[part.id], { showToast: true });
-                            checkGoogleDriveLink(savedUrl, 'Добавьте ссылку на медиа');
-                          }} className="ds-press flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label="Открыть медиа"><ExternalLink size={15} /></button>
+                  <div className="space-y-1.5">
+                    {order.parts.map((part) => {
+                      const mediaUrl = String(partMediaLinkDrafts[part.id] ?? (part as any).googleDriveVideoUrl ?? '').trim();
+                      const showEditor = partMediaLinkEditing[part.id] || !mediaUrl;
+                      return (
+                        <div key={`overview-media-${part.id}`} className="rounded-2xl bg-stone-950/[0.035] p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="min-w-0 truncate text-xs font-black text-stone-950">{getPartDisplayName(part)}</p>
+                            {!showEditor && <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">Ссылка добавлена</span>}
+                          </div>
+                          {showEditor ? (
+                            <div className="mt-1.5 flex gap-1.5">
+                              <input
+                                type="url"
+                                value={partMediaLinkDrafts[part.id] ?? ''}
+                                onChange={(event) => setPartMediaLinkDrafts((prev) => ({ ...prev, [part.id]: event.target.value }))}
+                                onBlur={(event) => savePartMediaLink(part.id, event.target.value)}
+                                placeholder="Drive-ссылка"
+                                className="ds-input h-9 min-w-0 flex-1 rounded-xl border-0 px-2.5 text-[11px] font-bold text-stone-800 outline-none"
+                              />
+                              <button type="button" onClick={() => {
+                                const savedUrl = savePartMediaLink(part.id, partMediaLinkDrafts[part.id], { showToast: true });
+                                checkGoogleDriveLink(savedUrl, 'Добавьте ссылку на медиа');
+                              }} className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-950 text-white" aria-label="Открыть медиа"><ExternalLink size={14} /></button>
+                            </div>
+                          ) : (
+                            <div className="mt-1.5 flex items-center gap-1.5">
+                              <button type="button" onClick={() => checkGoogleDriveLink(mediaUrl, 'Добавьте ссылку на медиа')} className="ds-press inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-xl bg-stone-950 text-[11px] font-black text-white"><ExternalLink size={13} /> Открыть</button>
+                              <button type="button" onClick={() => setPartMediaLinkEditing((prev) => ({ ...prev, [part.id]: true }))} className="ds-press h-8 rounded-xl bg-white px-3 text-[11px] font-black text-stone-700 ring-1 ring-stone-200">Изм.</button>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
-                  <div className="ds-soft-empty rounded-2xl p-4 text-center text-xs font-bold text-stone-500">Сначала добавьте детали в заказ.</div>
+                  <div className="ds-soft-empty rounded-2xl p-3 text-center text-[11px] font-bold text-stone-500">Сначала добавьте детали.</div>
                 )}
               </section>
 
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+              <section className="ds-surface space-y-2 rounded-[22px] p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-[12px] font-black text-stone-600">Папка медиа заказа</p>
-                    <p className="mt-1 text-xs font-semibold text-stone-500">Общая папка для фото, видео и материалов по заказу.</p>
+                    <p className="text-[11px] font-black text-stone-600">Папка медиа заказа</p>
+                    <p className="mt-0.5 text-[11px] font-semibold text-stone-500">Общая Drive-папка заказа.</p>
                   </div>
-                  <FolderOpen size={19} className="text-stone-400" />
+                  <FolderOpen size={17} className="text-stone-400" />
                 </div>
-                <div className="flex gap-2">
-                  <input type="url" value={orderMediaFolderDraft} onChange={(event) => setOrderMediaFolderDraft(event.target.value)} onBlur={(event) => saveOrderMediaFolder(event.target.value)} placeholder="https://drive.google.com/drive/folders/..." className="ds-input h-12 min-w-0 flex-1 rounded-2xl border-0 px-3 text-xs font-bold text-stone-800 outline-none" />
-                  <button type="button" onClick={() => {
-                    const savedUrl = saveOrderMediaFolder(orderMediaFolderDraft, { showToast: true });
-                    checkGoogleDriveLink(savedUrl, 'Добавьте Drive-папку заказа');
-                  }} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white" aria-label="Открыть папку"><ExternalLink size={15} /></button>
-                </div>
+                {(() => {
+                  const folderUrl = String(orderMediaFolderDraft || order.googleDriveFolderUrl || '').trim();
+                  const showEditor = isOrderMediaFolderEditing || !folderUrl;
+                  return showEditor ? (
+                    <div className="flex gap-1.5">
+                      <input type="url" value={orderMediaFolderDraft} onChange={(event) => setOrderMediaFolderDraft(event.target.value)} onBlur={(event) => saveOrderMediaFolder(event.target.value)} placeholder="Drive-папка" className="ds-input h-9 min-w-0 flex-1 rounded-xl border-0 px-2.5 text-[11px] font-bold text-stone-800 outline-none" />
+                      <button type="button" onClick={() => {
+                        const savedUrl = saveOrderMediaFolder(orderMediaFolderDraft, { showToast: true });
+                        checkGoogleDriveLink(savedUrl, 'Добавьте Drive-папку заказа');
+                      }} className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-950 text-white" aria-label="Открыть папку"><ExternalLink size={14} /></button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 rounded-2xl bg-stone-950/[0.035] p-2">
+                      <span className="min-w-0 flex-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">Папка добавлена</span>
+                      <button type="button" onClick={() => checkGoogleDriveLink(folderUrl, 'Добавьте Drive-папку заказа')} className="ds-press inline-flex h-8 items-center justify-center gap-1.5 rounded-xl bg-stone-950 px-3 text-[11px] font-black text-white"><ExternalLink size={13} /> Открыть</button>
+                      <button type="button" onClick={() => setIsOrderMediaFolderEditing(true)} className="ds-press h-8 rounded-xl bg-white px-3 text-[11px] font-black text-stone-700 ring-1 ring-stone-200">Изм.</button>
+                    </div>
+                  );
+                })()}
               </section>
 
               {false && settings.orderZones && settings.orderZones.length > 0 && (
@@ -3733,7 +3827,7 @@ const OrderDetailsScreen: React.FC = () => {
           )}
 
           {activeTab === 'proof' && (
-            <div className="ds-mode-enter space-y-5">
+            <div className="ds-mode-enter space-y-3">
               <section className="space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-[12px] font-black text-stone-600">Лента для клиента</p>
@@ -3878,13 +3972,10 @@ const OrderDetailsScreen: React.FC = () => {
                 </div>
               </section>
 
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+              <section className="ds-surface space-y-2 rounded-[22px] p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[12px] font-black text-stone-600">Цены продажи</p>
-                    <p className="mt-1 text-xs font-semibold text-stone-500">Закупка берётся из варианта, клиентская цена задаётся здесь.</p>
-                  </div>
-                  <span className="rounded-full bg-stone-100 px-3 py-2 text-[11px] font-black text-stone-600">{pricedPartsCount}/{partsCount || 0}</span>
+                  <p className="text-[12px] font-black text-stone-600">Цены продажи</p>
+                  <span className="rounded-full bg-stone-100 px-2 py-1 text-[10px] font-black text-stone-600">{pricedPartsCount}/{partsCount || 0}</span>
                 </div>
                 {(order.parts || []).length > 0 ? (
                   <div className="space-y-2">
@@ -3894,15 +3985,15 @@ const OrderDetailsScreen: React.FC = () => {
                       const purchasePrice = Number(variant?.purchasePriceAed ?? variant?.priceAed ?? 0);
                       const salePrice = Number(variant?.salePriceAed ?? variant?.priceAed ?? 0);
                       return (
-                        <div key={`finance-sale-${part.id}`} className="rounded-2xl bg-stone-950/[0.04] p-3">
-                          <div className="flex items-start justify-between gap-3">
+                        <div key={`finance-sale-${part.id}`} className="rounded-xl bg-stone-950/[0.04] p-2">
+                          <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-black text-stone-950">{getPartDisplayName(part)}</p>
-                              <p className="mt-1 truncate text-[11px] font-bold text-stone-500">{variant ? `${variant.shopName || 'Поставщик'} · закуп ${purchasePrice.toFixed(0)} AED · ${quantity} шт` : 'Сначала добавьте вариант с ценой закупки'}</p>
+                              <p className="truncate text-xs font-black text-stone-950">{getPartDisplayName(part)}</p>
+                              {variant && <p className="mt-0.5 truncate text-[10px] font-bold text-stone-500">{`${variant.shopName || 'Поставщик'} · ${purchasePrice.toFixed(0)} AED · ${quantity} шт`}</p>}
                             </div>
-                            <button type="button" onClick={() => openPartDetails(part.id, variant?.id)} className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-stone-700" aria-label="Открыть деталь"><ChevronRight size={15} /></button>
+                            <button type="button" onClick={() => openPartDetails(part.id, variant?.id)} className="ds-press flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-stone-700" aria-label="Открыть деталь"><ChevronRight size={13} /></button>
                           </div>
-                          <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                          <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
                             <input
                               type="text"
                               inputMode="numeric"
@@ -3911,10 +4002,10 @@ const OrderDetailsScreen: React.FC = () => {
                               value={variant && salePrice > 0 ? String(salePrice) : ''}
                               disabled={!variant}
                               onChange={(event) => updatePartSalePrice(part.id, event.target.value)}
-                              placeholder="Цена продажи AED"
-                              className="ds-input h-12 min-w-0 rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none disabled:opacity-45"
+                              placeholder="Продажа AED"
+                              className="ds-input h-9 min-w-0 rounded-xl border-0 px-3 text-xs font-black text-stone-950 outline-none disabled:opacity-45"
                             />
-                            <div className={`flex h-12 min-w-[86px] items-center justify-center rounded-2xl px-3 text-xs font-black ${salePrice >= purchasePrice && salePrice > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                            <div className={`flex h-9 min-w-[68px] items-center justify-center rounded-xl px-2 text-[11px] font-black ${salePrice >= purchasePrice && salePrice > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
                               {variant ? `${(salePrice - purchasePrice).toFixed(0)} AED` : '—'}
                             </div>
                           </div>
@@ -3927,71 +4018,62 @@ const OrderDetailsScreen: React.FC = () => {
                 )}
               </section>
 
-              <section ref={markupSectionRef} className="ds-surface space-y-3 rounded-[26px] p-4">
+              <section ref={markupSectionRef} className="ds-surface space-y-2 rounded-[22px] p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[12px] font-black text-stone-600">Управление маржой</p>
-                    <p className="mt-1 text-xs font-semibold text-stone-500">{formatDualMoney(markupAed)} markup</p>
-                  </div>
-                  <div className="inline-flex rounded-full bg-stone-100 p-1">
-                    <button type="button" onClick={() => updateOrderField('markupType', 'percent')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${(order.markupType || 'percent') === 'percent' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>%</button>
-                    <button type="button" onClick={() => updateOrderField('markupType', 'fixed')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${(order.markupType || 'percent') === 'fixed' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>AED</button>
+                  <p className="text-[12px] font-black text-stone-600">Управление маржой</p>
+                  <div className="inline-flex rounded-full bg-stone-100 p-0.5">
+                    <button type="button" onClick={() => updateOrderField('markupType', 'percent')} className={`ds-press h-8 rounded-full px-3 text-[11px] font-black ${(order.markupType || 'percent') === 'percent' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>%</button>
+                    <button type="button" onClick={() => updateOrderField('markupType', 'fixed')} className={`ds-press h-8 rounded-full px-3 text-[11px] font-black ${(order.markupType || 'percent') === 'fixed' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>AED</button>
                   </div>
                 </div>
                 {(order.markupType || 'percent') === 'percent' ? (
                   <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                     {MARKUP_OPTIONS.map((option) => (
-                      <button key={option} type="button" onClick={() => updateOrderField('markupPercent', Number(option))} className={`ds-press h-11 shrink-0 rounded-2xl px-4 text-xs font-black ${Number(draftFields.markupPercent ?? order.markupPercent) === option ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-500'}`}>{option}%</button>
+                      <button key={option} type="button" onClick={() => updateOrderField('markupPercent', Number(option))} className={`ds-press h-9 shrink-0 rounded-xl px-3 text-[11px] font-black ${Number(draftFields.markupPercent ?? order.markupPercent) === option ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-500'}`}>{option}%</button>
                     ))}
                   </div>
                 ) : (
-                  <input type="text" inputMode="numeric" pattern="[0-9]*" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onBlur={() => { if (!markupFixedInput) setMarkupFixedInput('0'); flushMarkupCommit(); }} onChange={handleMarkupFixedChange} placeholder="Markup AED" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
+                  <input type="text" inputMode="numeric" pattern="[0-9]*" value={markupFixedInput} onFocus={() => { if (markupFixedInput === '0') setMarkupFixedInput(''); }} onBlur={() => { if (!markupFixedInput) setMarkupFixedInput('0'); flushMarkupCommit(); }} onChange={handleMarkupFixedChange} placeholder="Markup AED" className="ds-input h-9 w-full rounded-xl border-0 px-3 text-xs font-black text-stone-950 outline-none" />
                 )}
-                <label className="flex items-center gap-2 text-xs font-bold text-stone-500">
+                <label className="flex items-center gap-2 text-[11px] font-bold text-stone-500">
                   <input type="checkbox" checked={!!order.useMarkupAsDefaultForNewParts} onChange={(event) => updateOrderField('useMarkupAsDefaultForNewParts', event.target.checked)} />
-                  Использовать эту маржу для новых деталей
+                  По умолчанию для новых деталей
                 </label>
               </section>
 
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+              <section className="ds-surface rounded-[22px] p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[12px] font-black text-stone-600">Валюта клиента</p>
-                    <p className="mt-1 text-xs font-semibold text-stone-500">Смета, текстовая смета и invoice</p>
-                  </div>
+                  <p className="text-[12px] font-black text-stone-600">Валюта клиента</p>
                   <select
                     value={clientCurrency}
                     onChange={(event) => updateOrderField('clientCurrency', event.target.value as Order['clientCurrency'])}
-                    className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black text-stone-950 outline-none"
+                    className="ds-input h-9 rounded-xl border-0 px-3 text-xs font-black text-stone-950 outline-none"
                   >
                     {(['AED', 'USD', 'RUB', 'TJS', 'KZT', 'UZS'] as const).map((currency) => <option key={`finance-currency-${currency}`} value={currency}>{currency}</option>)}
                   </select>
                 </div>
               </section>
 
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+              <section className="ds-surface space-y-2 rounded-[22px] p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[12px] font-black text-stone-600">Скидка</p>
-                    <p className="mt-1 text-xs font-semibold text-stone-500">{discountAed > 0 ? `-${formatDualMoney(discountAed)}` : 'Без скидки'}</p>
-                  </div>
-                  <div className="inline-flex rounded-full bg-stone-100 p-1">
-                    <button type="button" onClick={() => updateOrderField('discountType', 'percent')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${discountType === 'percent' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>%</button>
-                    <button type="button" onClick={() => updateOrderField('discountType', 'fixed')} className={`ds-press h-9 rounded-full px-4 text-xs font-black ${discountType === 'fixed' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>AED</button>
+                  <p className="text-[12px] font-black text-stone-600">Скидка</p>
+                  <div className="inline-flex rounded-full bg-stone-100 p-0.5">
+                    <button type="button" onClick={() => updateOrderField('discountType', 'percent')} className={`ds-press h-8 rounded-full px-3 text-[11px] font-black ${discountType === 'percent' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>%</button>
+                    <button type="button" onClick={() => updateOrderField('discountType', 'fixed')} className={`ds-press h-8 rounded-full px-3 text-[11px] font-black ${discountType === 'fixed' ? 'bg-stone-950 text-white' : 'text-stone-500'}`}>AED</button>
                   </div>
                 </div>
                 {discountType === 'percent' ? (
                   <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                     {DISCOUNT_OPTIONS.map((option) => (
-                      <button key={`finance-discount-${option}`} type="button" onClick={() => updateOrderField('discountPercent', Number(option))} className={`ds-press h-11 shrink-0 rounded-2xl px-4 text-xs font-black ${Number(draftFields.discountPercent ?? order.discountPercent ?? 0) === option ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-500'}`}>{option}%</button>
+                      <button key={`finance-discount-${option}`} type="button" onClick={() => updateOrderField('discountPercent', Number(option))} className={`ds-press h-9 shrink-0 rounded-xl px-3 text-[11px] font-black ${Number(draftFields.discountPercent ?? order.discountPercent ?? 0) === option ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-500'}`}>{option}%</button>
                     ))}
                   </div>
                 ) : (
-                  <input type="text" inputMode="numeric" pattern="[0-9]*" value={discountFixedInput} onFocus={() => { if (discountFixedInput === '0') setDiscountFixedInput(''); }} onBlur={() => { if (!discountFixedInput) setDiscountFixedInput('0'); flushDiscountCommit(); }} onChange={handleDiscountFixedChange} placeholder="Discount AED" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
+                  <input type="text" inputMode="numeric" pattern="[0-9]*" value={discountFixedInput} onFocus={() => { if (discountFixedInput === '0') setDiscountFixedInput(''); }} onBlur={() => { if (!discountFixedInput) setDiscountFixedInput('0'); flushDiscountCommit(); }} onChange={handleDiscountFixedChange} placeholder="Discount AED" className="ds-input h-9 w-full rounded-xl border-0 px-3 text-xs font-black text-stone-950 outline-none" />
                 )}
               </section>
 
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+              <section className="ds-surface space-y-2 rounded-[22px] p-3">
                 <div className="flex items-center justify-between">
                     <p className="text-[12px] font-black text-stone-600">Услуги</p>
                   <span className="text-[11px] font-black text-stone-500">{formatDualMoney(logisticsWithCargoTotal)}</span>
@@ -4004,28 +4086,25 @@ const OrderDetailsScreen: React.FC = () => {
                   ] as const).map(({ field, label }) => (
                     <label key={field} className="space-y-1">
                       <span className="text-[10px] font-black text-stone-400">{label}</span>
-                      <input type="text" inputMode="numeric" pattern="[0-9]*" value={logisticsDraft[field]} onFocus={() => { if (logisticsDraft[field] === '0') onLogisticsDraftChange(field, ''); }} onBlur={() => { if (!logisticsDraft[field]) onLogisticsDraftChange(field, '0'); }} onChange={(event) => onLogisticsDraftChange(field, sanitizeNumericInput(event.target.value))} className="ds-input h-12 w-full rounded-2xl border-0 px-2 text-center text-sm font-black text-stone-950 outline-none" />
+                      <input type="text" inputMode="numeric" pattern="[0-9]*" value={logisticsDraft[field]} onFocus={() => { if (logisticsDraft[field] === '0') onLogisticsDraftChange(field, ''); }} onBlur={() => { if (!logisticsDraft[field]) onLogisticsDraftChange(field, '0'); }} onChange={(event) => onLogisticsDraftChange(field, sanitizeNumericInput(event.target.value))} className="ds-input h-9 w-full rounded-xl border-0 px-2 text-center text-xs font-black text-stone-950 outline-none" />
                     </label>
                   ))}
                 </div>
-                <button type="button" onClick={saveLogisticsDraft} disabled={!hasPendingPricingChanges} className={`ds-press h-11 w-full rounded-2xl px-3 text-xs font-black ${hasPendingPricingChanges ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-400'}`}>Сохранить услуги</button>
+                <button type="button" onClick={saveLogisticsDraft} disabled={!hasPendingPricingChanges} className={`ds-press h-9 w-full rounded-xl px-3 text-[11px] font-black ${hasPendingPricingChanges ? 'bg-stone-950 text-white' : 'bg-stone-100 text-stone-400'}`}>Сохранить услуги</button>
               </section>
 
-              <section className="ds-surface space-y-3 rounded-[26px] p-4">
+              <section className="ds-surface space-y-2 rounded-[22px] p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[12px] font-black text-stone-600">Депозит</p>
-                    <p className="mt-1 text-xs font-semibold text-stone-500">Добавление и изменение через финансы</p>
-                  </div>
+                  <p className="text-[12px] font-black text-stone-600">Депозит</p>
                   <div className="text-right">
-                    <p className="text-sm font-black text-emerald-700">-{formatMoney(depositAmountAed)}</p>
-                    <p className="mt-1 text-xs font-black text-stone-950">К оплате {formatMoney(balanceDueAed, clientCurrency)}</p>
+                    <p className="text-xs font-black text-emerald-700">-{formatMoney(depositAmountAed)}</p>
+                    <p className="mt-0.5 text-[10px] font-black text-stone-950">К оплате {formatMoney(balanceDueAed, clientCurrency)}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-[minmax(0,1fr)_minmax(92px,112px)] gap-2">
                   <label className="min-w-0 space-y-1">
                     <span className="text-[10px] font-black text-stone-400">Сумма</span>
-                    <input type="text" inputMode="decimal" value={depositAmountInput} onChange={(event) => setDepositAmountInput(sanitizeDecimalInput(event.target.value))} placeholder="0" className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none" />
+                    <input type="text" inputMode="decimal" value={depositAmountInput} onChange={(event) => setDepositAmountInput(sanitizeDecimalInput(event.target.value))} placeholder="0" className="ds-input h-9 w-full rounded-xl border-0 px-3 text-xs font-black text-stone-950 outline-none" />
                   </label>
                   <label className="min-w-0 space-y-1">
                     <span className="text-[10px] font-black text-stone-400">Валюта</span>
@@ -4033,7 +4112,7 @@ const OrderDetailsScreen: React.FC = () => {
                       const currency = event.target.value as NonNullable<Order['searchDepositCurrency']>;
                       setDepositCurrencyInput(currency);
                       setDepositRateInput(String(getDepositRate(currency)));
-                    }} className="ds-input h-12 w-full rounded-2xl border-0 px-2 text-xs font-black text-stone-950 outline-none">
+                    }} className="ds-input h-9 w-full rounded-xl border-0 px-2 text-xs font-black text-stone-950 outline-none">
                       {(['AED', 'USD', 'RUB', 'TJS', 'KZT', 'UZS'] as const).map((currency) => <option key={`finance-deposit-${currency}`} value={currency}>{currency}</option>)}
                     </select>
                   </label>
@@ -4041,28 +4120,50 @@ const OrderDetailsScreen: React.FC = () => {
                 {depositCurrencyInput !== 'AED' && (
                   <label className="block space-y-1">
                     <span className="text-[10px] font-black text-stone-400">1 {depositCurrencyInput} = AED</span>
-                    <input type="text" inputMode="decimal" value={depositRateInput} onChange={(event) => setDepositRateInput(sanitizeDecimalInput(event.target.value))} placeholder="0.00" className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-black text-stone-950 outline-none" />
+                    <input type="text" inputMode="decimal" value={depositRateInput} onChange={(event) => setDepositRateInput(sanitizeDecimalInput(event.target.value))} placeholder="0.00" className="ds-input h-9 w-full rounded-xl border-0 px-3 text-xs font-black text-stone-950 outline-none" />
                   </label>
                 )}
-                <button type="button" onClick={submitDeposit} className="ds-press h-11 w-full rounded-2xl bg-stone-950 px-3 text-xs font-black text-white">Сохранить депозит</button>
+                <button type="button" onClick={submitDeposit} className="ds-press h-9 w-full rounded-xl bg-stone-950 px-3 text-[11px] font-black text-white">Сохранить депозит</button>
               </section>
 
               {depositAmountAed > 0 && (
-                <section className="ds-surface rounded-[26px] p-4">
+                <section className="ds-surface rounded-[22px] p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-[12px] font-black text-stone-600">Депозит</p>
-                      <p className="mt-1 text-xs font-semibold text-stone-500">{order.searchDepositAmount} {order.searchDepositCurrency || 'AED'}</p>
+                      <p className="mt-0.5 text-[10px] font-semibold text-stone-500">{order.searchDepositAmount} {order.searchDepositCurrency || 'AED'}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-black text-emerald-700">-{formatMoney(depositAmountAed)}</p>
-                      <p className="mt-1 text-xs font-black text-stone-950">К оплате {formatMoney(balanceDueAed, clientCurrency)}</p>
+                      <p className="text-xs font-black text-emerald-700">-{formatMoney(depositAmountAed)}</p>
+                      <p className="mt-0.5 text-[10px] font-black text-stone-950">К оплате {formatMoney(balanceDueAed, clientCurrency)}</p>
                     </div>
                   </div>
                 </section>
               )}
 
               {sellError && <div className="rounded-2xl bg-rose-50 px-4 py-3 text-xs font-black text-rose-700">{sellError}</div>}
+
+              <section className="space-y-1.5 rounded-[22px] border border-stone-200/70 bg-[#F4F1EA]/96 p-2 shadow-[0_10px_30px_rgba(23,23,23,0.08)]">
+                <div className="grid grid-cols-4 gap-1.5">
+                  <div className="rounded-xl bg-stone-950 px-2 py-1.5 text-white">
+                    <p className="text-[8px] font-black text-white/45">Прибыль</p>
+                    <p className="mt-0.5 truncate text-[11px] font-black">{shownNetProfit !== null ? formatMoney(shownNetProfit) : '—'}</p>
+                  </div>
+                  <div className="rounded-xl bg-white px-2 py-1.5">
+                    <p className="text-[8px] font-black text-stone-400">К оплате</p>
+                    <p className="mt-0.5 truncate text-[11px] font-black text-stone-950">{formatMoney(balanceDueAed, clientCurrency)}</p>
+                  </div>
+                  <div className="rounded-xl bg-white px-2 py-1.5">
+                    <p className="text-[8px] font-black text-stone-400">Закуп</p>
+                    <p className="mt-0.5 truncate text-[11px] font-black text-stone-950">{formatMoney(selectedOfferTotal)}</p>
+                  </div>
+                  <div className="rounded-xl bg-white px-2 py-1.5">
+                    <p className="text-[8px] font-black text-stone-400">Маржа</p>
+                    <p className="mt-0.5 truncate text-[11px] font-black text-stone-950">{marginPercent !== null ? `${marginPercent.toFixed(0)}%` : '—'}</p>
+                  </div>
+                </div>
+                <button type="button" onClick={() => void sendFinanceTextQuote()} className="ds-press flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-[11px] font-black uppercase tracking-[0.06em] text-white"><MessageCircle size={14} /> Текстовая смета</button>
+              </section>
             </div>
           )}
 
@@ -4191,7 +4292,7 @@ const OrderDetailsScreen: React.FC = () => {
         <input type="file" ref={partFileRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
         <input type="file" ref={proofFileRef} onChange={handleProofPhotoChange} className="hidden" accept="image/*" multiple />
 
-        {!(activeTab === 'search' && sourcingLocked) && (
+        {activeTab !== 'finance' && !(activeTab === 'search' && sourcingLocked) && (
         <div className="fixed bottom-0 left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl" style={{ paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING }}>
           {activeTab === 'search' && !sourcingLocked && (
               <form onSubmit={(event) => { event.preventDefault(); addNewPart(); }} className="space-y-2">
@@ -4232,7 +4333,6 @@ const OrderDetailsScreen: React.FC = () => {
               <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
             </form>
           )}
-          {activeTab === 'finance' && <div className="space-y-2"><div className="grid grid-cols-4 gap-2"><div className="rounded-2xl bg-stone-950 px-3 py-2 text-white"><p className="text-[9px] font-black text-white/45">Прибыль</p><p className="mt-0.5 truncate text-[13px] font-black">{shownNetProfit !== null ? formatMoney(shownNetProfit) : '—'}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">К оплате</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(balanceDueAed, clientCurrency)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Закуп</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{formatMoney(selectedOfferTotal)}</p></div><div className="rounded-2xl bg-white px-3 py-2"><p className="text-[9px] font-black text-stone-400">Маржа</p><p className="mt-0.5 truncate text-[13px] font-black text-stone-950">{marginPercent !== null ? `${marginPercent.toFixed(0)}%` : '—'}</p></div></div><button type="button" onClick={() => void sendFinanceTextQuote()} className="ds-press flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-xs font-black uppercase tracking-[0.08em] text-white"><MessageCircle size={16} /> Текстовая смета WhatsApp</button></div>}
           {activeTab === 'overview' && <button type="button" onClick={() => void shareQuote()} className="ds-press flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-stone-950 text-xs font-black uppercase tracking-[0.08em] text-white">Отправить / обновить смету<ChevronRight size={15} /></button>}
           {activeTab === 'proof' && (
             <form onSubmit={(event) => { event.preventDefault(); addClientProofNote(); }} className="space-y-2">

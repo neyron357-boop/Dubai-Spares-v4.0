@@ -46,12 +46,14 @@ const SearchableDropdown: React.FC<{
   loading?: boolean;
   required?: boolean;
   noOptionsText?: string;
+  allowCustom?: boolean;
   onChange: (value: string) => void;
-}> = ({ value, placeholder, disabled, options, loading, required, noOptionsText = 'Нет доступных вариантов', onChange }) => {
+}> = ({ value, placeholder, disabled, options, loading, required, noOptionsText = 'Нет доступных вариантов', allowCustom, onChange }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState(0);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const filteredOptions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -71,6 +73,12 @@ const SearchableDropdown: React.FC<{
   }, [query]);
 
   useEffect(() => {
+    if (open) {
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [open]);
+
+  useEffect(() => {
     const onOutside = (event: MouseEvent) => {
       if (!wrapperRef.current?.contains(event.target as Node)) {
         setOpen(false);
@@ -79,6 +87,10 @@ const SearchableDropdown: React.FC<{
     document.addEventListener('mousedown', onOutside);
     return () => document.removeEventListener('mousedown', onOutside);
   }, []);
+
+  const trimmedQuery = query.trim();
+  const exactQueryMatch = filteredOptions.some((option) => option.value.toLowerCase() === trimmedQuery.toLowerCase() || option.label.toLowerCase() === trimmedQuery.toLowerCase());
+  const showCustomOption = Boolean(allowCustom && trimmedQuery && !exactQueryMatch);
 
   return (
     <div ref={wrapperRef} className="relative">
@@ -96,6 +108,7 @@ const SearchableDropdown: React.FC<{
       {open && (
         <div className="absolute z-[60] mt-2 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
           <input
+            ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
@@ -111,6 +124,10 @@ const SearchableDropdown: React.FC<{
                 event.preventDefault();
                 setOpen(false);
                 onChange(filteredOptions[highlighted].value);
+              } else if (event.key === 'Enter' && showCustomOption) {
+                event.preventDefault();
+                setOpen(false);
+                onChange(trimmedQuery);
               }
               if (event.key === 'Escape') {
                 setOpen(false);
@@ -126,6 +143,20 @@ const SearchableDropdown: React.FC<{
             </div>
           ) : (
             <div className="max-h-52 overflow-y-auto">
+              {showCustomOption && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setOpen(false);
+                    onChange(trimmedQuery);
+                  }}
+                  className="mb-1 flex w-full items-center rounded-lg bg-blue-50 px-2 py-2 text-left text-sm font-bold text-blue-700"
+                >
+                  Использовать "{trimmedQuery}"
+                </button>
+              )}
               {filteredOptions.map((option, index) => (
                 <button
                   key={option.value}
@@ -141,7 +172,7 @@ const SearchableDropdown: React.FC<{
                   {option.label}
                 </button>
               ))}
-              {filteredOptions.length === 0 && <p className="px-2 py-2 text-xs text-slate-500">{noOptionsText}</p>}
+              {filteredOptions.length === 0 && !showCustomOption && <p className="px-2 py-2 text-xs text-slate-500">{noOptionsText}</p>}
             </div>
           )}
         </div>
@@ -191,6 +222,14 @@ const NewOrderScreen: React.FC = () => {
     return [...popular, ...rest];
   }, []);
 
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: currentYear - 1980 + 1 }, (_, index) => {
+      const item = String(currentYear - index);
+      return { label: item, value: item };
+    });
+  }, []);
+
   const bodyTypeOptions = useMemo(() => {
     const fromDb = (CHASSIS_BODY_TYPES_BY_BRAND[brand] || []).map((item) => ({ label: item, value: item }));
     const fallback = BODY_TYPE_OPTIONS.map((item) => ({ label: item, value: item }));
@@ -205,8 +244,6 @@ const NewOrderScreen: React.FC = () => {
     if (!brand.trim()) next.brand = 'Марка обязательна';
     if (!model.trim()) next.model = 'Модель обязательна';
     if (!year.trim() || !/^\d{4}$/.test(year.trim()) || parsedYear < 1980 || parsedYear > currentYear) next.year = `Год должен быть в диапазоне 1980-${currentYear}`;
-    if (!bodyType.trim()) next.bodyType = 'Кузов обязателен';
-    if (!clientName.trim()) next.clientName = 'Имя клиента обязательно';
 
     setErrors(next);
     if (Object.keys(next).length > 0) {
@@ -281,7 +318,7 @@ const NewOrderScreen: React.FC = () => {
 
       void logger.info('create-order', 'create_order_success', { orderId: order.id, creationType, mode: 'minimal' });
       toast(`${shouldCreateLead ? 'Лид' : 'Заказ'} создан: #${order.id.slice(0, 8)}`, 'success');
-      navigate(shouldCreateLead ? '/leads' : `/order/${order.id}`);
+      navigate(shouldCreateLead ? '/orders' : `/order/${order.id}`);
     } catch (error) {
       await logger.error('create-order', 'create_order_unexpected_failure', { error: serializeError(error) });
       toast(`Не удалось создать ${shouldCreateLead ? 'лид' : 'заказ'}. Попробуйте ещё раз.`, 'error');
@@ -327,45 +364,40 @@ const NewOrderScreen: React.FC = () => {
 
         <label className="space-y-1">
           <span className="text-xs font-semibold text-slate-500">Модель</span>
-          <input
-            list="new-order-model-options"
+          <SearchableDropdown
             value={model}
-            onChange={(event) => setModel(event.target.value)}
             placeholder="Введите модель"
-            className={inputClass}
+            options={modelOptions}
+            allowCustom
+            noOptionsText="Начните вводить модель"
+            onChange={setModel}
           />
-          <datalist id="new-order-model-options">
-            {modelOptions.map((item) => <option key={item.value} value={item.value} />)}
-          </datalist>
           {errors.model && <p className="text-xs text-rose-600">{errors.model}</p>}
         </label>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="space-y-1">
             <span className="text-xs font-semibold text-slate-500">Год</span>
-            <input
+            <SearchableDropdown
               value={year}
-              onChange={(event) => setYear(event.target.value.replace(/[^\d]/g, '').slice(0, 4))}
-              placeholder="Год"
-              inputMode="numeric"
-              className={inputClass}
+              placeholder="Выберите год"
+              options={yearOptions}
+              noOptionsText="Год не найден"
+              onChange={setYear}
             />
             {errors.year && <p className="text-xs text-rose-600">{errors.year}</p>}
           </label>
 
           <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Кузов</span>
-            <input
-              list="new-order-body-type-options"
+            <span className="text-xs font-semibold text-slate-500">Кузов <span className="font-medium text-slate-400">необязательно</span></span>
+            <SearchableDropdown
               value={bodyType}
-              onChange={(event) => setBodyType(event.target.value)}
               placeholder="Введите кузов"
-              className={inputClass}
+              options={bodyTypeOptions}
+              allowCustom
+              noOptionsText="Начните вводить кузов"
+              onChange={setBodyType}
             />
-            <datalist id="new-order-body-type-options">
-              {bodyTypeOptions.map((item) => <option key={item.value} value={item.value} />)}
-            </datalist>
-            {errors.bodyType && <p className="text-xs text-rose-600">{errors.bodyType}</p>}
           </label>
         </div>
       </section>
@@ -373,7 +405,7 @@ const NewOrderScreen: React.FC = () => {
       <section className={cardClass}>
         <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><UserRound size={16} /> Клиент</h2>
         <label className="space-y-1">
-          <span className="text-xs font-semibold text-slate-500">Имя клиента</span>
+          <span className="text-xs font-semibold text-slate-500">Имя клиента <span className="font-medium text-slate-400">необязательно</span></span>
           <input
             type="text"
             name="clientName"
@@ -383,9 +415,18 @@ const NewOrderScreen: React.FC = () => {
             placeholder="Имя клиента"
             className={inputClass}
           />
-          {errors.clientName && <p className="text-xs text-rose-600">{errors.clientName}</p>}
         </label>
       </section>
+
+      <div className="sticky bottom-0 -mx-4 border-t border-white/80 bg-[#f6f8fb]/92 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl">
+        <button
+          type="submit"
+          disabled={isSubmitting || isSyncing}
+          className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-blue-600 px-4 text-sm font-black text-white shadow-[0_14px_30px_rgba(37,99,235,0.24)] transition active:scale-[0.99] disabled:opacity-50"
+        >
+          {isSubmitting || isSyncing ? 'Сохраняем...' : creationType === 'lead' ? 'Создать лид' : 'Создать заказ'}
+        </button>
+      </div>
     </form>
   );
 };

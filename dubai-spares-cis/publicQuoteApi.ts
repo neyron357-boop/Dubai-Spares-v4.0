@@ -107,11 +107,13 @@ export type PublicQuotePayloadV1 = {
     phone?: string | null;
     instagram?: string | null;
     telegram?: string | null;
+    tiktok?: string | null;
   };
   public_contact?: {
     whatsapp?: string | null;
     telegram?: string | null;
     instagram?: string | null;
+    tiktok?: string | null;
   };
   public_settings?: {
     publicWhatsappNumber?: string;
@@ -172,6 +174,7 @@ export type PublicQuotePayloadV1 = {
     whatsapp: string;
     telegram: string;
     instagram: string;
+    tiktok?: string;
   };
   meta?: {
     oid: string;
@@ -517,6 +520,14 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
     || (payload.contact as any)?.instagram
     || ''
   );
+  const normalizedTiktok = String(
+    contacts.tiktok
+    || (payload.customer_links as any)?.tiktok_url
+    || (payload.customer_links as any)?.tiktokUrl
+    || (payload.public_contact as any)?.tiktok
+    || (payload.contact as any)?.tiktok
+    || ''
+  );
 
   return {
     ...payload,
@@ -540,7 +551,8 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
     contacts: {
       whatsapp: normalizedWhatsapp || null,
       telegram: normalizedTelegram || null,
-      instagram: normalizedInstagram || null
+      instagram: normalizedInstagram || null,
+      tiktok: normalizedTiktok || null
     }
   };
 };
@@ -1066,12 +1078,14 @@ const buildSnapshotPayload = (
       display_name: owner.displayName || null,
       phone: normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),
       instagram: publicSettings?.publicInstagramUrl || null,
-      telegram: publicSettings?.publicTelegramUrl || null
+      telegram: publicSettings?.publicTelegramUrl || null,
+      tiktok: order.contactLinks?.tiktokUrl || null
     },
     public_contact: {
       whatsapp: normalizeWhatsappE164(publicSettings?.publicWhatsappNumber) || normalizeWhatsappE164(owner.whatsappPhone),
       telegram: publicSettings?.publicTelegramUrl || null,
-      instagram: publicSettings?.publicInstagramUrl || null
+      instagram: publicSettings?.publicInstagramUrl || null,
+      tiktok: order.contactLinks?.tiktokUrl || null
     },
     public_settings: {
       publicWhatsappNumber: publicSettings?.publicWhatsappNumber || '',
