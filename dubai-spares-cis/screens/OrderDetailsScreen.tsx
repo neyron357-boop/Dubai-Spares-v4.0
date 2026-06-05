@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { Order, OrderPricingEvent, Part, Priority, Source, OrderNote, Shop, VoiceNoteAudio } from '../types';
+import { Order, OrderPricingEvent, Part, Priority, Source, OrderNote, Shop, VoiceNoteAudio, ChatAttachment } from '../types';
 import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationDiagnostics, getShopRecommendationLevel, isBrandMatch, isShopCompatibleWithOrder } from '../shopMatching';
 import { SOURCES } from '../constants';
 import { 
@@ -28,7 +28,6 @@ import {
   Undo2,
   Check,
   Mic,
-  Square,
   Play,
   Pause,
   FileAudio,
@@ -48,7 +47,11 @@ import {
   Minus,
   Upload,
   MapPin,
-  Phone
+  Phone,
+  Trash2,
+  Smile,
+  Paperclip,
+  Lock
 } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
 import ConfirmModal from '../components/ConfirmModal';
@@ -379,7 +382,11 @@ const createPricingEvent = (field: OrderPricingEvent['field'], label: string, pr
 const MAX_RETRY_ATTEMPTS = 3;
 const MAX_VOICE_RECORD_SECONDS = 5 * 60;
 const MAX_VOICE_FILE_SIZE_MB = 10;
-const WAVEFORM_SAMPLE_MS = 50;
+const MAX_CHAT_ATTACHMENT_FILE_SIZE_MB = 12;
+const WAVEFORM_SAMPLE_MS = 80;
+const VOICE_HOLD_START_MS = 240;
+const VOICE_CANCEL_SWIPE_PX = 72;
+const VOICE_LOCK_SWIPE_PX = 64;
 
 type GroupItemDraft = {
   id: string;
@@ -436,15 +443,21 @@ const OrderDetailsScreen: React.FC = () => {
   const [newNoteText, setNewNoteText] = useState('');
   const [newNotePhotos, setNewNotePhotos] = useState<string[]>([]);
   const [newNoteAudios, setNewNoteAudios] = useState<Array<string | VoiceNoteAudio>>([]);
+  const [newNoteAttachments, setNewNoteAttachments] = useState<ChatAttachment[]>([]);
   const [newProofText, setNewProofText] = useState('');
   const [newProofVideoUrl, setNewProofVideoUrl] = useState('');
   const [newProofPhotos, setNewProofPhotos] = useState<string[]>([]);
   const [newProofAudios, setNewProofAudios] = useState<Array<string | VoiceNoteAudio>>([]);
+  const [newProofAttachments, setNewProofAttachments] = useState<ChatAttachment[]>([]);
   const [proofComposerMode, setProofComposerMode] = useState<'message' | 'video'>('message');
   const noteFileRef = useRef<HTMLInputElement>(null);
   const carFileRef = useRef<HTMLInputElement>(null);
   const noteAudioFileRef = useRef<HTMLInputElement>(null);
   const proofFileRef = useRef<HTMLInputElement>(null);
+  const chatMediaInputRef = useRef<HTMLInputElement>(null);
+  const chatCameraInputRef = useRef<HTMLInputElement>(null);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
+  const attachmentTargetRef = useRef<'note' | 'proof'>('proof');
 
   const resolvedCustomerStatus = order?.customerStatus === 'VIP'
     ? 'VIP'
@@ -460,11 +473,18 @@ const OrderDetailsScreen: React.FC = () => {
   const waveformTimerRef = useRef<number | null>(null);
   const recordingTargetRef = useRef<'note' | 'proof'>('note');
   const recordingStartedAtRef = useRef<number | null>(null);
+  const recordingElapsedSecondsRef = useRef(0);
   const recordingStopRequestedRef = useRef(false);
+  const voiceHoldTimerRef = useRef<number | null>(null);
+  const voicePointerRef = useRef<{ target: 'note' | 'proof'; pointerId: number; startX: number; startY: number; active: boolean } | null>(null);
+  const voiceAutoSendOnReadyRef = useRef(false);
+  const voiceCancelAfterStartRef = useRef(false);
   const [recordingWaveform, setRecordingWaveform] = useState<number[]>(Array.from({ length: 40 }, () => 10));
   const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [recordingSavedLocally, setRecordingSavedLocally] = useState(false);
+  const [isAttachmentSheetOpen, setIsAttachmentSheetOpen] = useState(false);
+  const [isVoiceLocked, setIsVoiceLocked] = useState(false);
 
   // Sell Flow State
   const [showSellConfirm, setShowSellConfirm] = useState(false);
@@ -2150,23 +2170,150 @@ const OrderDetailsScreen: React.FC = () => {
     void updateOrder({ ...order, carPhotos: next, carPhotoUrl: next[0] || '' });
   };
 
+  const haptic = (pattern: number | number[] = 12) => {
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate(pattern);
+      } catch {
+        // Haptics are best-effort.
+      }
+    }
+  };
+
+  const createChatAttachmentId = () => (
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `attachment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  );
+
+  const formatAttachmentSize = (size?: number) => {
+    if (!Number.isFinite(Number(size)) || Number(size) <= 0) return '';
+    const bytes = Number(size);
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 100 * 1024 ? 1 : 0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+  };
+
+  const addAttachmentDrafts = (target: 'note' | 'proof', attachments: ChatAttachment[]) => {
+    const cleanAttachments = attachments.filter((attachment) => attachment && attachment.name);
+    if (cleanAttachments.length === 0) return;
+    if (target === 'proof') {
+      setNewProofAttachments((prev) => [...prev, ...cleanAttachments]);
+      return;
+    }
+    setNewNoteAttachments((prev) => [...prev, ...cleanAttachments]);
+  };
+
+  const readFileAttachmentDrafts = async (files: File[], target: 'note' | 'proof') => {
+    const attachments = await Promise.all(files.map(async (file) => {
+      if (file.size > MAX_CHAT_ATTACHMENT_FILE_SIZE_MB * 1024 * 1024) {
+        setToast({ message: `${file.name} is larger than ${MAX_CHAT_ATTACHMENT_FILE_SIZE_MB}MB` });
+        return null;
+      }
+      const reader = new FileReader();
+      const fileUrl = await new Promise<string>((resolve) => {
+        reader.onloadend = () => resolve(String(reader.result || ''));
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      });
+      if (!fileUrl) return null;
+      return {
+        id: createChatAttachmentId(),
+        kind: 'file' as const,
+        name: file.name || 'File',
+        fileUrl,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size,
+        createdAt: Date.now()
+      };
+    }));
+    addAttachmentDrafts(target, attachments.filter((item): item is ChatAttachment => Boolean(item)));
+    setIsAttachmentSheetOpen(false);
+  };
+
+  const addLocationAttachment = (target: 'note' | 'proof') => {
+    setIsAttachmentSheetOpen(false);
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setToast({ message: 'Location is not available on this device' });
+      return;
+    }
+    setToast({ message: 'Allow location access to attach location' });
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const latitude = Number(position.coords.latitude.toFixed(6));
+        const longitude = Number(position.coords.longitude.toFixed(6));
+        addAttachmentDrafts(target, [{
+          id: createChatAttachmentId(),
+          kind: 'location',
+          name: 'Current location',
+          value: `https://maps.google.com/?q=${latitude},${longitude}`,
+          address: `${latitude}, ${longitude}`,
+          latitude,
+          longitude,
+          createdAt: Date.now()
+        }]);
+        haptic(10);
+      },
+      () => {
+        setToast({ message: 'Location permission was not granted' });
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+    );
+  };
+
+  const addContactAttachment = (target: 'note' | 'proof') => {
+    const contactName = String(order.clientName || settings.publicManagerName || settings.userName || 'Contact').trim();
+    const phone = String(order.customerContact || order.contactLinks?.phone || settings.publicWhatsappNumber || '').trim();
+    if (!contactName && !phone) {
+      setToast({ message: 'No contact data in this order' });
+      setIsAttachmentSheetOpen(false);
+      return;
+    }
+    addAttachmentDrafts(target, [{
+      id: createChatAttachmentId(),
+      kind: 'contact',
+      name: contactName || 'Contact',
+      phone,
+      value: [contactName, phone].filter(Boolean).join(' · '),
+      createdAt: Date.now()
+    }]);
+    setIsAttachmentSheetOpen(false);
+    haptic(10);
+  };
+
+  const addMediaDrafts = (target: 'note' | 'proof', media: string[]) => {
+    const cleanMedia = media.filter(Boolean);
+    if (cleanMedia.length === 0) return;
+    if (target === 'proof') {
+      setNewProofPhotos((prev) => [...prev, ...cleanMedia]);
+      return;
+    }
+    setNewNotePhotos((prev) => [...prev, ...cleanMedia]);
+  };
+
+  const readMediaDrafts = async (files: File[], target: 'note' | 'proof') => {
+    const media = await Promise.all(files.map(async (file) => {
+      if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) return '';
+      if (file.type.startsWith('image/')) {
+        try {
+          return await optimizeImageForUpload(file, `order-details:${target}:${file.name}`);
+        } catch {
+          // Fall through to data URL preview.
+        }
+      }
+      const reader = new FileReader();
+      return await new Promise<string>((resolve) => {
+        reader.onloadend = () => resolve(String(reader.result || ''));
+        reader.readAsDataURL(file as Blob);
+      });
+    }));
+    addMediaDrafts(target, media);
+    setIsAttachmentSheetOpen(false);
+  };
+
   const handleNotePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const files = Array.from(e.target.files);
-      void Promise.all(files.map(async (file) => {
-        try {
-          return await optimizeImageForUpload(file, `order-details:note:${file.name}`);
-        } catch {
-          const reader = new FileReader();
-          const fallback = await new Promise<string>((resolve) => {
-            reader.onloadend = () => resolve(String(reader.result || ''));
-            reader.readAsDataURL(file as Blob);
-          });
-          return fallback;
-        }
-      })).then((photos) => {
-        setNewNotePhotos((prev) => [...prev, ...photos.filter(Boolean)]);
-      });
+      void readMediaDrafts(Array.from(e.target.files), 'note');
       e.target.value = '';
     }
   };
@@ -2195,6 +2342,35 @@ const OrderDetailsScreen: React.FC = () => {
     e.target.value = '';
   };
 
+  const handleChatMediaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    void readMediaDrafts(Array.from(e.target.files), attachmentTargetRef.current);
+    e.target.value = '';
+  };
+
+  const handleChatFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const files = Array.from(e.target.files);
+    const mediaFiles = files.filter((file) => file.type.startsWith('image/') || file.type.startsWith('video/'));
+    const audioFiles = files.filter((file) => file.type.startsWith('audio/'));
+    const documentFiles = files.filter((file) => !file.type.startsWith('image/') && !file.type.startsWith('video/') && !file.type.startsWith('audio/'));
+    if (mediaFiles.length > 0) {
+      void readMediaDrafts(mediaFiles, attachmentTargetRef.current);
+    }
+    if (audioFiles.length > 0) {
+      const dataTransfer = new DataTransfer();
+      audioFiles.forEach((file) => dataTransfer.items.add(file));
+      const audioEvent = { ...e, target: { ...e.target, files: dataTransfer.files, value: '' } } as React.ChangeEvent<HTMLInputElement>;
+      handleNoteAudioFileChange(audioEvent);
+    }
+    if (documentFiles.length > 0) {
+      void readFileAttachmentDrafts(documentFiles, attachmentTargetRef.current);
+    } else {
+      setIsAttachmentSheetOpen(false);
+    }
+    e.target.value = '';
+  };
+
   const handleNoteAudioFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
 
@@ -2214,12 +2390,17 @@ const OrderDetailsScreen: React.FC = () => {
           createdAt: Date.now(),
           author: settings.managerName || 'Manager'
         };
-        setNewNoteAudios((prev) => [...prev, audio]);
+        if (attachmentTargetRef.current === 'proof') {
+          setNewProofAudios((prev) => [...prev, audio]);
+        } else {
+          setNewNoteAudios((prev) => [...prev, audio]);
+        }
       };
       reader.readAsDataURL(file);
     });
 
     e.target.value = '';
+    setIsAttachmentSheetOpen(false);
   };
 
   const getWaveBars = (seed: string) => {
@@ -2290,7 +2471,9 @@ const OrderDetailsScreen: React.FC = () => {
     recorderRef.current = null;
     audioChunksRef.current = [];
     recordingStartedAtRef.current = null;
+    recordingElapsedSecondsRef.current = 0;
     recordingStopRequestedRef.current = false;
+    setIsVoiceLocked(false);
     setIsRecording(false);
     setIsRecordingPaused(false);
     setRecordingStartedAt(null);
@@ -2325,7 +2508,7 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!isRecording) return;
+    if (!isRecording || isRecordingPaused) return;
     recordingTimerRef.current = window.setInterval(() => {
       setRecordingElapsedSeconds((prev) => {
         if (prev >= MAX_VOICE_RECORD_SECONDS) {
@@ -2333,7 +2516,9 @@ const OrderDetailsScreen: React.FC = () => {
           stopActiveRecording();
           return MAX_VOICE_RECORD_SECONDS;
         }
-        return prev + 1;
+        const next = prev + 1;
+        recordingElapsedSecondsRef.current = next;
+        return next;
       });
     }, 1000);
 
@@ -2342,7 +2527,7 @@ const OrderDetailsScreen: React.FC = () => {
     }, WAVEFORM_SAMPLE_MS);
 
     return () => stopVoiceTimers();
-  }, [isRecording]);
+  }, [isRecording, isRecordingPaused]);
 
   useEffect(() => {
     if (!isRecording) return;
@@ -2364,13 +2549,6 @@ const OrderDetailsScreen: React.FC = () => {
   }, [isRecording]);
 
   useEffect(() => {
-    document.body.style.overflow = isRecording ? 'hidden' : '';
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isRecording]);
-
-  useEffect(() => {
     return () => {
       if (recorderRef.current && recorderRef.current.state !== 'inactive') {
         recorderRef.current.onstop = null;
@@ -2385,28 +2563,6 @@ const OrderDetailsScreen: React.FC = () => {
       stopStreamTracks();
     };
   }, []);
-
-  useEffect(() => {
-    if (!isRecording) return;
-    const canvas = document.getElementById('voice-recorder-wave') as HTMLCanvasElement | null;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const width = canvas.clientWidth || 320;
-    const height = canvas.clientHeight || 56;
-    canvas.width = width;
-    canvas.height = height;
-    ctx.clearRect(0, 0, width, height);
-    const barWidth = Math.max(2, Math.floor(width / recordingWaveform.length) - 1);
-
-    recordingWaveform.forEach((value, index) => {
-      const barHeight = Math.max(3, (value / 100) * (height - 4));
-      const x = index * (barWidth + 1);
-      ctx.fillStyle = '#f43f5e';
-      ctx.fillRect(x, height - barHeight, barWidth, barHeight);
-    });
-  }, [isRecording, recordingWaveform]);
 
   const startRecording = async () => {
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
@@ -2434,6 +2590,7 @@ const OrderDetailsScreen: React.FC = () => {
       recordingStopRequestedRef.current = false;
       setRecordingError(null);
       setRecordingElapsedSeconds(0);
+      recordingElapsedSecondsRef.current = 0;
       setRecordingSavedLocally(false);
 
       recorder.ondataavailable = (event) => {
@@ -2447,11 +2604,20 @@ const OrderDetailsScreen: React.FC = () => {
         stopStreamTracks(stream);
         const mimeType = recorder.mimeType || 'audio/webm';
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        const durationSeconds = Math.max(1, Math.round((Date.now() - (recordingStartedAtRef.current || Date.now())) / 1000));
+        const elapsedByClock = Math.floor((Date.now() - (recordingStartedAtRef.current || Date.now())) / 1000);
+        const durationSeconds = Math.max(recordingElapsedSecondsRef.current, elapsedByClock);
+        const target = recordingTargetRef.current;
+        const shouldAutoSend = voiceAutoSendOnReadyRef.current;
+        voiceAutoSendOnReadyRef.current = false;
         resetVoiceRecordingState();
 
         if (blob.size <= 0) {
           setRecordingError('Запись пустая. Попробуйте ещё раз.');
+          return;
+        }
+
+        if (durationSeconds < 1) {
+          setToast({ message: 'Voice message is too short' });
           return;
         }
 
@@ -2479,7 +2645,39 @@ const OrderDetailsScreen: React.FC = () => {
             createdAt: Date.now(),
             author: settings.managerName || 'Manager'
           };
-          if (recordingTargetRef.current === 'proof') {
+          if (shouldAutoSend) {
+            const directNote: OrderNote = {
+              id: Math.random().toString(36).slice(2, 9),
+              text: target === 'proof' ? newProofText.trim() : newNoteText.trim(),
+              photos: target === 'proof' ? newProofPhotos : newNotePhotos,
+              audios: [voice],
+              attachments: target === 'proof' ? newProofAttachments : newNoteAttachments,
+              visibility: target === 'proof' ? 'client' : undefined,
+              kind: target === 'proof' ? 'proof' : 'note',
+              createdAt: Date.now()
+            };
+            const nextOrder = { ...order, notes: [directNote, ...(order.notes || [])] };
+            updateOrder(nextOrder);
+            if (target === 'proof' && nextOrder.publicQuoteToken) {
+              void refreshPublicQuoteSnapshot(nextOrder);
+            }
+            if (target === 'proof') {
+              setNewProofText('');
+              setNewProofPhotos([]);
+              setNewProofAudios([]);
+              setNewProofAttachments([]);
+            } else {
+              setNewNoteText('');
+              setNewNotePhotos([]);
+              setNewNoteAudios([]);
+              setNewNoteAttachments([]);
+            }
+            setIsUploadingVoice(false);
+            setVoiceUploadProgress(0);
+            haptic([12, 24, 12]);
+            return;
+          }
+          if (target === 'proof') {
             setNewProofAudios((prev) => [...prev, voice]);
           } else {
             setNewNoteAudios((prev) => [...prev, voice]);
@@ -2505,6 +2703,7 @@ const OrderDetailsScreen: React.FC = () => {
       setIsRecording(true);
       setIsRecordingPaused(false);
       setRecordingStartedAt(recordingStartedAtRef.current);
+      haptic(16);
     } catch (e) {
       console.error('Audio recording failed', e);
       setRecordingError('Microphone access required');
@@ -2520,20 +2719,137 @@ const OrderDetailsScreen: React.FC = () => {
     await startRecording();
   };
 
+  const openAttachmentMenu = (target: 'note' | 'proof') => {
+    attachmentTargetRef.current = target;
+    setIsAttachmentSheetOpen(true);
+    haptic(8);
+  };
+
+  const openMediaPicker = (target: 'note' | 'proof') => {
+    attachmentTargetRef.current = target;
+    setIsAttachmentSheetOpen(false);
+    chatMediaInputRef.current?.click();
+  };
+
+  const openCameraPicker = (target: 'note' | 'proof') => {
+    attachmentTargetRef.current = target;
+    setIsAttachmentSheetOpen(false);
+    chatCameraInputRef.current?.click();
+  };
+
+  const openFilePicker = (target: 'note' | 'proof') => {
+    attachmentTargetRef.current = target;
+    setIsAttachmentSheetOpen(false);
+    chatFileInputRef.current?.click();
+  };
+
+  const openAudioPicker = (target: 'note' | 'proof') => {
+    attachmentTargetRef.current = target;
+    setIsAttachmentSheetOpen(false);
+    noteAudioFileRef.current?.click();
+  };
+
+  const startVoicePress = (target: 'note' | 'proof', event: React.PointerEvent<HTMLButtonElement>) => {
+    if (isRecording || recorderRef.current) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    voicePointerRef.current = { target, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, active: true };
+    voiceCancelAfterStartRef.current = false;
+    attachmentTargetRef.current = target;
+    if (voiceHoldTimerRef.current) window.clearTimeout(voiceHoldTimerRef.current);
+    voiceHoldTimerRef.current = window.setTimeout(() => {
+      voiceHoldTimerRef.current = null;
+      recordingTargetRef.current = target;
+      setIsVoiceLocked(false);
+      void (async () => {
+        await startRecording();
+        if (voiceCancelAfterStartRef.current) {
+          confirmDiscardRecording();
+          voiceCancelAfterStartRef.current = false;
+          return;
+        }
+        if (!voicePointerRef.current) {
+          stopActiveRecording();
+        }
+      })();
+    }, VOICE_HOLD_START_MS);
+  };
+
+  const moveVoicePress = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const start = voicePointerRef.current;
+    if (!start || !start.active || start.pointerId !== event.pointerId) return;
+    const dx = event.clientX - start.startX;
+    const dy = event.clientY - start.startY;
+
+    if (dx <= -VOICE_CANCEL_SWIPE_PX) {
+      if (voiceHoldTimerRef.current) {
+        window.clearTimeout(voiceHoldTimerRef.current);
+        voiceHoldTimerRef.current = null;
+      }
+      voicePointerRef.current = null;
+      voiceCancelAfterStartRef.current = true;
+      if (recorderRef.current) requestCancelRecording();
+      setToast({ message: 'Voice cancelled' });
+      return;
+    }
+
+    if (dy <= -VOICE_LOCK_SWIPE_PX) {
+      setIsVoiceLocked(true);
+      voicePointerRef.current = { ...start, active: false };
+      haptic([8, 24, 8]);
+      if (!recorderRef.current && !voiceHoldTimerRef.current) {
+        recordingTargetRef.current = start.target;
+        void startRecording();
+      }
+    }
+  };
+
+  const finishVoicePress = (event?: React.PointerEvent<HTMLButtonElement>) => {
+    if (voiceHoldTimerRef.current) {
+      window.clearTimeout(voiceHoldTimerRef.current);
+      voiceHoldTimerRef.current = null;
+      const target = voicePointerRef.current?.target || recordingTargetRef.current || 'proof';
+      voicePointerRef.current = null;
+      setIsVoiceLocked(true);
+      voiceCancelAfterStartRef.current = false;
+      recordingTargetRef.current = target;
+      haptic([8, 16, 8]);
+      void startRecording();
+      return;
+    }
+
+    const start = voicePointerRef.current;
+    voicePointerRef.current = null;
+    if (!start || !start.active || (event && start.pointerId !== event.pointerId)) return;
+    if (isVoiceLocked) return;
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      stopActiveRecording();
+    }
+  };
+
+  const sendActiveVoiceRecording = () => {
+    if (!recorderRef.current || recorderRef.current.state === 'inactive') return;
+    voiceAutoSendOnReadyRef.current = true;
+    haptic([12, 18, 12]);
+    stopActiveRecording();
+  };
+
   const toggleRecordingPause = () => {
     if (!recorderRef.current) return;
     if (recorderRef.current.state === 'recording') {
       recorderRef.current.pause();
+      haptic(10);
       return;
     }
     if (recorderRef.current.state === 'paused') {
       recorderRef.current.resume();
+      haptic(10);
     }
   };
 
   const requestCancelRecording = () => {
     if (!isRecording) return;
-    setIsDiscardConfirmOpen(true);
+    haptic([18, 24, 18]);
+    confirmDiscardRecording();
   };
 
   const confirmDiscardRecording = () => {
@@ -2587,7 +2903,7 @@ const OrderDetailsScreen: React.FC = () => {
       setToast({ message: 'Проверьте ссылку на видео.' });
       return;
     }
-    if (!newProofText.trim() && newProofPhotos.length === 0 && newProofAudios.length === 0 && !videoUrl) return;
+    if (!newProofText.trim() && newProofPhotos.length === 0 && newProofAudios.length === 0 && newProofAttachments.length === 0 && !videoUrl) return;
 
     const note: OrderNote = {
       id: Math.random().toString(36).slice(2, 9),
@@ -2595,10 +2911,14 @@ const OrderDetailsScreen: React.FC = () => {
       photos: newProofPhotos,
       audios: newProofAudios,
       videoUrls: videoUrl ? [videoUrl] : [],
+      attachments: newProofAttachments,
       visibility: 'client',
       kind: 'proof',
       createdAt: Date.now()
     };
+    if (!newProofText.trim() && newProofAttachments.length > 0 && newProofPhotos.length === 0 && newProofAudios.length === 0 && !videoUrl) {
+      note.text = 'Attachment';
+    }
     const nextOrder = { ...order, notes: [note, ...(order.notes || [])] };
     updateOrder(nextOrder);
     if (nextOrder.publicQuoteToken) {
@@ -2608,6 +2928,7 @@ const OrderDetailsScreen: React.FC = () => {
     setNewProofVideoUrl('');
     setNewProofPhotos([]);
     setNewProofAudios([]);
+    setNewProofAttachments([]);
     setProofComposerMode('message');
     setToast({ message: nextOrder.publicQuoteToken ? 'Пруф добавлен, публичная смета обновляется' : 'Пруф добавлен в публичную смету' });
   };
@@ -2620,24 +2941,34 @@ const OrderDetailsScreen: React.FC = () => {
     setNewProofAudios((prev) => prev.filter((_, audioIndex) => audioIndex !== index));
   };
 
+  const removeNewProofAttachment = (index: number) => {
+    setNewProofAttachments((prev) => prev.filter((_, attachmentIndex) => attachmentIndex !== index));
+  };
+
 
   const addNote = () => {
-    if (!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0) return;
+    if (!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0 && newNoteAttachments.length === 0) return;
     const note: OrderNote = {
       id: Math.random().toString(36).slice(2, 9),
-      text: newNoteText.trim(),
+      text: newNoteText.trim() || (newNoteAttachments.length > 0 ? 'Attachment' : ''),
       photos: newNotePhotos,
       audios: newNoteAudios,
+      attachments: newNoteAttachments,
       createdAt: Date.now()
     };
     updateOrder({ ...order, notes: [note, ...(order.notes || [])] });
     setNewNoteText('');
     setNewNotePhotos([]);
     setNewNoteAudios([]);
+    setNewNoteAttachments([]);
   };
 
   const removeNewAudio = (index: number) => {
     setNewNoteAudios((prev) => prev.filter((_, audioIndex) => audioIndex !== index));
+  };
+
+  const removeNewNoteAttachment = (index: number) => {
+    setNewNoteAttachments((prev) => prev.filter((_, attachmentIndex) => attachmentIndex !== index));
   };
 
 
@@ -2964,6 +3295,218 @@ const OrderDetailsScreen: React.FC = () => {
       ? `https://wa.me/${digits}?text=${encodeURIComponent(text)}`
       : `https://wa.me/?text=${encodeURIComponent(text)}`;
     window.open(href, '_blank', 'noopener,noreferrer');
+  };
+
+  const removeNewNotePhoto = (index: number) => {
+    setNewNotePhotos((prev) => prev.filter((_, photoIndex) => photoIndex !== index));
+  };
+
+  const getComposerDraft = (target: 'note' | 'proof') => ({
+    text: target === 'proof' ? newProofText : newNoteText,
+    setText: target === 'proof' ? setNewProofText : setNewNoteText,
+    media: target === 'proof' ? newProofPhotos : newNotePhotos,
+    audios: target === 'proof' ? newProofAudios : newNoteAudios,
+    attachments: target === 'proof' ? newProofAttachments : newNoteAttachments,
+    removeMedia: target === 'proof' ? removeNewProofPhoto : removeNewNotePhoto,
+    removeAudio: target === 'proof' ? removeNewProofAudio : removeNewAudio,
+    removeAttachment: target === 'proof' ? removeNewProofAttachment : removeNewNoteAttachment,
+    submit: target === 'proof' ? addClientProofNote : addNote
+  });
+
+  const renderMediaThumb = (src: string, index: number, onRemove: (index: number) => void) => {
+    const isVideo = src.startsWith('data:video/');
+    return (
+      <div key={`${src.slice(0, 28)}-${index}`} className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-white shadow-[0_8px_20px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80">
+        {isVideo ? (
+          <video src={src} className="h-full w-full object-cover" muted playsInline />
+        ) : (
+          <img src={src} alt="Attachment preview" className="h-full w-full object-cover" />
+        )}
+        <button type="button" onClick={() => onRemove(index)} className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-slate-950/75 text-white shadow-sm" aria-label="Remove attachment">
+          <X size={11} />
+        </button>
+      </div>
+    );
+  };
+
+  const renderAttachmentCard = (attachment: ChatAttachment, index: number, onRemove?: (index: number) => void) => {
+    const isFile = attachment.kind === 'file';
+    const isLocation = attachment.kind === 'location';
+    const isContact = attachment.kind === 'contact';
+    const icon = isLocation ? <MapPin size={18} /> : isContact ? <User size={18} /> : <Paperclip size={18} />;
+    const actionHref = isLocation
+      ? attachment.value
+      : isContact && attachment.phone
+        ? `tel:${attachment.phone}`
+        : isFile
+          ? attachment.fileUrl
+          : undefined;
+    const actionLabel = isLocation ? 'Open map' : isContact ? 'Call' : 'Open';
+    const subtitle = isLocation
+      ? (attachment.address || 'Shared location')
+      : isContact
+        ? (attachment.phone || attachment.value || 'Contact card')
+        : [attachment.mimeType || 'File', formatAttachmentSize(attachment.size)].filter(Boolean).join(' · ');
+
+    return (
+      <div key={`${attachment.id}-${index}`} className="flex items-center gap-2 rounded-[22px] bg-white p-2 shadow-[0_8px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80">
+        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${isLocation ? 'bg-emerald-50 text-emerald-600' : isContact ? 'bg-amber-50 text-amber-600' : 'bg-violet-50 text-violet-600'}`}>
+          {icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-black text-slate-950">{attachment.name}</p>
+          {subtitle && <p className="mt-0.5 truncate text-[11px] font-bold text-slate-500">{subtitle}</p>}
+        </div>
+        {actionHref && (
+          <a href={actionHref} target={isLocation || isFile ? '_blank' : undefined} rel={isLocation || isFile ? 'noopener noreferrer' : undefined} download={isFile ? attachment.name : undefined} className="ds-press grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600" aria-label={actionLabel}>
+            <ExternalLink size={15} />
+          </a>
+        )}
+        {onRemove && (
+          <button type="button" onClick={() => { haptic(10); onRemove(index); }} className="ds-press grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500" aria-label="Remove attachment">
+            <X size={15} />
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderDraftVoice = (target: 'note' | 'proof', audioItem: string | VoiceNoteAudio, index: number, removeAudio: (index: number) => void) => {
+    const voice = toVoiceNoteAudio(audioItem);
+    const audioId = `draft-audio-${voice.id}`;
+    const isPlaying = playingAudioId === audioId;
+    const progress = audioProgress[audioId] || 0;
+    const bars = getWaveBars(voice.fileUrl.slice(0, 120));
+    return (
+      <div key={`${target}-draft-voice-${voice.id}-${index}`} className="flex items-center gap-2 rounded-[26px] bg-white p-2 shadow-[0_8px_24px_rgba(16,185,129,0.08)] ring-1 ring-emerald-100">
+        <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="ds-press grid h-10 w-10 shrink-0 place-items-center rounded-full bg-emerald-500 text-white shadow-[0_8px_18px_rgba(16,185,129,0.22)]" aria-label="Play voice preview">
+          {isPlaying ? <Pause size={15} /> : <Play size={15} className="ml-0.5" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex h-7 items-center gap-0.5">
+            {bars.map((height, barIndex) => {
+              const passed = progress >= ((barIndex + 1) / bars.length) * 100;
+              return <span key={`${audioId}-preview-${barIndex}`} className={`block flex-1 rounded-full ${passed ? 'bg-emerald-600' : 'bg-emerald-200'}`} style={{ height: `${Math.max(20, height * 0.62)}%` }} />;
+            })}
+          </div>
+          <div className="mt-0.5 flex items-center justify-between text-[11px] font-black text-emerald-900/55">
+            <span>{formatSeconds(voice.duration)}</span>
+            <span>Preview</span>
+          </div>
+        </div>
+        <button type="button" onClick={() => { haptic(10); removeAudio(index); }} className="ds-press grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500" aria-label="Delete voice preview">
+          <Trash2 size={16} />
+        </button>
+        <audio id={audioId} src={voice.fileUrl} preload="metadata" playsInline />
+      </div>
+    );
+  };
+
+  const renderRecordingComposer = () => (
+    <div className="rounded-[30px] border border-slate-200/80 bg-white/96 p-2 text-slate-950 shadow-[0_-16px_40px_rgba(15,23,42,0.12)] backdrop-blur-xl transition-all duration-200">
+      <div className="flex min-h-[72px] items-center gap-2">
+        <button type="button" onClick={requestCancelRecording} className="ds-press grid h-12 w-12 shrink-0 place-items-center rounded-full bg-rose-50 text-rose-600 transition active:scale-110" aria-label="Delete recording">
+          <Trash2 size={19} />
+        </button>
+        <div className="min-w-0 flex-1 rounded-[26px] bg-[#F3F6FA] px-3 py-2 ring-1 ring-slate-200/70">
+          <div className="flex items-center gap-2">
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${isRecordingPaused ? 'bg-slate-300' : 'animate-pulse bg-rose-500'}`} />
+            <span className="font-mono text-[13px] font-black text-slate-950">{formatSeconds(recordingElapsedSeconds)}</span>
+            <span className="truncate text-[11px] font-black text-slate-500">{isVoiceLocked ? 'Locked recording' : 'Slide left to cancel'}</span>
+            {isVoiceLocked && <Lock size={12} className="ml-auto text-slate-400" />}
+          </div>
+          <div className="mt-1.5 flex h-8 items-center gap-0.5">
+            {recordingWaveform.slice(-34).map((height, index) => (
+              <span key={`recording-wave-${index}`} className={`block flex-1 rounded-full transition-all duration-100 ${isRecordingPaused ? 'bg-slate-300' : 'bg-rose-400'}`} style={{ height: `${Math.max(16, height * 0.72)}%` }} />
+            ))}
+          </div>
+        </div>
+        <button type="button" onClick={toggleRecordingPause} className="ds-press grid h-12 w-12 shrink-0 place-items-center rounded-full bg-rose-500 text-white shadow-[0_10px_28px_rgba(244,63,94,0.24)]" aria-label={isRecordingPaused ? 'Resume recording' : 'Pause recording'}>
+          {isRecordingPaused ? <Play size={17} className="ml-0.5" /> : <Pause size={17} />}
+        </button>
+        <button type="button" onClick={sendActiveVoiceRecording} className="ds-press grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.24)]" aria-label="Send voice">
+          <Send size={19} />
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderChatComposer = (target: 'note' | 'proof') => {
+    const draft = getComposerDraft(target);
+    const hasText = draft.text.trim().length > 0;
+    const hasMedia = draft.media.length > 0;
+    const hasVoice = draft.audios.length > 0;
+    const hasAttachments = draft.attachments.length > 0;
+    const canSend = hasText || hasMedia || hasVoice || hasAttachments;
+    const showRecording = isRecording && recordingTargetRef.current === target;
+
+    if (showRecording) return renderRecordingComposer();
+
+    return (
+      <form onSubmit={(event) => { event.preventDefault(); draft.submit(); haptic([8, 16, 8]); }} className="space-y-2">
+        {(hasMedia || hasVoice || hasAttachments) && (
+          <div className="space-y-2 rounded-[28px] bg-white/95 p-2 shadow-[0_-12px_32px_rgba(15,23,42,0.10)] ring-1 ring-slate-200/70 backdrop-blur-xl">
+            {hasMedia && (
+              <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                {draft.media.map((src, index) => renderMediaThumb(src, index, draft.removeMedia))}
+              </div>
+            )}
+            {hasAttachments && (
+              <div className="space-y-2">
+                {draft.attachments.map((attachment, index) => renderAttachmentCard(attachment, index, draft.removeAttachment))}
+              </div>
+            )}
+            {hasVoice && (
+              <div className="space-y-2">
+                {draft.audios.map((audioItem, index) => renderDraftVoice(target, audioItem, index, draft.removeAudio))}
+              </div>
+            )}
+          </div>
+        )}
+        <div className="rounded-[30px] bg-white/96 px-2 py-2 text-slate-950 shadow-[0_-16px_40px_rgba(15,23,42,0.12)] ring-1 ring-slate-200/80 backdrop-blur-xl">
+          <div className="flex items-end gap-2">
+            <button type="button" onClick={() => openAttachmentMenu(target)} className="ds-press grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#F3F5F7] text-slate-600 ring-1 ring-slate-200/70" aria-label="Open attachments">
+              <Plus size={22} />
+            </button>
+            <div className="flex min-w-0 flex-1 items-end gap-2 rounded-[26px] bg-[#F3F5F7] px-3 py-2 ring-1 ring-slate-200/70">
+              <textarea
+                value={draft.text}
+                onChange={(event) => draft.setText(event.target.value)}
+                placeholder="Message"
+                rows={1}
+                className="no-scrollbar max-h-[96px] min-h-7 min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent text-[15px] font-semibold leading-6 text-slate-950 outline-none placeholder:text-slate-400"
+              />
+              <button type="button" className="mb-1 grid h-7 w-7 shrink-0 place-items-center rounded-full text-slate-400" aria-label="Emoji">
+                <Smile size={19} />
+              </button>
+            </div>
+            {canSend ? (
+              <button type="submit" className="ds-press grid h-12 w-12 shrink-0 place-items-center rounded-full bg-blue-600 text-white shadow-[0_10px_26px_rgba(37,99,235,0.24)] transition duration-200" aria-label="Send message">
+                <Send size={19} />
+              </button>
+            ) : (
+              <>
+                <button type="button" onClick={() => openCameraPicker(target)} className="ds-press grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#F3F5F7] text-slate-600 ring-1 ring-slate-200/70" aria-label="Open camera">
+                  <Camera size={20} />
+                </button>
+                <button
+                  type="button"
+                  onPointerDown={(event) => startVoicePress(target, event)}
+                  onPointerMove={moveVoicePress}
+                  onPointerUp={finishVoicePress}
+                  onPointerCancel={finishVoicePress}
+                  onContextMenu={(event) => event.preventDefault()}
+                  className="ds-press grid h-12 w-12 shrink-0 touch-none place-items-center rounded-full bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.26)]"
+                  aria-label="Record voice"
+                >
+                  <Mic size={20} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </form>
+    );
   };
 
   return (
@@ -3836,18 +4379,24 @@ const OrderDetailsScreen: React.FC = () => {
                 {clientProofNotes.length > 0 ? (
                   <div className="space-y-3">
                     {clientProofNotes.map((note) => (
-                      <article key={note.id} className="ds-surface rounded-[24px] p-3">
-                        <div className="flex items-start justify-between gap-3">
+                      <article key={note.id} className={`${(note.audios || []).length > 0 ? 'space-y-2' : 'ds-surface rounded-[24px] p-3'}`}>
+                        {(note.audios || []).length === 0 && (
+                          <div className="flex items-start justify-between gap-3">
                           <p className="min-w-0 whitespace-pre-line text-sm font-bold leading-5 text-stone-800">{note.text || 'Пруф заказа'}</p>
                           <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">client</span>
-                        </div>
-                        <p className="mt-2 text-[10px] font-black text-stone-400">{new Date(note.createdAt).toLocaleString('ru-RU')}</p>
+                          </div>
+                        )}
+                        {(note.audios || []).length === 0 && <p className="mt-2 text-[10px] font-black text-stone-400">{new Date(note.createdAt).toLocaleString('ru-RU')}</p>}
                         {(note.photos || []).length > 0 && (
                           <div className="mt-3 grid grid-cols-4 gap-2">
                             {(note.photos || []).slice(0, 8).map((photo, index) => (
-                              <button key={`${note.id}-${photo}-${index}`} type="button" onClick={() => setGallery({ images: note.photos || [], index })} className="ds-press aspect-square overflow-hidden rounded-2xl bg-stone-200">
-                                <img src={photo} alt="Proof" className="h-full w-full object-cover" />
-                              </button>
+                              photo.startsWith('data:video/') ? (
+                                <video key={`${note.id}-${photo}-${index}`} src={photo} className="aspect-square overflow-hidden rounded-2xl bg-stone-200 object-cover" controls playsInline />
+                              ) : (
+                                <button key={`${note.id}-${photo}-${index}`} type="button" onClick={() => setGallery({ images: note.photos || [], index })} className="ds-press aspect-square overflow-hidden rounded-2xl bg-stone-200">
+                                  <img src={photo} alt="Proof" className="h-full w-full object-cover" />
+                                </button>
+                              )
                             ))}
                           </div>
                         )}
@@ -3858,18 +4407,42 @@ const OrderDetailsScreen: React.FC = () => {
                             ))}
                           </div>
                         )}
-                        {(note.audios || []).length > 0 && (
+                        {(note.attachments || []).length > 0 && (
                           <div className="mt-3 space-y-2">
+                            {(note.attachments || []).map((attachment, index) => renderAttachmentCard(attachment, index))}
+                          </div>
+                        )}
+                        {(note.audios || []).length > 0 && (
+                          <div className="space-y-2">
                             {(note.audios || []).map((audioItem, index) => {
                               const voice = toVoiceNoteAudio(audioItem);
                               const audioId = `proof-${note.id}-${voice.id}-${index}`;
+                              const isPlaying = playingAudioId === audioId;
+                              const progress = audioProgress[audioId] || 0;
+                              const bars = getWaveBars(voice.fileUrl.slice(0, 120));
                               return (
-                                <div key={audioId} className="rounded-2xl bg-stone-100 p-2">
-                                  <div className="flex items-center gap-2">
-                                    <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="ds-press flex h-9 w-9 items-center justify-center rounded-xl bg-white text-stone-800">
-                                      {playingAudioId === audioId ? <Pause size={14} /> : <Play size={14} />}
+                                <div key={audioId} className="ml-auto max-w-[92%] rounded-[24px] rounded-tr-md bg-[#D8F4E5] p-2.5 shadow-[0_8px_22px_rgba(16,185,129,0.14),inset_0_0_0_1px_rgba(16,185,129,0.08)]">
+                                  <div className="flex items-center gap-3">
+                                    <button type="button" onClick={() => toggleAudioPlayback(audioId)} className="ds-press flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-emerald-700 shadow-[0_8px_18px_rgba(15,23,42,0.12)]" aria-label="Прослушать голосовой пруф">
+                                      {isPlaying ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
                                     </button>
-                                    <span className="text-xs font-black text-stone-500">{formatSeconds(voice.duration)}</span>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex h-9 items-center gap-0.5">
+                                        {bars.map((height, barIndex) => {
+                                          const threshold = ((barIndex + 1) / bars.length) * 100;
+                                          const passed = progress >= threshold;
+                                          return <span key={`${audioId}-bar-${barIndex}`} className={`block flex-1 rounded-full transition-colors ${passed ? 'bg-emerald-700' : 'bg-emerald-300/80'}`} style={{ height: `${Math.max(22, height * 0.82)}%` }} />;
+                                        })}
+                                      </div>
+                                      <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] font-black text-emerald-900/60">
+                                        <span>{formatSeconds(voice.duration)}</span>
+                                        <span className="inline-flex items-center gap-1">
+                                          {new Date(note.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                                          <Check size={12} className="text-emerald-600" />
+                                          <Check size={12} className="-ml-2 text-emerald-600" />
+                                        </span>
+                                      </div>
+                                    </div>
                                     <audio id={audioId} src={voice.fileUrl} preload="metadata" playsInline />
                                   </div>
                                 </div>
@@ -4249,6 +4822,11 @@ const OrderDetailsScreen: React.FC = () => {
                           ))}
                         </div>
                       )}
+                      {note.attachments && note.attachments.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {note.attachments.map((attachment, index) => renderAttachmentCard(attachment, index))}
+                        </div>
+                      )}
                       {note.audios && note.audios.length > 0 && (
                         <div className="mt-3 space-y-2">
                           {note.audios.map((audioItem, index) => {
@@ -4291,6 +4869,10 @@ const OrderDetailsScreen: React.FC = () => {
 
         <input type="file" ref={partFileRef} onChange={handlePhotoChange} className="hidden" accept="image/*" multiple />
         <input type="file" ref={proofFileRef} onChange={handleProofPhotoChange} className="hidden" accept="image/*" multiple />
+        <input type="file" ref={chatMediaInputRef} onChange={handleChatMediaChange} className="hidden" accept="image/*,video/*" multiple />
+        <input type="file" ref={chatCameraInputRef} onChange={handleChatMediaChange} className="hidden" accept="image/*,video/*" capture="environment" />
+        <input type="file" ref={chatFileInputRef} onChange={handleChatFileChange} className="hidden" multiple />
+        <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
 
         {activeTab !== 'finance' && !(activeTab === 'search' && sourcingLocked) && (
         <div className="fixed bottom-0 left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-stone-200/70 bg-[#F4F1EA]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_44px_rgba(23,23,23,0.16)] backdrop-blur-xl" style={{ paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING }}>
@@ -4320,21 +4902,48 @@ const OrderDetailsScreen: React.FC = () => {
                 </div>
               </form>
           )}
-          {activeTab === 'notes' && (
+          {activeTab === 'notes' && renderChatComposer('note')}
+          {false && activeTab === 'notes' && (
             <form onSubmit={(event) => { event.preventDefault(); addNote(); }} className="space-y-2">
               {(newNoteText.trim().length > 0 || newNotePhotos.length > 0 || newNoteAudios.length > 0) && <div className="rounded-2xl bg-white px-3 py-2 text-xs font-bold text-stone-500">Черновик заметки активен</div>}
-              <div className="flex items-end gap-2">
-                <button type="button" onClick={() => noteFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Прикрепить фото"><ImageIcon size={18} /></button>
-                <button type="button" onClick={() => void toggleRecording()} className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${isRecording ? 'bg-rose-50 text-rose-700' : 'bg-white text-stone-700'}`} aria-label="Записать голос">{isRecording ? <Square size={17} /> : <Mic size={18} />}</button>
-                <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2"><textarea value={newNoteText} onChange={(event) => setNewNoteText(event.target.value)} placeholder="Сообщение..." rows={1} className="no-scrollbar max-h-24 min-h-8 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-bold leading-6 text-stone-900 outline-none placeholder:text-stone-400" /></div>
-                <button type="submit" disabled={!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить заметку"><Send size={17} /></button>
-              </div>
+              {isRecording ? (
+                <div className="rounded-[28px] border border-rose-100 bg-white/96 p-2 shadow-[0_18px_46px_rgba(15,23,42,0.16)] ring-1 ring-white/70">
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={requestCancelRecording} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600" aria-label="Отменить запись"><X size={18} /></button>
+                    <div className="min-w-0 flex-1 rounded-[22px] bg-[#F4F6F8] px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="relative flex h-3 w-3 shrink-0">
+                          {!isRecordingPaused && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-60" />}
+                          <span className={`relative inline-flex h-3 w-3 rounded-full ${isRecordingPaused ? 'bg-amber-400' : 'bg-rose-500'}`} />
+                        </span>
+                        <span className="font-mono text-[13px] font-black text-stone-950">{formatSeconds(recordingElapsedSeconds)}</span>
+                        <span className="truncate text-[11px] font-black text-stone-400">{isRecordingPaused ? 'Пауза' : 'Голос записывается'}</span>
+                      </div>
+                      <div className="mt-1.5 flex h-8 items-center gap-0.5">
+                        {recordingWaveform.slice(-32).map((height, index) => (
+                          <span key={`note-recording-wave-${index}`} className={`block flex-1 rounded-full transition-all ${isRecordingPaused ? 'bg-amber-300' : 'bg-rose-400'}`} style={{ height: `${Math.max(18, height * 0.78)}%` }} />
+                        ))}
+                      </div>
+                    </div>
+                    <button type="button" onClick={toggleRecordingPause} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700" aria-label={isRecordingPaused ? 'Продолжить запись' : 'Пауза'}>{isRecordingPaused ? <Play size={17} className="ml-0.5" /> : <Pause size={17} />}</button>
+                    <button type="button" onClick={() => void toggleRecording()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-[0_12px_26px_rgba(16,185,129,0.28)]" aria-label="Сохранить запись"><Check size={20} /></button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-end gap-2">
+                  <button type="button" onClick={() => noteFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Прикрепить фото"><ImageIcon size={18} /></button>
+                  <button type="button" onClick={() => void toggleRecording()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Записать голос"><Mic size={18} /></button>
+                  <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2"><textarea value={newNoteText} onChange={(event) => setNewNoteText(event.target.value)} placeholder="Сообщение..." rows={1} className="no-scrollbar max-h-24 min-h-8 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-bold leading-6 text-stone-900 outline-none placeholder:text-stone-400" /></div>
+                  <button type="submit" disabled={!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить заметку"><Send size={17} /></button>
+                </div>
+              )}
               <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
               <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
             </form>
           )}
           {activeTab === 'overview' && <button type="button" onClick={() => void shareQuote()} className="ds-press flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-stone-950 text-xs font-black uppercase tracking-[0.08em] text-white">Отправить / обновить смету<ChevronRight size={15} /></button>}
-          {activeTab === 'proof' && (
+          {activeTab === 'proof' && renderChatComposer('proof')}
+          {false && activeTab === 'proof' && (
             <form onSubmit={(event) => { event.preventDefault(); addClientProofNote(); }} className="space-y-2">
               {(newProofPhotos.length > 0 || newProofAudios.length > 0) && (
                 <div className="flex gap-2 overflow-x-auto no-scrollbar">
@@ -4362,11 +4971,34 @@ const OrderDetailsScreen: React.FC = () => {
                   </div>
                   <button type="submit" disabled={!newProofVideoUrl.trim()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить видео"><Send size={17} /></button>
                 </div>
+              ) : isRecording ? (
+                <div className="rounded-[28px] border border-rose-100 bg-white/96 p-2 shadow-[0_18px_46px_rgba(15,23,42,0.16)] ring-1 ring-white/70">
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={requestCancelRecording} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600" aria-label="Отменить запись"><X size={18} /></button>
+                    <div className="min-w-0 flex-1 rounded-[22px] bg-[#F4F6F8] px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="relative flex h-3 w-3 shrink-0">
+                          {!isRecordingPaused && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-60" />}
+                          <span className={`relative inline-flex h-3 w-3 rounded-full ${isRecordingPaused ? 'bg-amber-400' : 'bg-rose-500'}`} />
+                        </span>
+                        <span className="font-mono text-[13px] font-black text-stone-950">{formatSeconds(recordingElapsedSeconds)}</span>
+                        <span className="truncate text-[11px] font-black text-stone-400">{isRecordingPaused ? 'Пауза' : 'Голос записывается'}</span>
+                      </div>
+                      <div className="mt-1.5 flex h-8 items-center gap-0.5">
+                        {recordingWaveform.slice(-32).map((height, index) => (
+                          <span key={`proof-recording-wave-${index}`} className={`block flex-1 rounded-full transition-all ${isRecordingPaused ? 'bg-amber-300' : 'bg-rose-400'}`} style={{ height: `${Math.max(18, height * 0.78)}%` }} />
+                        ))}
+                      </div>
+                    </div>
+                    <button type="button" onClick={toggleRecordingPause} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700" aria-label={isRecordingPaused ? 'Продолжить запись' : 'Пауза'}>{isRecordingPaused ? <Play size={17} className="ml-0.5" /> : <Pause size={17} />}</button>
+                    <button type="button" onClick={() => void toggleRecording()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-[0_12px_26px_rgba(16,185,129,0.28)]" aria-label="Сохранить запись"><Check size={20} /></button>
+                  </div>
+                </div>
               ) : (
                 <div className="flex items-end gap-2">
                   <button type="button" onClick={() => proofFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Добавить фото"><ImageIcon size={18} /></button>
                   <button type="button" onClick={() => setProofComposerMode('video')} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Добавить видео"><Video size={18} /></button>
-                  <button type="button" onClick={() => void toggleRecording('proof')} className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${isRecording ? 'bg-rose-50 text-rose-700' : 'bg-white text-stone-700'}`} aria-label="Записать голос">{isRecording ? <Square size={17} /> : <Mic size={18} />}</button>
+                  <button type="button" onClick={() => void toggleRecording('proof')} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Записать голос"><Mic size={18} /></button>
                   <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2">
                     <textarea value={newProofText} onChange={(event) => setNewProofText(event.target.value)} placeholder="Текст клиенту..." rows={1} className="no-scrollbar max-h-24 min-h-8 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-bold leading-6 text-stone-900 outline-none placeholder:text-stone-400" />
                   </div>
@@ -4376,6 +5008,40 @@ const OrderDetailsScreen: React.FC = () => {
             </form>
           )}
         </div>
+        )}
+
+        {isAttachmentSheetOpen && (
+          <div className="fixed inset-0 z-[58] bg-slate-950/25 backdrop-blur-[2px]" onClick={() => setIsAttachmentSheetOpen(false)}>
+            <div className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-md rounded-t-[32px] border border-slate-200/80 bg-white/96 px-4 pb-[calc(18px+env(safe-area-inset-bottom))] pt-3 text-slate-950 shadow-[0_-22px_56px_rgba(15,23,42,0.16)] backdrop-blur-xl" onClick={(event) => event.stopPropagation()}>
+              <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-200" />
+              <div className="grid grid-cols-3 gap-3">
+                <button type="button" onClick={() => openMediaPicker(attachmentTargetRef.current)} className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-black text-slate-800 ring-1 ring-slate-200/70">
+                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-50 text-blue-600"><ImageIcon size={20} /></span>
+                  Photo/video
+                </button>
+                <button type="button" onClick={() => openCameraPicker(attachmentTargetRef.current)} className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-black text-slate-800 ring-1 ring-slate-200/70">
+                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-rose-50 text-rose-600"><Camera size={20} /></span>
+                  Camera
+                </button>
+                <button type="button" onClick={() => openFilePicker(attachmentTargetRef.current)} className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-black text-slate-800 ring-1 ring-slate-200/70">
+                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-50 text-violet-600"><Paperclip size={20} /></span>
+                  File
+                </button>
+                <button type="button" onClick={() => addLocationAttachment(attachmentTargetRef.current)} className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-black text-slate-800 ring-1 ring-slate-200/70">
+                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-600"><MapPin size={20} /></span>
+                  Location
+                </button>
+                <button type="button" onClick={() => addContactAttachment(attachmentTargetRef.current)} className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-black text-slate-800 ring-1 ring-slate-200/70">
+                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-amber-50 text-amber-600"><User size={20} /></span>
+                  Contact
+                </button>
+                <button type="button" onClick={() => openAudioPicker(attachmentTargetRef.current)} className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-black text-slate-800 ring-1 ring-slate-200/70">
+                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-cyan-50 text-cyan-600"><FileAudio size={20} /></span>
+                  Audio
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {isDepositDialogOpen && (
@@ -4411,29 +5077,6 @@ const OrderDetailsScreen: React.FC = () => {
                 <button type="button" onClick={() => setIsDepositDialogOpen(false)} className="ds-press h-11 rounded-2xl bg-stone-100 text-xs font-black text-stone-700">Отмена</button>
                 <button type="button" onClick={submitDeposit} className="ds-press h-11 rounded-2xl bg-stone-950 text-xs font-black text-white">Сохранить</button>
               </div>
-            </div>
-          </div>
-        )}
-
-        {isRecording && (
-          <div className="fixed inset-0 z-50 bg-slate-950/76 p-4 backdrop-blur-sm">
-            <div className="ds-mode-enter ds-surface mx-auto mt-16 w-full max-w-md space-y-3 rounded-[28px] p-4 text-stone-950 shadow-2xl">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-black">Запись голоса</p>
-                <span className="font-mono text-sm font-black text-rose-700">{formatSeconds(recordingElapsedSeconds)}</span>
-              </div>
-              <div className="h-16 rounded-2xl bg-rose-50 px-2">
-                <canvas id="voice-recorder-wave" className="h-full w-full" aria-label="Волна записи" />
-                <div className="-mt-16 flex h-16 items-end gap-0.5">
-                  {recordingWaveform.map((height, index) => <span key={`live-wave-${index}`} className="block flex-1 rounded-full bg-rose-400 transition-all" style={{ height: `${height}%` }} />)}
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <button type="button" onClick={toggleRecordingPause} className="ds-press h-12 rounded-2xl bg-amber-50 text-xs font-black text-amber-700">{isRecordingPaused ? 'Продолжить' : 'Пауза'}</button>
-                <button type="button" onClick={() => void toggleRecording()} className="ds-press h-12 rounded-2xl bg-emerald-50 text-xs font-black text-emerald-700">Готово</button>
-                <button type="button" onClick={requestCancelRecording} className="ds-press h-12 rounded-2xl bg-rose-50 text-xs font-black text-rose-700">Отмена</button>
-              </div>
-              <p className="text-[11px] font-semibold text-stone-500">До 05:00 · максимум 10MB</p>
             </div>
           </div>
         )}

@@ -328,12 +328,30 @@ export interface VoiceNoteAudio {
   author: string;
 }
 
+export type ChatAttachmentKind = 'file' | 'location' | 'contact';
+
+export interface ChatAttachment {
+  id: string;
+  kind: ChatAttachmentKind;
+  name: string;
+  value?: string;
+  fileUrl?: string;
+  mimeType?: string;
+  size?: number;
+  latitude?: number;
+  longitude?: number;
+  address?: string;
+  phone?: string;
+  createdAt: number;
+}
+
 export interface OrderNote {
   id: string;
   text: string;
   photos?: string[];
   audios?: Array<string | VoiceNoteAudio>;
   videoUrls?: string[];
+  attachments?: ChatAttachment[];
   visibility?: 'internal' | 'client';
   kind?: 'note' | 'proof';
   createdAt: number;

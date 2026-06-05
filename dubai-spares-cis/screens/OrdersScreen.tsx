@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, Bell, CheckSquare, Clock3, Filter, MessageCircle, MoreHorizontal, Pin, Search, Square, Star, Trash2 } from 'lucide-react';
+import { AlertTriangle, Archive, BarChart3, Bell, Car, CheckCheck, CheckSquare, Clock3, Filter, LocateFixed, MessageCircle, MoreHorizontal, Pin, Search, Square, Star, Trash2, X } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
@@ -9,7 +9,7 @@ import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
 import { isLeadOrder, isUnreadLeadOrder } from '../utils/orderClassification';
 import { deriveSafetySalesSummary } from '../utils/safetySales';
-import { getUnreadNotificationsCount } from '../notificationCenter';
+import { AppNotification, getNotifications, getUnreadNotificationsCount, markAllNotificationsRead, markNotificationRead, NotificationType } from '../notificationCenter';
 
 type TabType = 'active' | 'vip' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -68,6 +68,40 @@ const formatAge = (ts: number) => {
   if (hours < 1) return 'NEW';
   if (hours < 24) return `${Math.floor(hours)}h`;
   return `${Math.floor(hours / 24)}d`;
+};
+
+const formatNotificationTime = (timestamp: number) => {
+  const diff = Date.now() - timestamp;
+  if (diff < 60_000) return 'только что';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} мин`;
+  if (diff < 24 * 3_600_000) return `${Math.floor(diff / 3_600_000)} ч`;
+  return new Date(timestamp).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+};
+
+const normalizeNotificationRoute = (route?: string, orderId?: string) => {
+  const fallback = orderId ? `/order/${orderId}` : '';
+  if (!route?.trim()) return fallback;
+  const trimmed = route.trim();
+  try {
+    if (/^https?:\/\//i.test(trimmed)) {
+      const parsed = new URL(trimmed);
+      const hashRoute = parsed.hash?.replace(/^#/, '') || '';
+      if (hashRoute.startsWith('/')) return hashRoute.replace('/orders/', '/order/');
+      return parsed.pathname.replace('/orders/', '/order/') || fallback;
+    }
+  } catch {
+    return fallback;
+  }
+  if (trimmed.startsWith('#/')) return trimmed.slice(1).replace('/orders/', '/order/');
+  if (trimmed.startsWith('/orders/')) return trimmed.replace('/orders/', '/order/');
+  return trimmed.startsWith('/') ? trimmed : fallback;
+};
+
+const notificationSeverityClass: Record<AppNotification['severity'], string> = {
+  critical: 'bg-rose-50 text-rose-600',
+  warning: 'bg-amber-50 text-amber-600',
+  success: 'bg-emerald-50 text-emerald-600',
+  info: 'bg-blue-50 text-blue-600'
 };
 
 type SwipeableOrderCardProps = {
@@ -359,6 +393,8 @@ const OrdersScreen: React.FC = () => {
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [isOrderActionsOpen, setIsOrderActionsOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => getNotifications());
 
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
@@ -376,7 +412,10 @@ const OrdersScreen: React.FC = () => {
   }, [searchText]);
 
   useEffect(() => {
-    const updateUnreadNotifications = () => setUnreadNotifications(getUnreadNotificationsCount());
+    const updateUnreadNotifications = () => {
+      setNotifications(getNotifications());
+      setUnreadNotifications(getUnreadNotificationsCount());
+    };
     updateUnreadNotifications();
     window.addEventListener('notifications:changed', updateUnreadNotifications);
     window.addEventListener('focus', updateUnreadNotifications);
@@ -607,6 +646,29 @@ const OrdersScreen: React.FC = () => {
   };
 
   const activeFiltersCount = brandFilters.length + statusFilters.length + (priorityFilter !== 'all' ? 1 : 0) + (noResponseHours > 0 ? 1 : 0) + (issueFilter !== 'all' ? 1 : 0) + (yearFrom ? 1 : 0) + (yearTo ? 1 : 0);
+  const notificationPreviewItems = useMemo(() => notifications.filter((item) => !item.archivedAt).slice(0, 6), [notifications]);
+
+  const iconForNotification = (type: NotificationType) => {
+    if ([NotificationType.ORDER_NEW, NotificationType.ORDER_STATUS_CHANGED].includes(type)) return <Car size={15} />;
+    if ([NotificationType.RADAR_ACTION, NotificationType.RADAR_RESULT].includes(type)) return <LocateFixed size={15} />;
+    if (type === NotificationType.FOLLOWUP_DUE) return <Clock3 size={15} />;
+    if ([NotificationType.SYNC_ERROR, NotificationType.OFFLINE_QUEUE].includes(type)) return <AlertTriangle size={15} />;
+    return <Bell size={15} />;
+  };
+
+  const openNotification = (item: AppNotification) => {
+    markNotificationRead(item.id);
+    setIsNotificationsOpen(false);
+    const route = normalizeNotificationRoute(item.route, item.orderId);
+    if (route) navigate(route);
+  };
+
+  const markPreviewNotificationsRead = () => {
+    if (unreadNotifications <= 0) return;
+    markAllNotificationsRead();
+    setNotifications(getNotifications());
+    setUnreadNotifications(0);
+  };
 
   return (
     <div className="space-y-4 px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))] overflow-x-hidden">
@@ -621,8 +683,11 @@ const OrdersScreen: React.FC = () => {
             <button type="button" onClick={() => setIsIncomeOpen(true)} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Статистика"><BarChart3 size={18} /></button>
             <button
               type="button"
-              onClick={() => navigate('/notifications')}
-              className="relative grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm active:scale-[0.98]"
+              onClick={() => {
+                setIsOrderActionsOpen(false);
+                setIsNotificationsOpen((current) => !current);
+              }}
+              className={`relative grid h-11 w-11 shrink-0 place-items-center rounded-xl border bg-white text-slate-700 shadow-sm transition active:scale-[0.98] ${isNotificationsOpen ? 'border-blue-500 ring-4 ring-blue-100' : 'border-slate-200'}`}
               aria-label="Открыть оповещения"
             >
               <Bell size={18} />
@@ -634,7 +699,10 @@ const OrdersScreen: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setIsOrderActionsOpen((current) => !current)}
+              onClick={() => {
+                setIsNotificationsOpen(false);
+                setIsOrderActionsOpen((current) => !current);
+              }}
               className={`grid h-11 w-11 place-items-center rounded-xl border bg-white text-slate-700 transition active:scale-[0.98] ${isOrderActionsOpen ? 'border-slate-300 shadow-sm' : 'border-slate-200'}`}
               aria-label="Действия с заказами"
               aria-expanded={isOrderActionsOpen}
@@ -643,6 +711,69 @@ const OrdersScreen: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {isNotificationsOpen && (
+          <div className="fixed inset-0 z-30" onClick={() => setIsNotificationsOpen(false)}>
+            <div
+              className="absolute left-1/2 top-[76px] w-[min(calc(100vw-2rem),360px)] -translate-x-1/2 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                <div>
+                  <p className="text-[15px] font-black text-slate-950">Уведомления</p>
+                  <p className="mt-0.5 text-[11px] font-bold text-slate-500">{unreadNotifications > 0 ? `${unreadNotifications} новых` : 'Все прочитано'}</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button type="button" onClick={markPreviewNotificationsRead} disabled={unreadNotifications === 0} className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600 disabled:bg-slate-50 disabled:text-slate-300" aria-label="Прочитать все">
+                    <CheckCheck size={17} />
+                  </button>
+                  <button type="button" onClick={() => setIsNotificationsOpen(false)} className="grid h-9 w-9 place-items-center rounded-xl bg-slate-50 text-slate-500" aria-label="Закрыть уведомления">
+                    <X size={17} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-[360px] overflow-y-auto p-2">
+                {notificationPreviewItems.length === 0 ? (
+                  <div className="grid min-h-[150px] place-items-center rounded-2xl bg-slate-50 px-5 text-center">
+                    <div>
+                      <Bell size={24} className="mx-auto text-slate-300" />
+                      <p className="mt-2 text-sm font-black text-slate-700">Пока нет уведомлений</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-400">Новые события появятся здесь.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {notificationPreviewItems.map((item) => {
+                      const canOpen = Boolean(normalizeNotificationRoute(item.route, item.orderId));
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => openNotification(item)}
+                          disabled={!canOpen}
+                          className="flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition hover:bg-slate-50 active:scale-[0.99] disabled:cursor-default disabled:opacity-80"
+                        >
+                          <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${notificationSeverityClass[item.severity]}`}>
+                            {iconForNotification(item.type)}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-2">
+                              {!item.readAt && <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" />}
+                              <span className="truncate text-[13px] font-black text-slate-950">{item.title}</span>
+                            </span>
+                            <span className="mt-0.5 line-clamp-2 text-[11px] font-semibold leading-4 text-slate-500">{item.message}</span>
+                            <span className="mt-1 block text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{formatNotificationTime(item.createdAt)}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {isOrderActionsOpen && (
           <div className="fixed inset-0 z-30" onClick={() => setIsOrderActionsOpen(false)}>

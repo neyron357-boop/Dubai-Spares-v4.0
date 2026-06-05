@@ -631,7 +631,7 @@ const VariantsScreen: React.FC = () => {
         </section>
 
         {filteredAndSorted.length > 0 ? (
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-2 gap-3">
             {filteredAndSorted.map((variant) => {
               const photosForCard = miniPhotos(variant);
               const firstPhoto = photosForCard[0];
@@ -656,9 +656,9 @@ const VariantsScreen: React.FC = () => {
                     event.preventDefault();
                     setDeleteCandidate(variant);
                   }}
-                  className="flex h-[216px] min-w-0 cursor-pointer flex-col overflow-hidden rounded-[18px] border border-[#E9EDF3] bg-white text-left shadow-[0_8px_22px_rgba(15,23,40,0.055)] transition duration-200 active:scale-[0.985]"
+                  className="flex h-[324px] min-w-0 cursor-pointer flex-col overflow-hidden rounded-[20px] border border-[#E9EDF3] bg-white text-left shadow-[0_10px_26px_rgba(15,23,40,0.06)] transition duration-200 active:scale-[0.985]"
                 >
-                  <div className="relative h-[76px] shrink-0 bg-[#F2F4F7]">
+                  <div className="relative h-[112px] shrink-0 bg-[#F2F4F7]">
                     {firstPhoto ? (
                       <img src={firstPhoto} alt={getVariantTitle(variant)} className="h-full w-full object-contain p-2" loading="lazy" />
                     ) : (
@@ -684,14 +684,14 @@ const VariantsScreen: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="flex min-h-0 flex-1 flex-col px-2 pb-2 pt-2">
-                    <h2 className="line-clamp-2 min-h-[26px] text-[12px] font-black leading-[13px] text-[#0B1220]">{getVariantTitle(variant)}</h2>
-                    <p className="mt-0.5 truncate text-[10.5px] font-semibold leading-[13px] text-[#667085]">{getVariantSupplier(variant)}</p>
-                    <p className="truncate text-[10.5px] font-medium leading-[14px] text-[#7A8293]">{getVariantLocation(variant)}</p>
-                    <p className="mt-0.5 truncate text-[16px] font-black leading-[19px] text-[#0B1220]">{formatPrice(Number((variant.salePriceAed ?? variant.priceAed) || 0))}</p>
-                    <span className={`mt-1 w-fit max-w-full truncate rounded-[8px] px-1.5 py-0.5 text-[9.5px] font-black leading-[14px] ${statusMeta.className}`}>{statusMeta.label}</span>
+                  <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-3">
+                    <h2 className="line-clamp-2 min-h-[36px] shrink-0 text-[14px] font-black leading-[18px] text-[#0B1220]">{getVariantTitle(variant)}</h2>
+                    <p className="mt-1.5 shrink-0 truncate text-[12px] font-semibold leading-[15px] text-[#667085]">{getVariantSupplier(variant)}</p>
+                    <p className="mt-0.5 shrink-0 truncate text-[12px] font-medium leading-[15px] text-[#7A8293]">{getVariantLocation(variant)}</p>
+                    <p className="mt-2 shrink-0 truncate text-[19px] font-black leading-[22px] text-[#0B1220]">{formatPrice(Number((variant.salePriceAed ?? variant.priceAed) || 0))}</p>
+                    <span className={`mt-1.5 w-fit max-w-full shrink-0 truncate rounded-[9px] px-2 py-0.5 text-[10.5px] font-black leading-[15px] ${statusMeta.className}`}>{statusMeta.label}</span>
 
-                    <div className="mt-auto grid grid-cols-[26px_minmax(0,1fr)_26px] gap-1">
+                    <div className="mt-auto grid shrink-0 grid-cols-[32px_minmax(0,1fr)_32px] gap-1.5 pt-3">
                       <button
                         type="button"
                         disabled={!phoneValue}
@@ -699,7 +699,7 @@ const VariantsScreen: React.FC = () => {
                           event.stopPropagation();
                           if (phoneValue) window.open(`https://wa.me/${phoneValue.replace(/\D/g, '')}`, '_blank');
                         }}
-                        className="grid h-6 place-items-center rounded-[8px] border border-emerald-100 bg-emerald-50 text-emerald-600 transition active:scale-95 disabled:opacity-35"
+                        className="grid h-8 place-items-center rounded-[10px] border border-emerald-100 bg-emerald-50 text-emerald-600 transition active:scale-95 disabled:opacity-35"
                         aria-label="WhatsApp"
                       >
                         <MessageCircle size={15} />
@@ -710,7 +710,7 @@ const VariantsScreen: React.FC = () => {
                           event.stopPropagation();
                           setOrderPickerVariant(variant);
                         }}
-                        className="h-6 truncate rounded-[8px] bg-blue-50 px-1 text-[9px] font-black text-blue-700 transition active:scale-[0.97]"
+                        className="h-8 truncate rounded-[10px] bg-blue-50 px-1.5 text-[10.5px] font-black text-blue-700 transition active:scale-[0.97]"
                       >
                         + В заказ
                       </button>
@@ -720,7 +720,7 @@ const VariantsScreen: React.FC = () => {
                           event.stopPropagation();
                           setMenuVariant(variant);
                         }}
-                        className="grid h-6 place-items-center rounded-[8px] border border-[#E6EAF0] bg-white text-[#475467] transition active:scale-95"
+                        className="grid h-8 place-items-center rounded-[10px] border border-[#E6EAF0] bg-white text-[#475467] transition active:scale-95"
                         aria-label="Еще"
                       >
                         <MoreHorizontal size={15} />
@@ -897,7 +897,7 @@ const VariantsScreen: React.FC = () => {
             <div className="mt-3 flex items-start justify-between gap-2">
               <div>
                 <p className="text-base font-bold">{selectedVariant.shopName || 'Вариант'}</p>
-                <p className="text-xs text-[#667085]">{selectedVariant.sourcePartName || 'Деталь не указана'}</p>
+                <p className="text-xs text-[#667085]">{getVariantTitle(selectedVariant)}</p>
               </div>
               <div className="flex items-center gap-1">
                 <button type="button" onClick={() => setIsEditMode((prev) => !prev)} className="rounded-xl border border-[#E7EAF0] px-3 py-1.5 text-xs font-semibold">{isEditMode ? 'Просмотр' : 'Редактировать'}</button>
@@ -915,6 +915,9 @@ const VariantsScreen: React.FC = () => {
             {isEditMode ? (
               <div className="mt-4 space-y-2">
                 <input value={selectedVariant.shopName || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, shopName: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Поставщик" />
+                {selectedVariant.origin === 'standalone' && (
+                  <input value={selectedVariant.sourcePartName || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, sourcePartName: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Название детали" />
+                )}
                 <input value={String((selectedVariant.purchasePriceAed ?? selectedVariant.priceAed) || '')} type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" onChange={(event) => {
                   const value = Number(event.target.value.replace(/[^\d]/g, '') || 0);
                   setSelectedVariant((prev) => prev ? { ...prev, purchasePriceAed: value } : prev);
@@ -934,7 +937,7 @@ const VariantsScreen: React.FC = () => {
               <div className="mt-4 space-y-3">
                 <div className="rounded-2xl border border-[#E7EAF0] p-3">
                   <p className="text-xs text-[#667085]">Главная информация</p>
-                  <p className="mt-1 text-sm font-semibold">{selectedVariant.sourcePartName || 'Деталь не указана'}</p>
+                  <p className="mt-1 text-sm font-semibold">{getVariantTitle(selectedVariant)}</p>
                   <p className="mt-1 text-[22px] font-bold">{formatPrice(Number((selectedVariant.salePriceAed ?? selectedVariant.priceAed) || 0))}</p>
                   <p className="mt-1 text-xs text-[#667085]">Покупка: {formatPrice(Number((selectedVariant.purchasePriceAed ?? selectedVariant.priceAed) || 0))} · Маржа: {formatPrice(Number(((selectedVariant.salePriceAed ?? selectedVariant.priceAed) || 0) - ((selectedVariant.purchasePriceAed ?? selectedVariant.priceAed) || 0)))}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
