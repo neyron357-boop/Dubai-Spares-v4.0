@@ -329,7 +329,7 @@ const NewOrderScreen: React.FC = () => {
   };
 
   return (
-    <form id="new-order-form" onSubmit={submit} className="mx-auto max-w-2xl space-y-4 p-4 pb-[calc(7rem+env(safe-area-inset-bottom))]">
+    <form id="new-order-form" onSubmit={submit} className="mx-auto max-w-2xl space-y-4 p-4 pb-[calc(12rem+env(safe-area-inset-bottom))]">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <button
@@ -418,7 +418,7 @@ const NewOrderScreen: React.FC = () => {
         </label>
       </section>
 
-      <div className="sticky bottom-0 -mx-4 border-t border-white/80 bg-[#f6f8fb]/92 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl">
+      <div className="fixed bottom-[calc(86px+env(safe-area-inset-bottom))] left-1/2 z-40 w-[calc(100%-24px)] max-w-[408px] -translate-x-1/2 rounded-[24px] border border-white/80 bg-[#f6f8fb]/92 p-2 shadow-[0_18px_46px_rgba(15,23,42,0.14)] backdrop-blur-xl">
         <button
           type="submit"
           disabled={isSubmitting || isSyncing}
