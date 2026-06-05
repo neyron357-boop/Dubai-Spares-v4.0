@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell } from 'lucide-react';
+import { Building2, Check, ChevronRight, Download, FileText, ImageIcon, RefreshCw, Search, Settings, Share2, SlidersHorizontal, TriangleAlert, X } from 'lucide-react';
 import { useStore } from '../store';
 import { offlineDb } from '../storage/offlineDb';
 import { backupUpload, clearServerBackups, deletePublicQuoteSnapshot, listPublicQuoteSnapshots } from '../serverApi';
@@ -13,7 +13,8 @@ import { clearBrokenImageBlacklist, isBrokenImageUrl, markBrokenImageUrl, normal
 import { flushOfflineMutations } from '../orderStore';
 import { calculateCargo, calculateCargoEstimates, CargoTariff, DEFAULT_CARGO_TARIFFS } from '../utils/cargo';
 import { aiCore } from '../utils/aiCore';
-import { getUnreadNotificationsCount } from '../notificationCenter';
+import { normalizePublicQuoteSnapshotPayload, type NormalizedPublicQuoteSnapshot } from '../utils/publicQuoteSnapshot';
+import { buildInvoicePayloadFromSnapshot, openInvoicePrintWindow } from '../utils/invoiceDocument';
 
 const loadImageFromFile = (file: File): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const url = URL.createObjectURL(file);
@@ -156,12 +157,56 @@ const removeBrokenPhotosFromOrder = (order: Order): { next: Order; removed: numb
   };
 };
 
+const getSettingsSectionMeta = (title: string, tone: 'default' | 'danger') => {
+  if (tone === 'danger') {
+    return {
+      icon: <TriangleAlert size={17} />,
+      helper: 'Удаление, очистка и необратимые действия',
+      iconClass: 'bg-rose-500 text-white'
+    };
+  }
+  if (title.includes('Invoice')) {
+    return {
+      icon: <FileText size={17} />,
+      helper: 'Публичная ссылка, invoice и клиентская форма',
+      iconClass: 'bg-blue-500 text-white'
+    };
+  }
+  if (title.includes('Компания')) {
+    return {
+      icon: <Building2 size={17} />,
+      helper: 'Контакты, логотип, подпись и документы',
+      iconClass: 'bg-emerald-500 text-white'
+    };
+  }
+  if (title.includes('публичные сметы')) {
+    return {
+      icon: <Share2 size={17} />,
+      helper: 'Ссылки, снапшоты и публичная выдача',
+      iconClass: 'bg-indigo-500 text-white'
+    };
+  }
+  if (title.includes('медиа')) {
+    return {
+      icon: <ImageIcon size={17} />,
+      helper: 'Фото, Storage и обслуживание изображений',
+      iconClass: 'bg-cyan-500 text-white'
+    };
+  }
+  return {
+    icon: <Settings size={17} />,
+    helper: 'Cloud, диагностика, синхронизация и AI',
+    iconClass: 'bg-slate-600 text-white'
+  };
+};
+
 const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'default' | 'danger'; defaultOpen?: boolean }> = ({ title, children, tone = 'default', defaultOpen = false }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const sectionRef = useRef<HTMLElement | null>(null);
+  const meta = getSettingsSectionMeta(title, tone);
 
   return (
-    <section ref={sectionRef} className={`rounded-2xl border p-4 ${tone === 'danger' ? 'border-rose-200 bg-rose-50' : 'border-gray-200 bg-white'}`}>
+    <section ref={sectionRef} className={tone === 'danger' ? 'bg-rose-50/70' : 'bg-white'}>
       <button
         type="button"
         onClick={() => {
@@ -173,12 +218,15 @@ const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'defa
             return next;
           });
         }}
-        className="w-full flex items-center justify-between gap-3"
+        className={`flex min-h-[56px] w-full items-center gap-3 px-4 py-2.5 text-left transition active:scale-[0.995] ${tone === 'danger' ? 'active:bg-rose-100/70' : 'active:bg-slate-50'}`}
       >
-        <h2 className={`text-left text-sm font-black ${tone === 'danger' ? 'text-rose-700' : 'text-gray-900'}`}>{title}</h2>
-        <span className={`text-xs font-bold ${tone === 'danger' ? 'text-rose-600' : 'text-gray-500'}`}>{isOpen ? 'Скрыть' : 'Открыть'}</span>
+        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-[10px] shadow-sm ${meta.iconClass}`}>{meta.icon}</span>
+        <span className="min-w-0 flex-1">
+          <span className={`block truncate text-[15px] font-black ${tone === 'danger' ? 'text-rose-700' : 'text-slate-950'}`}>{title}</span>
+        </span>
+        <ChevronRight size={18} className={`shrink-0 transition-transform ${tone === 'danger' ? 'text-rose-300' : 'text-slate-300'} ${isOpen ? 'rotate-90' : ''}`} />
       </button>
-      {isOpen && <div className="mt-3 space-y-3">{children}</div>}
+      {isOpen && <div className={`border-t px-3 pb-4 pt-3 ${tone === 'danger' ? 'border-rose-100 bg-white/80' : 'border-slate-100 bg-slate-50/45'}`}><div className="space-y-3">{children}</div></div>}
     </section>
   );
 };
@@ -267,6 +315,153 @@ const openExternalPage = (url: string) => {
   }
 };
 
+const pdfEsc = (value: unknown) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+const openPrintableDocument = (html: string) => {
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+  const printWindow = window.open(objectUrl, '_blank');
+  if (!printWindow) {
+    URL.revokeObjectURL(objectUrl);
+    return false;
+  }
+  let revoked = false;
+  const revokeUrl = () => {
+    if (revoked) return;
+    revoked = true;
+    URL.revokeObjectURL(objectUrl);
+  };
+  printWindow.opener = null;
+  printWindow.addEventListener('load', revokeUrl, { once: true });
+  window.setTimeout(revokeUrl, 60_000);
+  return true;
+};
+
+const buildQuotePdfHtml = (snapshot: NormalizedPublicQuoteSnapshot, sourceUrl: string) => {
+  const currency = snapshot.currency || 'USD';
+  const rate = Number(snapshot.rates?.[currency] || 1) || 1;
+  const money = (aed: number) => `${(Number(aed || 0) * rate).toFixed(2)} ${currency}`;
+  const vehicle = [snapshot.order.brand, snapshot.order.model, snapshot.order.year].filter(Boolean).join(' ') || 'Vehicle quote';
+  const created = new Date(String(snapshot.raw.created_at || Date.now()));
+  const rows = snapshot.items.map((item, index) => {
+    const photo = item.photos?.[0] ? `<img src="${pdfEsc(item.photos[0])}" alt="" />` : `<span>${index + 1}</span>`;
+    return `
+      <tr>
+        <td class="photo">${photo}</td>
+        <td>
+          <strong>${pdfEsc(item.name || `Part ${index + 1}`)}</strong>
+          ${item.status ? `<small>${pdfEsc(item.status)}</small>` : ''}
+          ${item.note ? `<small>${pdfEsc(item.note)}</small>` : ''}
+        </td>
+        <td class="num">${pdfEsc(item.qty || 1)}</td>
+        <td class="num">${pdfEsc(money(item.unitPriceAed))}</td>
+        <td class="num total">${pdfEsc(money(item.totalAed))}</td>
+      </tr>`;
+  }).join('');
+  const totals = [
+    ['Детали', snapshot.subtotalAed],
+    ['Доставка', snapshot.deliveryAed],
+    ['Упаковка', snapshot.packingAed],
+    ['Сервис', snapshot.commissionAed],
+    snapshot.discountAed > 0 ? ['Скидка', -snapshot.discountAed] : null,
+    ['Итого', snapshot.grandTotalAed],
+    snapshot.depositAed > 0 ? ['Депозит', -snapshot.depositAed] : null,
+    ['К оплате', snapshot.balanceDueAed],
+  ].filter(Boolean) as Array<[string, number]>;
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quote ${pdfEsc(vehicle)}</title>
+<style>
+  @page { size: A4 portrait; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #f4f7fb; color: #0f172a; font-family: Inter, Arial, sans-serif; }
+  .sheet { width: 210mm; min-height: 297mm; margin: 0 auto; background: #fff; padding: 14mm; }
+  .top { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; border-bottom:1px solid #e2e8f0; padding-bottom:12px; }
+  .brand { display:flex; gap:10px; align-items:center; }
+  .brand img { width:42px; height:42px; object-fit:contain; border-radius:10px; }
+  .brand-mark { width:42px; height:42px; border-radius:12px; background:#0f172a; color:#fff; display:grid; place-items:center; font-weight:900; }
+  .eyebrow { font-size:10px; text-transform:uppercase; letter-spacing:.16em; color:#64748b; font-weight:800; }
+  h1 { margin:4px 0 0; font-size:25px; line-height:1.05; }
+  .meta { text-align:right; font-size:11px; color:#475569; line-height:1.55; }
+  .vehicle { margin-top:14px; border-radius:18px; background:#f8fafc; border:1px solid #e2e8f0; padding:12px 14px; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .vehicle b { display:block; font-size:17px; color:#0f172a; }
+  .vehicle span { font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:.12em; font-weight:800; }
+  table { width:100%; margin-top:14px; border-collapse:collapse; table-layout:fixed; }
+  th { text-align:left; font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:.1em; padding:8px; border-bottom:1px solid #cbd5e1; }
+  td { padding:9px 8px; border-bottom:1px solid #e2e8f0; vertical-align:middle; font-size:11px; }
+  td strong { display:block; font-size:12px; }
+  td small { display:block; margin-top:2px; color:#64748b; font-size:9px; line-height:1.25; }
+  .photo { width:44px; }
+  .photo img, .photo span { width:38px; height:38px; border-radius:10px; background:#f1f5f9; object-fit:cover; display:grid; place-items:center; font-weight:900; color:#94a3b8; }
+  .num { text-align:right; white-space:nowrap; }
+  .total { font-weight:900; color:#0f172a; }
+  .bottom { display:grid; grid-template-columns:1fr 72mm; gap:16px; margin-top:16px; align-items:start; }
+  .terms { border-radius:16px; background:#f8fafc; border:1px solid #e2e8f0; padding:12px; font-size:10px; color:#475569; line-height:1.45; }
+  .totals { border-radius:16px; border:1px solid #dbeafe; background:#eff6ff; padding:12px; }
+  .line { display:flex; justify-content:space-between; gap:14px; font-size:11px; padding:5px 0; color:#334155; }
+  .line.final { margin-top:5px; padding-top:9px; border-top:1px solid #bfdbfe; font-size:16px; font-weight:900; color:#0f172a; }
+  .signature { margin-top:16px; display:flex; justify-content:space-between; align-items:flex-end; gap:18px; }
+  .signature img { max-width:160px; max-height:70px; object-fit:contain; }
+  .contacts { font-size:10px; color:#475569; line-height:1.45; }
+  .source { margin-top:10px; font-size:8px; color:#94a3b8; word-break:break-all; }
+  @media print { html, body { background:#fff; } .sheet { margin:0; } }
+</style>
+</head>
+<body>
+  <main class="sheet">
+    <section class="top">
+      <div class="brand">
+        ${snapshot.contact.logoUrl ? `<img src="${pdfEsc(snapshot.contact.logoUrl)}" alt="" />` : '<div class="brand-mark">SM</div>'}
+        <div><div class="eyebrow">Stark Motors</div><h1>PDF смета</h1></div>
+      </div>
+      <div class="meta">
+        <b>${pdfEsc(created.toLocaleDateString('ru-RU'))}</b><br />
+        ${pdfEsc(snapshot.contact.managerName || 'Stark Motors')}<br />
+        ${pdfEsc(snapshot.contact.website || snapshot.contact.instagram || snapshot.contact.telegram || '')}
+      </div>
+    </section>
+    <section class="vehicle">
+      <div><span>Автомобиль</span><b>${pdfEsc(vehicle)}</b></div>
+      <div><span>VIN</span><b>${pdfEsc(snapshot.order.vin || '—')}</b></div>
+    </section>
+    <table>
+      <thead><tr><th style="width:48px"></th><th>Позиция</th><th style="width:50px" class="num">Кол-во</th><th style="width:92px" class="num">Цена</th><th style="width:96px" class="num">Итого</th></tr></thead>
+      <tbody>${rows || '<tr><td></td><td><strong>Нет позиций</strong></td><td class="num">0</td><td class="num">—</td><td class="num total">—</td></tr>'}</tbody>
+    </table>
+    <section class="bottom">
+      <div class="terms">
+        <b>Условия</b><br />
+        ${pdfEsc(snapshot.contact.workTerms || 'Перед оплатой подтвердите все позиции, сроки и логистику с менеджером.')}
+        <div class="source">${pdfEsc(sourceUrl)}</div>
+      </div>
+      <div class="totals">
+        ${totals.map(([label, value], index) => `<div class="line ${index === totals.length - 1 ? 'final' : ''}"><span>${pdfEsc(label)}</span><b>${pdfEsc(money(value))}</b></div>`).join('')}
+      </div>
+    </section>
+    <section class="signature">
+      <div class="contacts">
+        ${snapshot.contact.whatsapp ? `WhatsApp: +${pdfEsc(snapshot.contact.whatsapp)}<br />` : ''}
+        ${snapshot.contact.email ? `Email: ${pdfEsc(snapshot.contact.email)}<br />` : ''}
+        ${snapshot.contact.telegram ? `Telegram: ${pdfEsc(snapshot.contact.telegram)}<br />` : ''}
+      </div>
+      <div>${snapshot.contact.signatureUrl ? `<img src="${pdfEsc(snapshot.contact.signatureUrl)}" alt="" />` : ''}</div>
+    </section>
+  </main>
+  <script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 250); });</script>
+</body>
+</html>`;
+};
+
+const openQuotePdfPrintWindow = (snapshot: NormalizedPublicQuoteSnapshot, sourceUrl: string) => openPrintableDocument(buildQuotePdfHtml(snapshot, sourceUrl));
+
 const normalizeTariff = (tariff: Partial<CargoTariff>): CargoTariff => ({
   country: String(tariff.country || '').trim(),
   airRegularUsdPerKg: toTariffNumber((tariff as any).airRegularUsdPerKg, toTariffNumber((tariff as any).regularUsdPerKg, toTariffNumber((tariff as any).airUsdPerKg))),
@@ -295,6 +490,7 @@ type GallerySort = 'size_desc' | 'size_asc' | 'date_desc' | 'date_asc' | 'folder
 type GalleryTaskType = 'compress' | 'delete';
 type GalleryTask = { id: string; label: string; type: GalleryTaskType; urls: string[]; createdAt: number; progress: number; total: number; done?: boolean; failed?: number };
 type AiTestTask = 'analyze_text' | 'transform_text' | 'extract_structured_data';
+type SettingsSnapshotRow = { id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null; order_id?: string | null; payload_json?: unknown };
 
 const GALLERY_TASKS_KEY = 'dubai_spares_gallery_tasks_v1';
 
@@ -364,7 +560,7 @@ const SettingsScreen: React.FC = () => {
   const [backupProgress, setBackupProgress] = useState(0);
   const [backupController, setBackupController] = useState<AbortController | null>(null);
   const [lastBackupId, setLastBackupId] = useState('');
-  const [snapshotRows, setSnapshotRows] = useState<Array<{ id: string; token: string; snapshot_id?: string | null; expires_at: string; created_at?: string | null; order_id?: string | null; payload_json?: unknown }>>([]);
+  const [snapshotRows, setSnapshotRows] = useState<SettingsSnapshotRow[]>([]);
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
   const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
   const [dangerActionProgress, setDangerActionProgress] = useState<{ label: string; processed: number; total: number; details?: string } | null>(null);
@@ -412,7 +608,6 @@ const SettingsScreen: React.FC = () => {
   const [aiTestPending, setAiTestPending] = useState(false);
   const [aiTestStatus, setAiTestStatus] = useState<string | null>(null);
   const [aiTestShowFullResponse, setAiTestShowFullResponse] = useState(false);
-  const [unreadNotifications, setUnreadNotifications] = useState(() => getUnreadNotificationsCount());
   const aiTestAbortRef = useRef<AbortController | null>(null);
   const aiTestRequestIdRef = useRef(0);
   const isMountedRef = useRef(true);
@@ -437,19 +632,6 @@ const SettingsScreen: React.FC = () => {
   useEffect(() => {
     document.documentElement.lang = settings.appLanguage;
   }, [settings.appLanguage]);
-
-  useEffect(() => {
-    const updateUnreadNotifications = () => setUnreadNotifications(getUnreadNotificationsCount());
-    updateUnreadNotifications();
-    window.addEventListener('notifications:changed', updateUnreadNotifications);
-    window.addEventListener('focus', updateUnreadNotifications);
-    document.addEventListener('visibilitychange', updateUnreadNotifications);
-    return () => {
-      window.removeEventListener('notifications:changed', updateUnreadNotifications);
-      window.removeEventListener('focus', updateUnreadNotifications);
-      document.removeEventListener('visibilitychange', updateUnreadNotifications);
-    };
-  }, []);
 
   useEffect(() => {
     setDraftSettings(settings);
@@ -1092,6 +1274,34 @@ const SettingsScreen: React.FC = () => {
     setSnapshotNotice(`Ссылка скопирована: ${token}`);
   };
 
+  const resolveNormalizedSnapshot = (row: SettingsSnapshotRow) => {
+    const normalized = normalizePublicQuoteSnapshotPayload(row.payload_json, draftSettings);
+    if (!normalized?.hasRenderableContent) {
+      setSnapshotNotice('Не удалось собрать документ: payload снапшота пустой или повреждён.');
+      return null;
+    }
+    return normalized;
+  };
+
+  const handleSnapshotQuotePdf = (row: SettingsSnapshotRow) => {
+    const normalized = resolveNormalizedSnapshot(row);
+    if (!normalized) return;
+    const opened = openQuotePdfPrintWindow(normalized, buildSnapshotUrl(row));
+    setSnapshotNotice(opened ? 'PDF-смета открыта. Выберите “Сохранить как PDF”.' : 'Не удалось открыть PDF-смету. Проверьте блокировку всплывающих окон.');
+  };
+
+  const handleSnapshotInvoicePdf = (row: SettingsSnapshotRow) => {
+    const normalized = resolveNormalizedSnapshot(row);
+    if (!normalized) return;
+    const currency = normalized.currency || 'AED';
+    const opened = openInvoicePrintWindow(buildInvoicePayloadFromSnapshot(normalized, {
+      currency,
+      rate: Number(normalized.rates?.[currency] || 1) || 1,
+      language: 'en'
+    }));
+    setSnapshotNotice(opened ? 'Invoice открыт. Выберите “Сохранить как PDF”.' : 'Не удалось открыть invoice. Проверьте блокировку всплывающих окон.');
+  };
+
 
 const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?: unknown }) => {
   const payload = row.payload_json && typeof row.payload_json === 'object' && !Array.isArray(row.payload_json)
@@ -1370,6 +1580,8 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
     if (!serverGalleryRows.length) {
       void loadServerGallery();
     }
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    window.setTimeout(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }), 0);
     setIsGalleryFullscreen(true);
   };
 
@@ -1378,28 +1590,9 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
   }, [logoCrop?.previewUrl]);
 
   return (
-    <div className="min-h-full max-w-full overflow-x-hidden bg-gray-50 p-4 pb-24 space-y-4">
+    <div className="min-h-full max-w-full overflow-x-hidden bg-gray-50 px-4 pb-24 pt-2 space-y-3">
       <div>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-black text-gray-900">Настройки</h1>
-            <p className="text-xs text-gray-500 mt-1">Профессиональная admin panel: public quote, контакты и система</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => navigate('/notifications')}
-            className="relative grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm"
-            aria-label="Открыть оповещения"
-          >
-            <Bell size={18} />
-            {unreadNotifications > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white">
-                {unreadNotifications > 99 ? '99+' : unreadNotifications}
-              </span>
-            )}
-          </button>
-        </div>
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 text-[11px] font-black text-slate-600 no-scrollbar">
+        <div className="flex gap-2 overflow-x-auto pb-1 text-[11px] font-black text-slate-600 no-scrollbar">
           {['Public Quote', 'Компания: контакты', 'Система'].map((label) => (
             <span key={label} className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5">{label}</span>
           ))}
@@ -1423,8 +1616,10 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
         </div>
       )}
 
+      <div className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.045)]">
+        <div className="divide-y divide-slate-100">
       <Section title="Public Quote / Invoice">
-        <p className="text-xs text-gray-600">Отправьте эту ссылку клиенту — он заполняет форму, и вы получаете новый лид в разделе «Лиды»:</p>
+        <p className="text-xs text-gray-600">Отправьте эту ссылку клиенту — он заполняет форму, и новый лид появится в разделе «Заказы»:</p>
         <div className="flex items-center gap-2">
           <input
             readOnly
@@ -1728,6 +1923,20 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                       <a href={buildSnapshotUrl(row)} target="_blank" rel="noreferrer" className="rounded-lg border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">Открыть</a>
                       <button
                         type="button"
+                        className="inline-flex items-center gap-1 rounded-lg border border-blue-300 bg-white px-2 py-1 text-xs font-bold text-blue-700"
+                        onClick={() => handleSnapshotQuotePdf(row)}
+                      >
+                        <Download size={12} /> PDF смета
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-800"
+                        onClick={() => handleSnapshotInvoicePdf(row)}
+                      >
+                        <FileText size={12} /> Скачать invoice
+                      </button>
+                      <button
+                        type="button"
                         className="rounded-lg border border-indigo-300 bg-indigo-50 px-2 py-1 text-xs font-bold text-indigo-700 disabled:opacity-50"
                         onClick={() => row.order_id && navigate(`/order/${row.order_id}`)}
                         disabled={!row.order_id}
@@ -1761,58 +1970,129 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           </div>
         </div>
       </Section>
+        </div>
+      </div>
 
       {isGalleryFullscreen && (
-        <div className="fixed inset-0 z-[120] bg-slate-950/95 backdrop-blur-sm">
+        <div className="fixed inset-x-0 -top-24 bottom-0 z-[9999] bg-slate-100 pt-24 text-slate-950">
           <div className="flex h-full flex-col">
-            <div className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/95 px-3 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-black text-white" onClick={() => setIsGalleryFullscreen(false)}>Закрыть</button>
-                <button type="button" className={`rounded-xl border px-3 py-2 text-xs font-black ${isGallerySelectionMode ? 'border-sky-300 bg-sky-500/30 text-sky-100' : 'border-white/20 text-white'}`} onClick={() => {
-                  const nextMode = !isGallerySelectionMode;
-                  setIsGallerySelectionMode(nextMode);
-                  if (!nextMode) clearGallerySelection();
-                }}>{isGallerySelectionMode ? 'Готово' : 'Выбрать'}</button>
-                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-black text-white disabled:opacity-50" disabled={!isGallerySelectionMode || filteredGalleryRows.length === 0 || !!busy} onClick={() => setSelectedGalleryKeys(filteredGalleryRows.map((row) => galleryKey(row)))}>Выбрать видимые</button>
-                <button type="button" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-black text-white disabled:opacity-50" disabled={!isGallerySelectionMode || selectedGalleryKeys.length === 0 || !!busy} onClick={clearGallerySelection}>Снять выбор</button>
-                <button type="button" className="rounded-xl border border-amber-300 bg-amber-500/20 px-3 py-2 text-xs font-black text-amber-100 disabled:opacity-50" disabled={!isGallerySelectionMode || selectedGalleryRows.length === 0 || !!busy} onClick={handleBulkCompressGallery}>Сжать выбранные ({selectedGalleryRows.length})</button>
-                <button type="button" className="rounded-xl border border-rose-300 bg-rose-500/20 px-3 py-2 text-xs font-black text-rose-100 disabled:opacity-50" disabled={!isGallerySelectionMode || selectedGalleryRows.length === 0 || !!busy} onClick={handleBulkDeleteGallery}>Удалить выбранные ({selectedGalleryRows.length})</button>
-                <button className="rounded-xl border border-amber-300 bg-white/10 px-3 py-2 text-xs font-black text-amber-100 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>{busyLabel('storage-compress-all', 'Сжать все фото', 'Сжимаем фото…')}</button>
-                <button className="rounded-xl border border-rose-300 bg-white/10 px-3 py-2 text-xs font-black text-rose-100 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>{busyLabel('storage-delete-duplicates', 'Удалить дубликаты фото', 'Обработка дубликатов…')}</button>
-                <input value={gallerySearch} onChange={(event) => setGallerySearch(event.target.value)} placeholder="Поиск по имени/папке…" className="min-w-[220px] flex-1 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs text-white placeholder:text-white/60" />
-                <select value={gallerySort} onChange={(event) => setGallerySort(event.target.value as GallerySort)} className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs text-white">
+            <div className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/95 px-3 pb-3 pt-[calc(10px+env(safe-area-inset-top))] shadow-sm backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Медиа</p>
+                  <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                    <h2 className="truncate text-lg font-black text-slate-950">Галерея сервера</h2>
+                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">{filteredGalleryRows.length}/{activeGalleryRows.length}</span>
+                    {isGallerySelectionMode && <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-black text-blue-700">выбрано {selectedGalleryRows.length}</span>}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button type="button" className="grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm disabled:opacity-50" onClick={() => void loadServerGallery()} disabled={serverGalleryLoading || !!busy} aria-label="Обновить галерею">
+                    <RefreshCw size={16} className={serverGalleryLoading ? 'animate-spin' : ''} />
+                  </button>
+                  <button type="button" className={`h-10 rounded-full border px-3 text-xs font-black shadow-sm ${isGallerySelectionMode ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700'}`} onClick={() => {
+                    const nextMode = !isGallerySelectionMode;
+                    setIsGallerySelectionMode(nextMode);
+                    if (!nextMode) clearGallerySelection();
+                  }}>
+                    {isGallerySelectionMode ? 'Готово' : 'Выбрать'}
+                  </button>
+                  <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-slate-950 text-white shadow-sm" onClick={() => setIsGalleryFullscreen(false)} aria-label="Закрыть галерею">
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center gap-2">
+                <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-slate-700">
+                  <Search size={16} className="shrink-0 text-slate-400" />
+                  <input value={gallerySearch} onChange={(event) => setGallerySearch(event.target.value)} placeholder="Поиск по имени или папке" className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none placeholder:text-slate-400" />
+                </label>
+                <button type="button" onClick={() => setHeavyOnly((current) => !current)} className={`inline-flex h-11 shrink-0 items-center gap-1.5 rounded-2xl border px-3 text-xs font-black ${heavyOnly ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700'}`}>
+                  <SlidersHorizontal size={15} /> Тяжёлые
+                </button>
+              </div>
+
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <select value={gallerySort} onChange={(event) => setGallerySort(event.target.value as GallerySort)} className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 outline-none">
                   <option value="size_desc">Размер ↓</option><option value="size_asc">Размер ↑</option><option value="date_desc">Дата ↓</option><option value="date_asc">Дата ↑</option><option value="folder">Папка</option>
                 </select>
-                <select value={folderFilter} onChange={(event) => setFolderFilter(event.target.value)} className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs text-white">
+                <select value={folderFilter} onChange={(event) => setFolderFilter(event.target.value)} className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 outline-none">
                   {folderOptions.map((folder) => <option key={folder} value={folder}>{folder === 'all' ? 'Все папки' : folder}</option>)}
                 </select>
-                <label className="inline-flex items-center gap-1 rounded-xl border border-white/20 px-2 py-2 text-xs text-white"><input type="checkbox" checked={heavyOnly} onChange={(e) => setHeavyOnly(e.target.checked)} />Самые тяжёлые</label>
+              </div>
+
+              <div className="mt-2 flex gap-2 overflow-x-auto pb-0.5 no-scrollbar">
+                {isGallerySelectionMode ? (
+                  <>
+                    <button type="button" className="h-9 shrink-0 rounded-full border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-50" disabled={filteredGalleryRows.length === 0 || !!busy} onClick={() => setSelectedGalleryKeys(filteredGalleryRows.map((row) => galleryKey(row)))}>Выбрать видимые</button>
+                    <button type="button" className="h-9 shrink-0 rounded-full border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-50" disabled={selectedGalleryKeys.length === 0 || !!busy} onClick={clearGallerySelection}>Снять</button>
+                    <button type="button" className="h-9 shrink-0 rounded-full border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-700 disabled:opacity-50" disabled={selectedGalleryRows.length === 0 || !!busy} onClick={handleBulkCompressGallery}>Сжать {selectedGalleryRows.length}</button>
+                    <button type="button" className="h-9 shrink-0 rounded-full border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700 disabled:opacity-50" disabled={selectedGalleryRows.length === 0 || !!busy} onClick={handleBulkDeleteGallery}>Удалить {selectedGalleryRows.length}</button>
+                  </>
+                ) : (
+                  <>
+                    <button className="h-9 shrink-0 rounded-full border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-700 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleCompressAllServerPhotos}>{busy === 'storage-compress-all' ? 'Сжимаем...' : 'Сжать все фото'}</button>
+                    <button className="h-9 shrink-0 rounded-full border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700 disabled:opacity-50" type="button" disabled={!!busy} onClick={handleRemovePhotoDuplicates}>{busy === 'storage-delete-duplicates' ? 'Проверяем...' : 'Удалить дубликаты'}</button>
+                    {!!duplicateGroups.length && <span className="inline-flex h-9 shrink-0 items-center rounded-full bg-orange-50 px-3 text-xs font-black text-orange-700">Дубликаты: {duplicateGroups.length}</span>}
+                  </>
+                )}
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              {!!galleryTasks.length && <div className="mb-3 rounded-2xl border border-white/15 bg-white/10 p-2 text-xs text-white">{galleryTasks.slice(-3).map((task) => <p key={task.id}>{task.label}: {task.progress}/{task.total}{task.done ? ' ✅' : ' ⏳'}{task.failed ? ` · ошибок ${task.failed}` : ''}</p>)}</div>}
-              {!!duplicateGroups.length && <div className="mb-3 rounded-2xl border border-amber-300/50 bg-amber-500/10 p-2 text-xs text-amber-100">Группы дубликатов: {duplicateGroups.length}. Рекомендуем "оставить лучший" (первый в группе по размеру/дате).</div>}
-              <div className="columns-2 gap-3 sm:columns-3 lg:columns-4">
-                {filteredGalleryRows.map((row, idx) => {
-                  const key = galleryKey(row);
-                  const isSelected = selectedGallerySet.has(key);
-                  return (
-                    <button key={key} type="button" className={`group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-2xl border text-left transition ${isSelected ? 'border-sky-400 ring-2 ring-sky-300/40' : 'border-white/10 hover:border-white/30'}`} onClick={() => {
-                      if (isGallerySelectionMode) {
-                        toggleGalleryRow(row);
-                        return;
-                      }
-                      setLightboxIndex(idx);
-                    }}>
-                      <img src={row.publicUrl} alt={row.path} className="h-auto w-full object-cover" loading="lazy" />
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-[10px] text-white"><p className="truncate font-bold">{row.path.split('/').pop() || row.path}</p><p className="truncate text-white/80">{(row.size / 1024 / 1024).toFixed(2)} MB · {formatDateTime(row.updatedAt || row.createdAt)}</p></div>
-                      {isGallerySelectionMode && <span className={`absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-black ${isSelected ? 'border-sky-400 bg-sky-500 text-white' : 'border-white bg-white/90 text-slate-700'}`}>{isSelected ? '✓' : ''}</span>}
-                    </button>
-                  );
-                })}
-              </div>
-              {filteredGalleryRows.length === 0 && <p className="mt-6 text-center text-sm text-white/70">Нет фото по текущему фильтру.</p>}
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-3">
+              {!!galleryTasks.length && (
+                <div className="mb-3 space-y-1 rounded-2xl border border-slate-200 bg-white p-3 text-xs text-slate-600 shadow-sm">
+                  {galleryTasks.slice(-2).map((task) => (
+                    <div key={task.id} className="flex items-center justify-between gap-3">
+                      <span className="truncate font-bold">{task.label}</span>
+                      <span className="shrink-0 font-black text-slate-900">{task.progress}/{task.total}{task.failed ? ` · ошибок ${task.failed}` : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!!duplicateGroups.length && (
+                <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                  Найдено групп дубликатов: {duplicateGroups.length}. Можно очистить их одной кнопкой сверху.
+                </div>
+              )}
+              {filteredGalleryRows.length === 0 ? (
+                <div className="mt-10 rounded-3xl border border-dashed border-slate-200 bg-white px-4 py-12 text-center shadow-sm">
+                  <ImageIcon size={28} className="mx-auto text-slate-300" />
+                  <p className="mt-3 text-sm font-black text-slate-900">Фото не найдены</p>
+                  <p className="mt-1 text-xs text-slate-500">Попробуйте изменить поиск, папку или фильтр тяжёлых файлов.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                  {filteredGalleryRows.map((row, idx) => {
+                    const key = galleryKey(row);
+                    const isSelected = selectedGallerySet.has(key);
+                    return (
+                      <button key={key} type="button" className={`group overflow-hidden rounded-[18px] border bg-white text-left shadow-sm transition active:scale-[0.99] ${isSelected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-200'}`} onClick={() => {
+                        if (isGallerySelectionMode) {
+                          toggleGalleryRow(row);
+                          return;
+                        }
+                        setLightboxIndex(idx);
+                      }}>
+                        <div className="relative aspect-[4/5] overflow-hidden bg-slate-100">
+                          <img src={row.publicUrl} alt={row.path} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" loading="lazy" />
+                          {(isGallerySelectionMode || isSelected) && (
+                            <span className={`absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full border text-xs font-black shadow-sm ${isSelected ? 'border-blue-600 bg-blue-600 text-white' : 'border-white bg-white/90 text-slate-400'}`}>
+                              {isSelected ? <Check size={15} /> : ''}
+                            </span>
+                          )}
+                          <span className="absolute left-2 top-2 rounded-full bg-black/45 px-2 py-1 text-[10px] font-black text-white backdrop-blur">{(row.size / 1024 / 1024).toFixed(2)} MB</span>
+                        </div>
+                        <div className="px-2.5 py-2">
+                          <p className="truncate text-xs font-black text-slate-900">{row.path.split('/').pop() || row.path}</p>
+                          <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">{formatDateTime(row.updatedAt || row.createdAt)}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1827,6 +2107,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
       )}
 
 
+      <div className="overflow-hidden rounded-[28px] border border-rose-100 bg-white shadow-[0_10px_28px_rgba(190,18,60,0.055)]">
       <Section title="Опасные действия" tone="danger">
         <div className="text-xs text-rose-700">Изменения ниже могут удалить локальные данные и требуют подтверждения.</div>
         <div className="flex flex-col gap-2 text-sm">
@@ -1856,6 +2137,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
           </div>
         )}
       </Section>
+      </div>
 
       <div className="sticky bottom-2 z-30 rounded-2xl border border-gray-200 bg-white/95 p-3 shadow-sm backdrop-blur">
         <button

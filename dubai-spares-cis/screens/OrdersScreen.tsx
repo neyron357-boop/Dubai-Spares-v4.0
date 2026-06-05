@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, CheckSquare, Clock3, Filter, MessageCircle, Pin, Search, Square, Star, Trash2 } from 'lucide-react';
+import { Archive, BarChart3, Bell, CheckSquare, Clock3, Filter, MessageCircle, MoreHorizontal, Pin, Search, Square, Star, Trash2 } from 'lucide-react';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
 import IncomeModal from '../components/IncomeModal';
@@ -9,6 +9,7 @@ import { toast, vibrate } from '../feedback';
 import { useLeadsPolling } from '../hooks/useLeadsPolling';
 import { isLeadOrder, isUnreadLeadOrder } from '../utils/orderClassification';
 import { deriveSafetySalesSummary } from '../utils/safetySales';
+import { getUnreadNotificationsCount } from '../notificationCenter';
 
 type TabType = 'active' | 'vip' | 'found' | 'urgent' | 'medium' | 'low' | 'sold' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -340,7 +341,7 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
 };
 
 const OrdersScreen: React.FC = () => {
-  const { orders, isLoading, syncOrders, updateOrder, deleteOrder, bulkDeleteOrders } = useStore();
+  const { orders, isLoading, updateOrder, deleteOrder, bulkDeleteOrders } = useStore();
   const navigate = useNavigate();
 
   useLeadsPolling(true);
@@ -353,10 +354,10 @@ const OrdersScreen: React.FC = () => {
   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [isOrderActionsOpen, setIsOrderActionsOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
@@ -366,12 +367,26 @@ const OrdersScreen: React.FC = () => {
   const [issueFilter, setIssueFilter] = useState<'all' | 'missing_price' | 'missing_contact'>('all');
   const [yearFrom, setYearFrom] = useState('');
   const [yearTo, setYearTo] = useState('');
+  const [unreadNotifications, setUnreadNotifications] = useState(() => getUnreadNotificationsCount());
 
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(searchText.trim().toLowerCase()), 300);
     return () => window.clearTimeout(t);
   }, [searchText]);
+
+  useEffect(() => {
+    const updateUnreadNotifications = () => setUnreadNotifications(getUnreadNotificationsCount());
+    updateUnreadNotifications();
+    window.addEventListener('notifications:changed', updateUnreadNotifications);
+    window.addEventListener('focus', updateUnreadNotifications);
+    document.addEventListener('visibilitychange', updateUnreadNotifications);
+    return () => {
+      window.removeEventListener('notifications:changed', updateUnreadNotifications);
+      window.removeEventListener('focus', updateUnreadNotifications);
+      document.removeEventListener('visibilitychange', updateUnreadNotifications);
+    };
+  }, []);
 
 
   useEffect(() => {
@@ -399,15 +414,6 @@ const OrdersScreen: React.FC = () => {
       if (scrollRaf) window.cancelAnimationFrame(scrollRaf);
     };
   }, [openSwipeId]);
-
-  const refreshOrders = async () => {
-    setIsRefreshing(true);
-    try {
-      await syncOrders();
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
 
   const archiveOrder = (order: Order) => {
     if (order.isArchived) return;
@@ -551,8 +557,16 @@ const OrdersScreen: React.FC = () => {
     setIsDeleting(false);
   };
 
-  const toggleSelectionMode = () => {
-    setIsSelectionMode((current) => !current);
+  const startSelectionMode = (selectVisible = false) => {
+    setIsSelectionMode(true);
+    setIsOrderActionsOpen(false);
+    setOpenSwipeId(null);
+    setSelectedOrderIds(selectVisible ? filteredOrders.map((order) => order.id) : []);
+  };
+
+  const finishSelectionMode = () => {
+    setIsSelectionMode(false);
+    setIsOrderActionsOpen(false);
     setOpenSwipeId(null);
     setSelectedOrderIds([]);
   };
@@ -562,6 +576,7 @@ const OrdersScreen: React.FC = () => {
   };
 
   const selectAllFiltered = () => {
+    setIsSelectionMode(true);
     setSelectedOrderIds(filteredOrders.map((order) => order.id));
   };
 
@@ -606,22 +621,67 @@ const OrdersScreen: React.FC = () => {
             <button type="button" onClick={() => setIsIncomeOpen(true)} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Статистика"><BarChart3 size={18} /></button>
             <button
               type="button"
-              onClick={toggleSelectionMode}
-              className={`h-11 rounded-xl border px-3 text-xs font-black ${isSelectionMode ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700'}`}
+              onClick={() => navigate('/notifications')}
+              className="relative grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm active:scale-[0.98]"
+              aria-label="Открыть оповещения"
             >
-              {isSelectionMode ? 'Готово' : 'Выбрать'}
+              <Bell size={18} />
+              {unreadNotifications > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white">
+                  {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                </span>
+              )}
             </button>
-            <button type="button" disabled={isRefreshing} onClick={() => void refreshOrders()} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center disabled:opacity-50" aria-label="Обновить">
-              <Clock3 size={18} className={isRefreshing ? 'animate-spin text-slate-500' : 'text-slate-700'} />
+            <button
+              type="button"
+              onClick={() => setIsOrderActionsOpen((current) => !current)}
+              className={`grid h-11 w-11 place-items-center rounded-xl border bg-white text-slate-700 transition active:scale-[0.98] ${isOrderActionsOpen ? 'border-slate-300 shadow-sm' : 'border-slate-200'}`}
+              aria-label="Действия с заказами"
+              aria-expanded={isOrderActionsOpen}
+            >
+              <MoreHorizontal size={18} />
             </button>
           </div>
         </div>
+
+        {isOrderActionsOpen && (
+          <div className="fixed inset-0 z-30" onClick={() => setIsOrderActionsOpen(false)}>
+            <div
+              className="absolute right-4 top-[76px] w-60 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_18px_50px_rgba(15,23,42,0.14)]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => startSelectionMode(false)}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-50 active:scale-[0.99]"
+              >
+                <span className="grid h-8 w-8 place-items-center rounded-lg bg-blue-50 text-blue-600"><CheckSquare size={15} /></span>
+                <span>
+                  <span className="block text-sm font-black text-slate-900">Выбрать несколько</span>
+                  <span className="block text-[11px] font-semibold text-slate-500">Тап по нужным заказам</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={filteredOrders.length === 0}
+                onClick={() => startSelectionMode(true)}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-50 active:scale-[0.99] disabled:opacity-40"
+              >
+                <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100 text-slate-700"><Square size={15} /></span>
+                <span>
+                  <span className="block text-sm font-black text-slate-900">Все видимые</span>
+                  <span className="block text-[11px] font-semibold text-slate-500">{filteredOrders.length} заказов в текущем фильтре</span>
+                </span>
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           <label className="flex h-11 flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3">
             <Search size={14} className="text-slate-400" />
             <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Марка, VIN, ID, клиент, заметка" className="w-full bg-transparent text-sm outline-none" />
-            {searchText && <button type="button" onClick={() => { setSearchText(''); setDebouncedSearch(''); void refreshOrders(); }} className="text-xs text-slate-500">Очистить</button>}
+            {searchText && <button type="button" onClick={() => { setSearchText(''); setDebouncedSearch(''); }} className="text-xs text-slate-500">Очистить</button>}
           </label>
           <button type="button" onClick={() => setIsFilterOpen(true)} className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black inline-flex items-center gap-1"><Filter size={14} />Фильтр{activeFiltersCount > 0 ? ` (${activeFiltersCount})` : ''}</button>
         </div>
@@ -658,14 +718,17 @@ const OrdersScreen: React.FC = () => {
         </div>
 
         {isSelectionMode && (
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
-            <button type="button" onClick={selectAllFiltered} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-black text-slate-700">
-              Выбрать все ({filteredOrders.length})
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar rounded-2xl border border-slate-200 bg-white/85 p-1.5 shadow-sm">
+            <span className="shrink-0 rounded-xl bg-blue-50 px-2.5 py-1.5 text-[11px] font-black text-blue-700">{selectedOrderIds.length} выбрано</span>
+            <button type="button" onClick={selectAllFiltered} className="shrink-0 rounded-xl px-2.5 py-1.5 text-[11px] font-black text-slate-600 active:bg-slate-100">
+              Все {filteredOrders.length}
             </button>
-            <button type="button" onClick={clearSelection} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-black text-slate-700">
-              Снять выбор
+            <button type="button" onClick={clearSelection} className="shrink-0 rounded-xl px-2.5 py-1.5 text-[11px] font-black text-slate-600 active:bg-slate-100">
+              Снять
             </button>
-            <span className="rounded-xl bg-blue-50 px-3 py-2 text-[11px] font-black text-blue-700">Выбрано: {selectedOrderIds.length}</span>
+            <button type="button" onClick={finishSelectionMode} className="shrink-0 rounded-xl bg-slate-900 px-2.5 py-1.5 text-[11px] font-black text-white active:scale-[0.98]">
+              Готово
+            </button>
           </div>
         )}
 

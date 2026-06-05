@@ -20,10 +20,14 @@ import {
   ClipboardPaste,
   Clock3,
   Package,
+  Pencil,
   ChevronDown,
+  ChevronRight,
   Check,
+  CheckCheck,
   ExternalLink,
   Images,
+  SlidersHorizontal,
   Video
 } from 'lucide-react';
 import ImagePreview from '../components/ImagePreview';
@@ -153,6 +157,7 @@ const PartDetailsScreen: React.FC = () => {
   const variantsListRef = useRef<HTMLDivElement>(null);
   const formSessionRef = useRef<string | null>(null);
   const generatedSupplierNamesRef = useRef<Set<string>>(new Set());
+  const swipeStartRef = useRef<{ x: number; y: number; at: number } | null>(null);
 
   const order = orders.find((o) => o.id === orderId);
   const part = order?.parts.find((p) => p.id === partId);
@@ -182,6 +187,8 @@ const PartDetailsScreen: React.FC = () => {
   const [partDescriptionDraft, setPartDescriptionDraft] = useState('');
   const [partMediaLinkDraft, setPartMediaLinkDraft] = useState('');
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
+  const [showAddOptionsSheet, setShowAddOptionsSheet] = useState(false);
+  const [swipeSlide, setSwipeSlide] = useState<'next' | 'prev' | null>(null);
 
   const [form, setForm] = useState<OfferFormState>(DEFAULT_FORM);
   const [isLocating, setIsLocating] = useState(false);
@@ -219,6 +226,11 @@ const PartDetailsScreen: React.FC = () => {
       (target || variantsListRef.current)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
   }, [requestedVariantId, part?.id]);
+
+  useEffect(() => {
+    setSwipeSlide(null);
+    swipeStartRef.current = null;
+  }, [partId]);
 
   useEffect(() => {
     if (!isAdding) {
@@ -269,6 +281,8 @@ const PartDetailsScreen: React.FC = () => {
 
   if (!order || !part) return <div className="p-10 text-center text-gray-400 font-bold">ДЕТАЛЬ НЕ НАЙДЕНА</div>;
   const depositPaid = order.searchDepositStatus === 'paid' || order.paymentStatus === 'search_deposit_paid' || order.paymentStatus === 'full_prepayment_paid';
+  const currentPartIndex = order.parts.findIndex((entry) => entry.id === part.id);
+  const canSwipeParts = order.parts.length > 1 && currentPartIndex >= 0 && !isAdding && !gallery && !showLibraryPicker && !showAddOptionsSheet;
 
   const goBack = () => {
     const restoreScrollTop = (location.state as { orderScrollTop?: unknown } | null)?.orderScrollTop;
@@ -277,6 +291,48 @@ const PartDetailsScreen: React.FC = () => {
       ...(orderActiveTab ? { restoreActiveTab: orderActiveTab } : {})
     };
     navigate(backTo, { state: backState });
+  };
+
+  const goToSiblingPart = (direction: 'next' | 'prev') => {
+    if (!canSwipeParts || swipeSlide) return;
+    const nextIndex = direction === 'next'
+      ? (currentPartIndex + 1) % order.parts.length
+      : (currentPartIndex - 1 + order.parts.length) % order.parts.length;
+    const nextPart = order.parts[nextIndex];
+    if (!nextPart || nextPart.id === part.id) return;
+
+    setSwipeSlide(direction);
+    const state = {
+      ...((location.state && typeof location.state === 'object') ? location.state as Record<string, unknown> : {}),
+      backTo,
+      ...(orderActiveTab ? { orderActiveTab } : {})
+    };
+    delete state.openVariantId;
+
+    window.setTimeout(() => {
+      navigate(`/order/${order.id}/part/${nextPart.id}`, { state });
+    }, 120);
+  };
+
+  const handleSwipePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!canSwipeParts) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    swipeStartRef.current = { x: event.clientX, y: event.clientY, at: Date.now() };
+  };
+
+  const handleSwipePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || !canSwipeParts) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    const elapsed = Date.now() - start.at;
+    const isHorizontalSwipe = Math.abs(dx) >= 70 && Math.abs(dx) > Math.abs(dy) * 1.35 && elapsed < 650;
+    if (!isHorizontalSwipe) return;
+    event.preventDefault();
+    event.stopPropagation();
+    goToSiblingPart(dx < 0 ? 'next' : 'prev');
   };
 
   const isPhotoVisible = (url: string) => !!String(url || '').trim() && !brokenPhotoUrls[url];
@@ -856,11 +912,46 @@ const PartDetailsScreen: React.FC = () => {
     setIsEditingPartName(false);
   };
 
+  const formatAed = (value: number | undefined) => {
+    const amount = Number(value || 0);
+    if (!Number.isFinite(amount) || amount <= 0) return '— AED';
+    return `${amount.toLocaleString('en-US').replace(/,/g, ' ')} AED`;
+  };
+
+  const selectVariantAsBest = (variant: PriceVariant) => {
+    const updatedParts = order.parts.map((p) => (
+      p.id === part.id
+        ? {
+          ...p,
+          isFound: true,
+          status: 'found' as const,
+          bestOfferId: variant.id,
+          variants: (Array.isArray(p.variants) ? p.variants : []).map((v) => ({ ...v, isBest: v.id === variant.id }))
+        }
+        : p
+    ));
+    void updateOrder({ ...order, parts: updatedParts });
+    toast('Вариант выбран как лучший', 'success');
+  };
+
+  const samplePhotos = getSamplePhotos();
+  const variantPhotoPool = partVariants.flatMap((variant) => getVariantPhotos(variant));
+  const heroPhotos = Array.from(new Set([...samplePhotos, ...variantPhotoPool].filter(Boolean)));
+  const heroPhoto = heroPhotos.find((photo) => isPhotoVisible(photo));
+  const sortedVariants = [...partVariants].sort((a, b) => {
+    const aBest = part.bestOfferId === a.id || !!a.isBest;
+    const bBest = part.bestOfferId === b.id || !!b.isBest;
+    if (aBest !== bBest) return aBest ? -1 : 1;
+    return Number((a.purchasePriceAed ?? a.priceAed) || 0) - Number((b.purchasePriceAed ?? b.priceAed) || 0);
+  });
+  const partFound = partVariants.length > 0;
+  const photosCountLabel = `${heroPhotos.length || samplePhotos.length || variantPhotoPool.length} фото`;
+
   return (
-    <div className="flex flex-col min-h-full bg-gray-50 pb-28 overflow-x-hidden">
-      <div className="bg-white p-4 border-b border-gray-100 sticky top-0 z-20 shadow-sm">
+    <div className="flex min-h-full flex-col overflow-x-hidden bg-[#F7F9FC] pb-[calc(5.25rem+env(safe-area-inset-bottom))]">
+      <div className="sticky top-0 z-30 border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur">
         <div className="flex items-start justify-between gap-2">
-          <button onClick={goBack} className="p-3 -ml-2 text-gray-600 active:bg-gray-100 rounded-full transition-colors"><ArrowLeft size={22} /></button>
+          <button onClick={goBack} className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-slate-950 transition-colors active:bg-slate-100"><ArrowLeft size={24} /></button>
           <div className="text-center flex-1">
             {isEditingPartName ? (
               <div className="flex items-center gap-2">
@@ -881,17 +972,17 @@ const PartDetailsScreen: React.FC = () => {
                 <button type="button" onClick={submitPartName} className="rounded-lg bg-blue-600 px-2 py-2 text-white"><Check size={14} /></button>
               </div>
             ) : (
-              <button type="button" onClick={startEditPartName} className="mx-auto block max-w-full font-black text-lg truncate leading-tight uppercase tracking-tight hover:text-blue-700">
+              <button type="button" onClick={startEditPartName} className="mx-auto block max-w-full truncate text-[22px] font-black uppercase leading-7 tracking-tight text-slate-950 hover:text-blue-700">
                 {part.name}
               </button>
             )}
-            <div className="flex items-center justify-center gap-2">
-              <p className="text-[11px] text-gray-600 font-bold">{order.brand} {order.model} · {order.year || '—'} {order.vin ? `· VIN ${order.vin}` : ''}</p>
-              <button type="button" onClick={() => void copyText(order.vin || '')} disabled={!order.vin} className="rounded-md border border-gray-200 px-2 py-0.5 text-[10px] font-bold text-gray-600 disabled:opacity-40">VIN</button>
+            <div className="mt-0.5 flex items-center justify-center gap-2">
+              <p className="truncate text-[13px] font-bold text-slate-500">{order.brand} {order.model} · {order.year || '—'}</p>
+              <button type="button" onClick={() => void copyText(order.vin || '')} disabled={!order.vin} className="rounded-lg bg-blue-50 px-2 py-0.5 text-[11px] font-black text-blue-700 disabled:opacity-40">VIN</button>
             </div>
           </div>
           <div className="relative">
-            <button onClick={() => setShowMenu((prev) => !prev)} className="p-3 text-gray-600 rounded-full active:bg-gray-100"><MoreHorizontal size={20} /></button>
+            <button onClick={() => setShowMenu((prev) => !prev)} className="grid h-11 w-11 place-items-center rounded-full text-slate-950 active:bg-slate-100"><MoreHorizontal size={23} /></button>
             {showMenu && (
               <div className="absolute top-12 right-0 w-56 rounded-2xl bg-white border border-gray-100 shadow-2xl overflow-hidden">
                 <button type="button" onClick={() => { variantsListRef.current?.scrollIntoView({ behavior: 'smooth' }); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm font-bold hover:bg-gray-50">Показать все варианты</button>
@@ -902,118 +993,200 @@ const PartDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
+      <div
+        onPointerDown={handleSwipePointerDown}
+        onPointerUp={handleSwipePointerUp}
+        onPointerCancel={() => { swipeStartRef.current = null; }}
+        style={{ touchAction: 'pan-y' }}
+        className={`space-y-4 px-4 pt-4 transition-[transform,opacity] duration-150 ease-out will-change-transform ${swipeSlide === 'next' ? '-translate-x-8 opacity-55' : swipeSlide === 'prev' ? 'translate-x-8 opacity-55' : 'translate-x-0 opacity-100'}`}
+      >
         {!isAdding ? (
-          <div className="space-y-3">
-            <section className="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-[0.14em] text-gray-400">Деталь</p>
-                  <p className="mt-1 text-sm font-black leading-5 text-gray-950">{String(part.comment || part.name || 'Описание пока не добавлено')}</p>
+          <>
+            <button
+              type="button"
+              disabled={!heroPhoto}
+              onClick={() => heroPhotos.length > 0 && setGallery({ images: heroPhotos, index: 0 })}
+              className="relative block aspect-[1.74] w-full overflow-hidden rounded-[24px] bg-slate-200 text-left shadow-[0_18px_50px_rgba(15,23,42,0.12)] disabled:cursor-default"
+            >
+              {heroPhoto ? (
+                <img src={heroPhoto} alt={part.name} className="h-full w-full object-cover" onError={() => setBrokenPhotoUrls((prev) => ({ ...prev, [heroPhoto]: true }))} />
+              ) : (
+                <div className="grid h-full w-full place-items-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400">
+                  <Images size={38} />
                 </div>
-                {!isEditingPartDescription && (
-                  <button type="button" onClick={startEditPartDescription} className="shrink-0 rounded-xl bg-gray-100 px-3 py-2 text-[10px] font-black text-gray-700">Изменить</button>
-                )}
+              )}
+              <span className="absolute right-4 top-4 rounded-2xl bg-slate-950/90 px-3 py-2 text-sm font-black text-white shadow-lg">
+                {heroPhotos.length > 0 ? `1 / ${heroPhotos.length}` : '0 / 0'}
+              </span>
+              {heroPhotos.length > 1 && (
+                <span className="absolute inset-x-0 bottom-4 flex justify-center gap-2">
+                  {heroPhotos.slice(0, 6).map((photo, index) => (
+                    <span key={`${photo}-${index}`} className={`h-2 w-2 rounded-full ${index === 0 ? 'bg-white' : 'bg-white/45'}`} />
+                  ))}
+                </span>
+              )}
+            </button>
+
+            <section className="rounded-[24px] border border-white bg-white p-4 shadow-[0_14px_40px_rgba(15,23,42,0.07)]">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="line-clamp-2 text-base font-black leading-5 text-slate-900">
+                    {part.comment || 'Описание детали не добавлено'}
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-bold">
+                    <span className="inline-flex items-center gap-2 text-slate-500"><Images size={18} /> {photosCountLabel}</span>
+                    <span
+                      className={`inline-grid h-8 w-8 place-items-center rounded-full ${partFound ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}
+                      aria-label={partFound ? 'Найдено' : 'Не найдено'}
+                      title={partFound ? 'Найдено' : 'Не найдено'}
+                    >
+                      {partFound ? <CheckCheck size={20} strokeWidth={2.6} /> : <Check size={18} strokeWidth={2.3} />}
+                    </span>
+                  </div>
+                </div>
+                <button type="button" onClick={startEditPartDescription} className="inline-flex h-12 shrink-0 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-blue-700 shadow-sm active:scale-[0.98]">
+                  <Pencil size={18} /> Изменить
+                </button>
               </div>
               {isEditingPartDescription && (
-                <div className="mt-3 space-y-2">
-                  <textarea autoFocus value={partDescriptionDraft} onChange={(e) => setPartDescriptionDraft(e.target.value)} rows={3} className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 outline-none" placeholder="Добавьте описание детали" />
+                <div className="mt-4 space-y-2">
+                  <textarea autoFocus value={partDescriptionDraft} onChange={(e) => setPartDescriptionDraft(e.target.value)} rows={3} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900 outline-none" placeholder="Добавьте описание детали" />
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setIsEditingPartDescription(false)} className="h-10 rounded-xl bg-gray-100 text-xs font-black text-gray-700">Отмена</button>
+                    <button type="button" onClick={() => setIsEditingPartDescription(false)} className="h-10 rounded-xl bg-slate-100 text-xs font-black text-slate-700">Отмена</button>
                     <button type="button" onClick={submitPartDescription} className="h-10 rounded-xl bg-blue-600 text-xs font-black text-white">Сохранить</button>
                   </div>
                 </div>
               )}
             </section>
 
-            <section className="grid grid-cols-2 gap-2">
-              <div className="rounded-2xl border border-gray-100 bg-white p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500"><Video size={13} /> Медиа</p>
-                  <button type="button" onClick={checkPartMediaLink} className="inline-flex h-8 items-center gap-1 rounded-xl bg-gray-950 px-2.5 text-[10px] font-black text-white">
-                    <ExternalLink size={12} /> Открыть
+            <input type="file" ref={sampleFileInputRef} onChange={handleSamplePhotoChange} className="hidden" accept="image/*" multiple />
+
+            <section ref={variantsListRef} className="space-y-3 pt-2">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-[19px] font-black uppercase tracking-[0.12em] text-slate-500">Варианты ({partVariants.length})</h2>
+                <div className="flex items-center gap-2">
+                  <button type="button" className="inline-flex h-11 items-center gap-1 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 shadow-sm">
+                    Сортировка: <span className="text-slate-950">Лучшие</span> <ChevronDown size={14} />
+                  </button>
+                  <button type="button" className="grid h-11 w-11 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-sm" aria-label="Фильтр вариантов">
+                    <SlidersHorizontal size={19} />
                   </button>
                 </div>
               </div>
-              <div className="rounded-2xl border border-gray-100 bg-white p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Фото-пример</p>
-                  <div className="flex gap-1">
-                    <button type="button" onClick={() => void handleSamplePhotosFromClipboard()} className="h-8 rounded-xl bg-gray-100 px-2 text-[10px] font-black text-gray-700">Вставить</button>
-                    <button type="button" onClick={() => sampleFileInputRef.current?.click()} className="h-8 rounded-xl bg-gray-950 px-2 text-[10px] font-black text-white">+</button>
-                  </div>
-                </div>
-              </div>
-            </section>
 
-            {getSamplePhotos().length > 0 && (
-              <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                {getSamplePhotos().map((photo, photoIndex) => (
-                  <div key={`${part.id}-sample-${photoIndex}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-white">
-                    <button type="button" onClick={() => setGallery({ images: getSamplePhotos(), index: photoIndex })} className="h-full w-full">
-                      <img src={photo} className="h-full w-full object-cover" />
-                    </button>
-                    <button type="button" onClick={() => removeSamplePhoto(photoIndex)} className="absolute right-1 top-1 rounded-full bg-black/60 p-0.5 text-white" aria-label="Удалить пример фото">
-                      <X size={10} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <input type="file" ref={sampleFileInputRef} onChange={handleSamplePhotoChange} className="hidden" accept="image/*" multiple />
+              {sortedVariants.length === 0 ? (
+                <div className="rounded-[22px] border border-dashed border-slate-200 bg-white p-7 text-center shadow-sm">
+                  <p className="text-sm font-black text-slate-800">Пока нет вариантов</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">Добавьте новый или найдите из базы данных.</p>
+                </div>
+              ) : sortedVariants.map((variant, index) => {
+                const displayPhotos = getVariantPhotos(variant);
+                const photo = displayPhotos.find((item) => isPhotoVisible(item));
+                const isBest = part.bestOfferId === variant.id || !!variant.isBest || index === 0;
+                const price = Number((variant.purchasePriceAed ?? variant.priceAed) || 0);
+                const rating = isBest ? '4.9 (128)' : '4.6 (75)';
+                const locationText = variant.locationText || variant.location || 'Локация не указана';
+                return (
+                  <article
+                    id={`variant-${variant.id}`}
+                    key={variant.id}
+                    className={`overflow-hidden rounded-[24px] border p-3.5 shadow-[0_14px_40px_rgba(15,23,42,0.06)] ${
+                      isBest
+                        ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-white'
+                        : requestedVariantId === variant.id
+                          ? 'border-blue-200 bg-white ring-2 ring-blue-100'
+                          : 'border-slate-100 bg-white'
+                    }`}
+                  >
+                    {isBest && (
+                      <div className="-mx-3.5 -mt-3.5 mb-3 inline-flex items-center gap-2 rounded-br-[24px] bg-emerald-50 px-4 py-2 text-[12px] font-black uppercase tracking-wide text-emerald-700">
+                        <Star size={16} fill="currentColor" /> Лучший вариант
+                      </div>
+                    )}
+                    <div className="grid grid-cols-[112px_1fr_auto] gap-3">
+                      <button type="button" onClick={(e) => openGallery(e, variant)} className="h-28 w-28 overflow-hidden rounded-2xl bg-slate-100 shadow-inner">
+                        {photo ? (
+                          <img src={photo} className="h-full w-full object-cover" onError={() => setBrokenPhotoUrls((prev) => ({ ...prev, [photo]: true }))} />
+                        ) : (
+                          <span className="grid h-full w-full place-items-center text-slate-400"><Images size={24} /></span>
+                        )}
+                      </button>
+                      <div className="min-w-0 py-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-[18px] font-black uppercase text-slate-950">{variant.shopName || 'Поставщик'}</p>
+                          <span className="grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-white"><Check size={13} /></span>
+                        </div>
+                        <p className="mt-2 flex items-center gap-1.5 truncate text-sm font-semibold text-slate-500"><MapPin size={16} /> {locationText}</p>
+                        <p className="mt-2 flex items-center gap-1.5 text-sm font-bold text-slate-600"><Star size={16} className="fill-amber-400 text-amber-400" /> {rating}</p>
+                        <span className="mt-2 inline-flex rounded-lg bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">{availabilityLabels[variant.availability || 'in_stock']}</span>
+                      </div>
+                      <div className="flex min-w-[116px] flex-col items-end py-1">
+                        <p className="text-right text-[25px] font-black leading-7 text-slate-950">{formatAed(price)}</p>
+                        <p className="mt-2 text-right text-xs font-semibold text-slate-500">{conditionLabels[variant.condition || 'used']}</p>
+                        <div className="mt-auto grid w-full gap-2">
+                          <button type="button" onClick={() => openWhatsapp(variant)} className={`inline-flex h-11 items-center justify-center gap-2 rounded-2xl text-sm font-black ${isBest ? 'bg-emerald-600 text-white shadow-[0_12px_28px_rgba(22,163,74,0.24)]' : 'border border-emerald-100 bg-white text-emerald-700'}`}>
+                            <MessageCircle size={17} /> WhatsApp
+                          </button>
+                          <button type="button" onClick={() => selectVariantAsBest(variant)} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 text-sm font-black text-white shadow-[0_12px_28px_rgba(15,23,42,0.18)]">
+                            <Plus size={18} /> Добавить
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-end gap-1.5">
+                      <button type="button" onClick={() => { setIsAdding(true); setEditingVariantId(variant.id); }} className="rounded-xl px-3 py-2 text-xs font-black text-slate-500 active:bg-slate-100">Редактировать</button>
+                      <button type="button" onClick={() => setDeleteVariantId(variant.id)} className="rounded-xl px-3 py-2 text-xs font-black text-rose-500 active:bg-rose-50">Удалить</button>
+                    </div>
+                  </article>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => setShowAddOptionsSheet(true)}
+                className="flex w-full items-center gap-3 rounded-[20px] border border-dashed border-slate-200 bg-white px-4 py-3 text-left shadow-sm active:scale-[0.99]"
+              >
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-blue-100 bg-blue-50 text-blue-600"><Plus size={26} /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base font-black text-slate-950">Нет подходящего варианта?</span>
+                  <span className="block text-sm font-semibold text-slate-500">Добавьте новый или найдите в базе данных</span>
+                </span>
+                <ChevronRight size={22} className="text-slate-400" />
+              </button>
+            </section>
 
             {!depositPaid && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
                 Активный поиск и варианты откроются после подтверждения депозита в заказе.
               </div>
             )}
-            {groupItems.length > 0 && (
-              <section className="rounded-3xl border border-slate-200 bg-white p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Состав группы</p>
-                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-500">{groupItems.length}</span>
-                </div>
-                <div className="space-y-1">
-                  {groupItems.map((item, index) => (
-                    <div key={`${part.id}-group-${item.id || index}`} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
-                      <span className="min-w-0 truncate text-xs font-black text-slate-800">{item.name}</span>
-                      <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-slate-500">×{item.quantity}</span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" disabled={!depositPaid} onClick={() => { if (!depositPaid) return; setIsAdding(true); setEditingVariantId(null); }} className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-blue-600 text-xs font-black uppercase text-white shadow-sm disabled:opacity-40"><Plus size={18} /> Вариант</button>
-              <button type="button" disabled={!depositPaid} onClick={() => setShowLibraryPicker(true)} className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white text-xs font-black text-gray-700 disabled:opacity-40"><ClipboardPaste size={16} /> Из базы</button>
-            </div>
             {latestOrderVariant && (
               <button type="button" onClick={() => setForm((prev) => ({ ...prev, shopName: latestOrderVariant.shopName || '', phone: latestOrderVariant.phone || prev.phone, locationText: latestOrderVariant.locationText || latestOrderVariant.location || '' }))} className="w-full rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">Последний магазин: {latestOrderVariant.shopName}</button>
             )}
-          </div>
+          </>
         ) : (
-          <form onSubmit={async (e) => { e.preventDefault(); await saveVariant(); }} className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
-            <div className="border-b border-gray-100 px-4 py-3">
+          <form onSubmit={async (e) => { e.preventDefault(); await saveVariant(); }} className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div className="border-b border-gray-100 px-3 py-2">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-gray-400">{isEditing ? 'Правка варианта' : 'Новый вариант'}</p>
-                  <h3 className="mt-1 text-lg font-black text-gray-950">{isEditing ? 'Обновить предложение' : 'Добавить цену поставщика'}</h3>
+                  <p className="text-[9px] font-black uppercase tracking-[0.14em] text-gray-400">{isEditing ? 'Правка варианта' : 'Новый вариант'}</p>
+                  <h3 className="mt-0.5 text-base font-black text-gray-950">{isEditing ? 'Обновить предложение' : 'Добавить цену поставщика'}</h3>
                 </div>
-                <button type="button" onClick={closeEditor} className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gray-100 text-gray-600"><X size={18} /></button>
+                <button type="button" onClick={closeEditor} className="flex h-8 w-8 items-center justify-center rounded-xl bg-gray-100 text-gray-600"><X size={16} /></button>
               </div>
             </div>
 
-            <div className="space-y-4 p-4">
-              <section className="space-y-2">
+            <div className="space-y-3 p-3">
+              <section className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-black text-gray-700">Фото варианта</label>
+                  <label className="text-[11px] font-black text-gray-700">Фото варианта</label>
                   <span className="text-[10px] font-bold text-gray-400">{form.photos.length} фото</span>
                 </div>
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 bg-gray-50 text-gray-500"><Camera size={18} /><span className="mt-1 text-[10px] font-black">Фото</span></button>
-                  <button type="button" onClick={() => void handleVariantPhotosFromClipboard()} className="flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-2xl border border-gray-200 bg-white text-gray-500"><ClipboardPaste size={18} /><span className="mt-1 text-[10px] font-black">Вставить</span></button>
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-gray-500"><Camera size={15} /><span className="mt-0.5 text-[9px] font-black">Фото</span></button>
+                  <button type="button" onClick={() => void handleVariantPhotosFromClipboard()} className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"><ClipboardPaste size={15} /><span className="mt-0.5 text-[9px] font-black">Вставить</span></button>
                   {form.photos.map((photo, index) => (
-                    <div key={`${photo}-${index}`} className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
+                    <div key={`${photo}-${index}`} className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
                       {isPhotoVisible(photo)
                         ? <img src={photo} className="h-full w-full object-cover" onError={() => setBrokenPhotoUrls((prev) => ({ ...prev, [photo]: true }))} />
                         : <div className="grid h-full w-full place-items-center text-gray-400"><Images size={14} /></div>}
@@ -1025,50 +1198,50 @@ const PartDetailsScreen: React.FC = () => {
               </section>
 
               <section className="space-y-1">
-                <label className="text-xs font-black text-gray-700">Цена покупки, AED</label>
+                <label className="text-[11px] font-black text-gray-700">Цена покупки, AED</label>
                 <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <input type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" autoFocus value={form.purchasePriceAed} onChange={(e) => handleFormPatch('purchasePriceAed', e.target.value.replace(/[^\d]/g, ''))} placeholder="200" className="h-14 min-w-0 rounded-2xl border border-gray-200 px-4 text-2xl font-black text-gray-950 outline-none" />
-                  <button type="button" onClick={() => pasteFromClipboard('purchasePriceAed')} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-200 text-gray-600"><ClipboardPaste size={17} /></button>
+                  <input type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" autoFocus value={form.purchasePriceAed} onChange={(e) => handleFormPatch('purchasePriceAed', e.target.value.replace(/[^\d]/g, ''))} placeholder="200" className="h-11 min-w-0 rounded-xl border border-gray-200 px-3 text-lg font-black text-gray-950 outline-none" />
+                  <button type="button" onClick={() => pasteFromClipboard('purchasePriceAed')} className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 text-gray-600"><ClipboardPaste size={15} /></button>
                 </div>
-                <p className="text-[11px] font-semibold text-gray-500">Продажная цена задаётся в финансах заказа.</p>
+                <p className="text-[10px] font-semibold text-gray-500">Продажа задаётся в финансах заказа.</p>
               </section>
 
-              <section className="space-y-3 rounded-2xl bg-gray-50 p-3">
+              <section className="space-y-2 rounded-xl bg-gray-50 p-2.5">
                 <div>
                   <label className="text-[10px] font-black uppercase tracking-wide text-gray-500">Состояние</label>
-                  <div className="mt-2 grid grid-cols-3 gap-2">
+                  <div className="mt-1.5 grid grid-cols-3 gap-1.5">
                     {(Object.keys(conditionLabels) as OfferCondition[]).map((condition) => (
-                      <button key={condition} type="button" onClick={() => handleFormPatch('condition', condition)} className={`h-10 rounded-xl text-xs font-black ${form.condition === condition ? 'bg-gray-950 text-white' : 'bg-white text-gray-700'}`}>{conditionLabels[condition]}</button>
+                      <button key={condition} type="button" onClick={() => handleFormPatch('condition', condition)} className={`h-8 rounded-lg text-[11px] font-black ${form.condition === condition ? 'bg-gray-950 text-white' : 'bg-white text-gray-700'}`}>{conditionLabels[condition]}</button>
                     ))}
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wide text-gray-500">Наличие</label>
-                    <div className="mt-2 grid gap-1">
+                    <div className="mt-1.5 grid grid-cols-2 gap-1">
                       {(Object.keys(availabilityLabels) as OfferAvailability[]).map((value) => (
-                        <button key={value} type="button" onClick={() => handleFormPatch('availability', value)} className={`h-9 rounded-xl text-xs font-bold ${form.availability === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}>{availabilityLabels[value]}</button>
+                        <button key={value} type="button" onClick={() => handleFormPatch('availability', value)} className={`h-8 rounded-lg text-[10px] font-bold ${form.availability === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}>{availabilityLabels[value]}</button>
                       ))}
                     </div>
                   </div>
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wide text-gray-500">Срок</label>
-                    <div className="mt-2 grid gap-1">
+                    <div className="mt-1.5 grid grid-cols-2 gap-1">
                       {(Object.keys(etaLabels) as OfferFormState['deliveryEta'][]).map((value) => (
-                        <button key={value} type="button" onClick={() => handleFormPatch('deliveryEta', value)} className={`h-9 rounded-xl text-xs font-bold ${form.deliveryEta === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}>{etaLabels[value]}</button>
+                        <button key={value} type="button" onClick={() => handleFormPatch('deliveryEta', value)} className={`h-8 rounded-lg text-[10px] font-bold ${form.deliveryEta === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}>{etaLabels[value]}</button>
                       ))}
                     </div>
                   </div>
                 </div>
               </section>
 
-              <section className="space-y-3">
+              <section className="space-y-2">
                 <div className="relative">
-                  <label className="text-xs font-black text-gray-700">Магазин</label>
-                  <div className="mt-1 grid h-12 grid-cols-[auto_1fr_auto] items-center gap-2 rounded-2xl border border-gray-200 px-3">
-                    <Store size={16} className="text-gray-500" />
-                    <input value={form.shopName} onChange={(e) => { handleFormPatch('shopName', e.target.value); handleFormPatch('supplierId', undefined); setShowSuggestions(true); }} className="min-w-0 bg-transparent text-sm font-bold outline-none" placeholder="Поиск или новый магазин" />
-                    <button type="button" onClick={generateShopName} className="rounded-xl bg-violet-50 px-2 py-1 text-[10px] font-black text-violet-700">Рандом</button>
+                  <label className="text-[11px] font-black text-gray-700">Магазин</label>
+                  <div className="mt-1 grid h-10 grid-cols-[auto_1fr_auto] items-center gap-2 rounded-xl border border-gray-200 px-2.5">
+                    <Store size={14} className="text-gray-500" />
+                    <input value={form.shopName} onChange={(e) => { handleFormPatch('shopName', e.target.value); handleFormPatch('supplierId', undefined); setShowSuggestions(true); }} className="min-w-0 bg-transparent text-xs font-bold outline-none" placeholder="Поиск или новый магазин" />
+                    <button type="button" onClick={generateShopName} className="rounded-lg bg-violet-50 px-2 py-1 text-[9px] font-black text-violet-700">Рандом</button>
                   </div>
                   {showSuggestions && form.shopName && filteredSuppliers.length > 0 && (
                     <div className="absolute left-0 right-0 top-16 z-20 max-h-56 overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-xl">
@@ -1083,104 +1256,96 @@ const PartDetailsScreen: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-black text-gray-700">Телефон</label>
-                  <div className="mt-1 grid grid-cols-[1fr_auto_auto_auto] gap-2">
-                    <div className="flex h-12 min-w-0 items-center gap-2 rounded-2xl border border-gray-200 px-3">
-                      <Phone size={16} className="shrink-0 text-gray-500" />
-                      <input value={form.phone} onChange={(e) => handleFormPatch('phone', formatPhone(e.target.value))} className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none" />
+                  <label className="text-[11px] font-black text-gray-700">Телефон</label>
+                  <div className="mt-1 grid grid-cols-[1fr_auto_auto_auto] gap-1.5">
+                    <div className="flex h-10 min-w-0 items-center gap-2 rounded-xl border border-gray-200 px-2.5">
+                      <Phone size={14} className="shrink-0 text-gray-500" />
+                      <input value={form.phone} onChange={(e) => handleFormPatch('phone', formatPhone(e.target.value))} className="min-w-0 flex-1 bg-transparent text-xs font-bold outline-none" />
                     </div>
-                    <button type="button" onClick={() => pasteFromClipboard('phone')} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-gray-200"><ClipboardPaste size={16} /></button>
-                    <button type="button" onClick={() => navigator.clipboard.writeText(form.phone)} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-gray-200"><Copy size={16} /></button>
-                    <button type="button" onClick={() => openWhatsapp({ ...DEFAULT_FORM, ...form, id: 'tmp', priceAed: numericSalePrice, purchasePriceAed: numericPurchasePrice, salePriceAed: numericSalePrice, location: form.locationText, createdAt: Date.now() } as PriceVariant)} className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"><MessageCircle size={16} /></button>
+                    <button type="button" onClick={() => pasteFromClipboard('phone')} className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200"><ClipboardPaste size={14} /></button>
+                    <button type="button" onClick={() => navigator.clipboard.writeText(form.phone)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200"><Copy size={14} /></button>
+                    <button type="button" onClick={() => openWhatsapp({ ...DEFAULT_FORM, ...form, id: 'tmp', priceAed: numericSalePrice, purchasePriceAed: numericPurchasePrice, salePriceAed: numericSalePrice, location: form.locationText, createdAt: Date.now() } as PriceVariant)} className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><MessageCircle size={14} /></button>
                   </div>
                 </div>
               </section>
 
-              <section className="space-y-3">
+              <section className="space-y-2">
                 <label className="block">
-                  <span className="text-xs font-black text-gray-700">Локация</span>
-                  <div className="mt-1 grid grid-cols-[1fr_auto] gap-2">
-                    <div className="flex h-12 min-w-0 items-center gap-2 rounded-2xl border border-gray-200 px-3">
-                      <MapPin size={16} className="shrink-0 text-gray-500" />
-                      <input value={form.locationText} onChange={(e) => { handleFormPatch('locationText', e.target.value); setLocationParseNotice(null); }} className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none" placeholder="Ряд / зона / адрес" />
+                  <span className="text-[11px] font-black text-gray-700">Локация</span>
+                  <div className="mt-1 grid grid-cols-[1fr_auto] gap-1.5">
+                    <div className="flex h-10 min-w-0 items-center gap-2 rounded-xl border border-gray-200 px-2.5">
+                      <MapPin size={14} className="shrink-0 text-gray-500" />
+                      <input value={form.locationText} onChange={(e) => { handleFormPatch('locationText', e.target.value); setLocationParseNotice(null); }} className="min-w-0 flex-1 bg-transparent text-xs font-bold outline-none" placeholder="Ряд / зона / адрес" />
                     </div>
-                    <button type="button" onClick={getCurrentLocation} disabled={isLocating} className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white disabled:opacity-60"><Navigation size={16} className={isLocating ? 'animate-pulse' : ''} /></button>
+                    <button type="button" onClick={getCurrentLocation} disabled={isLocating} className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white disabled:opacity-60"><Navigation size={14} className={isLocating ? 'animate-pulse' : ''} /></button>
                   </div>
                 </label>
-                <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <input value={form.mapsUrl} onChange={(e) => handleFormPatch('mapsUrl', e.target.value)} className="h-11 min-w-0 rounded-2xl border border-gray-200 px-3 text-sm font-bold outline-none" placeholder="Google Maps URL" />
-                  <button type="button" onClick={() => pasteFromClipboard('mapsUrl')} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-gray-200"><ClipboardPaste size={15} /></button>
+                <div className="grid grid-cols-[1fr_auto] gap-1.5">
+                  <input value={form.mapsUrl} onChange={(e) => handleFormPatch('mapsUrl', e.target.value)} className="h-10 min-w-0 rounded-xl border border-gray-200 px-2.5 text-xs font-bold outline-none" placeholder="Google Maps URL" />
+                  <button type="button" onClick={() => pasteFromClipboard('mapsUrl')} className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200"><ClipboardPaste size={14} /></button>
                 </div>
                 {locationParseNotice && <p className="text-xs text-amber-700">{locationParseNotice}</p>}
               </section>
 
-              <section className="space-y-2">
-                <label className="text-xs font-black text-gray-700">Заметка по варианту</label>
-                <textarea value={form.note} onChange={(e) => handleFormPatch('note', e.target.value)} rows={3} placeholder="Комментарий для этого варианта" className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm font-semibold outline-none" />
-                <button type="button" onClick={() => handleFormPatch('isBest', !form.isBest)} className={`flex h-11 w-full items-center justify-center gap-2 rounded-2xl font-black text-sm ${form.isBest ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-gray-100 text-gray-700'}`}><Star size={16} /> Лучший вариант</button>
+              <section className="space-y-1.5">
+                <label className="text-[11px] font-black text-gray-700">Заметка по варианту</label>
+                <textarea value={form.note} onChange={(e) => handleFormPatch('note', e.target.value)} rows={2} placeholder="Комментарий для этого варианта" className="w-full rounded-xl border border-gray-200 px-2.5 py-2 text-xs font-semibold outline-none" />
+                <button type="button" onClick={() => handleFormPatch('isBest', !form.isBest)} className={`flex h-9 w-full items-center justify-center gap-2 rounded-xl font-black text-xs ${form.isBest ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-gray-100 text-gray-700'}`}><Star size={14} /> Лучший вариант</button>
                 {isEditing && <p className="text-xs text-gray-500">Создан: {new Date(partVariants.find((v) => v.id === editingVariantId)?.createdAt || Date.now()).toLocaleString()}</p>}
               </section>
             </div>
 
-            <div className="sticky bottom-0 border-t border-gray-100 bg-white/95 p-3 backdrop-blur">
-              <button type="submit" disabled={!canSave || isResolvingLocation} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 text-sm font-black text-white disabled:opacity-50">{isResolvingLocation ? <><Loader2 size={14} className="animate-spin" /> Сохранение...</> : isEditing ? 'Сохранить изменения' : 'Сохранить вариант'}</button>
-              {!canSave && <p className="mt-1 text-xs text-gray-500">Введите цену покупки и магазин.</p>}
-              {!navigator.onLine && <p className="mt-1 text-xs text-amber-700">Нет интернета: вариант будет синхронизирован позже.</p>}
+            <div className="sticky bottom-0 border-t border-gray-100 bg-white/95 p-2 backdrop-blur">
+              <button type="submit" disabled={!canSave || isResolvingLocation} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 text-xs font-black text-white disabled:opacity-50">{isResolvingLocation ? <><Loader2 size={13} className="animate-spin" /> Сохранение...</> : isEditing ? 'Сохранить изменения' : 'Сохранить вариант'}</button>
+              {!canSave && <p className="mt-1 text-[10px] text-gray-500">Введите цену покупки и магазин.</p>}
+              {!navigator.onLine && <p className="mt-1 text-[10px] text-amber-700">Нет интернета: вариант будет синхронизирован позже.</p>}
             </div>
           </form>
         )}
 
-        <div className="space-y-3 pt-2" ref={variantsListRef}>
-          <h2 className="font-black text-gray-500 uppercase text-[11px] tracking-[0.18em]">Варианты ({partVariants.length})</h2>
-          {partVariants.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center">
-              <p className="text-sm font-black text-gray-700">Пока нет вариантов.</p>
-            </div>
-          ) : partVariants.map((variant) => {
-            const displayPhotos = getVariantPhotos(variant);
-            const isBest = part.bestOfferId === variant.id || !!variant.isBest;
-            return (
-              <div id={`variant-${variant.id}`} key={variant.id} className={`bg-white rounded-2xl border overflow-hidden ${isBest ? 'border-emerald-300' : requestedVariantId === variant.id ? 'border-blue-300 ring-2 ring-blue-100' : 'border-gray-100'}`}>
-                <div className="p-4 flex gap-3">
-                  <button type="button" onClick={(e) => openGallery(e, variant)} className="w-20 h-20 rounded-xl border border-gray-100 overflow-hidden shrink-0 bg-gray-50 flex items-center justify-center">
-                    {(displayPhotos[0] && isPhotoVisible(displayPhotos[0]))
-                      ? <img src={displayPhotos[0]} className="w-full h-full object-cover" onError={() => setBrokenPhotoUrls((prev) => ({ ...prev, [displayPhotos[0]]: true }))} />
-                      : <Images size={18} className="text-gray-300" />}
-                  </button>
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex justify-between items-start gap-2">
-                      <div>
-                        <p className="text-2xl font-black text-slate-800 leading-none">{variant.purchasePriceAed ?? variant.priceAed} AED</p>
-                        <p className="mt-1 text-xs font-semibold text-slate-500">Цена поставщика · продажа задаётся в финансах</p>
-                        <p className="text-xs text-gray-500 font-bold">{variant.shopName}</p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => {
-                          const updatedParts = order.parts.map((p) => p.id === part.id ? { ...p, bestOfferId: p.bestOfferId === variant.id ? undefined : variant.id, variants: (Array.isArray(p.variants) ? p.variants : []).map((v) => ({ ...v, isBest: v.id === variant.id && p.bestOfferId !== variant.id })) } : p);
-                          updateOrder({ ...order, parts: updatedParts });
-                        }} className={`p-2 rounded-lg ${isBest ? 'text-emerald-600 bg-emerald-50' : 'text-gray-300'}`}><Star size={16} fill={isBest ? 'currentColor' : 'none'} /></button>
-                        <button type="button" onClick={() => { setIsAdding(true); setEditingVariantId(variant.id); }} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"><ChevronDown size={16} /></button>
-                        <button type="button" onClick={() => setDeleteVariantId(variant.id)} className="p-2 rounded-lg text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1 text-[11px] font-bold">
-                      <span className="px-2 py-1 rounded-lg bg-gray-100">{conditionLabels[variant.condition || 'used']}</span>
-                      <span className="px-2 py-1 rounded-lg bg-gray-100">{availabilityLabels[variant.availability || 'in_stock']}</span>
-                      {isBest && <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700">Лучший</span>}
-                    </div>
-                    <p className="text-xs text-gray-600 truncate">{variant.locationText || variant.location || 'Локация не указана'}</p>
-                    {variant.note && <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1 font-semibold">📝 {variant.note}</p>}
-                    <div className="flex gap-2 pt-1">
-                      <button type="button" onClick={() => openWhatsapp(variant)} className="h-8 px-3 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-black">WhatsApp</button>
-                      <button type="button" onClick={() => openRoute(variant)} className="h-8 px-3 rounded-lg bg-blue-50 text-blue-700 text-xs font-black">Маршрут</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </div>
+
+      {!isAdding && (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/80 bg-white/95 px-4 pb-[max(10px,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-8px_22px_rgba(15,23,42,0.045)] backdrop-blur-xl">
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              disabled={!depositPaid}
+              onClick={() => { if (!depositPaid) return; setIsAdding(true); setEditingVariantId(null); }}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-blue-600 text-sm font-black text-white shadow-[0_8px_20px_rgba(37,99,235,0.2)] active:scale-[0.98] disabled:opacity-45"
+            >
+              <Plus size={21} /> Добавить вариант
+            </button>
+            <button
+              type="button"
+              disabled={!depositPaid}
+              onClick={() => setShowLibraryPicker(true)}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white text-sm font-black text-slate-950 shadow-sm active:scale-[0.98] disabled:opacity-45"
+            >
+              <ClipboardPaste size={18} /> Из базы данных
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showAddOptionsSheet && (
+        <div className="fixed inset-0 z-[120] flex items-end bg-black/35 backdrop-blur-sm" onClick={() => setShowAddOptionsSheet(false)}>
+          <div className="w-full rounded-t-[28px] bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
+            <div className="space-y-2">
+              <button type="button" disabled={!depositPaid} onClick={() => { setShowAddOptionsSheet(false); if (!depositPaid) return; setIsAdding(true); setEditingVariantId(null); }} className="flex h-14 w-full items-center gap-3 rounded-2xl bg-blue-600 px-4 text-left text-sm font-black text-white disabled:opacity-45">
+                <Plus size={22} /> Добавить новый вариант
+              </button>
+              <button type="button" disabled={!depositPaid} onClick={() => { setShowAddOptionsSheet(false); setShowLibraryPicker(true); }} className="flex h-14 w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 text-left text-sm font-black text-slate-900 disabled:opacity-45">
+                <ClipboardPaste size={20} /> Найти из базы
+              </button>
+              <button type="button" onClick={() => { setShowAddOptionsSheet(false); navigate('/database'); }} className="flex h-14 w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 text-left text-sm font-black text-slate-900">
+                <Store size={20} /> Добавить поставщика
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAfterSaveSheet && (
         <div className="fixed inset-0 z-40 bg-black/30 flex items-end" onClick={() => setShowAfterSaveSheet(false)}>
