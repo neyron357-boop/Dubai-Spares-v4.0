@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" href="/icon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta charset="UTF-8">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <!-- 
+      RELAXED VIEWPORT:
+      Removed user-scalable=no to allow manual pinch-zoom.
+      Kept viewport-fit=cover for notch handling.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Stark Motors</title>
+    <style>
+        /* Base reset */
+        * {
+            -webkit-tap-highlight-color: transparent;
+            box-sizing: border-box;
+        }
+
+        /*
+           MOBILE-SAFE ROOT:
+           The document stays scrollable so iPhone Safari/PWA/WebView can resize
+           the visual viewport without shifting the app shell upward.
+        */
+        html, body {
+            width: 100%;
+            min-height: 100%;
+            overflow-x: hidden;
+            background-color: #f9fafb;
+            -webkit-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+        }
+
+        #root {
+            width: 100%;
+            min-height: 100%;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        html.public-order-form,
+        body.public-order-form {
+            position: static;
+            height: auto;
+            min-height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        #root.public-order-form {
+            height: auto;
+            min-height: 100%;
+            overflow: visible;
+            display: block;
+        }
+
+        body {
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* 
+           INPUT STABILIZATION (The only zoom restriction):
+           font-size: 17px prevents iOS from AUTO-zooming when focusing an input.
+           This allows manual zoom elsewhere, but keeps the keyboard stable.
+        */
+        input, select, textarea {
+            font-size: 17px !important;
+            max-width: 100%;
+            border-radius: 0;
+            touch-action: manipulation;
+        }
+
+        /* Preserve larger text for specific inputs */
+        input.text-4xl { font-size: 2.25rem !important; }
+        input.text-3xl { font-size: 1.875rem !important; }
+        input.text-2xl { font-size: 1.5rem !important; }
+        input.text-xl { font-size: 1.25rem !important; }
+        input.text-lg { font-size: 1.125rem !important; }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+        }
+        
+        main {
+            -webkit-overflow-scrolling: touch;
+        }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+        "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+        "react": "https://esm.sh/react@^19.2.4",
+        "react/": "https://esm.sh/react@^19.2.4/",
+        "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+        "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0"
+      }
+    }
+    </script>
+    <!-- Removed JS gesture blockers to allow pinch-zoom and double-tap zoom -->
+</head>
+<body class="bg-gray-50 text-gray-900 font-sans">
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script></body>
+</html>
