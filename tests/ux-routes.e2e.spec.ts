@@ -55,3 +55,16 @@ test('hash public request route can navigate to NotFound without stale public fo
   await expect(page.locator('#root')).not.toContainText('Stark Motors Concierge');
   expect(fatal).toEqual([]);
 });
+
+
+test('public hash navigation hides staff toast messages', async ({ page }) => {
+  await blockSupabase(page);
+  await page.goto('/#/orders');
+  await expect(page.getByRole('heading', { name: 'Заказы', exact: true })).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: 'error', message: 'QA staff-only supplier failure' } })));
+  await expect(page.getByText('QA staff-only supplier failure')).toBeVisible();
+  await page.evaluate(() => { window.location.hash = '/request'; });
+  await expect(page.getByRole('heading', { name: 'Введите данные автомобиля' })).toBeVisible();
+  await expect(page.getByText('QA staff-only supplier failure')).toHaveCount(0);
+});

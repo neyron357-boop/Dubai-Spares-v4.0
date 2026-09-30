@@ -106,6 +106,7 @@ const MobileLayoutContainer: React.FC<{ children: React.ReactNode }> = ({ childr
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { toggle } = useDebugIndex();
+  useEffect(() => { void initNotificationsFromServer(); }, []);
   const location = useLocation();
   const navigate = useNavigate();
   const { fetchOrders, fetchOrderDetails } = useStore();
@@ -276,10 +277,17 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   );
 };
 
+const isPublicPathname = (pathname: string) => /^\/(?:request|order-form|public-order-form|trust|client-trust)(?:\/|$)/.test(pathname)
+  || /^\/(?:q|tracking)\//.test(pathname);
+
+const InternalToast: React.FC<React.PropsWithChildren> = ({ children }) => {
+  const location = useLocation();
+  return isPublicPathname(location.pathname) ? null : <>{children}</>;
+};
+
 const AccessRoutes: React.FC = () => {
   const location = useLocation();
-  const isPublic = /^\/(?:request|order-form|public-order-form|trust|client-trust)(?:\/|$)/.test(location.pathname)
-    || /^\/(?:q|tracking)\//.test(location.pathname);
+  const isPublic = isPublicPathname(location.pathname);
   if (isPublic) return <Suspense fallback={<RouteFallback />}><Routes>
     <Route path="/request" element={<PublicOrderFormScreen />} />
     <Route path="/order-form" element={<PublicOrderFormScreen />} />
@@ -365,17 +373,6 @@ const CachedRoutes: React.FC = () => {
 const App: React.FC = () => {
   const [savePulse, setSavePulse] = useState(false);
   const [appToast, setAppToast] = useState<{ message: string; tone: 'error' | 'success' | 'info' } | null>(null);
-  const [isBooting, setIsBooting] = useState(true);
-
-  useEffect(() => {
-    const bootTimer = window.setTimeout(() => setIsBooting(false), 240);
-    return () => window.clearTimeout(bootTimer);
-  }, []);
-
-  useEffect(() => {
-    void initNotificationsFromServer();
-  }, []);
-
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -430,7 +427,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-[100dvh]">
-      <div className={`min-h-[100dvh] transition-all duration-500 ${isBooting ? 'opacity-0 scale-[0.985]' : 'opacity-100'}`}>
+      <div className="min-h-[100dvh]">
         <div className={`fixed right-3 top-3 z-[90] pointer-events-none transition-all duration-500 ${savePulse ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/92 text-white shadow-lg shadow-emerald-950/15 ring-1 ring-white/60">
             <Check size={14} strokeWidth={3} />
@@ -439,21 +436,19 @@ const App: React.FC = () => {
 
 
 
-        {appToast && (
-          <div role="status" aria-live="polite"
-            className={`fixed top-14 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide shadow ${
-              appToast.tone === 'error'
-                ? 'bg-rose-100 text-rose-700'
-                : appToast.tone === 'success'
-                ? 'bg-emerald-100 text-emerald-700'
-                : 'bg-slate-100 text-slate-700'
-            }`}
-          >
-            {appToast.message}
-          </div>
-        )}
 
         <HashRouter>
+          <InternalToast>
+            {appToast && (
+              <div role="status" aria-live="polite"
+                className={`fixed top-14 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide shadow ${
+                  appToast.tone === 'error' ? 'bg-rose-100 text-rose-700'
+                    : appToast.tone === 'success' ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-slate-100 text-slate-700'
+                }`}
+              >{appToast.message}</div>
+            )}
+          </InternalToast>
           <AccessRoutes />
         </HashRouter>
       </div>
