@@ -368,7 +368,7 @@ export const sendBrowserNotification = async (
       ...options,
       data,
       vibrate: options.vibrate || [220, 120, 220],
-      badge: '/icon-192.png'
+      badge: `${import.meta.env.BASE_URL}icon-192.png`
     } as NotificationOptions;
     await registration.showNotification(title, serviceWorkerOptions);
     return;

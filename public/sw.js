@@ -1,6 +1,7 @@
-const APP_SHELL_CACHE = 'dubai-spares-shell-v9';
+const APP_BASE_PATH = new URL('./', self.location.href).pathname;
+const APP_SHELL_CACHE = 'dubai-spares-shell-v10';
 const RUNTIME_IMAGE_CACHE = 'dubai-spares-runtime-images-v1';
-const APP_SHELL_FILES = ['/', '/index.html', '/manifest.json', '/icon-32.png', '/icon-180.png', '/icon-192.png', '/icon-512.png'];
+const APP_SHELL_FILES = ['', 'index.html', 'manifest.json', 'icon-32.png', 'icon-180.png', 'icon-192.png', 'icon-512.png'].map((file) => `${APP_BASE_PATH}${file}`);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(APP_SHELL_CACHE).then((cache) => cache.addAll(APP_SHELL_FILES)));
@@ -45,7 +46,8 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
-  const isPublicTrackingRoute = request.mode === 'navigate' && (url.pathname.startsWith('/quote/') || url.pathname.startsWith('/order/') || url.hash.startsWith('#/q/'));
+  const appPathname = url.pathname.startsWith(APP_BASE_PATH) ? `/${url.pathname.slice(APP_BASE_PATH.length)}` : url.pathname;
+  const isPublicTrackingRoute = request.mode === 'navigate' && (appPathname.startsWith('/quote/') || appPathname.startsWith('/order/') || url.hash.startsWith('#/q/'));
 
   if (isPublicTrackingRoute) {
     event.respondWith(fetch(request, { cache: 'no-store' }));

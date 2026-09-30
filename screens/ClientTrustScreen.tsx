@@ -53,7 +53,7 @@ const ClientTrustScreen: React.FC = () => (
           </div>
           <div className="flex items-center justify-center">
             <div className="grid h-28 w-28 place-items-center rounded-3xl border border-white/15 bg-white/10">
-              <img src="/icon-512.png" alt="Dubai-Spares" className="h-20 w-20 object-contain" />
+              <img src={`${import.meta.env.BASE_URL}icon-512.png`} alt="Dubai-Spares" className="h-20 w-20 object-contain" />
             </div>
           </div>
         </div>

@@ -27,7 +27,7 @@ const openShareFallback = (text: string) => {
 };
 
 
-const PUBLIC_FORM_BASE_URL = 'https://dubai-spares-cis-ay24a.ondigitalocean.app/public-order-form';
+const getAppBaseUrl = () => new URL(import.meta.env.BASE_URL, window.location.origin);
 
 const createRefCode = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -36,9 +36,12 @@ const createRefCode = () => {
 
 export const buildPublicOrderFormLink = (refCode?: string) => {
   const ref = (refCode || createRefCode()).trim();
+  const url = getAppBaseUrl();
+  url.searchParams.set('ref', ref);
+  url.hash = '/request';
   return {
     refCode: ref,
-    url: `${PUBLIC_FORM_BASE_URL}?ref=${encodeURIComponent(ref)}`
+    url: url.toString()
   };
 };
 
@@ -370,7 +373,7 @@ const buildQuoteSnapshot = (order: Pick<Order,
 export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
   const slug = typeof order === 'string' ? encodeURIComponent(order) : encodeURIComponent(buildPublicQuoteSlug(order));
   const token = options?.snapshotToken || createQuoteToken();
-  const url = new URL(window.location.origin);
+  const url = getAppBaseUrl();
   const params = new URLSearchParams();
   params.set('token', token);
   const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));

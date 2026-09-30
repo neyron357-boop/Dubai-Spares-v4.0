@@ -4,7 +4,7 @@ import { normalizePartQuantity } from './groupItems';
 const getVariantSalePriceAed = (variant: PriceVariant) => Number(variant.salePriceAed ?? variant.priceAed ?? 0);
 
 
-const COMPANY_LOGO_PATH = '/icon-192.png';
+const COMPANY_LOGO_PATH = `${import.meta.env.BASE_URL}icon-192.png`;
 const formatPrice = (price: number) => `${new Intl.NumberFormat('ru-RU').format(Number(price || 0))} AED`;
 const getPartTotalPriceAed = (part: Part, variant: PriceVariant) => getVariantSalePriceAed(variant) * normalizePartQuantity(part.quantity);
 

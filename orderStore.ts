@@ -878,7 +878,7 @@ const notifyAboutIncomingLeads = (previousOrders: Order[], nextOrders: Order[]) 
 
     void sendBrowserNotification(title, {
       body: message,
-      icon: '/icon-192.png',
+      icon: `${import.meta.env.BASE_URL}icon-192.png`,
       tag: `lead-${lead.id}`,
       renotify: true,
       requireInteraction: true,

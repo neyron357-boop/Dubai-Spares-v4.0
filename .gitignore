@@ -3,3 +3,5 @@ dist
 .vite
 .DS_Store
 .env
+.env.local
+.env.production

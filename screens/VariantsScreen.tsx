@@ -49,7 +49,7 @@ const filterOptions: Array<{ key: FilterKey; label: string }> = [
 
 const formatPrice = (price: number) => `${new Intl.NumberFormat('ru-RU').format(Number(price || 0))} AED`;
 const formatDate = (value?: number) => new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(value || Date.now()));
-const COMPANY_LOGO_PATH = '/icon-192.png';
+const COMPANY_LOGO_PATH = `${import.meta.env.BASE_URL}icon-192.png`;
 const normalizePhone = (value: string) => value.replace(/\s+/g, '');
 const trimVin = (value: string) => (value.length > 13 ? `${value.slice(0, 13)}…` : value);
 const resolveVariantMapUrl = (variant: VariantLibraryItem) => {

@@ -187,7 +187,7 @@ const playLeadAlertSound = () => {
 
 if ('serviceWorker' in navigator && !isPublicQuoteRoute) {
   window.addEventListener('load', () => {
-    void navigator.serviceWorker.register('/sw.js').then(async (registration) => {
+    void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).then(async (registration) => {
 
       (window as any).forceServiceWorkerUpdate = async () => {
         const active = registration.active || registration.waiting;

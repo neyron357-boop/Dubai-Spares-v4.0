@@ -1260,7 +1260,7 @@ const SettingsScreen: React.FC = () => {
   const buildSnapshotUrl = (row: { id: string; token: string; snapshot_id?: string | null; payload_json?: unknown; order_id?: string | null }) => {
     const key = buildSnapshotPublicKey(row);
     const slug = buildSnapshotSlug(row);
-    const url = new URL(`${window.location.origin}/#/q/${encodeURIComponent(slug)}`);
+    const url = new URL(`${window.location.origin}${import.meta.env.BASE_URL}#/q/${encodeURIComponent(slug)}`);
     if (key) {
       url.searchParams.set('k', key);
     }

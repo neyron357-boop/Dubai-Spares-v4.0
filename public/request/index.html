@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Stark Motors — Форма заявки</title>
-    <meta http-equiv="refresh" content="0;url=/#/request" />
-    <script>window.location.replace(window.location.origin + '/#/request');</script>
+    <meta http-equiv="refresh" content="0;url=../#/request" />
+    <script>const appPath = window.location.pathname.replace(/\/(?:request|order-form)\/?$/, '/'); window.location.replace(window.location.origin + appPath + window.location.search + '#/request');</script>
     <style>
       body { margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #0f172a; font-family: sans-serif; color: #e2e8f0; }
       .loader { text-align: center; }

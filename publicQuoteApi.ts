@@ -1315,7 +1315,7 @@ export const publicQuoteCreateSnapshot = async (
       }
       const effectiveSnapshotId = (created.snapshot_id || created.id || '').trim();
 
-      const quoteUrl = new URL(window.location.origin);
+      const quoteUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
       quoteUrl.hash = `#/q/${encodeURIComponent(buildPublicQuoteSlug(order))}?k=${encodeURIComponent(`${created.token}.${effectiveSnapshotId}`)}`;
 
       const originalUrl = quoteUrl.toString();
