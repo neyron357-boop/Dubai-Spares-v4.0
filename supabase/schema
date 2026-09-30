@@ -1,26 +1,18 @@
 -- Dubai Spares clean Supabase schema.
--- Apply this after backing up local app data and after dropping old server tables.
+-- Fresh databases only. This script never drops application tables.
 -- App images are compressed client-side before upload (see storage/photos.ts).
 
+-- Bootstrap only: an existing database must use reviewed, additive migrations.
+-- Fail before changing anything when application tables already exist.
+begin;
+do $$
+begin
+  if to_regclass('public.orders') is not null or to_regclass('public.app_state') is not null then
+    raise exception 'Existing application detected. Use an additive migration; bootstrap is intentionally blocked.';
+  end if;
+end $$;
+
 create extension if not exists pgcrypto;
-
-drop view if exists public.v_radar_active_targets cascade;
-drop view if exists public.v_shops_enriched cascade;
-
-drop table if exists public.radar_target_items cascade;
-drop table if exists public.radar_targets cascade;
-drop table if exists public.radar_events cascade;
-drop table if exists public.radar_sessions cascade;
-drop table if exists public.order_items cascade;
-drop table if exists public.activity_notifications cascade;
-drop table if exists public.client_leads cascade;
-drop table if exists public.public_quote_snapshots cascade;
-drop table if exists public.price_variants cascade;
-drop table if exists public.parts cascade;
-drop table if exists public.orders cascade;
-drop table if exists public.shops cascade;
-drop table if exists public.backups cascade;
-drop table if exists public.app_state cascade;
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -572,3 +564,5 @@ begin
     $policy$;
   end if;
 end $$;
+
+commit;

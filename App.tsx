@@ -1,3 +1,4 @@
+import StaffAccessGate from './components/StaffAccessGate';
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { HashRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import OrdersScreen from './screens/OrdersScreen';
@@ -275,6 +276,22 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   );
 };
 
+const AccessRoutes: React.FC = () => {
+  const location = useLocation();
+  const isPublic = /^\/(?:request|order-form|public-order-form|trust|client-trust)(?:\/|$)/.test(location.pathname)
+    || /^\/(?:q|tracking)\//.test(location.pathname);
+  if (isPublic) return <Suspense fallback={<RouteFallback />}><Routes>
+    <Route path="/request" element={<PublicOrderFormScreen />} />
+    <Route path="/order-form" element={<PublicOrderFormScreen />} />
+    <Route path="/public-order-form" element={<PublicOrderFormScreen />} />
+    <Route path="/trust" element={<ClientTrustScreen />} />
+    <Route path="/client-trust" element={<ClientTrustScreen />} />
+    <Route path="/q/:orderId" element={<HashPublicQuoteRoute />} />
+    <Route path="/tracking/:orderId" element={<HashPublicQuoteRoute />} />
+  </Routes></Suspense>;
+  return <StaffAccessGate><Layout><CachedRoutes /></Layout></StaffAccessGate>;
+};
+
 const CachedRoutes: React.FC = () => {
   const location = useLocation();
   const [cachedPaths, setCachedPaths] = useState<string[]>(() => [location.pathname]);
@@ -404,22 +421,6 @@ const App: React.FC = () => {
 
 
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      const target = e.target as HTMLInputElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'SELECT') {
-        e.preventDefault();
-        const form = target.form;
-        if (form) {
-          const index = Array.prototype.indexOf.call(form, target);
-          const next = form.elements[index + 1] as HTMLElement;
-          if (next) next.focus({ preventScroll: true });
-          else target.blur();
-        }
-      }
-    }
-  };
-
   const normalizedPath = window.location.pathname.toLowerCase().replace(/\/+$/, '');
   const isDirectPublicOrderFormPath = normalizedPath.endsWith('/request') || normalizedPath.endsWith('/order-form') || normalizedPath.endsWith('/public-order-form');
 
@@ -428,7 +429,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div onKeyDown={handleKeyDown} className="min-h-[100dvh]">
+    <div className="min-h-[100dvh]">
       <div className={`min-h-[100dvh] transition-all duration-500 ${isBooting ? 'opacity-0 scale-[0.985]' : 'opacity-100'}`}>
         <div className={`fixed right-3 top-3 z-[90] pointer-events-none transition-all duration-500 ${savePulse ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/92 text-white shadow-lg shadow-emerald-950/15 ring-1 ring-white/60">
@@ -439,7 +440,7 @@ const App: React.FC = () => {
 
 
         {appToast && (
-          <div
+          <div role="status" aria-live="polite"
             className={`fixed top-14 left-1/2 -translate-x-1/2 z-[95] px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide shadow ${
               appToast.tone === 'error'
                 ? 'bg-rose-100 text-rose-700'
@@ -453,9 +454,7 @@ const App: React.FC = () => {
         )}
 
         <HashRouter>
-          <Layout>
-            <CachedRoutes />
-          </Layout>
+          <AccessRoutes />
         </HashRouter>
       </div>
     </div>

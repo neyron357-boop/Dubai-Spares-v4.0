@@ -1,28 +1,43 @@
-name: CI
+name: Quality checks
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  typecheck-and-build:
+  quality:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck
-        run: npx tsc --noEmit
-
-      - name: Build
-        run: npm run build
+      - run: npm ci
+      - name: Types, correctness lint, unit tests and production build
+        run: npm run check
+      - name: Dependency audits
+        run: |
+          npm audit --audit-level=low
+          npm ci --prefix api
+          npm test --prefix api
+          npm audit --prefix api --audit-level=low
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser workflows with isolated data
+        run: npm run test:e2e
+      - name: Staff access workflows with mocked authentication
+        run: npm run test:auth
+      - name: Save browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-failures
+          path: test-results/
+          retention-days: 7

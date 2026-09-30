@@ -4,13 +4,13 @@ import { useStore } from '../store';
 import { Order, OrderPricingEvent, Part, Priority, Source, OrderNote, Shop, VoiceNoteAudio, ChatAttachment } from '../types';
 import { buildShopMapLink, getShopOrderMatchScore, getShopRecommendationDiagnostics, getShopRecommendationLevel, isBrandMatch, isShopCompatibleWithOrder } from '../shopMatching';
 import { SOURCES } from '../constants';
-import { 
-  ArrowLeft, 
-  FileText, 
-  ChevronRight, 
+import {
+  ArrowLeft,
+  FileText,
+  ChevronRight,
   ChevronDown,
   ChevronUp,
-  Package, 
+  Package,
   CheckCircle2,
   Circle,
   Plus,
@@ -68,7 +68,7 @@ import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '
 import { getOrderCustomerLogs } from '../customerEngagement';
 import { isLikelyGoogleDriveUrl, normalizeExternalMediaUrl, openExternalMediaUrl } from '../utils/externalMedia';
 import { deriveSafetySalesSummary } from '../utils/safetySales';
-import { calculateOrderDiscountAed, getFinanceVariant as resolveFinanceVariant, getPricedPartLines } from '../utils/quotePricing';
+import { calculateOrderTotals, getFinanceVariant as resolveFinanceVariant, getPricedPartLines } from '../utils/quotePricing';
 import { publicQuoteCreateSnapshot } from '../publicQuoteApi';
 import SafeImage from '../components/SafeImage';
 
@@ -444,7 +444,7 @@ const OrderDetailsScreen: React.FC = () => {
   } satisfies Order);
   const savedQuoteRates = useMemo(() => normalizeQuoteRates(settings.defaultQuoteRates, settings.defaultExchangeRate || order.exchangeRate || 3.67), [order.exchangeRate, settings.defaultExchangeRate, settings.defaultQuoteRates]);
   const preferredExchangeRate = Number(settings.defaultExchangeRate || usdToAedFromQuoteRates(savedQuoteRates) || order.exchangeRate || 3.67);
-  
+
   // State for handling missing order
   const [retryAttempts, setRetryAttempts] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -725,11 +725,11 @@ const OrderDetailsScreen: React.FC = () => {
 
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || orderMissing) return;
     const currentOrder = orders.find((item) => item.id === id);
     if (currentOrder && (currentOrder.isLead || (currentOrder.parts && currentOrder.parts.length > 0))) return;
     void fetchOrderDetails(id);
-  }, [id, orders, fetchOrderDetails]);
+  }, [id, orderMissing, orders, fetchOrderDetails]);
   useEffect(() => {
     if (orderMissing) return;
     if (order.leadSource === 'public_form' && order.leadUnread) {
@@ -815,29 +815,25 @@ const OrderDetailsScreen: React.FC = () => {
       });
   }, [order, shops, shopsLoaded]);
 
-  // Auto-retry loading order if not found
+  // One request sequence owns its loading state. State updates cannot cancel its own cleanup.
   useEffect(() => {
-    if (!id || !orderMissing || isLoading || isRetrying || retryAttempts >= MAX_RETRY_ATTEMPTS) return;
-    
+    if (!id || !orderMissing) return;
     let cancelled = false;
-    const retryTimer = window.setTimeout(() => {
-      if (cancelled) return;
-      console.log(`[OrderDetailsScreen] Order not found, retrying... (attempt ${retryAttempts + 1}/${MAX_RETRY_ATTEMPTS})`);
-      setIsRetrying(true);
-      setRetryAttempts(prev => prev + 1);
-      
-      fetchOrderDetails(id)
-        .catch(err => console.error('[OrderDetailsScreen] Retry failed:', err))
-        .finally(() => {
-          if (!cancelled) setIsRetrying(false);
-        });
-    }, 1000); // Wait 1 second before retrying
-    
-    return () => {
-      cancelled = true;
-      window.clearTimeout(retryTimer);
-    };
-  }, [id, orderMissing, isLoading, isRetrying, retryAttempts, fetchOrderDetails]);
+    setRetryAttempts(0);
+    setIsRetrying(true);
+    void (async () => {
+      try {
+        for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS && !cancelled; attempt++) {
+          if (attempt > 1) await new Promise((resolve) => window.setTimeout(resolve, 500));
+          if (cancelled) break;
+          setRetryAttempts(attempt);
+          try { await fetchOrderDetails(id); }
+          catch (error) { console.warn('[order:load]', error); }
+        }
+      } finally { if (!cancelled) setIsRetrying(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [id, orderMissing, fetchOrderDetails]);
 
   const currentQuoteRates = useMemo(() => {
     const next = normalizeQuoteRates(savedQuoteRates, preferredExchangeRate);
@@ -1041,18 +1037,21 @@ const OrderDetailsScreen: React.FC = () => {
   const effectiveDiscountPercent = Number(draftFields.discountPercent ?? order.discountPercent ?? 0);
   const pricingPreviewOrder = useMemo(() => ({
     ...order,
+    logistics: { ...order.logistics, ...logistics },
+    exchangeRate: effectiveExchangeRate,
     markupPercent: effectiveMarkupPercent,
     markupFixedAed: markupType === 'fixed' ? Number(markupFixedInput || 0) : order.markupFixedAed,
     discountPercent: effectiveDiscountPercent,
     discountFixedAed: discountType === 'fixed' ? Number(discountFixedInput || 0) : order.discountFixedAed
-  }), [order, effectiveMarkupPercent, markupType, markupFixedInput, effectiveDiscountPercent, discountType, discountFixedInput]);
-  const pricedPartLines = useMemo(() => getPricedPartLines(pricingPreviewOrder), [pricingPreviewOrder]);
-  const markupAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.markupShareAed, 0), [pricedPartLines]);
-  const sellPartsTotalAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.clientLineTotalAed, 0), [pricedPartLines]);
-  const discountAed = useMemo(() => calculateOrderDiscountAed(sellPartsTotalAed + logisticsWithCargoTotal, pricingPreviewOrder), [logisticsWithCargoTotal, pricingPreviewOrder, sellPartsTotalAed]);
-  const sellTotalAed = sellPartsTotalAed + logisticsWithCargoTotal;
-  const depositAmountAed = Math.max(0, Number(order.searchDepositAmountAed || 0));
-  const balanceDueAed = Math.max(0, sellTotalAed - depositAmountAed);
+  }), [order, logistics, effectiveExchangeRate, effectiveMarkupPercent, markupType, markupFixedInput, effectiveDiscountPercent, discountType, discountFixedInput]);
+  const pricingTotals = useMemo(() => calculateOrderTotals(pricingPreviewOrder), [pricingPreviewOrder]);
+  const pricedPartLines = pricingTotals.lines;
+  const markupAed = pricingTotals.markupAed;
+  const sellPartsTotalAed = pricingTotals.partsTotalAed;
+  const discountAed = pricingTotals.discountAed;
+  const sellTotalAed = pricingTotals.totalAed;
+  const depositAmountAed = pricingTotals.depositAed;
+  const balanceDueAed = pricingTotals.balanceDueAed;
   const canComputeProfit = selectedOfferTotal > 0;
   const baseMarginAed = canComputeProfit ? selectedOfferTotals.sale - selectedOfferTotals.purchase : 0;
   const netProfitAed = canComputeProfit ? baseMarginAed + markupAed - discountAed : null;
@@ -2084,11 +2083,11 @@ const OrderDetailsScreen: React.FC = () => {
       setShowSellConfirm(false);
     } else {
       const finalProfit = calculateCurrentProfit();
-      const ok = await updateOrder({ 
-        ...order, 
-        isSold: true, 
-        isArchived: true, 
-        soldProfitUsd: finalProfit 
+      const ok = await updateOrder({
+        ...order,
+        isSold: true,
+        isArchived: true,
+        soldProfitUsd: finalProfit
       });
       setShowSellConfirm(false);
       if (ok) navigate('/orders');
@@ -3929,7 +3928,7 @@ const OrderDetailsScreen: React.FC = () => {
     );
   };
 
-  if (orderMissing && (isLoading || isRetrying || retryAttempts < MAX_RETRY_ATTEMPTS)) {
+  if (orderMissing && (isRetrying || retryAttempts < MAX_RETRY_ATTEMPTS)) {
     return (
       <div className="p-4 space-y-4 animate-pulse" role="status" aria-live="polite">
         <p className="text-xs font-black uppercase tracking-wide text-slate-400">Загрузка заказа...</p>
@@ -3973,7 +3972,7 @@ const OrderDetailsScreen: React.FC = () => {
           <button
             type="button"
             onClick={() => {
-              setRetryAttempts(0);
+              setRetryAttempts(MAX_RETRY_ATTEMPTS);
               setIsRetrying(true);
               if (id) {
                 fetchOrderDetails(id)
@@ -4345,109 +4344,9 @@ const OrderDetailsScreen: React.FC = () => {
                 </section>
               )}
 
-              {false && isEditMode && (
-              <section className="space-y-3">
-                <button type="button" onClick={() => setIsClientBlockExpanded((prev) => !prev)} className="ds-press flex w-full items-center justify-between gap-3 py-2 text-left">
-                  <span>
-                    <span className="block text-[12px] font-black text-stone-500">Клиент</span>
-                    <span className="mt-1 block text-base font-black text-stone-950">{String(draftFields.clientName ?? order.clientName ?? 'Без имени')}</span>
-                  </span>
-                  {isClientBlockExpanded ? <ChevronUp size={17} className="text-stone-500" /> : <ChevronDown size={17} className="text-stone-500" />}
-                </button>
-                {isClientBlockExpanded && (
-                  <div className="ds-surface space-y-3 rounded-[24px] p-4">
-                    <div className="grid grid-cols-1 gap-3">
-                      <label className="space-y-1">
-                        <span className="flex items-center gap-1.5 text-[11px] font-bold text-stone-400"><User size={12} /> Клиент</span>
-                        <input type="text" value={String(draftFields.clientName ?? order.clientName ?? '')} readOnly={!isEditMode} onChange={(e) => updateOrderField('clientName', e.target.value)} onBlur={() => flushDeferredOrderField('clientName')} placeholder="Имя клиента" className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="flex items-center gap-1.5 text-[11px] font-bold text-stone-400"><Smartphone size={12} /> Телефон</span>
-                        <div className="flex gap-2">
-                          <input type="tel" value={String(draftFields.customerContact ?? order.customerContact ?? '')} readOnly={!isEditMode} onChange={(e) => updateOrderField('customerContact', e.target.value)} onBlur={() => flushDeferredOrderField('customerContact')} placeholder="+971..." className="ds-input h-12 min-w-0 flex-1 rounded-2xl border-0 px-4 text-sm font-black text-stone-950 outline-none" />
-                          <button type="button" onClick={() => void copyText(order.customerContact || '', 'Телефон скопирован')} disabled={!order.customerContact} className="ds-press flex h-12 w-12 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:opacity-35" aria-label="Скопировать телефон"><Copy size={16} /></button>
-                        </div>
-                      </label>
-                    </div>
-                    <div className="grid grid-cols-1 gap-2">
-                      <select value={String(draftFields.source ?? order.source)} onChange={(e) => updateOrderField('source', e.target.value)} disabled={!isEditMode} className="ds-input h-12 rounded-2xl border-0 px-3 text-xs font-black text-stone-800 outline-none">
-                        {SOURCES.map((source) => <option key={source} value={source}>{source}</option>)}
-                      </select>
-                    </div>
-                    {(sourceLabel.includes('instagram') || sourceLabel.includes('tiktok') || sourceLabel.includes('telegram')) && (
-                      <div className="ds-input flex items-center justify-between gap-2 rounded-2xl px-3 py-2">
-                        <span className="min-w-0 truncate text-xs font-bold text-stone-500">{(draftFields.socialNickname ?? order.socialNickname ?? '') ? 'Соцсеть сохранена' : 'Нет соцсети'}</span>
-                        <button type="button" onClick={saveSocialNickname} className="rounded-full bg-white px-3 py-2 text-[11px] font-black text-stone-800">{(draftFields.socialNickname ?? order.socialNickname ?? '') ? 'Изменить' : 'Добавить'}</button>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-[1fr_auto] gap-2">
-                      <button type="button" onClick={openClientChannel} disabled={!getClientChannelLink() && (!(order.customerContact || '').replace(/[^\d]/g, '').length || (order.customerContact || '').replace(/[^\d]/g, '').length < 8)} className="ds-press inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.08em] text-white disabled:opacity-40">
-                        <MessageCircle size={16} /> {contactActionLabel}
-                      </button>
-                      <button type="button" onClick={() => setShowCustomerLogs(true)} className="ds-press inline-flex h-12 items-center justify-center rounded-2xl bg-stone-100 px-4 text-stone-700" aria-label="История клиента"><History size={17} /></button>
-                    </div>
-                  </div>
-                )}
-              </section>
-              )}
 
-              {false && isEditMode && (
-              <section ref={vehicleSectionRef} className="space-y-3">
-                <button type="button" onClick={() => setIsVehicleDetailsExpanded((prev) => !prev)} className="ds-press flex w-full items-center justify-between gap-3 py-2 text-left">
-                  <span>
-                    <span className="block text-[12px] font-black text-stone-500">Автомобиль</span>
-                    <span className="mt-1 block text-base font-black text-stone-950">{order.brand || 'Марка'} {order.model || 'Модель'} {order.year || ''}</span>
-                  </span>
-                  {isVehicleDetailsExpanded ? <ChevronUp size={17} className="text-stone-500" /> : <ChevronDown size={17} className="text-stone-500" />}
-                </button>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    ['VIN', order.vin || 'Не указан', vinIsValid ? 'Готово' : vinIsIncomplete ? 'Проверить' : 'Нет'],
-                    ['Рынок', heroMarketRegion, order.vehicleDetails?.marketRegion ? 'Указан' : 'Открыто'],
-                    ['Двигатель', order.vehicleDetails?.engineType || order.vehicleDetails?.engineCode || 'Не указан', 'Спецификация'],
-                    ['Кузов', order.bodyType || 'Не указан', 'Кузов']
-                  ].map(([label, value, meta]) => (
-                    <div key={label} className={`ds-surface rounded-[20px] px-4 py-3 ${label === 'VIN' ? 'col-span-2' : ''}`}>
-                      <p className="text-[10px] font-black text-stone-400">{label}</p>
-                      <p className={`mt-1 text-sm font-black text-stone-950 ${label === 'VIN' ? 'break-all font-mono text-[13px] leading-5' : 'truncate'}`}>{value}</p>
-                      <p className="mt-1 text-[10px] font-bold text-stone-400">{meta}</p>
-                    </div>
-                  ))}
-                </div>
-                {isVehicleDetailsExpanded && (
-                  <div className="ds-surface space-y-3 rounded-[24px] p-4">
-                    <div className="grid grid-cols-2 gap-2">
-                      <input type="text" value={String(draftFields.vin ?? order.vin ?? '')} readOnly={!isEditMode} onChange={(e) => updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))} onBlur={() => flushDeferredOrderField('vin')} placeholder="VIN" className="ds-input col-span-2 h-12 rounded-2xl border-0 px-4 text-sm font-black uppercase text-stone-950 outline-none" />
-                      <button type="button" onClick={pasteVinFromClipboard} className="ds-press h-11 rounded-2xl bg-stone-950 px-3 text-xs font-black text-white">Вставить VIN</button>
-                      <button type="button" onClick={() => carFileRef.current?.click()} className="ds-press h-11 rounded-2xl bg-stone-100 px-3 text-xs font-black text-stone-800">Добавить медиа</button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <select value={String((draftFields.vehicleDetails?.marketRegion) ?? (order.vehicleDetails?.marketRegion ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), marketRegion: (e.target.value || undefined) })} onBlur={() => flushDeferredOrderField('vehicleDetails')} disabled={!isEditMode} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none">
-                        <option value="">Рынок</option>
-                        {VEHICLE_MARKET_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                      </select>
-                      <select value={String((draftFields.vehicleDetails?.transmission) ?? (order.vehicleDetails?.transmission ?? ''))} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), transmission: (e.target.value || undefined) })} onBlur={() => flushDeferredOrderField('vehicleDetails')} disabled={!isEditMode} className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none">
-                        <option value="">КПП</option>
-                        {VEHICLE_TRANSMISSION_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                      </select>
-                      <input type="text" value={String((draftFields.vehicleDetails?.engineType) ?? (order.vehicleDetails?.engineType ?? ''))} readOnly={!isEditMode} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), engineType: e.target.value })} onBlur={() => flushDeferredOrderField('vehicleDetails')} placeholder="Двигатель" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
-                      <input type="text" value={String((draftFields.vehicleDetails?.color) ?? (order.vehicleDetails?.color ?? ''))} readOnly={!isEditMode} onChange={(e) => updateOrderField('vehicleDetails', { ...(order.vehicleDetails || {}), ...(draftFields.vehicleDetails || {}), color: e.target.value })} onBlur={() => flushDeferredOrderField('vehicleDetails')} placeholder="Цвет" className="ds-input h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
-                      <input type="text" value={String(draftFields.bodyType ?? order.bodyType ?? '')} readOnly={!isEditMode} onChange={(e) => updateOrderField('bodyType', e.target.value)} onBlur={() => flushDeferredOrderField('bodyType')} placeholder="Кузов" className="ds-input col-span-2 h-11 rounded-2xl border-0 px-3 text-xs font-black outline-none" />
-                    </div>
-                    {getCarPhotos().length > 0 && (
-                      <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                        {getCarPhotos().map((photo, index) => (
-                          <div key={`${photo}-${index}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-stone-200">
-                            <button type="button" onClick={() => setGallery({ images: getCarPhotos(), index })} className="h-full w-full"><SafeImage src={photo} alt="Автомобиль" className="h-full w-full object-cover" /></button>
-                            {isEditMode && <button type="button" onClick={() => removeCarPhoto(index)} className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Удалить фото"><X size={11} /></button>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </section>
-              )}
+
+
 
               <section className="ds-surface rounded-[26px] p-4">
                 <div className="flex items-center justify-between gap-3">
@@ -4491,7 +4390,7 @@ const OrderDetailsScreen: React.FC = () => {
                 )}
               </section>
 
-              
+
 
               <section className="ds-surface space-y-2 rounded-[22px] p-3">
                 <div className="flex items-center justify-between gap-3">
@@ -4571,30 +4470,7 @@ const OrderDetailsScreen: React.FC = () => {
                 })()}
               </section>
 
-              {false && settings.orderZones && settings.orderZones.length > 0 && (
-                <section className="space-y-2">
-                  <p className="text-[12px] font-black text-stone-600">Зона сервиса</p>
-                  <div className="flex flex-wrap gap-2">
-                    {((order.zones ?? []).length > 0 ? (order.zones ?? []) : order.zone ? [order.zone] : []).map((zone, index) => (
-                      <button key={`${zone}-${index}`} type="button" onClick={() => {
-                        const current = (order.zones ?? []).length > 0 ? (order.zones ?? []) : (order.zone ? [order.zone] : []);
-                        updateOrderZones(current.filter((_, currentIndex) => currentIndex !== index));
-                      }} className="ds-press inline-flex items-center gap-2 rounded-full bg-stone-950 px-3 py-2 text-[11px] font-black text-white">
-                        {zone}<X size={12} />
-                      </button>
-                    ))}
-                    <select value="" onChange={(event) => {
-                      const selected = event.target.value;
-                      if (!selected) return;
-                      const current = order.zones && order.zones.length > 0 ? order.zones : (order.zone ? [order.zone] : []);
-                      if (!current.includes(selected)) updateOrderZones([...current, selected]);
-                    }} className="ds-input h-9 rounded-full border-0 px-3 text-[11px] font-black text-stone-700 outline-none">
-                      <option value="">Добавить зону</option>
-                      {settings.orderZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
-                    </select>
-                  </div>
-                </section>
-              )}
+
             </div>
           )}
 
@@ -5385,110 +5261,10 @@ const OrderDetailsScreen: React.FC = () => {
               </form>
           )}
           {activeTab === 'notes' && renderChatComposer('note')}
-          {false && activeTab === 'notes' && (
-            <form onSubmit={(event) => { event.preventDefault(); addNote(); }} className="space-y-2">
-              {(newNoteText.trim().length > 0 || newNotePhotos.length > 0 || newNoteAudios.length > 0) && <div className="rounded-2xl bg-white px-3 py-2 text-xs font-bold text-stone-500">Черновик заметки активен</div>}
-              {isRecording ? (
-                <div className="rounded-[28px] border border-rose-100 bg-white/96 p-2 shadow-[0_18px_46px_rgba(15,23,42,0.16)] ring-1 ring-white/70">
-                  <div className="flex items-center gap-2">
-                    <button type="button" onClick={requestCancelRecording} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600" aria-label="Отменить запись"><X size={18} /></button>
-                    <div className="min-w-0 flex-1 rounded-[22px] bg-[#F4F6F8] px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="relative flex h-3 w-3 shrink-0">
-                          {!isRecordingPaused && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-60" />}
-                          <span className={`relative inline-flex h-3 w-3 rounded-full ${isRecordingPaused ? 'bg-amber-400' : 'bg-rose-500'}`} />
-                        </span>
-                        <span className="font-mono text-[13px] font-black text-stone-950">{formatSeconds(recordingElapsedSeconds)}</span>
-                        <span className="truncate text-[11px] font-black text-stone-400">{isRecordingPaused ? 'Пауза' : 'Голос записывается'}</span>
-                      </div>
-                      <div className="mt-1.5 flex h-8 items-center gap-0.5">
-                        {recordingWaveform.slice(-32).map((height, index) => (
-                          <span key={`note-recording-wave-${index}`} className={`block flex-1 rounded-full transition-all ${isRecordingPaused ? 'bg-amber-300' : 'bg-rose-400'}`} style={{ height: `${Math.max(18, height * 0.78)}%` }} />
-                        ))}
-                      </div>
-                    </div>
-                    <button type="button" onClick={toggleRecordingPause} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700" aria-label={isRecordingPaused ? 'Продолжить запись' : 'Пауза'}>{isRecordingPaused ? <Play size={17} className="ml-0.5" /> : <Pause size={17} />}</button>
-                    <button type="button" onClick={() => void toggleRecording()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-[0_12px_26px_rgba(16,185,129,0.28)]" aria-label="Сохранить запись"><Check size={20} /></button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-end gap-2">
-                  <button type="button" onClick={() => noteFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Прикрепить фото"><ImageIcon size={18} /></button>
-                  <button type="button" onClick={() => void toggleRecording()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Записать голос"><Mic size={18} /></button>
-                  <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2"><textarea value={newNoteText} onChange={(event) => setNewNoteText(event.target.value)} placeholder="Сообщение..." rows={1} className="no-scrollbar max-h-24 min-h-8 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-bold leading-6 text-stone-900 outline-none placeholder:text-stone-400" /></div>
-                  <button type="submit" disabled={!newNoteText.trim() && newNotePhotos.length === 0 && newNoteAudios.length === 0} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить заметку"><Send size={17} /></button>
-                </div>
-              )}
-              <input type="file" ref={noteFileRef} onChange={handleNotePhotoChange} className="hidden" accept="image/*" multiple />
-              <input type="file" ref={noteAudioFileRef} onChange={handleNoteAudioFileChange} className="hidden" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.opus,.wav,.webm" multiple />
-            </form>
-          )}
+
           {activeTab === 'overview' && <button type="button" onClick={() => void shareQuote()} className="ds-press flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-stone-950 text-xs font-black uppercase tracking-[0.08em] text-white">Отправить / обновить смету<ChevronRight size={15} /></button>}
           {activeTab === 'proof' && renderChatComposer('proof')}
-          {false && activeTab === 'proof' && (
-            <form onSubmit={(event) => { event.preventDefault(); addClientProofNote(); }} className="space-y-2">
-              {(newProofPhotos.length > 0 || newProofAudios.length > 0) && (
-                <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                  {newProofPhotos.map((photo, index) => (
-                    <div key={`${photo}-${index}`} className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-stone-200">
-                      <SafeImage src={photo} alt="Proof draft" className="h-full w-full object-cover" />
-                      <button type="button" onClick={() => removeNewProofPhoto(index)} className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Удалить фото"><X size={11} /></button>
-                    </div>
-                  ))}
-                  {newProofAudios.map((audioItem, index) => {
-                    const voice = toVoiceNoteAudio(audioItem);
-                    return (
-                      <button key={`proof-draft-audio-${voice.id}`} type="button" onClick={() => removeNewProofAudio(index)} className="ds-press inline-flex h-12 shrink-0 items-center gap-2 rounded-2xl bg-white px-3 text-[11px] font-black text-stone-700">
-                        <Mic size={14} /> {formatSeconds(voice.duration)} <X size={11} />
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {proofComposerMode === 'video' ? (
-                <div className="flex items-end gap-2">
-                  <button type="button" onClick={() => setProofComposerMode('message')} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Текст"><FileText size={18} /></button>
-                  <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2">
-                    <input type="url" value={newProofVideoUrl} onChange={(event) => setNewProofVideoUrl(event.target.value)} placeholder="Ссылка на видео..." className="h-8 w-full border-0 bg-transparent text-sm font-bold text-stone-900 outline-none placeholder:text-stone-400" />
-                  </div>
-                  <button type="submit" disabled={!newProofVideoUrl.trim()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить видео"><Send size={17} /></button>
-                </div>
-              ) : isRecording ? (
-                <div className="rounded-[28px] border border-rose-100 bg-white/96 p-2 shadow-[0_18px_46px_rgba(15,23,42,0.16)] ring-1 ring-white/70">
-                  <div className="flex items-center gap-2">
-                    <button type="button" onClick={requestCancelRecording} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600" aria-label="Отменить запись"><X size={18} /></button>
-                    <div className="min-w-0 flex-1 rounded-[22px] bg-[#F4F6F8] px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="relative flex h-3 w-3 shrink-0">
-                          {!isRecordingPaused && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-60" />}
-                          <span className={`relative inline-flex h-3 w-3 rounded-full ${isRecordingPaused ? 'bg-amber-400' : 'bg-rose-500'}`} />
-                        </span>
-                        <span className="font-mono text-[13px] font-black text-stone-950">{formatSeconds(recordingElapsedSeconds)}</span>
-                        <span className="truncate text-[11px] font-black text-stone-400">{isRecordingPaused ? 'Пауза' : 'Голос записывается'}</span>
-                      </div>
-                      <div className="mt-1.5 flex h-8 items-center gap-0.5">
-                        {recordingWaveform.slice(-32).map((height, index) => (
-                          <span key={`proof-recording-wave-${index}`} className={`block flex-1 rounded-full transition-all ${isRecordingPaused ? 'bg-amber-300' : 'bg-rose-400'}`} style={{ height: `${Math.max(18, height * 0.78)}%` }} />
-                        ))}
-                      </div>
-                    </div>
-                    <button type="button" onClick={toggleRecordingPause} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700" aria-label={isRecordingPaused ? 'Продолжить запись' : 'Пауза'}>{isRecordingPaused ? <Play size={17} className="ml-0.5" /> : <Pause size={17} />}</button>
-                    <button type="button" onClick={() => void toggleRecording()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-[0_12px_26px_rgba(16,185,129,0.28)]" aria-label="Сохранить запись"><Check size={20} /></button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-end gap-2">
-                  <button type="button" onClick={() => proofFileRef.current?.click()} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Добавить фото"><ImageIcon size={18} /></button>
-                  <button type="button" onClick={() => setProofComposerMode('video')} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Добавить видео"><Video size={18} /></button>
-                  <button type="button" onClick={() => void toggleRecording('proof')} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700" aria-label="Записать голос"><Mic size={18} /></button>
-                  <div className="min-w-0 flex-1 rounded-2xl bg-white px-3 py-2">
-                    <textarea value={newProofText} onChange={(event) => setNewProofText(event.target.value)} placeholder="Текст клиенту..." rows={1} className="no-scrollbar max-h-24 min-h-8 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-bold leading-6 text-stone-900 outline-none placeholder:text-stone-400" />
-                  </div>
-                  <button type="submit" disabled={!newProofText.trim() && newProofPhotos.length === 0 && newProofAudios.length === 0} className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:bg-stone-200 disabled:text-stone-400" aria-label="Отправить пруф"><Send size={17} /></button>
-                </div>
-              )}
-            </form>
-          )}
+
         </div>
         )}
 

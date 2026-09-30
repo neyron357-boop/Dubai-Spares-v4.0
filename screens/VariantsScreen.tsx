@@ -23,6 +23,7 @@ import {
 import { useStore } from '../store';
 import { createUuid } from '../id';
 import { PriceVariant } from '../types';
+import VehiclePicker from '../components/VehiclePicker';
 import { cloneVariantForPart, VariantLibraryItem } from '../variantLibraryStore';
 import { optimizeImageForUpload } from '../storage/photos';
 import { useNavigate } from 'react-router-dom';
@@ -113,8 +114,6 @@ const VariantsScreen: React.FC = () => {
   const [menuVariant, setMenuVariant] = useState<VariantLibraryItem | null>(null);
   const [orderPickerVariant, setOrderPickerVariant] = useState<VariantLibraryItem | null>(null);
   const [isAddingToOrder, setIsAddingToOrder] = useState(false);
-  const [isVehicleInfoPickerOpen, setIsVehicleInfoPickerOpen] = useState(false);
-  const [isSelectedVehicleInfoPickerOpen, setIsSelectedVehicleInfoPickerOpen] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
 
   useEffect(() => {
@@ -633,7 +632,6 @@ const VariantsScreen: React.FC = () => {
     setVehicleInfo(option.value);
     setVin(String(option.vin || '').toUpperCase());
     setCustomerOrderRef(option.orderRef || '');
-    setIsVehicleInfoPickerOpen(false);
   };
 
   const selectVehicleInfoForSelected = (option: { value: string; vin?: string; orderRef?: string }) => {
@@ -645,7 +643,6 @@ const VariantsScreen: React.FC = () => {
         customerOrderRef: option.orderRef || prev.customerOrderRef || ''
       }
       : prev);
-    setIsSelectedVehicleInfoPickerOpen(false);
   };
 
   const showToast = (message: string, tone: 'error' | 'success' | 'info' = 'info') => {
@@ -655,7 +652,6 @@ const VariantsScreen: React.FC = () => {
   const openVariantDetail = (variant: VariantLibraryItem) => {
     setSelectedVariant(normalizeVariantVehicleFields(variant));
     setIsEditMode(false);
-    setIsSelectedVehicleInfoPickerOpen(false);
   };
 
   const toggleVariantFlag = (variant: VariantLibraryItem, key: 'isPinned' | 'isFavorite') => {
@@ -1042,53 +1038,7 @@ const VariantsScreen: React.FC = () => {
                   <div className="flex h-[52px] items-center rounded-2xl border border-[#E7EAF0] px-3 text-sm text-[#667085]">AED</div>
                 </div>
                 <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Комментарий" className="min-h-[120px] w-full rounded-2xl border border-[#E7EAF0] px-3 py-2 text-sm outline-none" />
-                <div className="relative">
-                  <input
-                    value={vehicleInfo}
-                    onChange={(event) => {
-                      setVehicleInfo(event.target.value);
-                      setIsVehicleInfoPickerOpen(true);
-                    }}
-                    onFocus={() => setIsVehicleInfoPickerOpen(true)}
-                    onClick={() => setIsVehicleInfoPickerOpen(true)}
-                    onBlur={() => window.setTimeout(() => setIsVehicleInfoPickerOpen(false), 120)}
-                    className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 pr-12 text-sm outline-none"
-                    placeholder="Данные автомобиля"
-                    aria-expanded={isVehicleInfoPickerOpen}
-                    aria-haspopup="listbox"
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => setIsVehicleInfoPickerOpen((prev) => !prev)}
-                    className="absolute right-2 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-xl text-[#667085] transition active:scale-95"
-                    aria-label="Показать список автомобилей"
-                  >
-                    <ChevronDown size={17} className={`transition-transform ${isVehicleInfoPickerOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                  {isVehicleInfoPickerOpen && (
-                    <div role="listbox" className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-60 overflow-y-auto rounded-2xl border border-[#E7EAF0] bg-white p-1 shadow-[0_16px_42px_rgba(15,23,40,0.16)]">
-                      {filteredVehicleInfoOptions.length > 0 ? filteredVehicleInfoOptions.map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          role="option"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => selectVehicleInfo(option)}
-                          className="w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-blue-50 active:bg-blue-100"
-                        >
-                          <span className="block truncate text-sm font-bold text-[#0F1728]">{option.value}</span>
-                          <span className="mt-0.5 block truncate text-[11px] font-semibold text-[#667085]">{option.meta}</span>
-                        </button>
-                      )) : (
-                        <div className="px-3 py-3 text-sm font-semibold text-[#667085]">
-                          Нет подходящих активных заказов
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <VehiclePicker value={vehicleInfo} options={filteredVehicleInfoOptions} onChange={setVehicleInfo} onSelect={selectVehicleInfo} />
                 <input
                   value={vin}
                   onChange={(event) => setVin(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17))}
@@ -1266,53 +1216,7 @@ const VariantsScreen: React.FC = () => {
                 <input value={selectedVariant.phone || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, phone: event.target.value.replace(/[^\d+]/g, '') } : prev)} inputMode="numeric" type="tel" className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Телефон" />
                 <input value={selectedVariant.locationText || selectedVariant.location || ''} onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, locationText: event.target.value, location: event.target.value } : prev)} className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm" placeholder="Локация" />
                 <button type="button" onClick={() => void applyCurrentLocationToSelected()} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-[#D0D5DD] px-3 text-sm font-semibold text-[#475467] disabled:opacity-50" disabled={isResolvingLocation}>{isResolvingLocation ? 'Определяем GPS...' : '📍 Текущее местоположение'}</button>
-                <div className="relative">
-                  <input
-                    value={selectedVariant.vehicleInfo || ''}
-                    onChange={(event) => {
-                      setSelectedVariant((prev) => prev ? { ...prev, vehicleInfo: event.target.value } : prev);
-                      setIsSelectedVehicleInfoPickerOpen(true);
-                    }}
-                    onFocus={() => setIsSelectedVehicleInfoPickerOpen(true)}
-                    onClick={() => setIsSelectedVehicleInfoPickerOpen(true)}
-                    onBlur={() => window.setTimeout(() => setIsSelectedVehicleInfoPickerOpen(false), 120)}
-                    className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 pr-12 text-sm"
-                    placeholder="Данные автомобиля"
-                    aria-expanded={isSelectedVehicleInfoPickerOpen}
-                    aria-haspopup="listbox"
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => setIsSelectedVehicleInfoPickerOpen((prev) => !prev)}
-                    className="absolute right-2 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-xl text-[#667085] transition active:scale-95"
-                    aria-label="Показать список автомобилей"
-                  >
-                    <ChevronDown size={17} className={`transition-transform ${isSelectedVehicleInfoPickerOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                  {isSelectedVehicleInfoPickerOpen && (
-                    <div role="listbox" className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-60 overflow-y-auto rounded-2xl border border-[#E7EAF0] bg-white p-1 shadow-[0_16px_42px_rgba(15,23,40,0.16)]">
-                      {filteredSelectedVehicleInfoOptions.length > 0 ? filteredSelectedVehicleInfoOptions.map((option) => (
-                        <button
-                          key={`selected-${option.id}`}
-                          type="button"
-                          role="option"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => selectVehicleInfoForSelected(option)}
-                          className="w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-blue-50 active:bg-blue-100"
-                        >
-                          <span className="block truncate text-sm font-bold text-[#0F1728]">{option.value}</span>
-                          <span className="mt-0.5 block truncate text-[11px] font-semibold text-[#667085]">{option.meta}</span>
-                        </button>
-                      )) : (
-                        <div className="px-3 py-3 text-sm font-semibold text-[#667085]">
-                          Нет подходящих активных заказов
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <VehiclePicker value={selectedVariant.vehicleInfo || ''} options={filteredSelectedVehicleInfoOptions} onChange={(value) => setSelectedVariant((prev) => prev ? { ...prev, vehicleInfo: value } : prev)} onSelect={selectVehicleInfoForSelected} />
                 <input
                   value={selectedVariant.vin || ''}
                   onChange={(event) => setSelectedVariant((prev) => prev ? { ...prev, vin: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17) } : prev)}

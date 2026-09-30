@@ -114,6 +114,7 @@ const asObject = (value: unknown): Record<string, any> => (value && typeof value
 const asArray = (value: unknown): any[] => Array.isArray(value) ? value : [];
 const firstNumber = (...values: unknown[]) => {
   for (const value of values) {
+    if (value === null || value === undefined || value === '') continue;
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return parsed;
   }
@@ -122,6 +123,7 @@ const firstNumber = (...values: unknown[]) => {
 
 const optionalNumber = (...values: unknown[]) => {
   for (const value of values) {
+    if (value === null || value === undefined || value === '') continue;
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return parsed;
   }
@@ -302,7 +304,8 @@ export const normalizePublicQuoteSnapshotPayload = (payload: unknown, settings?:
   const commissionAed = firstNumber(breakdown.commission, fees.commission, logistics.serviceFeeAed, totals.commission_aed);
   const discountAed = Math.max(0, firstNumber(breakdown.discount, totals.discount_aed, raw.pricingBreakdown?.discount_aed));
   const totalsGrand = firstNumber(breakdown.total, totals.grand_total_aed, totals.grand_total);
-  const grandTotalAed = totalsGrand > 0 ? totalsGrand : subtotalAed + deliveryAed + packingAed + commissionAed;
+  const hasDeclaredTotal = [breakdown.total, totals.grand_total_aed, totals.grand_total].some((value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)));
+  const grandTotalAed = Math.max(0, hasDeclaredTotal ? totalsGrand : subtotalAed + deliveryAed + packingAed + commissionAed - discountAed);
   const depositAed = Math.max(0, firstNumber(breakdown.deposit, breakdown.deposit_aed, totals.deposit_aed, order.searchDepositAmountAed, order.search_deposit_amount_aed));
   const balanceDueAed = Math.max(0, firstNumber(breakdown.balance_due, breakdown.balance_due_aed, totals.balance_due_aed, grandTotalAed - depositAed));
   const rates = normalizeRates(pricing.rates || breakdown.rates);

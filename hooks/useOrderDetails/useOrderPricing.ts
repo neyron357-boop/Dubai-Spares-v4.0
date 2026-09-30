@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Order, OrderPricingEvent, Part } from '../../types';
 import { calculateCargo, calculateCargoEstimates, DEFAULT_CARGO_TARIFFS } from '../../utils/cargo';
-import { calculateOrderDiscountAed, getPricedPartLines, getFinanceVariant } from '../../utils/quotePricing';
+import { calculateOrderDiscountAed, calculateOrderTotals, getFinanceVariant } from '../../utils/quotePricing';
 import { QuoteRates, QuoteCurrency } from '../../shareUtils';
 
 const sanitizeDecimalInput = (raw: string) => {
@@ -247,20 +247,22 @@ export function useOrderPricing({
   
   const pricingPreviewOrder = useMemo(() => ({
     ...order,
+    logistics: { ...order.logistics, ...logistics },
+    exchangeRate: effectiveExchangeRate,
     markupPercent: effectiveMarkupPercent,
     markupFixedAed: markupType === 'fixed' ? Number(markupFixedInput || 0) : order.markupFixedAed,
     discountPercent: effectiveDiscountPercent,
     discountFixedAed: discountType === 'fixed' ? Number(discountFixedInput || 0) : order.discountFixedAed
-  }), [order, effectiveMarkupPercent, markupType, markupFixedInput, effectiveDiscountPercent, discountType, discountFixedInput]);
+  }), [order, logistics, effectiveExchangeRate, effectiveMarkupPercent, markupType, markupFixedInput, effectiveDiscountPercent, discountType, discountFixedInput]);
   
-  const pricedPartLines = useMemo(() => getPricedPartLines(pricingPreviewOrder), [pricingPreviewOrder]);
-  const markupAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.markupShareAed, 0), [pricedPartLines]);
-  const sellPartsTotalAed = useMemo(() => pricedPartLines.reduce((sum, line) => sum + line.clientLineTotalAed, 0), [pricedPartLines]);
-  const discountAed = useMemo(() => calculateOrderDiscountAed(sellPartsTotalAed + logisticsWithCargoTotal, pricingPreviewOrder), [logisticsWithCargoTotal, pricingPreviewOrder, sellPartsTotalAed]);
-  const sellTotalAed = sellPartsTotalAed + logisticsWithCargoTotal;
-  
-  const depositAmountAed = Math.max(0, Number(order.searchDepositAmountAed || 0));
-  const balanceDueAed = Math.max(0, sellTotalAed - depositAmountAed);
+  const pricingTotals = useMemo(() => calculateOrderTotals(pricingPreviewOrder), [pricingPreviewOrder]);
+  const pricedPartLines = pricingTotals.lines;
+  const markupAed = pricingTotals.markupAed;
+  const sellPartsTotalAed = pricingTotals.partsTotalAed;
+  const discountAed = pricingTotals.discountAed;
+  const sellTotalAed = pricingTotals.totalAed;
+  const depositAmountAed = pricingTotals.depositAed;
+  const balanceDueAed = pricingTotals.balanceDueAed;
   const canComputeProfit = selectedOfferTotal > 0;
   const baseMarginAed = canComputeProfit ? selectedOfferTotals.sale - selectedOfferTotals.purchase : 0;
   const netProfitAed = canComputeProfit ? baseMarginAed + markupAed - discountAed : null;

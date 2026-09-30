@@ -1,3 +1,4 @@
+import { getSupabaseAuthHeaders } from './authSession';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './cloudConfig';
 
 export type ImageManifestItem = {
@@ -84,8 +85,7 @@ const uploadBlobToStorage = async (bucket: string, path: string, blob: Blob, sig
   const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
     method: 'POST',
     headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      ...getSupabaseAuthHeaders(),
       'x-upsert': 'true',
       'Content-Type': blob.type || 'image/webp'
     },

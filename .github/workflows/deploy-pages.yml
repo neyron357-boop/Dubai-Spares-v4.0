@@ -15,7 +15,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  quality:
+    uses: ./.github/workflows/ci.yml
+
   build:
+    needs: quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +33,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Configure public Supabase build values
+        env:
+          REQUIRE_STAFF_AUTH: ${{ vars.REQUIRE_STAFF_AUTH }}
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
@@ -36,7 +42,8 @@ jobs:
           const lines = readFileSync('.env.example', 'utf8').split(/\r?\n/)
             .filter((line) => allowed.has(line.split('=', 1)[0]));
           if (lines.length !== allowed.size) throw new Error('Missing public Supabase build configuration');
-          writeFileSync('.env.production', lines.join('\n') + '\n');
+          const requireAuth = process.env.REQUIRE_STAFF_AUTH === 'true';
+          writeFileSync('.env.production', lines.join('\n') + `\nVITE_REQUIRE_AUTH=${requireAuth}\n`);
           NODE
       - name: Build application
         env:

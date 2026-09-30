@@ -1,3 +1,4 @@
+import { getSupabaseAuthHeaders } from '../authSession';
 import { SUPABASE_URL, SUPABASE_ANON_KEY, isCloudConfigured, cloudFeatureFlags, getCloudConfigDiagnostics } from '../cloudConfig';
 
 const safeHostname = (value: string) => {
@@ -12,8 +13,7 @@ export const checkSupabaseMigration = async () => {
   try {
     const tableCheck = await fetch(`${SUPABASE_URL}/rest/v1/client_leads?limit=0`, {
       headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+        ...getSupabaseAuthHeaders()
       }
     });
 

@@ -1,3 +1,4 @@
+import { getSupabaseAuthHeaders } from './authSession';
 import { supabase } from './supabase';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './cloudConfig';
 import { logger } from './logging';
@@ -31,8 +32,7 @@ export const refreshSupabaseSchemaCache = async (reason: string) => {
         await fetch(`${SUPABASE_URL}/rest/v1/`, {
           method: 'HEAD',
           headers: {
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+            ...getSupabaseAuthHeaders()
           }
         }).catch(() => undefined);
       }

@@ -26,7 +26,9 @@ test('direct missing order route renders a non-empty state instead of a white sc
   const fatal = captureFatalUiErrors(page);
 
   await page.goto('/#/order/qa-missing-order', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('status')).toContainText('Загрузка заказа', { timeout: 8_000 });
+  await expect(page.getByRole('heading', { name: 'Заказ не найден' })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: 'Повторить попытку' }).click();
+  await expect(page.getByRole('heading', { name: 'Заказ не найден' })).toBeVisible({ timeout: 20_000 });
 
   const rootState = await page.evaluate(() => ({
     bodyTextLength: document.body.innerText.length,

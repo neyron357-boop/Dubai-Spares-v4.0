@@ -3,7 +3,7 @@ import type { AppSettings } from '../appSettings';
 import type { NormalizedPublicQuoteSnapshot } from './publicQuoteSnapshot';
 import type { NormalizedGroupItem } from './groupItems';
 import { getPartDisplayName, normalizeGroupItems } from './groupItems';
-import { getPricedPartLines } from './quotePricing';
+import { calculateOrderTotals } from './quotePricing';
 
 const BLUE = '#1f3f5f';
 const YELLOW = '#b88a1d';
@@ -98,7 +98,8 @@ const createInvoiceNumber = (seed: string, date: Date) => {
 };
 
 export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings, options?: { currency?: string; rate?: number; language?: 'en' | 'ru' }): InvoicePayload => {
-  const items = getPricedPartLines(order)
+  const totals = calculateOrderTotals(order);
+  const items = totals.lines
     .map((line, index) => {
       const { part } = line;
       const comment = String(part.comment || '').trim();
@@ -113,19 +114,20 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
       };
     });
 
-  const subtotalAed = items.reduce((sum, item) => sum + item.totalAed, 0);
-  const discountAed = getPricedPartLines(order).reduce((sum, line) => sum + line.discountShareAed, 0);
-  const deliveryAed = Number(order.logistics?.deliveryAed || 0);
-  const packingAed = Number(order.logistics?.packingAed || 0);
-  const commissionAed = Number(order.logistics?.serviceFeeAed || 0);
-  const totalAed = subtotalAed + deliveryAed + packingAed + commissionAed;
-  const depositAed = Math.max(0, Number((order as any).searchDepositAmountAed || 0));
-  const balanceDueAed = Math.max(0, totalAed - depositAed);
+  const subtotalAed = totals.partsTotalAed;
+  const discountAed = totals.discountAed;
+  const deliveryAed = totals.deliveryAed + totals.cargoAed;
+  const packingAed = totals.packingAed;
+  const commissionAed = totals.commissionAed;
+  const totalAed = totals.totalAed;
+  const depositAed = totals.depositAed;
+  const balanceDueAed = totals.balanceDueAed;
   const createdAt = new Date();
   const carTitle = [order.brand, order.model, order.year].filter(Boolean).join(' ');
 
   const currencyCode = options?.currency || 'AED';
-  const rate = Number(options?.rate || 1) > 0 ? Number(options?.rate) : 1;
+  const requestedRate = Number(options?.rate ?? 1);
+  const rate = Number.isFinite(requestedRate) && requestedRate > 0 ? requestedRate : 1;
   return {
     invoiceNumber: createInvoiceNumber(order.id || order.vin || carTitle, createdAt),
     createdAt,
@@ -171,7 +173,8 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
     totalAed: item.totalAed,
   }));
   const currencyCode = options?.currency || snapshot.currency || 'AED';
-  const rate = Number(options?.rate || 1) > 0 ? Number(options?.rate) : 1;
+  const requestedRate = Number(options?.rate ?? 1);
+  const rate = Number.isFinite(requestedRate) && requestedRate > 0 ? requestedRate : 1;
   return {
     invoiceNumber: createInvoiceNumber(String(snapshot.raw.order?.id || snapshot.order.vin || snapshot.order.brand), createdAt),
     createdAt,
@@ -231,7 +234,7 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
     payload.deliveryAed > 0 ? `<div class="total-line"><span>DELIVERY</span><strong>${esc(money(payload.deliveryAed, payload.currencyCode))}</strong></div>` : '',
     payload.packingAed > 0 ? `<div class="total-line"><span>PACKING</span><strong>${esc(money(payload.packingAed, payload.currencyCode))}</strong></div>` : '',
     payload.commissionAed > 0 ? `<div class="total-line"><span>COMMISSION</span><strong>${esc(money(payload.commissionAed, payload.currencyCode))}</strong></div>` : '',
-    payload.discountAed > 0 ? `<div class="total-line"><span>DISCOUNT INCLUDED</span><strong>-${esc(money(payload.discountAed, payload.currencyCode))}</strong></div>` : '',
+    payload.discountAed > 0 ? `<div class="total-line"><span>DISCOUNT</span><strong>-${esc(money(payload.discountAed, payload.currencyCode))}</strong></div>` : '',
     payload.taxAed > 0 ? `<div class="total-line"><span>TAX</span><strong>${esc(money(payload.taxAed, payload.currencyCode))}</strong></div>` : '',
     `<div class="total-line grand"><span>TOTAL</span><strong>${esc(money(payload.totalAed, payload.currencyCode))}</strong></div>`,
     payload.depositAed > 0 ? `<div class="total-line"><span>DEPOSIT</span><strong>-${esc(money(payload.depositAed, payload.currencyCode))}</strong></div><div class="total-line grand"><span>BALANCE DUE</span><strong>${esc(money(payload.balanceDueAed, payload.currencyCode))}</strong></div>` : ''

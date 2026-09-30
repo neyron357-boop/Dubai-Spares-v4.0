@@ -7,6 +7,12 @@ export default defineConfig({
   expect: {
     timeout: 10_000
   },
+  webServer: process.env.PLAYWRIGHT_BASE_URL ? undefined : {
+    command: 'npm run dev -- --host 127.0.0.1 --port 5174 --strictPort',
+    url: 'http://127.0.0.1:5174',
+    reuseExistingServer: !process.env.CI,
+    timeout: 30_000,
+  },
   fullyParallel: false,
   workers: 1,
   reporter: [['list']],
