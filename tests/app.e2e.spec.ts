@@ -24,6 +24,8 @@ async function blockSupabase(page: Page) {
   await page.route(SUPABASE_REQUEST, (route) => route.abort('blockedbyclient'));
 }
 
+test.beforeEach(async ({ page }) => { await blockSupabase(page); });
+
 async function gotoHash(page: Page, path: string) {
   await page.goto(path, { waitUntil: 'domcontentloaded' });
   await page.waitForLoadState('networkidle').catch(() => undefined);
@@ -238,6 +240,15 @@ test('public request form shows required-field validation without submitting', a
 });
 
 test('current variants screen renders visible product images', async ({ page }) => {
+  await blockSupabase(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('dubai_spares_standalone_variants', JSON.stringify([{
+      id: 'qa-image', origin: 'standalone', sourcePartName: 'QA image bumper', priceAed: 100,
+      shopName: 'QA supplier', condition: 'used', availability: 'in_stock', createdAt: 1,
+      photoUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+      photos: [],
+    }]));
+  });
   await gotoHash(page, '/#/variants');
   await expect(page.getByText(/вариант/).first()).toBeVisible();
 
@@ -260,7 +271,7 @@ test('variants create form shows a vehicle dropdown from active orders', async (
   await gotoHash(page, '/#/variants');
   await page.getByRole('button', { name: 'Новый вариант' }).click();
 
-  const vehicleInput = page.getByPlaceholder('Данные автомобиля (марка/модель/VIN)');
+  const vehicleInput = page.getByRole('combobox', { name: 'Данные автомобиля' });
   await vehicleInput.click();
 
   const listbox = page.getByRole('listbox');
@@ -269,8 +280,9 @@ test('variants create form shows a vehicle dropdown from active orders', async (
 
   const toyotaOption = page.getByRole('option').filter({ hasText: 'Toyota Camry' });
   await expect(toyotaOption).toBeVisible();
-  await toyotaOption.click();
-
+  await vehicleInput.press('ArrowDown');
+  await vehicleInput.press('Enter');
+  await expect(listbox).toBeHidden();
   await expect(vehicleInput).toHaveValue(/Toyota Camry 2020/);
 });
 
@@ -337,4 +349,68 @@ test('adding a standalone variant to an order does not leave a duplicate card', 
 
   await page.getByRole('button', { name: 'Без заказа' }).click();
   await expect(page.locator('article').filter({ hasText: 'QA MOVE BUMPER' })).toHaveCount(0);
+});
+
+test('opening a public form preserves existing offline orders and sync queue', async ({ page }) => {
+  const orderId = await createLocalOrder(page, 'QA Preserved Data');
+  const readCounts = () => page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('dubai-spares-offline');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const rows = await new Promise<{ ids: string[]; mutations: number }>((resolve, reject) => {
+      const tx = db.transaction(['orders', 'mutations'], 'readonly');
+      const orders = tx.objectStore('orders').getAllKeys();
+      const mutations = tx.objectStore('mutations').count();
+      tx.oncomplete = () => resolve({ ids: orders.result.map(String), mutations: mutations.result });
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close(); return rows;
+  });
+  const before = await readCounts();
+  expect(before.ids).toContain(orderId);
+  expect(before.mutations).toBeGreaterThan(0);
+  await page.evaluate(() => localStorage.setItem('qa-preserved', 'keep-me'));
+  await page.goto('/request');
+  await expect(page.getByRole('heading', { name: 'Введите данные автомобиля' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Введите данные автомобиля' })).toBeVisible();
+  expect(await readCounts()).toEqual(before);
+  expect(await page.evaluate(() => localStorage.getItem('qa-preserved'))).toBe('keep-me');
+});
+
+test('settings exports and restores its own backup including order photos', async ({ page }) => {
+  const orderId = await createLocalOrder(page, 'QA Backup Roundtrip');
+  const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
+  await page.evaluate(async ({ id, photoUrl }) => {
+    const db = await new Promise<IDBDatabase>((resolve) => { const request = indexedDB.open('dubai-spares-offline'); request.onsuccess = () => resolve(request.result); });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('orders', 'readwrite'); const store = tx.objectStore('orders');
+      const request = store.get(id);
+      request.onsuccess = () => store.put({ ...request.result, carPhotoUrl: photoUrl, carPhotos: [photoUrl] });
+      tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+    }); db.close();
+  }, { id: orderId, photoUrl: photo });
+  await gotoHash(page, '/#/settings');
+  await page.reload();
+  await page.getByRole('button', { name: 'Система', exact: true }).click();
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Экспорт локального бэкапа' }).click();
+  const download = await downloading;
+  const { readFile } = await import('node:fs/promises');
+  const exported = JSON.parse(await readFile((await download.path())!, 'utf8'));
+  expect(exported.orders.find((order: { id: string }) => order.id === orderId).carPhotos).toContain(photo);
+  exported.orders.find((order: { id: string }) => order.id === orderId).clientName = 'QA Restored Backup';
+  page.on('dialog', (dialog) => dialog.accept());
+  await page.getByText('Восстановить из файла', { exact: true }).locator('input').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(exported)) });
+  await page.waitForFunction(async (id) => {
+    const db = await new Promise<IDBDatabase>((resolve) => { const request = indexedDB.open('dubai-spares-offline'); request.onsuccess = () => resolve(request.result); });
+    const restored = await new Promise<any>((resolve) => { const request = db.transaction('orders').objectStore('orders').get(id); request.onsuccess = () => resolve(request.result); });
+    db.close(); return restored?.clientName === 'QA Restored Backup';
+  }, orderId);
+  await gotoHash(page, '/#/orders');
+  await expect(orderCard(page, 'Toyota Camry')).toBeVisible();
+  await page.reload();
+  await expect(orderCard(page, 'Toyota Camry')).toBeVisible();
 });

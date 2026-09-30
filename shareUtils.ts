@@ -1,6 +1,7 @@
 import { Order, Part } from './types';
 import { publicQuoteCreateSnapshot } from './publicQuoteApi';
 import { loadAppSettings } from './appSettings';
+import { calculateOrderTotals } from './utils/quotePricing';
 
 export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS';
 export type QuoteRates = Record<QuoteCurrency, number>;
@@ -122,7 +123,9 @@ const slugify = (value: string) =>
 export const buildPublicQuoteSlug = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'>) => order.id;
 
 export const extractOrderIdFromQuoteSlug = (slugOrId: string) => {
-  const trimmed = decodeURIComponent(slugOrId.trim().replace(/^\/+|\/+$/g, ''));
+  const raw = slugOrId.trim().replace(/^\/+|\/+$/g, '');
+  let trimmed = raw;
+  try { trimmed = decodeURIComponent(raw); } catch { /* Invalid encoded links remain readable instead of crashing startup. */ }
   const separated = trimmed.lastIndexOf('--');
   if (separated > -1) return trimmed.slice(separated + 2);
 
@@ -250,7 +253,7 @@ const createQuoteToken = () => {
     crypto.getRandomValues(bytes);
     return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('');
   }
-  return `${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`.slice(0, QUOTE_TOKEN_LENGTH);
+  throw new Error('Для безопасной ссылки требуется HTTPS и поддержка Web Crypto.');
 };
 
 const encodeSnapshot = (snapshot: Record<string, unknown>) => {
@@ -272,19 +275,15 @@ const uniquePhotos = (photos: string[]) => {
   });
 };
 
-const buildQuoteSnapshot = (order: Pick<Order,
-  'id' | 'brand' | 'model' | 'year' | 'bodyType' | 'vin' | 'vinPhotoUrl' | 'googleDriveFolderUrl' | 'carPhotoUrl' | 'carPhotos' |
-  'markupType' | 'markupPercent' | 'markupFixedAed' | 'exchangeRate' | 'clientCurrency' | 'logistics' | 'pricingEvents' | 'parts' | 'notes'>) => {
-  const pricedParts = (order.parts || []).filter((part) => part.isFound && part.variants.length > 0);
-  const partsSumAed = pricedParts.reduce((sum, part) => sum + Number(part.variants[0]?.priceAed || 0), 0);
+export const buildQuoteSnapshot = (order: Order) => {
+  const totals = calculateOrderTotals(order);
+  const partsSumAed = totals.partsTotalAed;
   const cargoTotalCostUsd = Number(order.logistics?.cargoTotalCostUsd || 0);
-  const deliveryAed = Number(order.logistics?.deliveryAed || 0);
-  const packingAed = Number(order.logistics?.packingAed || 0);
-  const commissionAed = Number(order.logistics?.serviceFeeAed || 0);
-  const markupAed = (order.markupType || 'percent') === 'fixed'
-    ? Number(order.markupFixedAed || 0)
-    : partsSumAed * (Number(order.markupPercent || 0) / 100);
-  const grandTotalAed = partsSumAed + markupAed + deliveryAed + packingAed + commissionAed;
+  const deliveryAed = totals.deliveryAed + totals.cargoAed;
+  const packingAed = totals.packingAed;
+  const commissionAed = totals.commissionAed;
+  const markupAed = totals.markupAed;
+  const grandTotalAed = totals.totalAed;
 
   return ({
   id: order.id,
@@ -313,7 +312,13 @@ const buildQuoteSnapshot = (order: Pick<Order,
     commission_aed: commissionAed,
     logistics_total: deliveryAed + packingAed + commissionAed
   },
+  breakdown: {
+    delivery: deliveryAed, packaging: packingAed, commission: commissionAed,
+    discount: totals.discountAed, total: totals.totalAed,
+    deposit: totals.depositAed, balance_due: totals.balanceDueAed,
+  },
   pricingBreakdown: {
+    discount_aed: totals.discountAed,
     parts_sum: partsSumAed,
     delivery_aed: deliveryAed,
     packing_aed: packingAed,
@@ -327,7 +332,7 @@ const buildQuoteSnapshot = (order: Pick<Order,
   },
   pricingEvents: order.pricingEvents || [],
   proof_notes: (order.notes || [])
-    .filter((note) => note.visibility === 'client' || note.kind === 'proof')
+    .filter((note) => note.visibility !== 'internal' && (note.visibility === 'client' || note.kind === 'proof'))
     .map((note) => ({
       id: note.id,
       text: note.text || '',
@@ -338,8 +343,12 @@ const buildQuoteSnapshot = (order: Pick<Order,
         : { id: audio.id, file_url: audio.fileUrl, duration: audio.duration, created_at: audio.createdAt, author: audio.author }),
       created_at: note.createdAt
     })),
-  parts: (order.parts || []).map((part) => ({
+  parts: totals.lines.map(({ part, quantity, clientUnitAed, clientLineTotalAed, variant }) => ({
     id: part.id,
+    qty: quantity, quantity,
+    client_unit_price_aed: clientUnitAed,
+    client_line_total_aed: clientLineTotalAed,
+    photo_urls: uniquePhotos([...(variant.photos || []), variant.photoUrl || '', ...(part.photos || []), part.photoUrl || '']),
     name: part.name,
     isFound: !!part.isFound,
     partType: String((part as any).partType || 'regular'),
@@ -354,18 +363,7 @@ const buildQuoteSnapshot = (order: Pick<Order,
     google_drive_video_url: String((part as any).googleDriveVideoUrl || '').trim(),
     photoUrl: part.photoUrl,
     photos: uniquePhotos(part.photos || []),
-    variants: (part.variants || []).map((variant) => ({
-      id: variant.id,
-      priceAed: Number(variant.priceAed || 0),
-      condition: variant.condition,
-      availability: variant.availability,
-      shopName: variant.shopName,
-      phone: variant.phone,
-      location: variant.location,
-      photoUrl: variant.photoUrl,
-      photos: uniquePhotos(variant.photos || []),
-      createdAt: variant.createdAt
-    }))
+
   }))
   });
 };

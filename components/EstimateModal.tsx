@@ -7,7 +7,7 @@ import { useAppSettings } from '../appSettings';
 import { toast } from '../feedback';
 import { getPartDisplayName, normalizeGroupItems } from '../utils/groupItems';
 import { buildInvoicePayloadFromOrder, openInvoicePrintWindow } from '../utils/invoiceDocument';
-import { getPricedPartLines } from '../utils/quotePricing';
+import { calculateOrderTotals } from '../utils/quotePricing';
 
 
 interface Props {
@@ -76,16 +76,12 @@ const EstimateModal: React.FC<Props> = ({ order, onClose, onShare }) => {
     setCurrency((order.clientCurrency || 'AED') as QuoteCurrency);
   }, [order.clientCurrency, order.id]);
 
-  const pricedPartLines = useMemo(() => getPricedPartLines(order), [order]);
-  const totalAed = pricedPartLines.reduce((sum, line) => sum + line.clientLineTotalAed, 0);
-  const discountAed = pricedPartLines.reduce((sum, line) => sum + line.discountShareAed, 0);
-
-  const logistics = {
-    deliveryAed: Number(order.logistics?.deliveryAed || 0),
-    packingAed: Number(order.logistics?.packingAed || 0),
-    serviceFeeAed: Number(order.logistics?.serviceFeeAed || 0)
-  };
-  const finalTotalAed = totalAed + logistics.deliveryAed + logistics.packingAed + logistics.serviceFeeAed;
+  const totals = useMemo(() => calculateOrderTotals(order), [order]);
+  const pricedPartLines = totals.lines;
+  const totalAed = totals.partsTotalAed;
+  const discountAed = totals.discountAed;
+  const logistics = { deliveryAed: totals.deliveryAed + totals.cargoAed, packingAed: totals.packingAed, serviceFeeAed: totals.commissionAed };
+  const finalTotalAed = totals.totalAed;
 
   const convertedTotal = finalTotalAed * rates[currency];
 

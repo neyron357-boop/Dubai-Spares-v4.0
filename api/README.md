@@ -55,3 +55,9 @@ cd api
 npm install
 npm start
 ```
+
+### Security and reproducible checks
+
+Use Node.js 22.12+ and `npm ci`. Run `npm test` and `npm audit` before deployment. Set `APP_ORIGINS` to a comma-separated allowlist of frontend origins (for GitHub Pages, `https://neyron357-boop.github.io`). Requests without an Origin header remain available to server webhooks; authorization keys are still required. Push endpoints are restricted to the supported Google, Mozilla, Windows and Apple push services. Arbitrary HTTPS URLs and private IP addresses are rejected.
+
+This worker is optional and is not hosted by GitHub Pages. Keep its service-role, webhook, registration and VAPID private keys in the worker's server environment.

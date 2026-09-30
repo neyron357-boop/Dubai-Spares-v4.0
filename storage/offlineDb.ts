@@ -30,7 +30,7 @@ const SYSTEM_LOGS_STORE = 'system_logs';
 const RADAR_INTERACTIONS_STORE = 'radar_interactions';
 const ORDER_PATCHES_STORE = 'order_patches';
 const ALL_STORES = [ORDERS_STORE, ORDER_PATCHES_STORE, MUTATIONS_STORE, SYSTEM_LOGS_STORE, RADAR_INTERACTIONS_STORE] as const;
-const MAX_MUTATIONS = 2000;
+const MUTATION_WARNING_THRESHOLD = 2000;
 const DEBUG_MAX_READ_PER_CLICK = 200;
 const EXPORT_BATCH_SIZE = 100;
 const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
@@ -44,13 +44,14 @@ let idbRecoveryFailures = 0;
 let idbSafeRebuilds = 0;
 let rebuildInFlight: Promise<void> | null = null;
 let pendingOrdersClear = false;
+let pendingOrdersReplaceVersion = 0;
 let idbAutoSyncPaused = false;
 const pendingOrderWrites = new Map<string, { type: 'put'; order: Order } | { type: 'delete' }>();
 let pendingOrderFlushTimer: number | null = null;
 let pendingOrderFlushPromise: Promise<void> | null = null;
 const pendingOrderPatchWrites = new Map<string, Partial<Order>>();
 let pendingOrderPatchFlushTimer: number | null = null;
-let pendingOrderPatchFlushPromise: Promise<void> | null = null;
+
 
 const pendingMutationWrites = new Map<string, OfflineMutation>();
 let pendingMutationFlushTimer: number | null = null;
@@ -100,53 +101,15 @@ const recoverConnectionOnce = async () => {
   await openDb();
 };
 
-const deleteDb = async () => {
-  closeActiveDb();
-  openPromise = null;
-  await new Promise<void>((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(DB_NAME);
-    request.onsuccess = () => resolve();
-    request.onblocked = () => reject(new Error('Cannot rebuild index while another tab is open'));
-    request.onerror = () => reject(request.error ?? new Error('Failed to rebuild IndexedDB'));
-  });
-};
-
-const safeRebuildIndex = async () => {
+// Recovery may reopen a connection, but must never delete the customer's database.
+const safeRebuildIndex = async (): Promise<void> => {
   if (rebuildInFlight) return rebuildInFlight;
   rebuildInFlight = (async () => {
-    const snapshot = await (async () => {
-      try {
-        const db = await openDb();
-        const tx = db.transaction([...ALL_STORES], 'readonly');
-        const dump: Record<string, unknown[]> = {};
-        for (const storeName of ALL_STORES) {
-          const rows = await txRequest(tx.objectStore(storeName).getAll());
-          dump[storeName] = Array.isArray(rows) ? rows : [];
-        }
-        return dump;
-      } catch {
-        return {} as Record<string, unknown[]>;
-      }
-    })();
-
-    await deleteDb();
+    closeActiveDb();
     const db = await openDb();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([...ALL_STORES], 'readwrite');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error('safeRebuildIndex transaction failed'));
-      tx.onabort = () => reject(tx.error ?? new Error('safeRebuildIndex transaction aborted'));
-      for (const storeName of ALL_STORES) {
-        const store = tx.objectStore(storeName);
-        store.clear();
-        const rows = Array.isArray(snapshot[storeName]) ? snapshot[storeName] : [];
-        for (const row of rows) {
-          store.put(row);
-        }
-      }
-    });
+    const tx = db.transaction([...ALL_STORES], 'readonly');
+    await Promise.all(ALL_STORES.map((name) => txRequest(tx.objectStore(name).count())));
   })();
-
   try {
     await rebuildInFlight;
   } finally {
@@ -336,40 +299,73 @@ export interface DiagnosticsSummaryPayload {
   lastErrors: SystemLogEntry[];
 }
 
-const flushOrderWrites = async () => {
-  if (pendingOrderFlushTimer) {
-    window.clearTimeout(pendingOrderFlushTimer);
-    pendingOrderFlushTimer = null;
-  }
-  if (pendingOrderFlushPromise) return pendingOrderFlushPromise;
-
-  pendingOrderFlushPromise = withIdbRecovery('flush_order_writes', async () => {
-    await measureIdbTx(async () => {
-      const db = await openDb();
-      const tx = db.transaction([ORDERS_STORE, ORDER_PATCHES_STORE], 'readwrite');
-      const store = tx.objectStore(ORDERS_STORE);
-      const patchStore = tx.objectStore(ORDER_PATCHES_STORE);
-      if (pendingOrdersClear) {
-        await txRequest(store.clear());
-        await txRequest(patchStore.clear());
-        pendingOrdersClear = false;
-      }
-
-      const writes = Array.from(pendingOrderWrites.entries());
-      pendingOrderWrites.clear();
-      for (const [orderId, op] of writes) {
-        if (op.type === 'delete') {
-          await txRequest(store.delete(orderId));
-          await txRequest(patchStore.delete(orderId));
-        } else {
-          await txRequest(store.put(op.order));
-          await txRequest(patchStore.delete(orderId));
-        }
-      }
-      if (writes.length) syncPerf.recordIdbWrite();
-    });
+const committedTransaction = async (
+  db: IDBDatabase,
+  stores: string[],
+  work: (tx: IDBTransaction) => Promise<void>
+): Promise<void> => {
+  const tx = db.transaction(stores, 'readwrite');
+  const completion = new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+    tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'));
   });
+  // A request failure can reject completion before the request's promise resumes.
+  void completion.catch(() => undefined);
+  try {
+    await work(tx);
+    await completion;
+  } catch (error) {
+    try { tx.abort(); } catch { /* Already completed or aborted. */ }
+    await completion.catch(() => undefined);
+    throw error;
+  }
+};
 
+const flushOrderWrites = async (): Promise<void> => {
+  if (pendingOrderFlushTimer) window.clearTimeout(pendingOrderFlushTimer);
+  if (pendingOrderPatchFlushTimer) window.clearTimeout(pendingOrderPatchFlushTimer);
+  pendingOrderFlushTimer = null;
+  pendingOrderPatchFlushTimer = null;
+  if (pendingOrderFlushPromise) {
+    await pendingOrderFlushPromise;
+    return flushOrderWrites();
+  }
+  if (!pendingOrdersClear && !pendingOrderWrites.size && !pendingOrderPatchWrites.size) return;
+
+  pendingOrderFlushPromise = (async () => {
+    while (pendingOrdersClear || pendingOrderWrites.size || pendingOrderPatchWrites.size) {
+      const writes = Array.from(pendingOrderWrites.entries());
+      const patches = Array.from(pendingOrderPatchWrites.entries());
+      const clear = pendingOrdersClear;
+      const replaceVersion = pendingOrdersReplaceVersion;
+      await withIdbRecovery('flush_order_writes', () => measureIdbTx(async () => {
+        const db = await openDb();
+        await committedTransaction(db, [ORDERS_STORE, ORDER_PATCHES_STORE], async (tx) => {
+          const store = tx.objectStore(ORDERS_STORE);
+          const patchStore = tx.objectStore(ORDER_PATCHES_STORE);
+          if (clear) {
+            await txRequest(store.clear());
+            await txRequest(patchStore.clear());
+          }
+          for (const [id, op] of writes) {
+            if (op.type === 'delete') await txRequest(store.delete(id));
+            else await txRequest(store.put(op.order));
+            await txRequest(patchStore.delete(id));
+          }
+          for (const [id, patch] of patches) {
+            const previous = await txRequest(patchStore.get(id)) as { patch?: Partial<Order> } | undefined;
+            await txRequest(patchStore.put({ id, patch: { ...previous?.patch, ...patch }, updatedAt: Date.now() }));
+          }
+        });
+      }));
+      // Remove only committed versions. Edits arriving during the transaction remain queued.
+      for (const [id, op] of writes) if (pendingOrderWrites.get(id) === op) pendingOrderWrites.delete(id);
+      for (const [id, patch] of patches) if (pendingOrderPatchWrites.get(id) === patch) pendingOrderPatchWrites.delete(id);
+      if (clear && replaceVersion === pendingOrdersReplaceVersion) pendingOrdersClear = false;
+      syncPerf.recordIdbWrite();
+    }
+  })();
   try {
     await pendingOrderFlushPromise;
   } finally {
@@ -377,71 +373,42 @@ const flushOrderWrites = async () => {
   }
 };
 
+const flushOrderPatchWrites = (): Promise<void> => flushOrderWrites();
 
-const flushOrderPatchWrites = async () => {
-  if (pendingOrderPatchFlushTimer) {
-    window.clearTimeout(pendingOrderPatchFlushTimer);
-    pendingOrderPatchFlushTimer = null;
+const flushMutationWrites = async (): Promise<void> => {
+  if (pendingMutationFlushTimer) window.clearTimeout(pendingMutationFlushTimer);
+  pendingMutationFlushTimer = null;
+  if (pendingMutationFlushPromise) {
+    await pendingMutationFlushPromise;
+    return flushMutationWrites();
   }
-  if (pendingOrderPatchFlushPromise) return pendingOrderPatchFlushPromise;
-
-  pendingOrderPatchFlushPromise = withIdbRecovery('flush_order_patch_writes', async () => {
-    await measureIdbTx(async () => {
-      const patches = Array.from(pendingOrderPatchWrites.entries());
-      if (!patches.length) return;
-      pendingOrderPatchWrites.clear();
-      const db = await openDb();
-      const tx = db.transaction(ORDER_PATCHES_STORE, 'readwrite');
-      const store = tx.objectStore(ORDER_PATCHES_STORE);
-      for (const [orderId, patch] of patches) {
-        await txRequest(store.put({ id: orderId, patch, updatedAt: Date.now() }));
-      }
+  if (!pendingMutationWrites.size) return;
+  pendingMutationFlushPromise = (async () => {
+    while (pendingMutationWrites.size) {
+      const writes = Array.from(pendingMutationWrites.entries());
+      await withIdbRecovery('flush_mutation_writes', () => measureIdbTx(async () => {
+        const db = await openDb();
+        await committedTransaction(db, [MUTATIONS_STORE], async (tx) => {
+          const store = tx.objectStore(MUTATIONS_STORE);
+          let count = await txRequest(store.count());
+          for (const [, normalized] of writes) {
+            const existing = await txRequest(store.get(normalized.id)) as OfflineMutation | undefined;
+            if (!existing && count === MUTATION_WARNING_THRESHOLD) window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: 'info', message: 'Накопилось много изменений. Подключитесь к сети и сделайте резервную копию.' } }));
+            if (!existing) count += 1;
+            await txRequest(store.put({
+              ...existing,
+              ...normalized,
+              payload: normalized.payload !== undefined ? normalized.payload : existing?.payload,
+              patch: normalized.patch !== undefined ? normalized.patch : existing?.patch,
+              createdAt: existing?.createdAt || normalized.createdAt
+            }));
+          }
+        });
+      }));
+      for (const [id, mutation] of writes) if (pendingMutationWrites.get(id) === mutation) pendingMutationWrites.delete(id);
       syncPerf.recordIdbWrite();
-    });
-  });
-
-  try {
-    await pendingOrderPatchFlushPromise;
-  } finally {
-    pendingOrderPatchFlushPromise = null;
-  }
-};
-
-
-const flushMutationWrites = async () => {
-  if (pendingMutationFlushTimer) {
-    window.clearTimeout(pendingMutationFlushTimer);
-    pendingMutationFlushTimer = null;
-  }
-  if (pendingMutationFlushPromise) return pendingMutationFlushPromise;
-
-  pendingMutationFlushPromise = withIdbRecovery('flush_mutation_writes', async () => {
-    await measureIdbTx(async () => {
-      const writes = Array.from(pendingMutationWrites.values());
-      if (!writes.length) return;
-      pendingMutationWrites.clear();
-      const db = await openDb();
-      const tx = db.transaction(MUTATIONS_STORE, 'readwrite');
-      const store = tx.objectStore(MUTATIONS_STORE);
-      const count = await txRequest(store.count());
-
-      for (const normalized of writes) {
-        const existing = await txRequest(store.get(normalized.id)) as OfflineMutation | undefined;
-        if (!existing && count >= MAX_MUTATIONS) {
-          throw new Error(`Mutation queue limit reached (${MAX_MUTATIONS}). Export backup and clear queue.`);
-        }
-        await txRequest(store.put({
-          ...existing,
-          ...normalized,
-          payload: Object.prototype.hasOwnProperty.call(normalized, 'payload') ? normalized.payload : existing?.payload,
-          patch: Object.prototype.hasOwnProperty.call(normalized, 'patch') ? normalized.patch : existing?.patch,
-          createdAt: existing?.createdAt || normalized.createdAt
-        }));
-      }
-      syncPerf.recordIdbWrite();
-    });
-  });
-
+    }
+  })();
   try {
     await pendingMutationFlushPromise;
   } finally {
@@ -449,10 +416,16 @@ const flushMutationWrites = async () => {
   }
 };
 
+const reportBackgroundStorageError = (error: unknown) => {
+  const message = toError(error, 'Local data could not be saved').message;
+  syncPerf.setLastIdbError(message);
+  window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: 'error', message: 'Не удалось сохранить данные на устройстве. Освободите место и повторите сохранение.' } }));
+};
+
 const scheduleMutationFlush = () => {
   if (!pendingMutationFlushTimer) {
     pendingMutationFlushTimer = window.setTimeout(() => {
-      void flushMutationWrites();
+      void flushMutationWrites().catch(reportBackgroundStorageError);
     }, getJitterMs(600, 900));
   }
 };
@@ -460,7 +433,7 @@ const scheduleMutationFlush = () => {
 const scheduleOrderFlush = () => {
   if (!pendingOrderFlushTimer) {
     pendingOrderFlushTimer = window.setTimeout(() => {
-      void flushOrderWrites();
+      void flushOrderWrites().catch(reportBackgroundStorageError);
     }, getJitterMs(600, 900));
   }
 };
@@ -468,16 +441,16 @@ const scheduleOrderFlush = () => {
 const scheduleOrderPatchFlush = () => {
   if (!pendingOrderPatchFlushTimer) {
     pendingOrderPatchFlushTimer = window.setTimeout(() => {
-      void flushOrderPatchWrites();
+      void flushOrderPatchWrites().catch(reportBackgroundStorageError);
     }, getJitterMs(600, 900));
   }
 };
 
 if (typeof window !== 'undefined') {
   window.addEventListener('blur', () => {
-    void flushOrderWrites();
-    void flushOrderPatchWrites();
-    void flushMutationWrites();
+    void flushOrderWrites().catch(reportBackgroundStorageError);
+    void flushOrderPatchWrites().catch(reportBackgroundStorageError);
+    void flushMutationWrites().catch(reportBackgroundStorageError);
   });
 }
 
@@ -501,14 +474,19 @@ export const offlineDb = {
 
   async saveOrders(orders: Order[]): Promise<void> {
     pendingOrdersClear = true;
+    pendingOrdersReplaceVersion += 1;
     pendingOrderWrites.clear();
+    pendingOrderPatchWrites.clear();
     for (const order of orders) {
+      pendingOrderPatchWrites.delete(order.id);
       pendingOrderWrites.set(order.id, { type: 'put', order });
     }
     scheduleOrderFlush();
+    await flushOrderWrites();
   },
 
   async saveOrder(order: Order): Promise<void> {
+    pendingOrderPatchWrites.delete(order.id);
     pendingOrderWrites.set(order.id, { type: 'put', order });
     scheduleOrderFlush();
     await flushOrderWrites();
@@ -517,14 +495,21 @@ export const offlineDb = {
 
   async saveOrderPatch(orderId: string, patch: Partial<Order>): Promise<void> {
     if (!orderId || !patch || !Object.keys(patch).length) return;
-    const existing = pendingOrderPatchWrites.get(orderId) || {};
-    pendingOrderPatchWrites.set(orderId, { ...existing, ...patch });
+    const pendingOrder = pendingOrderWrites.get(orderId);
+    if (pendingOrder?.type === 'delete') return;
+    if (pendingOrder?.type === 'put') {
+      pendingOrderWrites.set(orderId, { type: 'put', order: { ...pendingOrder.order, ...patch } });
+    } else {
+      const existing = pendingOrderPatchWrites.get(orderId) || {};
+      pendingOrderPatchWrites.set(orderId, { ...existing, ...patch });
+    }
     scheduleOrderPatchFlush();
     await flushOrderPatchWrites();
     logSyncCategory('IDB_TX', 'save_order_patch', { orderId, fields: Object.keys(patch) });
   },
 
   async deleteOrder(orderId: string): Promise<void> {
+    pendingOrderPatchWrites.delete(orderId);
     pendingOrderWrites.set(orderId, { type: 'delete' });
     scheduleOrderFlush();
     await flushOrderWrites();
@@ -533,7 +518,10 @@ export const offlineDb = {
   async deleteOrders(orderIds: string[]): Promise<void> {
     const uniqueIds = Array.from(new Set(orderIds.map((id) => String(id || '').trim()).filter(Boolean)));
     if (uniqueIds.length === 0) return;
-    uniqueIds.forEach((orderId) => pendingOrderWrites.set(orderId, { type: 'delete' }));
+    uniqueIds.forEach((orderId) => {
+      pendingOrderPatchWrites.delete(orderId);
+      pendingOrderWrites.set(orderId, { type: 'delete' });
+    });
     scheduleOrderFlush();
     await flushOrderWrites();
   },
@@ -576,10 +564,16 @@ export const offlineDb = {
     return txRequest(tx.objectStore(MUTATIONS_STORE).count());
   },
 
-  async removeMutation(mutationId: string): Promise<void> {
+  async removeMutation(mutationId: string, expected?: OfflineMutation): Promise<void> {
+    await flushMutationWrites();
     const db = await openDb();
-    const tx = db.transaction(MUTATIONS_STORE, 'readwrite');
-    await txRequest(tx.objectStore(MUTATIONS_STORE).delete(mutationId));
+    await committedTransaction(db, [MUTATIONS_STORE], async (tx) => {
+      const store = tx.objectStore(MUTATIONS_STORE);
+      const current = await txRequest(store.get(mutationId));
+      // An acknowledgement of an old payload cannot remove a newer queued edit.
+      if (expected && JSON.stringify(current) !== JSON.stringify(expected)) return;
+      await txRequest(store.delete(mutationId));
+    });
     syncPerf.recordIdbWrite();
   },
 
@@ -655,11 +649,10 @@ export const offlineDb = {
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const sampleLimit = Math.max(1, Math.min(options?.sampleLimit ?? 50, 50));
     const db = await openDb();
-    const tx = db.transaction([...ALL_STORES], 'readonly');
     const stores: Record<string, { count: number; approxBytes: number }> = {};
 
     for (const storeName of ALL_STORES) {
-      const store = tx.objectStore(storeName);
+      const store = db.transaction(storeName, 'readonly').objectStore(storeName);
       const count = await txRequest(store.count());
       const sample = await sampleRows(store, sampleLimit, undefined, options?.signal);
       const approxBytes = new Blob([JSON.stringify(sample.rows)]).size;
@@ -672,7 +665,7 @@ export const offlineDb = {
       await yieldToUi();
     }
 
-    const ordersSample = await sampleRows(tx.objectStore(ORDERS_STORE), DEBUG_MAX_READ_PER_CLICK, undefined, options?.signal);
+    const ordersSample = await sampleRows(db.transaction(ORDERS_STORE, 'readonly').objectStore(ORDERS_STORE), DEBUG_MAX_READ_PER_CLICK, undefined, options?.signal);
     const ordersRows = ordersSample.rows as Order[];
     const parts = ordersRows.reduce((sum, order) => sum + (Array.isArray(order.parts) ? order.parts.length : 0), 0);
     const variants = ordersRows.reduce((sum, order) => (
@@ -744,78 +737,43 @@ export const offlineDb = {
     onStoreProgress?: (payload: { store: string; processed: number; total: number; elapsedMs: number }) => Promise<void> | void;
     onStoreChunk?: (payload: { store: string; rows: unknown[]; isLastChunk: boolean }) => Promise<void> | void;
   }): Promise<void> {
-    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const startedAt = performance.now();
     const batchSize = Math.max(1, Math.min(options?.batchSize ?? EXPORT_BATCH_SIZE, DEBUG_MAX_READ_PER_CLICK));
-    const db = await openDb();
-    const tx = db.transaction([...ALL_STORES], 'readonly');
-
-    for (const storeName of ALL_STORES) {
-      const store = tx.objectStore(storeName);
-      const total = await txRequest(store.count());
-      let processed = 0;
-      let chunk: unknown[] = [];
-
-      await new Promise<void>((resolve, reject) => {
-        const request = store.openCursor();
-        request.onsuccess = async () => {
-          if (options?.signal?.aborted) {
-            reject(new DOMException('Operation cancelled', 'AbortError'));
-            return;
-          }
-          const hit = request.result;
-          if (!hit) {
-            if (chunk.length) {
-              await options?.onStoreChunk?.({ store: storeName, rows: chunk, isLastChunk: true });
-            } else {
-              await options?.onStoreChunk?.({ store: storeName, rows: [], isLastChunk: true });
-            }
-            resolve();
-            return;
-          }
-          chunk.push(hit.value);
-          processed += 1;
-
-          if (chunk.length >= batchSize) {
-            const rows = chunk;
-            chunk = [];
-            await options?.onStoreChunk?.({ store: storeName, rows, isLastChunk: false });
-            await options?.onStoreProgress?.({
-              store: storeName,
-              processed,
-              total,
-              elapsedMs: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt)
-            });
-            await yieldToUi();
-          }
-          hit.continue();
-        };
-        request.onerror = () => reject(request.error ?? new Error('IndexedDB export cursor failed'));
-      });
-
-      await options?.onStoreProgress?.({
-        store: storeName,
-        processed,
-        total,
-        elapsedMs: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt)
-      });
-      await yieldToUi();
+    // Read one consistent snapshot before awaiting user callbacks; IndexedDB transactions
+    // automatically finish across timer/network waits.
+    const dump = await this.exportAllData();
+    for (const name of ALL_STORES) {
+      const rows = dump[name];
+      for (let offset = 0; offset < Math.max(1, rows.length); offset += batchSize) {
+        if (options?.signal?.aborted) throw new DOMException('Operation cancelled', 'AbortError');
+        const chunk = rows.slice(offset, offset + batchSize);
+        await options?.onStoreChunk?.({ store: name, rows: chunk, isLastChunk: offset + batchSize >= rows.length });
+        await options?.onStoreProgress?.({ store: name, processed: Math.min(offset + batchSize, rows.length), total: rows.length, elapsedMs: Math.round(performance.now() - startedAt) });
+        await yieldToUi();
+      }
     }
   },
 
   async importAllData(payload: Record<string, unknown[]>): Promise<void> {
+    // Reject unrelated JSON before any clear(), and keep stores absent in older backups.
+    if (!payload || typeof payload !== 'object' || !Array.isArray(payload.orders)) {
+      throw new Error('Некорректная резервная копия: отсутствует список orders. Данные не изменены.');
+    }
+    const providedStores = ALL_STORES.filter((name) => Object.prototype.hasOwnProperty.call(payload, name));
+    const stores = [...new Set([...providedStores, ORDER_PATCHES_STORE])];
+    for (const name of providedStores) {
+      if (!Array.isArray(payload[name]) || payload[name].some((row) => !row || typeof row !== 'object' || !(row as { id?: unknown }).id)) {
+        throw new Error(`Некорректные записи в ${name}. Данные не изменены.`);
+      }
+    }
+    await flushOrderWrites();
+    await flushMutationWrites();
     const db = await openDb();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([...ALL_STORES], 'readwrite');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error('importAllData transaction failed'));
-      tx.onabort = () => reject(tx.error ?? new Error('importAllData transaction aborted'));
-      for (const storeName of ALL_STORES) {
-        const store = tx.objectStore(storeName);
-        store.clear();
-        const rows = Array.isArray(payload[storeName]) ? payload[storeName] : [];
-        for (const row of rows) {
-          store.put(row);
-        }
+    await committedTransaction(db, stores, async (tx) => {
+      for (const name of stores) {
+        const store = tx.objectStore(name);
+        await txRequest(store.clear());
+        for (const row of payload[name] || []) await txRequest(store.put(row));
       }
     });
   },
@@ -840,7 +798,6 @@ export const offlineDb = {
 
     await Promise.allSettled([
       pendingOrderFlushPromise,
-      pendingOrderPatchFlushPromise,
       pendingMutationFlushPromise
     ]);
 
@@ -857,7 +814,7 @@ export const offlineDb = {
   },
 
   async rebuildIndex(): Promise<void> {
-    await deleteDb();
+    await safeRebuildIndex();
   },
 
   async rebuildLocalCacheSafely(): Promise<void> {

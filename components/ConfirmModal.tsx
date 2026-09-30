@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 
 interface Props {
   isOpen: boolean;
@@ -10,43 +10,35 @@ interface Props {
   confirmClass?: string;
 }
 
-const ConfirmModal: React.FC<Props> = ({ 
-  isOpen, 
-  message, 
-  onConfirm, 
-  onCancel,
-  confirmLabel = 'Да, удалить',
-  cancelLabel = 'Отмена',
-  confirmClass = 'bg-red-600 active:bg-red-700'
-}) => {
+const ConfirmModal: React.FC<Props> = ({ isOpen, message, onConfirm, onCancel,
+  confirmLabel = 'Да, удалить', cancelLabel = 'Отмена', confirmClass = 'bg-red-600 active:bg-red-700' }) => {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const label = useId();
+  useEffect(() => {
+    const element = dialog.current;
+    if (!isOpen || !element) return;
+    const previous = document.activeElement as HTMLElement | null;
+    element.showModal();
+    cancelButton.current?.focus();
+    return () => { element.close(); if (previous?.isConnected) previous.focus(); };
+  }, [isOpen]);
   if (!isOpen) return null;
-  return (
-    <div 
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" 
-      onClick={onCancel}
-    >
-      <div 
-        className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200 border border-gray-100" 
-        onClick={e => e.stopPropagation()}
-      >
-        <h3 className="text-lg font-bold text-center mb-6 text-gray-900 leading-tight">{message}</h3>
+  return <dialog ref={dialog} aria-labelledby={label}
+    onCancel={(event) => { event.preventDefault(); onCancel(); }}
+    onClick={(event) => { if (event.target === event.currentTarget) onCancel(); }}
+    className="fixed inset-0 m-0 h-full max-h-none w-full max-w-none border-0 bg-transparent p-4 backdrop:bg-black/60 backdrop:backdrop-blur-sm">
+    <div className="flex h-full items-center justify-center pointer-events-none">
+      <div className="pointer-events-auto w-full max-w-sm rounded-3xl border border-gray-100 bg-white p-6 shadow-2xl">
+        <h2 id={label} className="mb-6 text-center text-lg font-bold leading-tight text-gray-900">{message}</h2>
         <div className="flex gap-3">
-          <button 
-            onClick={onCancel} 
-            className="flex-1 py-3.5 bg-gray-100 rounded-2xl font-black text-gray-600 active:bg-gray-200 transition-colors uppercase text-xs tracking-wider"
-          >
-            {cancelLabel}
-          </button>
-          <button 
-            onClick={onConfirm} 
-            className={`flex-1 py-3.5 rounded-2xl font-black text-white transition-colors shadow-lg uppercase text-xs tracking-wider ${confirmClass}`}
-          >
-            {confirmLabel}
-          </button>
+          <button ref={cancelButton} type="button" onClick={onCancel}
+            className="flex-1 rounded-2xl bg-gray-100 py-3.5 text-xs font-black uppercase tracking-wider text-gray-600 focus-visible:ring-2 focus-visible:ring-blue-500">{cancelLabel}</button>
+          <button type="button" onClick={onConfirm}
+            className={`flex-1 rounded-2xl py-3.5 text-xs font-black uppercase tracking-wider text-white shadow-lg focus-visible:ring-2 focus-visible:ring-blue-500 ${confirmClass}`}>{confirmLabel}</button>
         </div>
       </div>
     </div>
-  );
+  </dialog>;
 };
-
 export default ConfirmModal;

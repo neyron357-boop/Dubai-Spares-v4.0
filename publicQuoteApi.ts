@@ -1,3 +1,4 @@
+import { requiresStaffLogin } from './authSession';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, cloudBuildGuardMessage, isCloudConfigured } from './cloudConfig';
 import { supabase } from './supabase';
 import { decodePayloadFromCompressedTransport } from './cloudCodec';
@@ -5,7 +6,7 @@ import { buildPublicQuoteSlug, QuoteRates } from './shareUtils';
 import type { ChatAttachment, Order } from './types';
 import { logger } from './logging';
 import { normalizeGroupItems, normalizePartQuantity } from './utils/groupItems';
-import { calculateOrderDiscountAed, getPricedPartLines } from './utils/quotePricing';
+import { calculateOrderDiscountAed, calculateOrderTotals, getPricedPartLines } from './utils/quotePricing';
 
 export type PublicQuotePayloadV1 = {
   version: 'public_quote_payload_v1';
@@ -311,43 +312,6 @@ const isDevBuild = typeof import.meta !== 'undefined' && Boolean(import.meta.env
 
 const createInFlight = new Map<string, Promise<{ id: string | null | undefined; token: string; snapshotId: string; expiresAt: string; url: string; originalUrl: string; shortUrl: string | null }>>();
 
-const ISGD_API = 'https://is.gd/create.php';
-const SHORT_URL_TIMEOUT_MS = 1200;
-
-const shortenPublicQuoteUrl = async (url: string, _signal?: AbortSignal): Promise<string | null> => {
-  const encodedUrl = encodeURIComponent(url);
-  const timeoutController = typeof AbortController === 'undefined' ? null : new AbortController();
-  const timeoutId = timeoutController ? window.setTimeout(() => timeoutController.abort(), SHORT_URL_TIMEOUT_MS) : null;
-  const cleanup = () => {
-    if (timeoutId !== null) window.clearTimeout(timeoutId);
-  };
-
-  try {
-    const response = await fetch(`${ISGD_API}?format=simple&url=${encodedUrl}`, {
-      method: 'GET',
-      signal: timeoutController?.signal
-    });
-    if (!response.ok) {
-      void logger.warn('public-quote:shorten', 'is.gd request failed', { status: response.status, url });
-      return null;
-    }
-    const shortUrl = String(await response.text()).trim();
-    if (!shortUrl || !/^https?:\/\//i.test(shortUrl)) {
-      void logger.warn('public-quote:shorten', 'is.gd returned invalid body', { shortUrl, url });
-      return null;
-    }
-    return shortUrl;
-  } catch (error) {
-    void logger.warn('public-quote:shorten', 'is.gd request threw', {
-      url,
-      error: error instanceof Error ? error.message : 'unknown'
-    });
-    return null;
-  } finally {
-    cleanup();
-  }
-};
-
 const parseMoney = (...values: Array<unknown>) => {
   for (const value of values) {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -572,7 +536,8 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
   const commission = parseMoney((payload.logistics as any)?.serviceFeeAed, (payload.fees as any)?.commission, (payload.totals as any)?.commission_aed);
   const packaging = parseMoney((payload.logistics as any)?.packingAed, (payload.fees as any)?.packaging, (payload.totals as any)?.packing_aed);
   const discount = parseMoney((payload.totals as any)?.discount_aed, (payload.breakdown as any)?.discount);
-  const grandTotal = round2(partsTotal + logistics + commission + packaging);
+  const declaredTotal = pickNumeric((payload.breakdown as any)?.total, (payload.totals as any)?.grand_total_aed, (payload.totals as any)?.grand_total);
+  const grandTotal = round2(Math.max(0, declaredTotal ?? (partsTotal + logistics + commission + packaging - discount)));
 
   const contacts = payload.contacts && typeof payload.contacts === 'object'
     ? payload.contacts as Record<string, unknown>
@@ -643,7 +608,7 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
   };
 };
 
-const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
+export const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
   if (!payload || typeof payload !== 'object') return { payload, contactsSource: 'legacy' as SnapshotContactsSource, wasPatched: false };
   const source = payload as Record<string, unknown>;
   const needsLegacyBackfill = !row.payload_json || typeof row.payload_json !== 'object';
@@ -709,7 +674,9 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
   const computed = computeTotalsFromItems(normalizedItems as Array<Record<string, unknown>>, { logistics, packaging, commission });
   const existingTotals = basePayload.totals && typeof basePayload.totals === 'object' ? basePayload.totals as Record<string, unknown> : {};
   const existingBreakdown = basePayload.breakdown && typeof basePayload.breakdown === 'object' ? basePayload.breakdown as Record<string, unknown> : {};
-  const discount = parseMoney(existingTotals.discount_aed, existingBreakdown.discount);
+  const discount = Math.max(0, parseMoney(existingTotals.discount_aed, existingBreakdown.discount));
+  const declaredTotal = pickNumeric(existingBreakdown.total, existingTotals.grand_total_aed, existingTotals.grand_total);
+  const netTotal = round2(Math.max(0, declaredTotal ?? (computed.grandTotal - discount)));
 
   const nextContacts = basePayload.contacts && typeof basePayload.contacts === 'object'
     ? basePayload.contacts as Record<string, unknown>
@@ -730,8 +697,8 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
       packing_aed: parseMoney(existingTotals.packing_aed, packaging),
       commission_aed: parseMoney(existingTotals.commission_aed, commission),
       discount_aed: discount,
-      grand_total: round2(computed.grandTotal),
-      grand_total_aed: round2(computed.grandTotal)
+      grand_total: netTotal,
+      grand_total_aed: netTotal
     },
     fees: {
       logistics,
@@ -744,28 +711,7 @@ const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
   const currentSnapshot = JSON.stringify(basePayload);
   const patchedSnapshot = JSON.stringify(nextPayload);
   const wasPatched = currentSnapshot !== patchedSnapshot;
-  if (wasPatched) {
-    try {
-      if (supabase) {
-        await supabase
-          .from('public_quote_snapshots')
-          .update({ payload_json: nextPayload })
-          .eq('id', row.id);
-      } else {
-        await fetch(`${SUPABASE_URL}/rest/v1/public_quote_snapshots?id=eq.${encodeURIComponent(row.id)}`, {
-          method: 'PATCH',
-          headers: {
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ payload_json: nextPayload })
-        });
-      }
-    } catch {
-      // best effort backfill on read
-    }
-  }
+  // Normalization is read-only. Opening a client link must never mutate the stored offer.
 
   return { payload: nextPayload, contactsSource: resolveContactsSource(nextPayload), wasPatched };
 };
@@ -919,11 +865,12 @@ const buildSnapshotPayload = (
   },
   rates?: QuoteRates
 ): PublicQuotePayloadV1 => {
+  const quoteTotals = calculateOrderTotals(order);
   const createdAtIso = new Date().toISOString();
   const expiresAtMs = Date.now() + SNAPSHOT_TTL_MS;
-  const deliveryAed = parseMoney(order.logistics?.deliveryAed, (order as any).logistics?.delivery, (order as any).deliveryAed, (order as any).delivery);
-  const packingAed = parseMoney(order.logistics?.packingAed, (order as any).logistics?.packing, (order as any).packingAed, (order as any).packing);
-  const commissionAed = parseMoney(order.logistics?.serviceFeeAed, (order as any).logistics?.commission, (order as any).commissionAed, (order as any).commission);
+  const deliveryAed = quoteTotals.deliveryAed + quoteTotals.cargoAed;
+  const packingAed = quoteTotals.packingAed;
+  const commissionAed = quoteTotals.commissionAed;
   const cargoCountry = String(order.logistics?.cargoCountry || '').trim();
   const cargoDeliveryType = (order.logistics?.cargoDeliveryType || 'air') as 'air' | 'express_air' | 'container';
   const cargoEtaDays = String(order.logistics?.cargoEtaDays || '').trim();
@@ -939,9 +886,9 @@ const buildSnapshotPayload = (
   const cargoContainerEtaDays = String(order.logistics?.cargoContainerEtaDays || '').trim();
   const additionalCostsUsd = order.logistics?.additionalCostsUsd || undefined;
 
-  const pricedPartLines = getPricedPartLines(order);
+  const pricedPartLines = quoteTotals.lines;
   const grossPartsTotalAed = round2(pricedPartLines.reduce((sum, line) => sum + line.grossClientLineTotalAed, 0));
-  const discountAed = round2(calculateOrderDiscountAed(grossPartsTotalAed + deliveryAed + packingAed + commissionAed, order));
+  const discountAed = quoteTotals.discountAed;
   const pricedParts = pricedPartLines
     .map(({ part, variant, quantity, baseUnitAed, clientUnitAed, clientLineTotalAed, grossClientLineTotalAed, discountShareAed }) => ({
       id: String(part.id),
@@ -986,7 +933,7 @@ const buildSnapshotPayload = (
     commission: commissionAed
   });
   const partsSumAed = computed.partsTotal;
-  const grandTotalAed = Math.max(0, round2(computed.grandTotal - discountAed));
+  const grandTotalAed = quoteTotals.totalAed;
   const searchDepositAmountAed = Math.max(0, parseMoney((order as any).searchDepositAmountAed));
   const balanceDueAed = Math.max(0, round2(grandTotalAed - searchDepositAmountAed));
   const normalizedWhatsapp = toDigits(publicSettings?.publicWhatsappNumber) || toDigits(owner.whatsappPhone);
@@ -994,7 +941,7 @@ const buildSnapshotPayload = (
   const normalizedInstagram = publicSettings?.publicInstagramUrl || '';
   const preSaleCheck = order.preSaleCheck || { defectPhotos: [], inspectionMedia: [] };
   const proofNotes = (order.notes || [])
-    .filter((note) => note.visibility === 'client' || note.kind === 'proof')
+    .filter((note) => note.visibility !== 'internal' && (note.visibility === 'client' || note.kind === 'proof'))
     .map((note) => {
       const attachments = (note.attachments || [])
         .map((attachment, index) => serializeProofAttachment(attachment, index))
@@ -1320,7 +1267,7 @@ export const publicQuoteCreateSnapshot = async (
 
       const originalUrl = quoteUrl.toString();
       const finalUrl = originalUrl;
-      let shortUrl: string | null = null;
+      const shortUrl: string | null = null;
 
       if (created.id) {
         const persistUrls = async (nextShortUrl: string | null) => {
@@ -1354,17 +1301,7 @@ export const publicQuoteCreateSnapshot = async (
 
         await persistUrls(null);
 
-        void shortenPublicQuoteUrl(originalUrl).then(async (resolvedShortUrl) => {
-          if (!resolvedShortUrl || resolvedShortUrl === originalUrl) return;
-          shortUrl = resolvedShortUrl;
-          await persistUrls(resolvedShortUrl);
-        }).catch((error) => {
-          void logger.warn('public-quote:create', 'Background short url persistence failed', {
-            orderId: order.id,
-            snapshotId: created.id,
-            error: error instanceof Error ? error.message : 'unknown'
-          });
-        });
+
       }
 
       if (isDevBuild) {
@@ -1431,6 +1368,8 @@ const resolveSnapshotPayloadSource = (row: SnapshotRow): SnapshotPayloadSource =
 export const publicQuoteGetSnapshot = async (token: string, options?: { signal?: AbortSignal; timeoutMs?: number; snapshotId?: string | null }) => {
   if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
   if (!supabase) throw new Error('Supabase client is not initialized');
+  const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
+  try {
   const normalizedToken = token.trim();
   if (!normalizedToken) throw new Error('Snapshot token is required');
 
@@ -1444,7 +1383,7 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
       .from('public_quote_snapshots')
       .select(COLS)
       .eq(column, value)
-      .limit(1);
+      .limit(1).abortSignal(request.signal);
     const { data, error } = await (q as any);
     if (error) {
       if (error.code === 'PGRST204' || error.code === '42703' || String(error.message).includes('Could not find')) {
@@ -1454,7 +1393,7 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
           .from('public_quote_snapshots')
           .select(COLS_MINIMAL)
           .eq(column, value)
-          .limit(1);
+          .limit(1).abortSignal(request.signal);
         const { data: d2, error: e2 } = await (qMinimal as any);
         if (e2) {
           if (silent) return null;
@@ -1473,6 +1412,11 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
 
   let row: SnapshotRow | null = null;
 
+  if (requiresStaffLogin) {
+    const { data, error } = await supabase.rpc('public_quote_by_token', { p_token: normalizedToken }).abortSignal(request.signal);
+    if (error) throw new Error('Не удалось загрузить предложение. Проверьте соединение и серверные настройки доступа.');
+    row = (Array.isArray(data) ? data[0] : null) || null;
+  } else {
   // Lookup order: by id (snapshotFromUrl) → by snapshot_id → by token → by token=snapshotFromUrl
   if (snapshotFromUrl) {
     row = await selectBy('id', snapshotFromUrl, true);
@@ -1499,6 +1443,8 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
 
   if (!row && snapshotFromUrl && snapshotFromUrl !== normalizedToken) {
     row = await selectBy('token', snapshotFromUrl, true);
+  }
+
   }
 
   if (!row) {
@@ -1532,6 +1478,7 @@ export const publicQuoteGetSnapshot = async (token: string, options?: { signal?:
     contacts_source: normalizedPayload.contactsSource,
     snapshot_source: snapshotSource
   };
+  } finally { request.cleanup(); }
 };
 
 export const publicQuoteGetPublicContactSettings = async (options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<PublicContactSettings | null> => {

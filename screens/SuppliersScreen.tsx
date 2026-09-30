@@ -1380,10 +1380,10 @@ const SuppliersScreen: React.FC = () => {
     reader.readAsText(file);
   };
 
-  const confirmRestore = () => {
+  const confirmRestore = async () => {
     if (importFile) {
       try {
-        restoreData(importFile);
+        await restoreData(importFile);
         setImportFile(null);
         setShowSuccess(true);
         setTimeout(() => setShowSuccess(false), 3000);

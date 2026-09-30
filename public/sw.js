@@ -1,5 +1,5 @@
 const APP_BASE_PATH = new URL('./', self.location.href).pathname;
-const APP_SHELL_CACHE = 'dubai-spares-shell-v10';
+const APP_SHELL_CACHE = 'dubai-spares-shell-v11';
 const RUNTIME_IMAGE_CACHE = 'dubai-spares-runtime-images-v1';
 const APP_SHELL_FILES = ['', 'index.html', 'manifest.json', 'icon-32.png', 'icon-180.png', 'icon-192.png', 'icon-512.png'].map((file) => `${APP_BASE_PATH}${file}`);
 
@@ -12,7 +12,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
     const keep = new Set([APP_SHELL_CACHE, RUNTIME_IMAGE_CACHE]);
-    await Promise.all(keys.filter((key) => !keep.has(key)).map((key) => caches.delete(key)));
+    await Promise.all(keys.filter((key) => key.startsWith('dubai-spares-') && !keep.has(key)).map((key) => caches.delete(key)));
     await self.clients.claim();
   })());
 });
@@ -21,7 +21,7 @@ self.addEventListener('message', (event) => {
   if (event.data?.type === 'FORCE_SW_UPDATE') {
     event.waitUntil((async () => {
       const keys = await caches.keys();
-      await Promise.all(keys.map((key) => caches.delete(key)));
+      await Promise.all(keys.filter((key) => key.startsWith('dubai-spares-')).map((key) => caches.delete(key)));
       self.skipWaiting();
     })());
   }

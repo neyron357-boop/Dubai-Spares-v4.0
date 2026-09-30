@@ -1,3 +1,4 @@
+import { getSupabaseAuthHeaders, requiresStaffLogin } from './authSession';
 import { cloudBuildGuardMessage, cloudFeatureFlags, isCloudConfigured, setLastCloudCall, SUPABASE_ANON_KEY, SUPABASE_URL } from './cloudConfig';
 import { decodePayloadFromCompressedTransport, encodePayloadToCompressedTransport } from './cloudCodec';
 import { preparePayloadWithImageManifest } from './cloudMedia';
@@ -125,8 +126,7 @@ const refreshSchemaCache = async () => {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          ...getSupabaseAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: '{}' 
@@ -247,8 +247,7 @@ const callRest = async <T>(endpoint: string, method: 'GET' | 'POST' | 'DELETE', 
 
     const requestUrl = `${SUPABASE_URL}/rest/v1/${endpoint}`;
     const headers = {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      ...getSupabaseAuthHeaders(),
       'Content-Type': 'application/json',
       Prefer: options.preferRepresentation === false ? 'return=minimal' : 'return=representation'
     };
@@ -370,7 +369,7 @@ export const backupUpload = async (
       response = await uploadAttempt(true);
     }
 
-    if (!response.ok && response.code === 'supabase_400') {
+    if (!requiresStaffLogin && !response.ok && response.code === 'supabase_400') {
       console.warn('[backupUpload] Falling back to legacy payload without image_manifest column', {
         recommendation: 'Apply latest Supabase migrations to restore backup image metadata support.'
       });
@@ -612,13 +611,13 @@ export const leadCreate = async (
     }];
 
     let response = await withSingleFlight(`lead:create:${idempotencyKey}`,
-      () => callRest<Array<{ id: string }>>('client_leads', 'POST', requestPayload, {
+      () => callRest<Array<{ id: string }>>(requiresStaffLogin ? 'rpc/public_lead_create' : 'client_leads', 'POST', requiresStaffLogin ? { p_lead: requestPayload[0] } : requestPayload, {
         ...(options || {}),
         timeoutMs: options?.timeoutMs || DEFAULT_TIMEOUT_MS,
         preferRepresentation: false
       }));
 
-    if (!response.ok && response.code === 'supabase_400') {
+    if (!requiresStaffLogin && !response.ok && response.code === 'supabase_400') {
       const { image_manifest: _unusedManifest, ...rowWithoutManifest } = requestPayload[0];
       const fallbackPayload = [rowWithoutManifest];
       response = await withSingleFlight(`lead:create:${idempotencyKey}:fb`,

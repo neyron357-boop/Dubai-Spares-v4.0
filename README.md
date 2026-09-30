@@ -1,54 +1,61 @@
-# Stark Motors
+# Dubai Spares / Stark Motors
 
-## Lead diagnostics and recovery
+Рабочее приложение для заявок на автозапчасти, вариантов поставщиков, закупки, клиентских смет и счетов. Интерфейс на русском, суммы хранятся и рассчитываются в AED.
 
-When debugging public lead creation (`client_leads`), use these built-in tools:
+**Приложение:** https://neyron357-boop.github.io/Dubai-Spares-v4.0/
 
-- `runCloudDiagnostics()` from `utils/cloudDiagnostics.ts` to check env/config/features and migration visibility.
-- `window.testSupabaseConnection()` from `utils/testSupabaseConnection.ts` for a direct POST probe.
-- **Settings → Local mode → Test Connection** to run a manual cloud check.
-- Browser console logs with `[leadCreate]` prefix for full request/response flow.
+## Запуск
 
-### What is validated
+Нужен Node.js 22.12+ и npm.
 
-- `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` presence and format.
-- Feature flags (`cloudFeatureFlags.clientForm`).
-- REST headers (`apikey`, `Authorization`, `Content-Type`).
-- Supabase migration accessibility for `public.client_leads`.
-
-### Offline fallback
-
-If lead creation fails, the form stores the order locally with `leadSyncPending=true`, shows a warning notification, and queues lead payload for auto-retry on `online` event.
-
-
-## Universal internal AI core
-
-This project now uses one reusable frontend AI client in `utils/aiCore.ts` that sends every AI request directly to the Supabase Edge Function endpoint: `https://nbnfaxsvdlcdycnuzieu.supabase.co/functions/v1/super-service`.
-
-Request contract:
-
-```json
-{
-  "task": "analyze_text | transform_text | extract_structured_data",
-  "payload": { "...": "..." }
-}
+```bash
+npm ci
+cp .env.example .env.local
+npm run dev
 ```
 
-Response contract:
+В клиенте допустимы только публичные `VITE_SUPABASE_URL` и `VITE_SUPABASE_ANON_KEY`. Серверные ключи, service-role и ключи AI нельзя добавлять в `VITE_*`, исходники или GitHub. `.env.*` исключены из git; шаблон `.env.example` остаётся доступным.
 
-```json
-{
-  "ok": true,
-  "task": "analyze_text",
-  "result": { "...": "..." },
-  "error": null
-}
+## Проверки
+
+```bash
+npm run check       # TypeScript, correctness lint, unit tests, production build
+npx playwright install chromium
+npm run test:e2e    # изолированные браузерные сценарии, без записи в рабочую базу
+npm run test:auth   # отдельный сервер и имитация Supabase Auth
+npm test --prefix api
+npm audit
+npm audit --prefix api
 ```
 
-Current frontend usage goes through `utils/aiCore.ts`, which is the single source of truth for AI requests and keeps the request/response contract stable for the app.
+Тесты создают собственные заказы и блокируют рабочий Supabase. При наличии `PLAYWRIGHT_BASE_URL` браузерные проверки используют указанный сервер; без него запускают Vite автоматически.
 
-Supported tasks:
+## Устройство
 
-- `analyze_text`
-- `transform_text`
-- `extract_structured_data`
+- `screens/`, `components/`, `hooks/`: React 18, маршрутизация через hash, мобильный интерфейс.
+- `orderStore.ts`, `store.ts`: операции заказов, поставщиков и синхронизации.
+- `storage/offlineDb.ts`: IndexedDB и долговечная очередь изменений. Неудачная синхронизация сохраняет изменения для повтора.
+- `utils/quotePricing.ts`: общий расчёт количества, выбранного предложения, наценки, доставки, скидки, депозита и остатка.
+- `publicQuoteApi.ts`, `serverApi.ts`: клиентские документы, лиды и облачные операции.
+- `api/`: необязательный сервер push-уведомлений. GitHub Pages его не запускает.
+- `supabase/schema`: bootstrap для новой базы; существующую базу намеренно блокирует, ничего не удаляя.
+- `supabase/migrations/`: отдельные изменения существующей базы.
+
+Локальная база и очереди сохраняются при открытии клиентских ссылок и восстановлении соединения. Экспортируйте резервную копию перед явным восстановлением или сбросом. Старый вложенный снимок `dubai-spares-cis/` удалён; его история доступна в git. Канонические исходники находятся в корне.
+
+## Публикация
+
+После обновления `main` GitHub Actions запускает проверку типов, lint, unit-тесты, сборку, аудит зависимостей и браузерные тесты. Только успешная проверка разрешает публикацию на бесплатном GitHub Pages. Сборка учитывает путь `/Dubai-Spares-v4.0/`; hash-ссылки открываются без серверного роутера.
+
+Для локальной проверки такой сборки:
+
+```bash
+npm run build -- --base=/Dubai-Spares-v4.0/
+npm run preview -- --host 127.0.0.1
+```
+
+## Доступ сотрудников
+
+Вход и серверные политики подготовлены, но **не включаются автоматически в существующей рабочей базе**. Порядок включения, ограничения и проверка прав: [docs/STAFF_ACCESS.md](docs/STAFF_ACCESS.md). Нельзя считать клиентский экран входа заменой RLS.
+
+Аудит, исправления и границы проверки: [docs/QUALITY_AUDIT_2026-09-30.md](docs/QUALITY_AUDIT_2026-09-30.md).

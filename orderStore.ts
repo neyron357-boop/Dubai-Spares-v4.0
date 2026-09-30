@@ -687,8 +687,8 @@ type MutationProcessResult = {
   deferredUntil?: number;
 };
 
-const processOfflineMutation = async (mutation: OfflineMutation): Promise<MutationProcessResult> => {
-  if (Number(mutation.nextRetryAt || 0) > Date.now()) {
+const processOfflineMutation = async (mutation: OfflineMutation, force = false): Promise<MutationProcessResult> => {
+  if (!force && Number(mutation.nextRetryAt || 0) > Date.now()) {
     return { status: 'deferred', deferredUntil: Number(mutation.nextRetryAt) };
   }
 
@@ -725,10 +725,13 @@ const processOfflineMutation = async (mutation: OfflineMutation): Promise<Mutati
       syncPerf.recordNetworkRequest();
       syncPerf.setLastNetworkRequest({ operation: 'orders.graph_upsert', orderId: mutation.orderId, bytes: payloadBytes });
       const saved = await persistOrderGraph(typedPayload);
-      await offlineDb.saveOrder(saved);
+      const latest = state.orders.find((order) => order.id === mutation.orderId);
+      if (!latest || Number(latest.updatedAt || latest.createdAt) <= Number(typedPayload.updatedAt || typedPayload.createdAt)) {
+        await offlineDb.saveOrder(saved);
+      }
     }
 
-    await offlineDb.removeMutation(mutation.id);
+    await offlineDb.removeMutation(mutation.id, mutation);
     const queueLength = await offlineDb.getMutationCount();
     cachedQueueLength = queueLength;
     syncPerf.setQueueLength(queueLength);
@@ -742,15 +745,13 @@ const processOfflineMutation = async (mutation: OfflineMutation): Promise<Mutati
     const errorType = classifySyncError(error);
     const retryCount = Number((mutation.attemptCount ?? mutation.retryCount) || 0) + 1;
     const isTimeoutLike = isNetworkError(error);
-    const nextRetryAt = Date.now() + getBackoffDelayMs(retryCount);
+    const nextRetryAt = Date.now() + (errorType === 'schema' || retryCount > MAX_MUTATION_RETRY ? 5 * 60_000 : getBackoffDelayMs(retryCount));
 
     syncPerf.setLastErrorType(errorType);
     syncPerf.setLastError(getErrorMessage(error, 'Mutation failed'));
 
-    if (errorType === 'schema' || retryCount > MAX_MUTATION_RETRY) {
-      await offlineDb.removeMutation(mutation.id);
-      return { status: 'failed' };
-    }
+    // An unsuccessful sync must never remove a customer's pending change.
+    // Back off on permanent-looking errors and allow an explicit retry after repair.
 
     syncPerf.markRetry();
     await offlineDb.enqueueMutation({
@@ -1810,6 +1811,14 @@ const scheduleBackgroundFlush = () => {
   }, networkFlushTimerMs));
 };
 
+const reportLocalSaveFailure = (error: unknown) => {
+  console.error('[storage:save]', error);
+  window.dispatchEvent(new CustomEvent('app-toast', { detail: {
+    message: 'Не удалось сохранить изменения на устройстве. Освободите место и повторите сохранение.',
+    tone: 'error',
+  } }));
+};
+
 const scheduleLocalCommit = (order: Order, patchOnly?: Partial<Order>) => {
   const existing = localCommitTimers.get(order.id);
   if (existing) {
@@ -1817,10 +1826,10 @@ const scheduleLocalCommit = (order: Order, patchOnly?: Partial<Order>) => {
     localCommitTimers.delete(order.id);
   }
   if (patchOnly && Object.keys(patchOnly).length > 0) {
-    void offlineDb.saveOrderPatch(order.id, patchOnly);
+    void offlineDb.saveOrderPatch(order.id, patchOnly).catch(reportLocalSaveFailure);
     return;
   }
-  void offlineDb.saveOrder(order);
+  void offlineDb.saveOrder(order).catch(reportLocalSaveFailure);
 };
 
 
@@ -1983,7 +1992,7 @@ export const flushOfflineMutations = async (options?: { force?: boolean }) => ru
     await logger.info('sync:flush', `Flush started with ${pending.length} pending mutations`);
 
     for (const mutation of pending) {
-      const result = await processOfflineMutation(mutation);
+      const result = await processOfflineMutation(mutation, force);
       if (result.status === 'deferred' && result.deferredUntil) {
         if (!earliestDeferredRetryAt || result.deferredUntil < earliestDeferredRetryAt) {
           earliestDeferredRetryAt = result.deferredUntil;
@@ -2337,7 +2346,6 @@ export const addOrderItem = async (order: Order) => {
     await queueMutation('upsert', localOrder, localOrder.id);
     setState({ orders: next, error: null });
     return true;
-    setState({ error: getErrorMessage(error, 'Не удалось сохранить заказ') });
   }
 };
 
@@ -2432,10 +2440,6 @@ export const deleteOrderItem = async (orderId: string) => {
     await queueMutation('delete', undefined, orderId);
     setState({ orders: next, error: null });
     return true;
-    if (isPublicLeadOrder) forgetLeadSyncOverrides(orderId);
-    await logger.error('order:delete', 'Failed to delete order', { orderId, error: serializeError(error) });
-    setState({ orders: previousOrders, error: getErrorMessage(error, 'Не удалось удалить заказ') });
-    return false;
   }
 };
 
@@ -2629,10 +2633,10 @@ export const updatePriceVariantItem = async (partId: string, variant: PriceVaria
   });
 };
 
-export const restoreOrdersExternal = (orders: Order[]) => {
+export const restoreOrdersExternal = async (orders: Order[]) => {
   const normalized = orders.map(normalizeOrder);
+  await orderRepository.saveOrders(normalized);
   setState({ orders: normalized, isHydrated: true });
-  void orderRepository.saveOrders(normalized);
 };
 
 // Compact change-detection key for a list of orders.

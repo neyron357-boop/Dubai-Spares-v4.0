@@ -1,3 +1,4 @@
+import { getSupabaseAuthHeaders } from '../authSession';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../cloudConfig';
 import { wrapSupabaseFetch } from '../egressDebug';
 
@@ -65,7 +66,9 @@ const normalizeAiResponse = <TTask extends AiTask, TResult>(task: TTask, data: u
 
   const normalizedTask = typeof data.task === 'string' && data.task.trim() ? data.task.trim() : task;
 
-  if (data.ok === true) {
+  if (normalizedTask !== task) return { ok: false, task, result: null, error: 'AI returned a response for a different task.' };
+
+  if (data.ok === true && data.result !== null && data.result !== undefined) {
     return {
       ok: true,
       task: normalizedTask as TTask,
@@ -123,7 +126,7 @@ const postAiTask = async <TTask extends AiTask, TResult>(task: TTask, payload: u
   }
 
   const requestController = new AbortController();
-  const timeoutMs = Math.max(12_000, Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 20_000));
+  const timeoutMs = Math.max(1, Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 20_000));
   let timeoutTriggered = false;
 
   if (options.cancelPrevious !== false) {
@@ -137,7 +140,8 @@ const postAiTask = async <TTask extends AiTask, TResult>(task: TTask, payload: u
     }
   };
 
-  options.signal?.addEventListener('abort', abortFromSignal, { once: true });
+  if (options.signal?.aborted) abortFromSignal();
+  else options.signal?.addEventListener('abort', abortFromSignal, { once: true });
 
   const timeoutId = window.setTimeout(() => {
     timeoutTriggered = true;
@@ -147,12 +151,12 @@ const postAiTask = async <TTask extends AiTask, TResult>(task: TTask, payload: u
   }, timeoutMs);
 
   try {
+    if (requestController.signal.aborted) return toStructuredFailure(task, CANCELLED_ERROR_MESSAGE);
     const response = await wrapSupabaseFetch(AI_CORE_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        ...getSupabaseAuthHeaders(),
       },
       body: JSON.stringify({ task, payload }),
       signal: requestController.signal,

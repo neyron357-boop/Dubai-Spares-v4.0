@@ -514,13 +514,13 @@ export const exportData = () => ({
   exportedAt: new Date().toISOString()
 });
 
-export const restoreDataExternal = (data: any) => {
+export const restoreDataExternal = async (data: any) => {
   if (!data || !Array.isArray(data.orders)) {
     throw new Error('Неверный формат данных');
   }
 
-  restoreOrdersExternal(data.orders);
-  globalSuppliers = Array.isArray(data.suppliers) ? data.suppliers.map((supplier: Supplier) => normalizeSupplier(supplier)) : [];
+  await restoreOrdersExternal(data.orders);
+  if (Array.isArray(data.suppliers)) globalSuppliers = data.suppliers.map((supplier: Supplier) => normalizeSupplier(supplier));
   notifySupplierListeners();
 };
 

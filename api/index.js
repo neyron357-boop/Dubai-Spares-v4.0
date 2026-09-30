@@ -1,10 +1,13 @@
+import { hasValidSecret, isAllowedPushEndpoint } from './security.js';
 import express from 'express';
 import cors from 'cors';
 import webpush from 'web-push';
 import { createClient } from '@supabase/supabase-js';
 
 const app = express();
-app.use(cors());
+const allowedOrigins = new Set((process.env.APP_ORIGINS || '').split(',').map((origin) => origin.trim()).filter(Boolean));
+app.disable('x-powered-by');
+app.use(cors({ origin: (origin, done) => done(null, !origin || allowedOrigins.has(origin)) }));
 app.use(express.json({ limit: '256kb' }));
 
 const hasEnv = (name) => Boolean(process.env[name]);
@@ -159,6 +162,7 @@ const sendPushToAdmins = async (notificationPayload) => {
 
   await Promise.all(
     subscriptions.map(async (subscription) => {
+      if (!isAllowedPushEndpoint(subscription.endpoint)) { failed += 1; return; }
       const webPushSubscription = {
         endpoint: subscription.endpoint,
         keys: {
@@ -206,7 +210,7 @@ const fetchMatchingShops = async (order) => {
 
 const validateWebhookKey = (req, res, next) => {
   const providedKey = req.header('x-api-key');
-  if (!providedKey || providedKey !== process.env.WEBHOOK_API_KEY) {
+  if (!hasValidSecret(providedKey, process.env.WEBHOOK_API_KEY)) {
     return res.status(401).json({ error: 'Unauthorized webhook caller' });
   }
 
@@ -288,12 +292,12 @@ app.post('/subscriptions', async (req, res) => {
   }
 
   const registrationKey = req.header('x-registration-key');
-  if (!registrationKey || registrationKey !== process.env.DEVICE_REGISTRATION_KEY) {
+  if (!hasValidSecret(registrationKey, process.env.DEVICE_REGISTRATION_KEY)) {
     return res.status(401).json({ error: 'Unauthorized subscription writer' });
   }
 
   const { endpoint, keys, userAgent } = req.body ?? {};
-  if (!endpoint || !keys?.p256dh || !keys?.auth) {
+  if (!isAllowedPushEndpoint(endpoint) || !/^[A-Za-z0-9_-]{40,200}={0,2}$/.test(keys?.p256dh || '') || !/^[A-Za-z0-9_-]{16,128}={0,2}$/.test(keys?.auth || '')) {
     return res.status(400).json({ error: 'Invalid subscription payload' });
   }
 

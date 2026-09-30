@@ -1,45 +1,15 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../cloudConfig';
+import { SUPABASE_URL } from '../cloudConfig';
+import { getSupabaseAuthHeaders } from '../authSession';
 
+/** A connection probe must never insert fictitious leads into a real database. */
 export const testSupabaseConnection = async () => {
-  console.log('[TEST] Testing Supabase connection...');
-
-  const testPayload = {
-    name: 'Test Lead',
-    phone: '+971501234567',
-    message: 'Test message from diagnostics',
-    payload: { test: true, timestamp: Date.now() }
-  };
-
+  if (!SUPABASE_URL) return { success: false, error: 'Cloud is not configured' };
   try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/client_leads`, {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=representation'
-      },
-      body: JSON.stringify(testPayload)
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/client_leads?select=id&limit=0`, {
+      headers: getSupabaseAuthHeaders(), signal: AbortSignal.timeout(10_000),
     });
-
-    const data = await response.json();
-
-    console.log('[TEST] Response status:', response.status);
-    console.log('[TEST] Response data:', data);
-
-    if (response.ok) {
-      console.log('✅ [TEST] Supabase connection works!');
-      return { success: true, data };
-    }
-
-    console.error('❌ [TEST] Supabase error:', data);
-    return { success: false, error: data };
+    return response.ok ? { success: true, data: [] } : { success: false, error: `Server returned ${response.status}` };
   } catch (error) {
-    console.error('❌ [TEST] Network error:', error);
-    return { success: false, error };
+    return { success: false, error: error instanceof Error ? error.message : 'Connection failed' };
   }
 };
-
-if (typeof window !== 'undefined') {
-  (window as Window & { testSupabaseConnection?: typeof testSupabaseConnection }).testSupabaseConnection = testSupabaseConnection;
-}

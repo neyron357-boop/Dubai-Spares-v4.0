@@ -1,3 +1,4 @@
+import { getSupabaseAuthHeaders } from '../authSession';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isCloudConfigured } from '../cloudConfig';
 import { logger } from '../logging';
 import { markBrokenImageUrl, shouldBlacklistByStatus } from './brokenImageBlacklist';
@@ -86,8 +87,7 @@ const isTransientStorageUploadError = (error: unknown): boolean => {
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const buildStorageHeaders = () => ({
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+  ...getSupabaseAuthHeaders()
 });
 
 const encodeStoragePath = (path: string) => path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
@@ -317,8 +317,7 @@ export const uploadImageToStorage = async (
           {
             method: 'POST',
             headers: {
-              apikey: SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              ...getSupabaseAuthHeaders(),
               'x-upsert': 'true',
               'Content-Type': compressed.type || 'image/webp'
             },
@@ -402,8 +401,7 @@ export const uploadFileToStorage = async (
           {
             method: 'POST',
             headers: {
-              apikey: SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              ...getSupabaseAuthHeaders(),
               'x-upsert': 'true',
               'Content-Type': mimeType || blob.type || 'application/octet-stream'
             },
@@ -907,8 +905,7 @@ export const recompressExistingStorageImage = async (imageUrl: string): Promise<
   const uploadResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${parsed.bucket}/${parsed.path}`, {
     method: 'POST',
     headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      ...getSupabaseAuthHeaders(),
       'x-upsert': 'true',
       'Content-Type': compressedBlob.type || 'image/webp'
     },

@@ -209,6 +209,7 @@ const Section: React.FC<{ title: string; children: React.ReactNode; tone?: 'defa
     <section ref={sectionRef} className={tone === 'danger' ? 'bg-rose-50/70' : 'bg-white'}>
       <button
         type="button"
+        aria-expanded={isOpen}
         onClick={() => {
           setIsOpen((prev) => {
             const next = !prev;
@@ -753,28 +754,7 @@ const SettingsScreen: React.FC = () => {
   };
 
 
-  const buildCompactBackupPayload = () => {
-    const raw = exportData();
-    return {
-      ...raw,
-      orders: (raw.orders || []).map((order: any) => ({
-        ...order,
-        carPhotoUrl: '',
-        carPhotos: [],
-        vinPhotoUrl: '',
-        parts: (order.parts || []).map((part: any) => ({
-          ...part,
-          photoUrl: '',
-          photos: [],
-          variants: (part.variants || []).map((variant: any) => ({
-            ...variant,
-            photoUrl: '',
-            photos: []
-          }))
-        }))
-      }))
-    };
-  };
+  const buildBackupPayload = () => exportData();
 
   const withBusy = async (label: string, fn: () => Promise<void>) => {
     setBusy(label);
@@ -1794,7 +1774,7 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               setBackupController(controller);
               setBackupProgress(15);
               try {
-                const payload = buildCompactBackupPayload();
+                const payload = buildBackupPayload();
                 const uploaded = await backupUpload(payload, { signal: controller.signal });
                 if (!uploaded.ok) {
                   setServerStatus('unavailable');
@@ -1841,8 +1821,9 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
                 try {
                   const backup = await backupUpload({}, { mode: 'restore', backupId: lastBackupId, signal: controller.signal, timeoutMs: 45000 });
                   if (!backup.ok || !backup.data.payload) throw new Error(backup.ok ? 'Backup payload missing' : backup.error);
+                  if (!window.confirm('Восстановить резервную копию? Текущие локальные заказы будут заменены. Сначала сохраните их экспорт.')) return;
                   await offlineDb.importAllData(backup.data.payload as Record<string, unknown[]>);
-                  if ((backup.data.payload as any)?.orders) restoreData({ orders: (backup.data.payload as any).orders, suppliers: [] });
+                  if ((backup.data.payload as any)?.orders) await restoreData({ ...backup.data.payload, orders: await offlineDb.getOrders() });
                   setServerStatus('available');
                 } finally {
                   setBackupController(null);
@@ -1862,8 +1843,10 @@ const resolveSnapshotCarTitle = (row: { order_id?: string | null; payload_json?:
               void withBusy('import', async () => {
                 const raw = await file.text();
                 const parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed?.orders)) throw new Error('Некорректная резервная копия: отсутствует список заказов.');
+                if (!window.confirm(`Восстановить ${parsed.orders.length} заказов из файла? Текущие локальные заказы будут заменены.`)) return;
                 await offlineDb.importAllData(parsed);
-                if (parsed.orders) restoreData({ orders: parsed.orders, suppliers: [] });
+                if (parsed.orders) await restoreData({ ...parsed, orders: await offlineDb.getOrders() });
               });
             }} />
           </label>

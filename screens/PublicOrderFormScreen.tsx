@@ -1,3 +1,4 @@
+import { requiresStaffLogin } from '../authSession';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Camera, Check, ChevronDown, ChevronLeft, Loader2, Mic, MicOff, Search, Trash2, Upload } from 'lucide-react';
 import { ensurePublicImageUrls, optimizeImageForUpload } from '../storage/photos';
@@ -957,7 +958,7 @@ Best time: ${bestContactTime || '—'}`,
       }
 
       try {
-        await addOrderItem({
+        if (!requiresStaffLogin) await addOrderItem({
           id: orderId,
           brand: brand.trim(),
           model: model.trim(),
