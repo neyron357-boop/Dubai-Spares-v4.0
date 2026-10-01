@@ -188,7 +188,7 @@ test.describe('procurement workflow', () => {
     await page.getByRole('button', { name: 'Вернуться к деталям' }).click();
     await page.waitForURL(new RegExp(`#/order/${orderId}$`));
 
-    await page.getByRole('button', { name: 'Пруфы', exact: true }).click();
+    await page.getByRole('button', { name: 'Материалы', exact: true }).click();
     await page
       .getByPlaceholder('Пруф клиенту: фото, цена, состояние...')
       .fill('Поставщик подтвердил наличие, цена 520 AED, фото и карта готовы.');

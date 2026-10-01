@@ -1,12 +1,7 @@
-import {
-  ArrowLeft,
-  CheckCircle2,
-  ChevronRight,
-  Circle,
-  Package,
-  Send,
-  Sparkles,
-} from 'lucide-react';
+import { Button, EmptyState, PageHeader } from '../components/ui';
+import { toast } from '../feedback';
+import { getWorkspaceScrollTop, restoreWorkspaceScrollTop } from '../utils/workspaceScroll';
+import { CheckCircle2, ChevronRight, Circle, Package, Send } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import SafeImage from '../components/SafeImage';
@@ -57,7 +52,7 @@ const OrderPartsScreen: React.FC = () => {
           : null;
     if (nextScrollTop === null) return;
     window.requestAnimationFrame(() => {
-      mainScroller.scrollTop = nextScrollTop;
+      restoreWorkspaceScrollTop(nextScrollTop);
     });
   }, [location.state, scrollStorageKey]);
 
@@ -66,14 +61,16 @@ const OrderPartsScreen: React.FC = () => {
     if (!(mainScroller instanceof HTMLElement)) return undefined;
 
     const persistScrollTop = () => {
-      window.sessionStorage.setItem(scrollStorageKey, String(mainScroller.scrollTop));
+      window.sessionStorage.setItem(scrollStorageKey, String(getWorkspaceScrollTop()));
     };
 
     persistScrollTop();
     mainScroller.addEventListener('scroll', persistScrollTop, { passive: true });
+    window.addEventListener('scroll', persistScrollTop, { passive: true });
     return () => {
       persistScrollTop();
       mainScroller.removeEventListener('scroll', persistScrollTop);
+      window.removeEventListener('scroll', persistScrollTop);
     };
   }, [scrollStorageKey]);
 
@@ -107,10 +104,10 @@ const OrderPartsScreen: React.FC = () => {
         `${part.name} — ${variant.salePriceAed ?? variant.priceAed} AED`,
       );
       if (result === 'downloaded')
-        window.alert('Картинка сохранена. Теперь её можно отправить клиенту.');
+        toast('Прайс сохранён в файл. Отправьте его клиенту.', 'success');
     } catch (error) {
       console.error(error);
-      window.alert('Не удалось сформировать картинку по детали.');
+      toast('Не удалось сформировать прайс по детали. Попробуйте ещё раз.', 'error');
     } finally {
       setIsGenerating(false);
     }
@@ -125,7 +122,7 @@ const OrderPartsScreen: React.FC = () => {
       })
       .filter((entry): entry is NonNullable<typeof entry> => !!entry);
     if (entries.length === 0) {
-      window.alert('Выберите хотя бы одну деталь с вариантом.');
+      toast('Выберите хотя бы одну деталь с ценой поставщика.', 'info');
       return;
     }
 
@@ -139,66 +136,66 @@ const OrderPartsScreen: React.FC = () => {
         `${order.brand} ${order.model} — ${entries.length} позиций`,
       );
       if (result === 'downloaded')
-        window.alert('Общая картинка сохранена. Можно отправить клиенту.');
+        toast('Общий прайс сохранён в файл. Отправьте его клиенту.', 'success');
     } catch (error) {
       console.error(error);
-      window.alert('Не удалось сформировать общую картинку.');
+      toast('Не удалось сформировать общий прайс. Попробуйте ещё раз.', 'error');
     } finally {
       setIsGenerating(false);
     }
   };
 
   return (
-    <div className="min-h-full bg-slate-50 pb-28">
-      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              const mainScroller = document.querySelector('main');
-              const restoreScrollTop =
-                mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
-              navigate(`/order/${order.id}`, {
-                state: typeof restoreScrollTop === 'number' ? { restoreScrollTop } : undefined,
-              });
-            }}
-            className="rounded-full p-3 text-slate-600 hover:bg-slate-100"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div className="min-w-0 flex-1">
-            <p className="text-lg font-bold text-slate-900">Подбор деталей</p>
-            <p className="text-xs font-semibold text-slate-500">
-              {order.brand} {order.model} · {order.parts.length} позиций
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3 p-4">
+    <div className="ui-page space-y-5 pb-28">
+      <PageHeader
+        title="Подбор деталей"
+        eyebrow="Прайс для клиента"
+        description={`${order.brand} ${order.model} · ${order.parts.length} позиций`}
+        back={() => navigate(`/order/${order.id}`)}
+      />
+      <div className="space-y-4">
         <div className="rounded-3xl border border-blue-100 bg-blue-50 p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-bold text-blue-900">Экран деталей заказа</p>
+              <p className="text-sm font-bold text-blue-900">Общий прайс для клиента</p>
               <p className="mt-1 text-xs font-semibold text-blue-700">
                 Здесь можно выбрать несколько деталей, собрать общий прайс-картинку и отправить
                 клиенту.
               </p>
             </div>
             <div className="rounded-2xl bg-white/80 px-3 py-2 text-right text-xs font-bold text-blue-700">
-              С вариантами: {shareableParts.length}
+              С ценой: {shareableParts.length}
             </div>
           </div>
-          <button
-            type="button"
+          <Button
+            loading={isGenerating}
+            disabled={selectedPartIds.length === 0}
+            icon={Send}
             onClick={() => void handleShareSelected()}
-            disabled={isGenerating || selectedPartIds.length === 0}
-            className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 text-sm font-bold text-white disabled:opacity-50"
+            className="mt-4 w-full"
           >
-            <Sparkles size={16} /> Сгенерировать одну картинку ({selectedPartIds.length})
-          </button>
+            Собрать прайс ({selectedPartIds.length})
+          </Button>
         </div>
 
+        {!order.parts.length && (
+          <div className="ui-panel">
+            <EmptyState
+              icon={Package}
+              title="Детали ещё не добавлены"
+              description="Добавьте нужные детали в заказе, затем соберите цены поставщиков."
+              action={
+                <Button
+                  onClick={() =>
+                    navigate(`/order/${order.id}`, { state: { restoreActiveTab: 'search' } })
+                  }
+                >
+                  Добавить детали
+                </Button>
+              }
+            />
+          </div>
+        )}
         {order.parts.map((part) => {
           const displayName = getPartDisplayName(part);
           const groupItems = normalizeGroupItems(part.groupItems);
@@ -214,6 +211,9 @@ const OrderPartsScreen: React.FC = () => {
                 <button
                   type="button"
                   disabled={!variant}
+                  aria-label={`Выбрать деталь: ${displayName}`}
+                  aria-pressed={isSelected}
+                  title={!variant ? 'Сначала добавьте цену поставщика' : 'Включить в общий прайс'}
                   onClick={() => toggleSelected(part.id)}
                   className={`mt-0.5 rounded-full p-1 ${variant ? 'text-blue-600' : 'text-slate-300'}`}
                 >
@@ -243,7 +243,7 @@ const OrderPartsScreen: React.FC = () => {
                     onClick={() => {
                       const mainScroller = document.querySelector('main');
                       const restoreScrollTop =
-                        mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
+                        mainScroller instanceof HTMLElement ? getWorkspaceScrollTop() : undefined;
                       navigate(`/order/${order.id}/part/${part.id}`, {
                         state: {
                           backTo: `/order/${order.id}/parts`,

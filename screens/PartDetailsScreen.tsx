@@ -1,3 +1,5 @@
+import { sanitizeMoneyInput } from '../utils/moneyInput';
+import { ModalSurface } from '../components/ui';
 import {
   ArrowLeft,
   Camera,
@@ -134,31 +136,6 @@ const upsertLinkedPart = (entries: any[] = [], entry: any) => {
 
 const normalizePhone = (value: string) => value.replace(/[^\d]/g, '');
 
-const createRandomSupplierName = (usedNames: Set<string>) => {
-  const prefixes = [
-    'Desert',
-    'Falcon',
-    'Turbo',
-    'Golden',
-    'Rapid',
-    'Prime',
-    'Royal',
-    'Nova',
-    'Metro',
-    'Apex',
-  ];
-  const suffixes = ['Auto', 'Parts', 'Motors', 'Garage', 'Trading', 'Hub', 'Store', 'Service'];
-  for (let i = 0; i < 200; i += 1) {
-    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-    const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
-    const serial = Math.floor(100 + Math.random() * 900);
-    const candidate = `${prefix} ${suffix} ${serial}`;
-    if (usedNames.has(candidate.toLowerCase())) continue;
-    return candidate;
-  }
-  return `Поставщик ${Date.now()}`;
-};
-
 const PartDetailsScreen: React.FC = () => {
   const { orderId, partId } = useParams<{ orderId: string; partId: string }>();
   const navigate = useNavigate();
@@ -169,7 +146,6 @@ const PartDetailsScreen: React.FC = () => {
   const sampleFileInputRef = useRef<HTMLInputElement>(null);
   const variantsListRef = useRef<HTMLDivElement>(null);
   const formSessionRef = useRef<string | null>(null);
-  const generatedSupplierNamesRef = useRef<Set<string>>(new Set());
   const swipeStartRef = useRef<{ x: number; y: number; at: number } | null>(null);
 
   const order = orders.find((o) => o.id === orderId);
@@ -402,7 +378,7 @@ const PartDetailsScreen: React.FC = () => {
     try {
       const files = await readClipboardImageFiles();
       if (!files.length) {
-        alert('В буфере обмена нет изображений');
+        toast('В буфере обмена нет изображений. Скопируйте фото или выберите файл.', 'info');
         return;
       }
       const photos = await Promise.all(
@@ -423,7 +399,7 @@ const PartDetailsScreen: React.FC = () => {
         photos: mergeUniqueStrings(prev.photos, photos.filter(Boolean)),
       }));
     } catch {
-      alert('Не удалось получить фото из буфера обмена');
+      toast('Не удалось получить фото из буфера. Можно выбрать файл с устройства.', 'error');
     }
   };
 
@@ -521,11 +497,11 @@ const PartDetailsScreen: React.FC = () => {
 
   const saveVariant = async () => {
     if (!depositPaid) {
-      alert('Сначала подтвердите депозит в заказе. После этого можно добавлять варианты.');
+      toast('Сначала подтвердите депозит в заказе. После этого можно добавлять варианты.', 'info');
       return;
     }
     if (!canSave) {
-      alert('Введите цену покупки и магазин');
+      toast('Укажите цену закупки и название магазина.', 'error');
       return;
     }
 
@@ -773,22 +749,10 @@ const PartDetailsScreen: React.FC = () => {
     .filter((s) => s.name.toLowerCase().includes(form.shopName.toLowerCase()))
     .slice(0, 5);
 
-  const generateShopName = () => {
-    const usedNames = new Set([
-      ...suppliers.map((supplier) => supplier.name.toLowerCase()),
-      ...orders.flatMap((entry) =>
-        entry.parts.flatMap((entryPart) =>
-          (Array.isArray(entryPart.variants) ? entryPart.variants : []).map((variant) =>
-            variant.shopName.toLowerCase(),
-          ),
-        ),
-      ),
-      ...generatedSupplierNamesRef.current,
-    ]);
-    const name = createRandomSupplierName(usedNames);
-    generatedSupplierNamesRef.current.add(name.toLowerCase());
-    handleFormPatch('shopName', name);
+  const startNewShop = () => {
+    handleFormPatch('shopName', '');
     handleFormPatch('supplierId', undefined);
+    document.getElementById('offer-shop-name')?.focus();
   };
 
   const openWhatsapp = (variant: PriceVariant) => {
@@ -815,9 +779,15 @@ const PartDetailsScreen: React.FC = () => {
       const text = await navigator.clipboard.readText();
       if (!text) return;
       if (target === 'phone') handleFormPatch('phone', formatPhone(text));
-      else handleFormPatch(target, text as never);
+      else
+        handleFormPatch(
+          target,
+          target === 'purchasePriceAed' || target === 'salePriceAed'
+            ? sanitizeMoneyInput(text)
+            : text,
+        );
     } catch {
-      alert('Буфер обмена недоступен');
+      toast('Буфер обмена недоступен. Введите данные вручную.', 'info');
     }
   };
 
@@ -925,7 +895,7 @@ const PartDetailsScreen: React.FC = () => {
     try {
       const files = await readClipboardImageFiles();
       if (!files.length) {
-        alert('В буфере обмена нет изображений');
+        toast('В буфере обмена нет изображений. Скопируйте фото или выберите файл.', 'info');
         return;
       }
       const photoIndex = getSamplePhotos().length;
@@ -951,7 +921,7 @@ const PartDetailsScreen: React.FC = () => {
       const merged = Array.from(new Set([...(getSamplePhotos() || []), ...photos.filter(Boolean)]));
       replaceSamplePhotos(merged);
     } catch {
-      alert('Не удалось получить фото из буфера обмена');
+      toast('Не удалось получить фото из буфера. Можно выбрать файл с устройства.', 'error');
     }
   };
 
@@ -1024,6 +994,8 @@ const PartDetailsScreen: React.FC = () => {
       <div className="sticky top-0 z-30 border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur">
         <div className="flex items-start justify-between gap-2">
           <button
+            aria-label="Назад"
+            title="Назад"
             onClick={goBack}
             className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-slate-950 transition-colors active:bg-slate-100"
           >
@@ -1034,6 +1006,7 @@ const PartDetailsScreen: React.FC = () => {
               <div className="flex items-center gap-2">
                 <input
                   autoFocus
+                  aria-label="Название детали"
                   value={partNameDraft}
                   onChange={(e) => setPartNameDraft(e.target.value)}
                   onBlur={submitPartName}
@@ -1047,6 +1020,8 @@ const PartDetailsScreen: React.FC = () => {
                   className="h-10 w-full rounded-xl border border-blue-200 px-3 text-sm font-bold text-center"
                 />
                 <button
+                  aria-label="Сохранить название детали"
+                  title="Сохранить название детали"
                   type="button"
                   onClick={submitPartName}
                   className="rounded-lg bg-blue-600 px-2 py-2 text-white"
@@ -1058,9 +1033,10 @@ const PartDetailsScreen: React.FC = () => {
               <button
                 type="button"
                 onClick={startEditPartName}
-                className="mx-auto block max-w-full truncate text-[22px] font-bold uppercase leading-7 tracking-tight text-slate-950 hover:text-blue-700"
+                aria-label="Изменить название детали"
+                className="mx-auto block max-w-full text-[22px] font-bold leading-7 tracking-tight text-slate-950 hover:text-blue-700"
               >
-                {part.name}
+                <h1 className="line-clamp-2">{part.name}</h1>
               </button>
             )}
             <div className="mt-0.5 flex items-center justify-center gap-2">
@@ -1079,6 +1055,8 @@ const PartDetailsScreen: React.FC = () => {
           </div>
           <div className="relative">
             <button
+              aria-label="Действия"
+              title="Действия"
               onClick={() => setShowMenu((prev) => !prev)}
               className="grid h-11 w-11 place-items-center rounded-full text-slate-950 active:bg-slate-100"
             >
@@ -1099,10 +1077,11 @@ const PartDetailsScreen: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    alert(
+                    toast(
                       historyPrices.length
                         ? `История цен: ${historyPrices.join(', ')} AED`
                         : 'История пока пустая',
+                      'info',
                     );
                     setShowMenu(false);
                   }}
@@ -1208,6 +1187,7 @@ const PartDetailsScreen: React.FC = () => {
                     >
                       <button
                         type="button"
+                        aria-label={`Открыть фото детали ${index + 1}`}
                         onClick={() => setGallery({ images: heroPhotos, index: galleryIndex })}
                         className="h-full w-full"
                       >
@@ -1245,7 +1225,7 @@ const PartDetailsScreen: React.FC = () => {
               </div>
             )}
 
-            <section className="rounded-[24px] border border-white bg-white p-4 shadow-[0_14px_40px_rgba(15,23,42,0.07)]">
+            <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="line-clamp-2 text-base font-bold leading-5 text-slate-900">
@@ -1292,6 +1272,7 @@ const PartDetailsScreen: React.FC = () => {
                     </button>
                   </div>
                   <textarea
+                    aria-label="Описание детали"
                     autoFocus
                     value={partDescriptionDraft}
                     onChange={(e) => setPartDescriptionDraft(e.target.value)}
@@ -1330,7 +1311,7 @@ const PartDetailsScreen: React.FC = () => {
 
             <section ref={variantsListRef} className="space-y-3 pt-2">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-[19px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                <h2 className="text-lg font-bold text-slate-900">
                   Варианты ({partVariants.length})
                 </h2>
               </div>
@@ -1354,7 +1335,7 @@ const PartDetailsScreen: React.FC = () => {
                     <article
                       id={`variant-${variant.id}`}
                       key={variant.id}
-                      className={`overflow-hidden rounded-[24px] border p-3.5 shadow-[0_14px_40px_rgba(15,23,42,0.06)] ${
+                      className={`overflow-hidden rounded-[24px] border p-3.5 shadow-sm ${
                         isBest
                           ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-white'
                           : requestedVariantId === variant.id
@@ -1363,15 +1344,16 @@ const PartDetailsScreen: React.FC = () => {
                       }`}
                     >
                       {isBest && (
-                        <div className="-mx-3.5 -mt-3.5 mb-3 inline-flex items-center gap-2 rounded-br-[24px] bg-emerald-50 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-emerald-700">
+                        <div className="-mx-3.5 -mt-3.5 mb-3 inline-flex items-center gap-2 rounded-br-[24px] bg-emerald-50 px-4 py-2 text-[12px] font-semibold text-emerald-700">
                           <Star size={16} fill="currentColor" /> Лучший вариант
                         </div>
                       )}
-                      <div className="grid grid-cols-[112px_1fr_auto] gap-3">
+                      <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 sm:grid-cols-[96px_minmax(0,1fr)_auto]">
                         <button
                           type="button"
                           onClick={(e) => openGallery(e, variant)}
-                          className="h-28 w-28 overflow-hidden rounded-2xl bg-slate-100 shadow-inner"
+                          aria-label={`Открыть фотографии варианта от ${variant.shopName || 'поставщика'}`}
+                          className="h-[72px] w-[72px] overflow-hidden rounded-xl bg-slate-100 sm:h-24 sm:w-24"
                         >
                           {photo ? (
                             <img
@@ -1389,41 +1371,43 @@ const PartDetailsScreen: React.FC = () => {
                         </button>
                         <div className="min-w-0 py-1">
                           <div className="flex items-center gap-1.5">
-                            <p className="truncate text-[18px] font-bold uppercase text-slate-950">
+                            <p className="line-clamp-2 text-base font-bold text-slate-950">
                               {variant.shopName || 'Поставщик'}
                             </p>
                             <span className="grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-white">
                               <Check size={13} />
                             </span>
                           </div>
-                          <p className="mt-2 flex items-center gap-1.5 truncate text-sm font-semibold text-slate-500">
+                          <p className="mt-1 flex items-start gap-1.5 text-xs leading-relaxed text-slate-500">
                             <MapPin size={16} /> {locationText}
                           </p>
                           <span className="mt-2 inline-flex rounded-lg bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">
                             {availabilityLabels[variant.availability || 'in_stock']}
                           </span>
                         </div>
-                        <div className="flex min-w-[116px] flex-col items-end py-1">
-                          <p className="text-right text-[25px] font-bold leading-7 text-slate-950">
+                        <div className="col-span-2 grid grid-cols-2 items-center gap-2 border-t border-slate-100 pt-3 sm:col-span-1 sm:flex sm:min-w-[132px] sm:flex-col sm:items-end sm:border-0 sm:pt-1">
+                          <p className="text-[22px] font-bold leading-7 tabular-nums text-slate-950 sm:text-right">
                             {formatAed(price)}
                           </p>
-                          <p className="mt-2 text-right text-xs font-semibold text-slate-500">
+                          <p className="text-right text-xs font-semibold text-slate-500">
                             {conditionLabels[variant.condition || 'used']}
                           </p>
-                          <div className="mt-auto grid w-full gap-2">
+                          <div className="col-span-2 grid w-full grid-cols-2 gap-2 sm:mt-3 sm:grid-cols-1">
                             <button
                               type="button"
                               onClick={() => openWhatsapp(variant)}
-                              className={`inline-flex h-11 items-center justify-center gap-2 rounded-2xl text-sm font-bold ${isBest ? 'bg-emerald-600 text-white shadow-[0_12px_28px_rgba(22,163,74,0.24)]' : 'border border-emerald-100 bg-white text-emerald-700'}`}
+                              className={`inline-flex h-11 items-center justify-center gap-2 rounded-2xl text-sm font-bold ${isBest ? 'bg-emerald-600 text-white shadow-sm' : 'border border-emerald-100 bg-white text-emerald-700'}`}
                             >
                               <MessageCircle size={17} /> WhatsApp
                             </button>
                             <button
                               type="button"
+                              aria-pressed={part.bestOfferId === variant.id}
                               onClick={() => selectVariantAsBest(variant)}
-                              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 text-sm font-bold text-white shadow-[0_12px_28px_rgba(15,23,42,0.18)]"
+                              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 text-sm font-bold text-white shadow-sm"
                             >
-                              <Plus size={18} /> Добавить
+                              <Check size={18} />{' '}
+                              {part.bestOfferId === variant.id ? 'Выбрано' : 'Выбрать'}
                             </button>
                           </div>
                         </div>
@@ -1514,6 +1498,8 @@ const PartDetailsScreen: React.FC = () => {
                   </h3>
                 </div>
                 <button
+                  aria-label="Закрыть"
+                  title="Закрыть"
                   type="button"
                   onClick={closeEditor}
                   className="flex h-8 w-8 items-center justify-center rounded-xl bg-gray-100 text-gray-600"
@@ -1541,6 +1527,8 @@ const PartDetailsScreen: React.FC = () => {
                     <span className="mt-0.5 text-[11px] font-bold">Фото</span>
                   </button>
                   <button
+                    aria-label="Вставить из буфера"
+                    title="Вставить из буфера"
                     type="button"
                     onClick={() => void handleVariantPhotosFromClipboard()}
                     className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
@@ -1565,6 +1553,8 @@ const PartDetailsScreen: React.FC = () => {
                         </div>
                       )}
                       <button
+                        aria-label="Удалить фото"
+                        title="Удалить фото"
                         type="button"
                         onClick={() => removeVariantPhoto(index)}
                         className="absolute right-1 top-1 rounded-full bg-black/55 p-1 text-white"
@@ -1588,19 +1578,21 @@ const PartDetailsScreen: React.FC = () => {
                 <label className="text-[11px] font-bold text-gray-700">Цена покупки, AED</label>
                 <div className="grid grid-cols-[1fr_auto] gap-2">
                   <input
+                    aria-label="Цена закупки, AED"
                     type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
+                    inputMode="decimal"
                     autoComplete="off"
                     autoFocus
                     value={form.purchasePriceAed}
                     onChange={(e) =>
-                      handleFormPatch('purchasePriceAed', e.target.value.replace(/[^\d]/g, ''))
+                      handleFormPatch('purchasePriceAed', sanitizeMoneyInput(e.target.value))
                     }
                     placeholder="200"
                     className="h-11 min-w-0 rounded-xl border border-gray-200 px-3 text-lg font-bold text-gray-950 outline-none"
                   />
                   <button
+                    aria-label="Вставить из буфера"
+                    title="Вставить из буфера"
                     type="button"
                     onClick={() => pasteFromClipboard('purchasePriceAed')}
                     className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 text-gray-600"
@@ -1622,6 +1614,7 @@ const PartDetailsScreen: React.FC = () => {
                     {(Object.keys(conditionLabels) as OfferCondition[]).map((condition) => (
                       <button
                         key={condition}
+                        aria-pressed={form.condition === condition}
                         type="button"
                         onClick={() => handleFormPatch('condition', condition)}
                         className={`h-8 rounded-lg text-[11px] font-bold ${form.condition === condition ? 'bg-gray-950 text-white' : 'bg-white text-gray-700'}`}
@@ -1640,6 +1633,7 @@ const PartDetailsScreen: React.FC = () => {
                       {(Object.keys(availabilityLabels) as OfferAvailability[]).map((value) => (
                         <button
                           key={value}
+                          aria-pressed={form.availability === value}
                           type="button"
                           onClick={() => handleFormPatch('availability', value)}
                           className={`h-8 rounded-lg text-[11px] font-bold ${form.availability === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}
@@ -1657,6 +1651,7 @@ const PartDetailsScreen: React.FC = () => {
                       {(Object.keys(etaLabels) as OfferFormState['deliveryEta'][]).map((value) => (
                         <button
                           key={value}
+                          aria-pressed={form.deliveryEta === value}
                           type="button"
                           onClick={() => handleFormPatch('deliveryEta', value)}
                           className={`h-8 rounded-lg text-[11px] font-bold ${form.deliveryEta === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}
@@ -1672,9 +1667,11 @@ const PartDetailsScreen: React.FC = () => {
               <section className="space-y-2">
                 <div className="relative">
                   <label className="text-[11px] font-bold text-gray-700">Магазин</label>
-                  <div className="mt-1 grid h-10 grid-cols-[auto_1fr_auto] items-center gap-2 rounded-xl border border-gray-200 px-2.5">
+                  <div className="mt-1 grid min-h-12 grid-cols-[auto_1fr_auto] items-center gap-2 rounded-xl border border-gray-200 px-2.5">
                     <Store size={14} className="text-gray-500" />
                     <input
+                      id="offer-shop-name"
+                      aria-label="Название поставщика"
                       value={form.shopName}
                       onChange={(e) => {
                         handleFormPatch('shopName', e.target.value);
@@ -1686,10 +1683,10 @@ const PartDetailsScreen: React.FC = () => {
                     />
                     <button
                       type="button"
-                      onClick={generateShopName}
+                      onClick={startNewShop}
                       className="rounded-lg bg-violet-50 px-2 py-1 text-[11px] font-bold text-violet-700"
                     >
-                      Рандом
+                      Новый
                     </button>
                   </div>
                   {showSuggestions && form.shopName && filteredSuppliers.length > 0 && (
@@ -1718,12 +1715,15 @@ const PartDetailsScreen: React.FC = () => {
                     <div className="flex h-10 min-w-0 items-center gap-2 rounded-xl border border-gray-200 px-2.5">
                       <Phone size={14} className="shrink-0 text-gray-500" />
                       <input
+                        aria-label="Телефон"
                         value={form.phone}
                         onChange={(e) => handleFormPatch('phone', formatPhone(e.target.value))}
                         className="min-w-0 flex-1 bg-transparent text-xs font-bold outline-none"
                       />
                     </div>
                     <button
+                      aria-label="Вставить из буфера"
+                      title="Вставить из буфера"
                       type="button"
                       onClick={() => pasteFromClipboard('phone')}
                       className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200"
@@ -1731,6 +1731,8 @@ const PartDetailsScreen: React.FC = () => {
                       <ClipboardPaste size={14} />
                     </button>
                     <button
+                      aria-label="Скопировать"
+                      title="Скопировать"
                       type="button"
                       onClick={() => navigator.clipboard.writeText(form.phone)}
                       className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200"
@@ -1738,6 +1740,8 @@ const PartDetailsScreen: React.FC = () => {
                       <Copy size={14} />
                     </button>
                     <button
+                      aria-label="Открыть WhatsApp поставщика"
+                      title="Открыть WhatsApp поставщика"
                       type="button"
                       onClick={() =>
                         openWhatsapp({
@@ -1776,6 +1780,8 @@ const PartDetailsScreen: React.FC = () => {
                       />
                     </div>
                     <button
+                      aria-label="Определить моё местоположение"
+                      title="Определить моё местоположение"
                       type="button"
                       onClick={getCurrentLocation}
                       disabled={isLocating}
@@ -1787,12 +1793,15 @@ const PartDetailsScreen: React.FC = () => {
                 </label>
                 <div className="grid grid-cols-[1fr_auto] gap-1.5">
                   <input
+                    aria-label="Ссылка на карту"
                     value={form.mapsUrl}
                     onChange={(e) => handleFormPatch('mapsUrl', e.target.value)}
                     className="h-10 min-w-0 rounded-xl border border-gray-200 px-2.5 text-xs font-bold outline-none"
                     placeholder="Google Maps URL"
                   />
                   <button
+                    aria-label="Вставить из буфера"
+                    title="Вставить из буфера"
                     type="button"
                     onClick={() => pasteFromClipboard('mapsUrl')}
                     className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200"
@@ -1808,6 +1817,7 @@ const PartDetailsScreen: React.FC = () => {
               <section className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-700">Заметка по варианту</label>
                 <textarea
+                  aria-label="Комментарий"
                   value={form.note}
                   onChange={(e) => handleFormPatch('note', e.target.value)}
                   rows={2}
@@ -1871,7 +1881,7 @@ const PartDetailsScreen: React.FC = () => {
       </div>
 
       {!isAdding && (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/80 bg-white/95 px-4 pb-[max(10px,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-8px_22px_rgba(15,23,42,0.045)] backdrop-blur-xl">
+        <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[850px] bottom-0 z-30 border-t border-slate-200/80 bg-white/95 px-4 pb-[max(10px,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-8px_22px_rgba(15,23,42,0.045)] backdrop-blur-xl">
           <div className="grid grid-cols-2 gap-2.5">
             <button
               type="button"
@@ -1898,9 +1908,10 @@ const PartDetailsScreen: React.FC = () => {
       )}
 
       {showAddOptionsSheet && (
-        <div
-          className="fixed inset-0 z-[120] flex items-end bg-black/35 backdrop-blur-sm"
-          onClick={() => setShowAddOptionsSheet(false)}
+        <ModalSurface
+          label="Добавить вариант"
+          onClose={() => setShowAddOptionsSheet(false)}
+          className="ui-sheet-layer flex items-end"
         >
           <div
             className="w-full rounded-t-[28px] bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl"
@@ -1944,13 +1955,14 @@ const PartDetailsScreen: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {showAfterSaveSheet && (
-        <div
-          className="fixed inset-0 z-40 bg-black/30 flex items-end"
-          onClick={() => setShowAfterSaveSheet(false)}
+        <ModalSurface
+          label="Вариант сохранён"
+          onClose={() => setShowAfterSaveSheet(false)}
+          className="ui-sheet-layer flex items-end"
         >
           <div
             className="w-full bg-white rounded-t-3xl p-4 space-y-2"
@@ -1999,7 +2011,7 @@ const PartDetailsScreen: React.FC = () => {
               Вернуться к деталям
             </button>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       <ConfirmModal
@@ -2010,11 +2022,17 @@ const PartDetailsScreen: React.FC = () => {
       />
 
       {showLibraryPicker && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+        <ModalSurface
+          label="Выбрать вариант"
+          onClose={() => setShowLibraryPicker(false)}
+          className="flex items-center justify-center  p-4"
+        >
           <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl max-h-[82dvh] overflow-y-auto space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold">Выбрать вариант</h3>
               <button
+                aria-label="Закрыть"
+                title="Закрыть"
                 type="button"
                 onClick={() => setShowLibraryPicker(false)}
                 className="p-2 rounded-lg hover:bg-gray-100"
@@ -2044,7 +2062,7 @@ const PartDetailsScreen: React.FC = () => {
                 </button>
               ))}
           </div>
-        </div>
+        </ModalSurface>
       )}
       {gallery && (
         <ImagePreview

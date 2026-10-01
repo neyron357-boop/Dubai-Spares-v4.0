@@ -173,7 +173,12 @@ test('new order form validates required fields', async ({ page }) => {
 
   await page.locator('form#new-order-form button[type="submit"]').click();
 
-  await expect(page.locator('form#new-order-form .text-rose-600')).toHaveCount(3);
+  await expect(page.getByText('Марка обязательна', { exact: true })).toBeVisible();
+  await expect(page.getByText('Модель обязательна', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Год', exact: true })).toHaveAttribute(
+    'aria-invalid',
+    'true',
+  );
   await expect(page).toHaveURL(/#\/new/);
 });
 
@@ -261,7 +266,9 @@ test('public request form shows required-field validation without submitting', a
   await page.goto('/request', { waitUntil: 'domcontentloaded' });
 
   await expect(page.getByRole('heading', { name: 'Введите данные автомобиля' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Далее/ })).toBeDisabled();
+  await page.getByRole('button', { name: /Далее/ }).click();
+  await expect(page.getByRole('combobox', { name: 'Марка *', exact: true })).toBeFocused();
+  await expect(page.getByText('Выберите марку автомобиля', { exact: true })).toBeVisible();
 
   await expect(page.getByText('Заполните обязательные поля:')).toBeVisible();
   await expect(page).toHaveURL(/\/request/);
@@ -365,7 +372,7 @@ test('adding a standalone variant to an order does not leave a duplicate card', 
 
   await gotoHash(page, '/#/variants');
   await page.getByRole('button', { name: 'Новый вариант' }).click();
-  const createVariantModal = page.locator('.fixed.inset-0').filter({ hasText: 'Новый вариант' });
+  const createVariantModal = page.getByRole('dialog', { name: 'Новый вариант', exact: true });
   await expect(createVariantModal).toBeVisible();
   await createVariantModal.getByPlaceholder('Поставщик', { exact: true }).fill('QA Move Supplier');
   await createVariantModal.getByPlaceholder('Деталь / название варианта').fill('QA MOVE BUMPER');
@@ -378,7 +385,7 @@ test('adding a standalone variant to an order does not leave a duplicate card', 
   await expect(createdCard).toContainText('Без заказа');
 
   await createdCard.getByRole('button', { name: 'В заказ' }).click();
-  const orderPicker = page.locator('.fixed.inset-0').filter({ hasText: 'Добавить в заказ' });
+  const orderPicker = page.getByRole('dialog', { name: 'Добавить в заказ', exact: true });
   await expect(orderPicker).toBeVisible();
   await orderPicker.getByRole('button').filter({ hasText: 'Toyota Camry' }).click();
   await page.waitForURL(/#\/order\//);

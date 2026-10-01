@@ -1,0 +1,430 @@
+{
+  "date": "2026-10-01",
+  "widths": [320, 390, 768, 1440],
+  "checks": [
+    {
+      "route": "/orders",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/new",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/order/:id",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/order/:id/parts",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/order/:id/part/:partId",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/database",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/variants",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/notifications",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/settings",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/morning",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/request",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/trust",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/q/missing",
+      "width": 320,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/orders",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/new",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/order/:id",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/order/:id/parts",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/order/:id/part/:partId",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/database",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/variants",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/notifications",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/settings",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/morning",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/request",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/trust",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/q/missing",
+      "width": 390,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/orders",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/new",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/order/:id",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/order/:id/parts",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/order/:id/part/:partId",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/database",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/variants",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/notifications",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/settings",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/morning",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/request",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/trust",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/q/missing",
+      "width": 768,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": 0
+    },
+    {
+      "route": "/orders",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/new",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/order/:id",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/order/:id/parts",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/order/:id/part/:partId",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/database",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/variants",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/notifications",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/settings",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/morning",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/request",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/trust",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    },
+    {
+      "route": "/q/missing",
+      "width": 1440,
+      "horizontalOverflow": false,
+      "unnamedVisibleButtons": 0,
+      "unnamedVisibleFields": 0,
+      "smallVisibleTouchTargets": null
+    }
+  ],
+  "quoteScreenshotsInspectedAtWidths": [320, 390, 768, 1440],
+  "validation": {
+    "unitTests": 28,
+    "browserTests": 27,
+    "productionOfflineTests": 2,
+    "dependencyVulnerabilities": 0
+  },
+  "scope": "Visible controls and document overflow in seeded route states. Dialogs, drafts, keyboard interactions and workflows are covered by browser tests."
+}

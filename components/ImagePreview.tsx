@@ -1,3 +1,4 @@
+import { ModalSurface } from './ui';
 import {
   ChevronLeft,
   ChevronRight,
@@ -158,7 +159,6 @@ const ImagePreview: React.FC<Props> = ({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
       if (e.key === 'ArrowRight') goNext();
       if (e.key === 'ArrowLeft') goPrev();
       if (e.key === '+') updateZoom(zoom + 0.2);
@@ -172,9 +172,10 @@ const ImagePreview: React.FC<Props> = ({
   if (!images || images.length === 0) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[140] bg-black/95 flex items-center justify-center p-0"
-      onClick={onClose}
+    <ModalSurface
+      label="Просмотр фотографий"
+      onClose={onClose}
+      className="flex items-center justify-center p-0"
     >
       <button
         type="button"
@@ -393,7 +394,7 @@ const ImagePreview: React.FC<Props> = ({
           {currentIndex + 1} / {images.length}
         </div>
       )}
-    </div>
+    </ModalSurface>
   );
 };
 

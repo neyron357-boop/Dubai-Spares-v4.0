@@ -1,6 +1,8 @@
+import { ModalSurface } from './ui';
 import { TrendingDown, TrendingUp, X } from 'lucide-react';
 import React from 'react';
 import { Order } from '../types';
+import { calculateOrderTotals, nonNegativeMoney } from '../utils/quotePricing';
 
 interface Props {
   isOpen: boolean;
@@ -8,7 +10,8 @@ interface Props {
   orders: Order[];
 }
 
-const formatAed = (value: number) => `${Number(value || 0).toFixed(0)} AED`;
+const formatAed = (value: number) =>
+  `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value || 0)} AED`;
 
 const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
   if (!isOpen) return null;
@@ -20,48 +23,44 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
   });
   const totals = soldOrders.reduce(
     (sum, order) => {
-      const partsTotal = order.parts.reduce(
-        (partSum, part) => {
-          const quantity = Math.max(1, Number(part.quantity || 1));
-          const selected =
-            (part.variants || []).find(
-              (variant) => variant.id === part.bestOfferId || variant.isBest,
-            ) || part.variants?.[0];
-          if (!selected) return partSum;
-          const purchase = Number(selected.purchasePriceAed ?? selected.priceAed ?? 0) * quantity;
-          const sale = Number(selected.salePriceAed ?? selected.priceAed ?? 0) * quantity;
-          return {
-            purchase: partSum.purchase + purchase,
-            sale: partSum.sale + sale,
-          };
-        },
-        { purchase: 0, sale: 0 },
+      const priced = calculateOrderTotals(order);
+      const purchase = priced.lines.reduce(
+        (total, line) =>
+          total +
+          nonNegativeMoney(line.variant.purchasePriceAed ?? line.variant.priceAed) * line.quantity,
+        0,
       );
-
-      const delivery = Number(order.logistics?.deliveryAed || 0);
-      const packing = Number(order.logistics?.packingAed || 0);
-      const service = Number(order.logistics?.serviceFeeAed || 0);
-      const markup =
-        order.markupType === 'fixed'
-          ? Number(order.markupFixedAed || 0)
-          : partsTotal.sale * (Number(order.markupPercent || 0) / 100);
-      const clientPrice = partsTotal.sale + delivery + packing + service + markup;
-      const calculatedProfit = clientPrice - partsTotal.purchase - delivery - packing;
+      const delivery = priced.deliveryAed,
+        packing = priced.packingAed;
+      const service = priced.commissionAed + priced.markupAed;
+      const clientPrice = priced.totalAed;
+      const calculatedProfit = clientPrice - purchase - delivery - packing - priced.cargoAed;
       const profit =
         Number.isFinite(Number(order.soldProfitUsd)) && Number(order.soldProfitUsd) !== 0
           ? Number(order.soldProfitUsd) * Number(order.exchangeRate || 3.67)
           : calculatedProfit;
 
       return {
-        purchase: sum.purchase + partsTotal.purchase,
+        purchase: sum.purchase + purchase,
         delivery: sum.delivery + delivery,
         packing: sum.packing + packing,
-        service: sum.service + service + markup,
+        service: sum.service + service,
+        cargo: sum.cargo + priced.cargoAed,
+        discount: sum.discount + priced.discountAed,
         clientPrice: sum.clientPrice + clientPrice,
         profit: sum.profit + profit,
       };
     },
-    { purchase: 0, delivery: 0, packing: 0, service: 0, clientPrice: 0, profit: 0 },
+    {
+      purchase: 0,
+      delivery: 0,
+      packing: 0,
+      service: 0,
+      cargo: 0,
+      discount: 0,
+      clientPrice: 0,
+      profit: 0,
+    },
   );
 
   const hasEnoughData = soldOrders.length > 0 && totals.clientPrice > 0 && totals.purchase > 0;
@@ -73,26 +72,26 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
     ['Закупка', totals.purchase],
     ['Доставка', totals.delivery],
     ['Упаковка', totals.packing],
-    ['Сервисный сбор', totals.service],
+    ['Сервис и наценка', totals.service],
+    ['Перевозка', totals.cargo],
+    ['Скидка', -totals.discount],
     ['Цена клиенту', totals.clientPrice],
   ] as const;
 
   return (
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
-      onClick={onClose}
+    <ModalSurface
+      label="Доход компании"
+      onClose={onClose}
+      className="flex items-center justify-center  p-4 ui-dialog-layer"
     >
       <section
-        role="dialog"
-        aria-modal="true"
-        aria-label="Доход компании"
         className="flex max-h-[min(88dvh,720px)] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
-              Finance
+              Финансы
             </p>
             <h2 className="text-lg font-bold text-slate-950">Доход компании</h2>
           </div>
@@ -165,7 +164,7 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
           )}
         </div>
       </section>
-    </div>
+    </ModalSurface>
   );
 };
 

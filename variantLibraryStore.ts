@@ -49,8 +49,10 @@ const normalizeStandaloneVariant = (item: VariantLibraryItem): VariantLibraryIte
   updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : Date.now(),
 });
 
-const persistStandaloneVariants = () => {
-  localStorage.setItem(STANDALONE_VARIANTS_KEY, JSON.stringify(standaloneVariants));
+const persistStandaloneVariants = (next: VariantLibraryItem[]) => {
+  // Publish to memory only after durable storage succeeds.
+  localStorage.setItem(STANDALONE_VARIANTS_KEY, JSON.stringify(next));
+  standaloneVariants = next;
   notify();
 };
 
@@ -73,15 +75,14 @@ export const getStandaloneVariants = () => standaloneVariants;
 export const upsertStandaloneVariant = (variant: VariantLibraryItem) => {
   const normalized = normalizeStandaloneVariant(variant);
   const exists = standaloneVariants.some((item) => item.id === normalized.id);
-  standaloneVariants = exists
+  const next = exists
     ? standaloneVariants.map((item) => (item.id === normalized.id ? normalized : item))
     : [normalized, ...standaloneVariants];
-  persistStandaloneVariants();
+  persistStandaloneVariants(next);
 };
 
 export const deleteStandaloneVariant = (variantId: string) => {
-  standaloneVariants = standaloneVariants.filter((item) => item.id !== variantId);
-  persistStandaloneVariants();
+  persistStandaloneVariants(standaloneVariants.filter((item) => item.id !== variantId));
 };
 
 export const getVariantLibraryItems = (orders: Order[]): VariantLibraryItem[] => {

@@ -14,6 +14,8 @@ export default {
     extend: {
       fontFamily: { sans: ['Manrope Variable', 'sans-serif'] },
       colors: {
+        slate: { 400: '#607088', 500: '#53647b' },
+        gray: { 400: '#607088', 500: '#53647b' },
         blue: {
           50: '#edf2ff',
           100: '#dce5ff',
@@ -32,8 +34,8 @@ export default {
           100: '#f1f4f8',
           200: '#e5eaf1',
           300: '#ccd5e2',
-          400: '#98a5b8',
-          500: '#718096',
+          400: '#607088',
+          500: '#53647b',
           600: '#536279',
           700: '#3e4e65',
           800: '#27384e',

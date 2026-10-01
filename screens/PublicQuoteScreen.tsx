@@ -218,6 +218,7 @@ const resolveProofAttachmentHref = (attachment: QuoteProofAttachment) => {
 const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   const [lang, setLang] = useState<Language>('ru');
   const [isLoading, setIsLoading] = useState(true);
+  const [actionError, setActionError] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [snapshotPayload, setSnapshotPayload] = useState<Record<string, any> | null>(null);
   const [expiresAt, setExpiresAt] = useState<string>('');
@@ -333,8 +334,23 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
         setIsHeaderMenuOpen(false);
       }
     };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setIsHeaderMenuOpen(false);
+      headerMenuRef.current
+        ?.querySelector<HTMLButtonElement>('[aria-controls="quote-preferences"]')
+        ?.focus();
+    };
     document.addEventListener('mousedown', onOutside);
-    return () => document.removeEventListener('mousedown', onOutside);
+    document.addEventListener('keydown', onKey);
+    const frame = requestAnimationFrame(() =>
+      headerMenuRef.current?.querySelector<HTMLButtonElement>('#quote-preferences button')?.focus(),
+    );
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener('mousedown', onOutside);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [isHeaderMenuOpen]);
 
   const normalizedSnapshot = useMemo(
@@ -413,7 +429,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
       },
       { label: lang === 'ru' ? 'Закупка после оплаты' : 'Purchase after payment', done: false },
       { label: lang === 'ru' ? 'Проверка и упаковка' : 'Inspection and packing', done: false },
-      { label: lang === 'ru' ? 'Передача в cargo' : 'Cargo handover', done: false },
+      { label: lang === 'ru' ? 'Передача перевозчику' : 'Cargo handover', done: false },
     ],
     [grandTotalAed, items.length, lang, order.vin],
   );
@@ -576,6 +592,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
 
   const handleOpenInvoice = () => {
     if (!normalizedSnapshot) return;
+    setActionError('');
     const opened = openInvoicePrintWindow(
       buildInvoicePayloadFromSnapshot(normalizedSnapshot, {
         currency: activeCurrency,
@@ -584,32 +601,39 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
       }),
     );
     if (!opened)
-      window.alert(
+      setActionError(
         lang === 'ru'
-          ? 'Не удалось открыть invoice. Проверьте блокировку всплывающих окон.'
+          ? 'Не удалось открыть счёт. Разрешите всплывающие окна для этой страницы и повторите.'
           : 'Unable to open invoice. Please check your pop-up blocker.',
       );
   };
 
   if (isLoading) {
-    return <div className="min-h-[100dvh] bg-slate-100 p-6 text-slate-700">{t.loading}</div>;
+    return (
+      <div role="status" className="ui-loading min-h-[100dvh]">
+        <RefreshCcw size={24} className="animate-spin" />
+        <span>{t.loading}</span>
+      </div>
+    );
   }
 
   if (error || !snapshotPayload) {
     return (
       <div className="min-h-[100dvh] bg-slate-100 px-4 py-8">
-        <div className="mx-auto max-w-3xl rounded-3xl border border-rose-200 bg-white p-6 shadow-sm">
+        <div className="mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-start gap-3 text-rose-700">
             <AlertCircle className="mt-0.5" size={20} />
             <div>
-              <h1 className="text-xl font-bold">{t.finalOffer}</h1>
+              <h1 className="text-xl font-bold">
+                {lang === 'ru' ? 'Смета недоступна' : 'Quote unavailable'}
+              </h1>
               <p className="mt-2 text-sm">{error || t.notFound}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => void loadQuote()}
-            className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+            className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white"
           >
             <RefreshCcw size={15} /> {t.retry}
           </button>
@@ -621,7 +645,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
   return (
     <div className="min-h-[100dvh] bg-[#f4f6f8] px-3 pb-[calc(104px+env(safe-area-inset-bottom))] pt-[calc(70px+0.75rem)] sm:px-6">
       <main className="mx-auto flex max-w-5xl flex-col gap-3 sm:gap-4">
-        <header className="fixed left-0 right-0 top-0 z-[60] border-b border-white/10 bg-[#08090B] px-3 py-1 text-white shadow-[0_10px_26px_rgba(15,23,42,0.24)] sm:px-6">
+        <header className="fixed left-0 right-0 top-0 z-[60] border-b border-slate-200 bg-white/95 px-3 py-1 text-slate-900 shadow-sm backdrop-blur sm:px-6">
           <div className="mx-auto flex h-[62px] max-w-5xl items-center gap-3">
             <button
               type="button"
@@ -629,7 +653,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                 order.carPhotoUrl && setGallery({ images: [order.carPhotoUrl], index: 0 })
               }
               disabled={!order.carPhotoUrl}
-              className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/10 text-left shadow-sm transition active:scale-[0.98] disabled:cursor-default"
+              className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-left shadow-sm transition active:scale-[0.98] disabled:cursor-default"
               aria-label={lang === 'ru' ? 'Открыть фото авто' : 'Open vehicle photo'}
             >
               {order.carPhotoUrl ? (
@@ -640,28 +664,29 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                   onError={hideOnError}
                 />
               ) : (
-                <div className="grid h-full w-full place-items-center text-sm font-bold text-white/55">
+                <div className="grid h-full w-full place-items-center text-sm font-bold text-slate-500">
                   {order.brand?.[0] || '?'}
                 </div>
               )}
             </button>
 
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-bold leading-5 text-white">
+              <p className="truncate text-[15px] font-bold leading-5 text-slate-900">
                 {order.brand} {order.model} {order.year}
               </p>
               <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] font-bold">
-                <span className="truncate text-white/50">
-                  {order.bodyType || 'Body'} · VIN {order.vin || '—'}
+                <span className="truncate text-slate-500">
+                  {order.bodyType || (lang === 'ru' ? 'Кузов не указан' : 'Body unspecified')} · VIN{' '}
+                  {order.vin || '—'}
                 </span>
-                <span className="shrink-0 text-emerald-300">
+                <span className="shrink-0 text-blue-700">
                   {(payableTotalAed * fx).toFixed(2)} {activeCurrency}
                 </span>
               </div>
               {expiresAt && (
-                <p className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-[11px] font-bold text-amber-300/95">
+                <p className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-[11px] font-bold text-amber-700">
                   <Clock3 size={11} className="shrink-0" /> {t.validUntil}:{' '}
-                  {new Date(expiresAt).toLocaleDateString()}
+                  {new Date(expiresAt).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB')}
                 </p>
               )}
             </div>
@@ -670,9 +695,9 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
               <button
                 type="button"
                 onClick={() => setIsHeaderMenuOpen((prev) => !prev)}
-                className="flex h-10 items-center gap-1.5 rounded-xl border border-white/10 bg-white/10 px-3 text-xs font-bold text-white shadow-sm active:scale-[0.98]"
+                className="flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 shadow-sm active:scale-[0.98]"
                 aria-expanded={isHeaderMenuOpen}
-                aria-haspopup="menu"
+                aria-controls="quote-preferences"
                 aria-label={lang === 'ru' ? 'Настройки сметы' : 'Quote settings'}
               >
                 {activeCurrency}
@@ -683,7 +708,12 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
               </button>
 
               {isHeaderMenuOpen && (
-                <div className="absolute right-0 top-12 z-[70] w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 text-slate-900 shadow-2xl">
+                <div
+                  id="quote-preferences"
+                  role="group"
+                  aria-label={lang === 'ru' ? 'Настройки сметы' : 'Quote preferences'}
+                  className="absolute right-0 top-12 z-[70] w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 text-slate-900 shadow-2xl"
+                >
                   <p className="px-2 pb-1 pt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
                     {lang === 'ru' ? 'Валюта сметы' : 'Quote currency'}
                   </p>
@@ -692,11 +722,12 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                       <button
                         key={code}
                         type="button"
+                        aria-pressed={activeCurrency === code}
                         onClick={() => {
                           setDisplayCurrency(code);
                           setIsHeaderMenuOpen(false);
                         }}
-                        className={`h-9 rounded-xl text-xs font-bold ${activeCurrency === code ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                        className={`h-11 rounded-xl text-xs font-bold ${activeCurrency === code ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
                       >
                         {code}
                       </button>
@@ -733,21 +764,23 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
 
         <nav
           className="grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm"
-          aria-label="Quote tabs"
+          aria-label={lang === 'ru' ? 'Разделы сметы' : 'Quote sections'}
         >
           <button
             type="button"
             onClick={() => setActivePublicTab('quote')}
-            className={`h-10 rounded-lg text-xs font-bold transition sm:text-sm ${activePublicTab === 'quote' ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+            aria-pressed={activePublicTab === 'quote'}
+            className={`h-10 rounded-lg text-xs font-bold transition sm:text-sm ${activePublicTab === 'quote' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
           >
             {lang === 'ru' ? 'Смета' : 'Quote'}
           </button>
           <button
             type="button"
             onClick={() => setActivePublicTab('proof')}
-            className={`h-10 rounded-lg text-xs font-bold transition sm:text-sm ${activePublicTab === 'proof' ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+            aria-pressed={activePublicTab === 'proof'}
+            className={`h-10 rounded-lg text-xs font-bold transition sm:text-sm ${activePublicTab === 'proof' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
           >
-            Proof Pack
+            {lang === 'ru' ? 'Подтверждения' : 'Proof Pack'}
             {(proofNotes.length > 0 ||
               proofPhotoCount > 0 ||
               proofVideoCount > 0 ||
@@ -761,12 +794,18 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
           <button
             type="button"
             onClick={() => setActivePublicTab('deal')}
-            className={`h-10 rounded-lg text-xs font-bold transition sm:text-sm ${activePublicTab === 'deal' ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+            aria-pressed={activePublicTab === 'deal'}
+            className={`h-10 rounded-lg text-xs font-bold transition sm:text-sm ${activePublicTab === 'deal' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
           >
             {lang === 'ru' ? 'Сделка' : 'Deal'}
           </button>
         </nav>
 
+        {actionError && (
+          <p className="ui-error" role="alert">
+            {actionError}
+          </p>
+        )}
         {activePublicTab === 'quote' ? (
           <>
             {hasCargoRiskMode && (
@@ -775,11 +814,11 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                   <AlertCircle size={17} className="mt-0.5 shrink-0" />
                   <div className="min-w-0">
                     <p className="text-[11px] font-bold uppercase tracking-[0.12em]">
-                      {lang === 'ru' ? 'Fragile item warning' : 'Fragile item warning'}
+                      {lang === 'ru' ? 'Особые условия доставки' : 'Fragile item warning'}
                     </p>
                     <h2 className="mt-1 text-sm font-bold leading-5">
                       {lang === 'ru'
-                        ? 'Хрупкая/дорогая деталь: cargo risk'
+                        ? 'Хрупкая или дорогая деталь: риск при перевозке'
                         : 'Fragile/high-value part: cargo risk'}
                     </h2>
                     <p className="mt-1 text-xs font-semibold leading-5 text-orange-800">
@@ -1062,7 +1101,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                     onClick={handleOpenInvoice}
                     className="inline-flex h-10 items-center gap-2 self-start rounded-lg border border-[#2b648d]/20 bg-[#f4f8fb] px-3 text-sm font-semibold text-[#2b648d] shadow-sm transition hover:bg-[#edf5fa] active:scale-[0.99]"
                   >
-                    <FileText size={15} /> Invoice A4
+                    <FileText size={15} /> {lang === 'ru' ? 'Счёт A4' : 'Invoice A4'}
                   </button>
                   {documentButtons.map((doc) => (
                     <a
@@ -1124,7 +1163,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                  Proof Pack
+                  {lang === 'ru' ? 'Подтверждения' : 'Proof Pack'}
                 </p>
                 <h2 className="mt-1 text-xl font-bold text-slate-900">
                   {lang === 'ru'
@@ -1195,6 +1234,8 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                             />
                           ) : (
                             <button
+                              aria-label="Открыть фотографию"
+                              title="Открыть фотографию"
                               key={`${note.id}-${photo}-${index}`}
                               type="button"
                               onClick={() => setGallery({ images: note.photos, index })}
@@ -1202,7 +1243,11 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                             >
                               <SafeImage
                                 src={photo}
-                                alt="Proof"
+                                alt={
+                                  lang === 'ru'
+                                    ? 'Подтверждение состояния детали'
+                                    : 'Part condition proof'
+                                }
                                 className="h-full w-full object-cover"
                               />
                             </button>
@@ -1251,7 +1296,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                                   type="button"
                                   onClick={() => toggleAudioPlayback(audioId)}
                                   className="ds-press flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-emerald-700 shadow-[0_8px_18px_rgba(15,23,42,0.12)]"
-                                  aria-label="Прослушать голосовой пруф"
+                                  aria-label="Прослушать аудиозапись"
                                 >
                                   {isPlaying ? (
                                     <Pause size={16} />
@@ -1340,8 +1385,8 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
                       ? [
                           'Депозит запускает реальный поиск и работу с поставщиками.',
                           'Полная предоплата нужна до закупки детали под конкретного клиента.',
-                          'Фото, видео и состояние фиксируются в Proof Pack.',
-                          'После передачи в cargo ответственность за перевозку несёт перевозчик.',
+                          'Фото, видео и состояние фиксируются в разделе «Подтверждения».',
+                          'После передачи перевозчику он несёт ответственность за перевозку.',
                         ]
                       : [
                           'A deposit starts real supplier search and market work.',

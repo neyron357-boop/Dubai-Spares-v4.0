@@ -58,3 +58,32 @@ test('production app precaches unvisited screens and reloads without internet', 
   expect(external).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('an update preserves previous build chunks for tabs opened before deployment', async ({
+  page,
+  context,
+}) => {
+  await page.goto('/icon-32.png');
+  await page.evaluate(async () => {
+    const cache = await caches.open('dubai-spares-local-v12');
+    await cache.put(
+      new URL('/assets/previous-build-7f4a2b.js', location.origin),
+      new Response('export const previousBuild = true;', {
+        headers: { 'Content-Type': 'application/javascript' },
+      }),
+    );
+  });
+  await page.goto('/#/orders');
+  await expect(page.getByRole('heading', { name: 'Заказы', exact: true })).toBeVisible();
+  await page.waitForFunction(async () =>
+    Boolean((await navigator.serviceWorker.ready).active && navigator.serviceWorker.controller),
+  );
+  await context.setOffline(true);
+  const previous = await page.evaluate(async () => {
+    const response = await fetch('/assets/previous-build-7f4a2b.js');
+    return { status: response.status, body: await response.text() };
+  });
+  expect(previous).toEqual({ status: 200, body: 'export const previousBuild = true;' });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Заказы', exact: true })).toBeVisible();
+});

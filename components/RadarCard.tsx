@@ -196,6 +196,7 @@ const RadarCard: React.FC<RadarCardProps> = ({
                 }}
               >
                 <input
+                  aria-label="Цена AED"
                   name="price"
                   type="number"
                   min="0"

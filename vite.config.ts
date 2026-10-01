@@ -19,8 +19,8 @@ export default defineConfig({
         });
         const version = createHash('sha256').update(files.join(',')).digest('hex').slice(0, 12);
         const worker = readFileSync('public/sw.js', 'utf8').replace(
-          'dubai-spares-local-v12',
-          `dubai-spares-local-v12-${version}`,
+          'dubai-spares-local-v13',
+          `dubai-spares-local-v13-${version}`,
         );
         this.emitFile({ type: 'asset', fileName: 'sw.js', source: worker });
       },

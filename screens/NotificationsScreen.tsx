@@ -2,7 +2,6 @@ import {
   AlertTriangle,
   Archive,
   ArchiveRestore,
-  ArrowLeft,
   Bell,
   Car,
   CheckCheck,
@@ -14,12 +13,12 @@ import {
   MessageCircle,
   Phone,
   RefreshCw,
-  Search,
   Undo2,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ConfirmModal from '../components/ConfirmModal';
+import { Button, EmptyState, PageHeader, SearchField } from '../components/ui';
 import {
   AppNotification,
   NotificationType,
@@ -43,13 +42,24 @@ const FILTERS: Array<{
   { label: 'Все', id: 'all' },
   { label: 'Заказы', id: 'orders' },
   { label: 'Радар', id: 'radar' },
-  { label: 'Follow-up', id: 'followup' },
+  { label: 'Напоминания', id: 'followup' },
   { label: 'Действия', id: 'actions' },
   { label: 'Система', id: 'system' },
-  { label: 'Ошибки/Синк', id: 'sync' },
+  { label: 'Ошибки', id: 'sync' },
 ];
 
 const PAGE_SIZE = 60;
+const notificationTypeLabel: Record<NotificationType, string> = {
+  [NotificationType.ORDER_NEW]: 'Новый заказ',
+  [NotificationType.ORDER_STATUS_CHANGED]: 'Статус заказа',
+  [NotificationType.RADAR_RESULT]: 'Результат поиска',
+  [NotificationType.RADAR_ACTION]: 'Поиск поставщиков',
+  [NotificationType.FOLLOWUP_DUE]: 'Напоминание',
+  [NotificationType.ACTION_LOG]: 'Действие',
+  [NotificationType.SYSTEM_TIPS]: 'Подсказка',
+  [NotificationType.SYNC_ERROR]: 'Ошибка хранения',
+  [NotificationType.OFFLINE_QUEUE]: 'Локальное событие',
+};
 
 const normalizeNotificationRoute = (route?: string, orderId?: string) => {
   const fallback = orderId ? `/order/${orderId}` : '/';
@@ -247,8 +257,6 @@ const NotificationsScreen: React.FC = () => {
 
   const handleMarkAllRead = () => {
     if (unreadCount <= 0) return;
-    const shouldProceed = window.confirm(`Отметить прочитанными ${unreadCount} уведомлений?`);
-    if (!shouldProceed) return;
     setUndoSnapshot(notifications.map((item) => ({ id: item.id, readAt: item.readAt })));
     markAllNotificationsRead();
     setUndoVisible(true);
@@ -281,33 +289,23 @@ const NotificationsScreen: React.FC = () => {
 
   return (
     <div
-      className="p-4 space-y-3 pb-24 overflow-x-hidden bg-gray-50 min-h-full"
+      className="ui-page space-y-4"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700"
-            aria-label="Назад"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <h1 className="text-xl font-bold text-gray-900">Уведомления</h1>
-        </div>
-        <button
-          type="button"
-          onClick={refresh}
-          className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[11px] font-bold uppercase text-gray-600"
-        >
-          <RefreshCw size={13} className={isRefreshing ? 'animate-spin' : ''} /> Обновить
-        </button>
-      </div>
+      <PageHeader
+        title="Уведомления"
+        eyebrow="История действий"
+        description="Заказы, напоминания и события рабочего пространства."
+        actions={
+          <Button variant="secondary" icon={RefreshCw} loading={isRefreshing} onClick={refresh}>
+            Обновить
+          </Button>
+        }
+      />
 
-      <div className="rounded-xl border border-gray-100 bg-white p-3 space-y-3">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <div className="rounded-lg bg-blue-50 px-3 py-2 text-[11px] font-bold text-blue-700">
             Непрочитанных: {unreadCount}
@@ -316,25 +314,26 @@ const NotificationsScreen: React.FC = () => {
             <button
               type="button"
               onClick={handleMarkAllRead}
-              className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[11px] font-bold uppercase text-gray-600 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 disabled:opacity-50"
               disabled={unreadCount <= 0}
             >
-              <CheckCheck size={14} /> Прочитано
+              <CheckCheck size={16} /> Прочитать все
             </button>
             <button
               type="button"
               onClick={() => setClearConfirmOpen(true)}
-              className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-bold uppercase text-rose-700"
+              className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700"
             >
-              Стереть все
+              Очистить список
             </button>
           </div>
         </div>
 
-        <div className="flex rounded-xl bg-gray-100 p-1 text-[11px] font-bold uppercase">
+        <div className="flex rounded-xl bg-gray-100 p-1 text-xs font-semibold">
           <button
             type="button"
             onClick={() => setTab('active')}
+            aria-pressed={tab === 'active'}
             className={`flex-1 rounded-lg py-2 ${tab === 'active' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
           >
             Активные
@@ -342,21 +341,19 @@ const NotificationsScreen: React.FC = () => {
           <button
             type="button"
             onClick={() => setTab('archive')}
+            aria-pressed={tab === 'archive'}
             className={`flex-1 rounded-lg py-2 ${tab === 'archive' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
           >
             Архив
           </button>
         </div>
 
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Поиск: phone, бренд, orderId"
-            className="h-10 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-xs font-medium outline-none focus:border-blue-300"
-          />
-        </div>
+        <SearchField
+          label="Поиск уведомлений"
+          placeholder="Клиент, марка, заказ или телефон"
+          value={query}
+          onChange={setQuery}
+        />
 
         <div className="flex gap-2 overflow-x-auto pb-1">
           {FILTERS.map((chip) => (
@@ -364,7 +361,8 @@ const NotificationsScreen: React.FC = () => {
               key={chip.id}
               type="button"
               onClick={() => setFilter(chip.id)}
-              className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase ${filter === chip.id ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-gray-200 bg-white text-gray-500'}`}
+              aria-pressed={filter === chip.id}
+              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${filter === chip.id ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500'}`}
             >
               {chip.label}
             </button>
@@ -373,17 +371,19 @@ const NotificationsScreen: React.FC = () => {
 
         <div className="grid grid-cols-2 gap-2">
           <select
+            aria-label="Сортировка уведомлений"
             value={sort}
             onChange={(event) => setSort(event.target.value as 'new' | 'severity')}
-            className="h-9 rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-bold"
+            className="h-11 min-w-0 rounded-xl border border-gray-200 bg-white px-2 text-[11px] font-bold"
           >
             <option value="new">Новые сверху</option>
             <option value="severity">Важные сверху</option>
           </select>
           <select
+            aria-label="Период уведомлений"
             value={period}
             onChange={(event) => setPeriod(event.target.value as typeof period)}
-            className="h-9 rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-bold"
+            className="h-11 min-w-0 rounded-xl border border-gray-200 bg-white px-2 text-[11px] font-bold"
           >
             <option value="all">Все даты</option>
             <option value="today">Только сегодня</option>
@@ -394,7 +394,7 @@ const NotificationsScreen: React.FC = () => {
       </div>
 
       {pullDistance > 0 && (
-        <div className="text-center text-[11px] font-bold uppercase text-blue-500">
+        <div className="text-center text-xs font-semibold text-blue-500">
           Потяните для обновления {Math.round(pullDistance)}px
         </div>
       )}
@@ -408,7 +408,7 @@ const NotificationsScreen: React.FC = () => {
               restoreNotificationReadState(undoSnapshot);
               setUndoVisible(false);
             }}
-            className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2 py-1 text-[11px] font-bold uppercase"
+            className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2 py-1 text-xs font-semibold"
           >
             <Undo2 size={12} /> Отменить
           </button>
@@ -416,9 +416,37 @@ const NotificationsScreen: React.FC = () => {
       )}
 
       {visibleItems.length === 0 ? (
-        <div className="rounded-2xl border-2 border-dashed border-gray-200 bg-white py-16 text-center text-xs font-bold uppercase tracking-widest text-gray-300">
-          Пока пусто
-        </div>
+        <EmptyState
+          icon={Bell}
+          title={
+            query || filter !== 'all' || period !== 'all'
+              ? 'Уведомления не найдены'
+              : tab === 'archive'
+                ? 'Архив пуст'
+                : 'Новых событий пока нет'
+          }
+          description={
+            query || filter !== 'all' || period !== 'all'
+              ? 'Измените поисковый запрос или сбросьте фильтры.'
+              : tab === 'archive'
+                ? 'Здесь появятся уведомления, которые вы отправите в архив.'
+                : 'Здесь появятся изменения заказов и ваши напоминания.'
+          }
+          action={
+            query || filter !== 'all' || period !== 'all' ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setQuery('');
+                  setFilter('all');
+                  setPeriod('all');
+                }}
+              >
+                Сбросить фильтры
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <div className="space-y-2">
           {visibleItems.map((item) => (
@@ -427,17 +455,17 @@ const NotificationsScreen: React.FC = () => {
               onClick={() => {
                 openNotificationEntity(item);
               }}
-              className={`w-full rounded-2xl border px-3 py-3 text-left transition-all ${item.readAt ? 'bg-white border-gray-100' : 'bg-indigo-50 border-indigo-100'} ${canOpenEntity(item) ? 'cursor-pointer active:scale-[0.995]' : ''}`}
+              className={`w-full rounded-2xl border px-3 py-3 text-left transition-colors ${item.readAt ? 'bg-white border-gray-100' : 'bg-blue-50 border-blue-100'} ${canOpenEntity(item) ? 'cursor-pointer active:scale-[0.995]' : ''}`}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-bold uppercase ${severityTone[item.severity]}`}
+                      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-semibold ${severityTone[item.severity]}`}
                     >
-                      {iconForType(item.type)} {item.type.replace('_', ' ')}
+                      {iconForType(item.type)} {notificationTypeLabel[item.type]}
                     </span>
-                    <p className="text-[11px] font-bold uppercase text-gray-400">
+                    <p className="text-xs font-semibold text-gray-400">
                       {relativeTime(item.createdAt)}
                     </p>
                   </div>
@@ -472,7 +500,7 @@ const NotificationsScreen: React.FC = () => {
                       event.stopPropagation();
                       openNotificationEntity(item);
                     }}
-                    className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-blue-600 px-2 text-[11px] font-bold uppercase text-white"
+                    className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-blue-600 px-2 text-xs font-semibold text-white"
                   >
                     <ExternalLink size={12} />{' '}
                     {item.partId
@@ -492,21 +520,21 @@ const NotificationsScreen: React.FC = () => {
                           '_blank',
                         )
                       }
-                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-emerald-50 px-2 text-[11px] font-bold uppercase text-emerald-700"
+                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-emerald-50 px-2 text-xs font-semibold text-emerald-700"
                     >
                       <MessageCircle size={12} /> WhatsApp
                     </button>
                     <button
                       type="button"
                       onClick={() => window.open(`tel:${item.phone}`, '_self')}
-                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-slate-100 px-2 text-[11px] font-bold uppercase text-slate-700"
+                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-slate-100 px-2 text-xs font-semibold text-slate-700"
                     >
                       <Phone size={12} /> Позвонить
                     </button>
                     <button
                       type="button"
                       onClick={() => navigator.clipboard?.writeText(item.phone || '')}
-                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2 text-[11px] font-bold uppercase text-gray-700"
+                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2 text-xs font-semibold text-gray-700"
                     >
                       <Copy size={12} /> Номер
                     </button>
@@ -523,7 +551,7 @@ const NotificationsScreen: React.FC = () => {
                       }
                       if (item.mapUrl) window.open(item.mapUrl, '_blank');
                     }}
-                    className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-indigo-50 px-2 text-[11px] font-bold uppercase text-indigo-700"
+                    className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-indigo-50 px-2 text-xs font-semibold text-indigo-700"
                   >
                     <LocateFixed size={12} /> Карта
                   </button>
@@ -534,16 +562,16 @@ const NotificationsScreen: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => snoozeNotification(item.id, Date.now() + 15 * 60_000)}
-                      className="inline-flex h-8 items-center justify-center rounded-lg bg-amber-50 px-2 text-[11px] font-bold uppercase text-amber-700"
+                      className="inline-flex h-8 items-center justify-center rounded-lg bg-amber-50 px-2 text-xs font-semibold text-amber-700"
                     >
-                      +15м
+                      Через 15 мин
                     </button>
                     <button
                       type="button"
                       onClick={() => snoozeNotification(item.id, Date.now() + 60 * 60_000)}
-                      className="inline-flex h-8 items-center justify-center rounded-lg bg-amber-50 px-2 text-[11px] font-bold uppercase text-amber-700"
+                      className="inline-flex h-8 items-center justify-center rounded-lg bg-amber-50 px-2 text-xs font-semibold text-amber-700"
                     >
-                      +1ч
+                      Через час
                     </button>
                     <button
                       type="button"
@@ -558,14 +586,14 @@ const NotificationsScreen: React.FC = () => {
                           })(),
                         )
                       }
-                      className="inline-flex h-8 items-center justify-center rounded-lg bg-amber-50 px-2 text-[11px] font-bold uppercase text-amber-700"
+                      className="inline-flex h-8 items-center justify-center rounded-lg bg-amber-50 px-2 text-xs font-semibold text-amber-700"
                     >
                       Завтра
                     </button>
                     <button
                       type="button"
                       onClick={() => completeFollowupNotification(item.id)}
-                      className="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-100 px-2 text-[11px] font-bold uppercase text-emerald-700"
+                      className="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-100 px-2 text-xs font-semibold text-emerald-700"
                     >
                       Готово
                     </button>
@@ -577,7 +605,7 @@ const NotificationsScreen: React.FC = () => {
                   onClick={() =>
                     tab === 'archive' ? restoreFromArchive(item.id) : archiveNotification(item.id)
                   }
-                  className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2 text-[11px] font-bold uppercase text-gray-700"
+                  className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2 text-xs font-semibold text-gray-700"
                 >
                   {tab === 'archive' ? <ArchiveRestore size={12} /> : <Archive size={12} />}{' '}
                   {tab === 'archive' ? 'В активные' : 'Архив'}
@@ -610,7 +638,7 @@ const NotificationsScreen: React.FC = () => {
           clearAllNotifications(tab);
           setClearConfirmOpen(false);
         }}
-        confirmLabel="Да, стереть"
+        confirmLabel="Удалить уведомления"
       />
     </div>
   );

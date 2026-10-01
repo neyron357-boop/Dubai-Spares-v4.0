@@ -1,3 +1,4 @@
+import { ModalSurface } from '../components/ui';
 import {
   AlertTriangle,
   Camera,
@@ -13,8 +14,6 @@ import {
   Pencil,
   Phone,
   Pin,
-  Search,
-  Shuffle,
   SlidersHorizontal,
   Sparkles,
   Store,
@@ -27,7 +26,7 @@ import { useLocation } from 'react-router-dom';
 import { CAR_DATABASE } from '../carDatabase';
 import ConfirmModal from '../components/ConfirmModal';
 import ImagePreview from '../components/ImagePreview';
-import { PageHeader } from '../components/ui';
+import { Button, EmptyState, PageHeader, SearchField } from '../components/ui';
 import { toast } from '../feedback';
 import { createUuid } from '../id';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
@@ -48,14 +47,14 @@ import {
 } from '../types';
 
 const FIELD_TYPES: Array<{ value: SupplierType; label: string; icon: React.ReactNode }> = [
-  { value: 'new_parts', label: 'New Parts', icon: <Gem size={12} /> },
-  { value: 'scrapyard', label: 'Scrapyard', icon: <Wrench size={12} /> },
-  { value: 'engine_specialist', label: 'Engine Specialist', icon: <Wrench size={12} /> },
-  { value: 'body_parts', label: 'Body Parts', icon: <Wrench size={12} /> },
-  { value: 'electrical', label: 'Electrical', icon: <Sparkles size={12} /> },
-  { value: 'mixed', label: 'Mixed', icon: <Store size={12} /> },
-  { value: 'dealer', label: 'Dealer', icon: <Store size={12} /> },
-  { value: 'warehouse', label: 'Warehouse', icon: <Store size={12} /> },
+  { value: 'new_parts', label: 'Новые детали', icon: <Gem size={12} /> },
+  { value: 'scrapyard', label: 'Разбор', icon: <Wrench size={12} /> },
+  { value: 'engine_specialist', label: 'Двигатели', icon: <Wrench size={12} /> },
+  { value: 'body_parts', label: 'Кузов', icon: <Wrench size={12} /> },
+  { value: 'electrical', label: 'Электрика', icon: <Sparkles size={12} /> },
+  { value: 'mixed', label: 'Смешанный', icon: <Store size={12} /> },
+  { value: 'dealer', label: 'Дилер', icon: <Store size={12} /> },
+  { value: 'warehouse', label: 'Склад', icon: <Store size={12} /> },
 ];
 
 const FIELD_TYPE_RU_LABELS: Record<SupplierType, string> = {
@@ -1027,20 +1026,6 @@ const SuppliersScreen: React.FC = () => {
     setShopType(type);
   };
 
-  const generateUniqueSupplierName = () => {
-    const left = ['Dubai', 'Emirates', 'Falcon', 'Desert', 'Turbo', 'Atlas', 'Nova', 'Prime'];
-    const right = ['Auto Hub', 'Motors', 'Parts', 'Garage', 'Supply', 'Auto Zone'];
-    const exists = new Set(suppliers.map((item) => item.name.trim().toLowerCase()));
-    for (let i = 0; i < 200; i += 1) {
-      const candidate = `${left[Math.floor(Math.random() * left.length)]} ${right[Math.floor(Math.random() * right.length)]} ${Math.floor(100 + Math.random() * 9000)}`;
-      if (!exists.has(candidate.toLowerCase())) {
-        setName(candidate);
-        return;
-      }
-    }
-    setName(`Supplier ${Date.now()}`);
-  };
-
   const toggleMainPartCategory = (category: string) => {
     setMainPartCategories((prev) =>
       prev.includes(category) ? prev.filter((item) => item !== category) : [...prev, category],
@@ -1500,7 +1485,7 @@ const SuppliersScreen: React.FC = () => {
     if (!contactEditorSupplierId) return;
     const normalizedPhone = normalizePhone(contactPhone);
     if (!isValidE164(normalizedPhone))
-      return alert('Введите корректный номер в формате E.164 (+971...)');
+      return toast('Укажите телефон с кодом страны, например +971501234567.', 'error');
     const normalizedWhatsapp = normalizePhone(contactWhatsapp || normalizedPhone);
     setIsSavingContact(true);
     try {
@@ -1516,7 +1501,7 @@ const SuppliersScreen: React.FC = () => {
       toast('Контакт сохранён', 'success');
     } catch (error) {
       console.error(error);
-      alert('Не удалось сохранить контакт');
+      toast('Не удалось сохранить контакт. Проверьте хранилище браузера.', 'error');
     } finally {
       setIsSavingContact(false);
     }
@@ -1570,26 +1555,35 @@ const SuppliersScreen: React.FC = () => {
       <PageHeader
         title="Поставщики"
         eyebrow="Контакты и предложения"
-        description="Ваша база магазинов, история общения и рекомендации."
+        description="Ваша база магазинов, история общения и предложения."
+        actions={
+          <Button
+            icon={UserPlus}
+            onClick={() => {
+              resetAddForm();
+              setIsAdding(true);
+            }}
+          >
+            Добавить поставщика
+          </Button>
+        }
       />
       <section className="space-y-3">
-        <div className="rounded-[26px] border border-white/80 bg-white/75 p-2 shadow-[0_16px_40px_rgba(15,23,42,0.055)] ring-1 ring-slate-900/[0.025] backdrop-blur">
+        <div className="rounded-2xl border border-slate-200 bg-white p-2">
           <div className="flex items-center gap-2">
-            <label className="flex h-14 min-w-0 flex-1 items-center gap-3 rounded-[20px] bg-slate-50/90 px-3 text-slate-500 ring-1 ring-slate-900/[0.04] transition focus-within:bg-white focus-within:text-blue-600 focus-within:ring-blue-200">
-              <Search size={18} className="shrink-0" />
-              <input
-                value={supplierSearchQuery}
-                onChange={(e) => setSupplierSearchQuery(e.target.value)}
-                placeholder="Поиск поставщиков · название, зона, бренд..."
-                aria-label="Поиск поставщика"
-                className="min-w-0 flex-1 bg-transparent text-[14px] font-semibold text-slate-900 outline-none placeholder:text-slate-400"
-              />
-            </label>
+            <SearchField
+              label="Поиск поставщика"
+              value={supplierSearchQuery}
+              onChange={setSupplierSearchQuery}
+              placeholder="Название, зона, бренд"
+              className="flex-1"
+            />
             <button
               type="button"
               onClick={() => setIsFiltersOpen((prev) => !prev)}
               className={`ds-press inline-flex h-14 w-12 shrink-0 items-center justify-center rounded-[20px] border text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] ${isFiltersOpen ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200/80 bg-white/90'}`}
               aria-label="Открыть фильтры"
+              aria-expanded={isFiltersOpen}
             >
               <SlidersHorizontal size={18} />
             </button>
@@ -1683,6 +1677,7 @@ const SuppliersScreen: React.FC = () => {
         {isFiltersOpen && (
           <div className="grid grid-cols-2 gap-2 rounded-[24px] border border-white/80 bg-white/82 p-3 shadow-[0_16px_36px_rgba(15,23,42,0.055)] ring-1 ring-slate-900/[0.025] backdrop-blur">
             <select
+              aria-label="Умная сортировка"
               className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               value={sortByExtended}
               onChange={(e) => setSortByExtended(e.target.value as any)}
@@ -1695,6 +1690,7 @@ const SuppliersScreen: React.FC = () => {
               <option value="name">A-Z</option>
             </select>
             <select
+              aria-label="Все поставщики"
               className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               value={favoriteFilter}
               onChange={(e) => setFavoriteFilter(e.target.value as 'all' | 'favorites')}
@@ -1703,6 +1699,7 @@ const SuppliersScreen: React.FC = () => {
               <option value="favorites">Избранные</option>
             </select>
             <select
+              aria-label="Любая скорость WA"
               className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               value={fastWhatsappFilter}
               onChange={(e) => setFastWhatsappFilter(e.target.value as 'all' | 'fast')}
@@ -1711,6 +1708,7 @@ const SuppliersScreen: React.FC = () => {
               <option value="fast">Только быстрый WA</option>
             </select>
             <select
+              aria-label="Без визита"
               className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               value={visitTodayFilter}
               onChange={(e) => setVisitTodayFilter(e.target.value as 'all' | 'visit_today')}
@@ -1719,6 +1717,7 @@ const SuppliersScreen: React.FC = () => {
               <option value="visit_today">Визит сегодня</option>
             </select>
             <select
+              aria-label="Все годы"
               className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               value={yearFilter}
               onChange={(e) => setYearFilter(e.target.value)}
@@ -1731,6 +1730,7 @@ const SuppliersScreen: React.FC = () => {
               ))}
             </select>
             <select
+              aria-label="Все категории"
               className="rounded-[15px] border border-slate-200/80 bg-slate-50/90 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               value={partCategoryFilter}
               onChange={(e) => setPartCategoryFilter(e.target.value)}
@@ -1764,12 +1764,13 @@ const SuppliersScreen: React.FC = () => {
       )}
 
       {isAdding && (
-        <div
-          className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/38 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
-          onClick={() => {
+        <ModalSurface
+          label="Поставщик"
+          onClose={() => {
             setIsAdding(false);
             resetAddForm();
           }}
+          className="ui-sheet-layer flex items-end justify-center  p-0  sm:items-center sm:p-4"
         >
           <form
             onSubmit={(e) => {
@@ -1832,13 +1833,6 @@ const SuppliersScreen: React.FC = () => {
                       Основные данные поставщика
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={generateUniqueSupplierName}
-                    className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-2xl bg-blue-50 px-3 text-[11px] font-bold text-blue-700 transition active:scale-95"
-                  >
-                    <Shuffle size={13} /> Имя
-                  </button>
                 </div>
                 <div className="divide-y divide-slate-100">
                   <label className="block px-4 py-3">
@@ -2000,6 +1994,7 @@ const SuppliersScreen: React.FC = () => {
                   </div>
                 )}
                 <input
+                  aria-label="Поиск бренда"
                   value={brandSearch}
                   onChange={(e) => setBrandSearch(e.target.value)}
                   placeholder="Поиск бренда"
@@ -2021,6 +2016,7 @@ const SuppliersScreen: React.FC = () => {
                 </div>
                 <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
                   <input
+                    aria-label="Свой бренд"
                     value={customBrand}
                     onChange={(e) => setCustomBrand(e.target.value)}
                     placeholder="Свой бренд"
@@ -2036,6 +2032,7 @@ const SuppliersScreen: React.FC = () => {
                 </div>
                 <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
                   <select
+                    aria-label="Основной бренд"
                     className="h-10 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold outline-none"
                     value={primaryBrand}
                     onChange={(e) => setPrimaryBrand(e.target.value)}
@@ -2057,12 +2054,14 @@ const SuppliersScreen: React.FC = () => {
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <input
+                    aria-label="Модели"
                     value={supplierModelsInput}
                     onChange={(e) => setSupplierModelsInput(e.target.value)}
                     placeholder="Модели"
                     className="h-10 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold outline-none"
                   />
                   <input
+                    aria-label="Годы"
                     value={supplierYearsInput}
                     onChange={(e) => setSupplierYearsInput(e.target.value.replace(/[^\d, ]/g, ''))}
                     placeholder="Годы"
@@ -2147,6 +2146,7 @@ const SuppliersScreen: React.FC = () => {
                         Доверие: {trustLevel}/5
                       </label>
                       <input
+                        aria-label="Доверие: /5"
                         type="range"
                         min={1}
                         max={5}
@@ -2156,18 +2156,21 @@ const SuppliersScreen: React.FC = () => {
                       />
                     </div>
                     <input
+                      aria-label="Рабочие часы"
                       value={workingHours}
                       onChange={(e) => setWorkingHours(e.target.value)}
                       placeholder="Рабочие часы"
                       className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold outline-none"
                     />
                     <input
+                      aria-label="Сайт / профиль"
                       value={website}
                       onChange={(e) => setWebsite(e.target.value)}
                       placeholder="Сайт / профиль"
                       className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold outline-none"
                     />
                     <textarea
+                      aria-label="Комментарий"
                       value={comment}
                       onChange={(e) => setComment(e.target.value)}
                       placeholder="Комментарий"
@@ -2221,7 +2224,7 @@ const SuppliersScreen: React.FC = () => {
               </div>
             </div>
           </form>
-        </div>
+        </ModalSurface>
       )}
 
       <section className="space-y-2.5">
@@ -2286,7 +2289,25 @@ const SuppliersScreen: React.FC = () => {
           </div>
         ) : displayedSuppliers.length === 0 ? (
           <div className="rounded-[28px] border border-dashed border-slate-300/80 bg-white/80 px-5 py-14 text-center text-sm font-semibold text-slate-500 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
-            Поставщики не найдены по текущим фильтрам.
+            <EmptyState
+              icon={Store}
+              title={suppliers.length ? 'Поставщики не найдены' : 'Создайте базу поставщиков'}
+              description={
+                suppliers.length
+                  ? 'Попробуйте другое название или измените фильтры.'
+                  : 'Сохраните магазин, контакты и марки автомобилей для быстрого поиска.'
+              }
+              action={
+                <Button
+                  onClick={() => {
+                    resetAddForm();
+                    setIsAdding(true);
+                  }}
+                >
+                  Добавить контакт
+                </Button>
+              }
+            />
           </div>
         ) : (
           displayedSuppliers.map((supplier) => {
@@ -2324,16 +2345,14 @@ const SuppliersScreen: React.FC = () => {
               supplier.name.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) %
               avatarPalettes.length;
             const distanceLabel = Number.isFinite(distanceKm)
-              ? `${Math.max(0.1, Number(distanceKm.toFixed(1)))} km`
-              : 'n/a';
+              ? `${Math.max(0.1, Number(distanceKm.toFixed(1)))} км`
+              : 'нет координат';
             const contactLabel = hasContact ? 'Контакт есть' : 'Нет контакта';
-            const replyLabel = isReplied ? 'Replied' : isContacted ? 'Written' : null;
+            const replyLabel = isReplied ? 'Ответил' : isContacted ? 'Написали' : null;
             return (
               <div
                 id={`supplier-card-${supplier.id}`}
                 key={supplier.id}
-                role="button"
-                tabIndex={0}
                 onClick={() => {
                   if (isSelectionMode) {
                     toggleSupplierSelection(supplier.id);
@@ -2341,20 +2360,14 @@ const SuppliersScreen: React.FC = () => {
                   }
                   setFullscreenSupplierId(supplier.id);
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    if (isSelectionMode) toggleSupplierSelection(supplier.id);
-                    else setFullscreenSupplierId(supplier.id);
-                  }
-                }}
                 onPointerDown={(event) => startLongPress(supplier.id, event)}
                 onPointerMove={trackLongPressMove}
                 onPointerUp={finishLongPress}
                 onPointerCancel={() => cancelLongPress()}
                 onPointerLeave={() => cancelLongPress()}
-                className={`group w-full rounded-[20px] border px-2.5 py-2 text-left shadow-[0_10px_24px_rgba(15,23,42,0.045)] ring-1 ring-white/70 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(15,23,42,0.065)] active:scale-[0.992] ${isSelected ? 'border-blue-300 bg-blue-50/70 ring-blue-100' : 'border-white/85 bg-white/88'}`}
+                className={`group w-full rounded-2xl border p-4 text-left shadow-sm transition-colors duration-200 ${isSelected ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-white hover:border-blue-200'}`}
               >
-                <div className="flex min-h-[72px] items-center gap-2">
+                <div className="grid grid-cols-[44px_minmax(0,1fr)_44px] items-start gap-x-2 gap-y-3">
                   <button
                     type="button"
                     onClick={(event) => {
@@ -2362,7 +2375,8 @@ const SuppliersScreen: React.FC = () => {
                       setIsSelectionMode(true);
                       toggleSupplierSelection(supplier.id);
                     }}
-                    className={`ds-press inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold shadow-[0_4px_10px_rgba(15,23,42,0.04)] ${isSelected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300/80 bg-white text-transparent'}`}
+                    aria-pressed={isSelected}
+                    className={`ds-press col-start-3 row-start-1 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold shadow-[0_4px_10px_rgba(15,23,42,0.04)] ${isSelected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300/80 bg-white text-transparent'}`}
                     aria-label={isSelected ? 'Снять выбор с поставщика' : 'Выбрать поставщика'}
                   >
                     ✓
@@ -2381,14 +2395,23 @@ const SuppliersScreen: React.FC = () => {
                       {supplierInitials(supplier.name)}
                     </div>
                   )}
-                  <div className="min-w-0 flex-1 self-center">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <p className="truncate text-[14px] font-bold leading-tight tracking-normal text-slate-950">
+                  <div className="col-start-2 row-start-1 min-w-0 self-center">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        className="min-w-0 w-full break-words text-left text-sm font-bold text-slate-950"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (isSelectionMode) toggleSupplierSelection(supplier.id);
+                          else setFullscreenSupplierId(supplier.id);
+                        }}
+                        aria-label={`Открыть поставщика: ${supplier.name}`}
+                      >
                         {supplier.name}
-                      </p>
+                      </button>
                       {supplier.isPinned && (
                         <span className="shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[11px] font-bold uppercase text-amber-700">
-                          PIN
+                          Закреплён
                         </span>
                       )}
                       {supplier.isFavorite && (
@@ -2399,12 +2422,12 @@ const SuppliersScreen: React.FC = () => {
                       {brands.slice(0, 2).join(', ') || 'Марки не указаны'} ·{' '}
                       {supplier.zone || supplier.location || 'Локация не указана'}
                     </p>
-                    <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase leading-none tracking-[0.04em]">
+                    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] font-semibold uppercase leading-none tracking-[0.04em]">
                       <span className="shrink-0 rounded-full bg-slate-100/90 px-1.5 py-1 text-slate-500">
                         Обычн.
                       </span>
                       <span className="shrink-0 rounded-full bg-slate-100/90 px-1.5 py-1 text-slate-500">
-                        T{trustValue}/5
+                        Доверие {trustValue}/5
                       </span>
                       <span
                         className={`shrink-0 rounded-full px-1.5 py-1 ${hasContact ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-700'}`}
@@ -2418,12 +2441,12 @@ const SuppliersScreen: React.FC = () => {
                       )}
                     </div>
                     <p className="mt-1.5 truncate text-[11px] font-medium leading-none text-slate-400">
-                      {typeLabels.join(' + ') || 'Supplier'} ·{' '}
+                      {typeLabels.join(' + ') || 'Поставщик'} ·{' '}
                       {(supplier.models || []).slice(0, 2).join(' • ') || 'Модели не указаны'} ·{' '}
                       {distanceLabel}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="col-span-3 row-start-2 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
                     <button
                       type="button"
                       onClick={(e) => {
@@ -2466,9 +2489,10 @@ const SuppliersScreen: React.FC = () => {
       </section>
 
       {isBrandsDrawerOpen && (
-        <div
-          className="fixed inset-0 z-[75] bg-black/40"
-          onClick={() => setIsBrandsDrawerOpen(false)}
+        <ModalSurface
+          label="Фильтр по маркам"
+          onClose={() => setIsBrandsDrawerOpen(false)}
+          className=""
         >
           <div
             className="ml-auto h-full w-[86%] max-w-xs rounded-l-3xl bg-white p-4 shadow-2xl transition-transform duration-300 ease-out translate-x-0"
@@ -2515,23 +2539,10 @@ const SuppliersScreen: React.FC = () => {
               ))}
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {null}
-
-      <div className="pointer-events-none fixed bottom-[calc(92px+env(safe-area-inset-bottom))] left-1/2 z-40 w-full max-w-md -translate-x-1/2 px-6">
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setIsAdding(true)}
-            className="pointer-events-auto grid h-14 w-14 place-items-center rounded-full bg-blue-600 text-white shadow-[0_18px_36px_rgba(37,99,235,0.34)] ring-4 ring-white/85 transition active:scale-[0.96]"
-            aria-label="Добавить поставщика"
-          >
-            <UserPlus size={25} strokeWidth={2.5} />
-          </button>
-        </div>
-      </div>
 
       <input
         ref={quickPhotoInputRef}
@@ -2545,11 +2556,10 @@ const SuppliersScreen: React.FC = () => {
       />
 
       {fullscreenSupplier && (
-        <div
-          className="fixed inset-0 z-[80] overflow-hidden bg-black/40 p-0 sm:flex sm:items-center sm:justify-center sm:p-4"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setFullscreenSupplierId(null);
-          }}
+        <ModalSurface
+          label="Карточка поставщика"
+          onClose={() => setFullscreenSupplierId(null)}
+          className="overflow-hidden  p-0 sm:flex sm:items-center sm:justify-center sm:p-4"
         >
           <div className="flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl sm:h-[min(92dvh,760px)] sm:max-h-[92dvh] sm:max-w-2xl sm:rounded-3xl">
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch]">
@@ -2762,12 +2772,14 @@ const SuppliersScreen: React.FC = () => {
                   {isFullscreenOrderLinkOpen && (
                     <div className="space-y-2 px-4 pb-4">
                       <input
+                        aria-label="Поиск связанного заказа"
                         value={fullscreenOrderSearch}
                         onChange={(e) => setFullscreenOrderSearch(e.target.value)}
-                        placeholder="Поиск заказа (brand / model / VIN)"
+                        placeholder="Марка, модель или VIN заказа"
                         className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold"
                       />
                       <select
+                        aria-label="Выберите заказ"
                         className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold"
                         value={selectedOrderBySupplier[fullscreenSupplier.id] || ''}
                         onChange={(e) =>
@@ -2853,32 +2865,40 @@ const SuppliersScreen: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {visitFormSupplierId && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3">
+        <ModalSurface
+          label="Записать визит"
+          onClose={() => setVisitFormSupplierId(null)}
+          className="ui-sheet-layer flex items-end sm:items-center justify-center  p-3"
+        >
           <div className="w-full max-w-md rounded-2xl bg-white p-4 space-y-2">
             <p className="text-sm font-bold">🏪 Посетил лично</p>
             <input
+              aria-label="Имя владельца"
               value={visitOwnerName}
               onChange={(e) => setVisitOwnerName(e.target.value)}
               placeholder="Имя владельца"
               className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold"
             />
             <input
+              aria-label="Количество деталей"
               value={visitPartsCount}
               onChange={(e) => setVisitPartsCount(e.target.value)}
               placeholder="Количество деталей"
               className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold"
             />
             <input
+              aria-label="Размер магазина"
               value={visitShopSize}
               onChange={(e) => setVisitShopSize(e.target.value)}
               placeholder="Размер магазина"
               className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold"
             />
             <textarea
+              aria-label="Комментарий к визиту"
               value={visitComment}
               onChange={(e) => setVisitComment(e.target.value)}
               placeholder="Комментарий"
@@ -2908,7 +2928,7 @@ const SuppliersScreen: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {actionModalSupplierId &&
@@ -2918,9 +2938,10 @@ const SuppliersScreen: React.FC = () => {
           );
           if (!actionSupplier) return null;
           return (
-            <div
-              className="fixed inset-0 z-[85] flex items-center justify-center bg-black/50 p-3"
-              onClick={() => setActionModalSupplierId(null)}
+            <ModalSurface
+              label="Действия с поставщиком"
+              onClose={() => setActionModalSupplierId(null)}
+              className="flex items-center justify-center  p-3"
             >
               <div
                 className="w-full max-w-sm rounded-[28px] bg-white p-4 shadow-2xl"
@@ -2993,24 +3014,30 @@ const SuppliersScreen: React.FC = () => {
                   Закрыть
                 </button>
               </div>
-            </div>
+            </ModalSurface>
           );
         })()}
 
       {contactEditorSupplierId && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3">
+        <ModalSurface
+          label="Контакты поставщика"
+          onClose={() => setContactEditorSupplierId(null)}
+          className="ui-sheet-layer flex items-end sm:items-center justify-center  p-3"
+        >
           <div className="w-full max-w-md rounded-2xl bg-white p-4 space-y-3">
             <p className="text-sm font-bold">Добавить контакт</p>
             <input
+              aria-label="Телефон поставщика"
               value={contactPhone}
               onChange={(e) => setContactPhone(e.target.value)}
-              placeholder="Phone (+971...)"
+              placeholder="Телефон с кодом страны"
               className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold"
             />
             <input
+              aria-label="WhatsApp поставщика"
               value={contactWhatsapp}
               onChange={(e) => setContactWhatsapp(e.target.value)}
-              placeholder="WhatsApp (optional)"
+              placeholder="WhatsApp (необязательно)"
               className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold"
             />
             <div className="flex gap-2">
@@ -3031,7 +3058,7 @@ const SuppliersScreen: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       <ConfirmModal

@@ -1,3 +1,6 @@
+import { getWorkspaceScrollTop, restoreWorkspaceScrollTop } from '../utils/workspaceScroll';
+import { ModalSurface } from '../components/ui';
+import { isLeadOrder } from '../utils/orderClassification';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -98,7 +101,7 @@ type WorkflowStepState = 'completed' | 'current' | 'locked' | 'upcoming';
 const ORDER_DETAILS_TABS: Array<{ id: OrderDetailsTab; label: string; helper: string }> = [
   { id: 'overview', label: 'Обзор', helper: 'Клиент, авто, статус' },
   { id: 'search', label: 'Поиск', helper: 'Детали и варианты' },
-  { id: 'proof', label: 'Пруфы', helper: 'Материалы и проверки' },
+  { id: 'proof', label: 'Материалы', helper: 'Материалы и проверки' },
   { id: 'finance', label: 'Финансы', helper: 'Маржа и услуги' },
   { id: 'notes', label: 'Заметки', helper: 'Заметки и голос' },
 ];
@@ -2171,7 +2174,7 @@ const OrderDetailsScreen: React.FC = () => {
   const getOrderScrollState = () => {
     const mainScroller = document.querySelector('main');
     const restoreScrollTop =
-      mainScroller instanceof HTMLElement ? mainScroller.scrollTop : undefined;
+      mainScroller instanceof HTMLElement ? getWorkspaceScrollTop() : undefined;
     return typeof restoreScrollTop === 'number' ? { orderScrollTop: restoreScrollTop } : {};
   };
 
@@ -3465,10 +3468,6 @@ const OrderDetailsScreen: React.FC = () => {
   const DISCOUNT_OPTIONS = [0, 3, 5, 7, 10, 15, 20];
 
   const tabSwipeRef = useRef<{ x: number; y: number; ignore: boolean } | null>(null);
-  const activeTabIndex = Math.max(
-    0,
-    ORDER_DETAILS_TABS.findIndex((tab) => tab.id === activeTab),
-  );
   const tabPanelClassName = `ds-tab-panel ${tabMotionDirection === 'back' ? 'ds-tab-panel-back' : 'ds-tab-panel-forward'}`;
 
   const changeActiveTab = useCallback(
@@ -3535,7 +3534,7 @@ const OrderDetailsScreen: React.FC = () => {
     const mainScroller = document.querySelector('main');
     if (!(mainScroller instanceof HTMLElement)) return;
     window.setTimeout(() => {
-      mainScroller.scrollTop = restoreScrollTop;
+      restoreWorkspaceScrollTop(restoreScrollTop);
     }, 80);
   }, [changeActiveTab, location.state]);
 
@@ -4344,6 +4343,7 @@ const OrderDetailsScreen: React.FC = () => {
             </button>
             <div className="flex min-w-0 flex-1 items-end gap-2 rounded-[26px] bg-[#F3F5F7] px-3 py-2 ring-1 ring-slate-200/70">
               <textarea
+                aria-label={composerPlaceholder}
                 value={draft.text}
                 onChange={(event) => draft.setText(event.target.value)}
                 placeholder={composerPlaceholder}
@@ -4529,97 +4529,77 @@ const OrderDetailsScreen: React.FC = () => {
       </div>
 
       <section ref={detailsScreenSectionRef} className="px-3 pb-3 pt-2">
-        <div className="relative overflow-hidden rounded-[20px] bg-[#152136]">
-          <div className="relative min-h-[118px]">
-            {heroPhoto ? (
-              <button
-                type="button"
-                onClick={() => {
-                  const photos = getCarPhotos();
-                  if (photos.length) setGallery({ images: photos, index: 0 });
-                }}
-                className="absolute inset-0 h-full w-full"
-                aria-label="Открыть галерею автомобиля"
-              >
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs font-semibold">
+            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">
+              {order.isArchived
+                ? 'Архив'
+                : order.isSold
+                  ? 'Продан'
+                  : isLeadOrder(order)
+                    ? 'Интерес'
+                    : 'Активный заказ'}
+            </span>
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+              {stageCopy.label}
+            </span>
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+              {paymentCopy.label}
+            </span>
+          </div>
+          <div className="flex items-start gap-4">
+            <button
+              type="button"
+              className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-slate-100 text-slate-500"
+              aria-label={heroPhoto ? 'Открыть галерею автомобиля' : 'Добавить фото автомобиля'}
+              onClick={() => {
+                const photos = getCarPhotos();
+                if (photos.length) setGallery({ images: photos, index: 0 });
+                else carFileRef.current?.click();
+              }}
+            >
+              {heroPhoto ? (
                 <SafeImage
                   src={heroPhoto}
                   alt={heroCarName}
-                  className="h-full w-full object-cover opacity-88 transition duration-500"
+                  className="h-full w-full object-cover"
                 />
-              </button>
-            ) : (
+              ) : (
+                <Camera size={26} className="mx-auto" />
+              )}
+            </button>
+            <div className="min-w-0 flex-1">
+              <h1 className="break-words text-xl font-bold leading-snug tracking-tight sm:text-2xl">
+                {heroCarName}
+              </h1>
               <button
                 type="button"
-                onClick={() => carFileRef.current?.click()}
-                className="absolute inset-0 h-full w-full overflow-hidden bg-[#152136]"
-                aria-label="Добавить фото автомобиля"
+                className="mt-1 inline-flex max-w-full items-center gap-2 py-2 text-left text-xs font-medium text-slate-600"
+                aria-label="Скопировать VIN"
+                disabled={!order.vin}
+                onClick={() => void copyText(order.vin || '', 'VIN скопирован')}
               >
-                <div className="absolute right-6 top-7 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5 text-3xl font-bold text-white/20">
-                  {order.brand?.[0] || '?'}
-                </div>
+                <span className="break-all">VIN {order.vin || 'не указан'}</span>
+                {order.vin && <Copy size={14} className="shrink-0" />}
               </button>
-            )}
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#08090B]/90 via-[#08090B]/[0.28] to-transparent" />
-            <div
-              className="relative flex min-h-[118px] flex-col justify-between p-3"
-              onClick={(event) => {
-                if ((event.target as HTMLElement).closest('button,input,textarea,select,a')) return;
-                const photos = getCarPhotos();
-                if (photos.length) setGallery({ images: photos, index: 0 });
-              }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-black/[0.16] px-2 py-1 text-[11px] font-semibold text-white/55 ring-1 ring-white/[0.06] backdrop-blur-sm">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-300/80 shadow-[0_0_10px_rgba(252,211,77,0.55)]" />
-                  Живой заказ
-                </div>
-                <button
-                  type="button"
-                  onClick={() => carFileRef.current?.click()}
-                  className="ds-press inline-flex h-7 items-center gap-1 rounded-full bg-black/[0.16] px-2 text-[11px] font-bold text-white/65 ring-1 ring-white/[0.06] backdrop-blur-sm"
-                >
-                  {heroPhoto ? <Camera size={12} /> : <Upload size={12} />}
-                  {heroPhoto ? `${heroPhotoCount} фото` : 'Добавить фото'}
-                </button>
-                <input
-                  type="file"
-                  ref={carFileRef}
-                  onChange={handleCarPhotoChange}
-                  className="hidden"
-                  accept="image/*"
-                  multiple
-                />
-              </div>
-
-              <div className="space-y-2">
-                <div>
-                  <div className="mb-1 flex flex-wrap items-center gap-1">
-                    <span className="rounded-full bg-black/[0.14] px-2 py-0.5 text-[11px] font-bold text-white/60 ring-1 ring-white/[0.06]">
-                      {stageCopy.label}
-                    </span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-bold opacity-75 ring-1 ${paymentCopy.tone}`}
-                    >
-                      {paymentCopy.label}
-                    </span>
-                  </div>
-                  <h1 className="max-w-[calc(100%-1rem)] break-words text-[clamp(18px,5vw,24px)] font-bold leading-[1.02] tracking-normal text-white line-clamp-2">
-                    {heroCarName}
-                  </h1>
-                  <button
-                    type="button"
-                    onClick={() => void copyText(order.vin || '', 'VIN скопирован')}
-                    disabled={!order.vin}
-                    className="ds-press mt-1 inline-flex max-w-[18rem] items-center gap-1.5 rounded-full py-0.5 pr-2 text-[11px] font-semibold tracking-[0.08em] text-white/[0.62] transition hover:text-white disabled:cursor-default disabled:hover:text-white/[0.62]"
-                    aria-label="Скопировать VIN"
-                  >
-                    <span className="truncate">VIN {order.vin || 'not set'}</span>
-                    {order.vin && <Copy size={12} className="shrink-0 opacity-70" />}
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
+          <button
+            type="button"
+            className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700"
+            onClick={() => carFileRef.current?.click()}
+          >
+            <Upload size={16} />
+            {heroPhoto ? `Добавить фото · ${heroPhotoCount} сохранено` : 'Добавить фото'}
+          </button>
+          <input
+            type="file"
+            ref={carFileRef}
+            onChange={handleCarPhotoChange}
+            className="hidden"
+            accept="image/*"
+            multiple
+          />
         </div>
       </section>
 
@@ -4639,6 +4619,7 @@ const OrderDetailsScreen: React.FC = () => {
             </button>
           </div>
           <input
+            aria-label="Текст для ручного копирования"
             ref={manualCopyInputRef}
             value={manualCopyValue}
             readOnly
@@ -4669,19 +4650,9 @@ const OrderDetailsScreen: React.FC = () => {
 
       <nav
         className="order-detail-tabs sticky top-[58px] z-30 bg-[#f4f6fa]/95 px-3 py-2 backdrop-blur-xl"
-        aria-label="Order details sections"
+        aria-label="Разделы заказа"
       >
-        <div className="relative grid grid-cols-5 gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1">
-          <span
-            className="pointer-events-none absolute bottom-1 top-1 rounded-xl bg-white shadow-sm"
-            style={{
-              left: '0.25rem',
-              width: 'calc(20% - 0.3rem)',
-              transform: `translate3d(calc(${activeTabIndex * 100}% + ${activeTabIndex * 0.25}rem),0,0)`,
-              transition:
-                'transform 420ms cubic-bezier(0.22, 1, 0.36, 1), width 420ms cubic-bezier(0.22, 1, 0.36, 1)',
-            }}
-          />
+        <div className="relative flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100 p-1">
           {ORDER_DETAILS_TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             const Icon =
@@ -4699,11 +4670,11 @@ const OrderDetailsScreen: React.FC = () => {
                 key={tab.id}
                 type="button"
                 onClick={() => changeActiveTab(tab.id)}
-                className={`ds-press relative z-10 flex h-11 flex-col items-center justify-center gap-1 rounded-[24px] text-[11px] font-bold transition-colors duration-300 ${isActive ? 'text-blue-600' : 'text-slate-500'}`}
+                className={`ds-press relative z-10 flex h-12 min-w-[72px] flex-1 shrink-0 flex-col items-center justify-center gap-1 rounded-[24px] text-[11px] font-bold transition-colors duration-150 ${isActive ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'}`}
                 aria-pressed={isActive}
               >
                 <Icon size={15} />
-                <span className="max-w-full truncate px-1">{tab.label}</span>
+                <span className="whitespace-nowrap px-1">{tab.label}</span>
               </button>
             );
           })}
@@ -4755,7 +4726,7 @@ const OrderDetailsScreen: React.FC = () => {
                     {safetySummary.readiness.percent}% готово
                   </span>
                 </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                <div className="flex flex-wrap gap-2 pb-1">
                   {(readinessMissing.length
                     ? readinessMissing
                     : safetySummary.readiness.items.slice(0, 3)
@@ -4799,10 +4770,7 @@ const OrderDetailsScreen: React.FC = () => {
                   style={{ width: `${stageProgress}%` }}
                 />
               </div>
-              <div
-                className="flex gap-2 overflow-x-auto pb-1 no-scrollbar"
-                data-horizontal-scroll="true"
-              >
+              <div className="order-workflow-steps grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {procurementSteps.map((step) => {
                   const StepIcon = step.icon;
                   const isLocked = step.state === 'locked';
@@ -4812,7 +4780,7 @@ const OrderDetailsScreen: React.FC = () => {
                       type="button"
                       onClick={step.onClick}
                       disabled={isLocked}
-                      className={`ds-press flex w-[132px] shrink-0 flex-col items-start gap-2 rounded-[18px] border px-3 py-3 text-left disabled:cursor-not-allowed ${STAGE_STATE_STYLES[step.state] || STAGE_STATE_STYLES.upcoming}`}
+                      className={`ds-press flex min-w-0 flex-col items-start gap-2 rounded-[18px] border px-3 py-3 text-left disabled:cursor-not-allowed ${STAGE_STATE_STYLES[step.state] || STAGE_STATE_STYLES.upcoming}`}
                     >
                       <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/55 text-current">
                         <StepIcon size={15} />
@@ -4858,6 +4826,7 @@ const OrderDetailsScreen: React.FC = () => {
                 {isClientEditMode && (
                   <div className="mt-3 space-y-2">
                     <input
+                      aria-label="Имя клиента"
                       type="text"
                       value={String(draftFields.clientName ?? order.clientName ?? '')}
                       onChange={(e) => updateOrderField('clientName', e.target.value)}
@@ -4867,6 +4836,7 @@ const OrderDetailsScreen: React.FC = () => {
                     />
                     <div className="flex gap-2">
                       <input
+                        aria-label="Телефон клиента"
                         type="tel"
                         value={String(draftFields.customerContact ?? order.customerContact ?? '')}
                         onChange={(e) => updateOrderField('customerContact', e.target.value)}
@@ -4887,6 +4857,7 @@ const OrderDetailsScreen: React.FC = () => {
                       </button>
                     </div>
                     <select
+                      aria-label="Источник обращения"
                       value={String(draftFields.source ?? order.source)}
                       onChange={(e) => updateOrderField('source', e.target.value)}
                       className="ds-input h-11 w-full rounded-2xl border-0 px-3 text-xs font-bold text-stone-800 outline-none"
@@ -4989,6 +4960,7 @@ const OrderDetailsScreen: React.FC = () => {
                   <div className="mt-2 rounded-[16px] bg-stone-50/90 p-1.5 ring-1 ring-stone-200/70">
                     <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1">
                       <input
+                        aria-label="VIN автомобиля"
                         type="text"
                         value={String(draftFields.vin ?? order.vin ?? '')}
                         onChange={(e) =>
@@ -5015,6 +4987,7 @@ const OrderDetailsScreen: React.FC = () => {
                     </div>
                     <div className="mt-1 grid grid-cols-3 gap-1">
                       <select
+                        aria-label="Рынок автомобиля"
                         value={String(
                           draftFields.vehicleDetails?.marketRegion ??
                             order.vehicleDetails?.marketRegion ??
@@ -5038,6 +5011,7 @@ const OrderDetailsScreen: React.FC = () => {
                         ))}
                       </select>
                       <select
+                        aria-label="Коробка передач"
                         value={String(
                           draftFields.vehicleDetails?.transmission ??
                             order.vehicleDetails?.transmission ??
@@ -5061,6 +5035,7 @@ const OrderDetailsScreen: React.FC = () => {
                         ))}
                       </select>
                       <input
+                        aria-label="Двигатель"
                         type="text"
                         value={String(
                           draftFields.vehicleDetails?.engineType ??
@@ -5079,6 +5054,7 @@ const OrderDetailsScreen: React.FC = () => {
                         className="ds-input h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
                       />
                       <input
+                        aria-label="Цвет автомобиля"
                         type="text"
                         value={String(
                           draftFields.vehicleDetails?.color ?? order.vehicleDetails?.color ?? '',
@@ -5095,6 +5071,7 @@ const OrderDetailsScreen: React.FC = () => {
                         className="ds-input h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
                       />
                       <input
+                        aria-label="Тип кузова"
                         type="text"
                         value={String(draftFields.bodyType ?? order.bodyType ?? '')}
                         onChange={(e) => updateOrderField('bodyType', e.target.value)}
@@ -5115,6 +5092,8 @@ const OrderDetailsScreen: React.FC = () => {
                           className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-stone-200"
                         >
                           <button
+                            aria-label="Открыть фотографию"
+                            title="Открыть фотографию"
                             type="button"
                             onClick={() => setGallery({ images: getCarPhotos(), index })}
                             className="ds-press h-full w-full"
@@ -5173,6 +5152,7 @@ const OrderDetailsScreen: React.FC = () => {
                     </button>
                   ))}
                   <select
+                    aria-label="Зона сервиса"
                     value=""
                     onChange={(event) => {
                       const selected = event.target.value;
@@ -5307,6 +5287,7 @@ const OrderDetailsScreen: React.FC = () => {
                         {showEditor ? (
                           <div className="mt-1.5 flex gap-1.5">
                             <input
+                              aria-label="Видео детали — ссылка на Drive"
                               type="url"
                               value={partMediaLinkDrafts[part.id] ?? ''}
                               onChange={(event) =>
@@ -5386,6 +5367,7 @@ const OrderDetailsScreen: React.FC = () => {
                 return showEditor ? (
                   <div className="flex gap-1.5">
                     <input
+                      aria-label="Папка медиа заказа — ссылка на Drive"
                       type="url"
                       value={orderMediaFolderDraft}
                       onChange={(event) => setOrderMediaFolderDraft(event.target.value)}
@@ -5701,6 +5683,7 @@ const OrderDetailsScreen: React.FC = () => {
                               {partCommentExpanded[part.id] ? (
                                 <div className="mt-3 space-y-2">
                                   <textarea
+                                    aria-label="Комментарий к детали"
                                     value={partCommentDrafts[part.id] ?? ''}
                                     onChange={(event) =>
                                       updatePartCommentDraft(part.id, event.target.value)
@@ -5820,6 +5803,8 @@ const OrderDetailsScreen: React.FC = () => {
                                 </button>
                               ) : (
                                 <button
+                                  aria-label="Открыть фотографию"
+                                  title="Открыть фотографию"
                                   key={`${note.id}-${photo}-${index}`}
                                   type="button"
                                   onClick={() => openMediaPreview(note.photos || [], index)}
@@ -6044,6 +6029,7 @@ const OrderDetailsScreen: React.FC = () => {
                         </div>
                         <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
                           <input
+                            aria-label="Продажа AED"
                             type="text"
                             inputMode="numeric"
                             pattern="[0-9]*"
@@ -6106,6 +6092,7 @@ const OrderDetailsScreen: React.FC = () => {
                 </div>
               ) : (
                 <input
+                  aria-label="Фиксированная наценка, AED"
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
@@ -6138,6 +6125,7 @@ const OrderDetailsScreen: React.FC = () => {
               <div className="flex items-center justify-between gap-3">
                 <p className="text-[12px] font-bold text-stone-600">Валюта клиента</p>
                 <select
+                  aria-label="Валюта сметы"
                   value={clientCurrency}
                   onChange={(event) =>
                     updateOrderField(
@@ -6191,6 +6179,7 @@ const OrderDetailsScreen: React.FC = () => {
                 </div>
               ) : (
                 <input
+                  aria-label="Скидка, AED"
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
@@ -6486,6 +6475,8 @@ const OrderDetailsScreen: React.FC = () => {
                                 </button>
                               ) : (
                                 <button
+                                  aria-label="Открыть фотографию"
+                                  title="Открыть фотографию"
                                   type="button"
                                   onClick={() => openMediaPreview(note.photos || [], index)}
                                   className="ds-press h-full w-full"
@@ -6653,6 +6644,7 @@ const OrderDetailsScreen: React.FC = () => {
                   {newPartGroupItems.map((item, index) => (
                     <div key={item.id} className="flex items-center gap-2">
                       <input
+                        aria-label={`Деталь ${index + 1}`}
                         type="text"
                         value={item.name}
                         onChange={(event) =>
@@ -6662,6 +6654,7 @@ const OrderDetailsScreen: React.FC = () => {
                         className="h-10 min-w-0 flex-1 rounded-xl border-0 bg-stone-100 px-3 text-xs font-bold text-stone-950 outline-none placeholder:text-stone-400"
                       />
                       <select
+                        aria-label="Количество деталей в группе"
                         value={item.quantity}
                         onChange={(event) =>
                           updateGroupItemRow(item.id, 'quantity', event.target.value)
@@ -6748,6 +6741,7 @@ const OrderDetailsScreen: React.FC = () => {
                 </button>
                 <div className="flex min-w-0 flex-1 items-center rounded-2xl bg-white px-3">
                   <input
+                    aria-label="Название новой детали"
                     ref={partInputRef}
                     type="text"
                     value={newPartName}
@@ -6783,9 +6777,10 @@ const OrderDetailsScreen: React.FC = () => {
       )}
 
       {isAttachmentSheetOpen && (
-        <div
-          className="fixed inset-0 z-[58] bg-slate-950/25 backdrop-blur-[2px]"
-          onClick={() => setIsAttachmentSheetOpen(false)}
+        <ModalSurface
+          label="Прикрепить к сообщению"
+          onClose={() => setIsAttachmentSheetOpen(false)}
+          className=""
         >
           <div
             className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-md rounded-t-[32px] border border-slate-200/80 bg-white/96 px-4 pb-[calc(18px+env(safe-area-inset-bottom))] pt-3 text-slate-950 shadow-[0_-22px_56px_rgba(15,23,42,0.16)] backdrop-blur-xl"
@@ -6855,11 +6850,15 @@ const OrderDetailsScreen: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {isDepositDialogOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <ModalSurface
+          label="Подтвердить депозит"
+          onClose={() => setIsDepositDialogOpen(false)}
+          className="flex items-center justify-center  p-4"
+        >
           <div className="ds-mode-enter ds-surface w-full max-w-sm space-y-4 rounded-[28px] p-4 text-stone-950 shadow-2xl">
             <div>
               <p className="text-sm font-bold">Подтвердить депозит</p>
@@ -6937,11 +6936,15 @@ const OrderDetailsScreen: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {isDiscardConfirmOpen && (
-        <div className="fixed inset-0 z-[60] bg-black/50 p-4">
+        <ModalSurface
+          label="Удалить запись"
+          onClose={() => setIsDiscardConfirmOpen(false)}
+          className="p-4"
+        >
           <div className="ds-mode-enter ds-surface mx-auto mt-28 w-full max-w-sm space-y-3 rounded-[24px] p-4 text-stone-950">
             <p className="text-sm font-bold">Удалить запись?</p>
             <div className="grid grid-cols-2 gap-2">
@@ -6961,7 +6964,7 @@ const OrderDetailsScreen: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       <ConfirmModal
@@ -6998,9 +7001,10 @@ const OrderDetailsScreen: React.FC = () => {
       />
 
       {videoPreview && (
-        <div
-          className="fixed inset-0 z-[140] flex items-center justify-center bg-black p-0"
-          onClick={() => setVideoPreview(null)}
+        <ModalSurface
+          label="Просмотр видео"
+          onClose={() => setVideoPreview(null)}
+          className="flex items-center justify-center bg-black p-0"
         >
           <button
             type="button"
@@ -7059,7 +7063,7 @@ const OrderDetailsScreen: React.FC = () => {
               </button>
             </>
           )}
-        </div>
+        </ModalSurface>
       )}
 
       {gallery && (
@@ -7072,11 +7076,10 @@ const OrderDetailsScreen: React.FC = () => {
         />
       )}
       {showCustomerLogs && (
-        <div
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-3"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setShowCustomerLogs(false);
-          }}
+        <ModalSurface
+          label="История клиента"
+          onClose={() => setShowCustomerLogs(false)}
+          className="flex items-center justify-center  p-3"
         >
           <div className="ds-mode-enter ds-surface w-full max-w-lg rounded-[28px] p-4 text-stone-950 shadow-2xl">
             <div className="flex items-center justify-between gap-3">
@@ -7117,7 +7120,7 @@ const OrderDetailsScreen: React.FC = () => {
               )}
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
     </div>
   );

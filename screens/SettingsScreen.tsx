@@ -193,6 +193,21 @@ export default function SettingsScreen() {
             type="button"
             role="tab"
             aria-selected={tab === key}
+            tabIndex={tab === key ? 0 : -1}
+            onKeyDown={(event) => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const index = tabs.findIndex((item) => item.key === key);
+              const next =
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? tabs.length - 1
+                    : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+              setTab(tabs[next].key);
+              setError('');
+              document.getElementById(`tab-${tabs[next].key}`)?.focus();
+            }}
             aria-controls={`settings-${key}`}
             id={`tab-${key}`}
             onClick={() => {

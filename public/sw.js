@@ -1,5 +1,5 @@
 const BASE = new URL('./', self.location.href);
-const CACHE = 'dubai-spares-local-v12';
+const CACHE = 'dubai-spares-local-v13';
 const SHELL = [
   '',
   'index.html',
@@ -28,9 +28,12 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
+      const previous = keys
+        .filter((key) => key.startsWith('dubai-spares-local-') && key !== CACHE)
+        .at(-1);
       await Promise.all(
         keys
-          .filter((key) => key.startsWith('dubai-spares-') && key !== CACHE)
+          .filter((key) => key.startsWith('dubai-spares-') && key !== CACHE && key !== previous)
           .map((key) => caches.delete(key)),
       );
       await self.clients.claim();
@@ -62,7 +65,13 @@ self.addEventListener('fetch', (event) => {
         }
       }
       // Build assets are immutable and identical for every visitor.
-      const cached = await cache.match(request, { ignoreVary: true });
+      // A tab opened before this update may still request its previous hashed chunks.
+      // Keep one prior build until the next update instead of breaking that tab mid-session.
+      const cached =
+        (await cache.match(request, { ignoreVary: true })) ||
+        (url.pathname.startsWith(new URL('assets/', BASE).pathname)
+          ? await caches.match(request, { ignoreVary: true })
+          : undefined);
       if (cached) return cached;
       const response = await fetch(request);
       if (response.ok) await cache.put(request, response.clone());

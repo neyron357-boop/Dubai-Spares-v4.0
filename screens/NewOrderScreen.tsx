@@ -1,21 +1,35 @@
-import { CarFront, ChevronDown, UserRound } from 'lucide-react';
+import { CarFront, UserRound } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppSettings } from '../appSettings';
 import { CHASSIS_BODY_TYPES_BY_BRAND } from '../carDatabase';
-import { PageHeader } from '../components/ui';
+import SearchableSelect from '../components/SearchableSelect';
+import { Button, PageHeader } from '../components/ui';
+import { readFormDraft, useFormDraft } from '../hooks/useFormDraft';
 import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE } from '../constants';
 import { toast } from '../feedback';
 import { logger } from '../logging';
 import { useStore } from '../store';
 import { Order, Priority, Source } from '../types';
 
-type CreationType = 'lead' | 'order';
-
-type DropdownOption = {
-  label: string;
-  value: string;
+const DRAFT_KEY = 'dubai_spares_draft_new_order_v1';
+type OrderDraft = {
+  brand: string;
+  model: string;
+  year: string;
+  bodyType: string;
+  clientName: string;
 };
+const validateDraft = (value: unknown): value is OrderDraft =>
+  Boolean(
+    value &&
+    typeof value === 'object' &&
+    ['brand', 'model', 'year', 'bodyType', 'clientName'].every(
+      (key) => typeof (value as Record<string, unknown>)[key] === 'string',
+    ),
+  );
+
+type CreationType = 'lead' | 'order';
 
 const POPULAR_BRANDS = [
   'BMW',
@@ -63,215 +77,6 @@ const serializeError = (error: unknown) => {
 const inputClass = 'ui-input';
 const cardClass = 'ui-panel space-y-5';
 
-const SearchableDropdown: React.FC<{
-  value: string;
-  placeholder: string;
-  disabled?: boolean;
-  options: DropdownOption[];
-  loading?: boolean;
-  required?: boolean;
-  noOptionsText?: string;
-  allowCustom?: boolean;
-  onChange: (value: string) => void;
-}> = ({
-  value,
-  placeholder,
-  disabled,
-  options,
-  loading,
-  required,
-  noOptionsText = 'Нет доступных вариантов',
-  allowCustom,
-  onChange,
-}) => {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [highlighted, setHighlighted] = useState(0);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const filteredOptions = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return options;
-    return options.filter((option) => option.label.toLowerCase().includes(normalized));
-  }, [options, query]);
-
-  useEffect(() => {
-    if (!open) {
-      setQuery('');
-      setHighlighted(0);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    setHighlighted(0);
-  }, [query]);
-
-  useEffect(() => {
-    if (open) {
-      window.setTimeout(() => inputRef.current?.focus(), 0);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    const onOutside = (event: MouseEvent) => {
-      if (!wrapperRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onOutside);
-    return () => document.removeEventListener('mousedown', onOutside);
-  }, []);
-
-  const trimmedQuery = query.trim();
-  const exactQueryMatch = filteredOptions.some(
-    (option) =>
-      option.value.toLowerCase() === trimmedQuery.toLowerCase() ||
-      option.label.toLowerCase() === trimmedQuery.toLowerCase(),
-  );
-  const showCustomOption = Boolean(allowCustom && trimmedQuery && !exactQueryMatch);
-  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setHighlighted((prev) => Math.min(prev + 1, Math.max(filteredOptions.length - 1, 0)));
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setHighlighted((prev) => Math.max(prev - 1, 0));
-    }
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      if (allowCustom && trimmedQuery) {
-        onChange(trimmedQuery);
-      } else if (filteredOptions[highlighted]) {
-        onChange(filteredOptions[highlighted].value);
-      }
-      setOpen(false);
-    }
-    if (event.key === 'Escape') {
-      setOpen(false);
-    }
-  };
-
-  return (
-    <div ref={wrapperRef} className="relative">
-      {allowCustom ? (
-        <div
-          className={`${inputClass} relative flex items-center gap-2 disabled:cursor-not-allowed disabled:bg-slate-100`}
-        >
-          <input
-            ref={inputRef}
-            value={open ? query : value}
-            disabled={disabled}
-            aria-expanded={open}
-            aria-required={required}
-            onFocus={() => {
-              setQuery(value);
-              setOpen(true);
-            }}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              setQuery(nextValue);
-              onChange(nextValue);
-              setOpen(true);
-            }}
-            onKeyDown={handleSearchKeyDown}
-            placeholder={placeholder}
-            className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
-          />
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => {
-              setQuery(value);
-              setOpen((prev) => !prev);
-            }}
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400"
-            aria-label="Открыть список"
-          >
-            <ChevronDown
-              size={16}
-              className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-            />
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          disabled={disabled}
-          aria-expanded={open}
-          aria-required={required}
-          onClick={() => setOpen((prev) => !prev)}
-          className={`${inputClass} relative flex items-center justify-between text-left disabled:cursor-not-allowed disabled:bg-slate-100`}
-        >
-          <span className={value ? 'text-slate-900' : 'text-slate-400'}>
-            {value || placeholder}
-          </span>
-          <ChevronDown
-            size={16}
-            className={`text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-          />
-        </button>
-      )}
-      {open && (
-        <div className="absolute z-[60] mt-2 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-          {!allowCustom && (
-            <input
-              ref={inputRef}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              placeholder="Поиск..."
-              className="mb-2 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm outline-none focus:border-slate-300"
-            />
-          )}
-          {loading ? (
-            <div className="space-y-2 p-1">
-              <div className="h-8 animate-pulse rounded-lg bg-slate-100" />
-              <div className="h-8 animate-pulse rounded-lg bg-slate-100" />
-            </div>
-          ) : (
-            <div className="max-h-52 overflow-y-auto">
-              {showCustomOption && (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setOpen(false);
-                    onChange(trimmedQuery);
-                  }}
-                  className="mb-1 flex w-full items-center rounded-lg bg-blue-50 px-2 py-2 text-left text-sm font-bold text-blue-700"
-                >
-                  Указать вручную: "{trimmedQuery}"
-                </button>
-              )}
-              {filteredOptions.map((option, index) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setOpen(false);
-                    onChange(option.value);
-                  }}
-                  className={`flex w-full items-center rounded-lg px-2 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 ${highlighted === index ? 'bg-slate-100' : ''}`}
-                >
-                  {option.label}
-                </button>
-              ))}
-              {filteredOptions.length === 0 && !showCustomOption && (
-                <p className="px-2 py-2 text-xs text-slate-500">{noOptionsText}</p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
 const NewOrderScreen: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -281,25 +86,37 @@ const NewOrderScreen: React.FC = () => {
   const [creationType, setCreationType] = useState<CreationType>(() =>
     new URLSearchParams(location.search).get('type') === 'lead' ? 'lead' : 'order',
   );
-  const [brand, setBrand] = useState('');
-  const [model, setModel] = useState('');
-  const [year, setYear] = useState('');
-  const [bodyType, setBodyType] = useState('');
-  const [clientName, setClientName] = useState('');
+  const [initialDraft] = useState(() => readFormDraft(DRAFT_KEY, validateDraft));
+  const [brand, setBrand] = useState(initialDraft?.brand || '');
+  const [model, setModel] = useState(initialDraft?.model || '');
+  const [year, setYear] = useState(initialDraft?.year || '');
+  const [bodyType, setBodyType] = useState(initialDraft?.bodyType || '');
+  const [clientName, setClientName] = useState(initialDraft?.clientName || '');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [brandLoading, setBrandLoading] = useState(true);
   const submitLockRef = useRef(false);
+  const draftData = useMemo(
+    () => ({ brand, model, year, bodyType, clientName }),
+    [brand, model, year, bodyType, clientName],
+  );
+  const draft = useFormDraft({
+    key: DRAFT_KEY,
+    data: draftData,
+    hasContent: Object.values(draftData).some((value) => value.trim()),
+  });
+  const resetDraft = () => {
+    setBrand('');
+    setModel('');
+    setYear('');
+    setBodyType('');
+    setClientName('');
+    setErrors({});
+  };
 
   useEffect(() => {
     const nextType = new URLSearchParams(location.search).get('type') === 'lead' ? 'lead' : 'order';
     setCreationType(nextType);
   }, [location.search]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setBrandLoading(false), 220);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   const modelOptions = useMemo(() => {
     const base = brand
@@ -373,6 +190,8 @@ const NewOrderScreen: React.FC = () => {
 
     const validationErrors = validate();
     if (Object.keys(validationErrors).length > 0) {
+      const first = validationErrors.brand ? 'Марка' : validationErrors.model ? 'Модель' : 'Год';
+      document.querySelector<HTMLElement>(`#new-order-form [aria-label="${first}"]`)?.focus();
       const missing = Object.values(validationErrors).slice(0, 3).join('; ');
       toast(missing || 'Заполните обязательные поля', 'error');
       submitLockRef.current = false;
@@ -429,7 +248,7 @@ const NewOrderScreen: React.FC = () => {
           mode: 'minimal',
         });
         toast(
-          `Не удалось создать ${shouldCreateLead ? 'лид' : 'заказ'}. Проверьте соединение и попробуйте снова.`,
+          `Не удалось создать ${shouldCreateLead ? 'лид' : 'заказ'}. Проверьте свободное место в браузере и попробуйте снова.`,
           'error',
         );
         return;
@@ -441,6 +260,7 @@ const NewOrderScreen: React.FC = () => {
         mode: 'minimal',
       });
       toast(`${shouldCreateLead ? 'Лид' : 'Заказ'} создан: #${order.id.slice(0, 8)}`, 'success');
+      draft.clear();
       navigate(shouldCreateLead ? '/orders' : `/order/${order.id}`);
     } catch (error) {
       await logger.error('create-order', 'create_order_unexpected_failure', {
@@ -464,6 +284,20 @@ const NewOrderScreen: React.FC = () => {
         description="Начните с автомобиля. Детали и фотографии можно добавить в заказе."
         back={() => navigate('/orders')}
       />
+      {Object.values(draftData).some((value) => value.trim()) && (
+        <div className="ui-draft-note">
+          <span role="status">
+            {draft.status === 'unavailable'
+              ? 'Черновик не сохранён: хранилище браузера недоступно.'
+              : initialDraft
+                ? 'Черновик восстановлен. Продолжите заполнение.'
+                : 'Черновик сохраняется на этом устройстве.'}
+          </span>
+          <Button variant="ghost" onClick={resetDraft}>
+            Очистить форму
+          </Button>
+        </div>
+      )}
       <section className={cardClass}>
         <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-600">
           <CarFront size={16} /> Автомобиль
@@ -471,23 +305,26 @@ const NewOrderScreen: React.FC = () => {
 
         <label className="space-y-1">
           <span className="text-xs font-semibold text-slate-500">Марка</span>
-          <SearchableDropdown
+          <SearchableSelect
+            label="Марка"
+            error={errors.brand}
             value={brand}
             placeholder="Выберите марку"
             options={brandOptions}
-            loading={brandLoading}
             required
             onChange={(value) => {
               setBrand(value);
               setModel('');
             }}
           />
-          {errors.brand && <p className="text-xs text-rose-600">{errors.brand}</p>}
         </label>
 
         <label className="space-y-1">
           <span className="text-xs font-semibold text-slate-500">Модель</span>
-          <SearchableDropdown
+          <SearchableSelect
+            required
+            label="Модель"
+            error={errors.model}
             value={model}
             placeholder="Введите модель"
             options={modelOptions}
@@ -495,20 +332,21 @@ const NewOrderScreen: React.FC = () => {
             noOptionsText="Начните вводить модель"
             onChange={setModel}
           />
-          {errors.model && <p className="text-xs text-rose-600">{errors.model}</p>}
         </label>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="space-y-1">
             <span className="text-xs font-semibold text-slate-500">Год</span>
-            <SearchableDropdown
+            <SearchableSelect
+              required
+              label="Год"
+              error={errors.year}
               value={year}
               placeholder="Выберите год"
               options={yearOptions}
               noOptionsText="Год не найден"
               onChange={setYear}
             />
-            {errors.year && <p className="text-xs text-rose-600">{errors.year}</p>}
           </label>
 
           <label className="space-y-1">
@@ -553,17 +391,13 @@ const NewOrderScreen: React.FC = () => {
       </section>
 
       <div className="screen-action-dock">
-        <button
-          type="submit"
-          disabled={isSubmitting || isSyncing}
-          className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-blue-600 px-4 text-sm font-bold text-white shadow-[0_14px_30px_rgba(37,99,235,0.24)] transition active:scale-[0.99] disabled:opacity-50"
-        >
+        <Button type="submit" loading={isSubmitting || isSyncing} className="w-full">
           {isSubmitting || isSyncing
             ? 'Сохраняем...'
             : creationType === 'lead'
               ? 'Создать лид'
               : 'Создать заказ'}
-        </button>
+        </Button>
       </div>
     </form>
   );

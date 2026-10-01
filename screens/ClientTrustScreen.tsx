@@ -35,13 +35,13 @@ const processSteps = [
     icon: ShieldCheck,
   },
   {
-    title: 'Proof Pack',
-    body: 'Фиксируем фото, видео, дефекты, маркировки, упаковку и передачу в cargo.',
+    title: 'Подтверждения',
+    body: 'Фиксируем фото, видео, дефекты, маркировки, упаковку и передачу перевозчику.',
     icon: Camera,
   },
   {
-    title: 'Cargo',
-    body: 'После передачи перевозчику ответственность за транспортировку переходит к cargo.',
+    title: 'Доставка',
+    body: 'После передачи перевозчику ответственность за транспортировку переходит к перевозчику.',
     icon: Truck,
   },
 ];
@@ -53,7 +53,7 @@ const proofItems = [
   'видео проверки',
   'фото после покупки',
   'фото упаковки',
-  'cargo receipt',
+  'квитанция перевозчика',
 ];
 
 const riskyDeals = [
@@ -61,29 +61,29 @@ const riskyDeals = [
   'отказ предоставить VIN или фото авто',
   '50/50 без принятия риска продавца',
   'спор до оплаты и агрессивные условия',
-  'дорогая или хрупкая деталь без cargo risk',
+  'дорогая или хрупкая деталь без согласования рисков доставки',
   'слишком маленькая маржа для сложного заказа',
 ];
 
 const ClientTrustScreen: React.FC = () => (
   <div className="min-h-[100dvh] bg-slate-100 px-3 py-4 text-slate-900 sm:px-6">
     <main className="mx-auto flex max-w-5xl flex-col gap-4">
-      <section className="overflow-hidden rounded-3xl bg-[#0f1f3d] text-white shadow-[0_18px_44px_rgba(15,31,61,0.24)]">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-sm">
         <div className="grid gap-6 p-6 md:grid-cols-[1fr_auto] md:items-center">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-200">
-              Dubai-Spares Safety Sales
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">
+              STARK MOTORS · Условия работы
             </p>
             <h1 className="mt-3 max-w-3xl text-3xl font-bold leading-tight sm:text-5xl">
               Безопасная покупка автозапчастей из Дубая
             </h1>
-            <p className="mt-4 max-w-2xl text-base font-semibold text-blue-100">
-              Мы работаем как система, а не как случайный посредник: сначала проверяем данные и
-              условия, затем ищем, фиксируем доказательства, закупаем и передаём в cargo.
+            <p className="mt-4 max-w-2xl text-base font-semibold text-slate-600">
+              Сначала проверяем данные автомобиля и условия, затем ищем, фиксируем доказательства,
+              закупаем и передаём в cargo.
             </p>
           </div>
           <div className="flex items-center justify-center">
-            <div className="grid h-28 w-28 place-items-center rounded-3xl border border-white/15 bg-white/10">
+            <div className="grid h-28 w-28 place-items-center rounded-2xl border border-blue-100 bg-blue-50">
               <img
                 src={`${import.meta.env.BASE_URL}icon-512.png`}
                 alt="Dubai-Spares"
@@ -104,13 +104,13 @@ const ClientTrustScreen: React.FC = () => (
               <Icon size={19} />
             </div>
             <h2 className="mt-3 text-base font-bold">{title}</h2>
-            <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-600">{body}</p>
+            <p className="mt-2 text-sm font-medium leading-relaxed text-slate-600">{body}</p>
           </article>
         ))}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
-        <div className="rounded-3xl border border-emerald-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
           <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
             <CheckCircle2 size={15} /> Почему нужна предоплата
           </p>
@@ -127,22 +127,22 @@ const ClientTrustScreen: React.FC = () => (
           </div>
         </div>
 
-        <div className="rounded-3xl border border-orange-200 bg-orange-50 p-5 text-orange-900 shadow-sm">
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-5 text-orange-900 shadow-sm">
           <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em]">
-            <AlertTriangle size={15} /> Хрупкие детали и cargo
+            <AlertTriangle size={15} /> Хрупкие детали и доставка
           </p>
-          <p className="mt-4 text-sm font-semibold leading-relaxed">
+          <p className="mt-4 text-sm font-medium leading-relaxed">
             Фары, стекло, зеркала, бамперы, кузовные элементы, электронные блоки и дорогие детали
-            требуют усиленной упаковки. После передачи в cargo риск повреждения при перевозке
+            требуют усиленной упаковки. После передачи перевозчику риск повреждения при перевозке
             относится к перевозчику, поэтому клиент должен проверить товар при получении.
           </p>
         </div>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-            <PackageCheck size={15} /> Proof Pack
+            <PackageCheck size={15} /> Подтверждения
           </p>
           <div className="mt-4 grid gap-2">
             {proofItems.map((item) => (
@@ -156,7 +156,7 @@ const ClientTrustScreen: React.FC = () => (
           </div>
         </div>
 
-        <div className="rounded-3xl border border-rose-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-rose-200 bg-white p-5 shadow-sm">
           <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-rose-700">
             <XCircle size={15} /> Когда мы можем отказаться
           </p>
@@ -173,7 +173,7 @@ const ClientTrustScreen: React.FC = () => (
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
@@ -185,7 +185,7 @@ const ClientTrustScreen: React.FC = () => (
           </div>
           <a
             href="#/request"
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 text-sm font-bold text-white"
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white"
           >
             <MessageCircle size={17} /> Оставить заявку
           </a>

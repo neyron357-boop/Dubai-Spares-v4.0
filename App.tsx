@@ -6,11 +6,12 @@ import {
   CircleAlert,
   HardDrive,
   Layers,
+  LayoutDashboard,
   Plus,
   Settings,
   X,
 } from 'lucide-react';
-import React, { Suspense, lazy, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useLayoutEffect, useState } from 'react';
 import {
   HashRouter,
   NavLink,
@@ -18,6 +19,7 @@ import {
   Route,
   Routes,
   useLocation,
+  useNavigationType,
   useParams,
 } from 'react-router-dom';
 import AppErrorBoundary from './components/AppErrorBoundary';
@@ -52,12 +54,26 @@ function QuoteRoute() {
   const { orderId = '' } = useParams();
   return <PublicQuoteScreen orderId={orderId} />;
 }
+const routeScrollPositions = new Map<string, number>();
 function Layout({ children }: React.PropsWithChildren) {
   const location = useLocation();
+  const navigationType = useNavigationType();
   const [saved, setSaved] = useState(false);
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'instant' });
-  }, [location.pathname]);
+  useLayoutEffect(() => {
+    const key = location.pathname;
+    const explicitTop = (location.state as { restoreScrollTop?: number } | null)?.restoreScrollTop;
+    const top =
+      typeof explicitTop === 'number'
+        ? explicitTop
+        : navigationType === 'POP'
+          ? routeScrollPositions.get(key) || 0
+          : 0;
+    window.scrollTo({ top, behavior: 'instant' });
+    document.getElementById('main-content')?.focus({ preventScroll: true });
+    return () => {
+      routeScrollPositions.set(key, window.scrollY);
+    };
+  }, [location.pathname, location.state, navigationType]);
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
     const onSave = () => {
@@ -118,6 +134,10 @@ function Layout({ children }: React.PropsWithChildren) {
           <Bell size={20} />
           <span>Уведомления</span>
         </NavLink>
+        <NavLink to="/morning" className="app-nav-item">
+          <LayoutDashboard size={20} />
+          <span>Обзор</span>
+        </NavLink>
         <div className="app-local-note">
           <HardDrive size={20} />
           <div>
@@ -136,9 +156,11 @@ function Layout({ children }: React.PropsWithChildren) {
             {saved ? <Check size={15} /> : <HardDrive size={15} />}
             {saved ? 'Сохранено' : 'На устройстве'}
           </span>
-          <NavLink to="/notifications" aria-label="Уведомления" className="ui-icon-button">
-            <Bell size={20} />
-          </NavLink>
+          {location.pathname !== '/orders' && (
+            <NavLink to="/notifications" aria-label="Уведомления" className="ui-icon-button">
+              <Bell size={20} />
+            </NavLink>
+          )}
         </div>
         <main id="main-content" tabIndex={-1}>
           {children}

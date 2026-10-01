@@ -1,3 +1,5 @@
+import { useSessionState } from '../hooks/useSessionState';
+import { ModalSurface } from '../components/ui';
 import {
   AlertTriangle,
   Archive,
@@ -14,7 +16,6 @@ import {
   MoreHorizontal,
   Pin,
   Plus,
-  Search,
   Square,
   Star,
   Trash2,
@@ -25,7 +26,7 @@ import { useNavigate } from 'react-router-dom';
 import ConfirmModal from '../components/ConfirmModal';
 import IncomeModal from '../components/IncomeModal';
 import SafeImage from '../components/SafeImage';
-import { Button, Dialog, EmptyState } from '../components/ui';
+import { Button, Dialog, EmptyState, SearchField } from '../components/ui';
 import { toast, vibrate } from '../feedback';
 import {
   AppNotification,
@@ -449,10 +450,10 @@ const OrdersScreen: React.FC = () => {
   const { orders, isLoading, updateOrder, deleteOrder, bulkDeleteOrders } = useStore();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<TabType>('active');
-  const [sortBy, setSortBy] = useState<SortType>('date_desc');
-  const [searchText, setSearchText] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [activeTab, setActiveTab] = useSessionState<TabType>('orders:activeTab', 'active');
+  const [sortBy, setSortBy] = useSessionState<SortType>('orders:sortBy', 'date_desc');
+  const [searchText, setSearchText] = useSessionState('orders:searchText', '');
+  const [debouncedSearch, setDebouncedSearch] = useState(searchText.trim().toLowerCase());
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -465,15 +466,24 @@ const OrdersScreen: React.FC = () => {
   const [notifications, setNotifications] = useState<AppNotification[]>(() => getNotifications());
   const [moveSheetOrderId, setMoveSheetOrderId] = useState<string | null>(null);
 
-  const [brandFilters, setBrandFilters] = useState<string[]>([]);
-  const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
-  const [statusFilters, setStatusFilters] = useState<SearchState[]>([]);
-  const [noResponseHours, setNoResponseHours] = useState<number>(0);
-  const [issueFilter, setIssueFilter] = useState<'all' | 'missing_price' | 'missing_contact'>(
+  const [brandFilters, setBrandFilters] = useSessionState<string[]>('orders:brandFilters', []);
+  const [priorityFilter, setPriorityFilter] = useSessionState<Priority | 'all'>(
+    'orders:priorityFilter',
     'all',
   );
-  const [yearFrom, setYearFrom] = useState('');
-  const [yearTo, setYearTo] = useState('');
+  const [statusFilters, setStatusFilters] = useSessionState<SearchState[]>(
+    'orders:statusFilters',
+    [],
+  );
+  const [noResponseHours, setNoResponseHours] = useSessionState<number>(
+    'orders:noResponseHours',
+    0,
+  );
+  const [issueFilter, setIssueFilter] = useSessionState<
+    'all' | 'missing_price' | 'missing_contact'
+  >('orders:issueFilter', 'all');
+  const [yearFrom, setYearFrom] = useSessionState('orders:yearFrom', '');
+  const [yearTo, setYearTo] = useSessionState('orders:yearTo', '');
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(searchText.trim().toLowerCase()), 300);
@@ -736,22 +746,30 @@ const OrdersScreen: React.FC = () => {
     if (activeTab === 'active')
       return {
         title: 'Нет активных заказов',
+        description: 'Создайте заказ, добавьте детали и соберите предложения поставщиков.',
         cta: 'Создать заказ',
         action: () => navigate('/new'),
       };
     if (activeTab === 'interest')
       return {
-        title: 'В интересе пока пусто',
+        title: 'Пока нет заявок',
+        description: 'Здесь будут обращения клиентов, которые ещё не перешли в работу.',
         cta: 'Открыть активные',
         action: () => setActiveTab('active'),
       };
     if (activeTab === 'not_found')
       return {
-        title: 'Список "Не найдено" пуст',
+        title: 'Все детали в поиске или найдены',
+        description: 'Заказы, для которых пока не удалось найти детали, появятся здесь.',
         cta: 'Открыть активные',
         action: () => setActiveTab('active'),
       };
-    return { title: 'Архив пуст', cta: 'Показать активные', action: () => setActiveTab('active') };
+    return {
+      title: 'Архив пуст',
+      description: 'Завершённые и отложенные заказы можно перенести в архив через меню карточки.',
+      cta: 'Показать активные',
+      action: () => setActiveTab('active'),
+    };
   }, [activeTab, navigate]);
 
   const showSkeleton = isLoading && orders.length === 0;
@@ -921,7 +939,11 @@ const OrdersScreen: React.FC = () => {
         </div>
 
         {isNotificationsOpen && (
-          <div className="fixed inset-0 z-30" onClick={() => setIsNotificationsOpen(false)}>
+          <ModalSurface
+            label="Уведомления"
+            onClose={() => setIsNotificationsOpen(false)}
+            className=""
+          >
             <div
               className="absolute left-1/2 top-[76px] w-[min(calc(100vw-2rem),360px)] -translate-x-1/2 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]"
               onClick={(event) => event.stopPropagation()}
@@ -1007,31 +1029,20 @@ const OrdersScreen: React.FC = () => {
                 )}
               </div>
             </div>
-          </div>
+          </ModalSurface>
         )}
 
         <div className="flex items-center gap-2">
-          <label className="flex h-11 flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3">
-            <Search size={14} className="text-slate-400" />
-            <input
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Марка, VIN, ID, клиент, заметка"
-              className="h-full w-full bg-transparent text-sm outline-none"
-            />
-            {searchText && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchText('');
-                  setDebouncedSearch('');
-                }}
-                className="h-8 rounded-xl px-2 text-xs text-slate-500"
-              >
-                Очистить
-              </button>
-            )}
-          </label>
+          <SearchField
+            label="Поиск заказов"
+            value={searchText}
+            onChange={(value) => {
+              setSearchText(value);
+              if (!value) setDebouncedSearch('');
+            }}
+            placeholder="Марка, VIN, ID, клиент, заметка"
+            className="flex-1"
+          />
           <button
             type="button"
             onClick={() => setIsFilterOpen(true)}
@@ -1067,7 +1078,8 @@ const OrdersScreen: React.FC = () => {
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
             {priorityFilter !== 'all' && (
               <span className="rounded-xl bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                Приоритет: {priorityFilter}
+                Приоритет:{' '}
+                {{ HIGH: 'Высокий', MEDIUM: 'Средний', LOW: 'Низкий', all: 'Все' }[priorityFilter]}
               </span>
             )}
             {brandFilters.length > 0 && (
@@ -1087,9 +1099,10 @@ const OrdersScreen: React.FC = () => {
           {MAIN_TABS.map(({ id: tab, label }) => (
             <button
               key={tab}
+              aria-pressed={activeTab === tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`min-h-10 rounded-xl px-1.5 py-1 text-[11px] font-bold leading-tight transition ${
+              className={`min-h-11 rounded-xl px-1.5 py-1 text-[11px] font-bold leading-tight transition ${
                 activeTab === tab
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-slate-600 hover:bg-slate-50'
@@ -1148,25 +1161,36 @@ const OrdersScreen: React.FC = () => {
           <div className="ui-panel">
             <EmptyState
               icon={Car}
-              title={searchText ? 'Ничего не найдено' : emptyStateMessage.title}
+              title={
+                searchText || activeFiltersCount ? 'Ничего не найдено' : emptyStateMessage.title
+              }
               description={
-                searchText
-                  ? 'Попробуйте другую марку, имя клиента или VIN.'
-                  : 'Создайте первый заказ, добавьте детали и соберите предложения поставщиков.'
+                searchText || activeFiltersCount
+                  ? 'Измените поисковый запрос или сбросьте фильтры, чтобы увидеть заказы.'
+                  : emptyStateMessage.description
               }
               action={
                 <Button
                   icon={Plus}
                   onClick={
-                    searchText
+                    searchText || activeFiltersCount
                       ? () => {
                           setSearchText('');
                           setDebouncedSearch('');
+                          setBrandFilters([]);
+                          setPriorityFilter('all');
+                          setStatusFilters([]);
+                          setNoResponseHours(0);
+                          setIssueFilter('all');
+                          setYearFrom('');
+                          setYearTo('');
                         }
                       : emptyStateMessage.action
                   }
                 >
-                  {searchText ? 'Сбросить поиск' : emptyStateMessage.cta}
+                  {searchText || activeFiltersCount
+                    ? 'Сбросить поиск и фильтры'
+                    : emptyStateMessage.cta}
                 </Button>
               }
             />
@@ -1227,6 +1251,7 @@ const OrdersScreen: React.FC = () => {
                           e.stopPropagation();
                           toggleOrderSelected(order.id);
                         }}
+                        aria-pressed={selectedOrderIds.includes(order.id)}
                         className={`mt-1 inline-flex h-7 w-7 items-center justify-center rounded-lg border ${selectedOrderIds.includes(order.id) ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-500'}`}
                         aria-label={
                           selectedOrderIds.includes(order.id)
@@ -1257,7 +1282,18 @@ const OrdersScreen: React.FC = () => {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <h3 className="truncate text-sm font-bold text-slate-900">
-                            {order.brand} {order.model}
+                            <button
+                              type="button"
+                              aria-label={`Открыть заказ ${order.brand} ${order.model}`}
+                              className="text-left hover:text-blue-700"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (isSelectionMode) toggleOrderSelected(order.id);
+                                else openOrderPreview(order);
+                              }}
+                            >
+                              {order.brand} {order.model}
+                            </button>
                           </h3>
                           <p className="mt-0.5 truncate text-xs text-slate-500">
                             {order.year || '—'} · {order.vin || contactLabel || 'Без контакта'}
@@ -1358,9 +1394,10 @@ const OrdersScreen: React.FC = () => {
       </div>
 
       {moveSheetOrder && (
-        <div
-          className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/35 px-4 py-6"
-          onClick={() => setMoveSheetOrderId(null)}
+        <ModalSurface
+          label="Переместить заказ"
+          onClose={() => setMoveSheetOrderId(null)}
+          className="flex items-center justify-center  px-4 py-6"
         >
           <div
             className="w-full max-w-md rounded-[28px] bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)]"
@@ -1392,6 +1429,7 @@ const OrdersScreen: React.FC = () => {
                 const isCurrent = getOrderMainTab(moveSheetOrder) === tab.id;
                 return (
                   <button
+                    aria-current={isCurrent ? 'true' : undefined}
                     key={`move-${tab.id}`}
                     type="button"
                     disabled={isCurrent}
@@ -1408,7 +1446,7 @@ const OrdersScreen: React.FC = () => {
               })}
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {isFilterOpen && (
@@ -1494,6 +1532,7 @@ const OrdersScreen: React.FC = () => {
 
           <div className="mt-3 grid grid-cols-2 gap-2">
             <input
+              aria-label="Год от"
               type="number"
               inputMode="numeric"
               value={yearFrom}
@@ -1502,6 +1541,7 @@ const OrdersScreen: React.FC = () => {
               className="h-11 rounded-xl border border-slate-200 px-2 text-sm"
             />
             <input
+              aria-label="Год до"
               type="number"
               inputMode="numeric"
               value={yearTo}

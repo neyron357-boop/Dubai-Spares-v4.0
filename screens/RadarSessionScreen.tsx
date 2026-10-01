@@ -1,8 +1,9 @@
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, LocateFixed, RefreshCw } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import QuickActionsBar from '../components/QuickActionsBar';
 import RadarCard from '../components/RadarCard';
+import { Button, EmptyState, LoadingState } from '../components/ui';
 import { toast, vibrate } from '../feedback';
 import { createUuid } from '../id';
 import {
@@ -35,6 +36,7 @@ const RadarSessionScreen: React.FC = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
   const [undoAction, setUndoAction] = useState<{ label: string; run: () => Promise<void> } | null>(
     null,
@@ -42,8 +44,12 @@ const RadarSessionScreen: React.FC = () => {
   const undoTimerRef = useRef<number | null>(null);
 
   const load = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
+    setLoadError('');
     try {
       const [sessionRow, targetRows, shops, eventRows] = await Promise.all([
         getRadarSession(sessionId),
@@ -67,6 +73,8 @@ const RadarSessionScreen: React.FC = () => {
         }, {}),
       );
       setEvents(eventRows);
+    } catch {
+      setLoadError('Не удалось открыть поиск. Повторите попытку.');
     } finally {
       setIsLoading(false);
     }
@@ -264,7 +272,7 @@ const RadarSessionScreen: React.FC = () => {
     document
       .getElementById(`target-${next.id}`)
       ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    toast('Next best 🎯', 'info');
+    toast('Следующий подходящий поставщик', 'info');
   };
 
   const activeOrder = useMemo(
@@ -277,28 +285,46 @@ const RadarSessionScreen: React.FC = () => {
       .filter((item) => item.event_type === 'item_not_found')
       .slice(0, 3);
     if (recentNotFound.length >= 3)
-      return '3x Not found подряд: расширить радиус до 20 км или сменить тип на used_parts.';
+      return 'Три поставщика подряд не нашли деталь. Попробуйте радиус 20 км или разборки.';
     const recentWrongInfo = events.filter((item) => item.event_type === 'wrong_info').slice(0, 2);
-    if (recentWrongInfo.length >= 2) return '2x Wrong info: пометить поставщика как проблемного?';
+    if (recentWrongInfo.length >= 2)
+      return 'Два неточных ответа подряд. Проверьте информацию о поставщике.';
     return null;
   }, [events]);
 
+  if (isLoading && !session) return <LoadingState />;
+  if (!session || loadError)
+    return (
+      <div className="ui-page">
+        <EmptyState
+          icon={LocateFixed}
+          title={loadError ? 'Поиск недоступен' : 'Сессия поиска не найдена'}
+          description={loadError || 'Сессия могла быть удалена или сохранена на другом устройстве.'}
+          action={
+            <Button onClick={() => (loadError ? void load() : navigate('/orders'))}>
+              {loadError ? 'Повторить' : 'К заказам'}
+            </Button>
+          }
+        />
+      </div>
+    );
+
   return (
-    <div className="p-3 space-y-3 pb-24">
+    <div className="ui-page space-y-4">
       <div className="rounded-2xl bg-white border border-gray-100 p-3 space-y-2">
         <div className="flex items-center justify-between">
           <button
             type="button"
-            onClick={() => navigate('/radar')}
+            onClick={() => navigate('/orders')}
             className="inline-flex items-center gap-1 text-xs font-bold text-gray-700"
           >
             <ArrowLeft size={14} /> Назад
           </button>
-          <span className="text-[11px] uppercase tracking-widest text-gray-400">Radar Session</span>
+          <span className="text-xs font-semibold text-slate-500">Поиск поставщиков</span>
         </div>
-        <h1 className="text-base font-bold">Сессия {sessionId.slice(0, 8)}</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Сессия {sessionId.slice(0, 8)}</h1>
         <p className="text-xs text-gray-500">
-          Целей: {targets.length}. Статус: {session?.is_active ? 'active' : 'closed'}
+          Целей: {targets.length}. Статус: {session?.is_active ? 'Активна' : 'Завершена'}
         </p>
         {activeOrder && (
           <button
@@ -309,13 +335,13 @@ const RadarSessionScreen: React.FC = () => {
             🧾 Активный заказ: {activeOrder.brand} {activeOrder.model}
           </button>
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => void handleCloseSession()}
             className="flex-1 rounded-xl bg-gray-900 text-white text-xs font-bold py-2"
           >
-            Завершить Radar
+            Завершить поиск
           </button>
           <button
             type="button"

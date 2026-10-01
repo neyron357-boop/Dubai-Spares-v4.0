@@ -1,3 +1,4 @@
+import { ModalSurface } from '../components/ui';
 import {
   Camera,
   Check,
@@ -11,49 +12,24 @@ import {
   Phone,
   Pin,
   Plus,
-  Search,
   Send,
   SlidersHorizontal,
-  Sparkles,
   Star,
   X,
 } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ImagePreview from '../components/ImagePreview';
 import SafeImage from '../components/SafeImage';
-import { PageHeader } from '../components/ui';
+import { Button, EmptyState, PageHeader, SearchField } from '../components/ui';
+import MoneyInput from '../components/MoneyInput';
+import { sanitizeMoneyInput } from '../utils/moneyInput';
 import VehiclePicker from '../components/VehiclePicker';
 import { createUuid } from '../id';
 import { optimizeLocalImage } from '../storage/photos';
 import { useStore } from '../store';
 import { PriceVariant } from '../types';
 import { cloneVariantForPart, VariantLibraryItem } from '../variantLibraryStore';
-
-const priceTemplates = [150, 250, 450, 750, 1200, 1800];
-const supplierNamePrefixes = [
-  'Desert',
-  'Falcon',
-  'Turbo',
-  'Prime',
-  'Royal',
-  'Emirates',
-  'Golden',
-  'Rapid',
-  'Metro',
-  'Pearl',
-];
-const supplierNameSuffixes = [
-  'Auto',
-  'Motors',
-  'Parts',
-  'Garage',
-  'Trading',
-  'Workshop',
-  'Hub',
-  'Center',
-  'Solutions',
-];
 
 type SortKey = 'updated' | 'created' | 'supplier' | 'price_asc' | 'price_desc' | 'pinned';
 type FilterKey = 'all' | 'standalone' | 'order' | 'pinned' | 'favorite' | 'with_photo';
@@ -118,7 +94,7 @@ const VariantsScreen: React.FC = () => {
   } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const detailFileInputRef = useRef<HTMLInputElement>(null);
-  const randomSupplierCounterRef = useRef(1);
+
   const longPressTimerRef = useRef<number | null>(null);
   const isAttachingVariantRef = useRef(false);
 
@@ -142,24 +118,12 @@ const VariantsScreen: React.FC = () => {
   const [selectedVariant, setSelectedVariant] = useState<VariantLibraryItem | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [isResolvingLocation, setIsResolvingLocation] = useState(false);
   const [deleteCandidate, setDeleteCandidate] = useState<VariantLibraryItem | null>(null);
   const [menuVariant, setMenuVariant] = useState<VariantLibraryItem | null>(null);
   const [orderPickerVariant, setOrderPickerVariant] = useState<VariantLibraryItem | null>(null);
   const [isAddingToOrder, setIsAddingToOrder] = useState(false);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
-
-  useEffect(() => {
-    const onOnline = () => setIsOnline(true);
-    const onOffline = () => setIsOnline(false);
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
-    };
-  }, []);
 
   const resetForm = () => {
     setPurchasePriceAed('');
@@ -304,10 +268,10 @@ const VariantsScreen: React.FC = () => {
       link.download = file.name;
       link.click();
       URL.revokeObjectURL(url);
-      window.alert('Картинка сформирована и скачана. Можно отправить клиенту.');
+      showToast('Изображение скачано. Его можно отправить клиенту.', 'success');
     } catch (error) {
       console.error(error);
-      window.alert('Не удалось сформировать картинку для отправки.');
+      showToast('Не удалось сформировать картинку для отправки.', 'error');
     }
   };
 
@@ -497,34 +461,24 @@ const VariantsScreen: React.FC = () => {
     };
 
     setIsSaving(true);
-    setTimeout(() => {
+    try {
       saveStandaloneVariant(created);
-      setIsSaving(false);
       setShowCreateModal(false);
       resetForm();
-    }, 350);
-  };
-
-  const generateUniqueSupplierName = () => {
-    const existingNames = new Set(
-      variantLibrary.map((item) => (item.shopName || '').trim().toLowerCase()).filter(Boolean),
-    );
-
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      const prefix = supplierNamePrefixes[Math.floor(Math.random() * supplierNamePrefixes.length)];
-      const suffix = supplierNameSuffixes[Math.floor(Math.random() * supplierNameSuffixes.length)];
-      const serial = randomSupplierCounterRef.current;
-      randomSupplierCounterRef.current += 1;
-      const candidate = `${prefix} ${suffix} ${serial}`;
-      if (!existingNames.has(candidate.toLowerCase())) return candidate;
+      showToast('Вариант сохранён', 'success');
+    } catch {
+      showToast(
+        'Не удалось сохранить вариант. Освободите место в хранилище браузера и повторите.',
+        'error',
+      );
+    } finally {
+      setIsSaving(false);
     }
-
-    return `Supplier ${Date.now()}`;
   };
 
   const resolveCurrentLocation = async () => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      window.alert('GPS недоступен в этом браузере.');
+      showToast('GPS недоступен в этом браузере.', 'error');
       return null;
     }
 
@@ -539,7 +493,7 @@ const VariantsScreen: React.FC = () => {
     setIsResolvingLocation(false);
 
     if (!result) {
-      window.alert('Не удалось получить GPS-координаты. Проверьте разрешения геолокации.');
+      showToast('Не удалось получить GPS-координаты. Проверьте разрешения геолокации.', 'error');
       return null;
     }
     return result;
@@ -570,20 +524,31 @@ const VariantsScreen: React.FC = () => {
     );
   };
 
-  const persistVariant = (variant: VariantLibraryItem) => {
-    if (variant.origin === 'standalone') {
-      saveStandaloneVariant({ ...variant, updatedAt: Date.now() });
-      return;
+  const persistVariant = async (variant: VariantLibraryItem) => {
+    try {
+      if (variant.origin === 'standalone') {
+        saveStandaloneVariant({ ...variant, updatedAt: Date.now() });
+        return true;
+      }
+      if (!variant.sourcePartId) return false;
+      const saved = await updatePriceVariant(variant.sourcePartId, {
+        ...variant,
+        updatedAt: Date.now(),
+      });
+      if (!saved) showToast('Не удалось сохранить изменения. Повторите попытку.', 'error');
+      return Boolean(saved);
+    } catch {
+      showToast(
+        'Изменения не сохранены. Освободите место в хранилище браузера и повторите.',
+        'error',
+      );
+      return false;
     }
-    if (!variant.sourcePartId) return;
-    void updatePriceVariant(variant.sourcePartId, { ...variant, updatedAt: Date.now() });
   };
-
-  const quickToggle = (key: 'isPinned' | 'isFavorite') => {
+  const quickToggle = async (key: 'isPinned' | 'isFavorite') => {
     if (!selectedVariant) return;
     const next = { ...selectedVariant, [key]: !selectedVariant[key] };
-    setSelectedVariant(next);
-    persistVariant(next);
+    if (await persistVariant(next)) setSelectedVariant(next);
   };
 
   const removeVariantCompletely = async (variant: VariantLibraryItem) => {
@@ -836,34 +801,28 @@ const VariantsScreen: React.FC = () => {
         title="Варианты"
         eyebrow="Каталог предложений"
         description="Цены и фотографии деталей. Добавляйте подходящие варианты в заказ."
+        actions={
+          <Button icon={Plus} onClick={() => setShowCreateModal(true)}>
+            Новый вариант
+          </Button>
+        }
       />
       <div className="space-y-5">
         <section className="space-y-2.5">
           <div className="flex items-center gap-3">
-            <label className="flex h-14 min-w-0 flex-1 items-center gap-3 rounded-[18px] border border-[#e5eaf1] bg-white/88 px-4 text-[#667085] shadow-[0_1px_6px_rgba(15,23,40,0.025)] transition focus-within:border-blue-200 focus-within:bg-white focus-within:text-blue-600">
-              <Search size={21} className="shrink-0" />
-              <input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Поставщик, деталь, VIN, телефон"
-                className="min-w-0 flex-1 bg-transparent text-[15px] font-medium text-[#172333] outline-none placeholder:text-[#7A8293]"
-              />
-              {searchTerm && (
-                <button
-                  type="button"
-                  onClick={() => setSearchTerm('')}
-                  className="rounded-full p-1 text-[#98A2B3] transition active:scale-95"
-                  aria-label="Очистить поиск"
-                >
-                  <X size={15} />
-                </button>
-              )}
-            </label>
+            <SearchField
+              className="min-w-0 flex-1"
+              label="Поиск вариантов"
+              placeholder="Поставщик, деталь, VIN, телефон"
+              value={searchTerm}
+              onChange={setSearchTerm}
+            />
             <button
               type="button"
               onClick={() => setActiveFilter(activeFilter === 'with_photo' ? 'all' : 'with_photo')}
               className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[18px] border bg-white/90 shadow-[0_1px_6px_rgba(15,23,40,0.025)] transition active:scale-[0.97] ${activeFilter === 'with_photo' ? 'border-blue-300 text-blue-600' : 'border-[#e5eaf1] text-[#475467]'}`}
-              aria-label="Фильтры"
+              aria-label="Только с фотографиями"
+              aria-pressed={activeFilter === 'with_photo'}
             >
               <SlidersHorizontal size={22} />
             </button>
@@ -875,6 +834,7 @@ const VariantsScreen: React.FC = () => {
                 key={option.key}
                 type="button"
                 onClick={() => setActiveFilter(option.key)}
+                aria-pressed={activeFilter === option.key}
                 className={`h-10 shrink-0 whitespace-nowrap rounded-[15px] border px-2.5 text-[12px] font-bold transition active:scale-[0.98] ${activeFilter === option.key ? 'border-blue-500 bg-white text-blue-600 shadow-[0_6px_16px_rgba(37,99,235,0.08)]' : 'border-[#e5eaf1] bg-white/86 text-[#3D4658]'}`}
               >
                 {option.label}
@@ -886,11 +846,12 @@ const VariantsScreen: React.FC = () => {
             <p className="shrink-0 text-[14px] font-bold text-[#3D4658]">
               {filteredAndSorted.length} вариантов
             </p>
-            <div className="relative min-w-0">
+            <div className="relative min-w-0 flex-1 max-w-[230px]">
               <select
+                aria-label="Сортировка вариантов"
                 value={sortKey}
                 onChange={(event) => setSortKey(event.target.value as SortKey)}
-                className="h-11 w-[230px] appearance-none rounded-[17px] border border-[#e5eaf1] bg-white pl-4 pr-8 text-[13px] font-bold text-[#172333] outline-none shadow-[0_1px_6px_rgba(15,23,40,0.025)]"
+                className="h-11 w-full sm:w-[230px] appearance-none rounded-[17px] border border-[#e5eaf1] bg-white pl-4 pr-8 text-[13px] font-bold text-[#172333] outline-none shadow-[0_1px_6px_rgba(15,23,40,0.025)]"
               >
                 <option value="updated">По дате обновления</option>
                 <option value="created">По дате создания</option>
@@ -908,7 +869,7 @@ const VariantsScreen: React.FC = () => {
         </section>
 
         {filteredAndSorted.length > 0 ? (
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="variant-catalog-grid grid grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredAndSorted.map((variant) => {
               const photosForCard = miniPhotos(variant);
               const firstPhoto = photosForCard[0];
@@ -918,15 +879,7 @@ const VariantsScreen: React.FC = () => {
               return (
                 <article
                   key={`${variant.origin}-${variant.id}-${variant.sourceOrderId || 'none'}`}
-                  role="button"
-                  tabIndex={0}
                   onClick={() => openVariantDetail(variant)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      openVariantDetail(variant);
-                    }
-                  }}
                   onPointerDown={() => startLongPressDelete(variant)}
                   onPointerUp={cancelLongPressDelete}
                   onPointerLeave={cancelLongPressDelete}
@@ -934,7 +887,7 @@ const VariantsScreen: React.FC = () => {
                     event.preventDefault();
                     setDeleteCandidate(variant);
                   }}
-                  className="flex h-[324px] min-w-0 cursor-pointer flex-col overflow-hidden rounded-[20px] border border-[#e5eaf1] bg-white text-left shadow-[0_10px_26px_rgba(15,23,40,0.06)] transition duration-200 active:scale-[0.985]"
+                  className="flex h-[324px] min-w-0 cursor-pointer flex-col overflow-hidden rounded-[20px] border border-[#e5eaf1] bg-white text-left shadow-sm transition duration-200 active:scale-[0.985]"
                 >
                   <div className="relative h-[112px] shrink-0 bg-[#f1f4f8]">
                     {firstPhoto ? (
@@ -971,6 +924,7 @@ const VariantsScreen: React.FC = () => {
                       }}
                       className="absolute left-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-white/95 text-[#667085] shadow-[0_4px_12px_rgba(15,23,40,0.12)] transition active:scale-95"
                       aria-label="Избранное"
+                      aria-pressed={Boolean(variant.isFavorite)}
                     >
                       <Star
                         size={14}
@@ -987,7 +941,17 @@ const VariantsScreen: React.FC = () => {
 
                   <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-3">
                     <h2 className="line-clamp-2 min-h-[36px] shrink-0 text-[14px] font-bold leading-[18px] text-[#0B1220]">
-                      {getVariantTitle(variant)}
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        aria-label={`Открыть вариант: ${getVariantTitle(variant)}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openVariantDetail(variant);
+                        }}
+                      >
+                        {getVariantTitle(variant)}
+                      </button>
                     </h2>
                     <p className="mt-1.5 shrink-0 truncate text-[12px] font-semibold leading-[15px] text-[#667085]">
                       {getVariantSupplier(variant)}
@@ -1004,7 +968,7 @@ const VariantsScreen: React.FC = () => {
                       {statusMeta.label}
                     </span>
 
-                    <div className="mt-auto grid shrink-0 grid-cols-[32px_minmax(0,1fr)_32px] gap-1.5 pt-3">
+                    <div className="variant-card-actions mt-auto grid shrink-0 grid-cols-[44px_minmax(0,1fr)_44px] gap-1.5 pt-3">
                       <button
                         type="button"
                         disabled={!phoneValue}
@@ -1028,11 +992,14 @@ const VariantsScreen: React.FC = () => {
                           }
                           setOrderPickerVariant(variant);
                         }}
-                        className="h-8 truncate rounded-[10px] bg-blue-50 px-1.5 text-[10.5px] font-bold text-blue-700 transition active:scale-[0.97]"
+                        aria-label={opensExistingOrder ? 'Открыть заказ' : 'В заказ'}
+                        className="h-11 truncate rounded-[10px] bg-blue-50 px-1.5 text-[10.5px] font-bold text-blue-700 transition active:scale-[0.97]"
                       >
                         <span className="inline-flex max-w-full items-center justify-center gap-1 truncate">
                           {opensExistingOrder ? <Link2 size={12} /> : <Plus size={12} />}
-                          {opensExistingOrder ? 'Открыть заказ' : 'В заказ'}
+                          <span className="variant-order-label hidden sm:inline">
+                            {opensExistingOrder ? 'Открыть заказ' : 'В заказ'}
+                          </span>
                         </span>
                       </button>
                       <button
@@ -1053,31 +1020,38 @@ const VariantsScreen: React.FC = () => {
             })}
           </div>
         ) : (
-          <div className="rounded-[22px] border border-dashed border-[#D0D5DD] bg-white p-8 text-center shadow-[0_8px_22px_rgba(15,23,40,0.04)]">
-            <Sparkles className="mx-auto text-[#98A2B3]" size={24} />
-            <p className="mt-3 text-sm font-semibold text-[#172333]">Пока нет вариантов</p>
-            <p className="mt-1 text-xs text-[#667085]">
-              Создайте первый товарный вариант вручную или добавьте его из заказа.
-            </p>
-          </div>
+          <EmptyState
+            icon={Camera}
+            title={
+              searchTerm || activeFilter !== 'all' ? 'Варианты не найдены' : 'Пока нет вариантов'
+            }
+            description={
+              searchTerm || activeFilter !== 'all'
+                ? 'Попробуйте другой запрос или сбросьте фильтры.'
+                : 'Сохраните предложение поставщика: деталь, закупочную цену, цену продажи и фотографии.'
+            }
+            action={
+              <Button
+                onClick={() => {
+                  if (searchTerm || activeFilter !== 'all') {
+                    setSearchTerm('');
+                    setActiveFilter('all');
+                  } else setShowCreateModal(true);
+                }}
+              >
+                {searchTerm || activeFilter !== 'all' ? 'Сбросить фильтры' : 'Добавить вариант'}
+              </Button>
+            }
+          />
         )}
       </div>
 
-      <div className="pointer-events-none fixed bottom-[calc(92px+env(safe-area-inset-bottom))] left-1/2 z-40 w-full max-w-md -translate-x-1/2 px-6">
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setShowCreateModal(true)}
-            className="pointer-events-auto grid h-14 w-14 place-items-center rounded-full bg-[#2563EB] text-white shadow-[0_18px_36px_rgba(37,99,235,0.34)] ring-4 ring-white/85 transition active:scale-[0.96]"
-            aria-label="Новый вариант"
-          >
-            <Plus size={29} strokeWidth={2.6} />
-          </button>
-        </div>
-      </div>
-
       {menuVariant && (
-        <div className="fixed inset-0 z-[80] bg-black/35" onClick={() => setMenuVariant(null)}>
+        <ModalSurface
+          label="Действия с вариантом"
+          onClose={() => setMenuVariant(null)}
+          className=""
+        >
           <div
             className="absolute bottom-[calc(112px+env(safe-area-inset-bottom))] left-1/2 max-h-[calc(100dvh-150px)] w-[calc(100%-32px)] max-w-[408px] -translate-x-1/2 overflow-y-auto rounded-[26px] bg-white px-3 pb-3 pt-3 shadow-[0_18px_54px_rgba(15,23,40,0.22)] ring-1 ring-slate-900/[0.04]"
             onClick={(event) => event.stopPropagation()}
@@ -1147,13 +1121,14 @@ const VariantsScreen: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {orderPickerVariant && (
-        <div
-          className="fixed inset-0 z-50 flex items-end bg-black/35 px-3 pb-[calc(6.5rem+env(safe-area-inset-bottom))]"
-          onClick={() => setOrderPickerVariant(null)}
+        <ModalSurface
+          label="Добавить в заказ"
+          onClose={() => setOrderPickerVariant(null)}
+          className="ui-sheet-layer flex items-end  px-3 pb-[calc(6.5rem+env(safe-area-inset-bottom))]"
         >
           <div
             className="max-h-[52dvh] w-full overflow-y-auto rounded-[24px] bg-white px-3 pb-3 pt-2 shadow-[0_18px_56px_rgba(15,23,40,0.22)]"
@@ -1168,6 +1143,8 @@ const VariantsScreen: React.FC = () => {
                 </p>
               </div>
               <button
+                aria-label="Закрыть"
+                title="Закрыть"
                 type="button"
                 onClick={() => setOrderPickerVariant(null)}
                 className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-50 text-[#667085]"
@@ -1203,16 +1180,22 @@ const VariantsScreen: React.FC = () => {
               )}
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/40">
-          <div className="max-h-[92dvh] w-full overflow-y-auto overscroll-contain touch-pan-y rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-3">
+        <ModalSurface
+          label="Новый вариант"
+          onClose={() => setShowCreateModal(false)}
+          className="ui-sheet-layer flex items-end"
+        >
+          <div className="max-h-[92dvh] w-full overflow-y-auto overscroll-contain touch-pan-y rounded-t-[24px] bg-white px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3">
             <div className="mx-auto h-1.5 w-10 rounded-full bg-gray-300" />
             <div className="mt-3 flex items-center justify-between">
               <h2 className="text-lg font-bold">Новый вариант</h2>
               <button
+                aria-label="Закрыть"
+                title="Закрыть"
                 type="button"
                 onClick={() => setShowCreateModal(false)}
                 className="rounded-full p-2 text-[#667085]"
@@ -1225,6 +1208,7 @@ const VariantsScreen: React.FC = () => {
               <section className="space-y-2 rounded-2xl border border-[#E7EAF0] p-3">
                 <p className="text-xs font-semibold text-[#667085]">Источник поставщика</p>
                 <select
+                  aria-label="Поставщик из базы"
                   value={supplierId}
                   onChange={(event) => handleSupplierChange(event.target.value)}
                   className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none"
@@ -1241,12 +1225,14 @@ const VariantsScreen: React.FC = () => {
               <section className="space-y-2 rounded-2xl border border-[#E7EAF0] p-3">
                 <p className="text-xs font-semibold text-[#667085]">Основные данные</p>
                 <input
+                  aria-label="Название поставщика"
                   value={shopName}
                   onChange={(event) => setShopName(event.target.value)}
                   placeholder="Поставщик"
                   className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none"
                 />
                 <input
+                  aria-label="Название детали"
                   value={partName}
                   onChange={(event) => setPartName(event.target.value)}
                   placeholder="Деталь / название варианта"
@@ -1254,13 +1240,13 @@ const VariantsScreen: React.FC = () => {
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <input
+                    aria-label="Цена закупки, AED"
                     value={purchasePriceAed}
                     type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
+                    inputMode="decimal"
                     autoComplete="off"
                     onChange={(event) =>
-                      setPurchasePriceAed(event.target.value.replace(/[^\d]/g, ''))
+                      setPurchasePriceAed(sanitizeMoneyInput(event.target.value))
                     }
                     placeholder="Цена покупки"
                     className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none"
@@ -1268,12 +1254,12 @@ const VariantsScreen: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <input
+                    aria-label="Цена продажи, AED"
                     value={salePriceAed}
                     type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
+                    inputMode="decimal"
                     autoComplete="off"
-                    onChange={(event) => setSalePriceAed(event.target.value.replace(/[^\d]/g, ''))}
+                    onChange={(event) => setSalePriceAed(sanitizeMoneyInput(event.target.value))}
                     placeholder="Цена продажи"
                     className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none"
                   />
@@ -1282,6 +1268,7 @@ const VariantsScreen: React.FC = () => {
                   </div>
                 </div>
                 <textarea
+                  aria-label="Комментарий"
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
                   placeholder="Комментарий"
@@ -1294,6 +1281,7 @@ const VariantsScreen: React.FC = () => {
                   onSelect={selectVehicleInfo}
                 />
                 <input
+                  aria-label="VIN автомобиля"
                   value={vin}
                   onChange={(event) =>
                     setVin(
@@ -1308,38 +1296,19 @@ const VariantsScreen: React.FC = () => {
                   autoComplete="off"
                 />
                 <input
+                  aria-label="Номер заказа клиента"
                   value={customerOrderRef}
                   onChange={(event) => setCustomerOrderRef(event.target.value)}
                   className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none"
                   placeholder="Номер/ссылка заказа (необязательно)"
                 />
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShopName(generateUniqueSupplierName())}
-                    className="rounded-xl bg-[#f1f4f8] px-3 py-1.5 text-xs font-semibold text-[#475467]"
-                  >
-                    Случайное имя
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = String(
-                        priceTemplates[Math.floor(Math.random() * priceTemplates.length)],
-                      );
-                      setPurchasePriceAed(next);
-                      setSalePriceAed(next);
-                    }}
-                    className="rounded-xl bg-[#f1f4f8] px-3 py-1.5 text-xs font-semibold text-[#475467]"
-                  >
-                    Быстрая цена
-                  </button>
-                </div>
+                <div className="flex flex-wrap gap-2"></div>
               </section>
 
               <section className="space-y-2 rounded-2xl border border-[#E7EAF0] p-3">
                 <p className="text-xs font-semibold text-[#667085]">Контакты и локация</p>
                 <input
+                  aria-label="Телефон"
                   value={phone}
                   onChange={(event) => setPhone(event.target.value.replace(/[^\d+]/g, ''))}
                   inputMode="numeric"
@@ -1348,12 +1317,14 @@ const VariantsScreen: React.FC = () => {
                   className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none"
                 />
                 <input
+                  aria-label="Адрес поставщика"
                   value={location}
                   onChange={(event) => setLocation(event.target.value)}
                   placeholder="Адрес / район"
                   className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm outline-none"
                 />
                 <input
+                  aria-label="Ссылка на карту"
                   value={mapsUrl}
                   onChange={(event) => setMapsUrl(event.target.value)}
                   placeholder="Google Maps URL"
@@ -1426,12 +1397,19 @@ const VariantsScreen: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {selectedVariant && (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/55">
-          <div className="max-h-[92dvh] w-full overflow-y-auto overscroll-contain touch-pan-y rounded-t-[24px] bg-white px-4 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] pt-0">
+        <ModalSurface
+          label="Карточка варианта"
+          onClose={() => {
+            setSelectedVariant(null);
+            setIsEditMode(false);
+          }}
+          className="ui-sheet-layer flex items-end"
+        >
+          <div className="max-h-[92dvh] w-full overflow-y-auto overscroll-contain touch-pan-y rounded-t-[24px] bg-white px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-0">
             <input
               ref={detailFileInputRef}
               type="file"
@@ -1505,6 +1483,8 @@ const VariantsScreen: React.FC = () => {
                   {isEditMode ? 'Просмотр' : 'Редактировать'}
                 </button>
                 <button
+                  aria-label="Закрыть"
+                  title="Закрыть"
                   type="button"
                   onClick={() => setSelectedVariant(null)}
                   className="rounded-full p-2 text-[#667085]"
@@ -1637,6 +1617,7 @@ const VariantsScreen: React.FC = () => {
                   )}
                 </section>
                 <input
+                  aria-label="Название поставщика"
                   value={selectedVariant.shopName || ''}
                   onChange={(event) =>
                     setSelectedVariant((prev) =>
@@ -1648,6 +1629,7 @@ const VariantsScreen: React.FC = () => {
                 />
                 {selectedVariant.origin === 'standalone' && (
                   <input
+                    aria-label="Название детали"
                     value={selectedVariant.sourcePartName || ''}
                     onChange={(event) =>
                       setSelectedVariant((prev) =>
@@ -1658,39 +1640,30 @@ const VariantsScreen: React.FC = () => {
                     placeholder="Название детали"
                   />
                 )}
-                <input
-                  value={String(
-                    (selectedVariant.purchasePriceAed ?? selectedVariant.priceAed) || '',
-                  )}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoComplete="off"
-                  onChange={(event) => {
-                    const value = Number(event.target.value.replace(/[^\d]/g, '') || 0);
+                <MoneyInput
+                  aria-label="Цена закупки, AED"
+                  value={Number(selectedVariant.purchasePriceAed ?? selectedVariant.priceAed ?? 0)}
+                  onCommit={(value) =>
                     setSelectedVariant((prev) =>
                       prev ? { ...prev, purchasePriceAed: value } : prev,
-                    );
-                  }}
-                  className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm"
-                  placeholder="Цена покупки"
+                    )
+                  }
+                  className="ui-input"
+                  placeholder="Цена закупки, AED"
                 />
-                <input
-                  value={String((selectedVariant.salePriceAed ?? selectedVariant.priceAed) || '')}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoComplete="off"
-                  onChange={(event) => {
-                    const value = Number(event.target.value.replace(/[^\d]/g, '') || 0);
+                <MoneyInput
+                  aria-label="Цена продажи, AED"
+                  value={Number(selectedVariant.salePriceAed ?? selectedVariant.priceAed ?? 0)}
+                  onCommit={(value) =>
                     setSelectedVariant((prev) =>
                       prev ? { ...prev, priceAed: value, salePriceAed: value } : prev,
-                    );
-                  }}
-                  className="h-[52px] w-full rounded-2xl border border-[#E7EAF0] px-3 text-sm"
-                  placeholder="Цена продажи"
+                    )
+                  }
+                  className="ui-input"
+                  placeholder="Цена продажи, AED"
                 />
                 <input
+                  aria-label="Телефон"
                   value={selectedVariant.phone || ''}
                   onChange={(event) =>
                     setSelectedVariant((prev) =>
@@ -1703,6 +1676,7 @@ const VariantsScreen: React.FC = () => {
                   placeholder="Телефон"
                 />
                 <input
+                  aria-label="Адрес поставщика"
                   value={selectedVariant.locationText || selectedVariant.location || ''}
                   onChange={(event) =>
                     setSelectedVariant((prev) =>
@@ -1735,6 +1709,7 @@ const VariantsScreen: React.FC = () => {
                   onSelect={selectVehicleInfoForSelected}
                 />
                 <input
+                  aria-label="VIN автомобиля"
                   value={selectedVariant.vin || ''}
                   onChange={(event) =>
                     setSelectedVariant((prev) =>
@@ -1754,6 +1729,7 @@ const VariantsScreen: React.FC = () => {
                   autoComplete="off"
                 />
                 <input
+                  aria-label="Номер заказа клиента"
                   value={selectedVariant.customerOrderRef || ''}
                   onChange={(event) =>
                     setSelectedVariant((prev) =>
@@ -1764,6 +1740,7 @@ const VariantsScreen: React.FC = () => {
                   placeholder="Номер/ссылка заказа"
                 />
                 <textarea
+                  aria-label="Комментарий"
                   value={selectedVariant.note || ''}
                   onChange={(event) =>
                     setSelectedVariant((prev) =>
@@ -1887,9 +1864,8 @@ const VariantsScreen: React.FC = () => {
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    persistVariant(selectedVariant);
-                    setIsEditMode(false);
+                  onClick={async () => {
+                    if (await persistVariant(selectedVariant)) setIsEditMode(false);
                   }}
                   className="h-11 rounded-xl bg-emerald-600 text-xs font-bold text-white"
                 >
@@ -1915,11 +1891,15 @@ const VariantsScreen: React.FC = () => {
               </div>
             )}
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {deleteCandidate && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
+        <ModalSurface
+          label="Удалить вариант"
+          onClose={() => setDeleteCandidate(null)}
+          className="flex items-center justify-center  px-4"
+        >
           <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl">
             <h3 className="text-base font-bold text-[#172333]">Удалить вариант?</h3>
             <p className="mt-2 text-sm text-[#475467]">{getDeleteWarning(deleteCandidate)}</p>
@@ -1943,7 +1923,7 @@ const VariantsScreen: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalSurface>
       )}
 
       {gallery && (
