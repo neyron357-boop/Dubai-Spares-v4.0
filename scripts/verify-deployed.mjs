@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 
 const base = new URL(process.env.APP_PUBLIC_URL);
 if (!base.pathname.endsWith('/')) base.pathname += '/';
-const expected = JSON.parse(await readFile('dist/offline-assets.json', 'utf8'));
+const expected = JSON.parse(await readFile('dist/offline-assets.json', 'utf8')).sort();
 let publishedAssets;
 for (let attempt = 0; attempt < 8; attempt++) {
   const url = new URL('offline-assets.json', base);
@@ -12,7 +12,7 @@ for (let attempt = 0; attempt < 8; attempt++) {
   try {
     const response = await fetch(url);
     if (response.ok) {
-      publishedAssets = await response.json();
+      publishedAssets = (await response.json()).sort();
       if (JSON.stringify(publishedAssets) === JSON.stringify(expected)) break;
     }
   } catch {

@@ -9,9 +9,9 @@ export default defineConfig({
     {
       name: 'offline-assets',
       generateBundle(_options, bundle) {
-        const files = Object.keys(bundle).filter((path) =>
-          /\.(?:js|css|woff2?|png|svg)$/.test(path),
-        );
+        const files = Object.keys(bundle)
+          .filter((path) => /\.(?:js|css|woff2?|png|svg)$/.test(path))
+          .sort();
         this.emitFile({
           type: 'asset',
           fileName: 'offline-assets.json',
