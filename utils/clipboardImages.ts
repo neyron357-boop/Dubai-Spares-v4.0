@@ -50,7 +50,11 @@ const fileFromDataImageUrl = (value: string, fileIndex: number): File | null => 
 
   const extension = guessExtension(parsed.mimeType);
   const blob = new Blob([bytes], { type: parsed.mimeType });
-  return new File([blob], `${CLIPBOARD_FILENAME_PREFIX}-${Date.now()}-${fileIndex + 1}.${extension}`, { type: parsed.mimeType });
+  return new File(
+    [blob],
+    `${CLIPBOARD_FILENAME_PREFIX}-${Date.now()}-${fileIndex + 1}.${extension}`,
+    { type: parsed.mimeType },
+  );
 };
 
 const fetchImageFileByUrl = async (url: string, fileIndex: number): Promise<File | null> => {
@@ -60,7 +64,11 @@ const fetchImageFileByUrl = async (url: string, fileIndex: number): Promise<File
   const blob = await response.blob();
   if (!blob.type.startsWith('image/')) return null;
   const extension = guessExtension(blob.type);
-  return new File([blob], `${CLIPBOARD_FILENAME_PREFIX}-${Date.now()}-${fileIndex + 1}.${extension}`, { type: blob.type });
+  return new File(
+    [blob],
+    `${CLIPBOARD_FILENAME_PREFIX}-${Date.now()}-${fileIndex + 1}.${extension}`,
+    { type: blob.type },
+  );
 };
 
 export const readClipboardImageFiles = async (): Promise<File[]> => {
@@ -78,7 +86,13 @@ export const readClipboardImageFiles = async (): Promise<File[]> => {
         if (type.startsWith('image/')) {
           const blob = await item.getType(type);
           const extension = guessExtension(type);
-          files.push(new File([blob], `${CLIPBOARD_FILENAME_PREFIX}-${Date.now()}-${files.length + 1}.${extension}`, { type }));
+          files.push(
+            new File(
+              [blob],
+              `${CLIPBOARD_FILENAME_PREFIX}-${Date.now()}-${files.length + 1}.${extension}`,
+              { type },
+            ),
+          );
           continue;
         }
         if (type === 'text/html') {

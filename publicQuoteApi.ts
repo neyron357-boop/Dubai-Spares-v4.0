@@ -1,13 +1,7 @@
-import { requiresStaffLogin } from './authSession';
-import { SUPABASE_ANON_KEY, SUPABASE_URL, cloudBuildGuardMessage, isCloudConfigured } from './cloudConfig';
-import { supabase } from './supabase';
-import { decodePayloadFromCompressedTransport } from './cloudCodec';
-import { buildPublicQuoteSlug, QuoteRates } from './shareUtils';
+import { QuoteRates } from './shareUtils';
 import type { ChatAttachment, Order } from './types';
-import { logger } from './logging';
-import { normalizeGroupItems, normalizePartQuantity } from './utils/groupItems';
-import { calculateOrderDiscountAed, calculateOrderTotals, getPricedPartLines } from './utils/quotePricing';
-
+import { normalizeGroupItems } from './utils/groupItems';
+import { calculateOrderTotals } from './utils/quotePricing';
 export type PublicQuotePayloadV1 = {
   version: 'public_quote_payload_v1';
   created_at: string;
@@ -262,27 +256,6 @@ type SnapshotRow = {
 };
 
 type SnapshotContactsSource = 'snapshot' | 'settings' | 'legacy';
-type SnapshotPayloadSource = 'payload_json' | 'payload_b64' | 'payload' | 'none';
-
-type AppStatePublicSettingsRow = {
-  data?: {
-    publicWhatsappNumber?: string;
-    publicTelegramUrl?: string;
-    publicInstagramUrl?: string;
-    publicWebsiteUrl?: string;
-    publicEmail?: string;
-    publicDeliveryTerms?: string;
-    publicWorkTerms?: string;
-    publicCompanyLogoUrl?: string;
-    publicInvoiceSignatureUrl?: string;
-    publicManagerName?: string;
-    invoicePaymentAccountNo?: string;
-    invoicePaymentBeneficiary?: string;
-    invoicePaymentBankAccount?: string;
-    publicTermsFileUrl?: string;
-    publicTermsFileName?: string;
-  };
-};
 
 export type PublicContactSettings = {
   publicWhatsappNumber: string;
@@ -302,15 +275,7 @@ export type PublicContactSettings = {
   publicTermsFileName: string;
 };
 
-const DEFAULT_TIMEOUT_MS = 20_000;
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_PAYLOAD_BYTES = 700 * 1024;
-const MAX_IMAGE_WIDTH = 1280;
-const IMAGE_QUALITY = 0.72;
-
-const isDevBuild = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
-
-const createInFlight = new Map<string, Promise<{ id: string | null | undefined; token: string; snapshotId: string; expiresAt: string; url: string; originalUrl: string; shortUrl: string | null }>>();
 
 const parseMoney = (...values: Array<unknown>) => {
   for (const value of values) {
@@ -333,7 +298,9 @@ const normalizeWhatsappE164 = (raw: string | null | undefined): string | null =>
 const createToken = () => {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 };
 
 const toDigits = (value: string | null | undefined) => (value || '').replace(/\D/g, '');
@@ -353,7 +320,7 @@ const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 1
 
 export const resolveClientUnitPriceAed = (
   variantLike: Record<string, unknown>,
-  options?: { markupPercent?: number }
+  options?: { markupPercent?: number },
 ) => {
   const clientPrice = pickNumeric(
     variantLike.priceClientAed,
@@ -367,48 +334,56 @@ export const resolveClientUnitPriceAed = (
     variantLike.unit_price_aed,
     variantLike.unitPriceAed,
     variantLike.unit_price,
-    variantLike.unitPrice
+    variantLike.unitPrice,
   );
   if (clientPrice !== null) return round2(clientPrice);
 
-  const basePrice = pickNumeric(
-    variantLike.salePriceAed,
-    variantLike.sale_price_aed,
-    variantLike.priceAed,
-    variantLike.price_aed,
-    variantLike.supplier_price_aed,
-    variantLike.supplierPriceAed,
-    variantLike.base_price_aed,
-    variantLike.basePriceAed,
-    variantLike.base_price,
-    variantLike.basePrice,
-    variantLike.price,
-    variantLike.amount,
-    variantLike.value
-  ) || 0;
+  const basePrice =
+    pickNumeric(
+      variantLike.salePriceAed,
+      variantLike.sale_price_aed,
+      variantLike.priceAed,
+      variantLike.price_aed,
+      variantLike.supplier_price_aed,
+      variantLike.supplierPriceAed,
+      variantLike.base_price_aed,
+      variantLike.basePriceAed,
+      variantLike.base_price,
+      variantLike.basePrice,
+      variantLike.price,
+      variantLike.amount,
+      variantLike.value,
+    ) || 0;
   const markupPercent = Number(options?.markupPercent || 0);
   return round2(basePrice * (1 + markupPercent / 100));
 };
 
 const computeLineTotal = (item: Record<string, unknown>) => {
   const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
-  const unitPrice = pickNumeric(item.unit_price, item.unitPrice, item.client_price_aed, item.clientPriceAed);
+  const unitPrice = pickNumeric(
+    item.unit_price,
+    item.unitPrice,
+    item.client_price_aed,
+    item.clientPriceAed,
+  );
   const explicitLineTotal = pickNumeric(item.line_total, item.lineTotal);
   const fallbackPrice = pickNumeric(item.price, item.amount, item.value);
-  return explicitLineTotal ?? (unitPrice !== null ? qty * unitPrice : fallbackPrice ?? 0);
+  return explicitLineTotal ?? (unitPrice !== null ? qty * unitPrice : (fallbackPrice ?? 0));
 };
 
-const computeTotalsFromItems = (items: Array<Record<string, unknown>>, fees: { logistics: number; packaging: number; commission: number }) => {
+const computeTotalsFromItems = (
+  items: Array<Record<string, unknown>>,
+  fees: { logistics: number; packaging: number; commission: number },
+) => {
   const partsTotal = items.reduce((sum, item) => sum + computeLineTotal(item), 0);
   return {
     partsTotal,
-    grandTotal: partsTotal + fees.logistics + fees.packaging + fees.commission
+    grandTotal: partsTotal + fees.logistics + fees.packaging + fees.commission,
   };
 };
 
-const isStablePublicImageUrl = (photo: string) => (
-  /^https?:\/\//i.test(photo) || /^data:image\//i.test(photo)
-);
+const isStablePublicImageUrl = (photo: string) =>
+  /^https?:\/\//i.test(photo) || /^data:image\//i.test(photo);
 
 const dedupePhotoUrls = (photos: Array<string | null | undefined>) => {
   const seen = new Set<string>();
@@ -421,16 +396,19 @@ const dedupePhotoUrls = (photos: Array<string | null | undefined>) => {
     });
 };
 
-const normalizeProofAttachmentKind = (kind: unknown): ChatAttachment['kind'] => (
-  kind === 'location' || kind === 'contact' ? kind : 'file'
-);
+const normalizeProofAttachmentKind = (kind: unknown): ChatAttachment['kind'] =>
+  kind === 'location' || kind === 'contact' ? kind : 'file';
 
 const serializeProofAttachment = (attachment: ChatAttachment, index: number) => {
   const kind = normalizeProofAttachmentKind(attachment.kind);
   const fileUrl = String(attachment.fileUrl || '').trim();
   const value = String(attachment.value || '').trim();
   const mimeType = String(attachment.mimeType || '').trim();
-  const name = String(attachment.name || (kind === 'location' ? attachment.address : kind === 'contact' ? attachment.phone : '') || `Attachment ${index + 1}`).trim();
+  const name = String(
+    attachment.name ||
+      (kind === 'location' ? attachment.address : kind === 'contact' ? attachment.phone : '') ||
+      `Attachment ${index + 1}`,
+  ).trim();
   const size = Number(attachment.size || 0);
   const latitude = Number(attachment.latitude);
   const longitude = Number(attachment.longitude);
@@ -450,40 +428,50 @@ const serializeProofAttachment = (attachment: ChatAttachment, index: number) => 
     address: String(attachment.address || '').trim() || undefined,
     phone: String(attachment.phone || '').trim() || undefined,
     created_at: Number(attachment.createdAt || Date.now()),
-    createdAt: Number(attachment.createdAt || Date.now())
+    createdAt: Number(attachment.createdAt || Date.now()),
   };
 };
 
-const hasProofAttachmentContent = (attachment: ReturnType<typeof serializeProofAttachment>) => Boolean(
-  attachment.name
-  || attachment.value
-  || attachment.file_url
-  || attachment.address
-  || attachment.phone
-  || Number.isFinite(attachment.latitude)
-  || Number.isFinite(attachment.longitude)
-);
-
+const hasProofAttachmentContent = (attachment: ReturnType<typeof serializeProofAttachment>) =>
+  Boolean(
+    attachment.name ||
+    attachment.value ||
+    attachment.file_url ||
+    attachment.address ||
+    attachment.phone ||
+    Number.isFinite(attachment.latitude) ||
+    Number.isFinite(attachment.longitude),
+  );
 
 const resolveContactsSource = (payload: Record<string, unknown>): SnapshotContactsSource => {
-  const contactsObj = payload.contacts && typeof payload.contacts === 'object' ? payload.contacts as Record<string, unknown> : {};
+  const contactsObj =
+    payload.contacts && typeof payload.contacts === 'object'
+      ? (payload.contacts as Record<string, unknown>)
+      : {};
   const hasContacts = Boolean(String(contactsObj.whatsapp || '').trim());
   if (hasContacts) return 'snapshot';
 
-  const settingsObj = payload.public_settings && typeof payload.public_settings === 'object' ? payload.public_settings as Record<string, unknown> : {};
+  const settingsObj =
+    payload.public_settings && typeof payload.public_settings === 'object'
+      ? (payload.public_settings as Record<string, unknown>)
+      : {};
   if (String(settingsObj.publicWhatsappNumber || '').trim()) return 'settings';
 
   return 'legacy';
 };
 
 const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
-  const markupPercent = Number(pickNumeric(
-    payload.markupPercent,
-    payload.markup_percent,
-    (payload.order as any)?.markupPercent,
-    (payload.order as any)?.markup_percent
-  ) || 0);
-  const legacyParts = Array.isArray(payload.parts) ? payload.parts as Array<Record<string, unknown>> : [];
+  const markupPercent = Number(
+    pickNumeric(
+      payload.markupPercent,
+      payload.markup_percent,
+      (payload.order as any)?.markupPercent,
+      (payload.order as any)?.markup_percent,
+    ) || 0,
+  );
+  const legacyParts = Array.isArray(payload.parts)
+    ? (payload.parts as Array<Record<string, unknown>>)
+    : [];
   const items = legacyParts.map((part, index) => {
     const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
     const unitPrice = parseMoney(
@@ -491,15 +479,17 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
       part.clientPriceAed,
       part.unit_price,
       part.unitPrice,
-      resolveClientUnitPriceAed(part, { markupPercent })
+      resolveClientUnitPriceAed(part, { markupPercent }),
     );
-    const lineTotal = round2(parseMoney(
-      part.client_line_total_aed,
-      part.clientLineTotalAed,
-      part.line_total,
-      part.lineTotal,
-      unitPrice * qty
-    ));
+    const lineTotal = round2(
+      parseMoney(
+        part.client_line_total_aed,
+        part.clientLineTotalAed,
+        part.line_total,
+        part.lineTotal,
+        unitPrice * qty,
+      ),
+    );
 
     return {
       id: String(part.id || `part-${index}`),
@@ -510,74 +500,114 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
       unit_price: unitPrice,
       line_total: lineTotal,
       googleDriveVideoUrl: String(part.googleDriveVideoUrl || part.google_drive_video_url || ''),
-      google_drive_video_url: String(part.google_drive_video_url || part.googleDriveVideoUrl || '')
+      google_drive_video_url: String(part.google_drive_video_url || part.googleDriveVideoUrl || ''),
     };
   });
 
-  const fallbackItems = Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : [];
-  const normalizedItems = items.length > 0
-    ? items
-    : fallbackItems.map((item, index) => {
-      const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
-      const unitPrice = parseMoney(item.unit_price, item.unitPrice, item.price, item.amount, item.value);
-      return {
-        id: String(item.id || `item-${index}`),
-        name: String(item.name || 'Part'),
-        qty,
-        unit_price: unitPrice,
-        line_total: round2(parseMoney(item.line_total, item.lineTotal, unitPrice * qty)),
-        googleDriveVideoUrl: String(item.googleDriveVideoUrl || item.google_drive_video_url || ''),
-        google_drive_video_url: String(item.google_drive_video_url || item.googleDriveVideoUrl || '')
-      };
-    });
+  const fallbackItems = Array.isArray(payload.items)
+    ? (payload.items as Array<Record<string, unknown>>)
+    : [];
+  const normalizedItems =
+    items.length > 0
+      ? items
+      : fallbackItems.map((item, index) => {
+          const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
+          const unitPrice = parseMoney(
+            item.unit_price,
+            item.unitPrice,
+            item.price,
+            item.amount,
+            item.value,
+          );
+          return {
+            id: String(item.id || `item-${index}`),
+            name: String(item.name || 'Part'),
+            qty,
+            unit_price: unitPrice,
+            line_total: round2(parseMoney(item.line_total, item.lineTotal, unitPrice * qty)),
+            googleDriveVideoUrl: String(
+              item.googleDriveVideoUrl || item.google_drive_video_url || '',
+            ),
+            google_drive_video_url: String(
+              item.google_drive_video_url || item.googleDriveVideoUrl || '',
+            ),
+          };
+        });
 
-  const partsTotal = round2(normalizedItems.reduce((sum, item) => sum + parseMoney(item.line_total), 0));
-  const logistics = parseMoney((payload.logistics as any)?.deliveryAed, (payload.fees as any)?.logistics, (payload.totals as any)?.logistics_aed);
-  const commission = parseMoney((payload.logistics as any)?.serviceFeeAed, (payload.fees as any)?.commission, (payload.totals as any)?.commission_aed);
-  const packaging = parseMoney((payload.logistics as any)?.packingAed, (payload.fees as any)?.packaging, (payload.totals as any)?.packing_aed);
-  const discount = parseMoney((payload.totals as any)?.discount_aed, (payload.breakdown as any)?.discount);
-  const declaredTotal = pickNumeric((payload.breakdown as any)?.total, (payload.totals as any)?.grand_total_aed, (payload.totals as any)?.grand_total);
-  const grandTotal = round2(Math.max(0, declaredTotal ?? (partsTotal + logistics + commission + packaging - discount)));
+  const partsTotal = round2(
+    normalizedItems.reduce((sum, item) => sum + parseMoney(item.line_total), 0),
+  );
+  const logistics = parseMoney(
+    (payload.logistics as any)?.deliveryAed,
+    (payload.fees as any)?.logistics,
+    (payload.totals as any)?.logistics_aed,
+  );
+  const commission = parseMoney(
+    (payload.logistics as any)?.serviceFeeAed,
+    (payload.fees as any)?.commission,
+    (payload.totals as any)?.commission_aed,
+  );
+  const packaging = parseMoney(
+    (payload.logistics as any)?.packingAed,
+    (payload.fees as any)?.packaging,
+    (payload.totals as any)?.packing_aed,
+  );
+  const discount = parseMoney(
+    (payload.totals as any)?.discount_aed,
+    (payload.breakdown as any)?.discount,
+  );
+  const declaredTotal = pickNumeric(
+    (payload.breakdown as any)?.total,
+    (payload.totals as any)?.grand_total_aed,
+    (payload.totals as any)?.grand_total,
+  );
+  const grandTotal = round2(
+    Math.max(0, declaredTotal ?? partsTotal + logistics + commission + packaging - discount),
+  );
 
-  const contacts = payload.contacts && typeof payload.contacts === 'object'
-    ? payload.contacts as Record<string, unknown>
-    : {};
-  const managerSettings = payload.public_settings && typeof payload.public_settings === 'object'
-    ? payload.public_settings as Record<string, unknown>
-    : {};
+  const contacts =
+    payload.contacts && typeof payload.contacts === 'object'
+      ? (payload.contacts as Record<string, unknown>)
+      : {};
+  const managerSettings =
+    payload.public_settings && typeof payload.public_settings === 'object'
+      ? (payload.public_settings as Record<string, unknown>)
+      : {};
 
-  const normalizedWhatsapp = toDigits(String(
-    contacts.whatsapp
-    || managerSettings.whatsapp
-    || managerSettings.publicWhatsappNumber
-    || (payload.public_contact as any)?.whatsapp
-    || (payload.contact as any)?.whatsapp_phone
-    || (payload.owner as any)?.whatsapp_phone
-    || ''
-  ));
+  const normalizedWhatsapp = toDigits(
+    String(
+      contacts.whatsapp ||
+        managerSettings.whatsapp ||
+        managerSettings.publicWhatsappNumber ||
+        (payload.public_contact as any)?.whatsapp ||
+        (payload.contact as any)?.whatsapp_phone ||
+        (payload.owner as any)?.whatsapp_phone ||
+        '',
+    ),
+  );
   const normalizedTelegram = String(
-    contacts.telegram
-    || managerSettings.telegram
-    || managerSettings.publicTelegramUrl
-    || (payload.public_contact as any)?.telegram
-    || (payload.contact as any)?.telegram
-    || ''
+    contacts.telegram ||
+      managerSettings.telegram ||
+      managerSettings.publicTelegramUrl ||
+      (payload.public_contact as any)?.telegram ||
+      (payload.contact as any)?.telegram ||
+      '',
   );
   const normalizedInstagram = String(
-    contacts.instagram
-    || managerSettings.instagram
-    || managerSettings.publicInstagramUrl
-    || (payload.public_contact as any)?.instagram
-    || (payload.contact as any)?.instagram
-    || ''
+    contacts.instagram ||
+      managerSettings.instagram ||
+      managerSettings.publicInstagramUrl ||
+      (payload.public_contact as any)?.instagram ||
+      (payload.contact as any)?.instagram ||
+      '',
   );
   const normalizedTiktok = String(
-    contacts.tiktok
-    || (payload.customer_links as any)?.tiktok_url
-    || (payload.customer_links as any)?.tiktokUrl
-    || (payload.public_contact as any)?.tiktok
-    || (payload.contact as any)?.tiktok
-    || ''
+    contacts.tiktok ||
+      (payload.customer_links as any)?.tiktok_url ||
+      (payload.customer_links as any)?.tiktokUrl ||
+      (payload.public_contact as any)?.tiktok ||
+      (payload.contact as any)?.tiktok ||
+      '',
   );
 
   return {
@@ -586,10 +616,12 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
     fees: {
       logistics,
       packaging,
-      commission
+      commission,
     },
     totals: {
-      ...(payload.totals && typeof payload.totals === 'object' ? payload.totals as Record<string, unknown> : {}),
+      ...(payload.totals && typeof payload.totals === 'object'
+        ? (payload.totals as Record<string, unknown>)
+        : {}),
       parts_total: partsTotal,
       grand_total: grandTotal,
       parts_sum_aed: partsTotal,
@@ -597,35 +629,60 @@ const buildNormalizedPayloadJson = (payload: Record<string, unknown>) => {
       packing_aed: packaging,
       commission_aed: commission,
       discount_aed: discount,
-      grand_total_aed: grandTotal
+      grand_total_aed: grandTotal,
     },
     contacts: {
       whatsapp: normalizedWhatsapp || null,
       telegram: normalizedTelegram || null,
       instagram: normalizedInstagram || null,
-      tiktok: normalizedTiktok || null
-    }
+      tiktok: normalizedTiktok || null,
+    },
   };
 };
 
 export const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown) => {
-  if (!payload || typeof payload !== 'object') return { payload, contactsSource: 'legacy' as SnapshotContactsSource, wasPatched: false };
+  if (!payload || typeof payload !== 'object')
+    return { payload, contactsSource: 'legacy' as SnapshotContactsSource, wasPatched: false };
   const source = payload as Record<string, unknown>;
   const needsLegacyBackfill = !row.payload_json || typeof row.payload_json !== 'object';
-  const basePayload = (needsLegacyBackfill ? buildNormalizedPayloadJson(source) : source) as Record<string, any>;
-  const feesObj = basePayload.fees && typeof basePayload.fees === 'object' ? basePayload.fees as Record<string, unknown> : {};
-  const logistics = parseMoney(feesObj.logistics, (basePayload.logistics as any)?.deliveryAed, (basePayload.totals as any)?.logistics_aed);
-  const packaging = parseMoney(feesObj.packaging, (basePayload.logistics as any)?.packingAed, (basePayload.totals as any)?.packing_aed);
-  const commission = parseMoney(feesObj.commission, (basePayload.logistics as any)?.serviceFeeAed, (basePayload.totals as any)?.commission_aed);
+  const basePayload = (needsLegacyBackfill ? buildNormalizedPayloadJson(source) : source) as Record<
+    string,
+    any
+  >;
+  const feesObj =
+    basePayload.fees && typeof basePayload.fees === 'object'
+      ? (basePayload.fees as Record<string, unknown>)
+      : {};
+  const logistics = parseMoney(
+    feesObj.logistics,
+    (basePayload.logistics as any)?.deliveryAed,
+    (basePayload.totals as any)?.logistics_aed,
+  );
+  const packaging = parseMoney(
+    feesObj.packaging,
+    (basePayload.logistics as any)?.packingAed,
+    (basePayload.totals as any)?.packing_aed,
+  );
+  const commission = parseMoney(
+    feesObj.commission,
+    (basePayload.logistics as any)?.serviceFeeAed,
+    (basePayload.totals as any)?.commission_aed,
+  );
 
-  const itemRows = Array.isArray(basePayload.items) ? basePayload.items as Array<Record<string, unknown>> : [];
-  const partRows = Array.isArray(basePayload.parts) ? basePayload.parts as Array<Record<string, unknown>> : [];
-  const markupPercent = Number(pickNumeric(
-    basePayload.markupPercent,
-    basePayload.markup_percent,
-    (basePayload.order as any)?.markupPercent,
-    (basePayload.order as any)?.markup_percent
-  ) || 0);
+  const itemRows = Array.isArray(basePayload.items)
+    ? (basePayload.items as Array<Record<string, unknown>>)
+    : [];
+  const partRows = Array.isArray(basePayload.parts)
+    ? (basePayload.parts as Array<Record<string, unknown>>)
+    : [];
+  const markupPercent = Number(
+    pickNumeric(
+      basePayload.markupPercent,
+      basePayload.markup_percent,
+      (basePayload.order as any)?.markupPercent,
+      (basePayload.order as any)?.markup_percent,
+    ) || 0,
+  );
   const normalizedItemsFromParts = partRows.map((part, index) => {
     const qty = pickNumeric(part.qty, part.quantity, 1) || 1;
     const unitPrice = parseMoney(
@@ -633,15 +690,17 @@ export const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown)
       part.clientPriceAed,
       part.unit_price,
       part.unitPrice,
-      resolveClientUnitPriceAed(part, { markupPercent })
+      resolveClientUnitPriceAed(part, { markupPercent }),
     );
-    const lineTotal = round2(parseMoney(
-      part.client_line_total_aed,
-      part.clientLineTotalAed,
-      part.line_total,
-      part.lineTotal,
-      unitPrice * qty
-    ));
+    const lineTotal = round2(
+      parseMoney(
+        part.client_line_total_aed,
+        part.clientLineTotalAed,
+        part.line_total,
+        part.lineTotal,
+        unitPrice * qty,
+      ),
+    );
     return {
       id: String(part.id || `part-${index}`),
       name: String(part.name || 'Part'),
@@ -652,39 +711,65 @@ export const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown)
       line_total: lineTotal,
       currency: 'AED',
       googleDriveVideoUrl: String(part.googleDriveVideoUrl || part.google_drive_video_url || ''),
-      google_drive_video_url: String(part.google_drive_video_url || part.googleDriveVideoUrl || '')
+      google_drive_video_url: String(part.google_drive_video_url || part.googleDriveVideoUrl || ''),
     };
   });
-  const normalizedItems = normalizedItemsFromParts.length > 0
-    ? normalizedItemsFromParts
-    : itemRows.map((item, index) => {
-      const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
-      const unitPrice = resolveClientUnitPriceAed(item, { markupPercent });
-      return {
-        id: String(item.id || `item-${index}`),
-        name: String(item.name || 'Part'),
-        qty,
-        unit_price: unitPrice,
-        line_total: round2(unitPrice * qty),
-        currency: 'AED',
-        googleDriveVideoUrl: String(item.googleDriveVideoUrl || item.google_drive_video_url || ''),
-        google_drive_video_url: String(item.google_drive_video_url || item.googleDriveVideoUrl || '')
-      };
-    });
-  const computed = computeTotalsFromItems(normalizedItems as Array<Record<string, unknown>>, { logistics, packaging, commission });
-  const existingTotals = basePayload.totals && typeof basePayload.totals === 'object' ? basePayload.totals as Record<string, unknown> : {};
-  const existingBreakdown = basePayload.breakdown && typeof basePayload.breakdown === 'object' ? basePayload.breakdown as Record<string, unknown> : {};
+  const normalizedItems =
+    normalizedItemsFromParts.length > 0
+      ? normalizedItemsFromParts
+      : itemRows.map((item, index) => {
+          const qty = pickNumeric(item.qty, item.quantity, 1) || 1;
+          const unitPrice = resolveClientUnitPriceAed(item, { markupPercent });
+          return {
+            id: String(item.id || `item-${index}`),
+            name: String(item.name || 'Part'),
+            qty,
+            unit_price: unitPrice,
+            line_total: round2(unitPrice * qty),
+            currency: 'AED',
+            googleDriveVideoUrl: String(
+              item.googleDriveVideoUrl || item.google_drive_video_url || '',
+            ),
+            google_drive_video_url: String(
+              item.google_drive_video_url || item.googleDriveVideoUrl || '',
+            ),
+          };
+        });
+  const computed = computeTotalsFromItems(normalizedItems as Array<Record<string, unknown>>, {
+    logistics,
+    packaging,
+    commission,
+  });
+  const existingTotals =
+    basePayload.totals && typeof basePayload.totals === 'object'
+      ? (basePayload.totals as Record<string, unknown>)
+      : {};
+  const existingBreakdown =
+    basePayload.breakdown && typeof basePayload.breakdown === 'object'
+      ? (basePayload.breakdown as Record<string, unknown>)
+      : {};
   const discount = Math.max(0, parseMoney(existingTotals.discount_aed, existingBreakdown.discount));
-  const declaredTotal = pickNumeric(existingBreakdown.total, existingTotals.grand_total_aed, existingTotals.grand_total);
-  const netTotal = round2(Math.max(0, declaredTotal ?? (computed.grandTotal - discount)));
+  const declaredTotal = pickNumeric(
+    existingBreakdown.total,
+    existingTotals.grand_total_aed,
+    existingTotals.grand_total,
+  );
+  const netTotal = round2(Math.max(0, declaredTotal ?? computed.grandTotal - discount));
 
-  const nextContacts = basePayload.contacts && typeof basePayload.contacts === 'object'
-    ? basePayload.contacts as Record<string, unknown>
-    : {
-      whatsapp: toDigits(String((basePayload.public_settings as any)?.publicWhatsappNumber || (basePayload.owner as any)?.whatsapp_phone || '')),
-      telegram: String((basePayload.public_settings as any)?.publicTelegramUrl || ''),
-      instagram: String((basePayload.public_settings as any)?.publicInstagramUrl || '')
-    };
+  const nextContacts =
+    basePayload.contacts && typeof basePayload.contacts === 'object'
+      ? (basePayload.contacts as Record<string, unknown>)
+      : {
+          whatsapp: toDigits(
+            String(
+              (basePayload.public_settings as any)?.publicWhatsappNumber ||
+                (basePayload.owner as any)?.whatsapp_phone ||
+                '',
+            ),
+          ),
+          telegram: String((basePayload.public_settings as any)?.publicTelegramUrl || ''),
+          instagram: String((basePayload.public_settings as any)?.publicInstagramUrl || ''),
+        };
 
   const nextPayload: Record<string, unknown> = {
     ...basePayload,
@@ -698,14 +783,14 @@ export const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown)
       commission_aed: parseMoney(existingTotals.commission_aed, commission),
       discount_aed: discount,
       grand_total: netTotal,
-      grand_total_aed: netTotal
+      grand_total_aed: netTotal,
     },
     fees: {
       logistics,
       packaging,
-      commission
+      commission,
     },
-    contacts: nextContacts
+    contacts: nextContacts,
   };
 
   const currentSnapshot = JSON.stringify(basePayload);
@@ -714,129 +799,6 @@ export const ensurePayloadReadModel = async (row: SnapshotRow, payload: unknown)
   // Normalization is read-only. Opening a client link must never mutate the stored offer.
 
   return { payload: nextPayload, contactsSource: resolveContactsSource(nextPayload), wasPatched };
-};
-
-const withTimeoutSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
-  const controller = new AbortController();
-  let timedOut = false;
-  const timeoutId = window.setTimeout(() => {
-    timedOut = true;
-    controller.abort(new DOMException('Request timeout', 'AbortError'));
-  }, timeoutMs);
-  const parentAbort = () => controller.abort(parentSignal?.reason || new DOMException('Request aborted', 'AbortError'));
-
-  if (parentSignal) {
-    if (parentSignal.aborted) parentAbort();
-    else parentSignal.addEventListener('abort', parentAbort, { once: true });
-  }
-
-  return {
-    signal: controller.signal,
-    isTimedOut: () => timedOut,
-    cleanup: () => {
-      window.clearTimeout(timeoutId);
-      parentSignal?.removeEventListener('abort', parentAbort);
-    }
-  };
-};
-
-const isDataImage = (value: unknown): value is string => typeof value === 'string' && value.startsWith('data:image');
-
-const compressDataImage = async (dataUrl: string): Promise<string> => {
-  if (typeof document === 'undefined') return dataUrl;
-  const sourceBlob = await fetch(dataUrl).then((response) => response.blob());
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-    const objectUrl = URL.createObjectURL(sourceBlob);
-    image.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error('Image decode failed'));
-    };
-    image.src = objectUrl;
-  });
-
-  const scale = Math.min(1, MAX_IMAGE_WIDTH / Math.max(img.naturalWidth || img.width, 1));
-  const width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
-  const height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d');
-  if (!context) return dataUrl;
-  context.drawImage(img, 0, 0, width, height);
-
-  const compressed = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Image encode failed'))), 'image/webp', IMAGE_QUALITY);
-  });
-
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || dataUrl));
-    reader.onerror = () => reject(new Error('Image read failed'));
-    reader.readAsDataURL(compressed);
-  });
-};
-
-const mapImagesInPayload = async (input: unknown): Promise<unknown> => {
-  if (Array.isArray(input)) {
-    return Promise.all(input.map((item) => mapImagesInPayload(item)));
-  }
-  if (input && typeof input === 'object') {
-    const entries = await Promise.all(Object.entries(input as Record<string, unknown>).map(async ([key, value]) => [key, await mapImagesInPayload(value)] as const));
-    return Object.fromEntries(entries);
-  }
-  if (!isDataImage(input)) return input;
-  try {
-    return await compressDataImage(input);
-  } catch {
-    return input;
-  }
-};
-
-const jsonBytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
-
-const trimPayloadForSize = (payload: PublicQuotePayloadV1): { payload: PublicQuotePayloadV1; photosOmitted: boolean } => {
-  if (jsonBytes(payload) <= MAX_PAYLOAD_BYTES) return { payload, photosOmitted: false };
-
-  const withPhotoLimit = (maxPhotosPerPart: number): PublicQuotePayloadV1 => ({
-    ...payload,
-    order: {
-      ...payload.order,
-      photo_omitted_notice: 'Some photos were reduced to keep link fast'
-    },
-    parts: payload.parts.map((part) => ({
-      ...part,
-      photo_urls: dedupePhotoUrls(part.photo_urls || []).slice(0, Math.max(0, maxPhotosPerPart))
-    })),
-    items: payload.items?.map((item) => ({
-      ...item,
-      photo_urls: dedupePhotoUrls((item as any).photo_urls || []).slice(0, Math.max(0, maxPhotosPerPart))
-    })) as PublicQuotePayloadV1['items']
-  });
-
-  const payloadWithTwoPhotos = withPhotoLimit(2);
-  if (jsonBytes(payloadWithTwoPhotos) <= MAX_PAYLOAD_BYTES) {
-    return { payload: payloadWithTwoPhotos, photosOmitted: true };
-  }
-
-  const payloadWithOnePhoto = withPhotoLimit(1);
-  if (jsonBytes(payloadWithOnePhoto) <= MAX_PAYLOAD_BYTES) {
-    return { payload: payloadWithOnePhoto, photosOmitted: true };
-  }
-
-  return {
-    photosOmitted: true,
-    payload: {
-      ...payload,
-      order: { ...payload.order, photo_omitted_notice: 'Photos omitted to keep link fast' },
-      parts: payload.parts.map((part) => ({ ...part, photo_urls: [] })),
-      items: payload.items?.map((item) => ({ ...item, photo_urls: [] })) as PublicQuotePayloadV1['items']
-    }
-  };
 };
 
 const buildSnapshotPayload = (
@@ -863,7 +825,7 @@ const buildSnapshotPayload = (
     executorPhotoUrl?: string;
     executorRole?: string;
   },
-  rates?: QuoteRates
+  rates?: QuoteRates,
 ): PublicQuotePayloadV1 => {
   const quoteTotals = calculateOrderTotals(order);
   const createdAtIso = new Date().toISOString();
@@ -872,7 +834,8 @@ const buildSnapshotPayload = (
   const packingAed = quoteTotals.packingAed;
   const commissionAed = quoteTotals.commissionAed;
   const cargoCountry = String(order.logistics?.cargoCountry || '').trim();
-  const cargoDeliveryType = (order.logistics?.cargoDeliveryType || 'air') as 'air' | 'express_air' | 'container';
+  const cargoDeliveryType = (order.logistics?.cargoDeliveryType || 'air') as
+    'air' | 'express_air' | 'container';
   const cargoEtaDays = String(order.logistics?.cargoEtaDays || '').trim();
   const cargoTotalWeightKg = parseMoney(order.logistics?.cargoTotalWeightKg);
   const cargoChargeableWeightKg = parseMoney(order.logistics?.cargoChargeableWeightKg);
@@ -887,10 +850,18 @@ const buildSnapshotPayload = (
   const additionalCostsUsd = order.logistics?.additionalCostsUsd || undefined;
 
   const pricedPartLines = quoteTotals.lines;
-  const grossPartsTotalAed = round2(pricedPartLines.reduce((sum, line) => sum + line.grossClientLineTotalAed, 0));
   const discountAed = quoteTotals.discountAed;
-  const pricedParts = pricedPartLines
-    .map(({ part, variant, quantity, baseUnitAed, clientUnitAed, clientLineTotalAed, grossClientLineTotalAed, discountShareAed }) => ({
+  const pricedParts = pricedPartLines.map(
+    ({
+      part,
+      variant,
+      quantity,
+      baseUnitAed,
+      clientUnitAed,
+      clientLineTotalAed,
+      grossClientLineTotalAed,
+      discountShareAed,
+    }) => ({
       id: String(part.id),
       name: String(part.name || 'Part'),
       comment: String(part.comment || ''),
@@ -898,7 +869,7 @@ const buildSnapshotPayload = (
       group_items: normalizeGroupItems((part as any).groupItems).map((item) => ({
         id: item.id,
         name: item.name,
-        quantity: item.quantity
+        quantity: item.quantity,
       })),
       qty: quantity,
       supplier_price_aed: baseUnitAed,
@@ -912,8 +883,9 @@ const buildSnapshotPayload = (
       weight_kg: parseMoney((part as any).weightKg),
       places: parseMoney((part as any).places),
       cargo_place_group: String((part as any).cargoPlaceGroup || '').trim() || undefined,
-      is_oversized: !!(part as any).isOversized
-    }));
+      is_oversized: !!(part as any).isOversized,
+    }),
+  );
 
   const snapshotItems = pricedParts.map((part) => ({
     id: part.id,
@@ -925,23 +897,27 @@ const buildSnapshotPayload = (
     line_total: part.client_line_total_aed,
     currency: 'AED',
     googleDriveVideoUrl: part.googleDriveVideoUrl,
-    google_drive_video_url: part.google_drive_video_url
+    google_drive_video_url: part.google_drive_video_url,
   }));
   const computed = computeTotalsFromItems(snapshotItems as Array<Record<string, unknown>>, {
     logistics: deliveryAed,
     packaging: packingAed,
-    commission: commissionAed
+    commission: commissionAed,
   });
   const partsSumAed = computed.partsTotal;
   const grandTotalAed = quoteTotals.totalAed;
   const searchDepositAmountAed = Math.max(0, parseMoney((order as any).searchDepositAmountAed));
   const balanceDueAed = Math.max(0, round2(grandTotalAed - searchDepositAmountAed));
-  const normalizedWhatsapp = toDigits(publicSettings?.publicWhatsappNumber) || toDigits(owner.whatsappPhone);
+  const normalizedWhatsapp =
+    toDigits(publicSettings?.publicWhatsappNumber) || toDigits(owner.whatsappPhone);
   const normalizedTelegram = publicSettings?.publicTelegramUrl || '';
   const normalizedInstagram = publicSettings?.publicInstagramUrl || '';
   const preSaleCheck = order.preSaleCheck || { defectPhotos: [], inspectionMedia: [] };
   const proofNotes = (order.notes || [])
-    .filter((note) => note.visibility !== 'internal' && (note.visibility === 'client' || note.kind === 'proof'))
+    .filter(
+      (note) =>
+        note.visibility !== 'internal' && (note.visibility === 'client' || note.kind === 'proof'),
+    )
     .map((note) => {
       const attachments = (note.attachments || [])
         .map((attachment, index) => serializeProofAttachment(attachment, index))
@@ -953,28 +929,37 @@ const buildSnapshotPayload = (
         photos: dedupePhotoUrls(note.photos || []),
         video_urls: (note.videoUrls || []).map((url) => String(url || '').trim()).filter(Boolean),
         attachments,
-        audios: (note.audios || []).map((audio, index) => {
-          if (typeof audio === 'string') {
+        audios: (note.audios || [])
+          .map((audio, index) => {
+            if (typeof audio === 'string') {
+              return {
+                id: `audio-${index}`,
+                file_url: audio,
+                duration: 0,
+                created_at: note.createdAt || Date.now(),
+                author: owner.displayName || 'Stark Motors',
+              };
+            }
             return {
-              id: `audio-${index}`,
-              file_url: audio,
-              duration: 0,
-              created_at: note.createdAt || Date.now(),
-              author: owner.displayName || 'Stark Motors'
+              id: String(audio.id || `audio-${index}`),
+              file_url: String(audio.fileUrl || ''),
+              duration: Number(audio.duration || 0),
+              created_at: Number(audio.createdAt || note.createdAt || Date.now()),
+              author: String(audio.author || owner.displayName || 'Stark Motors'),
             };
-          }
-          return {
-            id: String(audio.id || `audio-${index}`),
-            file_url: String(audio.fileUrl || ''),
-            duration: Number(audio.duration || 0),
-            created_at: Number(audio.createdAt || note.createdAt || Date.now()),
-            author: String(audio.author || owner.displayName || 'Stark Motors')
-          };
-        }).filter((audio) => audio.file_url),
-        created_at: Number(note.createdAt || Date.now())
+          })
+          .filter((audio) => audio.file_url),
+        created_at: Number(note.createdAt || Date.now()),
       };
     })
-    .filter((note) => note.text || note.photos.length > 0 || note.video_urls.length > 0 || note.audios.length > 0 || note.attachments.length > 0);
+    .filter(
+      (note) =>
+        note.text ||
+        note.photos.length > 0 ||
+        note.video_urls.length > 0 ||
+        note.audios.length > 0 ||
+        note.attachments.length > 0,
+    );
 
   return {
     version: 'public_quote_payload_v1',
@@ -1020,12 +1005,12 @@ const buildSnapshotPayload = (
       search_deposit_amount_aed: searchDepositAmountAed,
       search_deposit_paid_at: (order as any).searchDepositPaidAt || null,
       googleDriveFolderUrl: String((order as any).googleDriveFolderUrl || '').trim(),
-      google_drive_folder_url: String((order as any).googleDriveFolderUrl || '').trim()
+      google_drive_folder_url: String((order as any).googleDriveFolderUrl || '').trim(),
     },
     pricing: {
       currency,
       fx_rate: exchangeRate,
-      rates
+      rates,
     },
     totals: {
       parts_sum_aed: partsSumAed,
@@ -1035,7 +1020,7 @@ const buildSnapshotPayload = (
       discount_aed: discountAed,
       grand_total_aed: grandTotalAed,
       deposit_aed: searchDepositAmountAed,
-      balance_due_aed: balanceDueAed
+      balance_due_aed: balanceDueAed,
     },
     breakdown: {
       parts_total: partsSumAed,
@@ -1048,7 +1033,7 @@ const buildSnapshotPayload = (
       balance_due: balanceDueAed,
       currency,
       fx_rate: exchangeRate,
-      rates
+      rates,
     },
     parts: pricedParts,
     logistics: {
@@ -1069,62 +1054,70 @@ const buildSnapshotPayload = (
       cargoContainerCostUsd,
       cargoAirEtaDays: cargoAirEtaDays || undefined,
       cargoContainerEtaDays: cargoContainerEtaDays || undefined,
-      additionalCostsUsd
+      additionalCostsUsd,
     },
     items: snapshotItems,
     fees: {
       logistics: deliveryAed,
       packaging: packingAed,
-      commission: commissionAed
+      commission: commissionAed,
     },
     contacts: {
       whatsapp: normalizedWhatsapp,
       telegram: normalizedTelegram,
-      instagram: normalizedInstagram
+      instagram: normalizedInstagram,
     },
     pre_sale_check: {
       defect_photos: (preSaleCheck.defectPhotos || []).filter(Boolean),
       inspection_media: (preSaleCheck.inspectionMedia || []).filter(Boolean),
       disclaimer: 'Товар проверен. После передачи в карго претензии не принимаются',
-      checked_at: preSaleCheck.checkedAt ? new Date(preSaleCheck.checkedAt).toISOString() : undefined
+      checked_at: preSaleCheck.checkedAt
+        ? new Date(preSaleCheck.checkedAt).toISOString()
+        : undefined,
     },
     proof_notes: proofNotes,
     meta: {
       oid: order.id,
       exp: expiresAtMs,
-      created_at: createdAtIso
+      created_at: createdAtIso,
     },
     owner: {
       whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone),
-      display_name: owner.displayName || null
+      display_name: owner.displayName || null,
     },
     manager_contact: {
-      whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone) || normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),
-      display_name: owner.displayName || null
+      whatsapp_phone:
+        normalizeWhatsappE164(owner.whatsappPhone) ||
+        normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),
+      display_name: owner.displayName || null,
     },
     brand: {
-      name: order.brand || null
+      name: order.brand || null,
     },
     customer_links: {
       phone: order.contactLinks?.phone || order.customerContact || null,
       instagram_url: order.contactLinks?.instagramUrl || null,
       tiktok_url: order.contactLinks?.tiktokUrl || null,
       facebook_url: order.contactLinks?.facebookUrl || null,
-      telegram_url: order.contactLinks?.telegramUrl || null
+      telegram_url: order.contactLinks?.telegramUrl || null,
     },
     contact: {
-      whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone) || normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),
+      whatsapp_phone:
+        normalizeWhatsappE164(owner.whatsappPhone) ||
+        normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),
       display_name: owner.displayName || null,
       phone: normalizeWhatsappE164(publicSettings?.publicWhatsappNumber),
       instagram: publicSettings?.publicInstagramUrl || null,
       telegram: publicSettings?.publicTelegramUrl || null,
-      tiktok: order.contactLinks?.tiktokUrl || null
+      tiktok: order.contactLinks?.tiktokUrl || null,
     },
     public_contact: {
-      whatsapp: normalizeWhatsappE164(publicSettings?.publicWhatsappNumber) || normalizeWhatsappE164(owner.whatsappPhone),
+      whatsapp:
+        normalizeWhatsappE164(publicSettings?.publicWhatsappNumber) ||
+        normalizeWhatsappE164(owner.whatsappPhone),
       telegram: publicSettings?.publicTelegramUrl || null,
       instagram: publicSettings?.publicInstagramUrl || null,
-      tiktok: order.contactLinks?.tiktokUrl || null
+      tiktok: order.contactLinks?.tiktokUrl || null,
     },
     public_settings: {
       publicWhatsappNumber: publicSettings?.publicWhatsappNumber || '',
@@ -1144,426 +1137,114 @@ const buildSnapshotPayload = (
       publicTermsFileName: publicSettings?.publicTermsFileName || '',
       executorPhotoUrl: publicSettings?.executorPhotoUrl || '',
       executorRole: publicSettings?.executorRole || '',
-      whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone)
-    }  };
+      whatsapp_phone: normalizeWhatsappE164(owner.whatsappPhone),
+    },
+  };
 };
 
-export const publicQuoteCreateSnapshot = async (
-  order: Order,
-  options?: { currency?: string; exchangeRate?: number; rates?: QuoteRates; owner?: { whatsappPhone?: string | null; displayName?: string | null }; publicSettings?: { publicWhatsappNumber?: string; publicTelegramUrl?: string; publicInstagramUrl?: string; publicWebsiteUrl?: string; publicEmail?: string; publicDeliveryTerms?: string; publicWorkTerms?: string; publicCompanyLogoUrl?: string; publicInvoiceSignatureUrl?: string; publicManagerName?: string; invoicePaymentAccountNo?: string; invoicePaymentBeneficiary?: string; invoicePaymentBankAccount?: string; publicTermsFileUrl?: string; publicTermsFileName?: string; executorPhotoUrl?: string; executorRole?: string }; signal?: AbortSignal; timeoutMs?: number; token?: string; snapshotId?: string; upsertByToken?: boolean }
-) => {
-  if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
-  const key = order.id;
-  const existing = createInFlight.get(key);
-  if (existing) return existing;
+import { loadAppSettings } from './appSettings';
+import {
+  decodePayloadFromCompressedTransport,
+  encodePayloadToCompressedTransport,
+} from './payloadCodec';
+import { localDocuments } from './storage/localDocuments';
 
-  const promise = (async () => {
-    const quoteToken = (options?.token || createToken()).trim();
-    const snapshotToken = (options?.snapshotId || createToken()).trim();
-    const expiresAt = new Date(Date.now() + SNAPSHOT_TTL_MS).toISOString();
-    const payload = buildSnapshotPayload(
-      order,
-      options?.currency || order.clientCurrency || 'USD',
-      Number(options?.exchangeRate || order.exchangeRate || 3.67),
-      options?.owner || {},
-      options?.publicSettings,
-      options?.rates
-    );
-    const hasPricedItems = Array.isArray(payload.items) && payload.items.some((item) => computeLineTotal(item as unknown as Record<string, unknown>) > 0);
-    if (!hasPricedItems) {
-      throw new Error('Нет цен по позициям');
-    }
-    const payloadWithCompressedImages = await mapImagesInPayload(payload) as PublicQuotePayloadV1;
-    const trimmed = trimPayloadForSize(payloadWithCompressedImages);
-    const normalizedPayloadJson = buildNormalizedPayloadJson(trimmed.payload as unknown as Record<string, unknown>);
-
-    void logger.info('public-quote:create', 'Prepared snapshot payload', {
-      orderId: order.id,
-      quoteToken,
-      snapshotToken,
-      currency: options?.currency || order.clientCurrency || 'USD',
-      totals: trimmed.payload.totals,
-      hasPublicSettings: !!trimmed.payload.public_settings,
-      hasOwner: !!trimmed.payload.owner,
-      photosOmitted: trimmed.photosOmitted
-    });
-
-    if (isDevBuild) {
-      console.info('[public-quote] generated share token', { quoteToken, orderId: order.id });
-    }
-
-    const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
-
-    try {
-      if (isDevBuild) {
-        console.info('[public-quote] inserting snapshot', { token: quoteToken, expiresAt });
-      }
-
-      if (!supabase) throw new Error('Supabase client is not initialized');
-
-      const useUpsert = !!(options?.upsertByToken && options?.token);
-      const dbOperation = useUpsert
-        ? (data: Record<string, unknown>) => supabase!.from('public_quote_snapshots').upsert(data, { onConflict: 'token' })
-        : (data: Record<string, unknown>) => supabase!.from('public_quote_snapshots').insert(data);
-
-      // Attempt 1: full schema (snapshot_id + payload columns present)
-      let insertResult = await dbOperation({
-          token: quoteToken,
-          snapshot: snapshotToken,
-          snapshot_id: snapshotToken,
-          order_id: order.id,
-          expires_at: expiresAt,
-          payload: trimmed.payload,
-          payload_json: normalizedPayloadJson
-        })
-        .select('id,token,snapshot_id,expires_at,payload_json')
-        .single();
-
-      // Attempt 2: schema may be missing id/payload_json columns — keep snapshot/snapshot_id to satisfy any NOT NULL constraint
-      if (insertResult.error && (insertResult.error.code === 'PGRST204' || insertResult.error.code === '42703' || String(insertResult.error.message).includes('Could not find'))) {
-        void logger.info('public-quote:create', 'Retrying insert with snapshot_id but without id/payload_json in select', { orderId: order.id, error: insertResult.error.message });
-        insertResult = await dbOperation({
-            token: quoteToken,
-            snapshot: snapshotToken,
-            snapshot_id: snapshotToken,
-            order_id: order.id,
-            expires_at: expiresAt,
-            payload: trimmed.payload
-          })
-          .select('token,snapshot_id,expires_at')
-          .single();
-      }
-
-      // Attempt 3: snapshot_id column also missing — absolute minimal insert
-      if (insertResult.error && (insertResult.error.code === 'PGRST204' || insertResult.error.code === '42703' || String(insertResult.error.message).includes('Could not find'))) {
-        void logger.info('public-quote:create', 'Retrying insert without snapshot_id', { orderId: order.id, error: insertResult.error.message });
-        insertResult = await dbOperation({
-            token: quoteToken,
-            order_id: order.id,
-            expires_at: expiresAt,
-            payload: trimmed.payload
-          })
-          .select('token,expires_at')
-          .single();
-      }
-
-      if (insertResult.error) {
-        void logger.warn('public-quote:create', 'Snapshot insert failed', { orderId: order.id, code: insertResult.error.code, message: insertResult.error.message, quoteToken });
-        throw new Error(insertResult.error.message || 'Server unavailable, try again');
-      }
-
-      const created = insertResult.data as { id?: string | null; token: string; snapshot_id?: string | null; original_url?: string | null; short_url?: string | null; expires_at: string; payload_json?: unknown };
-      if (!created?.token || !created?.expires_at) {
-        void logger.warn('public-quote:create', 'Snapshot insert returned incomplete data', { orderId: order.id, created });
-        throw new Error('Share quote created, but response is missing token/expires_at');
-      }
-      if (isDevBuild && (!created.payload_json || typeof created.payload_json !== 'object')) {
-        void logger.warn('public-quote:create', 'payload_json not echoed back from insert', { orderId: order.id });
-      }
-      const effectiveSnapshotId = (created.snapshot_id || created.id || '').trim();
-
-      const quoteUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
-      quoteUrl.hash = `#/q/${encodeURIComponent(buildPublicQuoteSlug(order))}?k=${encodeURIComponent(`${created.token}.${effectiveSnapshotId}`)}`;
-
-      const originalUrl = quoteUrl.toString();
-      const finalUrl = originalUrl;
-      const shortUrl: string | null = null;
-
-      if (created.id) {
-        const persistUrls = async (nextShortUrl: string | null) => {
-          if (!supabase) return;
-          const updatePayload = {
-            original_url: originalUrl,
-            short_url: nextShortUrl
-          };
-          let updateError = (await supabase
-            .from('public_quote_snapshots')
-            .update(updatePayload)
-            .eq('id', created.id)).error;
-
-          if (updateError && (updateError.code === 'PGRST204' || updateError.code === '42703' || String(updateError.message).includes('Could not find'))) {
-            void logger.info('public-quote:create', 'Skipping short/original url persistence because columns are unavailable', {
-              orderId: order.id,
-              snapshotId: created.id,
-              error: updateError.message
-            });
-            updateError = null;
-          }
-
-          if (updateError) {
-            void logger.warn('public-quote:create', 'Unable to persist short/original url fields', {
-              orderId: order.id,
-              snapshotId: created.id,
-              error: updateError.message
-            });
-          }
-        };
-
-        await persistUrls(null);
-
-
-      }
-
-      if (isDevBuild) {
-        console.info('[public-quote] snapshot inserted', {
-          urlToken: created.token,
-          urlSnapshot: effectiveSnapshotId,
-          dbRowId: created.id,
-          dbSnapshotId: created.snapshot_id || null,
-          dbRowToken: created.token,
-          matches: {
-            packedKeyMatches: quoteUrl.searchParams.get('k') === `${created.token}.${effectiveSnapshotId}`
-          },
-          originalUrl,
-          shortUrl,
-          finalUrl
-        });
-      }
-
-      void logger.info('public-quote:create', 'Snapshot insert success', {
-        orderId: order.id,
-        token: created.token,
-        snapshotId: effectiveSnapshotId,
-        expiresAt: created.expires_at
-      });
-
-      return {
-        id: created.id,
-        token: created.token,
-        snapshotId: effectiveSnapshotId,
-        expiresAt: created.expires_at,
-        url: finalUrl,
-        originalUrl,
-        shortUrl
-      };
-    } finally {
-      request.cleanup();
-    }
-  })().finally(() => createInFlight.delete(key));
-
-  createInFlight.set(key, promise);
-  return promise;
+type SnapshotOptions = {
+  currency?: string;
+  exchangeRate?: number;
+  rates?: QuoteRates;
+  owner?: { whatsappPhone?: string | null; displayName?: string | null };
+  publicSettings?: Partial<ReturnType<typeof loadAppSettings>>;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  token?: string;
+  snapshotId?: string;
+  upsertByToken?: boolean;
 };
-
-const readPayloadWithFallback = async (row: SnapshotRow): Promise<unknown | null> => {
-  if (row.payload_json && typeof row.payload_json === 'object') return row.payload_json;
-  if (row.payload && typeof row.payload === 'object') return row.payload;
-  if (row.payload_b64) {
-    try {
-      return await decodePayloadFromCompressedTransport(row.payload_b64, row.payload_codec || 'gzip+b64');
-    } catch {
-      return null;
-    }
-  }
-  return null;
-};
-
-const resolveSnapshotPayloadSource = (row: SnapshotRow): SnapshotPayloadSource => {
-  if (row.payload_json && typeof row.payload_json === 'object') return 'payload_json';
-  if (row.payload_b64) return 'payload_b64';
-  if (row.payload && typeof row.payload === 'object') return 'payload';
-  return 'none';
-};
-
-export const publicQuoteGetSnapshot = async (token: string, options?: { signal?: AbortSignal; timeoutMs?: number; snapshotId?: string | null }) => {
-  if (!isCloudConfigured) throw new Error(cloudBuildGuardMessage || 'Cloud is not configured');
-  if (!supabase) throw new Error('Supabase client is not initialized');
-  const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
+export const publicQuoteCreateSnapshot = async (order: Order, options: SnapshotOptions = {}) => {
+  if (options.signal?.aborted) throw new DOMException('Сохранение отменено', 'AbortError');
+  const token = options.token || createToken(),
+    id = options.snapshotId || createToken();
+  const payload = buildSnapshotPayload(
+    order,
+    options.currency || order.clientCurrency || 'USD',
+    Number(options.exchangeRate || order.exchangeRate || 3.67),
+    options.owner || {},
+    options.publicSettings,
+    options.rates,
+  );
+  if (!(payload.items || []).some((item) => Number(item.line_total) > 0))
+    throw new Error('Нет цен по позициям');
+  const expires_at = new Date(Date.now() + SNAPSHOT_TTL_MS).toISOString();
+  const snapshot = {
+    id,
+    token,
+    snapshot_id: id,
+    expires_at,
+    payload,
+    isPayloadCorrupted: false,
+    row_id: id,
+    contacts_source: 'snapshot',
+    snapshot_source: 'local',
+  };
+  await localDocuments.set(`quote:${token}`, snapshot);
+  const base = new URL(import.meta.env?.BASE_URL || './', window.location.href);
+  let requiresFile = false;
+  const params = new URLSearchParams({ token, exp: String(Date.parse(expires_at)) });
   try {
-  const normalizedToken = token.trim();
-  if (!normalizedToken) throw new Error('Snapshot token is required');
-
-  const snapshotFromUrl = (options?.snapshotId || '').trim();
-  const COLS = 'id,token,snapshot_id,expires_at,payload,payload_json,payload_b64,payload_codec';
-  const COLS_MINIMAL = 'token,expires_at,payload';
-
-  // Helper: select by a specific column value, with column-missing fallback
-  const selectBy = async (column: 'id' | 'token' | 'snapshot_id', value: string, silent = false): Promise<SnapshotRow | null> => {
-    const q = supabase!
-      .from('public_quote_snapshots')
-      .select(COLS)
-      .eq(column, value)
-      .limit(1).abortSignal(request.signal);
-    const { data, error } = await (q as any);
-    if (error) {
-      if (error.code === 'PGRST204' || error.code === '42703' || String(error.message).includes('Could not find')) {
-        // Missing column — retry with minimal columns (only for non-snapshot_id queries)
-        if (column === 'snapshot_id') return null;
-        const qMinimal = supabase!
-          .from('public_quote_snapshots')
-          .select(COLS_MINIMAL)
-          .eq(column, value)
-          .limit(1).abortSignal(request.signal);
-        const { data: d2, error: e2 } = await (qMinimal as any);
-        if (e2) {
-          if (silent) return null;
-          throw new Error(`Failed to load quote (${e2.message})`);
-        }
-        const rows2 = Array.isArray(d2) ? d2 : (d2 ? [d2] : []);
-        return (rows2[0] as SnapshotRow) || null;
-      }
-      if (silent) return null;
-      void logger.warn('public-quote:fetch', 'Snapshot lookup failed', { token: normalizedToken, column, value, code: error.code, message: error.message });
-      throw new Error(`Failed to load quote (${error.code || error.message})`);
-    }
-    const rows = Array.isArray(data) ? data : (data ? [data] : []);
-    return (rows[0] as SnapshotRow) || null;
-  };
-
-  let row: SnapshotRow | null = null;
-
-  if (requiresStaffLogin) {
-    const { data, error } = await supabase.rpc('public_quote_by_token', { p_token: normalizedToken }).abortSignal(request.signal);
-    if (error) throw new Error('Не удалось загрузить предложение. Проверьте соединение и серверные настройки доступа.');
-    row = (Array.isArray(data) ? data[0] : null) || null;
-  } else {
-  // Lookup order: by id (snapshotFromUrl) → by snapshot_id → by token → by token=snapshotFromUrl
-  if (snapshotFromUrl) {
-    row = await selectBy('id', snapshotFromUrl, true);
-    if (row && row.token !== normalizedToken && row.snapshot_id !== normalizedToken) {
-      if (isDevBuild) {
-        console.info('[public-quote] snapshot/token mismatch', {
-          urlSnapshot: snapshotFromUrl,
-          urlToken: normalizedToken,
-          dbRowId: row.id,
-          dbRowToken: row.token
-        });
-      }
-      row = null;
-    }
-  }
-
-  if (!row && snapshotFromUrl) {
-    row = await selectBy('snapshot_id', snapshotFromUrl, true);
-  }
-
-  if (!row) {
-    row = await selectBy('token', normalizedToken);
-  }
-
-  if (!row && snapshotFromUrl && snapshotFromUrl !== normalizedToken) {
-    row = await selectBy('token', snapshotFromUrl, true);
-  }
-
-  }
-
-  if (!row) {
-    void logger.info('public-quote:fetch', 'Snapshot not found', { token: normalizedToken, snapshotFromUrl: snapshotFromUrl || null });
-    return null;
-  }
-  const payload = await readPayloadWithFallback(row);
-  const normalizedPayload = await ensurePayloadReadModel(row, payload);
-  const snapshotSource = resolveSnapshotPayloadSource(row);
-
-  void logger.info('public-quote:fetch', 'Snapshot loaded', {
-    token: normalizedToken,
-    dbToken: row.token,
-    rowId: row.id,
-    snapshotId: row.snapshot_id || row.id,
-    hasPayload: !!normalizedPayload.payload,
-    isPayloadCorrupted: !normalizedPayload.payload,
-    snapshotSource,
-    contactsSource: normalizedPayload.contactsSource,
-    wasPatched: normalizedPayload.wasPatched
-  });
-
-  return {
-    id: row.id,
-    token: row.token,
-    snapshot_id: row.snapshot_id || row.id,
-    expires_at: row.expires_at,
-    payload: normalizedPayload.payload,
-    isPayloadCorrupted: !normalizedPayload.payload,
-    row_id: row.id,
-    contacts_source: normalizedPayload.contactsSource,
-    snapshot_source: snapshotSource
-  };
-  } finally { request.cleanup(); }
-};
-
-export const publicQuoteGetPublicContactSettings = async (options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<PublicContactSettings | null> => {
-  if (!isCloudConfigured) return null;
-  const request = withTimeoutSignal(options?.timeoutMs || DEFAULT_TIMEOUT_MS, options?.signal);
-  const readPublicContactSettings = (raw: Record<string, any> | null | undefined): PublicContactSettings => {
-    const container = raw || {};
-    const nested = [
-      container,
-      container.data,
-      container.public_settings,
-      container.publicSettings,
-      container.contacts,
-      container.publicContacts,
-      container.settings,
-      container.appSettings
-    ].filter((item): item is Record<string, any> => !!item && typeof item === 'object');
-
-    const first = (...keys: string[]) => {
-      for (const key of keys) {
-        for (const scope of nested) {
-          const value = scope[key];
-          if (typeof value === 'string' && value.trim()) return value;
-        }
-      }
-      return '';
-    };
-
-    return {
-      publicWhatsappNumber: toDigits(first('publicWhatsappNumber', 'public_whatsapp_number', 'whatsapp_phone', 'whatsappPhone', 'whatsapp', 'phone')),
-      publicTelegramUrl: first('publicTelegramUrl', 'public_telegram_url', 'telegram', 'telegramUrl'),
-      publicInstagramUrl: first('publicInstagramUrl', 'public_instagram_url', 'instagram', 'instagramUrl'),
-      publicWebsiteUrl: first('publicWebsiteUrl', 'public_website_url', 'website', 'websiteUrl'),
-      publicEmail: first('publicEmail', 'public_email', 'email'),
-      publicDeliveryTerms: first('publicDeliveryTerms', 'public_delivery_terms', 'deliveryTerms', 'delivery_terms'),
-      publicWorkTerms: first('publicWorkTerms', 'public_work_terms', 'workTerms', 'work_terms'),
-      publicCompanyLogoUrl: first('publicCompanyLogoUrl', 'public_company_logo_url', 'companyLogoUrl', 'logo', 'logoUrl'),
-      publicInvoiceSignatureUrl: first('publicInvoiceSignatureUrl', 'public_invoice_signature_url', 'invoiceSignatureUrl', 'signature', 'signatureUrl'),
-      publicManagerName: first('publicManagerName', 'public_manager_name', 'managerName', 'manager_name', 'ownerName', 'owner_name'),
-      invoicePaymentAccountNo: first('invoicePaymentAccountNo', 'invoice_payment_account_no', 'paymentAccountNo'),
-      invoicePaymentBeneficiary: first('invoicePaymentBeneficiary', 'invoice_payment_beneficiary', 'paymentBeneficiary'),
-      invoicePaymentBankAccount: first('invoicePaymentBankAccount', 'invoice_payment_bank_account', 'paymentBankAccount'),
-      publicTermsFileUrl: first('publicTermsFileUrl', 'public_terms_file_url', 'termsFileUrl'),
-      publicTermsFileName: first('publicTermsFileName', 'public_terms_file_name', 'termsFileName')
-    };
-  };
-
-  const mergeSettings = (preferred: PublicContactSettings, fallback?: PublicContactSettings | null): PublicContactSettings => ({
-    publicWhatsappNumber: preferred.publicWhatsappNumber || fallback?.publicWhatsappNumber || '',
-    publicTelegramUrl: preferred.publicTelegramUrl || fallback?.publicTelegramUrl || '',
-    publicInstagramUrl: preferred.publicInstagramUrl || fallback?.publicInstagramUrl || '',
-    publicWebsiteUrl: preferred.publicWebsiteUrl || fallback?.publicWebsiteUrl || '',
-    publicEmail: preferred.publicEmail || fallback?.publicEmail || '',
-    publicDeliveryTerms: preferred.publicDeliveryTerms || fallback?.publicDeliveryTerms || '',
-    publicWorkTerms: preferred.publicWorkTerms || fallback?.publicWorkTerms || '',
-    publicCompanyLogoUrl: preferred.publicCompanyLogoUrl || fallback?.publicCompanyLogoUrl || '',
-    publicInvoiceSignatureUrl: preferred.publicInvoiceSignatureUrl || fallback?.publicInvoiceSignatureUrl || '',
-    publicManagerName: preferred.publicManagerName || fallback?.publicManagerName || '',
-    invoicePaymentAccountNo: preferred.invoicePaymentAccountNo || fallback?.invoicePaymentAccountNo || '',
-    invoicePaymentBeneficiary: preferred.invoicePaymentBeneficiary || fallback?.invoicePaymentBeneficiary || '',
-    invoicePaymentBankAccount: preferred.invoicePaymentBankAccount || fallback?.invoicePaymentBankAccount || '',
-    publicTermsFileUrl: preferred.publicTermsFileUrl || fallback?.publicTermsFileUrl || '',
-    publicTermsFileName: preferred.publicTermsFileName || fallback?.publicTermsFileName || ''
-  });
-
-  try {
-    if (!supabase) return null;
-    const { data, error } = await supabase
-      .from('app_state')
-      .select('id,data')
-      .in('id', ['public_settings', 'global'])
-      .limit(2);
-    if (error || !Array.isArray(data)) return null;
-    const rows = data as AppStatePublicSettingsRow[];
-    const byId = new Map(rows.map((row) => [String((row as any)?.id || ''), row]));
-    const fromPublicSettings = readPublicContactSettings((byId.get('public_settings')?.data || null) as Record<string, any> | null);
-    const fromGlobal = readPublicContactSettings((byId.get('global')?.data || null) as Record<string, any> | null);
-    const merged = mergeSettings(fromPublicSettings, fromGlobal);
-    if (merged.publicWhatsappNumber || merged.publicTelegramUrl || merged.publicInstagramUrl || merged.publicWebsiteUrl || merged.publicEmail || merged.publicDeliveryTerms || merged.publicWorkTerms || merged.publicCompanyLogoUrl || merged.publicInvoiceSignatureUrl || merged.publicManagerName || merged.invoicePaymentAccountNo || merged.publicTermsFileUrl) {
-      return merged;
-    }
-    return null;
+    const encoded = await encodePayloadToCompressedTransport(payload);
+    params.set('data', encoded.payloadB64);
+    params.set('codec', encoded.payloadCodec);
   } catch {
-    return null;
-  } finally {
-    request.cleanup();
+    requiresFile = true;
   }
+  base.hash = `#/q/${encodeURIComponent(order.id)}?${params}`;
+  return {
+    ...snapshot,
+    url: base.toString(),
+    shortUrl: base.toString(),
+    photosOmitted: false,
+    requiresFile,
+  };
 };
+export const publicQuoteGetSnapshot = async (
+  token: string,
+  _options?: { signal?: AbortSignal; timeoutMs?: number; snapshotId?: string | null },
+) => {
+  const query = window.location.hash.split('?')[1] || window.location.search.slice(1);
+  const params = new URLSearchParams(query),
+    data = params.get('data');
+  if (data) {
+    const payload = await decodePayloadFromCompressedTransport<PublicQuotePayloadV1>(
+      data,
+      params.get('codec') || 'identity+b64',
+    );
+    const expires_at = params.get('exp') ? new Date(Number(params.get('exp'))).toISOString() : '';
+    return {
+      id: token,
+      token,
+      snapshot_id: token,
+      expires_at,
+      payload,
+      isPayloadCorrupted: !payload,
+      row_id: token,
+      contacts_source: 'snapshot',
+      snapshot_source: 'link',
+    };
+  }
+  return (
+    (await localDocuments.get<{
+      id: string;
+      token: string;
+      snapshot_id: string;
+      expires_at: string;
+      payload: PublicQuotePayloadV1;
+      isPayloadCorrupted: boolean;
+      row_id: string;
+      contacts_source: string;
+      snapshot_source: string;
+    }>(`quote:${token}`)) || null
+  );
+};
+export const publicQuoteGetPublicContactSettings = async (): Promise<PublicContactSettings> =>
+  loadAppSettings();

@@ -1,89 +1,72 @@
-const APP_BASE_PATH = new URL('./', self.location.href).pathname;
-const APP_SHELL_CACHE = 'dubai-spares-shell-v11';
-const RUNTIME_IMAGE_CACHE = 'dubai-spares-runtime-images-v1';
-const APP_SHELL_FILES = ['', 'index.html', 'manifest.json', 'icon-32.png', 'icon-180.png', 'icon-192.png', 'icon-512.png'].map((file) => `${APP_BASE_PATH}${file}`);
-
+const BASE = new URL('./', self.location.href);
+const CACHE = 'dubai-spares-local-v12';
+const SHELL = [
+  '',
+  'index.html',
+  'manifest.json',
+  'icon-32.png',
+  'icon-180.png',
+  'icon-192.png',
+  'icon-512.png',
+].map((path) => new URL(path, BASE).href);
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(APP_SHELL_CACHE).then((cache) => cache.addAll(APP_SHELL_FILES)));
-  self.skipWaiting();
-});
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil((async () => {
-    const keys = await caches.keys();
-    const keep = new Set([APP_SHELL_CACHE, RUNTIME_IMAGE_CACHE]);
-    await Promise.all(keys.filter((key) => key.startsWith('dubai-spares-') && !keep.has(key)).map((key) => caches.delete(key)));
-    await self.clients.claim();
-  })());
-});
-
-self.addEventListener('message', (event) => {
-  if (event.data?.type === 'FORCE_SW_UPDATE') {
-    event.waitUntil((async () => {
-      const keys = await caches.keys();
-      await Promise.all(keys.filter((key) => key.startsWith('dubai-spares-')).map((key) => caches.delete(key)));
-      self.skipWaiting();
-    })());
-  }
-});
-
-const networkFirst = async (request) => {
-  try {
-    const response = await fetch(request);
-    if (response && response.ok) {
-      const cloned = response.clone();
-      caches.open(APP_SHELL_CACHE).then((cache) => cache.put(request, cloned));
-    }
-    return response;
-  } catch (error) {
-    const cached = await caches.match(request);
-    if (cached) return cached;
-    throw error;
-  }
-};
-
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  if (request.method !== 'GET') return;
-  const url = new URL(request.url);
-  const appPathname = url.pathname.startsWith(APP_BASE_PATH) ? `/${url.pathname.slice(APP_BASE_PATH.length)}` : url.pathname;
-  const isPublicTrackingRoute = request.mode === 'navigate' && (appPathname.startsWith('/quote/') || appPathname.startsWith('/order/') || url.hash.startsWith('#/q/'));
-
-  if (isPublicTrackingRoute) {
-    event.respondWith(fetch(request, { cache: 'no-store' }));
-    return;
-  }
-
-  const isSupabaseStorage = url.pathname.includes('/storage/v1/object/');
-  if (isSupabaseStorage && request.destination === 'image') {
-    event.respondWith((async () => {
-      const cache = await caches.open(RUNTIME_IMAGE_CACHE);
-      const cached = await cache.match(request);
-      const networkPromise = fetch(request).then((response) => {
-        if (response.ok) {
-          cache.put(request, response.clone());
-        }
-        return response;
-      }).catch(() => null);
-
-      if (cached) {
-        event.waitUntil(networkPromise);
-        return cached;
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(CACHE);
+      await cache.addAll(SHELL);
+      // Vite lists all lazy chunks and fonts. Precache them so unvisited screens work offline too.
+      const response = await fetch(new URL('offline-assets.json', BASE));
+      if (response.ok) {
+        const assets = await response.json();
+        await cache.addAll(assets.map((path) => new URL(path, BASE).href));
       }
-
-      const network = await networkPromise;
-      if (network) return network;
-      return Response.error();
-    })());
+      await self.skipWaiting();
+    })(),
+  );
+});
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter((key) => key.startsWith('dubai-spares-') && key !== CACHE)
+          .map((key) => caches.delete(key)),
+      );
+      await self.clients.claim();
+    })(),
+  );
+});
+self.addEventListener('fetch', (event) => {
+  const { request } = event,
+    url = new URL(request.url);
+  if (
+    request.method !== 'GET' ||
+    url.origin !== BASE.origin ||
+    !url.pathname.startsWith(BASE.pathname)
+  )
     return;
-  }
-
-  if (url.pathname.startsWith('/rest/v1/') || url.hostname !== self.location.hostname) {
-    return;
-  }
-
-  const isStaticAsset = request.destination === 'script' || request.destination === 'style' || request.destination === 'image' || request.destination === 'font' || request.destination === 'document';
-  if (!isStaticAsset) return;
-
-  event.respondWith(networkFirst(request));
+  event.respondWith(
+    (async () => {
+      const cache = await caches.open(CACHE);
+      if (request.mode === 'navigate') {
+        try {
+          const response = await fetch(request);
+          if (response.ok) await cache.put(request, response.clone());
+          return response;
+        } catch {
+          return (
+            (await cache.match(new URL('index.html', BASE).href, { ignoreVary: true })) ||
+            Response.error()
+          );
+        }
+      }
+      // Build assets are immutable and identical for every visitor.
+      const cached = await cache.match(request, { ignoreVary: true });
+      if (cached) return cached;
+      const response = await fetch(request);
+      if (response.ok) await cache.put(request, response.clone());
+      return response;
+    })(),
+  );
 });

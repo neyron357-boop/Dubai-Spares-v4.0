@@ -32,19 +32,6 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Install dependencies
         run: npm ci
-      - name: Configure public Supabase build values
-        env:
-          REQUIRE_STAFF_AUTH: ${{ vars.REQUIRE_STAFF_AUTH }}
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync, writeFileSync } from 'node:fs';
-          const allowed = new Set(['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY']);
-          const lines = readFileSync('.env.example', 'utf8').split(/\r?\n/)
-            .filter((line) => allowed.has(line.split('=', 1)[0]));
-          if (lines.length !== allowed.size) throw new Error('Missing public Supabase build configuration');
-          const requireAuth = process.env.REQUIRE_STAFF_AUTH === 'true';
-          writeFileSync('.env.production', lines.join('\n') + `\nVITE_REQUIRE_AUTH=${requireAuth}\n`);
-          NODE
       - name: Build application
         env:
           PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}

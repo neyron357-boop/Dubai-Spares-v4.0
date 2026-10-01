@@ -1,3 +1,4 @@
+import { playSound } from './utils/sounds';
 export type ToastTone = 'error' | 'success' | 'info';
 
 export const vibrate = (pattern: number | number[]) => {
@@ -8,4 +9,5 @@ export const vibrate = (pattern: number | number[]) => {
 
 export const toast = (message: string, tone: ToastTone = 'info') => {
   window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, tone } }));
+  if (tone === 'success') playSound('success');
 };

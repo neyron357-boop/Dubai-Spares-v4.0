@@ -1,5 +1,7 @@
+import { fetchRadarShops, getSuppliersEnriched } from './radarShops';
+import { localDocuments } from './storage/localDocuments';
+import { offlineDb } from './storage/offlineDb';
 import { Shop } from './types';
-import { supabase } from './supabase';
 
 export type RadarTargetStatus = 'planned' | 'in_route' | 'at_shop' | 'done';
 
@@ -62,228 +64,173 @@ export interface RadarApplyEventPayload {
   payload?: Record<string, unknown>;
 }
 
-const assertSupabase = () => {
-  if (!supabase) throw new Error('Supabase client unavailable');
-  return supabase;
+type RadarEvent = {
+  id: string;
+  event_type: string;
+  payload?: Record<string, unknown>;
+  created_at: string;
 };
-
-export const logRadarEvent = async (radarSessionId: string, eventType: string, payload?: Record<string, unknown>, clientEventId?: string) => {
-  const client = assertSupabase();
-  const { error } = await client
-    .from('radar_events')
-    .insert({
-      radar_session_id: radarSessionId,
-      event_type: eventType,
-      ...(clientEventId ? { client_event_id: clientEventId } : {}),
-      ...(payload ? { payload } : {})
+type RadarData = {
+  sessions: RadarSessionRow[];
+  targets: RadarTargetRow[];
+  items: RadarTargetItemRow[];
+  events: Array<RadarEvent & { session_id: string }>;
+};
+const load = async (): Promise<RadarData> =>
+  (await localDocuments.get<RadarData>('radar')) || {
+    sessions: [],
+    targets: [],
+    items: [],
+    events: [],
+  };
+let writes: Promise<unknown> = Promise.resolve();
+const mutate = <T>(change: (data: RadarData) => T): Promise<T> => {
+  const task = writes.then(async () => {
+    const data = await load();
+    const result = change(data);
+    await localDocuments.set('radar', data);
+    return result;
+  });
+  writes = task.catch(() => undefined);
+  return task;
+};
+export const logRadarEvent = async (
+  session_id: string,
+  event_type: string,
+  payload?: Record<string, unknown>,
+  id = crypto.randomUUID(),
+) =>
+  mutate((data) => {
+    if (!data.events.some((event) => event.id === id))
+      data.events.unshift({
+        id,
+        session_id,
+        event_type,
+        payload,
+        created_at: new Date().toISOString(),
+      });
+  });
+export const applyRadarEventAtomic = async (event: RadarApplyEventPayload) =>
+  mutate((data) => {
+    if (data.events.some((item) => item.id === event.client_event_id)) return;
+    const now = new Date().toISOString();
+    const target = data.targets.find((item) => item.id === event.target_id);
+    if (target && event.status) {
+      target.status = event.status;
+      target.updated_at = now;
+    }
+    const item = data.items.find((item) => item.id === event.target_item_id);
+    if (item && event.item_status) {
+      item.item_status = event.item_status;
+      item.updated_at = now;
+      if (typeof event.payload?.price_aed === 'number') item.price_aed = event.payload.price_aed;
+      if (typeof event.payload?.notes === 'string') item.notes = event.payload.notes;
+    }
+    data.events.unshift({
+      id: event.client_event_id,
+      session_id: event.radar_session_id,
+      event_type: event.event_type,
+      payload: event.payload,
+      created_at: now,
     });
-
-  if (error && error.code !== '23505') throw error;
-};
-
-export const applyRadarEventAtomic = async (eventPayload: RadarApplyEventPayload) => {
-  const client = assertSupabase();
-  const { data, error } = await client.rpc('radar_apply_event', {
-    p_event_payload: eventPayload,
-    p_client_event_id: eventPayload.client_event_id
   });
-
-  if (error) throw error;
-  return data;
-};
-
-export const findActiveRadarSessionByOrder = async (orderId: string): Promise<RadarSessionRow | null> => {
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('radar_sessions')
-    .select('id, order_id, radius_km, mode, is_active, ended_at')
-    .eq('order_id', orderId)
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle<RadarSessionRow>();
-
-  if (error) throw error;
-  return data || null;
-};
-
-export const findActiveRadarSession = async (): Promise<RadarSessionRow | null> => {
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('radar_sessions')
-    .select('id, order_id, radius_km, mode, is_active, ended_at')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle<RadarSessionRow>();
-
-  if (error) throw error;
-  return data || null;
-};
-
-export const createRadarSession = async (orderId: string, radiusKm = 10, mode = 'smart'): Promise<RadarSessionRow> => {
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('radar_sessions')
-    .insert({ order_id: orderId, radius_km: radiusKm, mode })
-    .select('id, order_id, radius_km, mode, is_active, ended_at')
-    .single<RadarSessionRow>();
-
-  if (error || !data) throw error || new Error('Failed to create radar session');
-  await logRadarEvent(data.id, 'created_session');
-  return data;
-};
-
-export const ensureRadarSessionForOrder = async (orderId: string, shops: Shop[]): Promise<RadarSessionRow> => {
-  const existing = await findActiveRadarSessionByOrder(orderId);
-  if (existing) return existing;
-
-  const created = await createRadarSession(orderId);
-  await upsertRadarTargets(created.id, shops.slice(0, 20));
-  return created;
-};
-
-export const upsertRadarTargets = async (radarSessionId: string, shops: Shop[]) => {
-  if (!shops.length) return;
-  const client = assertSupabase();
-  const rows = shops.slice(0, 30).map((shop) => ({
-    radar_session_id: radarSessionId,
-    shop_id: shop.id,
-    score: Number.isFinite(Number(shop.heatLevel)) ? Number(shop.heatLevel) : 0,
-    status: 'planned'
-  }));
-
-  const { error } = await client
-    .from('radar_targets')
-    .upsert(rows, { onConflict: 'radar_session_id,shop_id' });
-
-  if (error) throw error;
-};
-
-export const getRadarSession = async (sessionId: string): Promise<RadarSessionRow | null> => {
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('radar_sessions')
-    .select('id, order_id, radius_km, mode, is_active, ended_at')
-    .eq('id', sessionId)
-    .maybeSingle<RadarSessionRow>();
-  if (error) throw error;
-  return data || null;
-};
-
-export const getRadarTargets = async (sessionId: string): Promise<RadarTargetRow[]> => {
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('v_radar_active_targets')
-    .select('id, radar_session_id, shop_id, score, status, distance_km, eta_min, route_order, score_breakdown, matched_brands, matched_categories, created_at, updated_at')
-    .eq('radar_session_id', sessionId)
-    .order('route_order', { ascending: true, nullsFirst: false })
-    .order('score', { ascending: false })
-    .limit(30)
-    .returns<RadarTargetRow[]>();
-  if (error) throw error;
-  return data || [];
-};
-
-export const regenerateRadarTargets = async (sessionId: string, maxTargets = 30) => {
-  const client = assertSupabase();
-
-  const geo = navigator.geolocation
-    ? await new Promise<{ lat?: number; lng?: number }>((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          () => resolve({}),
-          { timeout: 2000 }
-        );
-      })
-    : {};
-
-  const { data, error } = await client.rpc('radar_generate_targets', {
-    p_session_id: sessionId,
-    p_max_targets: maxTargets,
-    p_user_lat: geo.lat ?? null,
-    p_user_lng: geo.lng ?? null
+export const findActiveRadarSessionByOrder = async (orderId: string) =>
+  (await load()).sessions.find((session) => session.order_id === orderId && session.is_active) ||
+  null;
+export const findActiveRadarSession = async () =>
+  (await load()).sessions.find((session) => session.is_active) || null;
+export const createRadarSession = async (order_id: string, radius_km = 10, mode = 'smart') =>
+  mutate((data) => {
+    const session: RadarSessionRow = {
+      id: crypto.randomUUID(),
+      order_id,
+      radius_km,
+      mode,
+      is_active: true,
+    };
+    data.sessions.unshift(session);
+    return session;
   });
-
-  if (error) throw error;
-  return Array.isArray(data) ? data[0] : data;
+export const ensureRadarSessionForOrder = async (orderId: string, shops: Shop[]) => {
+  const session =
+    (await findActiveRadarSessionByOrder(orderId)) || (await createRadarSession(orderId));
+  await upsertRadarTargets(session.id, shops);
+  return session;
 };
-
-export const setRadarTargetStatus = async (target: RadarTargetRow, nextStatus: RadarTargetStatus, extraPayload?: Record<string, unknown>) => {
-  throw new Error(`Deprecated: use applyRadarEventAtomic with client_event_id (${target.id}:${nextStatus}:${JSON.stringify(extraPayload || {})})`);
-};
-
-export const getRadarEvents = async (sessionId: string) => {
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('radar_events')
-    .select('id, event_type, payload, created_at')
-    .eq('radar_session_id', sessionId)
-    .order('created_at', { ascending: false })
-    .limit(10);
-
-  if (error) throw error;
-  return data || [];
-};
-
-export const closeRadarSession = async (sessionId: string) => {
-  const client = assertSupabase();
-  const { error } = await client
-    .from('radar_sessions')
-    .update({ is_active: false, ended_at: new Date().toISOString() })
-    .eq('id', sessionId);
-
-  if (error) throw error;
-  await logRadarEvent(sessionId, 'session_closed');
-};
-
-export const getOrderItemsByOrder = async (orderId: string): Promise<OrderItemRow[]> => {
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('order_items')
-    .select('id, order_id, part_name, brand, model, year, quantity')
-    .eq('order_id', orderId)
-    .order('created_at', { ascending: true })
-    .returns<OrderItemRow[]>();
-
-  if (error) throw error;
-  return data || [];
-};
-
-export const ensureRadarTargetItems = async (targets: RadarTargetRow[], orderItems: OrderItemRow[]) => {
-  if (!targets.length || !orderItems.length) return;
-  const client = assertSupabase();
-  const rows = targets.flatMap((target) =>
-    orderItems.map((orderItem) => ({
-      radar_target_id: target.id,
-      order_item_id: orderItem.id
-    }))
+export const upsertRadarTargets = async (sessionId: string, shops: Shop[]) =>
+  mutate((data) => {
+    shops.slice(0, 30).forEach((shop, index) => {
+      if (
+        !data.targets.some(
+          (target) => target.radar_session_id === sessionId && target.shop_id === shop.id,
+        )
+      )
+        data.targets.push({
+          id: crypto.randomUUID(),
+          radar_session_id: sessionId,
+          shop_id: shop.id,
+          score: Number(shop.heatLevel || 0),
+          status: 'planned',
+          route_order: index,
+        });
+    });
+  });
+export const getRadarSession = async (id: string) =>
+  (await load()).sessions.find((session) => session.id === id) || null;
+export const getRadarTargets = async (id: string) =>
+  (await load()).targets
+    .filter((target) => target.radar_session_id === id)
+    .sort((a, b) => (a.route_order || 0) - (b.route_order || 0));
+export const regenerateRadarTargets = async (id: string, maxTargets = 30) => {
+  await upsertRadarTargets(
+    id,
+    (await fetchRadarShops(await getSuppliersEnriched())).slice(0, maxTargets),
   );
-
-  const { error } = await client
-    .from('radar_target_items')
-    .upsert(rows, { onConflict: 'radar_target_id,order_item_id', ignoreDuplicates: true });
-
-  if (error) throw error;
+  return getRadarTargets(id);
 };
-
-export const getRadarTargetItems = async (targetIds: string[]): Promise<RadarTargetItemRow[]> => {
-  if (!targetIds.length) return [];
-  const client = assertSupabase();
-  const { data, error } = await client
-    .from('radar_target_items')
-    .select('id, radar_target_id, order_item_id, item_status, price_aed, notes, updated_at')
-    .in('radar_target_id', targetIds)
-    .returns<RadarTargetItemRow[]>();
-
-  if (error) throw error;
-  return data || [];
+export const getRadarEvents = async (id: string) =>
+  (await load()).events.filter((event) => event.session_id === id).slice(0, 30);
+export const closeRadarSession = async (id: string) =>
+  mutate((data) => {
+    const session = data.sessions.find((session) => session.id === id);
+    if (session) {
+      session.is_active = false;
+      session.ended_at = new Date().toISOString();
+    }
+  });
+export const getOrderItemsByOrder = async (id: string): Promise<OrderItemRow[]> => {
+  const order = (await offlineDb.getOrders()).find((order) => order.id === id);
+  return order
+    ? order.parts.map((part) => ({
+        id: part.id,
+        order_id: id,
+        part_name: part.name,
+        brand: order.brand,
+        model: order.model,
+        year: Number(order.year) || null,
+        quantity: part.quantity || 1,
+      }))
+    : [];
 };
-
-export const markRadarTargetItemStatus = async (
-  targetItemId: string,
-  status: Exclude<RadarTargetItemStatus, 'pending'>,
-  _clientEventId?: string
-) => {
-  throw new Error(`Deprecated: use applyRadarEventAtomic with client_event_id (${targetItemId}:${status})`);
-};
+export const ensureRadarTargetItems = async (targets: RadarTargetRow[], parts: OrderItemRow[]) =>
+  mutate((data) => {
+    targets.forEach((target) =>
+      parts.forEach((part) => {
+        if (
+          !data.items.some(
+            (item) => item.radar_target_id === target.id && item.order_item_id === part.id,
+          )
+        )
+          data.items.push({
+            id: crypto.randomUUID(),
+            radar_target_id: target.id,
+            order_item_id: part.id,
+            item_status: 'pending',
+            price_aed: null,
+            notes: null,
+          });
+      }),
+    );
+  });
+export const getRadarTargetItems = async (ids: string[]) =>
+  (await load()).items.filter((item) => ids.includes(item.radar_target_id));

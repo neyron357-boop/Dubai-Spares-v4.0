@@ -1,6 +1,6 @@
-import { Order, Part } from './types';
-import { publicQuoteCreateSnapshot } from './publicQuoteApi';
 import { loadAppSettings } from './appSettings';
+import { publicQuoteCreateSnapshot } from './publicQuoteApi';
+import { Order, Part } from './types';
 import { calculateOrderTotals } from './utils/quotePricing';
 
 export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS';
@@ -10,28 +10,26 @@ export const DEFAULT_QUOTE_RATES: QuoteRates = {
   AED: 1,
   USD: 0.27,
   RUB: 21,
-  TJS: 2.60,
+  TJS: 2.6,
   KZT: 125,
   UZS: 3400,
 };
 
 const firstHttpPhoto = (images: string[]) => images.find((item) => item.startsWith('http'));
 
-
-
-export const getShareText = (brand: string, partName: string, price: string, cloudLink: string) =>
-  `Brand: ${brand} | Part: ${partName} | Price: ${price} | Photos: ${cloudLink}`;
+export const getShareText = (brand: string, partName: string, price: string, imageLink: string) =>
+  `Brand: ${brand} | Part: ${partName} | Price: ${price} | Photos: ${imageLink}`;
 
 const openShareFallback = (text: string) => {
   const encoded = encodeURIComponent(text);
   window.open(`https://wa.me/?text=${encoded}`, '_blank');
 };
 
-
 const getAppBaseUrl = () => new URL(import.meta.env.BASE_URL, window.location.origin);
 
 const createRefCode = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
@@ -42,7 +40,7 @@ export const buildPublicOrderFormLink = (refCode?: string) => {
   url.hash = '/request';
   return {
     refCode: ref,
-    url: url.toString()
+    url: url.toString(),
   };
 };
 
@@ -71,14 +69,16 @@ export const sharePublicOrderForm = async () => {
 };
 
 const buildPublicQuoteShareMessage = (order: Order, link: string) => {
-  const carName = [order.brand, order.model, order.year].filter(Boolean).join(' ').trim() || `автомобиля ${order.id}`;
+  const carName =
+    [order.brand, order.model, order.year].filter(Boolean).join(' ').trim() ||
+    `автомобиля ${order.id}`;
   const clientName = (order.clientName || '').trim();
   const intro = clientName ? `Здравствуйте, ${clientName}!` : 'Здравствуйте!';
   return [
     intro,
     `Итоговая смета по ${carName}:`,
     link,
-    'Если будут вопросы — напишите, поможем.'
+    'Если будут вопросы — напишите, поможем.',
   ].join('\n\n');
 };
 
@@ -99,43 +99,55 @@ export const buildOrderShareText = (order: Order) => {
     ...(topPart?.photos || []),
     ...(variant?.photos || []),
     topPart?.photoUrl || '',
-    variant?.photoUrl || ''
+    variant?.photoUrl || '',
   ].filter(Boolean) as string[];
 
-  return getShareText(order.brand, topPart?.name || order.model, price, firstHttpPhoto(photos) || 'No cloud link yet');
+  return getShareText(
+    order.brand,
+    topPart?.name || order.model,
+    price,
+    firstHttpPhoto(photos) || 'Фото сохранено на устройстве',
+  );
 };
 
 export const buildPartShareText = (order: Order, part: Part) => {
   const bestVariant = [...part.variants].sort((a, b) => a.priceAed - b.priceAed)[0];
   const price = bestVariant ? `${bestVariant.priceAed} AED` : 'On request';
-  const photos = [...(part.photos || []), ...(bestVariant?.photos || []), part.photoUrl || '', bestVariant?.photoUrl || ''].filter(Boolean) as string[];
-  return getShareText(order.brand, part.name, price, firstHttpPhoto(photos) || 'No cloud link yet');
+  const photos = [
+    ...(part.photos || []),
+    ...(bestVariant?.photos || []),
+    part.photoUrl || '',
+    bestVariant?.photoUrl || '',
+  ].filter(Boolean) as string[];
+  return getShareText(
+    order.brand,
+    part.name,
+    price,
+    firstHttpPhoto(photos) || 'Фото сохранено на устройстве',
+  );
 };
 
-const slugify = (value: string) =>
-  value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-');
-
-export const buildPublicQuoteSlug = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'>) => order.id;
+export const buildPublicQuoteSlug = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'>) =>
+  order.id;
 
 export const extractOrderIdFromQuoteSlug = (slugOrId: string) => {
   const raw = slugOrId.trim().replace(/^\/+|\/+$/g, '');
   let trimmed = raw;
-  try { trimmed = decodeURIComponent(raw); } catch { /* Invalid encoded links remain readable instead of crashing startup. */ }
+  try {
+    trimmed = decodeURIComponent(raw);
+  } catch {
+    /* Invalid encoded links remain readable instead of crashing startup. */
+  }
   const separated = trimmed.lastIndexOf('--');
   if (separated > -1) return trimmed.slice(separated + 2);
 
-  const uuidAtEnd = trimmed.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  const uuidAtEnd = trimmed.match(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  );
   if (uuidAtEnd) return uuidAtEnd[0];
 
   return trimmed;
 };
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type PublicQuoteKey = {
   value: string;
@@ -145,18 +157,24 @@ export type PublicQuoteKey = {
   snapshotId: string | null;
 };
 
-const normalizeQuoteParams = (paramsOrPath?: URLSearchParams | string | null, maybePathParam?: string) => {
+const normalizeQuoteParams = (
+  paramsOrPath?: URLSearchParams | string | null,
+  maybePathParam?: string,
+) => {
   if (paramsOrPath instanceof URLSearchParams) {
     return { params: paramsOrPath, pathParam: maybePathParam || '' };
   }
 
   return {
     params: new URLSearchParams(typeof window !== 'undefined' ? window.location.search : ''),
-    pathParam: String(paramsOrPath || '')
+    pathParam: String(paramsOrPath || ''),
   };
 };
 
-export const parsePublicQuoteKey = (paramsOrPath?: URLSearchParams | string | null, maybePathParam?: string): PublicQuoteKey | null => {
+export const parsePublicQuoteKey = (
+  paramsOrPath?: URLSearchParams | string | null,
+  maybePathParam?: string,
+): PublicQuoteKey | null => {
   const { params, pathParam: rawPathParam } = normalizeQuoteParams(paramsOrPath, maybePathParam);
   const packedKey = (params.get('k') || '').trim();
   if (packedKey) {
@@ -167,7 +185,7 @@ export const parsePublicQuoteKey = (paramsOrPath?: URLSearchParams | string | nu
         source: 'token',
         urlToken: token,
         urlSnapshot: (snapshot || '').trim() || null,
-        snapshotId: (snapshot || '').trim() || null
+        snapshotId: (snapshot || '').trim() || null,
       };
     }
   }
@@ -180,7 +198,7 @@ export const parsePublicQuoteKey = (paramsOrPath?: URLSearchParams | string | nu
       source: 'token',
       urlToken: tokenFromQuery || null,
       urlSnapshot: snapshotFromQuery || null,
-      snapshotId: snapshotFromQuery || null
+      snapshotId: snapshotFromQuery || null,
     };
   }
 
@@ -195,7 +213,7 @@ export const parsePublicQuoteKey = (paramsOrPath?: URLSearchParams | string | nu
         source: 'token',
         urlToken: pathToken,
         urlSnapshot: (pathSnapshot || '').trim() || null,
-        snapshotId: (pathSnapshot || '').trim() || null
+        snapshotId: (pathSnapshot || '').trim() || null,
       };
     }
   }
@@ -208,15 +226,14 @@ export const parsePublicQuoteKey = (paramsOrPath?: URLSearchParams | string | nu
     source: 'token',
     urlToken: pathParam,
     urlSnapshot: null,
-    snapshotId: null
+    snapshotId: null,
   };
 };
 
-export const serializeQuoteRates = (rates: QuoteRates) => (
+export const serializeQuoteRates = (rates: QuoteRates) =>
   (Object.keys(DEFAULT_QUOTE_RATES) as QuoteCurrency[])
     .map((code) => `${code}:${Number(rates[code]).toFixed(6)}`)
-    .join(',')
-);
+    .join(',');
 
 export const parseQuoteRates = (raw: string | null | undefined): QuoteRates | null => {
   if (!raw) return null;
@@ -251,7 +268,9 @@ const createQuoteToken = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
     const bytes = new Uint8Array(QUOTE_TOKEN_LENGTH / 2);
     crypto.getRandomValues(bytes);
-    return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    return Array.from(bytes)
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
   }
   throw new Error('Для безопасной ссылки требуется HTTPS и поддержка Web Crypto.');
 };
@@ -259,7 +278,10 @@ const createQuoteToken = () => {
 const encodeSnapshot = (snapshot: Record<string, unknown>) => {
   try {
     const raw = JSON.stringify(snapshot);
-    return btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    return btoa(unescape(encodeURIComponent(raw)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
   } catch {
     return '';
   }
@@ -285,96 +307,128 @@ export const buildQuoteSnapshot = (order: Order) => {
   const markupAed = totals.markupAed;
   const grandTotalAed = totals.totalAed;
 
-  return ({
-  id: order.id,
-  brand: order.brand,
-  model: order.model,
-  year: order.year,
-  bodyType: order.bodyType,
-  vin: order.vin,
-  vinPhotoUrl: order.vinPhotoUrl,
-  googleDriveFolderUrl: order.googleDriveFolderUrl || '',
-  google_drive_folder_url: order.googleDriveFolderUrl || '',
-  carPhotoUrl: order.carPhotoUrl,
-  carPhotos: (order.carPhotos || []).slice(0, 3),
-  markupType: order.markupType,
-  markupPercent: order.markupPercent,
-  markupFixedAed: order.markupFixedAed,
-  exchangeRate: order.exchangeRate,
-  clientCurrency: order.clientCurrency || 'USD',
-  logistics: {
-    ...(order.logistics || {}),
-    deliveryAed,
-    packingAed,
-    serviceFeeAed: commissionAed,
-    delivery_aed: deliveryAed,
-    packing_aed: packingAed,
-    commission_aed: commissionAed,
-    logistics_total: deliveryAed + packingAed + commissionAed
-  },
-  breakdown: {
-    delivery: deliveryAed, packaging: packingAed, commission: commissionAed,
-    discount: totals.discountAed, total: totals.totalAed,
-    deposit: totals.depositAed, balance_due: totals.balanceDueAed,
-  },
-  pricingBreakdown: {
-    discount_aed: totals.discountAed,
-    parts_sum: partsSumAed,
-    delivery_aed: deliveryAed,
-    packing_aed: packingAed,
-    commission_aed: commissionAed,
-    markup_aed: markupAed,
-    grand_total: grandTotalAed,
-    cargo_total_cost_usd: cargoTotalCostUsd,
-    exchange_rate: Number(order.exchangeRate || 3.67),
-    client_currency: order.clientCurrency || 'USD',
-    created_at: new Date().toISOString()
-  },
-  pricingEvents: order.pricingEvents || [],
-  proof_notes: (order.notes || [])
-    .filter((note) => note.visibility !== 'internal' && (note.visibility === 'client' || note.kind === 'proof'))
-    .map((note) => ({
-      id: note.id,
-      text: note.text || '',
-      photos: uniquePhotos(note.photos || []),
-      video_urls: (note.videoUrls || []).filter(Boolean),
-      audios: (note.audios || []).map((audio, index) => typeof audio === 'string'
-        ? { id: `audio-${index}`, file_url: audio, duration: 0, created_at: note.createdAt, author: 'Stark Motors' }
-        : { id: audio.id, file_url: audio.fileUrl, duration: audio.duration, created_at: audio.createdAt, author: audio.author }),
-      created_at: note.createdAt
+  return {
+    id: order.id,
+    brand: order.brand,
+    model: order.model,
+    year: order.year,
+    bodyType: order.bodyType,
+    vin: order.vin,
+    vinPhotoUrl: order.vinPhotoUrl,
+    googleDriveFolderUrl: order.googleDriveFolderUrl || '',
+    google_drive_folder_url: order.googleDriveFolderUrl || '',
+    carPhotoUrl: order.carPhotoUrl,
+    carPhotos: (order.carPhotos || []).slice(0, 3),
+    markupType: order.markupType,
+    markupPercent: order.markupPercent,
+    markupFixedAed: order.markupFixedAed,
+    exchangeRate: order.exchangeRate,
+    clientCurrency: order.clientCurrency || 'USD',
+    logistics: {
+      ...(order.logistics || {}),
+      deliveryAed,
+      packingAed,
+      serviceFeeAed: commissionAed,
+      delivery_aed: deliveryAed,
+      packing_aed: packingAed,
+      commission_aed: commissionAed,
+      logistics_total: deliveryAed + packingAed + commissionAed,
+    },
+    breakdown: {
+      delivery: deliveryAed,
+      packaging: packingAed,
+      commission: commissionAed,
+      discount: totals.discountAed,
+      total: totals.totalAed,
+      deposit: totals.depositAed,
+      balance_due: totals.balanceDueAed,
+    },
+    pricingBreakdown: {
+      discount_aed: totals.discountAed,
+      parts_sum: partsSumAed,
+      delivery_aed: deliveryAed,
+      packing_aed: packingAed,
+      commission_aed: commissionAed,
+      markup_aed: markupAed,
+      grand_total: grandTotalAed,
+      cargo_total_cost_usd: cargoTotalCostUsd,
+      exchange_rate: Number(order.exchangeRate || 3.67),
+      client_currency: order.clientCurrency || 'USD',
+      created_at: new Date().toISOString(),
+    },
+    pricingEvents: order.pricingEvents || [],
+    proof_notes: (order.notes || [])
+      .filter(
+        (note) =>
+          note.visibility !== 'internal' && (note.visibility === 'client' || note.kind === 'proof'),
+      )
+      .map((note) => ({
+        id: note.id,
+        text: note.text || '',
+        photos: uniquePhotos(note.photos || []),
+        video_urls: (note.videoUrls || []).filter(Boolean),
+        audios: (note.audios || []).map((audio, index) =>
+          typeof audio === 'string'
+            ? {
+                id: `audio-${index}`,
+                file_url: audio,
+                duration: 0,
+                created_at: note.createdAt,
+                author: 'Stark Motors',
+              }
+            : {
+                id: audio.id,
+                file_url: audio.fileUrl,
+                duration: audio.duration,
+                created_at: audio.createdAt,
+                author: audio.author,
+              },
+        ),
+        created_at: note.createdAt,
+      })),
+    parts: totals.lines.map(({ part, quantity, clientUnitAed, clientLineTotalAed, variant }) => ({
+      id: part.id,
+      qty: quantity,
+      quantity,
+      client_unit_price_aed: clientUnitAed,
+      client_line_total_aed: clientLineTotalAed,
+      photo_urls: uniquePhotos([
+        ...(variant.photos || []),
+        variant.photoUrl || '',
+        ...(part.photos || []),
+        part.photoUrl || '',
+      ]),
+      name: part.name,
+      isFound: !!part.isFound,
+      partType: String((part as any).partType || 'regular'),
+      weightKg: Number((part as any).weightKg || 0),
+      lengthCm: Number((part as any).lengthCm || 0),
+      widthCm: Number((part as any).widthCm || 0),
+      heightCm: Number((part as any).heightCm || 0),
+      places: Number((part as any).places || 0),
+      cargoPlaceGroup: String((part as any).cargoPlaceGroup || '').trim(),
+      isOversized: !!(part as any).isOversized,
+      googleDriveVideoUrl: String((part as any).googleDriveVideoUrl || '').trim(),
+      google_drive_video_url: String((part as any).googleDriveVideoUrl || '').trim(),
+      photoUrl: part.photoUrl,
+      photos: uniquePhotos(part.photos || []),
     })),
-  parts: totals.lines.map(({ part, quantity, clientUnitAed, clientLineTotalAed, variant }) => ({
-    id: part.id,
-    qty: quantity, quantity,
-    client_unit_price_aed: clientUnitAed,
-    client_line_total_aed: clientLineTotalAed,
-    photo_urls: uniquePhotos([...(variant.photos || []), variant.photoUrl || '', ...(part.photos || []), part.photoUrl || '']),
-    name: part.name,
-    isFound: !!part.isFound,
-    partType: String((part as any).partType || 'regular'),
-    weightKg: Number((part as any).weightKg || 0),
-    lengthCm: Number((part as any).lengthCm || 0),
-    widthCm: Number((part as any).widthCm || 0),
-    heightCm: Number((part as any).heightCm || 0),
-    places: Number((part as any).places || 0),
-    cargoPlaceGroup: String((part as any).cargoPlaceGroup || '').trim(),
-    isOversized: !!(part as any).isOversized,
-    googleDriveVideoUrl: String((part as any).googleDriveVideoUrl || '').trim(),
-    google_drive_video_url: String((part as any).googleDriveVideoUrl || '').trim(),
-    photoUrl: part.photoUrl,
-    photos: uniquePhotos(part.photos || []),
-
-  }))
-  });
+  };
 };
 
-export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string, options?: BuildPublicQuoteLinkOptions) => {
-  const slug = typeof order === 'string' ? encodeURIComponent(order) : encodeURIComponent(buildPublicQuoteSlug(order));
+export const buildPublicQuoteLink = (
+  order: Pick<Order, 'id' | 'brand' | 'model' | 'year'> | string,
+  options?: BuildPublicQuoteLinkOptions,
+) => {
+  const slug =
+    typeof order === 'string'
+      ? encodeURIComponent(order)
+      : encodeURIComponent(buildPublicQuoteSlug(order));
   const token = options?.snapshotToken || createQuoteToken();
   const url = getAppBaseUrl();
   const params = new URLSearchParams();
   params.set('token', token);
-  const expiresAt = Number(options?.expiresAt || (Date.now() + 72 * 60 * 60 * 1000));
+  const expiresAt = Number(options?.expiresAt || Date.now() + 72 * 60 * 60 * 1000);
   params.set('exp', String(expiresAt));
   if (typeof order !== 'string') {
     params.set('oid', order.id);
@@ -401,36 +455,17 @@ export const buildPublicQuoteLink = (order: Pick<Order, 'id' | 'brand' | 'model'
 
 export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
   const settings = loadAppSettings();
-  const hasPricedItems = (order.parts || []).some((part) => (
-    part.isFound && (part.variants || []).some((variant) => Number(variant.priceAed || variant.salePriceAed || variant.purchasePriceAed || 0) > 0)
-  ));
+  const hasPricedItems = (order.parts || []).some(
+    (part) =>
+      part.isFound &&
+      (part.variants || []).some(
+        (variant) =>
+          Number(variant.priceAed || variant.salePriceAed || variant.purchasePriceAed || 0) > 0,
+      ),
+  );
   if (!hasPricedItems) throw new Error('Нет цен по позициям');
 
   const quoteToken = options?.snapshotToken || createQuoteToken();
-  const provisionalLink = buildPublicQuoteLink(order, {
-    ...options,
-    snapshotToken: quoteToken,
-    upsertByToken: true
-  });
-  const provisionalShareText = buildPublicQuoteShareMessage(order, provisionalLink);
-  let nativeShare: Promise<'shared' | 'aborted' | 'failed'> | null = null;
-  if (navigator.share) {
-    try {
-      nativeShare = navigator.share({
-        title: `Смета для ${order.brand} ${order.model} ${order.year}`.trim(),
-        text: provisionalShareText,
-        url: provisionalLink
-      }).then(() => 'shared' as const).catch((error) => {
-        if (error instanceof DOMException && error.name === 'AbortError') return 'aborted' as const;
-        console.warn('[shareQuoteLink] Native share failed, falling back after snapshot', error);
-        return 'failed' as const;
-      });
-    } catch (error) {
-      console.warn('[shareQuoteLink] Native share failed synchronously, falling back after snapshot', error);
-      nativeShare = Promise.resolve('failed' as const);
-    }
-  }
-
   const snapshot = await publicQuoteCreateSnapshot(order, {
     currency: options?.currency,
     exchangeRate: options?.rates?.[options?.currency || 'USD'],
@@ -438,7 +473,7 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
     upsertByToken: true,
     owner: {
       whatsappPhone: settings.publicWhatsappNumber,
-      displayName: 'Stark Motors'
+      displayName: 'Stark Motors',
     },
     publicSettings: {
       publicWhatsappNumber: settings.publicWhatsappNumber,
@@ -457,20 +492,49 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
       publicTermsFileUrl: settings.publicTermsFileUrl,
       publicTermsFileName: settings.publicTermsFileName,
       executorPhotoUrl: settings.executorPhotoUrl,
-      executorRole: settings.executorRole
+      executorRole: settings.executorRole,
     },
-    rates: options?.rates
+    rates: options?.rates,
   });
   const link = snapshot.url;
   const shareText = buildPublicQuoteShareMessage(order, link);
 
-  if (nativeShare) {
-    const nativeShareResult = await nativeShare;
-    if (nativeShareResult === 'shared' || nativeShareResult === 'aborted') {
-      return { method: 'native' as const, link: provisionalLink, shareText: provisionalShareText, token: snapshot.token };
+  if (navigator.share && !snapshot.requiresFile && link.length < 64000) {
+    try {
+      await navigator.share({ title: 'Смета · Stark Motors', text: shareText, url: link });
+      return { method: 'native' as const, link, shareText, token: snapshot.token };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError')
+        return { method: 'native' as const, link, shareText, token: snapshot.token };
     }
   }
-
+  if (snapshot.requiresFile || link.length >= 64000) {
+    const file = new File([JSON.stringify(snapshot)], `quote-${order.id}.json`, {
+      type: 'application/json',
+    });
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ title: 'Смета · Stark Motors', files: [file] });
+        return { method: 'native' as const, link, shareText, token: snapshot.token };
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError')
+          return { method: 'native' as const, link, shareText, token: snapshot.token };
+      }
+    }
+    const url = URL.createObjectURL(file),
+      anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = file.name;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return {
+      method: 'file' as const,
+      link: '',
+      shareText:
+        'Смета сохранена в файл. Её можно открыть через раздел Смета из файла в настройках.',
+      token: snapshot.token,
+    };
+  }
   const copied = await copyToClipboard(link);
   if (copied) {
     openShareFallback(shareText);

@@ -7,12 +7,12 @@ const serializeUnhandledError = (error: unknown) => {
     return {
       name: error.name,
       message: error.message,
-      stack: error.stack
+      stack: error.stack,
     };
   }
 
   return {
-    message: String(error)
+    message: String(error),
   };
 };
 
@@ -26,13 +26,13 @@ export const installRuntimeDiagnostics = () => {
       filename: event.filename,
       line: event.lineno,
       column: event.colno,
-      error: serializeUnhandledError(event.error)
+      error: serializeUnhandledError(event.error),
     });
   });
 
   window.addEventListener('unhandledrejection', (event) => {
     void logger.error('ui:window', 'unhandled_promise_rejection', {
-      reason: serializeUnhandledError(event.reason)
+      reason: serializeUnhandledError(event.reason),
     });
   });
 
@@ -44,7 +44,7 @@ export const installRuntimeDiagnostics = () => {
             void logger.warn('ui:performance', 'Long task detected', {
               durationMs: Math.round(entry.duration),
               name: entry.name,
-              startTime: Math.round(entry.startTime)
+              startTime: Math.round(entry.startTime),
             });
           }
         }

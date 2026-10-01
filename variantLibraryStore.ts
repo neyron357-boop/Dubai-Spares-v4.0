@@ -46,7 +46,7 @@ const normalizeStandaloneVariant = (item: VariantLibraryItem): VariantLibraryIte
   customerOrderRef: typeof item.customerOrderRef === 'string' ? item.customerOrderRef.trim() : '',
   photos: Array.isArray(item.photos) ? item.photos.filter(Boolean) : [],
   createdAt: Number.isFinite(Number(item.createdAt)) ? Number(item.createdAt) : Date.now(),
-  updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : Date.now()
+  updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : Date.now(),
 });
 
 const persistStandaloneVariants = () => {
@@ -55,7 +55,9 @@ const persistStandaloneVariants = () => {
 };
 
 export const loadStandaloneVariants = () => {
-  standaloneVariants = safeParse(localStorage.getItem(STANDALONE_VARIANTS_KEY)).map(normalizeStandaloneVariant);
+  standaloneVariants = safeParse(localStorage.getItem(STANDALONE_VARIANTS_KEY)).map(
+    normalizeStandaloneVariant,
+  );
   notify();
 };
 
@@ -102,23 +104,26 @@ export const getVariantLibraryItems = (orders: Order[]): VariantLibraryItem[] =>
           sourceOrderLabel: carTitle,
           vehicleInfo: variantVehicleInfo || carTitle,
           vin: variantVin || orderVin,
-          customerOrderRef: variant.customerOrderRef || order.id
+          customerOrderRef: variant.customerOrderRef || order.id,
         };
-      })
-    )
+      }),
+    ),
   );
 
   const combined = [...standaloneVariants, ...orderVariants];
-  return combined.sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+  return combined.sort(
+    (a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0),
+  );
 };
 
 export const cloneVariantForPart = (variant: PriceVariant, partId: string): PriceVariant => ({
   ...variant,
-  id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+  id:
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
   partId,
   isBest: false,
   createdAt: Date.now(),
-  updatedAt: Date.now()
+  updatedAt: Date.now(),
 });

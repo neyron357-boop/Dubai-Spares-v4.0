@@ -1,13 +1,12 @@
 {
   "name": "Stark Motors",
   "short_name": "StarkMotors",
-  "description": "Order lifecycle, radar alerts, and supplier matching for Stark Motors.",
+  "description": "Заказы, поставщики и подбор автозапчастей. Локальное хранение и работа без интернета.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait-primary",
-  "background_color": "#0f172a",
-  "theme_color": "#2563eb",
+  "background_color": "#f4f6fa",
+  "theme_color": "#152136",
   "icons": [
     {
       "src": "icon-32.png",
@@ -30,15 +29,6 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
-    }
-  ],
-  "screenshots": [
-    {
-      "src": "icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Stark Motors mobile"
     }
   ]
 }

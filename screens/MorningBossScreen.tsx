@@ -9,7 +9,10 @@ const DAILY_GOAL_PARTS = 20;
 const STREAK_DAYS = 12;
 
 const formatDate = (): string => {
-  return new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) + ' • Шарджа';
+  return (
+    new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) +
+    ' • Шарджа'
+  );
 };
 
 const foundPartsCount = (order: Order) =>
@@ -20,19 +23,16 @@ const MorningBossScreen: React.FC = () => {
   const { orders } = useStore();
   const [streakBounce, setStreakBounce] = useState(false);
 
-  const activeOrders = useMemo(
-    () => orders.filter((o) => !o.isArchived && !o.isSold),
-    [orders]
-  );
+  const activeOrders = useMemo(() => orders.filter((o) => !o.isArchived && !o.isSold), [orders]);
 
   const urgentOrdersList = useMemo(
     () => activeOrders.filter((o) => o.priority === Priority.HIGH).slice(0, 4),
-    [activeOrders]
+    [activeOrders],
   );
 
   const totalFoundParts = useMemo(
     () => activeOrders.reduce((sum, o) => sum + foundPartsCount(o), 0),
-    [activeOrders]
+    [activeOrders],
   );
 
   const todayMargin = useMemo(() => {
@@ -47,16 +47,18 @@ const MorningBossScreen: React.FC = () => {
         return acc + bestPrice;
       }, 0);
       if (costAed <= 0) return sum;
-      return sum + costAed * (order.markupPercent || 0) / 100;
+      return sum + (costAed * (order.markupPercent || 0)) / 100;
     }, 0);
   }, [activeOrders]);
 
-  const ordersProgress = DAILY_GOAL_ORDERS > 0
-    ? Math.min(100, (Math.min(activeOrders.length, DAILY_GOAL_ORDERS) / DAILY_GOAL_ORDERS) * 100)
-    : 0;
-  const partsProgress = DAILY_GOAL_PARTS > 0
-    ? Math.min(100, (Math.min(totalFoundParts, DAILY_GOAL_PARTS) / DAILY_GOAL_PARTS) * 100)
-    : 0;
+  const ordersProgress =
+    DAILY_GOAL_ORDERS > 0
+      ? Math.min(100, (Math.min(activeOrders.length, DAILY_GOAL_ORDERS) / DAILY_GOAL_ORDERS) * 100)
+      : 0;
+  const partsProgress =
+    DAILY_GOAL_PARTS > 0
+      ? Math.min(100, (Math.min(totalFoundParts, DAILY_GOAL_PARTS) / DAILY_GOAL_PARTS) * 100)
+      : 0;
 
   const handleStreakTap = () => {
     setStreakBounce(true);
@@ -64,13 +66,12 @@ const MorningBossScreen: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-[#f7f8fc]">
+    <div className="flex min-h-[100dvh] flex-col bg-[#f4f6fa]">
       {/* Scrollable content */}
       <div className="flex-1 px-5 pt-[max(1.5rem,env(safe-area-inset-top))]">
-
         {/* ── 1. Greeting ── */}
         <div className="mb-6">
-          <h1 className="text-[34px] font-black leading-tight tracking-tight text-slate-900">
+          <h1 className="text-[34px] font-bold leading-tight tracking-tight text-slate-900">
             {getGreeting()}
           </h1>
           <p className="mt-1 text-sm text-slate-500">{formatDate()}</p>
@@ -78,7 +79,7 @@ const MorningBossScreen: React.FC = () => {
 
         {/* ── 2. Daily goals ── */}
         <div className="rounded-3xl bg-white border border-slate-200 shadow-sm px-5 py-4 mb-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-3">
             Цель на сегодня
           </p>
 
@@ -86,12 +87,10 @@ const MorningBossScreen: React.FC = () => {
             {/* Orders goal */}
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-1">
-                <span className="text-[40px] font-black leading-none text-slate-900">
+                <span className="text-[40px] font-bold leading-none text-slate-900">
                   {Math.min(activeOrders.length, DAILY_GOAL_ORDERS)}
                 </span>
-                <span className="text-base font-bold text-slate-400">
-                  /{DAILY_GOAL_ORDERS}
-                </span>
+                <span className="text-base font-bold text-slate-400">/{DAILY_GOAL_ORDERS}</span>
               </div>
               <p className="text-xs font-semibold text-slate-500 mt-0.5">заказов</p>
               <div className="mt-2 h-2 w-full rounded-full bg-slate-100 overflow-hidden">
@@ -107,12 +106,10 @@ const MorningBossScreen: React.FC = () => {
             {/* Parts goal */}
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-1">
-                <span className="text-[40px] font-black leading-none text-slate-900">
+                <span className="text-[40px] font-bold leading-none text-slate-900">
                   {Math.min(totalFoundParts, DAILY_GOAL_PARTS)}
                 </span>
-                <span className="text-base font-bold text-slate-400">
-                  /{DAILY_GOAL_PARTS}
-                </span>
+                <span className="text-base font-bold text-slate-400">/{DAILY_GOAL_PARTS}</span>
               </div>
               <p className="text-xs font-semibold text-slate-500 mt-0.5">деталей</p>
               <div className="mt-2 h-2 w-full rounded-full bg-slate-100 overflow-hidden">
@@ -126,10 +123,10 @@ const MorningBossScreen: React.FC = () => {
 
           {/* Margin */}
           <div className="rounded-2xl bg-emerald-50 border border-emerald-100 px-4 py-3 text-center">
-            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-1">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-600 mb-1">
               Маржа сегодня
             </p>
-            <p className="text-[40px] font-black leading-none text-emerald-600">
+            <p className="text-[40px] font-bold leading-none text-emerald-600">
               +{Math.round(todayMargin).toLocaleString('ru-RU')}
             </p>
             <p className="text-sm font-bold text-emerald-600 mt-0.5">AED</p>
@@ -138,9 +135,7 @@ const MorningBossScreen: React.FC = () => {
 
         {/* ── 3. Streak ── */}
         <div className="rounded-3xl bg-white border border-slate-200 shadow-sm px-5 py-3.5 mb-4 flex items-center justify-between">
-          <p className="text-sm font-bold text-slate-800">
-            Стрик: {STREAK_DAYS} дней подряд 🔥
-          </p>
+          <p className="text-sm font-bold text-slate-800">Стрик: {STREAK_DAYS} дней подряд 🔥</p>
           <button
             type="button"
             onClick={handleStreakTap}
@@ -152,13 +147,15 @@ const MorningBossScreen: React.FC = () => {
 
         {/* ── 4. Urgent today ── */}
         <div className="mb-6">
-          <p className="text-[11px] font-black uppercase tracking-widest text-rose-600 mb-2">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-rose-600 mb-2">
             🔥 СРОЧНО СЕГОДНЯ
           </p>
 
           {urgentOrdersList.length === 0 ? (
             <div className="rounded-3xl bg-white border border-slate-200 shadow-sm px-5 py-5 text-center">
-              <p className="text-sm font-semibold text-slate-600">Отлично! Сегодня всё спокойно ✅</p>
+              <p className="text-sm font-semibold text-slate-600">
+                Отлично! Сегодня всё спокойно ✅
+              </p>
             </div>
           ) : (
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1 -mx-5 px-5">
@@ -177,17 +174,19 @@ const MorningBossScreen: React.FC = () => {
                       />
                     ) : (
                       <div className="h-24 w-full bg-rose-50 flex items-center justify-center">
-                        <span className="text-3xl font-black text-rose-300">{order.brand?.[0] || '?'}</span>
+                        <span className="text-3xl font-bold text-rose-300">
+                          {order.brand?.[0] || '?'}
+                        </span>
                       </div>
                     )}
                     <div className="p-2.5 space-y-2">
-                      <p className="text-[12px] font-black text-slate-800 truncate">
+                      <p className="text-[12px] font-bold text-slate-800 truncate">
                         {order.brand} {order.model}
                       </p>
                       <button
                         type="button"
                         onClick={() => navigate(`/order/${order.id}`)}
-                        className="w-full rounded-xl bg-rose-500 py-1.5 text-[10px] font-black text-white active:scale-95 transition-transform"
+                        className="w-full rounded-xl bg-rose-500 py-1.5 text-[11px] font-bold text-white active:scale-95 transition-transform"
                       >
                         Отправить поставщику
                       </button>
@@ -198,15 +197,14 @@ const MorningBossScreen: React.FC = () => {
             </div>
           )}
         </div>
-
       </div>
 
       {/* ── 5. Fixed CTA button ── */}
-      <div className="px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 bg-[#f7f8fc] border-t border-slate-200 shrink-0">
+      <div className="px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 bg-[#f4f6fa] border-t border-slate-200 shrink-0">
         <button
           type="button"
           onClick={() => navigate('/orders')}
-          className="w-full h-14 rounded-2xl bg-slate-900 text-white text-base font-black tracking-wide shadow-lg active:scale-[0.98] transition-transform"
+          className="w-full h-14 rounded-2xl bg-slate-900 text-white text-base font-bold tracking-wide shadow-lg active:scale-[0.98] transition-transform"
         >
           Начать работу →
         </button>

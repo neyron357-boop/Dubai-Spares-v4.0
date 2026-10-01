@@ -1,6 +1,6 @@
+import { TrendingDown, TrendingUp, X } from 'lucide-react';
 import React from 'react';
 import { Order } from '../types';
-import { X, TrendingDown, TrendingUp } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -18,43 +18,55 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
     const isPaidOrCompleted = salesStatus === 'paid' || salesStatus === 'completed';
     return !order.isArchived && (order.isSold || isPaidOrCompleted);
   });
-  const totals = soldOrders.reduce((sum, order) => {
-    const partsTotal = order.parts.reduce((partSum, part) => {
-      const quantity = Math.max(1, Number(part.quantity || 1));
-      const selected = (part.variants || []).find((variant) => variant.id === part.bestOfferId || variant.isBest) || part.variants?.[0];
-      if (!selected) return partSum;
-      const purchase = Number(selected.purchasePriceAed ?? selected.priceAed ?? 0) * quantity;
-      const sale = Number(selected.salePriceAed ?? selected.priceAed ?? 0) * quantity;
+  const totals = soldOrders.reduce(
+    (sum, order) => {
+      const partsTotal = order.parts.reduce(
+        (partSum, part) => {
+          const quantity = Math.max(1, Number(part.quantity || 1));
+          const selected =
+            (part.variants || []).find(
+              (variant) => variant.id === part.bestOfferId || variant.isBest,
+            ) || part.variants?.[0];
+          if (!selected) return partSum;
+          const purchase = Number(selected.purchasePriceAed ?? selected.priceAed ?? 0) * quantity;
+          const sale = Number(selected.salePriceAed ?? selected.priceAed ?? 0) * quantity;
+          return {
+            purchase: partSum.purchase + purchase,
+            sale: partSum.sale + sale,
+          };
+        },
+        { purchase: 0, sale: 0 },
+      );
+
+      const delivery = Number(order.logistics?.deliveryAed || 0);
+      const packing = Number(order.logistics?.packingAed || 0);
+      const service = Number(order.logistics?.serviceFeeAed || 0);
+      const markup =
+        order.markupType === 'fixed'
+          ? Number(order.markupFixedAed || 0)
+          : partsTotal.sale * (Number(order.markupPercent || 0) / 100);
+      const clientPrice = partsTotal.sale + delivery + packing + service + markup;
+      const calculatedProfit = clientPrice - partsTotal.purchase - delivery - packing;
+      const profit =
+        Number.isFinite(Number(order.soldProfitUsd)) && Number(order.soldProfitUsd) !== 0
+          ? Number(order.soldProfitUsd) * Number(order.exchangeRate || 3.67)
+          : calculatedProfit;
+
       return {
-        purchase: partSum.purchase + purchase,
-        sale: partSum.sale + sale
+        purchase: sum.purchase + partsTotal.purchase,
+        delivery: sum.delivery + delivery,
+        packing: sum.packing + packing,
+        service: sum.service + service + markup,
+        clientPrice: sum.clientPrice + clientPrice,
+        profit: sum.profit + profit,
       };
-    }, { purchase: 0, sale: 0 });
-
-    const delivery = Number(order.logistics?.deliveryAed || 0);
-    const packing = Number(order.logistics?.packingAed || 0);
-    const service = Number(order.logistics?.serviceFeeAed || 0);
-    const markup = order.markupType === 'fixed'
-      ? Number(order.markupFixedAed || 0)
-      : partsTotal.sale * (Number(order.markupPercent || 0) / 100);
-    const clientPrice = partsTotal.sale + delivery + packing + service + markup;
-    const calculatedProfit = clientPrice - partsTotal.purchase - delivery - packing;
-    const profit = Number.isFinite(Number(order.soldProfitUsd)) && Number(order.soldProfitUsd) !== 0
-      ? Number(order.soldProfitUsd) * Number(order.exchangeRate || 3.67)
-      : calculatedProfit;
-
-    return {
-      purchase: sum.purchase + partsTotal.purchase,
-      delivery: sum.delivery + delivery,
-      packing: sum.packing + packing,
-      service: sum.service + service + markup,
-      clientPrice: sum.clientPrice + clientPrice,
-      profit: sum.profit + profit
-    };
-  }, { purchase: 0, delivery: 0, packing: 0, service: 0, clientPrice: 0, profit: 0 });
+    },
+    { purchase: 0, delivery: 0, packing: 0, service: 0, clientPrice: 0, profit: 0 },
+  );
 
   const hasEnoughData = soldOrders.length > 0 && totals.clientPrice > 0 && totals.purchase > 0;
-  const margin = hasEnoughData && totals.clientPrice > 0 ? (totals.profit / totals.clientPrice) * 100 : 0;
+  const margin =
+    hasEnoughData && totals.clientPrice > 0 ? (totals.profit / totals.clientPrice) * 100 : 0;
   const isProfit = totals.profit >= 0;
 
   const rows = [
@@ -62,7 +74,7 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
     ['Доставка', totals.delivery],
     ['Упаковка', totals.packing],
     ['Сервисный сбор', totals.service],
-    ['Цена клиенту', totals.clientPrice]
+    ['Цена клиенту', totals.clientPrice],
   ] as const;
 
   return (
@@ -79,10 +91,17 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
       >
         <header className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Finance</p>
-            <h2 className="text-lg font-black text-slate-950">Доход компании</h2>
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+              Finance
+            </p>
+            <h2 className="text-lg font-bold text-slate-950">Доход компании</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="Закрыть" className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-600 active:scale-95">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Закрыть"
+            className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-600 active:scale-95"
+          >
             <X size={18} />
           </button>
         </header>
@@ -94,11 +113,17 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className={`rounded-2xl border px-4 py-3 ${isProfit ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
+              <div
+                className={`rounded-2xl border px-4 py-3 ${isProfit ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}
+              >
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.16em] opacity-70">{isProfit ? 'Прибыль' : 'Убыток'}</p>
-                    <p className="mt-1 text-3xl font-black leading-none">{formatAed(totals.profit)}</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] opacity-70">
+                      {isProfit ? 'Прибыль' : 'Убыток'}
+                    </p>
+                    <p className="mt-1 text-3xl font-bold leading-none">
+                      {formatAed(totals.profit)}
+                    </p>
                   </div>
                   {isProfit ? <TrendingUp size={28} /> : <TrendingDown size={28} />}
                 </div>
@@ -109,23 +134,33 @@ const IncomeModal: React.FC<Props> = ({ isOpen, onClose, orders }) => {
                   {rows.map(([label, value]) => (
                     <div key={label} className="flex items-center justify-between gap-3 text-sm">
                       <span className="font-semibold text-slate-500">{label}:</span>
-                      <span className="font-black text-slate-900">{formatAed(value)}</span>
+                      <span className="font-bold text-slate-900">{formatAed(value)}</span>
                     </div>
                   ))}
                 </div>
                 <div className="mt-4 border-t border-slate-100 pt-3">
                   <div className="flex items-center justify-between gap-3 text-sm">
                     <span className="font-semibold text-slate-500">Прибыль:</span>
-                    <span className={`font-black ${isProfit ? 'text-emerald-700' : 'text-rose-700'}`}>{formatAed(totals.profit)}</span>
+                    <span
+                      className={`font-bold ${isProfit ? 'text-emerald-700' : 'text-rose-700'}`}
+                    >
+                      {formatAed(totals.profit)}
+                    </span>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-3 text-sm">
                     <span className="font-semibold text-slate-500">Маржа:</span>
-                    <span className={`font-black ${isProfit ? 'text-emerald-700' : 'text-rose-700'}`}>{margin.toFixed(0)}%</span>
+                    <span
+                      className={`font-bold ${isProfit ? 'text-emerald-700' : 'text-rose-700'}`}
+                    >
+                      {margin.toFixed(0)}%
+                    </span>
                   </div>
                 </div>
               </div>
 
-              <p className="text-center text-[11px] font-semibold text-slate-400">Проданных заказов: {soldOrders.length}</p>
+              <p className="text-center text-[11px] font-semibold text-slate-400">
+                Проданных заказов: {soldOrders.length}
+              </p>
             </div>
           )}
         </div>

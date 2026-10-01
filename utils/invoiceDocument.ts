@@ -1,8 +1,8 @@
-import type { Order } from '../types';
 import type { AppSettings } from '../appSettings';
-import type { NormalizedPublicQuoteSnapshot } from './publicQuoteSnapshot';
+import type { Order } from '../types';
 import type { NormalizedGroupItem } from './groupItems';
 import { getPartDisplayName, normalizeGroupItems } from './groupItems';
+import type { NormalizedPublicQuoteSnapshot } from './publicQuoteSnapshot';
 import { calculateOrderTotals } from './quotePricing';
 
 const BLUE = '#1f3f5f';
@@ -50,20 +50,22 @@ export type InvoicePayload = {
   language?: 'en' | 'ru';
 };
 
-const esc = (value: unknown) => String(value ?? '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;');
+const esc = (value: unknown) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 
 const money = (value: number, currencyCode = 'AED') => `${value.toFixed(2)} ${currencyCode}`;
 
-const formatDate = (value: Date) => value.toLocaleDateString('en-GB', {
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-  timeZone: 'UTC',
-});
+const formatDate = (value: Date) =>
+  value.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 
 const formatPhone = (value: string) => {
   const digits = String(value || '').replace(/\D/g, '');
@@ -87,32 +89,42 @@ const resolveTerms = (text: string) => {
     'Returns are possible only upon prior agreement and inspection result.',
     'This invoice was generated electronically and is valid without a stamp unless otherwise requested.',
   ];
-  const normalized = String(text || '').split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const normalized = String(text || '')
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   return normalized.length ? normalized : fallback;
 };
 
 const createInvoiceNumber = (seed: string, date: Date) => {
-  const compactSeed = seed.replace(/[^A-Za-z0-9]/g, '').slice(-6).toUpperCase() || 'SMUAE';
+  const compactSeed =
+    seed
+      .replace(/[^A-Za-z0-9]/g, '')
+      .slice(-6)
+      .toUpperCase() || 'SMUAE';
   const ymd = `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}${String(date.getUTCDate()).padStart(2, '0')}`;
   return `SM-${ymd}-${compactSeed}`;
 };
 
-export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings, options?: { currency?: string; rate?: number; language?: 'en' | 'ru' }): InvoicePayload => {
+export const buildInvoicePayloadFromOrder = (
+  order: Order,
+  settings: AppSettings,
+  options?: { currency?: string; rate?: number; language?: 'en' | 'ru' },
+): InvoicePayload => {
   const totals = calculateOrderTotals(order);
-  const items = totals.lines
-    .map((line, index) => {
-      const { part } = line;
-      const comment = String(part.comment || '').trim();
-      return {
-        id: String(part.id || index),
-        title: getPartDisplayName(part, `Part ${index + 1}`),
-        subtitle: comment || undefined,
-        groupItems: line.part.partKind === 'group' ? normalizeGroupItems(line.part.groupItems) : [],
-        qty: line.quantity,
-        unitPriceAed: line.clientUnitAed,
-        totalAed: line.clientLineTotalAed,
-      };
-    });
+  const items = totals.lines.map((line, index) => {
+    const { part } = line;
+    const comment = String(part.comment || '').trim();
+    return {
+      id: String(part.id || index),
+      title: getPartDisplayName(part, `Part ${index + 1}`),
+      subtitle: comment || undefined,
+      groupItems: line.part.partKind === 'group' ? normalizeGroupItems(line.part.groupItems) : [],
+      qty: line.quantity,
+      unitPriceAed: line.clientUnitAed,
+      totalAed: line.clientLineTotalAed,
+    };
+  });
 
   const subtotalAed = totals.partsTotalAed;
   const discountAed = totals.discountAed;
@@ -131,10 +143,16 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
   return {
     invoiceNumber: createInvoiceNumber(order.id || order.vin || carTitle, createdAt),
     createdAt,
-    clientName: String(order.clientName || order.customerContact || order.socialNickname || 'Client / Company'),
+    clientName: String(
+      order.clientName || order.customerContact || order.socialNickname || 'Client / Company',
+    ),
     carTitle: carTitle || 'Vehicle request',
     vin: String(order.vin || '—'),
-    items: items.map((item) => ({ ...item, unitPriceAed: item.unitPriceAed * rate, totalAed: item.totalAed * rate })),
+    items: items.map((item) => ({
+      ...item,
+      unitPriceAed: item.unitPriceAed * rate,
+      totalAed: item.totalAed * rate,
+    })),
     subtotalAed: subtotalAed * rate,
     deliveryAed: deliveryAed * rate,
     packingAed: packingAed * rate,
@@ -145,7 +163,12 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
     depositAed: depositAed * rate,
     balanceDueAed: balanceDueAed * rate,
     paymentTerms: resolveTerms(settings.publicWorkTerms),
-    invoiceTo: String(order.clientName || order.customerContact || order.socialNickname || 'Client details to be confirmed'),
+    invoiceTo: String(
+      order.clientName ||
+        order.customerContact ||
+        order.socialNickname ||
+        'Client details to be confirmed',
+    ),
     currencyCode,
     language: options?.language || 'en',
     company: {
@@ -153,7 +176,12 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
       companyName: 'STARK MOTORS',
       subtitle: 'UAE',
       phone: formatPhone(settings.publicWhatsappNumber),
-      website: formatWebsite(settings.publicWebsiteUrl || settings.publicInstagramUrl || settings.publicTelegramUrl || ''),
+      website: formatWebsite(
+        settings.publicWebsiteUrl ||
+          settings.publicInstagramUrl ||
+          settings.publicTelegramUrl ||
+          '',
+      ),
       email: settings.publicEmail || 'sales@starkmotors.ae',
       managerName: settings.publicManagerName || 'Stark Motors',
       signatureUrl: settings.publicInvoiceSignatureUrl || '',
@@ -161,7 +189,10 @@ export const buildInvoicePayloadFromOrder = (order: Order, settings: AppSettings
   };
 };
 
-export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteSnapshot, options?: { currency?: string; rate?: number; language?: 'en' | 'ru' }): InvoicePayload => {
+export const buildInvoicePayloadFromSnapshot = (
+  snapshot: NormalizedPublicQuoteSnapshot,
+  options?: { currency?: string; rate?: number; language?: 'en' | 'ru' },
+): InvoicePayload => {
   const createdAt = new Date(String(snapshot.raw.created_at || Date.now()));
   const items = snapshot.items.map((item) => ({
     id: item.id,
@@ -176,12 +207,26 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
   const requestedRate = Number(options?.rate ?? 1);
   const rate = Number.isFinite(requestedRate) && requestedRate > 0 ? requestedRate : 1;
   return {
-    invoiceNumber: createInvoiceNumber(String(snapshot.raw.order?.id || snapshot.order.vin || snapshot.order.brand), createdAt),
+    invoiceNumber: createInvoiceNumber(
+      String(snapshot.raw.order?.id || snapshot.order.vin || snapshot.order.brand),
+      createdAt,
+    ),
     createdAt,
-    clientName: String(snapshot.raw.order?.clientName || snapshot.raw.order?.client_name || snapshot.raw.order?.customerContact || 'Client / Company'),
-    carTitle: [snapshot.order.brand, snapshot.order.model, snapshot.order.year].filter(Boolean).join(' '),
+    clientName: String(
+      snapshot.raw.order?.clientName ||
+        snapshot.raw.order?.client_name ||
+        snapshot.raw.order?.customerContact ||
+        'Client / Company',
+    ),
+    carTitle: [snapshot.order.brand, snapshot.order.model, snapshot.order.year]
+      .filter(Boolean)
+      .join(' '),
     vin: snapshot.order.vin,
-    items: items.map((item) => ({ ...item, unitPriceAed: item.unitPriceAed * rate, totalAed: item.totalAed * rate })),
+    items: items.map((item) => ({
+      ...item,
+      unitPriceAed: item.unitPriceAed * rate,
+      totalAed: item.totalAed * rate,
+    })),
     subtotalAed: snapshot.subtotalAed * rate,
     deliveryAed: snapshot.deliveryAed * rate,
     packingAed: snapshot.packingAed * rate,
@@ -192,7 +237,12 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
     depositAed: snapshot.depositAed * rate,
     balanceDueAed: snapshot.balanceDueAed * rate,
     paymentTerms: resolveTerms(snapshot.contact.workTerms),
-    invoiceTo: String(snapshot.raw.order?.clientName || snapshot.raw.order?.client_name || snapshot.raw.order?.customerContact || 'Client details to be confirmed'),
+    invoiceTo: String(
+      snapshot.raw.order?.clientName ||
+        snapshot.raw.order?.client_name ||
+        snapshot.raw.order?.customerContact ||
+        'Client details to be confirmed',
+    ),
     currencyCode,
     language: options?.language || 'en',
     company: {
@@ -200,7 +250,9 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
       companyName: 'STARK MOTORS',
       subtitle: 'UAE',
       phone: formatPhone(snapshot.contact.whatsapp),
-      website: formatWebsite(snapshot.contact.website || snapshot.contact.instagram || snapshot.contact.telegram || ''),
+      website: formatWebsite(
+        snapshot.contact.website || snapshot.contact.instagram || snapshot.contact.telegram || '',
+      ),
       email: snapshot.contact.email || 'sales@starkmotors.ae',
       managerName: snapshot.contact.managerName || 'Stark Motors',
       signatureUrl: snapshot.contact.signatureUrl,
@@ -209,7 +261,10 @@ export const buildInvoicePayloadFromSnapshot = (snapshot: NormalizedPublicQuoteS
 };
 
 export const buildInvoiceHtml = (payload: InvoicePayload) => {
-  const rows = payload.items.slice(0, 10).map((item) => `
+  const rows = payload.items
+    .slice(0, 10)
+    .map(
+      (item) => `
     <tr>
       <td>
         <div class="desc-main">${esc(item.title)}</div>
@@ -220,7 +275,9 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
       <td class="num">${esc(money(item.unitPriceAed, payload.currencyCode))}</td>
       <td class="num total-cell">${esc(money(item.totalAed, payload.currencyCode))}</td>
     </tr>
-  `).join('');
+  `,
+    )
+    .join('');
 
   const logoMarkup = payload.company.logoUrl
     ? `<img src="${esc(payload.company.logoUrl)}" alt="Stark Motors logo" class="logo-image" />`
@@ -231,14 +288,28 @@ export const buildInvoiceHtml = (payload: InvoicePayload) => {
     : `<div class="signature-placeholder"></div>`;
   const totalsMarkup = [
     `<div class="total-line"><span>SUB TOTAL</span><strong>${esc(money(payload.subtotalAed, payload.currencyCode))}</strong></div>`,
-    payload.deliveryAed > 0 ? `<div class="total-line"><span>DELIVERY</span><strong>${esc(money(payload.deliveryAed, payload.currencyCode))}</strong></div>` : '',
-    payload.packingAed > 0 ? `<div class="total-line"><span>PACKING</span><strong>${esc(money(payload.packingAed, payload.currencyCode))}</strong></div>` : '',
-    payload.commissionAed > 0 ? `<div class="total-line"><span>COMMISSION</span><strong>${esc(money(payload.commissionAed, payload.currencyCode))}</strong></div>` : '',
-    payload.discountAed > 0 ? `<div class="total-line"><span>DISCOUNT</span><strong>-${esc(money(payload.discountAed, payload.currencyCode))}</strong></div>` : '',
-    payload.taxAed > 0 ? `<div class="total-line"><span>TAX</span><strong>${esc(money(payload.taxAed, payload.currencyCode))}</strong></div>` : '',
+    payload.deliveryAed > 0
+      ? `<div class="total-line"><span>DELIVERY</span><strong>${esc(money(payload.deliveryAed, payload.currencyCode))}</strong></div>`
+      : '',
+    payload.packingAed > 0
+      ? `<div class="total-line"><span>PACKING</span><strong>${esc(money(payload.packingAed, payload.currencyCode))}</strong></div>`
+      : '',
+    payload.commissionAed > 0
+      ? `<div class="total-line"><span>COMMISSION</span><strong>${esc(money(payload.commissionAed, payload.currencyCode))}</strong></div>`
+      : '',
+    payload.discountAed > 0
+      ? `<div class="total-line"><span>DISCOUNT</span><strong>-${esc(money(payload.discountAed, payload.currencyCode))}</strong></div>`
+      : '',
+    payload.taxAed > 0
+      ? `<div class="total-line"><span>TAX</span><strong>${esc(money(payload.taxAed, payload.currencyCode))}</strong></div>`
+      : '',
     `<div class="total-line grand"><span>TOTAL</span><strong>${esc(money(payload.totalAed, payload.currencyCode))}</strong></div>`,
-    payload.depositAed > 0 ? `<div class="total-line"><span>DEPOSIT</span><strong>-${esc(money(payload.depositAed, payload.currencyCode))}</strong></div><div class="total-line grand"><span>BALANCE DUE</span><strong>${esc(money(payload.balanceDueAed, payload.currencyCode))}</strong></div>` : ''
-  ].filter(Boolean).join('');
+    payload.depositAed > 0
+      ? `<div class="total-line"><span>DEPOSIT</span><strong>-${esc(money(payload.depositAed, payload.currencyCode))}</strong></div><div class="total-line grand"><span>BALANCE DUE</span><strong>${esc(money(payload.balanceDueAed, payload.currencyCode))}</strong></div>`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('');
 
   return `<!doctype html>
 <html>

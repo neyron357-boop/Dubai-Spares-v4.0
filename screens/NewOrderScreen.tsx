@@ -1,13 +1,14 @@
+import { CarFront, ChevronDown, UserRound } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CarFront, ChevronDown, UserRound } from 'lucide-react';
-import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE } from '../constants';
+import { useAppSettings } from '../appSettings';
 import { CHASSIS_BODY_TYPES_BY_BRAND } from '../carDatabase';
+import { PageHeader } from '../components/ui';
+import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE } from '../constants';
+import { toast } from '../feedback';
+import { logger } from '../logging';
 import { useStore } from '../store';
 import { Order, Priority, Source } from '../types';
-import { logger } from '../logging';
-import { toast } from '../feedback';
-import { useAppSettings } from '../appSettings';
 
 type CreationType = 'lead' | 'order';
 
@@ -16,27 +17,51 @@ type DropdownOption = {
   value: string;
 };
 
-const POPULAR_BRANDS = ['BMW', 'Mercedes-Benz', 'Toyota', 'Lexus', 'Nissan', 'Hyundai', 'Kia', 'Audi', 'Volkswagen'];
-const BODY_TYPE_OPTIONS = ['Седан', 'Кроссовер', 'Купе', 'Хэтчбек', 'Универсал', 'SUV', 'Пикап', 'Минивэн', 'Кабриолет', 'Фургон'];
+const POPULAR_BRANDS = [
+  'BMW',
+  'Mercedes-Benz',
+  'Toyota',
+  'Lexus',
+  'Nissan',
+  'Hyundai',
+  'Kia',
+  'Audi',
+  'Volkswagen',
+];
+const BODY_TYPE_OPTIONS = [
+  'Седан',
+  'Кроссовер',
+  'Купе',
+  'Хэтчбек',
+  'Универсал',
+  'SUV',
+  'Пикап',
+  'Минивэн',
+  'Кабриолет',
+  'Фургон',
+];
 
-const createId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+const createId = () =>
+  typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const serializeError = (error: unknown) => {
   if (error instanceof Error) {
     return {
       name: error.name,
       message: error.message,
-      stack: error.stack
+      stack: error.stack,
     };
   }
 
   return {
-    message: String(error)
+    message: String(error),
   };
 };
 
-const inputClass = 'h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-slate-300 focus:ring-4 focus:ring-slate-100';
-const cardClass = 'space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200';
+const inputClass = 'ui-input';
+const cardClass = 'ui-panel space-y-5';
 
 const SearchableDropdown: React.FC<{
   value: string;
@@ -48,7 +73,17 @@ const SearchableDropdown: React.FC<{
   noOptionsText?: string;
   allowCustom?: boolean;
   onChange: (value: string) => void;
-}> = ({ value, placeholder, disabled, options, loading, required, noOptionsText = 'Нет доступных вариантов', allowCustom, onChange }) => {
+}> = ({
+  value,
+  placeholder,
+  disabled,
+  options,
+  loading,
+  required,
+  noOptionsText = 'Нет доступных вариантов',
+  allowCustom,
+  onChange,
+}) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState(0);
@@ -89,7 +124,11 @@ const SearchableDropdown: React.FC<{
   }, []);
 
   const trimmedQuery = query.trim();
-  const exactQueryMatch = filteredOptions.some((option) => option.value.toLowerCase() === trimmedQuery.toLowerCase() || option.label.toLowerCase() === trimmedQuery.toLowerCase());
+  const exactQueryMatch = filteredOptions.some(
+    (option) =>
+      option.value.toLowerCase() === trimmedQuery.toLowerCase() ||
+      option.label.toLowerCase() === trimmedQuery.toLowerCase(),
+  );
   const showCustomOption = Boolean(allowCustom && trimmedQuery && !exactQueryMatch);
   const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
@@ -117,7 +156,9 @@ const SearchableDropdown: React.FC<{
   return (
     <div ref={wrapperRef} className="relative">
       {allowCustom ? (
-        <div className={`${inputClass} relative flex items-center gap-2 disabled:cursor-not-allowed disabled:bg-slate-100`}>
+        <div
+          className={`${inputClass} relative flex items-center gap-2 disabled:cursor-not-allowed disabled:bg-slate-100`}
+        >
           <input
             ref={inputRef}
             value={open ? query : value}
@@ -148,7 +189,10 @@ const SearchableDropdown: React.FC<{
             className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400"
             aria-label="Открыть список"
           >
-            <ChevronDown size={16} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+            <ChevronDown
+              size={16}
+              className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            />
           </button>
         </div>
       ) : (
@@ -160,8 +204,13 @@ const SearchableDropdown: React.FC<{
           onClick={() => setOpen((prev) => !prev)}
           className={`${inputClass} relative flex items-center justify-between text-left disabled:cursor-not-allowed disabled:bg-slate-100`}
         >
-          <span className={value ? 'text-slate-900' : 'text-slate-400'}>{value || placeholder}</span>
-          <ChevronDown size={16} className={`text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+          <span className={value ? 'text-slate-900' : 'text-slate-400'}>
+            {value || placeholder}
+          </span>
+          <ChevronDown
+            size={16}
+            className={`text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          />
         </button>
       )}
       {open && (
@@ -212,7 +261,9 @@ const SearchableDropdown: React.FC<{
                   {option.label}
                 </button>
               ))}
-              {filteredOptions.length === 0 && !showCustomOption && <p className="px-2 py-2 text-xs text-slate-500">{noOptionsText}</p>}
+              {filteredOptions.length === 0 && !showCustomOption && (
+                <p className="px-2 py-2 text-xs text-slate-500">{noOptionsText}</p>
+              )}
             </div>
           )}
         </div>
@@ -227,9 +278,9 @@ const NewOrderScreen: React.FC = () => {
   const { addOrder, isSyncing } = useStore();
   const { settings } = useAppSettings();
 
-  const [creationType, setCreationType] = useState<CreationType>(() => (
-    new URLSearchParams(location.search).get('type') === 'lead' ? 'lead' : 'order'
-  ));
+  const [creationType, setCreationType] = useState<CreationType>(() =>
+    new URLSearchParams(location.search).get('type') === 'lead' ? 'lead' : 'order',
+  );
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
@@ -251,14 +302,22 @@ const NewOrderScreen: React.FC = () => {
   }, []);
 
   const modelOptions = useMemo(() => {
-    const base = brand ? BRAND_MODELS[brand] || [] : Array.from(new Set(Object.values(BRAND_MODELS).flat()));
+    const base = brand
+      ? BRAND_MODELS[brand] || []
+      : Array.from(new Set(Object.values(BRAND_MODELS).flat()));
     return base.sort((a, b) => a.localeCompare(b)).map((item) => ({ label: item, value: item }));
   }, [brand]);
 
   const brandOptions = useMemo(() => {
     const popularSet = new Set(POPULAR_BRANDS);
-    const popular = POPULAR_BRANDS.filter((item) => BRANDS.includes(item)).map((item) => ({ label: `⭐ ${item}`, value: item }));
-    const rest = BRANDS.filter((item) => !popularSet.has(item)).map((item) => ({ label: item, value: item }));
+    const popular = POPULAR_BRANDS.filter((item) => BRANDS.includes(item)).map((item) => ({
+      label: `⭐ ${item}`,
+      value: item,
+    }));
+    const rest = BRANDS.filter((item) => !popularSet.has(item)).map((item) => ({
+      label: item,
+      value: item,
+    }));
     return [...popular, ...rest];
   }, []);
 
@@ -271,7 +330,10 @@ const NewOrderScreen: React.FC = () => {
   }, []);
 
   const bodyTypeOptions = useMemo(() => {
-    const fromDb = (CHASSIS_BODY_TYPES_BY_BRAND[brand] || []).map((item) => ({ label: item, value: item }));
+    const fromDb = (CHASSIS_BODY_TYPES_BY_BRAND[brand] || []).map((item) => ({
+      label: item,
+      value: item,
+    }));
     const fallback = BODY_TYPE_OPTIONS.map((item) => ({ label: item, value: item }));
     return Array.from(new Map([...fromDb, ...fallback].map((item) => [item.value, item])).values());
   }, [brand]);
@@ -283,7 +345,13 @@ const NewOrderScreen: React.FC = () => {
 
     if (!brand.trim()) next.brand = 'Марка обязательна';
     if (!model.trim()) next.model = 'Модель обязательна';
-    if (!year.trim() || !/^\d{4}$/.test(year.trim()) || parsedYear < 1980 || parsedYear > currentYear) next.year = `Год должен быть в диапазоне 1980-${currentYear}`;
+    if (
+      !year.trim() ||
+      !/^\d{4}$/.test(year.trim()) ||
+      parsedYear < 1980 ||
+      parsedYear > currentYear
+    )
+      next.year = `Год должен быть в диапазоне 1980-${currentYear}`;
 
     setErrors(next);
     if (Object.keys(next).length > 0) {
@@ -297,7 +365,11 @@ const NewOrderScreen: React.FC = () => {
     if (isSubmitting || submitLockRef.current || isSyncing) return;
 
     submitLockRef.current = true;
-    void logger.info('create-order', 'create_order_start', { source: 'manual', creationType, mode: 'minimal' });
+    void logger.info('create-order', 'create_order_start', {
+      source: 'manual',
+      creationType,
+      mode: 'minimal',
+    });
 
     const validationErrors = validate();
     if (Object.keys(validationErrors).length > 0) {
@@ -344,24 +416,40 @@ const NewOrderScreen: React.FC = () => {
       customerStatus: shouldCreateLead ? 'LEAD' : 'INQUIRY',
       notes: [],
       socialNickname: undefined,
-      whatsappTemplateLanguage: 'ru'
+      whatsappTemplateLanguage: 'ru',
     };
 
     setIsSubmitting(true);
     try {
       const ok = await addOrder(order);
       if (!ok) {
-        await logger.warn('create-order', 'create_order_store_rejected', { orderId: order.id, creationType, mode: 'minimal' });
-        toast(`Не удалось создать ${shouldCreateLead ? 'лид' : 'заказ'}. Проверьте соединение и попробуйте снова.`, 'error');
+        await logger.warn('create-order', 'create_order_store_rejected', {
+          orderId: order.id,
+          creationType,
+          mode: 'minimal',
+        });
+        toast(
+          `Не удалось создать ${shouldCreateLead ? 'лид' : 'заказ'}. Проверьте соединение и попробуйте снова.`,
+          'error',
+        );
         return;
       }
 
-      void logger.info('create-order', 'create_order_success', { orderId: order.id, creationType, mode: 'minimal' });
+      void logger.info('create-order', 'create_order_success', {
+        orderId: order.id,
+        creationType,
+        mode: 'minimal',
+      });
       toast(`${shouldCreateLead ? 'Лид' : 'Заказ'} создан: #${order.id.slice(0, 8)}`, 'success');
       navigate(shouldCreateLead ? '/orders' : `/order/${order.id}`);
     } catch (error) {
-      await logger.error('create-order', 'create_order_unexpected_failure', { error: serializeError(error) });
-      toast(`Не удалось создать ${shouldCreateLead ? 'лид' : 'заказ'}. Попробуйте ещё раз.`, 'error');
+      await logger.error('create-order', 'create_order_unexpected_failure', {
+        error: serializeError(error),
+      });
+      toast(
+        `Не удалось создать ${shouldCreateLead ? 'лид' : 'заказ'}. Попробуйте ещё раз.`,
+        'error',
+      );
     } finally {
       setIsSubmitting(false);
       submitLockRef.current = false;
@@ -369,22 +457,17 @@ const NewOrderScreen: React.FC = () => {
   };
 
   return (
-    <form id="new-order-form" onSubmit={submit} className="mx-auto max-w-2xl space-y-4 p-4 pb-[calc(12rem+env(safe-area-inset-bottom))]">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="inline-flex h-10 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"
-          >
-            <ArrowLeft size={14} /> Назад
-          </button>
-          <h1 className="text-xl font-black text-slate-900">{creationType === 'lead' ? 'Создать лид' : 'Создать заказ'}</h1>
-        </div>
-      </div>
-
+    <form id="new-order-form" onSubmit={submit} className="ui-page max-w-3xl space-y-5">
+      <PageHeader
+        title={creationType === 'lead' ? 'Новая заявка' : 'Новый заказ'}
+        eyebrow="Автозапчасти · Дубай"
+        description="Начните с автомобиля. Детали и фотографии можно добавить в заказе."
+        back={() => navigate('/orders')}
+      />
       <section className={cardClass}>
-        <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><CarFront size={16} /> Автомобиль</h2>
+        <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-600">
+          <CarFront size={16} /> Автомобиль
+        </h2>
 
         <label className="space-y-1">
           <span className="text-xs font-semibold text-slate-500">Марка</span>
@@ -429,7 +512,9 @@ const NewOrderScreen: React.FC = () => {
           </label>
 
           <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Кузов <span className="font-medium text-slate-400">необязательно</span></span>
+            <span className="text-xs font-semibold text-slate-500">
+              Кузов <span className="font-medium text-slate-400">необязательно</span>
+            </span>
             <input
               type="text"
               value={bodyType}
@@ -448,9 +533,13 @@ const NewOrderScreen: React.FC = () => {
       </section>
 
       <section className={cardClass}>
-        <h2 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-600"><UserRound size={16} /> Клиент</h2>
+        <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-600">
+          <UserRound size={16} /> Клиент
+        </h2>
         <label className="space-y-1">
-          <span className="text-xs font-semibold text-slate-500">Имя клиента <span className="font-medium text-slate-400">необязательно</span></span>
+          <span className="text-xs font-semibold text-slate-500">
+            Имя клиента <span className="font-medium text-slate-400">необязательно</span>
+          </span>
           <input
             type="text"
             name="clientName"
@@ -463,13 +552,17 @@ const NewOrderScreen: React.FC = () => {
         </label>
       </section>
 
-      <div className="fixed bottom-[calc(86px+env(safe-area-inset-bottom))] left-1/2 z-40 w-[calc(100%-24px)] max-w-[408px] -translate-x-1/2 rounded-[24px] border border-white/80 bg-[#f6f8fb]/92 p-2 shadow-[0_18px_46px_rgba(15,23,42,0.14)] backdrop-blur-xl">
+      <div className="screen-action-dock">
         <button
           type="submit"
           disabled={isSubmitting || isSyncing}
-          className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-blue-600 px-4 text-sm font-black text-white shadow-[0_14px_30px_rgba(37,99,235,0.24)] transition active:scale-[0.99] disabled:opacity-50"
+          className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-blue-600 px-4 text-sm font-bold text-white shadow-[0_14px_30px_rgba(37,99,235,0.24)] transition active:scale-[0.99] disabled:opacity-50"
         >
-          {isSubmitting || isSyncing ? 'Сохраняем...' : creationType === 'lead' ? 'Создать лид' : 'Создать заказ'}
+          {isSubmitting || isSyncing
+            ? 'Сохраняем...'
+            : creationType === 'lead'
+              ? 'Создать лид'
+              : 'Создать заказ'}
         </button>
       </div>
     </form>

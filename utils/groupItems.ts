@@ -42,12 +42,13 @@ type PartDisplaySource = {
 
 export const buildGroupItemsLabel = (raw: unknown, delimiter = ', '): string => {
   const items = normalizeGroupItems(raw);
-  return items
-    .map((item) => `${item.name} ×${item.quantity}`)
-    .join(delimiter);
+  return items.map((item) => `${item.name} ×${item.quantity}`).join(delimiter);
 };
 
-export const getPartDisplayName = (part: PartDisplaySource, fallback = 'Группа деталей'): string => {
+export const getPartDisplayName = (
+  part: PartDisplaySource,
+  fallback = 'Группа деталей',
+): string => {
   const explicitName = String(part?.name || '').trim();
   if (explicitName) return explicitName;
 

@@ -1,32 +1,35 @@
 import { Order, Part, PriceVariant } from '../types';
 import { normalizePartQuantity } from './groupItems';
 
-const getVariantSalePriceAed = (variant: PriceVariant) => Number(variant.salePriceAed ?? variant.priceAed ?? 0);
-
+const getVariantSalePriceAed = (variant: PriceVariant) =>
+  Number(variant.salePriceAed ?? variant.priceAed ?? 0);
 
 const COMPANY_LOGO_PATH = `${import.meta.env.BASE_URL}icon-192.png`;
-const formatPrice = (price: number) => `${new Intl.NumberFormat('ru-RU').format(Number(price || 0))} AED`;
-const getPartTotalPriceAed = (part: Part, variant: PriceVariant) => getVariantSalePriceAed(variant) * normalizePartQuantity(part.quantity);
+const formatPrice = (price: number) =>
+  `${new Intl.NumberFormat('ru-RU').format(Number(price || 0))} AED`;
+const getPartTotalPriceAed = (part: Part, variant: PriceVariant) =>
+  getVariantSalePriceAed(variant) * normalizePartQuantity(part.quantity);
 
 type ShareablePart = {
   part: Part;
   variant: PriceVariant;
 };
 
-const loadCanvasImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
-  const image = new Image();
-  if (!src.startsWith('data:')) image.crossOrigin = 'anonymous';
-  image.onload = () => resolve(image);
-  image.onerror = () => reject(new Error('Image load failed'));
-  image.src = src;
-});
+const loadCanvasImage = (src: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    if (!src.startsWith('data:')) image.crossOrigin = 'anonymous';
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Image load failed'));
+    image.src = src;
+  });
 
 const getPartPhotos = (part: Part, variant?: PriceVariant) => {
   const merged = [
     ...(variant?.photos || []),
     variant?.photoUrl || '',
     ...(part.photos || []),
-    part.photoUrl || ''
+    part.photoUrl || '',
   ]
     .filter((item): item is string => typeof item === 'string')
     .map((item) => item.trim())
@@ -39,7 +42,7 @@ const calculateCoverFrame = (
   sourceWidth: number,
   sourceHeight: number,
   targetWidth: number,
-  targetHeight: number
+  targetHeight: number,
 ) => {
   const sourceRatio = sourceWidth / sourceHeight;
   const targetRatio = targetWidth / targetHeight;
@@ -50,7 +53,7 @@ const calculateCoverFrame = (
       sx: (sourceWidth - cropWidth) / 2,
       sy: 0,
       sw: cropWidth,
-      sh: sourceHeight
+      sh: sourceHeight,
     };
   }
 
@@ -59,7 +62,7 @@ const calculateCoverFrame = (
     sx: 0,
     sy: (sourceHeight - cropHeight) / 2,
     sw: sourceWidth,
-    sh: cropHeight
+    sh: cropHeight,
   };
 };
 
@@ -76,7 +79,14 @@ export const resolveBestVariant = (part: Part) => {
   return part.variants[0] || null;
 };
 
-const drawCoverPhoto = async (context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, sources: string[]) => {
+const drawCoverPhoto = async (
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  sources: string[],
+) => {
   context.fillStyle = '#E9EEF6';
   context.fillRect(x, y, width, height);
   const firstPhoto = sources[0];
@@ -111,7 +121,12 @@ const drawLogo = async (context: CanvasRenderingContext2D) => {
   }
 };
 
-const drawOrderHeader = async (context: CanvasRenderingContext2D, order: Order, title: string, subtitle: string) => {
+const drawOrderHeader = async (
+  context: CanvasRenderingContext2D,
+  order: Order,
+  title: string,
+  subtitle: string,
+) => {
   await drawLogo(context);
   context.fillStyle = '#0F1728';
   context.font = '700 30px Inter, Arial, sans-serif';
@@ -125,15 +140,20 @@ const drawOrderHeader = async (context: CanvasRenderingContext2D, order: Order, 
   context.fillText(vinLabel.slice(0, 64), 40, 132);
 };
 
-const createCanvasBlob = async (canvas: HTMLCanvasElement) => await new Promise<Blob>((resolve, reject) => {
-  canvas.toBlob((blob) => {
-    if (!blob) {
-      reject(new Error('Не удалось сформировать изображение'));
-      return;
-    }
-    resolve(blob);
-  }, 'image/png', 0.95);
-});
+const createCanvasBlob = async (canvas: HTMLCanvasElement) =>
+  await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error('Не удалось сформировать изображение'));
+          return;
+        }
+        resolve(blob);
+      },
+      'image/png',
+      0.95,
+    );
+  });
 
 export const generatePartPriceCard = async (order: Order, part: Part, variant: PriceVariant) => {
   const canvas = document.createElement('canvas');
@@ -147,7 +167,12 @@ export const generatePartPriceCard = async (order: Order, part: Part, variant: P
   context.fillStyle = '#FFFFFF';
   context.fillRect(20, 20, canvas.width - 40, canvas.height - 40);
 
-  await drawOrderHeader(context, order, part.name || 'Деталь', `${order.brand} ${order.model} · ${order.year || '—'}`);
+  await drawOrderHeader(
+    context,
+    order,
+    part.name || 'Деталь',
+    `${order.brand} ${order.model} · ${order.year || '—'}`,
+  );
   await drawCoverPhoto(context, 40, 170, 460, 470, getPartPhotos(part, variant));
 
   const startX = 550;
@@ -171,7 +196,10 @@ export const generatePartPriceCard = async (order: Order, part: Part, variant: P
 export const generatePartsPriceSheet = async (order: Order, entries: ShareablePart[]) => {
   const safeEntries = entries.slice(0, 6);
   const rowHeight = 220;
-  const totalPrice = safeEntries.reduce((sum, entry) => sum + getPartTotalPriceAed(entry.part, entry.variant), 0);
+  const totalPrice = safeEntries.reduce(
+    (sum, entry) => sum + getPartTotalPriceAed(entry.part, entry.variant),
+    0,
+  );
   const canvas = document.createElement('canvas');
   canvas.width = 1200;
   canvas.height = 180 + safeEntries.length * rowHeight + 160;
@@ -183,7 +211,12 @@ export const generatePartsPriceSheet = async (order: Order, entries: ShareablePa
   context.fillStyle = '#FFFFFF';
   context.fillRect(20, 20, canvas.width - 40, canvas.height - 40);
 
-  await drawOrderHeader(context, order, 'Подбор деталей', `${order.brand} ${order.model} · ${safeEntries.length} поз.`);
+  await drawOrderHeader(
+    context,
+    order,
+    'Подбор деталей',
+    `${order.brand} ${order.model} · ${safeEntries.length} поз.`,
+  );
 
   for (const [index, entry] of safeEntries.entries()) {
     const top = 160 + index * rowHeight;
@@ -218,7 +251,12 @@ export const generatePartsPriceSheet = async (order: Order, entries: ShareablePa
   return createCanvasBlob(canvas);
 };
 
-export const shareGeneratedPriceImage = async (blob: Blob, fileName: string, title: string, text: string) => {
+export const shareGeneratedPriceImage = async (
+  blob: Blob,
+  fileName: string,
+  title: string,
+  text: string,
+) => {
   const file = new File([blob], fileName, { type: 'image/png' });
   if (navigator.share && navigator.canShare?.({ files: [file] })) {
     await navigator.share({ title, text, files: [file] });

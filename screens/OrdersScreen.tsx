@@ -1,16 +1,43 @@
+import {
+  AlertTriangle,
+  Archive,
+  BarChart3,
+  Bell,
+  Car,
+  CheckCheck,
+  CheckSquare,
+  Clock3,
+  Copy,
+  Filter,
+  LocateFixed,
+  MessageCircle,
+  MoreHorizontal,
+  Pin,
+  Plus,
+  Search,
+  Square,
+  Star,
+  Trash2,
+  X,
+} from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Archive, BarChart3, Bell, Car, CheckCheck, CheckSquare, Clock3, Copy, Filter, LocateFixed, MessageCircle, MoreHorizontal, Pin, Search, Square, Star, Trash2, X } from 'lucide-react';
+import ConfirmModal from '../components/ConfirmModal';
+import IncomeModal from '../components/IncomeModal';
+import SafeImage from '../components/SafeImage';
+import { Button, Dialog, EmptyState } from '../components/ui';
+import { toast, vibrate } from '../feedback';
+import {
+  AppNotification,
+  getNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  NotificationType,
+} from '../notificationCenter';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
-import IncomeModal from '../components/IncomeModal';
-import ConfirmModal from '../components/ConfirmModal';
-import { toast, vibrate } from '../feedback';
-import { useLeadsPolling } from '../hooks/useLeadsPolling';
 import { isLeadOrder, isUnreadLeadOrder } from '../utils/orderClassification';
 import { deriveSafetySalesSummary } from '../utils/safetySales';
-import { AppNotification, getNotifications, markAllNotificationsRead, markNotificationRead, NotificationType } from '../notificationCenter';
-import SafeImage from '../components/SafeImage';
 
 type TabType = 'active' | 'interest' | 'not_found' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -27,7 +54,8 @@ const OPEN_THRESHOLD_RIGHT = 60;
 const COMMIT_THRESHOLD_RIGHT = 140;
 const SWIPE_DEAD_ZONE = 8;
 
-type SwipeStatus = 'idle' | 'dragging_left' | 'dragging_right' | 'open_left' | 'open_right' | 'committed';
+type SwipeStatus =
+  'idle' | 'dragging_left' | 'dragging_right' | 'open_left' | 'open_right' | 'committed';
 
 const statusLabelMap: Record<SearchState, string> = {
   searching: 'В поиске',
@@ -35,40 +63,43 @@ const statusLabelMap: Record<SearchState, string> = {
   found: 'Найдено',
   offer_sent: 'Оффер отправлен',
   sold: 'Продано',
-  archived: 'Архив'
+  archived: 'Архив',
 };
 
 const safetyRiskStyles: Record<string, string> = {
   safe: 'bg-emerald-50 text-emerald-700',
   caution: 'bg-amber-50 text-amber-700',
   high: 'bg-orange-50 text-orange-700',
-  refuse: 'bg-rose-50 text-rose-700'
+  refuse: 'bg-rose-50 text-rose-700',
 };
 const leadQualityStyles: Record<string, string> = {
   cold: 'bg-slate-100 text-slate-600',
   warm: 'bg-sky-50 text-sky-700',
   hot: 'bg-orange-50 text-orange-700',
   paid: 'bg-emerald-50 text-emerald-700',
-  risky: 'bg-rose-50 text-rose-700'
+  risky: 'bg-rose-50 text-rose-700',
 };
 
 const MAIN_TABS: Array<{ id: TabType; label: string }> = [
   { id: 'active', label: 'Актив' },
   { id: 'interest', label: 'Интерес' },
   { id: 'not_found', label: 'Не найдено' },
-  { id: 'archive', label: 'Архив' }
+  { id: 'archive', label: 'Архив' },
 ];
 
 const moveTabLabels: Record<TabType, string> = {
   active: 'Активные',
   interest: 'Просто интерес',
   not_found: 'Не найдено',
-  archive: 'Архив'
+  archive: 'Архив',
 };
 
-const isOrderFound = (order: Order) => order.parts.some((part) => part.isFound || (part.variants || []).length > 0);
-const foundPartsCount = (order: Order) => order.parts.filter((part) => part.isFound || (part.variants || []).length > 0).length;
-const isArchiveBucketOrder = (order: Order) => order.isArchived || order.isSold || order.status === 'archive' || order.status === 'sold';
+const isOrderFound = (order: Order) =>
+  order.parts.some((part) => part.isFound || (part.variants || []).length > 0);
+const foundPartsCount = (order: Order) =>
+  order.parts.filter((part) => part.isFound || (part.variants || []).length > 0).length;
+const isArchiveBucketOrder = (order: Order) =>
+  order.isArchived || order.isSold || order.status === 'archive' || order.status === 'sold';
 const getOrderMainTab = (order: Order): TabType => {
   if (isArchiveBucketOrder(order)) return 'archive';
   if (order.status === 'interest') return 'interest';
@@ -127,7 +158,7 @@ const notificationSeverityClass: Record<AppNotification['severity'], string> = {
   critical: 'bg-rose-50 text-rose-600',
   warning: 'bg-amber-50 text-amber-600',
   success: 'bg-emerald-50 text-emerald-600',
-  info: 'bg-blue-50 text-blue-600'
+  info: 'bg-blue-50 text-blue-600',
 };
 
 type SwipeableOrderCardProps = {
@@ -157,12 +188,14 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
   onCardTap,
   disableCardTap = false,
   disableSwipe = false,
-  children
+  children,
 }) => {
   const [translateX, setTranslateX] = useState(0);
   const [status, setStatus] = useState<SwipeStatus>('idle');
   const [isDragging, setIsDragging] = useState(false);
-  const [hasSwiped, setHasSwiped] = useState(() => window.localStorage.getItem('orders_swipe_hint_done') === '1');
+  const [hasSwiped, setHasSwiped] = useState(
+    () => window.localStorage.getItem('orders_swipe_hint_done') === '1',
+  );
 
   const pointerStart = useRef({ x: 0, y: 0 });
   const dragOriginX = useRef(0);
@@ -283,7 +316,8 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
         setOpenCardId(null);
         setSpringPosition(0, 'idle');
       } else {
-        const blocked = disableCardTap || longPressActive.current || Date.now() < suppressClickUntil.current;
+        const blocked =
+          disableCardTap || longPressActive.current || Date.now() < suppressClickUntil.current;
         if (!blocked) onCardTap();
       }
       setIsDragging(false);
@@ -325,62 +359,73 @@ const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
   };
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm" data-swipe-card="true">
+    <div
+      className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm"
+      data-swipe-card="true"
+    >
       {!disableSwipe && (
-      <div className="absolute inset-0 flex items-stretch justify-between">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenWhatsapp();
-            setOpenCardId(null);
-            setSpringPosition(0, 'idle');
-          }}
-          className="flex h-full min-w-[88px] items-center justify-center bg-emerald-500/85 text-white"
-          style={{ opacity: Math.max(rightProgress, 0.12) }}
-        >
-          <span className="inline-flex items-center gap-2" style={{ opacity: rightProgress, transform: `scale(${0.92 + rightProgress * 0.08})` }}>
-            <MessageCircle size={18} /> {contactActionLabel}
-          </span>
-        </button>
-
-        <div className="flex h-full items-stretch">
-          {[
-            { label: 'В архив', action: onArchive, className: 'bg-slate-600/90 text-white', icon: <Archive size={16} /> }
-          ].map((item, idx) => (
-            <button
-              key={item.label}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                item.action();
-                setOpenCardId(null);
-                setSpringPosition(0, 'idle');
-              }}
-              className={`h-full min-w-[70px] px-2 ${item.className}`}
-              style={{
-                opacity: leftProgress,
-                transform: `translateY(${(1 - leftProgress) * 4}px) scale(${0.95 + leftProgress * 0.05})`,
-                transitionDelay: `${idx * 18}ms`
-              }}
+        <div className="absolute inset-0 flex items-stretch justify-between">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenWhatsapp();
+              setOpenCardId(null);
+              setSpringPosition(0, 'idle');
+            }}
+            className="flex h-full min-w-[88px] items-center justify-center bg-emerald-500/85 text-white"
+            style={{ opacity: Math.max(rightProgress, 0.12) }}
+          >
+            <span
+              className="inline-flex items-center gap-2"
+              style={{ opacity: rightProgress, transform: `scale(${0.92 + rightProgress * 0.08})` }}
             >
-              <span className="flex flex-col items-center justify-center gap-1 text-[11px] font-black">
-                {item.icon}
-                <span className="opacity-80">{item.label}</span>
-              </span>
-            </button>
-          ))}
+              <MessageCircle size={18} /> {contactActionLabel}
+            </span>
+          </button>
+
+          <div className="flex h-full items-stretch">
+            {[
+              {
+                label: 'В архив',
+                action: onArchive,
+                className: 'bg-slate-600/90 text-white',
+                icon: <Archive size={16} />,
+              },
+            ].map((item, idx) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  item.action();
+                  setOpenCardId(null);
+                  setSpringPosition(0, 'idle');
+                }}
+                className={`h-full min-w-[70px] px-2 ${item.className}`}
+                style={{
+                  opacity: leftProgress,
+                  transform: `translateY(${(1 - leftProgress) * 4}px) scale(${0.95 + leftProgress * 0.05})`,
+                  transitionDelay: `${idx * 18}ms`,
+                }}
+              >
+                <span className="flex flex-col items-center justify-center gap-1 text-[11px] font-bold">
+                  {item.icon}
+                  <span className="opacity-80">{item.label}</span>
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
       )}
 
       <article
-        className="relative rounded-2xl bg-white p-4"
+        className="orders-card relative bg-white p-5"
         style={{
           transform: disableSwipe ? 'translate3d(0,0,0)' : `translate3d(${translateX}px,0,0)`,
           transition: isDragging ? 'none' : 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1)',
           willChange: 'transform',
-          touchAction: disableSwipe ? 'auto' : 'pan-y'
+          touchAction: disableSwipe ? 'auto' : 'pan-y',
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -404,8 +449,6 @@ const OrdersScreen: React.FC = () => {
   const { orders, isLoading, updateOrder, deleteOrder, bulkDeleteOrders } = useStore();
   const navigate = useNavigate();
 
-  useLeadsPolling(true);
-
   const [activeTab, setActiveTab] = useState<TabType>('active');
   const [sortBy, setSortBy] = useState<SortType>('date_desc');
   const [searchText, setSearchText] = useState('');
@@ -426,10 +469,11 @@ const OrdersScreen: React.FC = () => {
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
   const [statusFilters, setStatusFilters] = useState<SearchState[]>([]);
   const [noResponseHours, setNoResponseHours] = useState<number>(0);
-  const [issueFilter, setIssueFilter] = useState<'all' | 'missing_price' | 'missing_contact'>('all');
+  const [issueFilter, setIssueFilter] = useState<'all' | 'missing_price' | 'missing_contact'>(
+    'all',
+  );
   const [yearFrom, setYearFrom] = useState('');
   const [yearTo, setYearTo] = useState('');
-
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(searchText.trim().toLowerCase()), 300);
@@ -450,7 +494,6 @@ const OrdersScreen: React.FC = () => {
       document.removeEventListener('visibilitychange', updateUnreadNotifications);
     };
   }, []);
-
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -480,13 +523,26 @@ const OrdersScreen: React.FC = () => {
 
   const archiveOrder = (order: Order) => {
     if (isArchiveBucketOrder(order)) return;
-    void updateOrder({ ...order, isArchived: true, status: 'archive', statusChangedAt: Date.now(), statusChangedBy: 'current-user' });
+    void updateOrder({
+      ...order,
+      isArchived: true,
+      status: 'archive',
+      statusChangedAt: Date.now(),
+      statusChangedBy: 'current-user',
+    });
     toast('Заказ в архиве', 'success');
   };
 
   const restoreOrder = (order: Order) => {
     if (!isArchiveBucketOrder(order)) return;
-    void updateOrder({ ...order, isArchived: false, isSold: false, status: 'active', statusChangedAt: Date.now(), statusChangedBy: 'current-user' });
+    void updateOrder({
+      ...order,
+      isArchived: false,
+      isSold: false,
+      status: 'active',
+      statusChangedAt: Date.now(),
+      statusChangedBy: 'current-user',
+    });
     toast('Заказ восстановлен', 'success');
   };
 
@@ -495,18 +551,26 @@ const OrdersScreen: React.FC = () => {
     const social = String(order.socialNickname || '').trim();
     if (source.includes('instagram')) {
       if (!social) return { label: 'Instagram', open: false, url: '' };
-      const url = social.startsWith('http') ? social : `https://instagram.com/${social.replace(/^@/, '')}`;
+      const url = social.startsWith('http')
+        ? social
+        : `https://instagram.com/${social.replace(/^@/, '')}`;
       return { label: 'Instagram', open: true, url };
     }
     if (source.includes('tiktok')) {
       if (!social) return { label: 'TikTok', open: false, url: '' };
-      const url = social.startsWith('http') ? social : `https://www.tiktok.com/@${social.replace(/^@/, '')}`;
+      const url = social.startsWith('http')
+        ? social
+        : `https://www.tiktok.com/@${social.replace(/^@/, '')}`;
       return { label: 'TikTok', open: true, url };
     }
     const phone = (order.customerContact || '').replace(/[^\d+]/g, '');
     if (!phone) return { label: 'WhatsApp', open: false, url: '' };
     const message = `Здравствуйте! Апдейт по заказу ${order.brand} ${order.model}`;
-    return { label: 'WhatsApp', open: true, url: `https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}` };
+    return {
+      label: 'WhatsApp',
+      open: true,
+      url: `https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`,
+    };
   };
 
   const openWhatsapp = (order: Order) => {
@@ -535,20 +599,25 @@ const OrdersScreen: React.FC = () => {
     const base = {
       ...order,
       isLead: keepAsLead ? order.isLead : false,
-      customerStatus: keepAsLead ? order.customerStatus : (order.customerStatus === 'LEAD' ? 'INQUIRY' : order.customerStatus),
+      customerStatus: keepAsLead
+        ? order.customerStatus
+        : order.customerStatus === 'LEAD'
+          ? 'INQUIRY'
+          : order.customerStatus,
       leadUnread: keepAsLead ? order.leadUnread : false,
       leadReadAt: keepAsLead ? order.leadReadAt : now,
       statusChangedAt: now,
-      statusChangedBy: 'current-user'
+      statusChangedBy: 'current-user',
     };
-    const nextOrder: Order = tab === 'archive'
-      ? { ...base, isArchived: true, status: 'archive' }
-      : {
-          ...base,
-          isArchived: false,
-          isSold: false,
-          status: tab === 'interest' ? 'interest' : tab === 'not_found' ? 'not_found' : 'active'
-        };
+    const nextOrder: Order =
+      tab === 'archive'
+        ? { ...base, isArchived: true, status: 'archive' }
+        : {
+            ...base,
+            isArchived: false,
+            isSold: false,
+            status: tab === 'interest' ? 'interest' : tab === 'not_found' ? 'not_found' : 'active',
+          };
 
     const ok = await updateOrder(nextOrder);
     if (ok) {
@@ -557,16 +626,25 @@ const OrdersScreen: React.FC = () => {
     }
   };
 
-  const allBrands = useMemo(() => Array.from(new Set(orders.map((order) => order.brand))).sort((a, b) => a.localeCompare(b)), [orders]);
-  const moveSheetOrder = useMemo(() => orders.find((order) => order.id === moveSheetOrderId) || null, [orders, moveSheetOrderId]);
+  const allBrands = useMemo(
+    () =>
+      Array.from(new Set(orders.map((order) => order.brand))).sort((a, b) => a.localeCompare(b)),
+    [orders],
+  );
+  const moveSheetOrder = useMemo(
+    () => orders.find((order) => order.id === moveSheetOrderId) || null,
+    [orders, moveSheetOrderId],
+  );
 
-
-  const tabCounts = useMemo(() => ({
-    active: orders.filter(isActiveWorkOrder).length,
-    interest: orders.filter(isInterestWorkOrder).length,
-    not_found: orders.filter(isNotFoundWorkOrder).length,
-    archive: orders.filter((o) => isArchiveBucketOrder(o) && !isLeadOrder(o)).length
-  }), [orders]);
+  const tabCounts = useMemo(
+    () => ({
+      active: orders.filter(isActiveWorkOrder).length,
+      interest: orders.filter(isInterestWorkOrder).length,
+      not_found: orders.filter(isNotFoundWorkOrder).length,
+      archive: orders.filter((o) => isArchiveBucketOrder(o) && !isLeadOrder(o)).length,
+    }),
+    [orders],
+  );
 
   const openOrderPreview = (order: Order) => {
     if (isUnreadLeadOrder(order)) {
@@ -587,8 +665,12 @@ const OrdersScreen: React.FC = () => {
     if (debouncedSearch) {
       list = list.filter((order) => {
         const notesText = (order.notes || []).map((note) => note.text || '').join(' ');
-        const suppliersText = (order.parts || []).flatMap((part) => (part.variants || []).map((variant) => variant.shopName || '')).join(' ');
-        return `${order.brand} ${order.model} ${order.vin || ''} ${order.id} ${order.clientName || ''} ${order.customerContact || ''} ${notesText} ${suppliersText}`.toLowerCase().includes(debouncedSearch);
+        const suppliersText = (order.parts || [])
+          .flatMap((part) => (part.variants || []).map((variant) => variant.shopName || ''))
+          .join(' ');
+        return `${order.brand} ${order.model} ${order.vin || ''} ${order.id} ${order.clientName || ''} ${order.customerContact || ''} ${notesText} ${suppliersText}`
+          .toLowerCase()
+          .includes(debouncedSearch);
       });
     }
 
@@ -630,17 +712,45 @@ const OrdersScreen: React.FC = () => {
     return [...list].sort((a, b) => {
       if (!!a.isPinned !== !!b.isPinned) return a.isPinned ? -1 : 1;
       if (sortBy === 'date_asc') return a.createdAt - b.createdAt;
-      if (sortBy === 'priority') return priorityWeight[b.priority] - priorityWeight[a.priority] || b.createdAt - a.createdAt;
+      if (sortBy === 'priority')
+        return priorityWeight[b.priority] - priorityWeight[a.priority] || b.createdAt - a.createdAt;
       if (sortBy === 'brand_asc') return a.brand.localeCompare(b.brand);
       if (sortBy === 'age') return (a.updatedAt || a.createdAt) - (b.updatedAt || b.createdAt);
       return b.createdAt - a.createdAt;
     });
-  }, [orders, activeTab, debouncedSearch, brandFilters, priorityFilter, statusFilters, noResponseHours, issueFilter, sortBy, yearFrom, yearTo]);
+  }, [
+    orders,
+    activeTab,
+    debouncedSearch,
+    brandFilters,
+    priorityFilter,
+    statusFilters,
+    noResponseHours,
+    issueFilter,
+    sortBy,
+    yearFrom,
+    yearTo,
+  ]);
 
   const emptyStateMessage = useMemo(() => {
-    if (activeTab === 'active') return { title: 'Нет активных заказов', cta: 'Создать заказ', action: () => navigate('/new') };
-    if (activeTab === 'interest') return { title: 'В интересе пока пусто', cta: 'Открыть активные', action: () => setActiveTab('active') };
-    if (activeTab === 'not_found') return { title: 'Список "Не найдено" пуст', cta: 'Открыть активные', action: () => setActiveTab('active') };
+    if (activeTab === 'active')
+      return {
+        title: 'Нет активных заказов',
+        cta: 'Создать заказ',
+        action: () => navigate('/new'),
+      };
+    if (activeTab === 'interest')
+      return {
+        title: 'В интересе пока пусто',
+        cta: 'Открыть активные',
+        action: () => setActiveTab('active'),
+      };
+    if (activeTab === 'not_found')
+      return {
+        title: 'Список "Не найдено" пуст',
+        cta: 'Открыть активные',
+        action: () => setActiveTab('active'),
+      };
     return { title: 'Архив пуст', cta: 'Показать активные', action: () => setActiveTab('active') };
   }, [activeTab, navigate]);
 
@@ -666,7 +776,9 @@ const OrdersScreen: React.FC = () => {
   };
 
   const toggleOrderSelected = (orderId: string) => {
-    setSelectedOrderIds((current) => current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId]);
+    setSelectedOrderIds((current) =>
+      current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId],
+    );
   };
 
   const selectAllFiltered = () => {
@@ -680,7 +792,17 @@ const OrdersScreen: React.FC = () => {
     if (selectedOrderIds.length === 0) return;
     const selectedSet = new Set(selectedOrderIds);
     const targets = orders.filter((order) => selectedSet.has(order.id) && !order.isArchived);
-    await Promise.all(targets.map((order) => updateOrder({ ...order, isArchived: true, status: 'archive', statusChangedAt: Date.now(), statusChangedBy: 'current-user' })));
+    await Promise.all(
+      targets.map((order) =>
+        updateOrder({
+          ...order,
+          isArchived: true,
+          status: 'archive',
+          statusChangedAt: Date.now(),
+          statusChangedBy: 'current-user',
+        }),
+      ),
+    );
     toast(`В архив отправлено: ${targets.length}`, 'success');
     clearSelection();
     setIsSelectionMode(false);
@@ -697,27 +819,47 @@ const OrdersScreen: React.FC = () => {
     setDeleteId(null);
     setSelectedOrderIds([]);
     setIsSelectionMode(false);
-    toast(result.failed > 0 ? `Удалено: ${deletedCount}, ошибок: ${result.failed}` : `Удалено заказов: ${deletedCount}`, deletedCount > 0 ? 'success' : 'error');
+    toast(
+      result.failed > 0
+        ? `Удалено: ${deletedCount}, ошибок: ${result.failed}`
+        : `Удалено заказов: ${deletedCount}`,
+      deletedCount > 0 ? 'success' : 'error',
+    );
   };
 
-  const activeFiltersCount = brandFilters.length + statusFilters.length + (priorityFilter !== 'all' ? 1 : 0) + (noResponseHours > 0 ? 1 : 0) + (issueFilter !== 'all' ? 1 : 0) + (yearFrom ? 1 : 0) + (yearTo ? 1 : 0);
+  const activeFiltersCount =
+    brandFilters.length +
+    statusFilters.length +
+    (priorityFilter !== 'all' ? 1 : 0) +
+    (noResponseHours > 0 ? 1 : 0) +
+    (issueFilter !== 'all' ? 1 : 0) +
+    (yearFrom ? 1 : 0) +
+    (yearTo ? 1 : 0);
   const existingOrderIds = useMemo(() => new Set(orders.map((order) => order.id)), [orders]);
   const notificationPreviewItems = useMemo(
-    () => notifications
-      .filter((item) => !item.archivedAt && (!item.orderId || existingOrderIds.has(item.orderId)))
-      .slice(0, 6),
-    [existingOrderIds, notifications]
+    () =>
+      notifications
+        .filter((item) => !item.archivedAt && (!item.orderId || existingOrderIds.has(item.orderId)))
+        .slice(0, 6),
+    [existingOrderIds, notifications],
   );
   const visibleUnreadNotifications = useMemo(
-    () => notifications.filter((item) => !item.archivedAt && !item.readAt && (!item.orderId || existingOrderIds.has(item.orderId))).length,
-    [existingOrderIds, notifications]
+    () =>
+      notifications.filter(
+        (item) =>
+          !item.archivedAt && !item.readAt && (!item.orderId || existingOrderIds.has(item.orderId)),
+      ).length,
+    [existingOrderIds, notifications],
   );
 
   const iconForNotification = (type: NotificationType) => {
-    if ([NotificationType.ORDER_NEW, NotificationType.ORDER_STATUS_CHANGED].includes(type)) return <Car size={15} />;
-    if ([NotificationType.RADAR_ACTION, NotificationType.RADAR_RESULT].includes(type)) return <LocateFixed size={15} />;
+    if ([NotificationType.ORDER_NEW, NotificationType.ORDER_STATUS_CHANGED].includes(type))
+      return <Car size={15} />;
+    if ([NotificationType.RADAR_ACTION, NotificationType.RADAR_RESULT].includes(type))
+      return <LocateFixed size={15} />;
     if (type === NotificationType.FOLLOWUP_DUE) return <Clock3 size={15} />;
-    if ([NotificationType.SYNC_ERROR, NotificationType.OFFLINE_QUEUE].includes(type)) return <AlertTriangle size={15} />;
+    if ([NotificationType.SYNC_ERROR, NotificationType.OFFLINE_QUEUE].includes(type))
+      return <AlertTriangle size={15} />;
     return <Bell size={15} />;
   };
 
@@ -735,16 +877,31 @@ const OrdersScreen: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4 px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))] overflow-x-hidden">
-
-      <header className="sticky top-0 z-20 space-y-3 bg-[#f7f8fc] pt-1 pb-2">
+    <div className="ui-page space-y-5">
+      <header className="screen-toolbar space-y-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-[30px] leading-[34px] font-black tracking-tight text-slate-900">Заказы</h1>
-            <p className="mt-0.5 text-xs text-slate-500">{tabCounts.active} активных · {tabCounts.interest} интерес · {tabCounts.not_found} не найдено</p>
+            <p className="ui-eyebrow">Подбор автозапчастей</p>
+            <h1 className="text-[32px] leading-tight font-bold tracking-tight text-slate-900">
+              Заказы
+            </h1>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {tabCounts.active} активных · {tabCounts.interest} интерес · {tabCounts.not_found} не
+              найдено
+            </p>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setIsIncomeOpen(true)} className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center" aria-label="Статистика"><BarChart3 size={18} /></button>
+            <Button icon={Plus} onClick={() => navigate('/new')} className="hidden sm:inline-flex">
+              Новый заказ
+            </Button>
+            <button
+              type="button"
+              onClick={() => setIsIncomeOpen(true)}
+              className="h-11 w-11 rounded-xl border border-slate-200 bg-white grid place-items-center"
+              aria-label="Статистика"
+            >
+              <BarChart3 size={18} />
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -755,7 +912,7 @@ const OrdersScreen: React.FC = () => {
             >
               <Bell size={18} />
               {visibleUnreadNotifications > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white">
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[11px] font-bold text-white">
                   {visibleUnreadNotifications > 99 ? '99+' : visibleUnreadNotifications}
                 </span>
               )}
@@ -771,14 +928,29 @@ const OrdersScreen: React.FC = () => {
             >
               <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
                 <div>
-                  <p className="text-[15px] font-black text-slate-950">Уведомления</p>
-                  <p className="mt-0.5 text-[11px] font-bold text-slate-500">{visibleUnreadNotifications > 0 ? `${visibleUnreadNotifications} новых` : 'Все прочитано'}</p>
+                  <p className="text-[15px] font-bold text-slate-950">Уведомления</p>
+                  <p className="mt-0.5 text-[11px] font-bold text-slate-500">
+                    {visibleUnreadNotifications > 0
+                      ? `${visibleUnreadNotifications} новых`
+                      : 'Все прочитано'}
+                  </p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button type="button" onClick={markPreviewNotificationsRead} disabled={visibleUnreadNotifications === 0} className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600 disabled:bg-slate-50 disabled:text-slate-300" aria-label="Прочитать все">
+                  <button
+                    type="button"
+                    onClick={markPreviewNotificationsRead}
+                    disabled={visibleUnreadNotifications === 0}
+                    className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600 disabled:bg-slate-50 disabled:text-slate-300"
+                    aria-label="Прочитать все"
+                  >
                     <CheckCheck size={17} />
                   </button>
-                  <button type="button" onClick={() => setIsNotificationsOpen(false)} className="grid h-9 w-9 place-items-center rounded-xl bg-slate-50 text-slate-500" aria-label="Закрыть уведомления">
+                  <button
+                    type="button"
+                    onClick={() => setIsNotificationsOpen(false)}
+                    className="grid h-9 w-9 place-items-center rounded-xl bg-slate-50 text-slate-500"
+                    aria-label="Закрыть уведомления"
+                  >
                     <X size={17} />
                   </button>
                 </div>
@@ -789,8 +961,10 @@ const OrdersScreen: React.FC = () => {
                   <div className="grid min-h-[150px] place-items-center rounded-2xl bg-slate-50 px-5 text-center">
                     <div>
                       <Bell size={24} className="mx-auto text-slate-300" />
-                      <p className="mt-2 text-sm font-black text-slate-700">Пока нет уведомлений</p>
-                      <p className="mt-1 text-xs font-semibold text-slate-400">Новые события появятся здесь.</p>
+                      <p className="mt-2 text-sm font-bold text-slate-700">Пока нет уведомлений</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-400">
+                        Новые события появятся здесь.
+                      </p>
                     </div>
                   </div>
                 ) : (
@@ -805,16 +979,26 @@ const OrdersScreen: React.FC = () => {
                           disabled={!canOpen}
                           className="flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition hover:bg-slate-50 active:scale-[0.99] disabled:cursor-default disabled:opacity-80"
                         >
-                          <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${notificationSeverityClass[item.severity]}`}>
+                          <span
+                            className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${notificationSeverityClass[item.severity]}`}
+                          >
                             {iconForNotification(item.type)}
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="flex items-center gap-2">
-                              {!item.readAt && <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" />}
-                              <span className="truncate text-[13px] font-black text-slate-950">{item.title}</span>
+                              {!item.readAt && (
+                                <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" />
+                              )}
+                              <span className="truncate text-[13px] font-bold text-slate-950">
+                                {item.title}
+                              </span>
                             </span>
-                            <span className="mt-0.5 line-clamp-2 text-[11px] font-semibold leading-4 text-slate-500">{item.message}</span>
-                            <span className="mt-1 block text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{formatNotificationTime(item.createdAt)}</span>
+                            <span className="mt-0.5 line-clamp-2 text-[11px] font-semibold leading-4 text-slate-500">
+                              {item.message}
+                            </span>
+                            <span className="mt-1 block text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                              {formatNotificationTime(item.createdAt)}
+                            </span>
                           </span>
                         </button>
                       );
@@ -829,10 +1013,33 @@ const OrdersScreen: React.FC = () => {
         <div className="flex items-center gap-2">
           <label className="flex h-11 flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3">
             <Search size={14} className="text-slate-400" />
-            <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Марка, VIN, ID, клиент, заметка" className="h-full w-full bg-transparent text-sm outline-none" />
-            {searchText && <button type="button" onClick={() => { setSearchText(''); setDebouncedSearch(''); }} className="h-8 rounded-xl px-2 text-xs text-slate-500">Очистить</button>}
+            <input
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Марка, VIN, ID, клиент, заметка"
+              className="h-full w-full bg-transparent text-sm outline-none"
+            />
+            {searchText && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchText('');
+                  setDebouncedSearch('');
+                }}
+                className="h-8 rounded-xl px-2 text-xs text-slate-500"
+              >
+                Очистить
+              </button>
+            )}
           </label>
-          <button type="button" onClick={() => setIsFilterOpen(true)} className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black inline-flex items-center gap-1"><Filter size={14} />Фильтр{activeFiltersCount > 0 ? ` (${activeFiltersCount})` : ''}</button>
+          <button
+            type="button"
+            onClick={() => setIsFilterOpen(true)}
+            className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-bold inline-flex items-center gap-1"
+          >
+            <Filter size={14} />
+            Фильтр{activeFiltersCount > 0 ? ` (${activeFiltersCount})` : ''}
+          </button>
           <button
             type="button"
             disabled={filteredOrders.length === 0 && !isSelectionMode}
@@ -858,9 +1065,21 @@ const OrdersScreen: React.FC = () => {
 
         {activeFiltersCount > 0 && (
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-            {priorityFilter !== 'all' && <span className="rounded-xl bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">Приоритет: {priorityFilter}</span>}
-            {brandFilters.length > 0 && <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Марки: {brandFilters.length}</span>}
-            {statusFilters.length > 0 && <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Статусы: {statusFilters.length}</span>}
+            {priorityFilter !== 'all' && (
+              <span className="rounded-xl bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                Приоритет: {priorityFilter}
+              </span>
+            )}
+            {brandFilters.length > 0 && (
+              <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                Марки: {brandFilters.length}
+              </span>
+            )}
+            {statusFilters.length > 0 && (
+              <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                Статусы: {statusFilters.length}
+              </span>
+            )}
           </div>
         )}
 
@@ -870,39 +1089,55 @@ const OrdersScreen: React.FC = () => {
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`min-h-10 rounded-xl px-1.5 py-1 text-[10px] font-black leading-tight transition ${
+              className={`min-h-10 rounded-xl px-1.5 py-1 text-[11px] font-bold leading-tight transition ${
                 activeTab === tab
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
               <span className="block truncate">{label}</span>
-              <span className="block text-[9px] opacity-75">{tabCounts[tab]}</span>
+              <span className="block text-[11px] opacity-75">{tabCounts[tab]}</span>
             </button>
           ))}
         </div>
 
         {isSelectionMode && (
           <div className="flex items-center gap-1 overflow-x-auto no-scrollbar rounded-xl bg-slate-100/75 px-1.5 py-1">
-            <span className="shrink-0 px-1.5 text-[11px] font-bold text-slate-500">{selectedOrderIds.length} выбрано</span>
-            <button type="button" onClick={selectAllFiltered} className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-600 active:bg-white">
+            <span className="shrink-0 px-1.5 text-[11px] font-bold text-slate-500">
+              {selectedOrderIds.length} выбрано
+            </span>
+            <button
+              type="button"
+              onClick={selectAllFiltered}
+              className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-600 active:bg-white"
+            >
               Все {filteredOrders.length}
             </button>
-            <button type="button" onClick={clearSelection} className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-600 active:bg-white">
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-600 active:bg-white"
+            >
               Снять
             </button>
-            <button type="button" onClick={finishSelectionMode} className="shrink-0 rounded-lg bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-white active:scale-[0.98]">
+            <button
+              type="button"
+              onClick={finishSelectionMode}
+              className="shrink-0 rounded-lg bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-white active:scale-[0.98]"
+            >
               Готово
             </button>
           </div>
         )}
-
       </header>
 
-      <div className="space-y-4">
+      <div className={filteredOrders.length ? 'orders-grid' : ''}>
         {showSkeleton ? (
           Array.from({ length: 4 }).map((_, idx) => (
-            <div key={idx} className="rounded-2xl border border-slate-200 bg-white p-4 animate-pulse space-y-2">
+            <div
+              key={idx}
+              className="rounded-2xl border border-slate-200 bg-white p-4 animate-pulse space-y-2"
+            >
               <div className="h-5 w-44 rounded bg-slate-200" />
               <div className="h-4 w-56 rounded bg-slate-100" />
               <div className="h-6 w-24 rounded bg-slate-100" />
@@ -910,9 +1145,31 @@ const OrdersScreen: React.FC = () => {
             </div>
           ))
         ) : filteredOrders.length === 0 ? (
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-12 text-center">
-            <p className="text-base font-black text-slate-800">{emptyStateMessage.title}</p>
-            <button type="button" onClick={emptyStateMessage.action} className="mt-4 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black uppercase text-white">{emptyStateMessage.cta}</button>
+          <div className="ui-panel">
+            <EmptyState
+              icon={Car}
+              title={searchText ? 'Ничего не найдено' : emptyStateMessage.title}
+              description={
+                searchText
+                  ? 'Попробуйте другую марку, имя клиента или VIN.'
+                  : 'Создайте первый заказ, добавьте детали и соберите предложения поставщиков.'
+              }
+              action={
+                <Button
+                  icon={Plus}
+                  onClick={
+                    searchText
+                      ? () => {
+                          setSearchText('');
+                          setDebouncedSearch('');
+                        }
+                      : emptyStateMessage.action
+                  }
+                >
+                  {searchText ? 'Сбросить поиск' : emptyStateMessage.cta}
+                </Button>
+              }
+            />
           </div>
         ) : (
           filteredOrders.map((order) => {
@@ -920,14 +1177,21 @@ const OrdersScreen: React.FC = () => {
             const foundParts = foundPartsCount(order);
             const progress = totalParts > 0 ? Math.round((foundParts / totalParts) * 100) : 0;
             const status = getCardSearchStatus(order);
-            const contactLabel = order.clientName?.trim() || order.customerContact || 'Без контакта';
+            const contactLabel =
+              order.clientName?.trim() || order.customerContact || 'Без контакта';
             const ageLabel = formatAge(order.updatedAt || order.createdAt);
             const isVipOrder = order.isVip;
             const unreadLead = isUnreadLeadOrder(order);
             const safety = deriveSafetySalesSummary(order);
             const mainTab = getOrderMainTab(order);
-            const vehicleTitle = [order.brand, order.model, order.year].filter(Boolean).join(' ').trim();
-            const workflowLabel = mainTab === 'interest' || mainTab === 'not_found' ? moveTabLabels[mainTab] : statusLabelMap[status];
+            const vehicleTitle = [order.brand, order.model, order.year]
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+            const workflowLabel =
+              mainTab === 'interest' || mainTab === 'not_found'
+                ? moveTabLabels[mainTab]
+                : statusLabelMap[status];
 
             return (
               <SwipeableOrderCard
@@ -952,7 +1216,9 @@ const OrdersScreen: React.FC = () => {
                 disableCardTap={!!deleteId || isDeleting}
                 disableSwipe={isSelectionMode}
               >
-                <div className={`rounded-2xl p-1 -m-1 ${isVipOrder ? 'bg-amber-50/70 border border-amber-200' : unreadLead ? 'bg-amber-50/60 border border-amber-200/70' : ''}`}>
+                <div
+                  className={`rounded-2xl p-1 -m-1 ${isVipOrder ? 'bg-amber-50/70 border border-amber-200' : unreadLead ? 'bg-amber-50/60 border border-amber-200/70' : ''}`}
+                >
                   <div className="flex items-start gap-3">
                     {isSelectionMode && (
                       <button
@@ -962,15 +1228,27 @@ const OrdersScreen: React.FC = () => {
                           toggleOrderSelected(order.id);
                         }}
                         className={`mt-1 inline-flex h-7 w-7 items-center justify-center rounded-lg border ${selectedOrderIds.includes(order.id) ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-500'}`}
-                        aria-label={selectedOrderIds.includes(order.id) ? 'Снять выбор заказа' : 'Выбрать заказ'}
+                        aria-label={
+                          selectedOrderIds.includes(order.id)
+                            ? 'Снять выбор заказа'
+                            : 'Выбрать заказ'
+                        }
                       >
-                        {selectedOrderIds.includes(order.id) ? <CheckSquare size={14} /> : <Square size={14} />}
+                        {selectedOrderIds.includes(order.id) ? (
+                          <CheckSquare size={14} />
+                        ) : (
+                          <Square size={14} />
+                        )}
                       </button>
                     )}
-                    {((order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl) ? (
-                      <SafeImage src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl} alt={`${order.brand} ${order.model}`} className="h-16 w-16 shrink-0 rounded-2xl object-cover border border-slate-200" />
+                    {(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl ? (
+                      <SafeImage
+                        src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl}
+                        alt={`${order.brand} ${order.model}`}
+                        className="h-16 w-16 shrink-0 rounded-2xl object-cover border border-slate-200"
+                      />
                     ) : (
-                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 text-lg font-black text-slate-400">
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 text-lg font-bold text-slate-400">
                         {order.brand?.[0] || '?'}
                       </div>
                     )}
@@ -978,13 +1256,17 @@ const OrdersScreen: React.FC = () => {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <h3 className="truncate text-sm font-black text-slate-900">{order.brand} {order.model}</h3>
+                          <h3 className="truncate text-sm font-bold text-slate-900">
+                            {order.brand} {order.model}
+                          </h3>
                           <p className="mt-0.5 truncate text-xs text-slate-500">
                             {order.year || '—'} · {order.vin || contactLabel || 'Без контакта'}
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          {isVipOrder && <Star size={12} className="shrink-0 text-amber-500 fill-amber-500" />}
+                          {isVipOrder && (
+                            <Star size={12} className="shrink-0 text-amber-500 fill-amber-500" />
+                          )}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1024,21 +1306,46 @@ const OrdersScreen: React.FC = () => {
                       </div>
 
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">{workflowLabel}</span>
-                        {order.priority === Priority.HIGH && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-600">Срочно</span>}
-                        {unreadLead && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">Новый лид</span>}
-                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600 inline-flex items-center gap-1"><Clock3 size={10} /> {ageLabel}</span>
-                        <span className={`rounded-full px-2 py-1 text-[10px] font-black ${leadQualityStyles[safety.leadQuality.level]}`}>{safety.leadQuality.label}</span>
-                        <span className={`rounded-full px-2 py-1 text-[10px] font-black ${safetyRiskStyles[safety.dealRisk.level]}`}>{safety.dealRisk.label}</span>
+                        <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">
+                          {workflowLabel}
+                        </span>
+                        {order.priority === Priority.HIGH && (
+                          <span className="rounded-full bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600">
+                            Срочно
+                          </span>
+                        )}
+                        {unreadLead && (
+                          <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700">
+                            Новый лид
+                          </span>
+                        )}
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600 inline-flex items-center gap-1">
+                          <Clock3 size={10} /> {ageLabel}
+                        </span>
+                        <span
+                          className={`rounded-full px-2 py-1 text-[11px] font-bold ${leadQualityStyles[safety.leadQuality.level]}`}
+                        >
+                          {safety.leadQuality.label}
+                        </span>
+                        <span
+                          className={`rounded-full px-2 py-1 text-[11px] font-bold ${safetyRiskStyles[safety.dealRisk.level]}`}
+                        >
+                          {safety.dealRisk.label}
+                        </span>
                       </div>
 
                       <div className="mt-3">
-                        <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-slate-500">
+                        <div className="mb-1 flex items-center justify-between text-[11px] font-bold text-slate-500">
                           <span>Найдено деталей</span>
-                          <span>{foundParts}/{totalParts || 0} · {progress}%</span>
+                          <span>
+                            {foundParts}/{totalParts || 0} · {progress}%
+                          </span>
                         </div>
                         <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                          <div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }} />
+                          <div
+                            className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                            style={{ width: `${progress}%` }}
+                          />
                         </div>
                       </div>
                     </div>
@@ -1051,7 +1358,10 @@ const OrdersScreen: React.FC = () => {
       </div>
 
       {moveSheetOrder && (
-        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/35 px-4 py-6" onClick={() => setMoveSheetOrderId(null)}>
+        <div
+          className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/35 px-4 py-6"
+          onClick={() => setMoveSheetOrderId(null)}
+        >
           <div
             className="w-full max-w-md rounded-[28px] bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)]"
             onClick={(event) => event.stopPropagation()}
@@ -1059,12 +1369,21 @@ const OrdersScreen: React.FC = () => {
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-200" />
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-base font-black text-slate-950">
-                  {[moveSheetOrder.brand, moveSheetOrder.model, moveSheetOrder.year].filter(Boolean).join(' ')}
+                <p className="truncate text-base font-bold text-slate-950">
+                  {[moveSheetOrder.brand, moveSheetOrder.model, moveSheetOrder.year]
+                    .filter(Boolean)
+                    .join(' ')}
                 </p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">Переместить заказ во вкладку</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Переместить заказ во вкладку
+                </p>
               </div>
-              <button type="button" onClick={() => setMoveSheetOrderId(null)} className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 text-slate-500" aria-label="Закрыть">
+              <button
+                type="button"
+                onClick={() => setMoveSheetOrderId(null)}
+                className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 text-slate-500"
+                aria-label="Закрыть"
+              >
                 <X size={17} />
               </button>
             </div>
@@ -1077,7 +1396,7 @@ const OrdersScreen: React.FC = () => {
                     type="button"
                     disabled={isCurrent}
                     onClick={() => void moveOrderToTab(moveSheetOrder, tab.id)}
-                    className={`min-h-12 rounded-2xl border px-3 text-sm font-black transition active:scale-[0.99] disabled:opacity-55 ${
+                    className={`min-h-12 rounded-2xl border px-3 text-sm font-bold transition active:scale-[0.99] disabled:opacity-55 ${
                       isCurrent
                         ? 'border-blue-200 bg-blue-50 text-blue-700'
                         : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
@@ -1093,87 +1412,131 @@ const OrdersScreen: React.FC = () => {
       )}
 
       {isFilterOpen && (
-        <div className="fixed inset-0 z-[80] bg-black/35" onClick={() => setIsFilterOpen(false)}>
-          <div className="absolute bottom-0 left-0 right-0 rounded-t-3xl bg-white p-4" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-base font-black text-slate-900">Фильтры и сортировка</h2>
+        <Dialog title="Фильтры и сортировка" onClose={() => setIsFilterOpen(false)}>
+          <div className="mt-3 space-y-2">
+            <label className="text-[11px] font-bold uppercase text-slate-500">Сортировка</label>
+            <select
+              aria-label="Сортировка"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortType)}
+              className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm"
+            >
+              <option value="date_desc">Дата: новые</option>
+              <option value="date_asc">Дата: старые</option>
+              <option value="priority">Приоритет</option>
+              <option value="brand_asc">Марка A–Z</option>
+              <option value="age">Срок/давность</option>
+            </select>
+          </div>
 
-            <div className="mt-3 space-y-2">
-              <label className="text-[11px] font-black uppercase text-slate-500">Сортировка</label>
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortType)} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm">
-                <option value="date_desc">Дата: новые</option>
-                <option value="date_asc">Дата: старые</option>
-                <option value="priority">Приоритет</option>
-                <option value="brand_asc">Марка A–Z</option>
-                <option value="age">Срок/давность</option>
-              </select>
+          <div className="mt-3 space-y-2">
+            <label className="text-[11px] font-bold uppercase text-slate-500">
+              Марка автомобиля
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {allBrands.map((brand) => (
+                <button
+                  key={brand}
+                  type="button"
+                  onClick={() =>
+                    setBrandFilters((current) =>
+                      current.includes(brand)
+                        ? current.filter((b) => b !== brand)
+                        : [...current, brand],
+                    )
+                  }
+                  className={`rounded-lg border px-2 py-1 text-xs font-bold ${brandFilters.includes(brand) ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}
+                >
+                  {brand}
+                </button>
+              ))}
             </div>
+          </div>
 
-            <div className="mt-3 space-y-2">
-              <label className="text-[11px] font-black uppercase text-slate-500">Марка (multi)</label>
-              <div className="flex flex-wrap gap-2">
-                {allBrands.map((brand) => (
-                  <button key={brand} type="button" onClick={() => setBrandFilters((current) => current.includes(brand) ? current.filter((b) => b !== brand) : [...current, brand])} className={`rounded-lg border px-2 py-1 text-xs font-bold ${brandFilters.includes(brand) ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}>{brand}</button>
-                ))}
-              </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <select
+              aria-label="Приоритет"
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value as Priority | 'all')}
+              className="h-11 rounded-xl border border-slate-200 px-2 text-sm"
+            >
+              <option value="all">Любой приоритет</option>
+              <option value={Priority.HIGH}>High</option>
+              <option value={Priority.MEDIUM}>Medium</option>
+              <option value={Priority.LOW}>Low</option>
+            </select>
+            <select
+              aria-label="Время без ответа"
+              value={noResponseHours}
+              onChange={(e) => setNoResponseHours(Number(e.target.value))}
+              className="h-11 rounded-xl border border-slate-200 px-2 text-sm"
+            >
+              <option value={0}>Без ответа: все</option>
+              <option value={3}>{'>'} 3ч</option>
+              <option value={6}>{'>'} 6ч</option>
+              <option value={12}>{'>'} 12ч</option>
+              <option value={24}>{'>'} 24ч</option>
+            </select>
+          </div>
+
+          <div className="mt-2">
+            <select
+              aria-label="Проблемы заказа"
+              value={issueFilter}
+              onChange={(e) => setIssueFilter(e.target.value as typeof issueFilter)}
+              className="h-11 w-full rounded-xl border border-slate-200 px-2 text-sm"
+            >
+              <option value="all">Ошибки: все</option>
+              <option value="missing_price">Без цены</option>
+              <option value="missing_contact">Без контакта</option>
+            </select>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              value={yearFrom}
+              onChange={(e) => setYearFrom(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
+              placeholder="Год от"
+              className="h-11 rounded-xl border border-slate-200 px-2 text-sm"
+            />
+            <input
+              type="number"
+              inputMode="numeric"
+              value={yearTo}
+              onChange={(e) => setYearTo(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
+              placeholder="Год до"
+              className="h-11 rounded-xl border border-slate-200 px-2 text-sm"
+            />
+          </div>
+
+          <div className="mt-3">
+            <label className="text-[11px] font-bold uppercase text-slate-500">Статус поиска</label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(Object.keys(statusLabelMap) as SearchState[]).map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() =>
+                    setStatusFilters((current) =>
+                      current.includes(status)
+                        ? current.filter((item) => item !== status)
+                        : [...current, status],
+                    )
+                  }
+                  className={`rounded-lg border px-2 py-1 text-xs font-bold ${statusFilters.includes(status) ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}
+                >
+                  {statusLabelMap[status]}
+                </button>
+              ))}
             </div>
+          </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as Priority | 'all')} className="h-11 rounded-xl border border-slate-200 px-2 text-sm">
-                <option value="all">Любой приоритет</option>
-                <option value={Priority.HIGH}>High</option>
-                <option value={Priority.MEDIUM}>Medium</option>
-                <option value={Priority.LOW}>Low</option>
-              </select>
-              <select value={noResponseHours} onChange={(e) => setNoResponseHours(Number(e.target.value))} className="h-11 rounded-xl border border-slate-200 px-2 text-sm">
-                <option value={0}>Без ответа: все</option>
-                <option value={3}>{'>'} 3ч</option>
-                <option value={6}>{'>'} 6ч</option>
-                <option value={12}>{'>'} 12ч</option>
-                <option value={24}>{'>'} 24ч</option>
-              </select>
-            </div>
-
-            <div className="mt-2">
-              <select value={issueFilter} onChange={(e) => setIssueFilter(e.target.value as typeof issueFilter)} className="h-11 w-full rounded-xl border border-slate-200 px-2 text-sm">
-                <option value="all">Ошибки: все</option>
-                <option value="missing_price">Без цены</option>
-                <option value="missing_contact">Без контакта</option>
-              </select>
-            </div>
-
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <input
-                type="number"
-                inputMode="numeric"
-                value={yearFrom}
-                onChange={(e) => setYearFrom(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
-                placeholder="Год от"
-                className="h-11 rounded-xl border border-slate-200 px-2 text-sm"
-              />
-              <input
-                type="number"
-                inputMode="numeric"
-                value={yearTo}
-                onChange={(e) => setYearTo(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
-                placeholder="Год до"
-                className="h-11 rounded-xl border border-slate-200 px-2 text-sm"
-              />
-            </div>
-
-            <div className="mt-3">
-              <label className="text-[11px] font-black uppercase text-slate-500">Статус поиска</label>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {(Object.keys(statusLabelMap) as SearchState[]).map((status) => (
-                  <button key={status} type="button" onClick={() => setStatusFilters((current) => current.includes(status) ? current.filter((item) => item !== status) : [...current, status])} className={`rounded-lg border px-2 py-1 text-xs font-bold ${statusFilters.includes(status) ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}>
-                    {statusLabelMap[status]}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4 flex gap-2">
-              <button type="button" onClick={() => {
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
                 setSortBy('date_desc');
                 setBrandFilters([]);
                 setPriorityFilter('all');
@@ -1182,23 +1545,45 @@ const OrdersScreen: React.FC = () => {
                 setIssueFilter('all');
                 setYearFrom('');
                 setYearTo('');
-              }} className="h-11 flex-1 rounded-xl border border-slate-200 text-xs font-black uppercase">Сброс</button>
-              <button type="button" onClick={() => setIsFilterOpen(false)} className="h-11 flex-1 rounded-xl bg-blue-600 text-xs font-black uppercase text-white">Применить</button>
-            </div>
+              }}
+              className="h-11 flex-1 rounded-xl border border-slate-200 text-xs font-bold uppercase"
+            >
+              Сброс
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsFilterOpen(false)}
+              className="h-11 flex-1 rounded-xl bg-blue-600 text-xs font-bold uppercase text-white"
+            >
+              Применить
+            </button>
           </div>
-        </div>
+        </Dialog>
       )}
 
-            <ConfirmModal isOpen={!!deleteId && deleteId !== '__bulk__'} message={isDeleting ? 'Удаляем…' : 'Вы уверены, что хотите удалить этот заказ?'} onConfirm={confirmDelete} onCancel={() => { if (!isDeleting) setDeleteId(null); }} />
+      <ConfirmModal
+        isOpen={!!deleteId && deleteId !== '__bulk__'}
+        message={isDeleting ? 'Удаляем…' : 'Вы уверены, что хотите удалить этот заказ?'}
+        onConfirm={confirmDelete}
+        onCancel={() => {
+          if (!isDeleting) setDeleteId(null);
+        }}
+      />
       <ConfirmModal
         isOpen={isSelectionMode && deleteId === '__bulk__'}
-        message={isBulkDeleting ? 'Удаляем выбранные заказы…' : `Удалить выбранные заказы (${selectedOrderIds.length})?`}
+        message={
+          isBulkDeleting
+            ? 'Удаляем выбранные заказы…'
+            : `Удалить выбранные заказы (${selectedOrderIds.length})?`
+        }
         onConfirm={deleteSelectedOrders}
         onCancel={() => {
           if (!isBulkDeleting) setDeleteId(null);
         }}
       />
-      {isIncomeOpen && <IncomeModal isOpen={isIncomeOpen} onClose={() => setIsIncomeOpen(false)} orders={orders} />}
+      {isIncomeOpen && (
+        <IncomeModal isOpen={isIncomeOpen} onClose={() => setIsIncomeOpen(false)} orders={orders} />
+      )}
 
       {isSelectionMode && selectedOrderIds.length > 0 && (
         <div className="fixed bottom-[max(76px,calc(env(safe-area-inset-bottom)+64px))] left-1/2 z-40 -translate-x-1/2 rounded-full border border-slate-200 bg-white/95 p-1.5 shadow-[0_10px_30px_rgba(15,23,42,0.12)] backdrop-blur">

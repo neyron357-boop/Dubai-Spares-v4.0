@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+
 - Added detailed lead creation logging (`[leadCreate]`) across guard checks, payload build, request dispatch, and response handling.
 - Hardened Supabase REST call flow with request/response logging and retry for transient network/timeout errors.
 - Improved cloud guard feedback with explicit configuration failure reason (`cloud_disabled`).

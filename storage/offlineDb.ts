@@ -1,5 +1,5 @@
-import { Order, RadarInteraction, SystemLogEntry } from '../types';
 import { logSyncCategory, syncPerf } from '../syncPerf';
+import { Order, RadarInteraction, SystemLogEntry } from '../types';
 
 type MutationType = 'upsert' | 'delete' | 'patch';
 
@@ -29,7 +29,13 @@ const MUTATIONS_STORE = 'mutations';
 const SYSTEM_LOGS_STORE = 'system_logs';
 const RADAR_INTERACTIONS_STORE = 'radar_interactions';
 const ORDER_PATCHES_STORE = 'order_patches';
-const ALL_STORES = [ORDERS_STORE, ORDER_PATCHES_STORE, MUTATIONS_STORE, SYSTEM_LOGS_STORE, RADAR_INTERACTIONS_STORE] as const;
+const ALL_STORES = [
+  ORDERS_STORE,
+  ORDER_PATCHES_STORE,
+  MUTATIONS_STORE,
+  SYSTEM_LOGS_STORE,
+  RADAR_INTERACTIONS_STORE,
+] as const;
 const MUTATION_WARNING_THRESHOLD = 2000;
 const DEBUG_MAX_READ_PER_CLICK = 200;
 const EXPORT_BATCH_SIZE = 100;
@@ -52,7 +58,6 @@ let pendingOrderFlushPromise: Promise<void> | null = null;
 const pendingOrderPatchWrites = new Map<string, Partial<Order>>();
 let pendingOrderPatchFlushTimer: number | null = null;
 
-
 const pendingMutationWrites = new Map<string, OfflineMutation>();
 let pendingMutationFlushTimer: number | null = null;
 let pendingMutationFlushPromise: Promise<void> | null = null;
@@ -72,16 +77,22 @@ const closeActiveDb = () => {
 
 const isRecoverableOpenError = (error: unknown) => {
   if (!(error instanceof Error)) return false;
-  return ['VersionError', 'QuotaExceededError', 'UnknownError', 'InvalidStateError'].includes(error.name)
-    || /blocked|lost|internal error|version/i.test(error.message);
+  return (
+    ['VersionError', 'QuotaExceededError', 'UnknownError', 'InvalidStateError'].includes(
+      error.name,
+    ) || /blocked|lost|internal error|version/i.test(error.message)
+  );
 };
 
 const isConnectionLostError = (error: unknown) => {
   if (!(error instanceof Error)) return false;
-  return /IDB_CONNECTION_LOST|indexeddb.*(lost|unstable|closed)|InvalidStateError|AbortError/i.test(`${error.name}:${error.message}`);
+  return /IDB_CONNECTION_LOST|indexeddb.*(lost|unstable|closed)|InvalidStateError|AbortError/i.test(
+    `${error.name}:${error.message}`,
+  );
 };
 
-const toError = (error: unknown, fallback: string) => error instanceof Error ? error : new Error(fallback);
+const toError = (error: unknown, fallback: string) =>
+  error instanceof Error ? error : new Error(fallback);
 
 const measureIdbTx = async <T>(fn: () => Promise<T>) => {
   const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -124,7 +135,10 @@ const withIdbRecovery = async <T>(operation: string, fn: () => Promise<T>): Prom
     if (!isConnectionLostError(error)) throw error;
 
     syncPerf.setLastIdbError(toError(error, 'IndexedDB operation failed').message);
-    syncPerf.addIdbEvent('connection_lost', { operation, error: toError(error, 'IndexedDB operation failed').message });
+    syncPerf.addIdbEvent('connection_lost', {
+      operation,
+      error: toError(error, 'IndexedDB operation failed').message,
+    });
 
     for (let attempt = 1; attempt <= IDB_RECOVERY_REOPEN_LIMIT; attempt += 1) {
       try {
@@ -140,13 +154,21 @@ const withIdbRecovery = async <T>(operation: string, fn: () => Promise<T>): Prom
       } catch (recoveryError) {
         idbRecoveryFailures += 1;
         syncPerf.setLastIdbError(toError(recoveryError, 'IndexedDB recovery failed').message);
-        syncPerf.addIdbEvent('recovery_failed', { operation, failures: idbRecoveryFailures, attempt });
+        syncPerf.addIdbEvent('recovery_failed', {
+          operation,
+          failures: idbRecoveryFailures,
+          attempt,
+        });
       }
     }
 
     if (idbSafeRebuilds < IDB_SAFE_REBUILD_LIMIT) {
       idbSafeRebuilds += 1;
-      syncPerf.addIdbEvent('rebuild_required', { operation, failures: idbRecoveryFailures, rebuildAttempt: idbSafeRebuilds });
+      syncPerf.addIdbEvent('rebuild_required', {
+        operation,
+        failures: idbRecoveryFailures,
+        rebuildAttempt: idbSafeRebuilds,
+      });
       await safeRebuildIndex();
       syncPerf.addIdbEvent('rebuild_completed', { operation, rebuildAttempt: idbSafeRebuilds });
       const rebuilt = await fn();
@@ -158,14 +180,22 @@ const withIdbRecovery = async <T>(operation: string, fn: () => Promise<T>): Prom
     }
 
     idbAutoSyncPaused = true;
-    window.dispatchEvent(new CustomEvent('idb-autosync-paused', { detail: { failures: idbRecoveryFailures } }));
-    window.dispatchEvent(new CustomEvent('idb-rebuild-required', { detail: { failures: idbRecoveryFailures } }));
+    window.dispatchEvent(
+      new CustomEvent('idb-autosync-paused', { detail: { failures: idbRecoveryFailures } }),
+    );
+    window.dispatchEvent(
+      new CustomEvent('idb-rebuild-required', { detail: { failures: idbRecoveryFailures } }),
+    );
     throw toError(error, 'IndexedDB recovery failed after rebuild attempts');
   }
 };
 
 const runWithDbLock = async <T>(fn: () => Promise<T>): Promise<T> => {
-  const lockApi = (navigator as Navigator & { locks?: { request: <R>(name: string, callback: () => Promise<R>) => Promise<R> } }).locks;
+  const lockApi = (
+    navigator as Navigator & {
+      locks?: { request: <R>(name: string, callback: () => Promise<R>) => Promise<R> };
+    }
+  ).locks;
   if (lockApi?.request) {
     return lockApi.request('dubai-spares-offline-db-open', fn);
   }
@@ -259,7 +289,7 @@ const sampleRows = async (
   store: IDBObjectStore,
   limit: number,
   cursor?: IDBValidKey,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<{ rows: unknown[]; nextCursor: IDBValidKey | null }> => {
   const clampedLimit = Math.max(1, Math.min(limit, DEBUG_MAX_READ_PER_CLICK));
   const rows: unknown[] = [];
@@ -287,14 +317,20 @@ const sampleRows = async (
 
   return {
     rows,
-    nextCursor: rows.length === clampedLimit ? lastKey : null
+    nextCursor: rows.length === clampedLimit ? lastKey : null,
   };
 };
 
 export interface DiagnosticsSummaryPayload {
   schemaVersion: number;
   stores: Record<string, { count: number; approxBytes: number }>;
-  entityCounts: { orders: number; parts: number; price_variants: number; shops: number; app_state_keys: number };
+  entityCounts: {
+    orders: number;
+    parts: number;
+    price_variants: number;
+    shops: number;
+    app_state_keys: number;
+  };
   lastLogs: SystemLogEntry[];
   lastErrors: SystemLogEntry[];
 }
@@ -302,7 +338,7 @@ export interface DiagnosticsSummaryPayload {
 const committedTransaction = async (
   db: IDBDatabase,
   stores: string[],
-  work: (tx: IDBTransaction) => Promise<void>
+  work: (tx: IDBTransaction) => Promise<void>,
 ): Promise<void> => {
   const tx = db.transaction(stores, 'readwrite');
   const completion = new Promise<void>((resolve, reject) => {
@@ -316,7 +352,11 @@ const committedTransaction = async (
     await work(tx);
     await completion;
   } catch (error) {
-    try { tx.abort(); } catch { /* Already completed or aborted. */ }
+    try {
+      tx.abort();
+    } catch {
+      /* Already completed or aborted. */
+    }
     await completion.catch(() => undefined);
     throw error;
   }
@@ -339,29 +379,40 @@ const flushOrderWrites = async (): Promise<void> => {
       const patches = Array.from(pendingOrderPatchWrites.entries());
       const clear = pendingOrdersClear;
       const replaceVersion = pendingOrdersReplaceVersion;
-      await withIdbRecovery('flush_order_writes', () => measureIdbTx(async () => {
-        const db = await openDb();
-        await committedTransaction(db, [ORDERS_STORE, ORDER_PATCHES_STORE], async (tx) => {
-          const store = tx.objectStore(ORDERS_STORE);
-          const patchStore = tx.objectStore(ORDER_PATCHES_STORE);
-          if (clear) {
-            await txRequest(store.clear());
-            await txRequest(patchStore.clear());
-          }
-          for (const [id, op] of writes) {
-            if (op.type === 'delete') await txRequest(store.delete(id));
-            else await txRequest(store.put(op.order));
-            await txRequest(patchStore.delete(id));
-          }
-          for (const [id, patch] of patches) {
-            const previous = await txRequest(patchStore.get(id)) as { patch?: Partial<Order> } | undefined;
-            await txRequest(patchStore.put({ id, patch: { ...previous?.patch, ...patch }, updatedAt: Date.now() }));
-          }
-        });
-      }));
+      await withIdbRecovery('flush_order_writes', () =>
+        measureIdbTx(async () => {
+          const db = await openDb();
+          await committedTransaction(db, [ORDERS_STORE, ORDER_PATCHES_STORE], async (tx) => {
+            const store = tx.objectStore(ORDERS_STORE);
+            const patchStore = tx.objectStore(ORDER_PATCHES_STORE);
+            if (clear) {
+              await txRequest(store.clear());
+              await txRequest(patchStore.clear());
+            }
+            for (const [id, op] of writes) {
+              if (op.type === 'delete') await txRequest(store.delete(id));
+              else await txRequest(store.put(op.order));
+              await txRequest(patchStore.delete(id));
+            }
+            for (const [id, patch] of patches) {
+              const previous = (await txRequest(patchStore.get(id))) as
+                { patch?: Partial<Order> } | undefined;
+              await txRequest(
+                patchStore.put({
+                  id,
+                  patch: { ...previous?.patch, ...patch },
+                  updatedAt: Date.now(),
+                }),
+              );
+            }
+          });
+        }),
+      );
       // Remove only committed versions. Edits arriving during the transaction remain queued.
-      for (const [id, op] of writes) if (pendingOrderWrites.get(id) === op) pendingOrderWrites.delete(id);
-      for (const [id, patch] of patches) if (pendingOrderPatchWrites.get(id) === patch) pendingOrderPatchWrites.delete(id);
+      for (const [id, op] of writes)
+        if (pendingOrderWrites.get(id) === op) pendingOrderWrites.delete(id);
+      for (const [id, patch] of patches)
+        if (pendingOrderPatchWrites.get(id) === patch) pendingOrderPatchWrites.delete(id);
       if (clear && replaceVersion === pendingOrdersReplaceVersion) pendingOrdersClear = false;
       syncPerf.recordIdbWrite();
     }
@@ -386,26 +437,42 @@ const flushMutationWrites = async (): Promise<void> => {
   pendingMutationFlushPromise = (async () => {
     while (pendingMutationWrites.size) {
       const writes = Array.from(pendingMutationWrites.entries());
-      await withIdbRecovery('flush_mutation_writes', () => measureIdbTx(async () => {
-        const db = await openDb();
-        await committedTransaction(db, [MUTATIONS_STORE], async (tx) => {
-          const store = tx.objectStore(MUTATIONS_STORE);
-          let count = await txRequest(store.count());
-          for (const [, normalized] of writes) {
-            const existing = await txRequest(store.get(normalized.id)) as OfflineMutation | undefined;
-            if (!existing && count === MUTATION_WARNING_THRESHOLD) window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: 'info', message: 'Накопилось много изменений. Подключитесь к сети и сделайте резервную копию.' } }));
-            if (!existing) count += 1;
-            await txRequest(store.put({
-              ...existing,
-              ...normalized,
-              payload: normalized.payload !== undefined ? normalized.payload : existing?.payload,
-              patch: normalized.patch !== undefined ? normalized.patch : existing?.patch,
-              createdAt: existing?.createdAt || normalized.createdAt
-            }));
-          }
-        });
-      }));
-      for (const [id, mutation] of writes) if (pendingMutationWrites.get(id) === mutation) pendingMutationWrites.delete(id);
+      await withIdbRecovery('flush_mutation_writes', () =>
+        measureIdbTx(async () => {
+          const db = await openDb();
+          await committedTransaction(db, [MUTATIONS_STORE], async (tx) => {
+            const store = tx.objectStore(MUTATIONS_STORE);
+            let count = await txRequest(store.count());
+            for (const [, normalized] of writes) {
+              const existing = (await txRequest(store.get(normalized.id))) as
+                OfflineMutation | undefined;
+              if (!existing && count === MUTATION_WARNING_THRESHOLD)
+                window.dispatchEvent(
+                  new CustomEvent('app-toast', {
+                    detail: {
+                      tone: 'info',
+                      message:
+                        'Накопилось много изменений. Подключитесь к сети и сделайте резервную копию.',
+                    },
+                  }),
+                );
+              if (!existing) count += 1;
+              await txRequest(
+                store.put({
+                  ...existing,
+                  ...normalized,
+                  payload:
+                    normalized.payload !== undefined ? normalized.payload : existing?.payload,
+                  patch: normalized.patch !== undefined ? normalized.patch : existing?.patch,
+                  createdAt: existing?.createdAt || normalized.createdAt,
+                }),
+              );
+            }
+          });
+        }),
+      );
+      for (const [id, mutation] of writes)
+        if (pendingMutationWrites.get(id) === mutation) pendingMutationWrites.delete(id);
       syncPerf.recordIdbWrite();
     }
   })();
@@ -419,30 +486,47 @@ const flushMutationWrites = async (): Promise<void> => {
 const reportBackgroundStorageError = (error: unknown) => {
   const message = toError(error, 'Local data could not be saved').message;
   syncPerf.setLastIdbError(message);
-  window.dispatchEvent(new CustomEvent('app-toast', { detail: { tone: 'error', message: 'Не удалось сохранить данные на устройстве. Освободите место и повторите сохранение.' } }));
+  window.dispatchEvent(
+    new CustomEvent('app-toast', {
+      detail: {
+        tone: 'error',
+        message:
+          'Не удалось сохранить данные на устройстве. Освободите место и повторите сохранение.',
+      },
+    }),
+  );
 };
 
 const scheduleMutationFlush = () => {
   if (!pendingMutationFlushTimer) {
-    pendingMutationFlushTimer = window.setTimeout(() => {
-      void flushMutationWrites().catch(reportBackgroundStorageError);
-    }, getJitterMs(600, 900));
+    pendingMutationFlushTimer = window.setTimeout(
+      () => {
+        void flushMutationWrites().catch(reportBackgroundStorageError);
+      },
+      getJitterMs(600, 900),
+    );
   }
 };
 
 const scheduleOrderFlush = () => {
   if (!pendingOrderFlushTimer) {
-    pendingOrderFlushTimer = window.setTimeout(() => {
-      void flushOrderWrites().catch(reportBackgroundStorageError);
-    }, getJitterMs(600, 900));
+    pendingOrderFlushTimer = window.setTimeout(
+      () => {
+        void flushOrderWrites().catch(reportBackgroundStorageError);
+      },
+      getJitterMs(600, 900),
+    );
   }
 };
 
 const scheduleOrderPatchFlush = () => {
   if (!pendingOrderPatchFlushTimer) {
-    pendingOrderPatchFlushTimer = window.setTimeout(() => {
-      void flushOrderPatchWrites().catch(reportBackgroundStorageError);
-    }, getJitterMs(600, 900));
+    pendingOrderPatchFlushTimer = window.setTimeout(
+      () => {
+        void flushOrderPatchWrites().catch(reportBackgroundStorageError);
+      },
+      getJitterMs(600, 900),
+    );
   }
 };
 
@@ -460,16 +544,23 @@ export const offlineDb = {
   async getOrders(): Promise<Order[]> {
     await flushOrderWrites();
     await flushOrderPatchWrites();
-    return withIdbRecovery('get_orders', () => measureIdbTx(async () => {
-      const db = await openDb();
-      const tx = db.transaction([ORDERS_STORE, ORDER_PATCHES_STORE], 'readonly');
-      const rows = await txRequest(tx.objectStore(ORDERS_STORE).getAll()) as Order[];
-      const patchRows = await txRequest(tx.objectStore(ORDER_PATCHES_STORE).getAll()) as Array<{ id: string; patch?: Partial<Order> }>;
-      const patchMap = new Map(patchRows.map((item) => [item.id, item.patch || {}]));
-      return rows
-        .map((order) => patchMap.has(order.id) ? ({ ...order, ...patchMap.get(order.id)! }) : order)
-        .sort((a, b) => b.createdAt - a.createdAt);
-    }));
+    return withIdbRecovery('get_orders', () =>
+      measureIdbTx(async () => {
+        const db = await openDb();
+        const tx = db.transaction([ORDERS_STORE, ORDER_PATCHES_STORE], 'readonly');
+        const rows = (await txRequest(tx.objectStore(ORDERS_STORE).getAll())) as Order[];
+        const patchRows = (await txRequest(tx.objectStore(ORDER_PATCHES_STORE).getAll())) as Array<{
+          id: string;
+          patch?: Partial<Order>;
+        }>;
+        const patchMap = new Map(patchRows.map((item) => [item.id, item.patch || {}]));
+        return rows
+          .map((order) =>
+            patchMap.has(order.id) ? { ...order, ...patchMap.get(order.id)! } : order,
+          )
+          .sort((a, b) => b.createdAt - a.createdAt);
+      }),
+    );
   },
 
   async saveOrders(orders: Order[]): Promise<void> {
@@ -516,7 +607,9 @@ export const offlineDb = {
   },
 
   async deleteOrders(orderIds: string[]): Promise<void> {
-    const uniqueIds = Array.from(new Set(orderIds.map((id) => String(id || '').trim()).filter(Boolean)));
+    const uniqueIds = Array.from(
+      new Set(orderIds.map((id) => String(id || '').trim()).filter(Boolean)),
+    );
     if (uniqueIds.length === 0) return;
     uniqueIds.forEach((orderId) => {
       pendingOrderPatchWrites.delete(orderId);
@@ -539,14 +632,20 @@ export const offlineDb = {
       retryCount: Number((mutation.retryCount ?? mutation.attemptCount) || 0),
       lastError: mutation.lastError || null,
       nextRetryAt: Number(mutation.nextRetryAt || 0),
-      payload: Object.prototype.hasOwnProperty.call(mutation, 'payload') ? mutation.payload : undefined,
-      patch: Object.prototype.hasOwnProperty.call(mutation, 'patch') ? mutation.patch : undefined
+      payload: Object.prototype.hasOwnProperty.call(mutation, 'payload')
+        ? mutation.payload
+        : undefined,
+      patch: Object.prototype.hasOwnProperty.call(mutation, 'patch') ? mutation.patch : undefined,
     };
 
     pendingMutationWrites.set(normalized.id, normalized);
     scheduleMutationFlush();
     await flushMutationWrites();
-    logSyncCategory('MUTATION_QUEUE', 'mutation_enqueued', { id: normalized.id, type: normalized.type, orderId: normalized.orderId });
+    logSyncCategory('MUTATION_QUEUE', 'mutation_enqueued', {
+      id: normalized.id,
+      type: normalized.type,
+      orderId: normalized.orderId,
+    });
   },
 
   async getMutations(): Promise<OfflineMutation[]> {
@@ -583,7 +682,11 @@ export const offlineDb = {
     await txRequest(tx.objectStore(MUTATIONS_STORE).clear());
   },
 
-  async addSystemLog(entry: SystemLogEntry, maxEntries = 2000, maxAgeMs = 14 * 24 * 60 * 60 * 1000): Promise<void> {
+  async addSystemLog(
+    entry: SystemLogEntry,
+    maxEntries = 2000,
+    maxAgeMs = 14 * 24 * 60 * 60 * 1000,
+  ): Promise<void> {
     const db = await openDb();
     const tx = db.transaction(SYSTEM_LOGS_STORE, 'readwrite');
     const store = tx.objectStore(SYSTEM_LOGS_STORE);
@@ -612,9 +715,7 @@ export const offlineDb = {
     const db = await openDb();
     const tx = db.transaction(SYSTEM_LOGS_STORE, 'readonly');
     const rows = await txRequest(tx.objectStore(SYSTEM_LOGS_STORE).getAll());
-    return (rows as SystemLogEntry[])
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, limit);
+    return (rows as SystemLogEntry[]).sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   },
 
   async getSystemLogCount(): Promise<number> {
@@ -645,7 +746,15 @@ export const offlineDb = {
 
   // iOS Safari can OOM when debug tools materialize entire IndexedDB datasets in memory.
   // Keep diagnostics intentionally capped/sampled so Debug/Logs always remains responsive.
-  async getDiagnosticsSummary(options?: { signal?: AbortSignal; sampleLimit?: number; onBatch?: (payload: { step: string; processed: number; elapsedMs: number }) => Promise<void> | void }): Promise<DiagnosticsSummaryPayload> {
+  async getDiagnosticsSummary(options?: {
+    signal?: AbortSignal;
+    sampleLimit?: number;
+    onBatch?: (payload: {
+      step: string;
+      processed: number;
+      elapsedMs: number;
+    }) => Promise<void> | void;
+  }): Promise<DiagnosticsSummaryPayload> {
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const sampleLimit = Math.max(1, Math.min(options?.sampleLimit ?? 50, 50));
     const db = await openDb();
@@ -660,19 +769,39 @@ export const offlineDb = {
       await options?.onBatch?.({
         step: `sample:${storeName}`,
         processed: sample.rows.length,
-        elapsedMs: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt)
+        elapsedMs: Math.round(
+          (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt,
+        ),
       });
       await yieldToUi();
     }
 
-    const ordersSample = await sampleRows(db.transaction(ORDERS_STORE, 'readonly').objectStore(ORDERS_STORE), DEBUG_MAX_READ_PER_CLICK, undefined, options?.signal);
+    const ordersSample = await sampleRows(
+      db.transaction(ORDERS_STORE, 'readonly').objectStore(ORDERS_STORE),
+      DEBUG_MAX_READ_PER_CLICK,
+      undefined,
+      options?.signal,
+    );
     const ordersRows = ordersSample.rows as Order[];
-    const parts = ordersRows.reduce((sum, order) => sum + (Array.isArray(order.parts) ? order.parts.length : 0), 0);
-    const variants = ordersRows.reduce((sum, order) => (
-      sum + (Array.isArray(order.parts)
-        ? order.parts.reduce((partSum, part) => partSum + (Array.isArray((part as { variants?: unknown[] }).variants) ? ((part as { variants?: unknown[] }).variants?.length || 0) : 0), 0)
-        : 0)
-    ), 0);
+    const parts = ordersRows.reduce(
+      (sum, order) => sum + (Array.isArray(order.parts) ? order.parts.length : 0),
+      0,
+    );
+    const variants = ordersRows.reduce(
+      (sum, order) =>
+        sum +
+        (Array.isArray(order.parts)
+          ? order.parts.reduce(
+              (partSum, part) =>
+                partSum +
+                (Array.isArray((part as { variants?: unknown[] }).variants)
+                  ? (part as { variants?: unknown[] }).variants?.length || 0
+                  : 0),
+              0,
+            )
+          : 0),
+      0,
+    );
 
     const lastLogs = await this.getSystemLogs(50);
     const lastErrors = lastLogs.filter((entry) => entry.level === 'error').slice(0, 20);
@@ -693,7 +822,10 @@ export const offlineDb = {
     if (appSettingsRaw) {
       try {
         const parsed = JSON.parse(appSettingsRaw);
-        appStateKeys = parsed && typeof parsed === 'object' ? Object.keys(parsed as Record<string, unknown>).length : 0;
+        appStateKeys =
+          parsed && typeof parsed === 'object'
+            ? Object.keys(parsed as Record<string, unknown>).length
+            : 0;
       } catch {
         appStateKeys = 0;
       }
@@ -707,17 +839,27 @@ export const offlineDb = {
         parts,
         price_variants: variants,
         shops,
-        app_state_keys: appStateKeys
+        app_state_keys: appStateKeys,
       },
       lastLogs,
-      lastErrors
+      lastErrors,
     };
   },
 
-  async getSample(storeName: string, limit = 50, cursor?: IDBValidKey, signal?: AbortSignal): Promise<{ rows: unknown[]; nextCursor: IDBValidKey | null }> {
+  async getSample(
+    storeName: string,
+    limit = 50,
+    cursor?: IDBValidKey,
+    signal?: AbortSignal,
+  ): Promise<{ rows: unknown[]; nextCursor: IDBValidKey | null }> {
     const db = await openDb();
     const tx = db.transaction(storeName, 'readonly');
-    return sampleRows(tx.objectStore(storeName), Math.min(limit, DEBUG_MAX_READ_PER_CLICK), cursor, signal);
+    return sampleRows(
+      tx.objectStore(storeName),
+      Math.min(limit, DEBUG_MAX_READ_PER_CLICK),
+      cursor,
+      signal,
+    );
   },
 
   async exportAllData(): Promise<Record<string, unknown[]>> {
@@ -734,11 +876,23 @@ export const offlineDb = {
   async exportAllDataChunked(options?: {
     signal?: AbortSignal;
     batchSize?: number;
-    onStoreProgress?: (payload: { store: string; processed: number; total: number; elapsedMs: number }) => Promise<void> | void;
-    onStoreChunk?: (payload: { store: string; rows: unknown[]; isLastChunk: boolean }) => Promise<void> | void;
+    onStoreProgress?: (payload: {
+      store: string;
+      processed: number;
+      total: number;
+      elapsedMs: number;
+    }) => Promise<void> | void;
+    onStoreChunk?: (payload: {
+      store: string;
+      rows: unknown[];
+      isLastChunk: boolean;
+    }) => Promise<void> | void;
   }): Promise<void> {
     const startedAt = performance.now();
-    const batchSize = Math.max(1, Math.min(options?.batchSize ?? EXPORT_BATCH_SIZE, DEBUG_MAX_READ_PER_CLICK));
+    const batchSize = Math.max(
+      1,
+      Math.min(options?.batchSize ?? EXPORT_BATCH_SIZE, DEBUG_MAX_READ_PER_CLICK),
+    );
     // Read one consistent snapshot before awaiting user callbacks; IndexedDB transactions
     // automatically finish across timer/network waits.
     const dump = await this.exportAllData();
@@ -747,8 +901,17 @@ export const offlineDb = {
       for (let offset = 0; offset < Math.max(1, rows.length); offset += batchSize) {
         if (options?.signal?.aborted) throw new DOMException('Operation cancelled', 'AbortError');
         const chunk = rows.slice(offset, offset + batchSize);
-        await options?.onStoreChunk?.({ store: name, rows: chunk, isLastChunk: offset + batchSize >= rows.length });
-        await options?.onStoreProgress?.({ store: name, processed: Math.min(offset + batchSize, rows.length), total: rows.length, elapsedMs: Math.round(performance.now() - startedAt) });
+        await options?.onStoreChunk?.({
+          store: name,
+          rows: chunk,
+          isLastChunk: offset + batchSize >= rows.length,
+        });
+        await options?.onStoreProgress?.({
+          store: name,
+          processed: Math.min(offset + batchSize, rows.length),
+          total: rows.length,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
         await yieldToUi();
       }
     }
@@ -757,12 +920,21 @@ export const offlineDb = {
   async importAllData(payload: Record<string, unknown[]>): Promise<void> {
     // Reject unrelated JSON before any clear(), and keep stores absent in older backups.
     if (!payload || typeof payload !== 'object' || !Array.isArray(payload.orders)) {
-      throw new Error('Некорректная резервная копия: отсутствует список orders. Данные не изменены.');
+      throw new Error(
+        'Некорректная резервная копия: отсутствует список orders. Данные не изменены.',
+      );
     }
-    const providedStores = ALL_STORES.filter((name) => Object.prototype.hasOwnProperty.call(payload, name));
+    const providedStores = ALL_STORES.filter((name) =>
+      Object.prototype.hasOwnProperty.call(payload, name),
+    );
     const stores = [...new Set([...providedStores, ORDER_PATCHES_STORE])];
     for (const name of providedStores) {
-      if (!Array.isArray(payload[name]) || payload[name].some((row) => !row || typeof row !== 'object' || !(row as { id?: unknown }).id)) {
+      if (
+        !Array.isArray(payload[name]) ||
+        payload[name].some(
+          (row) => !row || typeof row !== 'object' || !(row as { id?: unknown }).id,
+        )
+      ) {
         throw new Error(`Некорректные записи в ${name}. Данные не изменены.`);
       }
     }
@@ -796,10 +968,7 @@ export const offlineDb = {
       pendingMutationFlushTimer = null;
     }
 
-    await Promise.allSettled([
-      pendingOrderFlushPromise,
-      pendingMutationFlushPromise
-    ]);
+    await Promise.allSettled([pendingOrderFlushPromise, pendingMutationFlushPromise]);
 
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
@@ -846,8 +1015,8 @@ export const offlineDb = {
     const db = await openDb();
     const tx = db.transaction(RADAR_INTERACTIONS_STORE, 'readwrite');
     const store = tx.objectStore(RADAR_INTERACTIONS_STORE);
-    const current = await txRequest(store.get(id)) as RadarInteraction | undefined;
+    const current = (await txRequest(store.get(id))) as RadarInteraction | undefined;
     if (!current) return;
     await txRequest(store.put({ ...current, syncedAt }));
-  }
+  },
 };

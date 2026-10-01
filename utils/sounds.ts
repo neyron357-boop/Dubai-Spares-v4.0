@@ -26,11 +26,11 @@ function getCtx(): AudioContext | null {
 function isSoundsEnabled(): boolean {
   try {
     const raw = localStorage.getItem(APP_SETTINGS_KEY);
-    if (!raw) return true;
+    if (!raw) return false;
     const parsed = JSON.parse(raw) as { soundsEnabled?: boolean };
-    return parsed.soundsEnabled !== false;
+    return parsed.soundsEnabled === true;
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -63,7 +63,7 @@ function schedule(ctx: AudioContext, type: UiSound): void {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(700, t);
       osc.frequency.exponentialRampToValueAtTime(1100, t + 0.07);
-      gain.gain.setValueAtTime(0.10, t);
+      gain.gain.setValueAtTime(0.1, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
       osc.start(t);
       osc.stop(t + 0.08);
@@ -79,13 +79,13 @@ function schedule(ctx: AudioContext, type: UiSound): void {
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.type = 'sine';
-        const start = t + i * 0.10;
+        const start = t + i * 0.1;
         osc.frequency.setValueAtTime(freq, start);
         gain.gain.setValueAtTime(0.001, start);
         gain.gain.linearRampToValueAtTime(0.15, start + 0.015);
         gain.gain.exponentialRampToValueAtTime(0.001, start + 0.18);
         osc.start(start);
-        osc.stop(start + 0.20);
+        osc.stop(start + 0.2);
       });
       break;
     }

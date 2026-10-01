@@ -1,5 +1,14 @@
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Share2,
+  Trash2,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
-import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Trash2, Share2, Download } from 'lucide-react';
 import SafeImage from './SafeImage';
 
 interface Props {
@@ -15,14 +24,20 @@ interface Props {
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const isUnavailablePlaceholder = (value: string) => {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
   if (!normalized) return true;
-  return normalized.includes('photo-unavailable')
-    || normalized.includes('no-photo')
-    || normalized.includes('no_image')
-    || normalized.includes('placeholder')
-    || normalized.includes('%d1%84%d0%be%d1%82%d0%be%20%d0%bd%d0%b5%d0%b4%d0%be%d1%81%d1%82%d1%83%d0%bf%d0%bd%d0%be')
-    || normalized.includes('фото недоступно');
+  return (
+    normalized.includes('photo-unavailable') ||
+    normalized.includes('no-photo') ||
+    normalized.includes('no_image') ||
+    normalized.includes('placeholder') ||
+    normalized.includes(
+      '%d1%84%d0%be%d1%82%d0%be%20%d0%bd%d0%b5%d0%b4%d0%be%d1%81%d1%82%d1%83%d0%bf%d0%bd%d0%be',
+    ) ||
+    normalized.includes('фото недоступно')
+  );
 };
 
 const ImagePreview: React.FC<Props> = ({
@@ -32,7 +47,7 @@ const ImagePreview: React.FC<Props> = ({
   onDeleteCurrent,
   deleteLabel = 'Удалить',
   shareTitle = 'Фото автомобиля',
-  shareText = 'Фото автомобиля'
+  shareText = 'Фото автомобиля',
 }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
@@ -40,7 +55,9 @@ const ImagePreview: React.FC<Props> = ({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const panStartRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
+  const panStartRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(
+    null,
+  );
   const pinchStateRef = useRef<{ distance: number; zoom: number } | null>(null);
 
   const resetTransform = () => {
@@ -67,7 +84,7 @@ const ImagePreview: React.FC<Props> = ({
 
     return {
       x: clamp(x, -limitX, limitX),
-      y: clamp(y, -limitY, limitY)
+      y: clamp(y, -limitY, limitY),
     };
   };
 
@@ -92,7 +109,6 @@ const ImagePreview: React.FC<Props> = ({
     setOffset((prev) => clampOffset(nextZoom, prev.x, prev.y));
   };
 
-  const currentImageUrl = images[currentIndex];
   const actionableImages = images.filter((image) => !isUnavailablePlaceholder(image));
   const canShareOrSave = actionableImages.length > 0;
 
@@ -107,7 +123,9 @@ const ImagePreview: React.FC<Props> = ({
     e.stopPropagation();
     if (!canShareOrSave || !navigator.share) return;
     try {
-      const preparedFiles = await Promise.allSettled(actionableImages.map((image, index) => toImageFile(image, index)));
+      const preparedFiles = await Promise.allSettled(
+        actionableImages.map((image, index) => toImageFile(image, index)),
+      );
       const files = preparedFiles
         .filter((item): item is PromiseFulfilledResult<File> => item.status === 'fulfilled')
         .map((item) => item.value);
@@ -119,7 +137,7 @@ const ImagePreview: React.FC<Props> = ({
 
       await navigator.share({
         title: shareTitle,
-        text: `${shareText}\n${actionableImages.join('\n')}`.trim()
+        text: `${shareText}\n${actionableImages.join('\n')}`.trim(),
       });
     } catch {
       // user cancelled share sheet
@@ -154,15 +172,53 @@ const ImagePreview: React.FC<Props> = ({
   if (!images || images.length === 0) return null;
 
   return (
-    <div className="fixed inset-0 z-[140] bg-black/95 flex items-center justify-center p-0" onClick={onClose}>
-      <button type="button" onClick={(e) => { e.stopPropagation(); onClose(); }} className="absolute top-6 right-6 p-2 bg-white/10 text-white rounded-full z-50 backdrop-blur-md" aria-label="Закрыть просмотр" title="Закрыть">
+    <div
+      className="fixed inset-0 z-[140] bg-black/95 flex items-center justify-center p-0"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+        className="absolute top-6 right-6 p-2 bg-white/10 text-white rounded-full z-50 backdrop-blur-md"
+        aria-label="Закрыть просмотр"
+        title="Закрыть"
+      >
         <X size={24} />
       </button>
 
       <div className="absolute top-6 left-6 z-50 flex items-center gap-2 rounded-full border border-white/20 bg-black/35 px-2 py-1">
-        <button type="button" onClick={(e) => { e.stopPropagation(); updateZoom(zoom - 0.2); }} className="p-1 text-white/90 disabled:opacity-40" disabled={zoom <= 1} aria-label="Уменьшить фото" title="Уменьшить"><ZoomOut size={16} /></button>
-        <span className="text-[11px] font-bold text-white min-w-[44px] text-center">{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={(e) => { e.stopPropagation(); updateZoom(zoom + 0.2); }} className="p-1 text-white/90 disabled:opacity-40" disabled={zoom >= 4} aria-label="Увеличить фото" title="Увеличить"><ZoomIn size={16} /></button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            updateZoom(zoom - 0.2);
+          }}
+          className="p-1 text-white/90 disabled:opacity-40"
+          disabled={zoom <= 1}
+          aria-label="Уменьшить фото"
+          title="Уменьшить"
+        >
+          <ZoomOut size={16} />
+        </button>
+        <span className="text-[11px] font-bold text-white min-w-[44px] text-center">
+          {Math.round(zoom * 100)}%
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            updateZoom(zoom + 0.2);
+          }}
+          className="p-1 text-white/90 disabled:opacity-40"
+          disabled={zoom >= 4}
+          aria-label="Увеличить фото"
+          title="Увеличить"
+        >
+          <ZoomIn size={16} />
+        </button>
       </div>
 
       {typeof onDeleteCurrent === 'function' && (
@@ -175,7 +231,7 @@ const ImagePreview: React.FC<Props> = ({
               setCurrentIndex((prev) => prev - 1);
             }
           }}
-          className="absolute top-6 left-28 z-50 inline-flex items-center gap-2 rounded-full border border-rose-300/70 bg-rose-500/80 px-3 py-1.5 text-xs font-black text-white"
+          className="absolute top-6 left-28 z-50 inline-flex items-center gap-2 rounded-full border border-rose-300/70 bg-rose-500/80 px-3 py-1.5 text-xs font-bold text-white"
           aria-label={deleteLabel}
         >
           <Trash2 size={14} />
@@ -208,8 +264,30 @@ const ImagePreview: React.FC<Props> = ({
 
       {images.length > 1 && (
         <>
-          <button type="button" onClick={(e) => { e.stopPropagation(); goPrev(); }} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-white/10 text-white rounded-full disabled:opacity-40" disabled={!hasPrev} aria-label="Предыдущее фото"><ChevronLeft size={26} /></button>
-          <button type="button" onClick={(e) => { e.stopPropagation(); goNext(); }} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-white/10 text-white rounded-full disabled:opacity-40" disabled={!hasNext} aria-label="Следующее фото"><ChevronRight size={26} /></button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              goPrev();
+            }}
+            className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-white/10 text-white rounded-full disabled:opacity-40"
+            disabled={!hasPrev}
+            aria-label="Предыдущее фото"
+          >
+            <ChevronLeft size={26} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              goNext();
+            }}
+            className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-white/10 text-white rounded-full disabled:opacity-40"
+            disabled={!hasNext}
+            aria-label="Следующее фото"
+          >
+            <ChevronRight size={26} />
+          </button>
         </>
       )}
 
@@ -226,7 +304,10 @@ const ImagePreview: React.FC<Props> = ({
         onTouchStart={(e) => {
           if (e.touches.length === 2) {
             const [first, second] = [e.touches[0], e.touches[1]];
-            const distance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+            const distance = Math.hypot(
+              second.clientX - first.clientX,
+              second.clientY - first.clientY,
+            );
             pinchStateRef.current = { distance, zoom };
             touchStartRef.current = null;
             panStartRef.current = null;
@@ -236,7 +317,12 @@ const ImagePreview: React.FC<Props> = ({
           if (e.touches.length === 1) {
             const touch = e.touches[0];
             if (zoom > 1.01) {
-              panStartRef.current = { x: touch.clientX, y: touch.clientY, offsetX: offset.x, offsetY: offset.y };
+              panStartRef.current = {
+                x: touch.clientX,
+                y: touch.clientY,
+                offsetX: offset.x,
+                offsetY: offset.y,
+              };
               touchStartRef.current = null;
             } else {
               touchStartRef.current = { x: touch.clientX, y: touch.clientY };
@@ -248,7 +334,10 @@ const ImagePreview: React.FC<Props> = ({
           if (e.touches.length === 2 && pinchStateRef.current) {
             e.preventDefault();
             const [first, second] = [e.touches[0], e.touches[1]];
-            const distance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+            const distance = Math.hypot(
+              second.clientX - first.clientX,
+              second.clientY - first.clientY,
+            );
             const ratio = distance / Math.max(1, pinchStateRef.current.distance);
             updateZoom(pinchStateRef.current.zoom * ratio);
             return;
@@ -259,7 +348,9 @@ const ImagePreview: React.FC<Props> = ({
             const touch = e.touches[0];
             const dx = touch.clientX - panStartRef.current.x;
             const dy = touch.clientY - panStartRef.current.y;
-            setOffset(clampOffset(zoom, panStartRef.current.offsetX + dx, panStartRef.current.offsetY + dy));
+            setOffset(
+              clampOffset(zoom, panStartRef.current.offsetX + dx, panStartRef.current.offsetY + dy),
+            );
           }
         }}
         onTouchEnd={(e) => {

@@ -1,7 +1,7 @@
 export enum Priority {
   LOW = 'LOW',
   MEDIUM = 'MEDIUM',
-  HIGH = 'HIGH'
+  HIGH = 'HIGH',
 }
 
 export enum Source {
@@ -10,10 +10,20 @@ export enum Source {
   FACEBOOK = 'Facebook',
   TELEGRAM = 'Telegram',
   WHATSAPP = 'WhatsApp',
-  OTHER = 'Другое'
+  OTHER = 'Другое',
 }
 
-export type OrderStatus = 'active' | 'interest' | 'not_found' | 'archive' | 'sold' | 'vip' | 'lead' | 'new_inquiry' | 'in_progress' | 'waiting_deposit';
+export type OrderStatus =
+  | 'active'
+  | 'interest'
+  | 'not_found'
+  | 'archive'
+  | 'sold'
+  | 'vip'
+  | 'lead'
+  | 'new_inquiry'
+  | 'in_progress'
+  | 'waiting_deposit';
 export type PaymentStatus = 'none' | 'search_deposit_paid' | 'full_prepayment_paid';
 export type SearchDepositStatus = 'not_required' | 'pending' | 'paid';
 export type SalesStatus = 'Inquiry' | 'Price Sent' | 'Pending Approval' | 'Paid' | 'Completed';
@@ -280,7 +290,8 @@ export interface OrderVendorContact {
   whatsapp?: string;
   mapUrl?: string;
   note?: string;
-  orderStatus?: 'searching' | 'found' | 'not_found' | 'visit_required' | 'awaiting_reply' | 'ordered' | 'other';
+  orderStatus?:
+    'searching' | 'found' | 'not_found' | 'visit_required' | 'awaiting_reply' | 'ordered' | 'other';
   statusNote?: string;
   statusUpdatedAt?: number;
   lastWhatsappAt?: number;
@@ -361,11 +372,21 @@ export interface OrderNote {
   createdAt: number;
 }
 
-export type SupplierType = 'new_parts' | 'scrapyard' | 'engine_specialist' | 'body_parts' | 'electrical' | 'mixed' | 'dealer' | 'warehouse';
+export type SupplierType =
+  | 'new_parts'
+  | 'scrapyard'
+  | 'engine_specialist'
+  | 'body_parts'
+  | 'electrical'
+  | 'mixed'
+  | 'dealer'
+  | 'warehouse';
 export type SupplierSyncStatus = 'synced' | 'pending_sync' | 'error';
 export type SupplierLinkedPartStatus = 'searching' | 'found' | 'not_found' | 'follow_up';
-export type SupplierStatus = 'new' | 'contacted' | 'responded' | 'visited' | 'verified' | 'trusted' | 'blacklist';
-export type SupplierInteractionType = 'whatsapp' | 'whatsapp_reply' | 'call' | 'visit' | 'price_request' | 'order' | 'problem';
+export type SupplierStatus =
+  'new' | 'contacted' | 'responded' | 'visited' | 'verified' | 'trusted' | 'blacklist';
+export type SupplierInteractionType =
+  'whatsapp' | 'whatsapp_reply' | 'call' | 'visit' | 'price_request' | 'order' | 'problem';
 
 export interface SupplierInteraction {
   id: string;
@@ -568,7 +589,7 @@ export interface DbOrderRow {
   recommended_shop_ids?: string[];
   dismissed_shop_ids?: string[];
   lead_unread?: boolean;
-  lead_source?: "public_form" | "manual";
+  lead_source?: 'public_form' | 'manual';
   lead_read_at?: number | string | null;
 }
 

@@ -9,12 +9,12 @@ async function loadPublicQuoteSnapshotNormalizer() {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, String(value)),
       removeItem: (key: string) => storage.delete(key),
-      clear: () => storage.clear()
+      clear: () => storage.clear(),
     },
     addEventListener: () => undefined,
     dispatchEvent: () => true,
     setTimeout,
-    clearTimeout
+    clearTimeout,
   };
   (globalThis as unknown as { window?: typeof windowShim }).window = windowShim;
   return await import('../utils/publicQuoteSnapshot');
@@ -24,16 +24,25 @@ async function blockSupabase(page: Page) {
   await page.route(SUPABASE_REQUEST, (route) => route.abort('blockedbyclient'));
 }
 
-test.beforeEach(async ({ page }) => { await blockSupabase(page); });
+test.beforeEach(async ({ page }) => {
+  await blockSupabase(page);
+});
 
 async function gotoHash(page: Page, path: string) {
   await page.goto(path, { waitUntil: 'domcontentloaded' });
   await page.waitForLoadState('networkidle').catch(() => undefined);
 }
 
-async function selectSearchableDropdown(page: Page, trigger: ReturnType<Page['locator']>, query: string) {
+async function selectSearchableDropdown(
+  page: Page,
+  trigger: ReturnType<Page['locator']>,
+  query: string,
+) {
   await trigger.click();
-  const dropdown = page.locator('div.absolute').filter({ has: page.locator('input') }).last();
+  const dropdown = page
+    .locator('div.absolute')
+    .filter({ has: page.locator('input') })
+    .last();
   await expect(dropdown).toBeVisible();
   await dropdown.locator('input').fill(query);
   await dropdown.locator('button').first().click();
@@ -65,47 +74,53 @@ async function createLocalOrder(page: Page, clientName: string) {
 }
 
 async function addPartToLocalOrder(page: Page, orderId: string, partId: string, partName: string) {
-  await page.evaluate(async ({ orderId: targetOrderId, partId: targetPartId, partName: targetPartName }) => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('dubai-spares-offline');
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error ?? new Error('Failed to open IndexedDB'));
-    });
+  await page.evaluate(
+    async ({ orderId: targetOrderId, partId: targetPartId, partName: targetPartName }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('dubai-spares-offline');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error('Failed to open IndexedDB'));
+      });
 
-    const tx = db.transaction('orders', 'readwrite');
-    const store = tx.objectStore('orders');
-    const order = await new Promise<Record<string, unknown>>((resolve, reject) => {
-      const request = store.get(targetOrderId);
-      request.onsuccess = () => resolve(request.result as Record<string, unknown>);
-      request.onerror = () => reject(request.error ?? new Error('Failed to read order'));
-    });
-    if (!order) throw new Error(`Order ${targetOrderId} was not found`);
+      const tx = db.transaction('orders', 'readwrite');
+      const store = tx.objectStore('orders');
+      const order = await new Promise<Record<string, unknown>>((resolve, reject) => {
+        const request = store.get(targetOrderId);
+        request.onsuccess = () => resolve(request.result as Record<string, unknown>);
+        request.onerror = () => reject(request.error ?? new Error('Failed to read order'));
+      });
+      if (!order) throw new Error(`Order ${targetOrderId} was not found`);
 
-    const parts = Array.isArray(order.parts) ? order.parts : [];
-    store.put({
-      ...order,
-      parts: [{
-        id: targetPartId,
-        orderId: targetOrderId,
-        name: targetPartName,
-        quantity: 1,
-        comment: '',
-        photoUrl: '',
-        photos: [],
-        variants: [],
-        isFound: false,
-        status: 'searching'
-      }, ...parts],
-      updatedAt: Date.now()
-    });
+      const parts = Array.isArray(order.parts) ? order.parts : [];
+      store.put({
+        ...order,
+        parts: [
+          {
+            id: targetPartId,
+            orderId: targetOrderId,
+            name: targetPartName,
+            quantity: 1,
+            comment: '',
+            photoUrl: '',
+            photos: [],
+            variants: [],
+            isFound: false,
+            status: 'searching',
+          },
+          ...parts,
+        ],
+        updatedAt: Date.now(),
+      });
 
-    await new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error('Failed to add part'));
-      tx.onabort = () => reject(tx.error ?? new Error('Add part transaction aborted'));
-    });
-    db.close();
-  }, { orderId, partId, partName });
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error ?? new Error('Failed to add part'));
+        tx.onabort = () => reject(tx.error ?? new Error('Add part transaction aborted'));
+      });
+      db.close();
+    },
+    { orderId, partId, partName },
+  );
 }
 
 async function markOrderSearchDepositPaid(page: Page, clientName: string) {
@@ -134,7 +149,10 @@ async function markOrderSearchDepositPaid(page: Page, clientName: string) {
       searchDepositAmountAed: 50,
       searchDepositPaidAt: Date.now(),
       paymentStatus: 'search_deposit_paid',
-      status: order.status === 'lead' || order.status === 'waiting_deposit' ? 'in_progress' : order.status
+      status:
+        order.status === 'lead' || order.status === 'waiting_deposit'
+          ? 'in_progress'
+          : order.status,
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -163,25 +181,32 @@ test('public quote snapshot keeps proof pack attachments', async () => {
   const { normalizePublicQuoteSnapshotPayload } = await loadPublicQuoteSnapshotNormalizer();
   const normalized = normalizePublicQuoteSnapshotPayload({
     order: { brand: 'BMW', model: 'X5', year: '2003', vin: 'HHSHJSJHDBDBSH' },
-    pricing: { currency: 'AED', rates: { AED: 1, USD: 0.27, RUB: 21, TJS: 2.6, KZT: 125, UZS: 3400 } },
+    pricing: {
+      currency: 'AED',
+      rates: { AED: 1, USD: 0.27, RUB: 21, TJS: 2.6, KZT: 125, UZS: 3400 },
+    },
     totals: { grand_total_aed: 1445.74 },
-    proof_notes: [{
-      id: 'proof-1',
-      text: 'Attachment',
-      attachments: [{
-        id: 'attachment-1',
-        kind: 'file',
-        name: 'packing-proof.pdf',
-        file_url: 'data:application/pdf;base64,JVBERi0xLjQ=',
-        mime_type: 'application/pdf',
-        size: 4096,
-        created_at: 1
-      }],
-      photos: [],
-      video_urls: [],
-      audios: [],
-      created_at: 1
-    }]
+    proof_notes: [
+      {
+        id: 'proof-1',
+        text: 'Attachment',
+        attachments: [
+          {
+            id: 'attachment-1',
+            kind: 'file',
+            name: 'packing-proof.pdf',
+            file_url: 'data:application/pdf;base64,JVBERi0xLjQ=',
+            mime_type: 'application/pdf',
+            size: 4096,
+            created_at: 1,
+          },
+        ],
+        photos: [],
+        video_urls: [],
+        audios: [],
+        created_at: 1,
+      },
+    ],
   });
 
   expect(normalized?.proofNotes).toHaveLength(1);
@@ -191,7 +216,7 @@ test('public quote snapshot keeps proof pack attachments', async () => {
     name: 'packing-proof.pdf',
     fileUrl: 'data:application/pdf;base64,JVBERi0xLjQ=',
     mimeType: 'application/pdf',
-    size: 4096
+    size: 4096,
   });
 });
 
@@ -210,7 +235,7 @@ test.describe('mobile orders workflows', () => {
     viewport: { width: 430, height: 920 },
     isMobile: true,
     hasTouch: true,
-    deviceScaleFactor: 2
+    deviceScaleFactor: 2,
   });
 
   test('filter sheet actions stay clickable above the bottom navigation', async ({ page }) => {
@@ -220,7 +245,10 @@ test.describe('mobile orders workflows', () => {
     await page.getByRole('button', { name: /^Фильтр/ }).click();
     await expect(page.getByText('Фильтры и сортировка')).toBeVisible();
 
-    await page.locator('.fixed.inset-0 select').first().selectOption('brand_asc');
+    await page
+      .getByRole('dialog')
+      .getByRole('combobox', { name: 'Сортировка', exact: true })
+      .selectOption('brand_asc');
     await page.getByRole('button', { name: 'Сброс' }).click();
     await page.getByRole('button', { name: 'Применить' }).click();
 
@@ -242,12 +270,24 @@ test('public request form shows required-field validation without submitting', a
 test('current variants screen renders visible product images', async ({ page }) => {
   await blockSupabase(page);
   await page.addInitScript(() => {
-    localStorage.setItem('dubai_spares_standalone_variants', JSON.stringify([{
-      id: 'qa-image', origin: 'standalone', sourcePartName: 'QA image bumper', priceAed: 100,
-      shopName: 'QA supplier', condition: 'used', availability: 'in_stock', createdAt: 1,
-      photoUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
-      photos: [],
-    }]));
+    localStorage.setItem(
+      'dubai_spares_standalone_variants',
+      JSON.stringify([
+        {
+          id: 'qa-image',
+          origin: 'standalone',
+          sourcePartName: 'QA image bumper',
+          priceAed: 100,
+          shopName: 'QA supplier',
+          condition: 'used',
+          availability: 'in_stock',
+          createdAt: 1,
+          photoUrl:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+          photos: [],
+        },
+      ]),
+    );
   });
   await gotoHash(page, '/#/variants');
   await expect(page.getByText(/вариант/).first()).toBeVisible();
@@ -259,7 +299,7 @@ test('current variants screen renders visible product images', async ({ page }) 
     images
       .map((image) => image as HTMLImageElement)
       .filter((image) => !image.complete || image.naturalWidth === 0 || image.naturalHeight === 0)
-      .map((image) => image.currentSrc || image.src)
+      .map((image) => image.currentSrc || image.src),
   );
 
   expect(brokenImages).toEqual([]);
@@ -303,8 +343,8 @@ test('part details allows adding and deleting sample photos', async ({ page }) =
     mimeType: 'image/png',
     buffer: Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
-      'base64'
-    )
+      'base64',
+    ),
   });
 
   await expect(page.getByText('1 / 1')).toBeVisible({ timeout: 15_000 });
@@ -316,7 +356,9 @@ test('part details allows adding and deleting sample photos', async ({ page }) =
   await expect(deletePhotoButton).toHaveCount(0);
 });
 
-test('adding a standalone variant to an order does not leave a duplicate card', async ({ page }) => {
+test('adding a standalone variant to an order does not leave a duplicate card', async ({
+  page,
+}) => {
   const clientName = 'QA Variant Move';
   await createLocalOrder(page, clientName);
   await markOrderSearchDepositPaid(page, clientName);
@@ -351,22 +393,45 @@ test('adding a standalone variant to an order does not leave a duplicate card', 
   await expect(page.locator('article').filter({ hasText: 'QA MOVE BUMPER' })).toHaveCount(0);
 });
 
-test('opening a public form preserves existing offline orders and sync queue', async ({ page }) => {
+test('opening a public form preserves existing offline orders and legacy sync queue', async ({
+  page,
+}) => {
   const orderId = await createLocalOrder(page, 'QA Preserved Data');
-  const readCounts = () => page.evaluate(async () => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+  const readCounts = () =>
+    page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('dubai-spares-offline');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const rows = await new Promise<{ ids: string[]; mutations: number }>((resolve, reject) => {
+        const tx = db.transaction(['orders', 'mutations'], 'readonly');
+        const orders = tx.objectStore('orders').getAllKeys();
+        const mutations = tx.objectStore('mutations').count();
+        tx.oncomplete = () =>
+          resolve({ ids: orders.result.map(String), mutations: mutations.result });
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+      return rows;
+    });
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve) => {
       const request = indexedDB.open('dubai-spares-offline');
       request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
     });
-    const rows = await new Promise<{ ids: string[]; mutations: number }>((resolve, reject) => {
-      const tx = db.transaction(['orders', 'mutations'], 'readonly');
-      const orders = tx.objectStore('orders').getAllKeys();
-      const mutations = tx.objectStore('mutations').count();
-      tx.oncomplete = () => resolve({ ids: orders.result.map(String), mutations: mutations.result });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('mutations', 'readwrite');
+      tx.objectStore('mutations').put({
+        id: 'legacy-queued',
+        orderId: 'legacy',
+        type: 'upsert',
+        createdAt: 1,
+      });
+      tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    db.close(); return rows;
+    db.close();
   });
   const before = await readCounts();
   expect(before.ids).toContain(orderId);
@@ -382,32 +447,61 @@ test('opening a public form preserves existing offline orders and sync queue', a
 
 test('settings exports and restores its own backup including order photos', async ({ page }) => {
   const orderId = await createLocalOrder(page, 'QA Backup Roundtrip');
-  const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
-  await page.evaluate(async ({ id, photoUrl }) => {
-    const db = await new Promise<IDBDatabase>((resolve) => { const request = indexedDB.open('dubai-spares-offline'); request.onsuccess = () => resolve(request.result); });
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction('orders', 'readwrite'); const store = tx.objectStore('orders');
-      const request = store.get(id);
-      request.onsuccess = () => store.put({ ...request.result, carPhotoUrl: photoUrl, carPhotos: [photoUrl] });
-      tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
-    }); db.close();
-  }, { id: orderId, photoUrl: photo });
+  const photo =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
+  await page.evaluate(
+    async ({ id, photoUrl }) => {
+      const db = await new Promise<IDBDatabase>((resolve) => {
+        const request = indexedDB.open('dubai-spares-offline');
+        request.onsuccess = () => resolve(request.result);
+      });
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('orders', 'readwrite');
+        const store = tx.objectStore('orders');
+        const request = store.get(id);
+        request.onsuccess = () =>
+          store.put({ ...request.result, carPhotoUrl: photoUrl, carPhotos: [photoUrl] });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+    },
+    { id: orderId, photoUrl: photo },
+  );
   await gotoHash(page, '/#/settings');
   await page.reload();
-  await page.getByRole('button', { name: 'Система', exact: true }).click();
+  await page.getByRole('tab', { name: 'Система', exact: true }).click();
   const downloading = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Экспорт локального бэкапа' }).click();
   const download = await downloading;
   const { readFile } = await import('node:fs/promises');
   const exported = JSON.parse(await readFile((await download.path())!, 'utf8'));
-  expect(exported.orders.find((order: { id: string }) => order.id === orderId).carPhotos).toContain(photo);
-  exported.orders.find((order: { id: string }) => order.id === orderId).clientName = 'QA Restored Backup';
+  expect(exported.orders.find((order: { id: string }) => order.id === orderId).carPhotos).toContain(
+    photo,
+  );
+  exported.orders.find((order: { id: string }) => order.id === orderId).clientName =
+    'QA Restored Backup';
   page.on('dialog', (dialog) => dialog.accept());
-  await page.getByText('Восстановить из файла', { exact: true }).locator('input').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(exported)) });
+  await page
+    .getByText('Восстановить из файла', { exact: true })
+    .locator('input')
+    .setInputFiles({
+      name: 'backup.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(exported)),
+    });
+  await page.getByRole('button', { name: 'Восстановить данные', exact: true }).click();
   await page.waitForFunction(async (id) => {
-    const db = await new Promise<IDBDatabase>((resolve) => { const request = indexedDB.open('dubai-spares-offline'); request.onsuccess = () => resolve(request.result); });
-    const restored = await new Promise<any>((resolve) => { const request = db.transaction('orders').objectStore('orders').get(id); request.onsuccess = () => resolve(request.result); });
-    db.close(); return restored?.clientName === 'QA Restored Backup';
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const request = indexedDB.open('dubai-spares-offline');
+      request.onsuccess = () => resolve(request.result);
+    });
+    const restored = await new Promise<any>((resolve) => {
+      const request = db.transaction('orders').objectStore('orders').get(id);
+      request.onsuccess = () => resolve(request.result);
+    });
+    db.close();
+    return restored?.clientName === 'QA Restored Backup';
   }, orderId);
   await gotoHash(page, '/#/orders');
   await expect(orderCard(page, 'Toyota Camry')).toBeVisible();
