@@ -1,2078 +1,1175 @@
-import { sanitizeMoneyInput } from '../utils/moneyInput';
-import { ModalSurface } from '../components/ui';
+import '../styles/part-details.css';
 import {
   ArrowLeft,
   Camera,
-  Check,
-  CheckCheck,
+  ChevronLeft,
   ChevronRight,
+  CircleAlert,
   ClipboardPaste,
   Copy,
+  FileText,
   Images,
-  Loader2,
-  MapPin,
-  MessageCircle,
+  Layers3,
   MoreHorizontal,
-  Navigation,
   Pencil,
-  Phone,
   Plus,
-  Star,
-  Store,
+  Search,
   Trash2,
-  X,
 } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import ConfirmModal from '../components/ConfirmModal';
 import ImagePreview from '../components/ImagePreview';
+import PartOfferCard, { formatOfferPrice } from '../components/PartOfferCard';
+import PartOfferEditor, { DEFAULT_OFFER, OfferFormState } from '../components/PartOfferEditor';
+import {
+  Button,
+  Dialog,
+  EmptyState,
+  Field,
+  IconButton,
+  LoadingState,
+  SearchField,
+} from '../components/ui';
 import { toast } from '../feedback';
 import { createUuid } from '../id';
 import { logger } from '../logging';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
-import { optimizeLocalImage, saveLocalImage } from '../storage/photos';
+import { optimizeLocalImage } from '../storage/photos';
 import { useStore } from '../store';
-import { OfferAvailability, OfferCondition, PriceVariant, Supplier } from '../types';
+import { Part, PriceVariant, Supplier } from '../types';
 import { readClipboardImageFiles } from '../utils/clipboardImages';
 import { cloneVariantForPart, VariantLibraryItem } from '../variantLibraryStore';
 
-interface OfferFormState {
-  purchasePriceAed: string;
-  salePriceAed: string;
-  shopName: string;
-  supplierId?: string;
-  phone: string;
-  locationText: string;
-  mapsUrl: string;
-  photos: string[];
-  condition: OfferCondition;
-  availability: OfferAvailability;
-  deliveryEta: 'today' | 'tomorrow' | '2_3_days' | 'week';
-  isBest: boolean;
-  note: string;
-}
-
-const DEFAULT_FORM: OfferFormState = {
-  purchasePriceAed: '',
-  salePriceAed: '',
-  shopName: '',
-  supplierId: undefined,
-  phone: '+971',
-  locationText: '',
-  mapsUrl: '',
-  photos: [],
-  condition: 'used',
-  availability: 'in_stock',
-  deliveryEta: 'today',
-  isBest: false,
-  note: '',
+const uniqueStrings = (items: string[]) => [
+  ...new Set(items.map((value) => value.trim()).filter(Boolean)),
+];
+const purchasePrice = (variant: PriceVariant) =>
+  Number(variant.purchasePriceAed ?? variant.priceAed);
+const variantPhotos = (variant: PriceVariant) =>
+  uniqueStrings([...(variant.photos || []), variant.photoUrl || '']);
+const normalizePhone = (value: string) => value.replace(/\D/g, '');
+const imageFile = async (file: File): Promise<string> => {
+  if (!file.type.startsWith('image/')) throw new Error('Выберите файл изображения.');
+  try {
+    return await optimizeLocalImage(file, 'part-photo');
+  } catch {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
 };
 
-const conditionLabels: Record<OfferCondition, string> = {
-  new: 'Новая',
-  used: 'Б/у',
-  scrapyard: 'Разбор',
-};
-
-const availabilityLabels: Record<OfferAvailability, string> = {
-  in_stock: 'В наличии',
-  '1d': '1 день',
-  '2_3d': '2-3 дня',
-  by_order: 'Под заказ',
-};
-
-const etaLabels: Record<OfferFormState['deliveryEta'], string> = {
-  today: 'Сегодня',
-  tomorrow: 'Завтра',
-  '2_3_days': '2-3 дня',
-  week: 'Неделя',
-};
-
-const readImageFileAsDataUrl = (file: Blob) =>
-  new Promise<string>((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(String(reader.result || ''));
-    reader.readAsDataURL(file);
-  });
-
-const mergeUniqueStrings = (current: string[] = [], incoming: string[] = []) => {
-  const existing = new Set(current.map((item) => item.trim().toLowerCase()).filter(Boolean));
-  const next = [...current];
-  incoming.forEach((item) => {
-    const normalized = item.trim();
-    if (!normalized) return;
-    const key = normalized.toLowerCase();
-    if (existing.has(key)) return;
-    existing.add(key);
-    next.push(normalized);
-  });
-  return next;
-};
-
-const mergeUniqueYears = (current: number[] = [], incoming: number[] = []) => {
-  const existing = new Set(
-    current.filter((item) => Number.isFinite(item)).map((item) => Number(item)),
-  );
-  const next = [...existing];
-  incoming.forEach((year) => {
-    const normalized = Number(year);
-    if (!Number.isFinite(normalized)) return;
-    if (existing.has(normalized)) return;
-    existing.add(normalized);
-    next.push(normalized);
-  });
-  return next.sort((a, b) => a - b);
-};
-
-const upsertLinkedPart = (entries: any[] = [], entry: any) => {
-  const idx = entries.findIndex(
-    (item) => item.orderId === entry.orderId && item.partId === entry.partId,
-  );
-  if (idx === -1) return [entry, ...entries];
-  const next = [...entries];
-  next[idx] = { ...next[idx], ...entry, id: next[idx].id || entry.id };
-  return next;
-};
-
-const normalizePhone = (value: string) => value.replace(/[^\d]/g, '');
-
-const PartDetailsScreen: React.FC = () => {
+export default function PartDetailsScreen() {
   const { orderId, partId } = useParams<{ orderId: string; partId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { orders, updateOrder, suppliers, addSupplier, updateSupplier, variantLibrary } =
-    useStore();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const sampleFileInputRef = useRef<HTMLInputElement>(null);
-  const variantsListRef = useRef<HTMLDivElement>(null);
-  const formSessionRef = useRef<string | null>(null);
-  const swipeStartRef = useRef<{ x: number; y: number; at: number } | null>(null);
-
-  const order = orders.find((o) => o.id === orderId);
-  const part = order?.parts.find((p) => p.id === partId);
-  const partVariants = useMemo(
-    () => (Array.isArray(part?.variants) ? part.variants : []),
-    [part?.variants],
-  );
-  const backTo =
-    typeof (location.state as { backTo?: unknown } | null)?.backTo === 'string'
-      ? String((location.state as { backTo?: unknown }).backTo)
-      : `/order/${orderId}`;
-  const requestedVariantId =
-    typeof (location.state as { openVariantId?: unknown } | null)?.openVariantId === 'string'
-      ? String((location.state as { openVariantId?: unknown }).openVariantId)
-      : '';
-  const orderActiveTab =
-    typeof (location.state as { orderActiveTab?: unknown } | null)?.orderActiveTab === 'string'
-      ? String((location.state as { orderActiveTab?: unknown }).orderActiveTab)
-      : undefined;
-
+  const { orders, isLoading, updateOrder, suppliers, updateSupplier, variantLibrary } = useStore();
+  const order = orders.find((item) => item.id === orderId);
+  const part = order?.parts.find((item) => item.id === partId);
+  const state = location.state as {
+    backTo?: string;
+    orderActiveTab?: string;
+    orderScrollTop?: number;
+    openVariantId?: string;
+  } | null;
+  const backTo = state?.backTo || `/order/${orderId}`;
   const [isAdding, setIsAdding] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<OfferFormState>(DEFAULT_OFFER);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState('');
+  const [showDiscard, setShowDiscard] = useState(false);
+  const [showActions, setShowActions] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState('');
+  const [editError, setEditError] = useState('');
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const [brokenPhotos, setBrokenPhotos] = useState<Record<string, true>>({});
+  const [deletePhoto, setDeletePhoto] = useState<string | null>(null);
   const [deleteVariantId, setDeleteVariantId] = useState<string | null>(null);
-  const [editingVariantId, setEditingVariantId] = useState<string | null>(null);
-  const [showAfterSaveSheet, setShowAfterSaveSheet] = useState(false);
-  const [brokenPhotoUrls, setBrokenPhotoUrls] = useState<Record<string, true>>({});
-  const [isEditingPartName, setIsEditingPartName] = useState(false);
-  const [partNameDraft, setPartNameDraft] = useState('');
-  const [isEditingPartDescription, setIsEditingPartDescription] = useState(false);
-  const [partDescriptionDraft, setPartDescriptionDraft] = useState('');
-  const [, setPartMediaLinkDraft] = useState('');
-  const [showLibraryPicker, setShowLibraryPicker] = useState(false);
-  const [showAddOptionsSheet, setShowAddOptionsSheet] = useState(false);
-  const [swipeSlide, setSwipeSlide] = useState<'next' | 'prev' | null>(null);
-
-  const [form, setForm] = useState<OfferFormState>(DEFAULT_FORM);
-  const [isLocating, setIsLocating] = useState(false);
-  const [isResolvingLocation, setIsResolvingLocation] = useState(false);
-  const [locationParseNotice, setLocationParseNotice] = useState<string | null>(null);
-
-  const isEditing = !!editingVariantId;
-
-  const latestOrderVariant = useMemo<PriceVariant | null>(() => {
-    if (!order) return null;
-    let latest: PriceVariant | null = null;
-    order.parts.forEach((p) => {
-      (Array.isArray(p.variants) ? p.variants : []).forEach((v) => {
-        if (!latest || v.createdAt > latest.createdAt) latest = v;
-      });
-    });
-    return latest;
-  }, [order]);
-
-  const numericPurchasePrice = Number(form.purchasePriceAed.replace(/\s+/g, ''));
-  const numericSalePrice = Number((form.salePriceAed || form.purchasePriceAed).replace(/\s+/g, ''));
-  const isPurchasePriceValid = Number.isFinite(numericPurchasePrice) && numericPurchasePrice > 0;
-  const canSave = isPurchasePriceValid && !!form.shopName.trim();
-
-  const historyPrices = useMemo(
-    () => partVariants.map((v) => Number((v.salePriceAed ?? v.priceAed) || 0)).filter(Boolean),
-    [partVariants],
-  );
-
-  useEffect(() => {
-    setPartMediaLinkDraft(String((part as any)?.googleDriveVideoUrl || ''));
-  }, [part?.id, (part as any)?.googleDriveVideoUrl]);
-
-  useEffect(() => {
-    if (!requestedVariantId) return;
-    window.requestAnimationFrame(() => {
-      const target = document.getElementById(`variant-${requestedVariantId}`);
-      (target || variantsListRef.current)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
-  }, [requestedVariantId, part?.id]);
-
-  useEffect(() => {
-    setSwipeSlide(null);
-    swipeStartRef.current = null;
-  }, [partId]);
-
-  useEffect(() => {
-    if (!isAdding) {
-      formSessionRef.current = null;
-      return;
-    }
-
-    const nextSession = isEditing ? `edit:${editingVariantId || ''}` : 'create';
-    if (formSessionRef.current === nextSession) return;
-    formSessionRef.current = nextSession;
-
-    if (isEditing && part) {
-      const editable = partVariants.find((v) => v.id === editingVariantId);
-      if (!editable) return;
-      setForm({
-        purchasePriceAed: String((editable.purchasePriceAed ?? editable.priceAed) || ''),
-        salePriceAed: String((editable.salePriceAed ?? editable.priceAed) || ''),
-        shopName: editable.shopName || '',
-        phone: editable.phone || '+971',
-        locationText: editable.locationText || editable.location || '',
-        mapsUrl: editable.mapsUrl || '',
-        photos: editable.photos || (editable.photoUrl ? [editable.photoUrl] : []),
-        condition: editable.condition || 'used',
-        availability: editable.availability || 'in_stock',
-        deliveryEta: editable.deliveryEta || 'today',
-        isBest: part.bestOfferId === editable.id,
-        note: editable.note || '',
-      });
-      return;
-    }
-
-    if (latestOrderVariant) {
-      setForm((prev) => ({
-        ...prev,
-        shopName: latestOrderVariant.shopName ?? '',
-        phone: latestOrderVariant.phone || '+971',
-        locationText: latestOrderVariant.locationText || latestOrderVariant.location || '',
-        mapsUrl: latestOrderVariant.mapsUrl || '',
-        condition: latestOrderVariant.condition || prev.condition,
-        availability: latestOrderVariant.availability || prev.availability,
-        note: '',
-      }));
-    } else {
-      setForm(DEFAULT_FORM);
-    }
-    setLocationParseNotice(null);
-  }, [isAdding, isEditing, part, partVariants, editingVariantId, latestOrderVariant]);
-
-  if (!order || !part)
-    return <div className="p-10 text-center text-gray-400 font-bold">ДЕТАЛЬ НЕ НАЙДЕНА</div>;
-  const depositPaid =
-    order.searchDepositStatus === 'paid' ||
-    order.paymentStatus === 'search_deposit_paid' ||
-    order.paymentStatus === 'full_prepayment_paid';
-  const currentPartIndex = order.parts.findIndex((entry) => entry.id === part.id);
-  const canSwipeParts =
-    order.parts.length > 1 &&
-    currentPartIndex >= 0 &&
-    !isAdding &&
-    !gallery &&
-    !showLibraryPicker &&
-    !showAddOptionsSheet;
-
-  const goBack = () => {
-    const restoreScrollTop = (location.state as { orderScrollTop?: unknown } | null)
-      ?.orderScrollTop;
-    const backState = {
-      ...(typeof restoreScrollTop === 'number' ? { restoreScrollTop } : {}),
-      ...(orderActiveTab ? { restoreActiveTab: orderActiveTab } : {}),
-    };
-    navigate(backTo, { state: backState });
-  };
-
-  const goToSiblingPart = (direction: 'next' | 'prev') => {
-    if (!canSwipeParts || swipeSlide) return;
-    const nextIndex =
-      direction === 'next'
-        ? (currentPartIndex + 1) % order.parts.length
-        : (currentPartIndex - 1 + order.parts.length) % order.parts.length;
-    const nextPart = order.parts[nextIndex];
-    if (!nextPart || nextPart.id === part.id) return;
-
-    setSwipeSlide(direction);
-    const state: Record<string, unknown> = {
-      ...(location.state && typeof location.state === 'object'
-        ? (location.state as Record<string, unknown>)
-        : {}),
-      backTo,
-      ...(orderActiveTab ? { orderActiveTab } : {}),
-    };
-    delete state.openVariantId;
-
-    window.setTimeout(() => {
-      navigate(`/order/${order.id}/part/${nextPart.id}`, { state });
-    }, 120);
-  };
-
-  const handleSwipePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!canSwipeParts) return;
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
-    swipeStartRef.current = { x: event.clientX, y: event.clientY, at: Date.now() };
-  };
-
-  const handleSwipePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    const start = swipeStartRef.current;
-    swipeStartRef.current = null;
-    if (!start || !canSwipeParts) return;
-    const dx = event.clientX - start.x;
-    const dy = event.clientY - start.y;
-    const elapsed = Date.now() - start.at;
-    const isHorizontalSwipe =
-      Math.abs(dx) >= 70 && Math.abs(dx) > Math.abs(dy) * 1.35 && elapsed < 650;
-    if (!isHorizontalSwipe) return;
-    event.preventDefault();
-    event.stopPropagation();
-    goToSiblingPart(dx < 0 ? 'next' : 'prev');
-  };
-
-  const isPhotoVisible = (url: string) => !!String(url || '').trim() && !brokenPhotoUrls[url];
-
-  const handleFormPatch = <T extends keyof OfferFormState>(key: T, value: OfferFormState[T]) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    const files = Array.from(e.target.files);
-    void Promise.all(
-      files.map(async (file) => {
-        try {
-          return await optimizeLocalImage(file, `part-details:variant:${file.name}`);
-        } catch {
-          const reader = new FileReader();
-          return await new Promise<string>((resolve) => {
-            reader.onloadend = () => resolve(String(reader.result || ''));
-            reader.readAsDataURL(file as Blob);
-          });
-        }
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [librarySearch, setLibrarySearch] = useState('');
+  const [libraryLimit, setLibraryLimit] = useState(40);
+  const [sort, setSort] = useState('price');
+  const [mutation, setMutation] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [savedId, setSavedId] = useState('');
+  const sampleInput = useRef<HTMLInputElement>(null);
+  const offersRef = useRef<HTMLElement>(null);
+  const mutationLock = useRef(false);
+  const initialForm = useRef('');
+  const newVariantId = useRef<string | null>(null);
+  const variants = part?.variants || [];
+  const samplePhotos = uniqueStrings(part?.photos?.length ? part.photos : [part?.photoUrl || '']);
+  const selected =
+    variants.find((v) => v.id === part?.bestOfferId) || variants.find((v) => v.isBest);
+  const minimum = useMemo(() => {
+    const prices = variants
+      .map(purchasePrice)
+      .filter((price) => Number.isFinite(price) && price > 0);
+    return prices.length ? Math.min(...prices) : undefined;
+  }, [part?.variants]);
+  const sorted = useMemo(
+    () =>
+      [...variants].sort((a, b) => {
+        if (a.id === selected?.id) return -1;
+        if (b.id === selected?.id) return 1;
+        if (sort === 'recent') return b.createdAt - a.createdAt;
+        return (
+          (Number.isFinite(purchasePrice(a)) && purchasePrice(a) > 0
+            ? purchasePrice(a)
+            : Infinity) -
+          (Number.isFinite(purchasePrice(b)) && purchasePrice(b) > 0 ? purchasePrice(b) : Infinity)
+        );
       }),
-    ).then((photos) => {
-      setForm((prev) => ({ ...prev, photos: [...prev.photos, ...photos.filter(Boolean)] }));
-    });
-    e.target.value = '';
-  };
+    [part?.variants, selected?.id, sort],
+  );
+  const libraryMatches = (variantLibrary as VariantLibraryItem[]).filter(
+    (item) =>
+      item.sourcePartId !== part?.id &&
+      `${item.sourcePartName} ${item.shopName} ${item.sourceOrderLabel}`
+        .toLocaleLowerCase()
+        .includes(librarySearch.trim().toLocaleLowerCase()),
+  );
+  const busy = mutation !== null;
+  const depositPaid =
+    order?.searchDepositStatus === 'paid' ||
+    order?.paymentStatus === 'search_deposit_paid' ||
+    order?.paymentStatus === 'full_prepayment_paid';
 
-  const handleVariantPhotosFromClipboard = async () => {
+  useEffect(() => {
+    setPhotoIndex(0);
+    setSavedId('');
+    setBrokenPhotos({});
+    setIsAdding(false);
+    setEditingId(null);
+    setForm(DEFAULT_OFFER);
+    setShowDiscard(false);
+    setEditingName(false);
+    setEditingDescription(false);
+    setShowActions(false);
+    setGallery(null);
+    setShowLibrary(false);
+    setDeletePhoto(null);
+    setDeleteVariantId(null);
+  }, [partId]);
+  useEffect(() => {
+    const id = state?.openVariantId || savedId;
+    if (!id) return;
+    const frame = requestAnimationFrame(() =>
+      document
+        .getElementById(`variant-${id}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [partId, state?.openVariantId, savedId]);
+
+  if (isLoading && !order) return <LoadingState />;
+  if (!order || !part)
+    return (
+      <div className="ui-page">
+        <EmptyState
+          icon={Layers3}
+          title="Деталь не найдена"
+          description="Она могла быть удалена из заказа."
+          action={
+            <Button onClick={() => navigate(order ? `/order/${order.id}` : '/orders')}>
+              К заказам
+            </Button>
+          }
+        />
+      </div>
+    );
+  const currentPartIndex = order.parts.findIndex((item) => item.id === part.id);
+  const currentPhotoIndex = Math.min(photoIndex, Math.max(0, samplePhotos.length - 1));
+  const currentPhoto = samplePhotos[currentPhotoIndex];
+  const photoVisible = currentPhoto && !brokenPhotos[currentPhoto];
+  const startMutation = (key: string) => {
+    if (mutationLock.current) return false;
+    mutationLock.current = true;
+    setMutation(key);
+    return true;
+  };
+  const endMutation = () => {
+    mutationLock.current = false;
+    setMutation(null);
+  };
+  const goBack = () =>
+    navigate(backTo, {
+      state: {
+        ...(typeof state?.orderScrollTop === 'number'
+          ? { restoreScrollTop: state.orderScrollTop }
+          : {}),
+        ...(state?.orderActiveTab ? { restoreActiveTab: state.orderActiveTab } : {}),
+      },
+    });
+  const sibling = (offset: number) => {
+    const next = order.parts[(currentPartIndex + offset + order.parts.length) % order.parts.length];
+    navigate(`/order/${order.id}/part/${next.id}`, {
+      state: { ...state, backTo, openVariantId: undefined },
+    });
+  };
+  const patchPart = async (patch: Partial<Part>, key: string): Promise<boolean> => {
+    if (!startMutation(key)) return false;
+    try {
+      return await updateOrder({
+        ...order,
+        parts: order.parts.map((item) => (item.id === part.id ? { ...item, ...patch } : item)),
+      });
+    } catch (error) {
+      void logger.error('part-details', 'part_update_failed', { error: String(error) });
+      return false;
+    } finally {
+      endMutation();
+    }
+  };
+  const openName = () => {
+    setNameDraft(part.name);
+    setEditError('');
+    setShowActions(false);
+    setEditingName(true);
+  };
+  const openDescription = () => {
+    setDescriptionDraft(part.comment || '');
+    setEditError('');
+    setShowActions(false);
+    setEditingDescription(true);
+  };
+  const saveName = async () => {
+    if (!nameDraft.trim()) {
+      setEditError('Укажите название детали.');
+      return;
+    }
+    if (await patchPart({ name: nameDraft.trim() }, 'name')) setEditingName(false);
+    else setEditError('Название не сохранилось. Попробуйте ещё раз.');
+  };
+  const saveDescription = async () => {
+    if (await patchPart({ comment: descriptionDraft.trim() }, 'description'))
+      setEditingDescription(false);
+    else setEditError('Описание не сохранилось. Данные остались в форме.');
+  };
+  const addSamplePhotos = async (files: File[]) => {
+    if (!files.length || !startMutation('photos')) return;
+    try {
+      const incoming = await Promise.all(files.map(imageFile));
+      const photos = uniqueStrings([...samplePhotos, ...incoming]);
+      const ok = await updateOrder({
+        ...order,
+        parts: order.parts.map((item) =>
+          item.id === part.id ? { ...item, photos, photoUrl: photos[0] || '' } : item,
+        ),
+      });
+      if (!ok) throw new Error('Фотографии не сохранились. Попробуйте ещё раз.');
+      setPhotoIndex(samplePhotos.length);
+      toast('Фото добавлены', 'success');
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Не удалось добавить фото.', 'error');
+    } finally {
+      endMutation();
+    }
+  };
+  const pasteSamplePhotos = async () => {
     try {
       const files = await readClipboardImageFiles();
       if (!files.length) {
-        toast('В буфере обмена нет изображений. Скопируйте фото или выберите файл.', 'info');
+        toast('В буфере нет изображений. Выберите фото с устройства.', 'info');
         return;
       }
-      const photos = await Promise.all(
-        files.map(async (file) => {
-          try {
-            return await optimizeLocalImage(file, `part-details:variant:clipboard:${file.name}`);
-          } catch {
-            const reader = new FileReader();
-            return await new Promise<string>((resolve) => {
-              reader.onloadend = () => resolve(String(reader.result || ''));
-              reader.readAsDataURL(file as Blob);
-            });
-          }
-        }),
-      );
-      setForm((prev) => ({
-        ...prev,
-        photos: mergeUniqueStrings(prev.photos, photos.filter(Boolean)),
-      }));
+      await addSamplePhotos(files);
     } catch {
-      toast('Не удалось получить фото из буфера. Можно выбрать файл с устройства.', 'error');
+      toast('Буфер обмена недоступен. Выберите фото с устройства.', 'info');
     }
   };
-
-  const removeVariantPhoto = (index: number) => {
-    setForm((prev) => ({ ...prev, photos: prev.photos.filter((_, i) => i !== index) }));
+  const removeSample = async () => {
+    if (!deletePhoto) return;
+    const photos = samplePhotos.filter((photo) => photo !== deletePhoto);
+    if (await patchPart({ photos, photoUrl: photos[0] || '' }, 'photos')) {
+      setDeletePhoto(null);
+      setPhotoIndex(Math.min(currentPhotoIndex, Math.max(0, photos.length - 1)));
+      toast('Фото удалено', 'success');
+    } else toast('Фото не удалось удалить. Попробуйте ещё раз.', 'error');
   };
-
-  const handleShopSelect = (supplier: any) => {
-    setForm((prev) => ({
-      ...prev,
+  const copyVin = async () => {
+    try {
+      await navigator.clipboard.writeText(order.vin);
+      toast('VIN скопирован', 'success');
+      setShowActions(false);
+    } catch {
+      toast('Не удалось скопировать VIN.', 'info');
+    }
+  };
+  const openOffer = (variant?: PriceVariant) => {
+    if (!depositPaid) return;
+    const latest = order.parts
+      .flatMap((item) => item.variants || [])
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
+    const next: OfferFormState = variant
+      ? {
+          purchasePriceAed: String(variant.purchasePriceAed ?? variant.priceAed),
+          salePriceAed: String(variant.salePriceAed ?? variant.priceAed),
+          shopName: variant.shopName || '',
+          supplierId: variant.shopId,
+          phone: variant.phone || '',
+          locationText: variant.locationText || variant.location || '',
+          mapsUrl: variant.mapsUrl || '',
+          photos: variantPhotos(variant),
+          condition: variant.condition || 'used',
+          availability: variant.availability || 'in_stock',
+          deliveryEta: variant.deliveryEta || 'today',
+          isBest: variant.id === selected?.id,
+          note: variant.note || '',
+        }
+      : {
+          ...DEFAULT_OFFER,
+          shopName: latest?.shopName || '',
+          supplierId: latest?.shopId,
+          phone: latest?.phone || '',
+          locationText: latest?.locationText || latest?.location || '',
+        };
+    initialForm.current = JSON.stringify(next);
+    newVariantId.current = variant?.id || createUuid();
+    setForm(next);
+    setEditingId(variant?.id || null);
+    setFormErrors({});
+    setFormError('');
+    setIsAdding(true);
+  };
+  const closeOffer = () => {
+    setIsAdding(false);
+    setEditingId(null);
+    setShowDiscard(false);
+    setForm(DEFAULT_OFFER);
+  };
+  const requestCloseOffer = () => {
+    if (busy) return;
+    if (JSON.stringify(form) !== initialForm.current) setShowDiscard(true);
+    else closeOffer();
+  };
+  const patchForm = <K extends keyof OfferFormState>(key: K, value: OfferFormState[K]) => {
+    setForm((previous) => ({ ...previous, [key]: value }));
+    setFormError('');
+    setFormErrors((previous) =>
+      Object.fromEntries(Object.entries(previous).filter(([field]) => field !== key)),
+    );
+  };
+  const chooseSupplier = (supplier: Supplier) =>
+    setForm((previous) => ({
+      ...previous,
       shopName: supplier.name,
       supplierId: supplier.id,
-      phone: supplier.phone || prev.phone,
-      locationText: supplier.location || prev.locationText,
+      phone: supplier.phone || '',
+      locationText: supplier.location || '',
     }));
-    setShowSuggestions(false);
-  };
-
-  const getCurrentLocation = () => {
-    if (!navigator.geolocation) return;
-    setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const mapsUrl = `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`;
-        setForm((prev) => ({
-          ...prev,
-          mapsUrl,
-          locationText:
-            prev.locationText ||
-            `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`,
-        }));
-        setIsLocating(false);
-      },
-      () => setIsLocating(false),
-    );
-  };
-
-  const buildShopFallbackQueries = () => {
-    const location = form.locationText;
-    const cityHints = ['Dubai', 'Sharjah'].filter((city) =>
-      location.toLowerCase().includes(city.toLowerCase()),
-    );
-    const queries = new Set<string>();
-    if (form.shopName.trim()) {
-      queries.add(form.shopName.trim());
-      queries.add(`${form.shopName.trim()} Dubai`);
-      queries.add(`${form.shopName.trim()} Sharjah`);
-    }
-
-    const specialization = [order.brand, order.model].filter(Boolean).join(' ').trim();
-    if (specialization) {
-      const base = `${form.shopName.trim()} ${specialization}`.trim();
-      queries.add(base);
-      if (cityHints.length === 0) {
-        queries.add(`${base} Dubai`);
-        queries.add(`${base} Sharjah`);
-      } else {
-        cityHints.forEach((city) => queries.add(`${base} ${city}`.trim()));
-      }
-    }
-
-    return Array.from(queries);
-  };
-
-  const closeEditor = () => {
-    setIsAdding(false);
-    setEditingVariantId(null);
-    setForm(DEFAULT_FORM);
-    setLocationParseNotice(null);
-  };
-
-  const attachVariantFromLibrary = async (item: VariantLibraryItem) => {
-    if (!depositPaid) {
-      toast('Сначала подтвердите депозит в заказе.', 'error');
-      return;
-    }
-    const variant = { ...cloneVariantForPart(item, part.id), orderId: order.id };
-    const updatedParts = order.parts.map((p) => {
-      if (p.id !== part.id) return p;
-      return {
-        ...p,
-        isFound: true,
-        status: 'found' as const,
-        variants: [variant, ...(Array.isArray(p.variants) ? p.variants : [])],
-      };
-    });
-    const saved = await updateOrder({ ...order, parts: updatedParts });
-    if (!saved) {
-      toast('Не удалось прикрепить вариант к детали.', 'error');
-      return;
-    }
-    setShowLibraryPicker(false);
-    toast('Вариант прикреплён к детали', 'success');
-  };
-
-  const saveVariant = async () => {
-    if (!depositPaid) {
-      toast('Сначала подтвердите депозит в заказе. После этого можно добавлять варианты.', 'info');
-      return;
-    }
-    if (!canSave) {
-      toast('Укажите цену закупки и название магазина.', 'error');
-      return;
-    }
-
-    setIsResolvingLocation(true);
+  const addOfferPhotos = async (files: File[]) => {
+    if (!files.length || !startMutation('offer-photos')) return;
     try {
-      const normalizedShopName = form.shopName.trim().toLowerCase();
-      const normalizedFormPhone = normalizePhone(form.phone || '');
-      const existingSupplierByPhone = normalizedFormPhone
-        ? suppliers.find((supplier) => normalizePhone(supplier.phone || '') === normalizedFormPhone)
-        : undefined;
-      const existingSupplierByNameOrId = suppliers.find((s) => {
-        if (form.supplierId && s.id === form.supplierId) return true;
-        return s.name.trim().toLowerCase() === normalizedShopName;
-      });
-      const existingSupplier = existingSupplierByNameOrId || existingSupplierByPhone;
-      const locationSource = form.mapsUrl || form.locationText;
-      const resolvedCoordinates = await resolveCoordinatesFromLocation(locationSource, {
-        fallbackQueries: buildShopFallbackQueries(),
-        onManualLocationRequired: setLocationParseNotice,
-      });
-
-      let targetSupplierId = existingSupplier?.id;
-
-      if (!existingSupplier) {
-        const nextBrandPool = mergeUniqueStrings([], [order.brand]);
-        const nextModels = mergeUniqueStrings([], [order.model || '']);
-        const nextYears = mergeUniqueYears([], [Number(order.year)]);
-        const nextBodyTypes = mergeUniqueStrings([], [order.bodyType || '']);
-        const newSupplier: Supplier = {
-          id: createUuid(),
-          name: form.shopName.trim(),
-          phone: form.phone,
-          location: form.locationText,
-          type: form.condition === 'new' ? 'new_parts' : 'scrapyard',
-          brands: nextBrandPool,
-          mainBrands: nextBrandPool,
-          primaryBrand: nextBrandPool[0] || '',
-          models: nextModels,
-          years: nextYears,
-          bodyTypes: nextBodyTypes,
-          activeOrderIds: [order.id],
-          linkedParts: [
-            {
-              id: createUuid(),
-              orderId: order.id,
-              orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
-              partId: part.id,
-              partName: part.name,
-              status: 'found' as const,
-              source: 'variant',
-              priceAed: numericPurchasePrice,
-              updatedAt: Date.now(),
-            },
-          ],
-          photoUrl: '',
-          photos: [],
-          coordinates: resolvedCoordinates,
-        };
-        addSupplier(newSupplier);
-        targetSupplierId = newSupplier.id;
-      } else {
-        const currentBrands = existingSupplier.mainBrands || existingSupplier.brands || [];
-        const nextBrands = mergeUniqueStrings(currentBrands, [order.brand]);
-        const nextModels = mergeUniqueStrings(existingSupplier.models || [], [order.model || '']);
-        const nextYears = mergeUniqueYears(existingSupplier.years || [], [Number(order.year)]);
-        const nextBodyTypes = mergeUniqueStrings(existingSupplier.bodyTypes || [], [
-          order.bodyType || '',
-        ]);
-        const updatedSupplier = {
-          ...existingSupplier,
-          phone: existingSupplier.phone || form.phone,
-          location: existingSupplier.location || form.locationText,
-          brands: nextBrands,
-          mainBrands: nextBrands,
-          primaryBrand: existingSupplier.primaryBrand || nextBrands[0] || '',
-          models: nextModels,
-          years: nextYears,
-          bodyTypes: nextBodyTypes,
-          activeOrderIds: Array.from(
-            new Set([...(existingSupplier.activeOrderIds || []), order.id]),
-          ),
-          linkedParts: upsertLinkedPart(existingSupplier.linkedParts || [], {
-            id: createUuid(),
-            orderId: order.id,
-            orderLabel: `${order.brand} ${order.model} • ${order.vin}`,
-            partId: part.id,
-            partName: part.name,
-            status: 'found' as const,
-            source: 'variant',
-            priceAed: numericPurchasePrice,
-            updatedAt: Date.now(),
-          }),
-          photoUrl: existingSupplier.photoUrl || '',
-          photos: existingSupplier.photos || [],
-          coordinates: existingSupplier.coordinates || resolvedCoordinates,
-        };
-        updateSupplier(updatedSupplier);
-        targetSupplierId = updatedSupplier.id;
-      }
-
-      const variantId = editingVariantId || createUuid();
-      const persistedVariantPhotos = await Promise.all(
-        (form.photos || []).map(async (photo, index) => {
-          const raw = String(photo || '').trim();
-          if (!raw) return '';
-          if (!raw.startsWith('data:image')) return raw;
-          // Use the same per-variant subfolder that withUploadedPhotos expects,
-          // so that cleanupExtraFiles logic stays consistent.
-          // The filename pattern (0.jpg, 1.jpg…) must match what withUploadedPhotos generates
-          // so that x-upsert overwrites the correct file when re-syncing.
-          // saveLocalImage compresses internally and stores the result regardless of the
-          // .jpg extension label (the actual format depends on browser canvas support).
-          const fileName = `${index}.jpg`;
-          const uploaded = await saveLocalImage(
-            raw,
-            `orders/${order.id}/parts/${part.id}/variants/${variantId}`,
-            fileName,
-          );
-          await logger.info('part-details:variant-photo-persisted', 'Variant photo persisted', {
-            orderId: order.id,
-            partId: part.id,
-            variantId,
-            index,
-            storageUrl: uploaded,
-          });
-          return uploaded;
-        }),
-      );
-      const variantPhotos = persistedVariantPhotos.filter(Boolean);
-      const resolvedShopName = form.shopName.trim() || existingSupplier?.name || '';
-      const newVariant: PriceVariant = {
-        id: variantId,
+      const photos = await Promise.all(files.map(imageFile));
+      setForm((previous) => ({
+        ...previous,
+        photos: uniqueStrings([...previous.photos, ...photos]),
+      }));
+    } catch {
+      setFormError('Не удалось открыть фото. Выберите другой файл.');
+    } finally {
+      endMutation();
+    }
+  };
+  const pasteOfferPhotos = async () => {
+    try {
+      const files = await readClipboardImageFiles();
+      if (files.length) await addOfferPhotos(files);
+      else toast('В буфере нет изображений.', 'info');
+    } catch {
+      toast('Буфер недоступен. Выберите фото с устройства.', 'info');
+    }
+  };
+  const locate = () => {
+    if (!navigator.geolocation) {
+      toast('Местоположение недоступно. Введите адрес вручную.', 'info');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setForm((previous) => ({
+          ...previous,
+          mapsUrl: `https://www.google.com/maps?q=${latitude},${longitude}`,
+          locationText: previous.locationText || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+        }));
+        setLocating(false);
+      },
+      () => {
+        setLocating(false);
+        toast('Не удалось определить местоположение. Введите адрес вручную.', 'info');
+      },
+      { timeout: 10000 },
+    );
+  };
+  const saveOffer = async () => {
+    const price = Number(form.purchasePriceAed);
+    const errors: Record<string, string> = {};
+    if (!Number.isFinite(price) || price <= 0)
+      errors.purchasePriceAed = 'Введите цену больше нуля.';
+    if (!form.shopName.trim()) errors.shopName = 'Укажите название поставщика.';
+    if (form.phone.trim() && normalizePhone(form.phone).length < 7)
+      errors.phone = 'Укажите полный номер или оставьте поле пустым.';
+    setFormErrors(errors);
+    if (Object.keys(errors).length) {
+      document
+        .querySelector<HTMLInputElement>(
+          errors.purchasePriceAed
+            ? '[aria-label="Цена закупки, AED"]'
+            : errors.shopName
+              ? '[aria-label="Название поставщика"]'
+              : 'input[type="tel"]',
+        )
+        ?.focus();
+      return;
+    }
+    if (!depositPaid || !startMutation('offer')) return;
+    setFormError('');
+    try {
+      const digits = normalizePhone(form.phone);
+      const phone =
+        digits.length >= 7
+          ? form.phone.trim().startsWith('+')
+            ? form.phone.trim()
+            : `+${digits}`
+          : '';
+      const existing =
+        suppliers.find(
+          (s) =>
+            s.id === form.supplierId ||
+            s.name.trim().toLocaleLowerCase() === form.shopName.trim().toLocaleLowerCase(),
+        ) ||
+        (digits.length >= 7
+          ? suppliers.find((s) => normalizePhone(s.phone) === digits)
+          : undefined);
+      const coordinates = await resolveCoordinatesFromLocation(form.mapsUrl || form.locationText);
+      const id = newVariantId.current || createUuid();
+      newVariantId.current = id;
+      const supplierId = existing?.id || createUuid();
+      const offer: PriceVariant = {
+        id,
         orderId: order.id,
         partId: part.id,
-        priceAed: numericSalePrice || numericPurchasePrice,
-        purchasePriceAed: numericPurchasePrice,
-        salePriceAed: numericSalePrice || numericPurchasePrice,
+        priceAed: Number(form.salePriceAed) || price,
+        purchasePriceAed: price,
+        salePriceAed: Number(form.salePriceAed) || price,
         currency: 'AED',
-        shopName: resolvedShopName,
-        shopId: targetSupplierId,
+        shopName: form.shopName.trim(),
         shopNameManual: form.shopName.trim(),
-        phone: form.phone,
-        location: form.locationText,
-        locationText: form.locationText,
-        mapsUrl: form.mapsUrl,
-        lat: resolvedCoordinates?.lat,
-        lng: resolvedCoordinates?.lng,
-        photos: variantPhotos,
-        photoUrl: variantPhotos[0],
+        shopId: supplierId,
+        phone,
+        location: form.locationText.trim(),
+        locationText: form.locationText.trim(),
+        mapsUrl: form.mapsUrl.trim(),
+        lat: coordinates?.lat,
+        lng: coordinates?.lng,
+        photos: form.photos,
+        photoUrl: form.photos[0] || '',
         condition: form.condition,
         availability: form.availability,
         deliveryEta: form.deliveryEta,
         isBest: form.isBest,
         syncStatus: 'synced',
         note: form.note.trim(),
-        createdAt: editingVariantId
-          ? partVariants.find((v) => v.id === editingVariantId)?.createdAt || Date.now()
-          : Date.now(),
+        createdAt: variants.find((v) => v.id === id)?.createdAt || Date.now(),
         updatedAt: Date.now(),
       };
-
-      const updatedParts = order.parts.map((p) => {
-        if (p.id !== partId) return p;
-        const currentVariants = Array.isArray(p.variants) ? p.variants : [];
-        const exists = currentVariants.some((v) => v.id === variantId);
-        const variants = exists
-          ? currentVariants.map((v) => (v.id === variantId ? newVariant : v))
-          : [newVariant, ...currentVariants];
-
-        const bestOfferId = form.isBest
-          ? variantId
-          : p.bestOfferId === variantId
-            ? undefined
-            : p.bestOfferId;
-        return {
-          ...p,
-          isFound: true,
-          status: 'found' as const,
-          bestOfferId,
-          photoUrl: p.photoUrl || '',
-          photos: p.photos || [],
-          variants: variants.map((v) => ({
-            ...v,
-            isBest: form.isBest ? v.id === variantId : v.isBest && v.id !== variantId,
-          })),
-        };
+      const list = variants.some((v) => v.id === id)
+        ? variants.map((v) => (v.id === id ? offer : v))
+        : [offer, ...variants];
+      const bestId = form.isBest ? id : selected?.id === id ? undefined : selected?.id;
+      const ok = await updateOrder({
+        ...order,
+        parts: order.parts.map((item) =>
+          item.id === part.id
+            ? {
+                ...item,
+                variants: list.map((v) => ({ ...v, isBest: v.id === bestId })),
+                bestOfferId: bestId,
+                isFound: true,
+                status: 'found',
+              }
+            : item,
+        ),
       });
-
-      const saved = await updateOrder({ ...order, parts: updatedParts });
-      if (!saved) {
-        toast(
-          'Не удалось сохранить вариант. Проверьте ошибку синхронизации и попробуйте ещё раз.',
-          'error',
-        );
+      if (!ok) {
+        setFormError('Вариант не сохранился. Данные остались в форме — попробуйте ещё раз.');
         return;
       }
-      toast(isEditing ? 'Вариант обновлён' : 'Вариант сохранён', 'success');
-      setShowAfterSaveSheet(!editingVariantId);
-      closeEditor();
-    } catch (error) {
-      await logger.error('part-details:variant-save-failed', 'Variant save failed', {
+      const brands = uniqueStrings([
+        ...(existing?.mainBrands || existing?.brands || []),
+        order.brand,
+      ]);
+      const linked = {
+        id: createUuid(),
         orderId: order.id,
+        orderLabel: `${order.brand} ${order.model}`,
         partId: part.id,
-        error,
-      });
-      toast('Не удалось сохранить вариант на устройстве. Повторите попытку.', 'error');
-    } finally {
-      setIsResolvingLocation(false);
-    }
-  };
-
-  const confirmDeleteVariant = () => {
-    if (!deleteVariantId) return;
-    const updatedParts = order.parts.map((p) => {
-      if (p.id !== partId) return p;
-      const newVariants = p.variants.filter((v) => v.id !== deleteVariantId);
-      return {
-        ...p,
-        variants: newVariants,
-        isFound: newVariants.length > 0,
-        bestOfferId: p.bestOfferId === deleteVariantId ? undefined : p.bestOfferId,
+        partName: part.name,
+        status: 'found' as const,
+        source: 'variant' as const,
+        priceAed: price,
+        updatedAt: Date.now(),
       };
-    });
-    updateOrder({ ...order, parts: updatedParts });
-    setDeleteVariantId(null);
-  };
-
-  const getVariantPhotos = (variant: PriceVariant) => {
-    const photos = [...(Array.isArray(variant.photos) ? variant.photos : []), variant.photoUrl]
-      .filter((photo): photo is string => typeof photo === 'string')
-      .map((photo) => photo.trim())
-      .filter(Boolean);
-
-    return Array.from(new Set(photos));
-  };
-
-  const openGallery = (e: React.MouseEvent, variant: PriceVariant) => {
-    e.stopPropagation();
-    const images = getVariantPhotos(variant);
-    if (!images.length) return;
-    setGallery({ images, index: 0 });
-  };
-
-  const filteredSuppliers = suppliers
-    .filter((s) => s.name.toLowerCase().includes(form.shopName.toLowerCase()))
-    .slice(0, 5);
-
-  const startNewShop = () => {
-    handleFormPatch('shopName', '');
-    handleFormPatch('supplierId', undefined);
-    document.getElementById('offer-shop-name')?.focus();
-  };
-
-  const openWhatsapp = (variant: PriceVariant) => {
-    const phoneRaw = (variant.phone || '').replace(/[^\d+]/g, '');
-    if (!phoneRaw) return;
-    const message = `Здравствуйте. Нужна деталь: ${part.name} для ${order.brand} ${order.model} ${order.year}.\nЕсть в наличии? Какая цена и состояние?\nОтправьте, пожалуйста, фото и номер детали.${order.vin ? `\nVIN: ${order.vin}` : ''}`;
-    window.open(
-      `https://wa.me/${phoneRaw.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`,
-      '_blank',
-    );
-  };
-
-  const formatPhone = (value: string) => {
-    const cleaned = value.replace(/[^\d+]/g, '');
-    if (cleaned.startsWith('+')) return cleaned;
-    if (!cleaned) return '+971';
-    return `+${cleaned}`;
-  };
-
-  const pasteFromClipboard = async (
-    target: 'purchasePriceAed' | 'salePriceAed' | 'phone' | 'locationText' | 'mapsUrl',
-  ) => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text) return;
-      if (target === 'phone') handleFormPatch('phone', formatPhone(text));
-      else
-        handleFormPatch(
-          target,
-          target === 'purchasePriceAed' || target === 'salePriceAed'
-            ? sanitizeMoneyInput(text)
-            : text,
-        );
-    } catch {
-      toast('Буфер обмена недоступен. Введите данные вручную.', 'info');
-    }
-  };
-
-  const startEditPartName = () => {
-    setPartNameDraft(part.name || '');
-    setIsEditingPartName(true);
-  };
-
-  const startEditPartDescription = () => {
-    setPartDescriptionDraft(String(part.comment || ''));
-    setIsEditingPartDescription(true);
-  };
-
-  const submitPartDescription = () => {
-    const nextDescription = partDescriptionDraft.trim();
-    const currentDescription = String(part.comment || '').trim();
-    if (nextDescription === currentDescription) {
-      setIsEditingPartDescription(false);
-      return;
-    }
-    const updatedParts = order.parts.map((p) =>
-      p.id === part.id ? { ...p, comment: nextDescription } : p,
-    );
-    updateOrder({ ...order, parts: updatedParts });
-    setIsEditingPartDescription(false);
-  };
-
-  const getSamplePhotos = () => {
-    if (part.photos && part.photos.length > 0) return part.photos;
-    if (part.photoUrl) return [part.photoUrl];
-    return [];
-  };
-
-  const replaceSamplePhotos = (photos: string[]) => {
-    const nextPhotos = mergeUniqueStrings([], photos);
-    const updatedParts = order.parts.map((p) =>
-      p.id === part.id ? { ...p, photos: nextPhotos, photoUrl: nextPhotos[0] || '' } : p,
-    );
-    void updateOrder({ ...order, parts: updatedParts });
-  };
-
-  const removeSamplePhoto = (photoIndex: number) => {
-    const next = getSamplePhotos().filter((_, index) => index !== photoIndex);
-    replaceSamplePhotos(next);
-  };
-
-  const handleSamplePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    const photoIndex = getSamplePhotos().length;
-    Promise.all(
-      files.map(async (file, fileIndex) => {
-        try {
-          const optimized = await optimizeLocalImage(file, `part-details:sample:${file.name}`);
-          // Use the same "example" folder that orderStore.withUploadedPhotos uses to keep paths consistent
-          const fileName = `${photoIndex + fileIndex}.jpg`;
-          const uploaded = await saveLocalImage(
-            optimized,
-            `orders/${order.id}/parts/${part.id}/example`,
-            fileName,
-          );
-          await logger.info('part-details:sample-photo-persisted', 'Sample photo saved on device', {
-            orderId: order.id,
-            partId: part.id,
-            fileName,
-            name: file.name,
-            storageUrl: uploaded,
-            isHttpUrl: uploaded.startsWith('http'),
-          });
-          return uploaded.startsWith('local://') ? optimized : uploaded;
-        } catch (err) {
-          void logger.warn(
-            'part-details:sample-photo-persist-failed',
-            'Sample photo local save failed',
-            {
-              orderId: order.id,
-              partId: part.id,
-              name: file.name,
-              error: String(err),
-            },
-          );
-          return await readImageFileAsDataUrl(file);
-        }
-      }),
-    )
-      .then((photos) => {
-        const merged = Array.from(
-          new Set([...(getSamplePhotos() || []), ...photos.filter(Boolean)]),
-        );
-        void logger.info('part-details:sample-photos-saved', 'Sample photos merged and saved', {
-          orderId: order.id,
-          partId: part.id,
-          totalPhotos: merged.length,
-          newPhotos: photos.filter(Boolean).length,
-          allHttpUrls: merged.every((u) => u.startsWith('http')),
-        });
-        replaceSamplePhotos(merged);
-      })
-      .finally(() => {
-        e.target.value = '';
-      });
-  };
-
-  const handleSamplePhotosFromClipboard = async () => {
-    try {
-      const files = await readClipboardImageFiles();
-      if (!files.length) {
-        toast('В буфере обмена нет изображений. Скопируйте фото или выберите файл.', 'info');
-        return;
-      }
-      const photoIndex = getSamplePhotos().length;
-      const photos = await Promise.all(
-        files.map(async (file, fileIndex) => {
-          try {
-            const optimized = await optimizeLocalImage(
-              file,
-              `part-details:sample:clipboard:${file.name}`,
-            );
-            const fileName = `${photoIndex + fileIndex}.jpg`;
-            const uploaded = await saveLocalImage(
-              optimized,
-              `orders/${order.id}/parts/${part.id}/example`,
-              fileName,
-            );
-            return uploaded.startsWith('local://') ? optimized : uploaded;
-          } catch {
-            return await readImageFileAsDataUrl(file);
-          }
-        }),
+      const linkedParts = [...(existing?.linkedParts || [])];
+      const linkedIndex = linkedParts.findIndex(
+        (item) => item.orderId === order.id && item.partId === part.id,
       );
-      const merged = Array.from(new Set([...(getSamplePhotos() || []), ...photos.filter(Boolean)]));
-      replaceSamplePhotos(merged);
-    } catch {
-      toast('Не удалось получить фото из буфера. Можно выбрать файл с устройства.', 'error');
+      if (linkedIndex >= 0)
+        linkedParts[linkedIndex] = {
+          ...linkedParts[linkedIndex],
+          ...linked,
+          id: linkedParts[linkedIndex].id,
+        };
+      else linkedParts.unshift(linked);
+      updateSupplier({
+        ...existing,
+        id: supplierId,
+        name: existing?.name || form.shopName.trim(),
+        phone: existing?.phone || phone,
+        location: existing?.location || form.locationText.trim(),
+        type: existing?.type || (form.condition === 'new' ? 'new_parts' : 'scrapyard'),
+        brands,
+        mainBrands: brands,
+        primaryBrand: existing?.primaryBrand || brands[0],
+        models: uniqueStrings([...(existing?.models || []), order.model]),
+        bodyTypes: uniqueStrings([...(existing?.bodyTypes || []), order.bodyType || '']),
+        years: [
+          ...new Set([...(existing?.years || []), Number(order.year)].filter(Number.isFinite)),
+        ],
+        activeOrderIds: [...new Set([...(existing?.activeOrderIds || []), order.id])],
+        linkedParts,
+        coordinates: existing?.coordinates || coordinates,
+      } as Supplier);
+      setSavedId(id);
+      toast(editingId ? 'Вариант обновлён' : 'Вариант добавлен', 'success');
+      closeOffer();
+    } catch (error) {
+      void logger.error('part-details', 'save_offer_failed', { error: String(error) });
+      setFormError('Не удалось сохранить вариант. Данные остались в форме.');
+    } finally {
+      endMutation();
     }
   };
-
-  const copyText = async (value: string) => {
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-    } catch {
-      // ignore clipboard errors
-    }
+  const chooseOffer = async (variant: PriceVariant) => {
+    const bestId = selected?.id === variant.id ? undefined : variant.id;
+    if (
+      await patchPart(
+        {
+          bestOfferId: bestId,
+          variants: variants.map((v) => ({ ...v, isBest: v.id === bestId })),
+          isFound: true,
+          status: 'found',
+        },
+        'select',
+      )
+    )
+      toast(bestId ? 'Вариант выбран для заказа' : 'Выбор отменён', 'success');
+    else toast('Выбор не сохранился. Попробуйте ещё раз.', 'error');
   };
-
-  const submitPartName = () => {
-    const nextName = partNameDraft.trim();
-    if (!nextName || nextName === part.name) {
-      setIsEditingPartName(false);
-      return;
-    }
-    const updatedParts = order.parts.map((p) => (p.id === part.id ? { ...p, name: nextName } : p));
-    updateOrder({ ...order, parts: updatedParts });
-    setIsEditingPartName(false);
+  const removeOffer = async () => {
+    if (!deleteVariantId) return;
+    const list = variants.filter((v) => v.id !== deleteVariantId);
+    if (
+      await patchPart(
+        {
+          variants: list,
+          bestOfferId: selected?.id === deleteVariantId ? undefined : selected?.id,
+          isFound: list.length > 0,
+          status: list.length ? 'found' : 'not_found',
+        },
+        'delete',
+      )
+    ) {
+      setDeleteVariantId(null);
+      toast('Вариант удалён', 'success');
+    } else toast('Вариант не удалось удалить. Попробуйте ещё раз.', 'error');
   };
-
-  const formatAed = (value: number | undefined) => {
-    const amount = Number(value || 0);
-    if (!Number.isFinite(amount) || amount <= 0) return '— AED';
-    return `${amount.toLocaleString('en-US').replace(/,/g, ' ')} AED`;
+  const attach = async (item: VariantLibraryItem) => {
+    if (!depositPaid) return;
+    const offer = { ...cloneVariantForPart(item, part.id), orderId: order.id, isBest: false };
+    if (
+      await patchPart({ variants: [offer, ...variants], isFound: true, status: 'found' }, 'attach')
+    ) {
+      setShowLibrary(false);
+      setSavedId(offer.id);
+      toast('Вариант добавлен из базы', 'success');
+    } else toast('Вариант не удалось добавить. Попробуйте ещё раз.', 'error');
   };
-
-  const selectVariantAsBest = (variant: PriceVariant) => {
-    const updatedParts = order.parts.map((p) =>
-      p.id === part.id
-        ? {
-            ...p,
-            isFound: true,
-            status: 'found' as const,
-            bestOfferId: variant.id,
-            variants: (Array.isArray(p.variants) ? p.variants : []).map((v) => ({
-              ...v,
-              isBest: v.id === variant.id,
-            })),
-          }
-        : p,
+  const whatsapp = (variant: PriceVariant) => {
+    const phone = normalizePhone(variant.phone);
+    if (phone.length < 7) return;
+    const message = `Здравствуйте. Нужна деталь: ${part.name} для ${order.brand} ${order.model} ${order.year}.\nЕсть в наличии? Какая цена и состояние?\nПришлите фото и номер детали.${order.vin ? `\nVIN: ${order.vin}` : ''}`;
+    window.open(
+      `https://wa.me/${phone}?text=${encodeURIComponent(message)}`,
+      '_blank',
+      'noopener,noreferrer',
     );
-    void updateOrder({ ...order, parts: updatedParts });
-    toast('Вариант выбран как лучший', 'success');
   };
-
-  const samplePhotos = getSamplePhotos();
-  const variantPhotoPool = partVariants.flatMap((variant) => getVariantPhotos(variant));
-  const heroPhotos = Array.from(new Set([...samplePhotos, ...variantPhotoPool].filter(Boolean)));
-  const heroPhoto = heroPhotos.find((photo) => isPhotoVisible(photo));
-  const heroSamplePhotoIndex = heroPhoto
-    ? samplePhotos.findIndex((photo) => photo === heroPhoto)
-    : -1;
-  const sortedVariants = [...partVariants].sort((a, b) => {
-    const aBest = part.bestOfferId === a.id || !!a.isBest;
-    const bBest = part.bestOfferId === b.id || !!b.isBest;
-    if (aBest !== bBest) return aBest ? -1 : 1;
-    return (
-      Number((a.purchasePriceAed ?? a.priceAed) || 0) -
-      Number((b.purchasePriceAed ?? b.priceAed) || 0)
-    );
-  });
-  const partFound = partVariants.length > 0;
-  const photosCountLabel = `${heroPhotos.length || samplePhotos.length || variantPhotoPool.length} фото`;
 
   return (
-    <div className="flex min-h-full flex-col overflow-x-hidden bg-[#F7F9FC] pb-[calc(5.25rem+env(safe-area-inset-bottom))]">
-      <div className="sticky top-0 z-30 border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur">
-        <div className="flex items-start justify-between gap-2">
+    <div className="part-detail-page">
+      <header className="part-detail-header">
+        <IconButton label="Назад" icon={ArrowLeft} disabled={busy} onClick={goBack} />
+        <div className="part-detail-title">
+          <p className="ui-eyebrow">Карточка детали</p>
+          <h1>{part.name}</h1>
           <button
-            aria-label="Назад"
-            title="Назад"
-            onClick={goBack}
-            className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-slate-950 transition-colors active:bg-slate-100"
+            type="button"
+            onClick={() => navigate(`/order/${order.id}`)}
+            className="part-detail-car-link"
           >
-            <ArrowLeft size={24} />
+            {order.brand} {order.model} · {order.year}
+            <ChevronRight size={15} aria-hidden="true" />
           </button>
-          <div className="text-center flex-1">
-            {isEditingPartName ? (
-              <div className="flex items-center gap-2">
-                <input
-                  autoFocus
-                  aria-label="Название детали"
-                  value={partNameDraft}
-                  onChange={(e) => setPartNameDraft(e.target.value)}
-                  onBlur={submitPartName}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      submitPartName();
-                    }
-                    if (e.key === 'Escape') setIsEditingPartName(false);
-                  }}
-                  className="h-10 w-full rounded-xl border border-blue-200 px-3 text-sm font-bold text-center"
-                />
-                <button
-                  aria-label="Сохранить название детали"
-                  title="Сохранить название детали"
-                  type="button"
-                  onClick={submitPartName}
-                  className="rounded-lg bg-blue-600 px-2 py-2 text-white"
-                >
-                  <Check size={14} />
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={startEditPartName}
-                aria-label="Изменить название детали"
-                className="mx-auto block max-w-full text-[22px] font-bold leading-7 tracking-tight text-slate-950 hover:text-blue-700"
-              >
-                <h1 className="line-clamp-2">{part.name}</h1>
-              </button>
-            )}
-            <div className="mt-0.5 flex items-center justify-center gap-2">
-              <p className="truncate text-[13px] font-bold text-slate-500">
-                {order.brand} {order.model} · {order.year || '—'}
-              </p>
-              <button
-                type="button"
-                onClick={() => void copyText(order.vin || '')}
-                disabled={!order.vin}
-                className="rounded-lg bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700 disabled:opacity-40"
-              >
-                VIN
-              </button>
-            </div>
-          </div>
-          <div className="relative">
-            <button
-              aria-label="Действия"
-              title="Действия"
-              onClick={() => setShowMenu((prev) => !prev)}
-              className="grid h-11 w-11 place-items-center rounded-full text-slate-950 active:bg-slate-100"
-            >
-              <MoreHorizontal size={23} />
-            </button>
-            {showMenu && (
-              <div className="absolute top-12 right-0 w-56 rounded-2xl bg-white border border-gray-100 shadow-2xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => {
-                    variantsListRef.current?.scrollIntoView({ behavior: 'smooth' });
-                    setShowMenu(false);
-                  }}
-                  className="w-full px-4 py-3 text-left text-sm font-bold hover:bg-gray-50"
-                >
-                  Показать все варианты
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    toast(
-                      historyPrices.length
-                        ? `История цен: ${historyPrices.join(', ')} AED`
-                        : 'История пока пустая',
-                      'info',
-                    );
-                    setShowMenu(false);
-                  }}
-                  className="w-full px-4 py-3 text-left text-sm font-bold hover:bg-gray-50"
-                >
-                  История цен
-                </button>
-              </div>
-            )}
-          </div>
         </div>
-      </div>
-
-      <div
-        onPointerDown={handleSwipePointerDown}
-        onPointerUp={handleSwipePointerUp}
-        onPointerCancel={() => {
-          swipeStartRef.current = null;
-        }}
-        style={{ touchAction: 'pan-y' }}
-        className={`space-y-4 px-4 pt-4 transition-[transform,opacity] duration-150 ease-out will-change-transform ${swipeSlide === 'next' ? '-translate-x-8 opacity-55' : swipeSlide === 'prev' ? 'translate-x-8 opacity-55' : 'translate-x-0 opacity-100'}`}
-      >
-        {!isAdding ? (
-          <>
-            <div className="relative aspect-[1.74] w-full overflow-hidden rounded-[24px] bg-slate-200 shadow-[0_18px_50px_rgba(15,23,42,0.12)]">
-              <button
-                type="button"
-                disabled={!heroPhoto}
-                onClick={() =>
-                  heroPhotos.length > 0 && setGallery({ images: heroPhotos, index: 0 })
-                }
-                className="absolute inset-0 block h-full w-full text-left disabled:cursor-default"
-                aria-label={heroPhoto ? 'Открыть фото детали' : 'Фото детали не добавлено'}
-              >
-                {heroPhoto ? (
-                  <img
-                    src={heroPhoto}
-                    alt={part.name}
-                    className="h-full w-full object-cover"
-                    onError={() => setBrokenPhotoUrls((prev) => ({ ...prev, [heroPhoto]: true }))}
-                  />
-                ) : (
-                  <div className="grid h-full w-full place-items-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400">
-                    <Images size={38} />
-                  </div>
-                )}
-              </button>
-              <span className="absolute right-4 top-4 z-10 rounded-2xl bg-slate-950/90 px-3 py-2 text-sm font-bold text-white shadow-lg">
-                {heroPhotos.length > 0 ? `1 / ${heroPhotos.length}` : '0 / 0'}
-              </span>
-              {heroPhotos.length > 1 && (
-                <span className="absolute inset-x-0 bottom-4 z-10 flex justify-center gap-2">
-                  {heroPhotos.slice(0, 6).map((photo, index) => (
-                    <span
-                      key={`${photo}-${index}`}
-                      className={`h-2 w-2 rounded-full ${index === 0 ? 'bg-white' : 'bg-white/45'}`}
+        <IconButton
+          label="Действия с деталью"
+          icon={MoreHorizontal}
+          disabled={busy}
+          onClick={() => setShowActions(true)}
+        />
+      </header>
+      {order.parts.length > 1 && (
+        <nav aria-label="Детали заказа" className="part-detail-siblings">
+          <IconButton
+            label="Предыдущая деталь"
+            icon={ChevronLeft}
+            disabled={busy}
+            onClick={() => sibling(-1)}
+          />
+          <span>
+            Деталь {currentPartIndex + 1} из {order.parts.length}
+          </span>
+          <IconButton
+            label="Следующая деталь"
+            icon={ChevronRight}
+            disabled={busy}
+            onClick={() => sibling(1)}
+          />
+        </nav>
+      )}
+      {!depositPaid && (
+        <div className="part-detail-deposit">
+          <CircleAlert size={19} aria-hidden="true" />
+          <p>Подтвердите депозит в заказе, чтобы добавлять варианты.</p>
+          <Button variant="ghost" onClick={() => navigate(`/order/${order.id}`)}>
+            К заказу
+          </Button>
+        </div>
+      )}
+      <div className="part-detail-layout">
+        <div className="part-detail-reference">
+          <section className="part-detail-photo-card" aria-labelledby="part-photo-heading">
+            <div className="part-detail-section-heading">
+              <div>
+                <h2 id="part-photo-heading">Фото детали</h2>
+                <p>Образец для подбора</p>
+              </div>
+              {currentPhoto && (
+                <IconButton
+                  label={`Удалить фото ${currentPhotoIndex + 1}`}
+                  icon={Trash2}
+                  disabled={busy}
+                  onClick={() => setDeletePhoto(currentPhoto)}
+                />
+              )}
+            </div>
+            <div className={`part-detail-photo-frame ${currentPhoto ? 'has-photo' : ''}`}>
+              {currentPhoto ? (
+                <button
+                  type="button"
+                  className="part-detail-photo-open"
+                  aria-label="Открыть фото детали"
+                  onClick={() => setGallery({ images: samplePhotos, index: currentPhotoIndex })}
+                >
+                  {photoVisible ? (
+                    <img
+                      src={currentPhoto}
+                      alt={part.name}
+                      onError={() =>
+                        setBrokenPhotos((previous) => ({ ...previous, [currentPhoto]: true }))
+                      }
                     />
-                  ))}
+                  ) : (
+                    <span className="part-detail-photo-unavailable">
+                      <Images size={32} aria-hidden="true" />
+                      <span>Фото недоступно</span>
+                    </span>
+                  )}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="part-detail-photo-empty"
+                  disabled={busy}
+                  onClick={() => sampleInput.current?.click()}
+                >
+                  <Camera size={32} aria-hidden="true" />
+                  <strong>Добавьте образец детали</strong>
+                  <span>Фото поможет подобрать точный вариант</span>
+                </button>
+              )}
+              {samplePhotos.length > 0 && (
+                <span className="part-detail-photo-count">
+                  {currentPhotoIndex + 1} / {samplePhotos.length}
                 </span>
               )}
             </div>
-
-            <div className="-mt-1 flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-              <button
-                type="button"
-                onClick={() => sampleFileInputRef.current?.click()}
-                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-blue-600 px-3 text-[11px] font-bold text-white shadow-sm active:scale-[0.98]"
-              >
-                <Camera size={14} /> Фото
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSamplePhotosFromClipboard()}
-                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-bold text-slate-700 shadow-sm active:scale-[0.98]"
-              >
-                <ClipboardPaste size={14} /> Вставить
-              </button>
-              <button
-                type="button"
-                disabled={heroSamplePhotoIndex < 0}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  if (heroSamplePhotoIndex >= 0) removeSamplePhoto(heroSamplePhotoIndex);
-                }}
-                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-rose-100 bg-white px-3 text-[11px] font-bold text-rose-600 shadow-sm active:scale-[0.98] disabled:text-slate-300 disabled:opacity-60"
-              >
-                <Trash2 size={14} /> Удалить текущее
-              </button>
-            </div>
-
-            {samplePhotos.length > 0 && (
-              <div className="-mt-1 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                {samplePhotos.map((photo, index) => {
-                  const galleryIndex = Math.max(
-                    0,
-                    heroPhotos.findIndex((item) => item === photo),
-                  );
-                  return (
-                    <div
-                      key={`${photo}-${index}`}
-                      className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-white bg-slate-100 shadow-sm"
-                    >
-                      <button
-                        type="button"
-                        aria-label={`Открыть фото детали ${index + 1}`}
-                        onClick={() => setGallery({ images: heroPhotos, index: galleryIndex })}
-                        className="h-full w-full"
-                      >
-                        {isPhotoVisible(photo) ? (
-                          <img
-                            src={photo}
-                            alt={`Фото детали ${index + 1}`}
-                            className="h-full w-full object-cover"
-                            onError={() =>
-                              setBrokenPhotoUrls((prev) => ({ ...prev, [photo]: true }))
-                            }
-                          />
-                        ) : (
-                          <span className="grid h-full w-full place-items-center text-slate-400">
-                            <Images size={18} />
-                          </span>
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          removeSamplePhoto(index);
-                        }}
-                        className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-slate-950/75 text-white shadow-sm"
-                        aria-label={`Удалить фото ${index + 1}`}
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  );
-                })}
+            {samplePhotos.length > 1 && (
+              <div className="part-detail-thumbnails" aria-label="Фотографии детали">
+                {samplePhotos.map((photo, index) => (
+                  <button
+                    type="button"
+                    key={`${photo}-${index}`}
+                    aria-label={`Показать фото детали ${index + 1}`}
+                    aria-pressed={index === currentPhotoIndex}
+                    onClick={() => setPhotoIndex(index)}
+                  >
+                    {brokenPhotos[photo] ? (
+                      <Images size={22} aria-hidden="true" />
+                    ) : (
+                      <img
+                        src={photo}
+                        alt={`Образец ${index + 1}`}
+                        onError={() =>
+                          setBrokenPhotos((previous) => ({ ...previous, [photo]: true }))
+                        }
+                      />
+                    )}
+                  </button>
+                ))}
               </div>
             )}
-
-            <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="line-clamp-2 text-base font-bold leading-5 text-slate-900">
-                    {part.comment || 'Описание детали не добавлено'}
-                  </p>
-                  <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-bold">
-                    <span className="inline-flex items-center gap-2 text-slate-500">
-                      <Images size={18} /> {photosCountLabel}
-                    </span>
-                    <span
-                      className={`inline-grid h-8 w-8 place-items-center rounded-full ${partFound ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}
-                      aria-label={partFound ? 'Найдено' : 'Не найдено'}
-                      title={partFound ? 'Найдено' : 'Не найдено'}
-                    >
-                      {partFound ? (
-                        <CheckCheck size={20} strokeWidth={2.6} />
-                      ) : (
-                        <Check size={18} strokeWidth={2.3} />
-                      )}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={startEditPartDescription}
-                  className="inline-flex h-12 shrink-0 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-blue-700 shadow-sm active:scale-[0.98]"
-                >
-                  <Pencil size={18} /> Изменить
-                </button>
-              </div>
-              {isEditingPartDescription && (
-                <div className="mt-4 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
-                      Редактирование описания
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingPartDescription(false)}
-                      className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-slate-500 active:scale-95"
-                      aria-label="Закрыть редактирование описания"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                  <textarea
-                    aria-label="Описание детали"
-                    autoFocus
-                    value={partDescriptionDraft}
-                    onChange={(e) => setPartDescriptionDraft(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900 outline-none"
-                    placeholder="Добавьте описание детали"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingPartDescription(false)}
-                      className="h-10 rounded-xl bg-slate-100 text-xs font-bold text-slate-700"
-                    >
-                      Отмена
-                    </button>
-                    <button
-                      type="button"
-                      onClick={submitPartDescription}
-                      className="h-10 rounded-xl bg-blue-600 text-xs font-bold text-white"
-                    >
-                      Сохранить
-                    </button>
-                  </div>
-                </div>
-              )}
-            </section>
-
+            <div className="part-detail-photo-actions">
+              <Button
+                variant="secondary"
+                icon={Camera}
+                loading={mutation === 'photos'}
+                disabled={busy}
+                onClick={() => sampleInput.current?.click()}
+              >
+                Фото
+              </Button>
+              <Button
+                variant="ghost"
+                icon={ClipboardPaste}
+                disabled={busy}
+                onClick={() => void pasteSamplePhotos()}
+              >
+                Из буфера
+              </Button>
+            </div>
             <input
               type="file"
-              ref={sampleFileInputRef}
-              onChange={handleSamplePhotoChange}
-              className="hidden"
+              ref={sampleInput}
               accept="image/*"
               multiple
+              className="hidden"
+              onChange={(event) => {
+                const files = Array.from(event.target.files || []);
+                event.target.value = '';
+                void addSamplePhotos(files);
+              }}
             />
-
-            <section ref={variantsListRef} className="space-y-3 pt-2">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-bold text-slate-900">
-                  Варианты ({partVariants.length})
-                </h2>
+          </section>
+          <section className="part-detail-description">
+            <div className="part-detail-section-heading">
+              <div>
+                <h2>Описание</h2>
               </div>
-
-              {sortedVariants.length === 0 ? (
-                <div className="rounded-[22px] border border-dashed border-slate-200 bg-white p-7 text-center shadow-sm">
-                  <p className="text-sm font-bold text-slate-800">Пока нет вариантов</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">
-                    Добавьте новый или найдите из базы данных.
-                  </p>
-                </div>
-              ) : (
-                sortedVariants.map((variant, index) => {
-                  const displayPhotos = getVariantPhotos(variant);
-                  const photo = displayPhotos.find((item) => isPhotoVisible(item));
-                  const isBest = part.bestOfferId === variant.id || !!variant.isBest || index === 0;
-                  const price = Number((variant.purchasePriceAed ?? variant.priceAed) || 0);
-                  const locationText =
-                    variant.locationText || variant.location || 'Локация не указана';
-                  return (
-                    <article
-                      id={`variant-${variant.id}`}
-                      key={variant.id}
-                      className={`overflow-hidden rounded-[24px] border p-3.5 shadow-sm ${
-                        isBest
-                          ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-white'
-                          : requestedVariantId === variant.id
-                            ? 'border-blue-200 bg-white ring-2 ring-blue-100'
-                            : 'border-slate-100 bg-white'
-                      }`}
-                    >
-                      {isBest && (
-                        <div className="-mx-3.5 -mt-3.5 mb-3 inline-flex items-center gap-2 rounded-br-[24px] bg-emerald-50 px-4 py-2 text-[12px] font-semibold text-emerald-700">
-                          <Star size={16} fill="currentColor" /> Лучший вариант
-                        </div>
-                      )}
-                      <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 sm:grid-cols-[96px_minmax(0,1fr)_auto]">
-                        <button
-                          type="button"
-                          onClick={(e) => openGallery(e, variant)}
-                          aria-label={`Открыть фотографии варианта от ${variant.shopName || 'поставщика'}`}
-                          className="h-[72px] w-[72px] overflow-hidden rounded-xl bg-slate-100 sm:h-24 sm:w-24"
-                        >
-                          {photo ? (
-                            <img
-                              src={photo}
-                              className="h-full w-full object-cover"
-                              onError={() =>
-                                setBrokenPhotoUrls((prev) => ({ ...prev, [photo]: true }))
-                              }
-                            />
-                          ) : (
-                            <span className="grid h-full w-full place-items-center text-slate-400">
-                              <Images size={24} />
-                            </span>
-                          )}
-                        </button>
-                        <div className="min-w-0 py-1">
-                          <div className="flex items-center gap-1.5">
-                            <p className="line-clamp-2 text-base font-bold text-slate-950">
-                              {variant.shopName || 'Поставщик'}
-                            </p>
-                            <span className="grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-white">
-                              <Check size={13} />
-                            </span>
-                          </div>
-                          <p className="mt-1 flex items-start gap-1.5 text-xs leading-relaxed text-slate-500">
-                            <MapPin size={16} /> {locationText}
-                          </p>
-                          <span className="mt-2 inline-flex rounded-lg bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">
-                            {availabilityLabels[variant.availability || 'in_stock']}
-                          </span>
-                        </div>
-                        <div className="col-span-2 grid grid-cols-2 items-center gap-2 border-t border-slate-100 pt-3 sm:col-span-1 sm:flex sm:min-w-[132px] sm:flex-col sm:items-end sm:border-0 sm:pt-1">
-                          <p className="text-[22px] font-bold leading-7 tabular-nums text-slate-950 sm:text-right">
-                            {formatAed(price)}
-                          </p>
-                          <p className="text-right text-xs font-semibold text-slate-500">
-                            {conditionLabels[variant.condition || 'used']}
-                          </p>
-                          <div className="col-span-2 grid w-full grid-cols-2 gap-2 sm:mt-3 sm:grid-cols-1">
-                            <button
-                              type="button"
-                              onClick={() => openWhatsapp(variant)}
-                              className={`inline-flex h-11 items-center justify-center gap-2 rounded-2xl text-sm font-bold ${isBest ? 'bg-emerald-600 text-white shadow-sm' : 'border border-emerald-100 bg-white text-emerald-700'}`}
-                            >
-                              <MessageCircle size={17} /> WhatsApp
-                            </button>
-                            <button
-                              type="button"
-                              aria-pressed={part.bestOfferId === variant.id}
-                              onClick={() => selectVariantAsBest(variant)}
-                              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 text-sm font-bold text-white shadow-sm"
-                            >
-                              <Check size={18} />{' '}
-                              {part.bestOfferId === variant.id ? 'Выбрано' : 'Выбрать'}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsAdding(true);
-                            setEditingVariantId(variant.id);
-                          }}
-                          className="rounded-xl px-3 py-2 text-xs font-bold text-slate-500 active:bg-slate-100"
-                        >
-                          Редактировать
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDeleteVariantId(variant.id)}
-                          className="rounded-xl px-3 py-2 text-xs font-bold text-rose-500 active:bg-rose-50"
-                        >
-                          Удалить
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })
-              )}
-
-              <button
-                type="button"
-                onClick={() => setShowAddOptionsSheet(true)}
-                className="flex w-full items-center gap-3 rounded-[20px] border border-dashed border-slate-200 bg-white px-4 py-3 text-left shadow-sm active:scale-[0.99]"
-              >
-                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-blue-100 bg-blue-50 text-blue-600">
-                  <Plus size={26} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-base font-bold text-slate-950">
-                    Нет подходящего варианта?
-                  </span>
-                  <span className="block text-sm font-semibold text-slate-500">
-                    Добавьте новый или найдите в базе данных
-                  </span>
-                </span>
-                <ChevronRight size={22} className="text-slate-400" />
-              </button>
-            </section>
-
-            {!depositPaid && (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
-                Активный поиск и варианты откроются после подтверждения депозита в заказе.
+              <IconButton
+                label="Изменить описание детали"
+                icon={Pencil}
+                disabled={busy}
+                onClick={openDescription}
+              />
+            </div>
+            {part.comment ? (
+              <p className="part-detail-description-text">{part.comment}</p>
+            ) : (
+              <div className="part-detail-description-empty">
+                <FileText size={22} aria-hidden="true" />
+                <p>Укажите номер, цвет, сторону или особенности детали.</p>
+                <Button variant="ghost" onClick={openDescription}>
+                  Добавить описание
+                </Button>
               </div>
             )}
-            {latestOrderVariant && (
-              <button
-                type="button"
-                onClick={() =>
-                  setForm((prev) => ({
-                    ...prev,
-                    shopName: latestOrderVariant.shopName || '',
-                    phone: latestOrderVariant.phone || prev.phone,
-                    locationText:
-                      latestOrderVariant.locationText || latestOrderVariant.location || '',
-                  }))
-                }
-                className="w-full rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700"
-              >
-                Последний магазин: {latestOrderVariant.shopName}
-              </button>
-            )}
-          </>
-        ) : (
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              await saveVariant();
-            }}
-            className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm"
-          >
-            <div className="border-b border-gray-100 px-3 py-2">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-gray-400">
-                    {isEditing ? 'Правка варианта' : 'Новый вариант'}
-                  </p>
-                  <h3 className="mt-0.5 text-base font-bold text-gray-950">
-                    {isEditing ? 'Обновить предложение' : 'Добавить цену поставщика'}
-                  </h3>
-                </div>
-                <button
-                  aria-label="Закрыть"
-                  title="Закрыть"
-                  type="button"
-                  onClick={closeEditor}
-                  className="flex h-8 w-8 items-center justify-center rounded-xl bg-gray-100 text-gray-600"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3 p-3">
-              <section className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold text-gray-700">Фото варианта</label>
-                  <span className="text-[11px] font-bold text-gray-400">
-                    {form.photos.length} фото
-                  </span>
-                </div>
-                <div className="flex gap-1.5 overflow-x-auto pb-1">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-gray-500"
-                  >
-                    <Camera size={15} />
-                    <span className="mt-0.5 text-[11px] font-bold">Фото</span>
-                  </button>
-                  <button
-                    aria-label="Вставить из буфера"
-                    title="Вставить из буфера"
-                    type="button"
-                    onClick={() => void handleVariantPhotosFromClipboard()}
-                    className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
-                  >
-                    <ClipboardPaste size={15} />
-                    <span className="mt-0.5 text-[11px] font-bold">Вставить</span>
-                  </button>
-                  {form.photos.map((photo, index) => (
-                    <div
-                      key={`${photo}-${index}`}
-                      className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-gray-50"
-                    >
-                      {isPhotoVisible(photo) ? (
-                        <img
-                          src={photo}
-                          className="h-full w-full object-cover"
-                          onError={() => setBrokenPhotoUrls((prev) => ({ ...prev, [photo]: true }))}
-                        />
-                      ) : (
-                        <div className="grid h-full w-full place-items-center text-gray-400">
-                          <Images size={14} />
-                        </div>
-                      )}
-                      <button
-                        aria-label="Удалить фото"
-                        title="Удалить фото"
-                        type="button"
-                        onClick={() => removeVariantPhoto(index)}
-                        className="absolute right-1 top-1 rounded-full bg-black/55 p-1 text-white"
-                      >
-                        <X size={11} />
-                      </button>
-                    </div>
-                  ))}
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handlePhotoChange}
-                    className="hidden"
-                    accept="image/*"
-                    multiple
-                  />
-                </div>
-              </section>
-
-              <section className="space-y-1">
-                <label className="text-[11px] font-bold text-gray-700">Цена покупки, AED</label>
-                <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <input
-                    aria-label="Цена закупки, AED"
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    autoFocus
-                    value={form.purchasePriceAed}
-                    onChange={(e) =>
-                      handleFormPatch('purchasePriceAed', sanitizeMoneyInput(e.target.value))
-                    }
-                    placeholder="200"
-                    className="h-11 min-w-0 rounded-xl border border-gray-200 px-3 text-lg font-bold text-gray-950 outline-none"
-                  />
-                  <button
-                    aria-label="Вставить из буфера"
-                    title="Вставить из буфера"
-                    type="button"
-                    onClick={() => pasteFromClipboard('purchasePriceAed')}
-                    className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 text-gray-600"
-                  >
-                    <ClipboardPaste size={15} />
-                  </button>
-                </div>
-                <p className="text-[11px] font-semibold text-gray-500">
-                  Продажа задаётся в финансах заказа.
-                </p>
-              </section>
-
-              <section className="space-y-2 rounded-xl bg-gray-50 p-2.5">
-                <div>
-                  <label className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                    Состояние
-                  </label>
-                  <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-                    {(Object.keys(conditionLabels) as OfferCondition[]).map((condition) => (
-                      <button
-                        key={condition}
-                        aria-pressed={form.condition === condition}
-                        type="button"
-                        onClick={() => handleFormPatch('condition', condition)}
-                        className={`h-8 rounded-lg text-[11px] font-bold ${form.condition === condition ? 'bg-gray-950 text-white' : 'bg-white text-gray-700'}`}
-                      >
-                        {conditionLabels[condition]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                      Наличие
-                    </label>
-                    <div className="mt-1.5 grid grid-cols-2 gap-1">
-                      {(Object.keys(availabilityLabels) as OfferAvailability[]).map((value) => (
-                        <button
-                          key={value}
-                          aria-pressed={form.availability === value}
-                          type="button"
-                          onClick={() => handleFormPatch('availability', value)}
-                          className={`h-8 rounded-lg text-[11px] font-bold ${form.availability === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}
-                        >
-                          {availabilityLabels[value]}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                      Срок
-                    </label>
-                    <div className="mt-1.5 grid grid-cols-2 gap-1">
-                      {(Object.keys(etaLabels) as OfferFormState['deliveryEta'][]).map((value) => (
-                        <button
-                          key={value}
-                          aria-pressed={form.deliveryEta === value}
-                          type="button"
-                          onClick={() => handleFormPatch('deliveryEta', value)}
-                          className={`h-8 rounded-lg text-[11px] font-bold ${form.deliveryEta === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}
-                        >
-                          {etaLabels[value]}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-2">
-                <div className="relative">
-                  <label className="text-[11px] font-bold text-gray-700">Магазин</label>
-                  <div className="mt-1 grid min-h-12 grid-cols-[auto_1fr_auto] items-center gap-2 rounded-xl border border-gray-200 px-2.5">
-                    <Store size={14} className="text-gray-500" />
-                    <input
-                      id="offer-shop-name"
-                      aria-label="Название поставщика"
-                      value={form.shopName}
-                      onChange={(e) => {
-                        handleFormPatch('shopName', e.target.value);
-                        handleFormPatch('supplierId', undefined);
-                        setShowSuggestions(true);
-                      }}
-                      className="min-w-0 bg-transparent text-xs font-bold outline-none"
-                      placeholder="Поиск или новый магазин"
-                    />
-                    <button
-                      type="button"
-                      onClick={startNewShop}
-                      className="rounded-lg bg-violet-50 px-2 py-1 text-[11px] font-bold text-violet-700"
-                    >
-                      Новый
-                    </button>
-                  </div>
-                  {showSuggestions && form.shopName && filteredSuppliers.length > 0 && (
-                    <div className="absolute left-0 right-0 top-16 z-20 max-h-56 overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-xl">
-                      {filteredSuppliers.map((supplier) => (
-                        <button
-                          key={supplier.id}
-                          type="button"
-                          onClick={() => handleShopSelect(supplier)}
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
-                        >
-                          <p className="font-bold">{supplier.name}</p>
-                          <p className="text-xs text-gray-500">
-                            {supplier.phone || 'без телефона'} ·{' '}
-                            {supplier.location || 'без локации'}
-                          </p>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-bold text-gray-700">Телефон</label>
-                  <div className="mt-1 grid grid-cols-[1fr_auto_auto_auto] gap-1.5">
-                    <div className="flex h-10 min-w-0 items-center gap-2 rounded-xl border border-gray-200 px-2.5">
-                      <Phone size={14} className="shrink-0 text-gray-500" />
-                      <input
-                        aria-label="Телефон"
-                        value={form.phone}
-                        onChange={(e) => handleFormPatch('phone', formatPhone(e.target.value))}
-                        className="min-w-0 flex-1 bg-transparent text-xs font-bold outline-none"
-                      />
-                    </div>
-                    <button
-                      aria-label="Вставить из буфера"
-                      title="Вставить из буфера"
-                      type="button"
-                      onClick={() => pasteFromClipboard('phone')}
-                      className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200"
-                    >
-                      <ClipboardPaste size={14} />
-                    </button>
-                    <button
-                      aria-label="Скопировать"
-                      title="Скопировать"
-                      type="button"
-                      onClick={() => navigator.clipboard.writeText(form.phone)}
-                      className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200"
-                    >
-                      <Copy size={14} />
-                    </button>
-                    <button
-                      aria-label="Открыть WhatsApp поставщика"
-                      title="Открыть WhatsApp поставщика"
-                      type="button"
-                      onClick={() =>
-                        openWhatsapp({
-                          ...DEFAULT_FORM,
-                          ...form,
-                          id: 'tmp',
-                          priceAed: numericSalePrice,
-                          purchasePriceAed: numericPurchasePrice,
-                          salePriceAed: numericSalePrice,
-                          location: form.locationText,
-                          createdAt: Date.now(),
-                        } as PriceVariant)
-                      }
-                      className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"
-                    >
-                      <MessageCircle size={14} />
-                    </button>
-                  </div>
-                </div>
-              </section>
-
-              <section className="space-y-2">
-                <label className="block">
-                  <span className="text-[11px] font-bold text-gray-700">Локация</span>
-                  <div className="mt-1 grid grid-cols-[1fr_auto] gap-1.5">
-                    <div className="flex h-10 min-w-0 items-center gap-2 rounded-xl border border-gray-200 px-2.5">
-                      <MapPin size={14} className="shrink-0 text-gray-500" />
-                      <input
-                        value={form.locationText}
-                        onChange={(e) => {
-                          handleFormPatch('locationText', e.target.value);
-                          setLocationParseNotice(null);
-                        }}
-                        className="min-w-0 flex-1 bg-transparent text-xs font-bold outline-none"
-                        placeholder="Ряд / зона / адрес"
-                      />
-                    </div>
-                    <button
-                      aria-label="Определить моё местоположение"
-                      title="Определить моё местоположение"
-                      type="button"
-                      onClick={getCurrentLocation}
-                      disabled={isLocating}
-                      className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white disabled:opacity-60"
-                    >
-                      <Navigation size={14} className={isLocating ? 'animate-pulse' : ''} />
-                    </button>
-                  </div>
-                </label>
-                <div className="grid grid-cols-[1fr_auto] gap-1.5">
-                  <input
-                    aria-label="Ссылка на карту"
-                    value={form.mapsUrl}
-                    onChange={(e) => handleFormPatch('mapsUrl', e.target.value)}
-                    className="h-10 min-w-0 rounded-xl border border-gray-200 px-2.5 text-xs font-bold outline-none"
-                    placeholder="Google Maps URL"
-                  />
-                  <button
-                    aria-label="Вставить из буфера"
-                    title="Вставить из буфера"
-                    type="button"
-                    onClick={() => pasteFromClipboard('mapsUrl')}
-                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200"
-                  >
-                    <ClipboardPaste size={14} />
-                  </button>
-                </div>
-                {locationParseNotice && (
-                  <p className="text-xs text-amber-700">{locationParseNotice}</p>
-                )}
-              </section>
-
-              <section className="space-y-1.5">
-                <label className="text-[11px] font-bold text-gray-700">Заметка по варианту</label>
-                <textarea
-                  aria-label="Комментарий"
-                  value={form.note}
-                  onChange={(e) => handleFormPatch('note', e.target.value)}
-                  rows={2}
-                  placeholder="Комментарий для этого варианта"
-                  className="w-full rounded-xl border border-gray-200 px-2.5 py-2 text-xs font-semibold outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleFormPatch('isBest', !form.isBest)}
-                  className={`flex h-9 w-full items-center justify-center gap-2 rounded-xl font-bold text-xs ${form.isBest ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-gray-100 text-gray-700'}`}
-                >
-                  <Star size={14} /> Лучший вариант
-                </button>
-                {isEditing && (
-                  <p className="text-xs text-gray-500">
-                    Создан:{' '}
-                    {new Date(
-                      partVariants.find((v) => v.id === editingVariantId)?.createdAt || Date.now(),
-                    ).toLocaleString()}
-                  </p>
-                )}
-              </section>
-            </div>
-
-            <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white/95 p-2 shadow-[0_-8px_22px_rgba(15,23,42,0.06)] backdrop-blur">
-              <div className="grid grid-cols-[0.8fr_1.2fr] gap-2">
-                <button
-                  type="button"
-                  onClick={closeEditor}
-                  className="inline-flex h-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-xs font-bold text-gray-700"
-                >
-                  Отмена
-                </button>
-                <button
-                  type="submit"
-                  disabled={!canSave || isResolvingLocation}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 text-xs font-bold text-white disabled:opacity-50"
-                >
-                  {isResolvingLocation ? (
-                    <>
-                      <Loader2 size={13} className="animate-spin" /> Сохранение...
-                    </>
-                  ) : isEditing ? (
-                    'Сохранить изменения'
-                  ) : (
-                    'Сохранить вариант'
-                  )}
-                </button>
-              </div>
-              {!canSave && (
-                <p className="mt-1 text-[11px] text-gray-500">Введите цену покупки и магазин.</p>
-              )}
-              {!navigator.onLine && (
-                <p className="mt-1 text-[11px] text-amber-700">
-                  Вариант сохраняется на устройстве. Интернет не нужен.
-                </p>
-              )}
-            </div>
-          </form>
-        )}
-      </div>
-
-      {!isAdding && (
-        <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[850px] bottom-0 z-30 border-t border-slate-200/80 bg-white/95 px-4 pb-[max(10px,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-8px_22px_rgba(15,23,42,0.045)] backdrop-blur-xl">
-          <div className="grid grid-cols-2 gap-2.5">
+          </section>
+          {order.vin && (
             <button
               type="button"
-              disabled={!depositPaid}
-              onClick={() => {
-                if (!depositPaid) return;
-                setIsAdding(true);
-                setEditingVariantId(null);
-              }}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-blue-600 text-sm font-bold text-white shadow-[0_8px_20px_rgba(37,99,235,0.2)] active:scale-[0.98] disabled:opacity-45"
+              className="part-detail-vin"
+              onClick={() => void copyVin()}
+              aria-label="Скопировать VIN"
             >
-              <Plus size={21} /> Добавить вариант
+              <div>
+                <span>VIN автомобиля</span>
+                <code>{order.vin}</code>
+              </div>
+              <Copy size={18} aria-hidden="true" />
             </button>
-            <button
-              type="button"
-              disabled={!depositPaid}
-              onClick={() => setShowLibraryPicker(true)}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white text-sm font-bold text-slate-950 shadow-sm active:scale-[0.98] disabled:opacity-45"
-            >
-              <ClipboardPaste size={18} /> Из базы данных
-            </button>
-          </div>
+          )}
         </div>
-      )}
-
-      {showAddOptionsSheet && (
-        <ModalSurface
-          label="Добавить вариант"
-          onClose={() => setShowAddOptionsSheet(false)}
-          className="ui-sheet-layer flex items-end"
+        <section
+          ref={offersRef}
+          className="part-detail-offers"
+          aria-labelledby="part-offers-heading"
         >
-          <div
-            className="w-full rounded-t-[28px] bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
-            <div className="space-y-2">
-              <button
-                type="button"
-                disabled={!depositPaid}
-                onClick={() => {
-                  setShowAddOptionsSheet(false);
-                  if (!depositPaid) return;
-                  setIsAdding(true);
-                  setEditingVariantId(null);
-                }}
-                className="flex h-14 w-full items-center gap-3 rounded-2xl bg-blue-600 px-4 text-left text-sm font-bold text-white disabled:opacity-45"
-              >
-                <Plus size={22} /> Добавить новый вариант
-              </button>
-              <button
-                type="button"
-                disabled={!depositPaid}
-                onClick={() => {
-                  setShowAddOptionsSheet(false);
-                  setShowLibraryPicker(true);
-                }}
-                className="flex h-14 w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 text-left text-sm font-bold text-slate-900 disabled:opacity-45"
-              >
-                <ClipboardPaste size={20} /> Найти из базы
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAddOptionsSheet(false);
-                  navigate('/database');
-                }}
-                className="flex h-14 w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 text-left text-sm font-bold text-slate-900"
-              >
-                <Store size={20} /> Добавить поставщика
-              </button>
+          <div className="part-detail-offers-heading">
+            <div>
+              <h2 id="part-offers-heading">
+                Варианты <span>{variants.length}</span>
+              </h2>
+              <p>Сравните предложения и выберите подходящее</p>
             </div>
           </div>
-        </ModalSurface>
-      )}
-
-      {showAfterSaveSheet && (
-        <ModalSurface
-          label="Вариант сохранён"
-          onClose={() => setShowAfterSaveSheet(false)}
-          className="ui-sheet-layer flex items-end"
-        >
-          <div
-            className="w-full bg-white rounded-t-3xl p-4 space-y-2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="text-sm font-bold text-gray-900">✅ Вариант добавлен</p>
-            <button
-              type="button"
+          <div className="part-detail-create-actions">
+            <Button icon={Plus} disabled={!depositPaid || busy} onClick={() => openOffer()}>
+              Добавить вариант
+            </Button>
+            <Button
+              variant="secondary"
+              icon={Layers3}
+              disabled={!depositPaid || busy}
               onClick={() => {
-                const newest = partVariants[0];
-                if (!newest) return;
-                const updatedParts = order.parts.map((p) =>
-                  p.id === part.id ? { ...p, bestOfferId: newest.id } : p,
-                );
-                updateOrder({ ...order, parts: updatedParts });
-                setShowAfterSaveSheet(false);
+                setLibrarySearch('');
+                setLibraryLimit(40);
+                setShowLibrary(true);
               }}
-              className="w-full h-11 rounded-xl border border-gray-200 text-sm font-bold"
             >
-              Сделать лучшим
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (partVariants[0]) openWhatsapp(partVariants[0]);
-              }}
-              className="w-full h-11 rounded-xl border border-gray-200 text-sm font-bold"
-            >
-              Открыть WhatsApp магазина
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setIsAdding(true);
-                setShowAfterSaveSheet(false);
-              }}
-              className="w-full h-11 rounded-xl border border-gray-200 text-sm font-bold"
-            >
-              Добавить ещё вариант
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate(`/order/${order.id}`)}
-              className="w-full h-11 rounded-xl bg-blue-600 text-white text-sm font-bold"
-            >
-              Вернуться к деталям
-            </button>
+              Из базы данных
+            </Button>
           </div>
-        </ModalSurface>
-      )}
-
-      <ConfirmModal
-        isOpen={!!deleteVariantId}
-        message="Удалить этот вариант?"
-        onConfirm={confirmDeleteVariant}
-        onCancel={() => setDeleteVariantId(null)}
-      />
-
-      {showLibraryPicker && (
-        <ModalSurface
-          label="Выбрать вариант"
-          onClose={() => setShowLibraryPicker(false)}
-          className="flex items-center justify-center  p-4"
-        >
-          <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl max-h-[82dvh] overflow-y-auto space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold">Выбрать вариант</h3>
-              <button
-                aria-label="Закрыть"
-                title="Закрыть"
-                type="button"
-                onClick={() => setShowLibraryPicker(false)}
-                className="p-2 rounded-lg hover:bg-gray-100"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            {(variantLibrary as VariantLibraryItem[])
-              .filter((item) => item.sourcePartId !== part.id)
-              .slice(0, 60)
-              .map((item) => (
-                <button
-                  type="button"
-                  key={`${item.origin}-${item.id}-${item.sourceOrderId || 'n'}`}
-                  onClick={() => attachVariantFromLibrary(item)}
-                  className="w-full text-left p-3 rounded-xl border border-gray-200"
+          {variants.length > 0 && (
+            <>
+              <div className="part-detail-offer-summary">
+                <div>
+                  <span>Минимальная закупка</span>
+                  <strong>{formatOfferPrice(minimum)}</strong>
+                </div>
+                <div>
+                  <span>Для заказа</span>
+                  <strong className={!selected ? 'is-empty' : ''}>
+                    {selected ? formatOfferPrice(purchasePrice(selected)) : 'Не выбран'}
+                  </strong>
+                </div>
+              </div>
+              <div className="part-detail-sort">
+                <label htmlFor="part-variant-sort">Порядок вариантов</label>
+                <select
+                  id="part-variant-sort"
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
                 >
-                  <p className="text-sm font-bold text-gray-900">
-                    {item.shopName || 'Без названия'} ·{' '}
-                    {Number((item.purchasePriceAed ?? item.priceAed) || 0)} AED
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {item.origin === 'standalone'
-                      ? 'Отдельный вариант'
-                      : `Из заказа: ${item.sourceOrderLabel || '—'}`}
-                  </p>
-                </button>
-              ))}
+                  <option value="price">Сначала дешевле</option>
+                  <option value="recent">Сначала новые</option>
+                </select>
+              </div>
+            </>
+          )}
+          {variants.length === 0 ? (
+            <div className="part-detail-offers-empty">
+              <span>
+                <Layers3 size={30} aria-hidden="true" />
+              </span>
+              <h3>Пока нет предложений</h3>
+              <p>Добавьте цену поставщика или выберите готовый вариант из своей базы.</p>
+            </div>
+          ) : (
+            <div className="part-detail-offer-list">
+              {sorted.map((variant) => {
+                const photos = variantPhotos(variant);
+                const photo = photos.find((image) => !brokenPhotos[image]);
+                return (
+                  <PartOfferCard
+                    key={variant.id}
+                    variant={variant}
+                    selected={selected?.id === variant.id}
+                    lowest={minimum !== undefined && purchasePrice(variant) === minimum}
+                    photo={photo}
+                    photoCount={photos.length}
+                    busy={busy}
+                    editable={Boolean(depositPaid)}
+                    highlighted={savedId === variant.id || state?.openVariantId === variant.id}
+                    onSelect={() => void chooseOffer(variant)}
+                    onEdit={() => openOffer(variant)}
+                    onDelete={() => setDeleteVariantId(variant.id)}
+                    onPhoto={() =>
+                      setGallery({
+                        images: photos,
+                        index: Math.max(0, photos.indexOf(photo || '')),
+                      })
+                    }
+                    onPhotoError={() => {
+                      if (photo) setBrokenPhotos((previous) => ({ ...previous, [photo]: true }));
+                    }}
+                    onWhatsapp={() => whatsapp(variant)}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+      {isAdding && (
+        <PartOfferEditor
+          form={form}
+          patch={patchForm}
+          suppliers={suppliers}
+          editing={Boolean(editingId)}
+          busy={busy}
+          error={formError}
+          fieldErrors={formErrors}
+          partName={part.name}
+          onSave={saveOffer}
+          onClose={requestCloseOffer}
+          onSelectSupplier={chooseSupplier}
+          onPhotos={addOfferPhotos}
+          onPastePhotos={pasteOfferPhotos}
+          onRemovePhoto={(index) =>
+            patchForm(
+              'photos',
+              form.photos.filter((_, i) => i !== index),
+            )
+          }
+          onPreview={(index) => setGallery({ images: form.photos, index })}
+          onLocate={locate}
+          locating={locating}
+        />
+      )}
+      {showDiscard && (
+        <Dialog
+          title="Закрыть без сохранения?"
+          onClose={() => setShowDiscard(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setShowDiscard(false)}>
+                Продолжить заполнение
+              </Button>
+              <Button variant="danger" onClick={closeOffer}>
+                Закрыть без сохранения
+              </Button>
+            </>
+          }
+        >
+          <p className="ui-description">Изменения в форме варианта будут потеряны.</p>
+        </Dialog>
+      )}
+      {showActions && (
+        <Dialog title="Действия с деталью" onClose={() => setShowActions(false)}>
+          <div className="part-detail-action-list">
+            <Button variant="ghost" icon={Pencil} onClick={openName}>
+              Изменить название детали
+            </Button>
+            <Button variant="ghost" icon={FileText} onClick={openDescription}>
+              Изменить описание детали
+            </Button>
+            {order.vin && (
+              <Button variant="ghost" icon={Copy} onClick={() => void copyVin()}>
+                Скопировать VIN
+              </Button>
+            )}
           </div>
-        </ModalSurface>
+        </Dialog>
+      )}
+      {editingName && (
+        <Dialog
+          title="Название детали"
+          onClose={() => {
+            if (!busy) setEditingName(false);
+          }}
+          footer={
+            <>
+              <Button variant="secondary" disabled={busy} onClick={() => setEditingName(false)}>
+                Отмена
+              </Button>
+              <Button type="submit" form="part-name-form" loading={mutation === 'name'}>
+                Сохранить название
+              </Button>
+            </>
+          }
+        >
+          <form
+            id="part-name-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveName();
+            }}
+          >
+            <Field label="Название детали" error={editError} required>
+              <input
+                autoFocus
+                value={nameDraft}
+                disabled={busy}
+                maxLength={160}
+                onChange={(event) => {
+                  setNameDraft(event.target.value);
+                  setEditError('');
+                }}
+                className="ui-input"
+              />
+            </Field>
+          </form>
+        </Dialog>
+      )}
+      {editingDescription && (
+        <Dialog
+          title="Описание детали"
+          onClose={() => {
+            if (!busy) setEditingDescription(false);
+          }}
+          footer={
+            <>
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => setEditingDescription(false)}
+              >
+                Отмена
+              </Button>
+              <Button
+                type="submit"
+                form="part-description-form"
+                loading={mutation === 'description'}
+              >
+                Сохранить описание
+              </Button>
+            </>
+          }
+        >
+          <form
+            id="part-description-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveDescription();
+            }}
+          >
+            <Field label="Описание детали" error={editError}>
+              <textarea
+                autoFocus
+                rows={5}
+                disabled={busy}
+                maxLength={3000}
+                value={descriptionDraft}
+                onChange={(event) => {
+                  setDescriptionDraft(event.target.value);
+                  setEditError('');
+                }}
+                placeholder="Номер детали, сторона, цвет, комплектность…"
+                className="ui-input"
+              />
+            </Field>
+          </form>
+        </Dialog>
+      )}
+      <ConfirmModal
+        isOpen={Boolean(deletePhoto)}
+        loading={mutation === 'photos'}
+        message="Удалить это фото детали?"
+        onConfirm={() => {
+          if (!busy) void removeSample();
+        }}
+        onCancel={() => {
+          if (!busy) setDeletePhoto(null);
+        }}
+      />
+      <ConfirmModal
+        isOpen={Boolean(deleteVariantId)}
+        loading={mutation === 'delete'}
+        message="Удалить этот вариант из детали?"
+        onConfirm={() => {
+          if (!busy) void removeOffer();
+        }}
+        onCancel={() => {
+          if (!busy) setDeleteVariantId(null);
+        }}
+      />
+      {showLibrary && (
+        <Dialog
+          title="Выбрать вариант"
+          onClose={() => {
+            if (!busy) setShowLibrary(false);
+          }}
+        >
+          <div className="part-detail-library">
+            <SearchField
+              label="Поиск по базе вариантов"
+              value={librarySearch}
+              onChange={(value) => {
+                setLibrarySearch(value);
+                setLibraryLimit(40);
+              }}
+              placeholder="Деталь или поставщик"
+            />
+            {libraryMatches.length === 0 ? (
+              <EmptyState
+                icon={Search}
+                title={librarySearch ? 'Ничего не найдено' : 'База вариантов пуста'}
+                description={
+                  librarySearch
+                    ? 'Попробуйте другую деталь или название поставщика.'
+                    : 'Сохранённые предложения появятся здесь.'
+                }
+              />
+            ) : (
+              <>
+                <p className="part-editor-hint">Найдено: {libraryMatches.length}</p>
+                {libraryMatches.slice(0, libraryLimit).map((item) => (
+                  <button
+                    type="button"
+                    key={`${item.origin}-${item.id}-${item.sourceOrderId || ''}`}
+                    disabled={busy}
+                    onClick={() => void attach(item)}
+                    className="part-detail-library-item"
+                  >
+                    <div>
+                      <strong>{item.sourcePartName || 'Деталь'}</strong>
+                      <span>
+                        {item.shopName || 'Поставщик'} ·{' '}
+                        {item.origin === 'standalone'
+                          ? 'Из базы вариантов'
+                          : item.sourceOrderLabel || 'Из заказа'}
+                      </span>
+                    </div>
+                    <b>{formatOfferPrice(item.purchasePriceAed ?? item.priceAed)}</b>
+                    <Plus size={18} aria-hidden="true" />
+                  </button>
+                ))}
+                {libraryMatches.length > libraryLimit && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setLibraryLimit((value) => value + 40)}
+                  >
+                    Показать ещё
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+        </Dialog>
       )}
       {gallery && (
         <ImagePreview
           images={gallery.images}
           initialIndex={gallery.index}
+          shareTitle={part.name}
+          shareText={`${part.name} · ${order.brand} ${order.model}`}
           onClose={() => setGallery(null)}
         />
       )}
     </div>
   );
-};
-
-export default PartDetailsScreen;
+}

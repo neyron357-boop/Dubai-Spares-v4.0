@@ -328,7 +328,7 @@ test('part details allows adding and deleting sample photos', async ({ page }) =
   await page.waitForLoadState('networkidle').catch(() => undefined);
 
   await expect(page.getByRole('button', { name: 'Фото', exact: true })).toBeVisible();
-  await expect(page.getByText('0 / 0')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Добавьте образец детали/ })).toBeVisible();
 
   await page.locator('input[type="file"][accept="image/*"]').setInputFiles({
     name: 'sample.png',
@@ -343,8 +343,12 @@ test('part details allows adding and deleting sample photos', async ({ page }) =
   const deletePhotoButton = page.getByRole('button', { name: 'Удалить фото 1' });
   await expect(deletePhotoButton).toBeVisible();
   await deletePhotoButton.click();
+  await page
+    .getByRole('dialog', { name: 'Подтвердите действие', exact: true })
+    .getByRole('button', { name: 'Да, удалить', exact: true })
+    .click();
 
-  await expect(page.getByText('0 / 0')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Добавьте образец детали/ })).toBeVisible();
   await expect(deletePhotoButton).toHaveCount(0);
 });
 

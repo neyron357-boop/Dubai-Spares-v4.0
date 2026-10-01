@@ -8,6 +8,7 @@ interface Props {
   confirmLabel?: string;
   cancelLabel?: string;
   confirmClass?: string;
+  loading?: boolean;
 }
 export default function ConfirmModal({
   isOpen,
@@ -17,6 +18,7 @@ export default function ConfirmModal({
   confirmLabel = 'Да, удалить',
   cancelLabel = 'Отмена',
   confirmClass,
+  loading,
 }: Props) {
   const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -29,10 +31,15 @@ export default function ConfirmModal({
       onClose={onCancel}
       footer={
         <>
-          <Button ref={cancel} variant="secondary" onClick={onCancel}>
+          <Button ref={cancel} variant="secondary" disabled={loading} onClick={onCancel}>
             {cancelLabel}
           </Button>
-          <Button variant="danger" className={confirmClass || ''} onClick={onConfirm}>
+          <Button
+            variant="danger"
+            loading={loading}
+            className={confirmClass || ''}
+            onClick={onConfirm}
+          >
             {confirmLabel}
           </Button>
         </>

@@ -158,19 +158,22 @@ test.describe('procurement workflow', () => {
     await page.getByRole('button', { name: 'Добавить вариант' }).click();
     const offerForm = page.locator('form').filter({ hasText: 'Добавить цену поставщика' });
     await expect(offerForm).toBeVisible();
-    await offerForm.locator('input[placeholder="200"]').fill('520');
+    await offerForm.getByRole('textbox', { name: 'Цена закупки, AED', exact: true }).fill('520');
     await offerForm.getByPlaceholder('Поиск или новый магазин').fill('Sharjah BMW Used Parts');
-    await offerForm.locator('input:not([type="file"])').nth(2).fill('+971501234567');
+    await offerForm.getByRole('textbox', { name: 'Телефон', exact: true }).fill('+971501234567');
     await offerForm.getByPlaceholder('Ряд / зона / адрес').fill('Industrial Area 6, Sharjah');
-    await offerForm.getByRole('button', { name: 'Разбор' }).click();
-    await offerForm.getByRole('button', { name: 'Лучший вариант' }).click();
+    await offerForm.getByLabel('Состояние', { exact: true }).selectOption('scrapyard');
+    await offerForm.getByRole('checkbox', { name: /Выбрать этот вариант/ }).check();
     await offerForm
-      .getByPlaceholder('Комментарий для этого варианта')
+      .getByRole('textbox', { name: 'Комментарий', exact: true })
       .fill('Ответил в WhatsApp, деталь снята с машины, крепления целые.');
     await offerForm.getByRole('button', { name: 'Сохранить вариант' }).click();
 
     await expect(page.getByText('Вариант добавлен')).toBeVisible();
-    await page.getByRole('button', { name: 'Вернуться к деталям' }).click();
+    await expect(
+      page.getByRole('article', { name: 'Вариант от Sharjah BMW Used Parts', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Назад', exact: true }).click();
     await page.waitForURL(new RegExp(`#/order/${orderId}$`));
 
     await page.getByRole('button', { name: 'Материалы', exact: true }).click();

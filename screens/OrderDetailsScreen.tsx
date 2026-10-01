@@ -3512,12 +3512,16 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const partsCount = order.parts.length;
+  const restoredLocationKey = useRef<string | null>(null);
   const foundPartsCount = useMemo(
     () => order.parts.filter((part) => part.isFound || (part.variants || []).length > 0).length,
     [order.parts],
   );
 
   useEffect(() => {
+    // Restore once per navigation; subsequent user tab changes must remain selected.
+    if (restoredLocationKey.current === location.key) return;
+    restoredLocationKey.current = location.key;
     const nextTab =
       resolveOrderDetailsTab(
         (location.state as { restoreActiveTab?: unknown; orderActiveTab?: unknown } | null)
@@ -3536,7 +3540,7 @@ const OrderDetailsScreen: React.FC = () => {
     window.setTimeout(() => {
       restoreWorkspaceScrollTop(restoreScrollTop);
     }, 80);
-  }, [changeActiveTab, location.state]);
+  }, [changeActiveTab, location.key, location.state]);
 
   useEffect(() => {
     setShowActionsMenu(false);
