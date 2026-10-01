@@ -20,6 +20,8 @@ jobs:
 
   build:
     needs: quality
+    outputs:
+      base_path: ${{ steps.pages.outputs.base_path }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +44,8 @@ jobs:
           path: dist
 
   deploy:
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -51,3 +55,33 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  verify:
+    name: Verify published application
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      APP_PUBLIC_URL: ${{ needs.deploy.outputs.page_url }}
+      PAGES_BASE_PATH: ${{ needs.build.outputs.base_path }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install verification dependencies
+        run: npm ci
+      - name: Build expected published assets
+        run: npm run build -- --base="${PAGES_BASE_PATH}/"
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+      - name: Check published assets, mobile layout and offline navigation
+        run: node scripts/verify-deployed.mjs
+      - name: Save published screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-application-screenshots
+          path: deploy-smoke/
+          retention-days: 7
