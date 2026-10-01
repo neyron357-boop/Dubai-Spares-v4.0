@@ -1,10 +1,19 @@
-import { CarFront, UserRound } from 'lucide-react';
+import {
+  ArrowRight,
+  CarFront,
+  Check,
+  CircleAlert,
+  FileCheck2,
+  Plus,
+  RotateCcw,
+  UserRound,
+} from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppSettings } from '../appSettings';
 import { CHASSIS_BODY_TYPES_BY_BRAND } from '../carDatabase';
-import SearchableSelect from '../components/SearchableSelect';
-import { Button, PageHeader } from '../components/ui';
+import OrderVehiclePicker from '../components/OrderVehiclePicker';
+import { Button, Dialog, Field, PageHeader } from '../components/ui';
 import { readFormDraft, useFormDraft } from '../hooks/useFormDraft';
 import { BRAND_MODELS, BRANDS, DEFAULT_MARKUP, DEFAULT_RATE } from '../constants';
 import { toast } from '../feedback';
@@ -74,9 +83,6 @@ const serializeError = (error: unknown) => {
   };
 };
 
-const inputClass = 'ui-input';
-const cardClass = 'ui-panel space-y-5';
-
 const NewOrderScreen: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -94,7 +100,13 @@ const NewOrderScreen: React.FC = () => {
   const [clientName, setClientName] = useState(initialDraft?.clientName || '');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showReset, setShowReset] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [restoredDraft, setRestoredDraft] = useState(Boolean(initialDraft));
+  const saveErrorRef = useRef<HTMLDivElement>(null);
+  const busy = isSubmitting || isSyncing;
   const submitLockRef = useRef(false);
+  const orderIdRef = useRef<string | null>(null);
   const draftData = useMemo(
     () => ({ brand, model, year, bodyType, clientName }),
     [brand, model, year, bodyType, clientName],
@@ -111,7 +123,27 @@ const NewOrderScreen: React.FC = () => {
     setBodyType('');
     setClientName('');
     setErrors({});
+    setSaveError('');
+    setRestoredDraft(false);
+    setShowReset(false);
   };
+  const updateField = (field: keyof OrderDraft, value: string) => {
+    const setters = {
+      brand: setBrand,
+      model: setModel,
+      year: setYear,
+      bodyType: setBodyType,
+      clientName: setClientName,
+    };
+    setters[field](value);
+    setErrors((previous) =>
+      Object.fromEntries(Object.entries(previous).filter(([key]) => key !== field)),
+    );
+    setSaveError('');
+  };
+  useEffect(() => {
+    if (saveError) saveErrorRef.current?.focus();
+  }, [saveError]);
 
   useEffect(() => {
     const nextType = new URLSearchParams(location.search).get('type') === 'lead' ? 'lead' : 'order';
@@ -122,13 +154,15 @@ const NewOrderScreen: React.FC = () => {
     const base = brand
       ? BRAND_MODELS[brand] || []
       : Array.from(new Set(Object.values(BRAND_MODELS).flat()));
-    return base.sort((a, b) => a.localeCompare(b)).map((item) => ({ label: item, value: item }));
+    return [...base]
+      .sort((a, b) => a.localeCompare(b))
+      .map((item) => ({ label: item, value: item }));
   }, [brand]);
 
   const brandOptions = useMemo(() => {
     const popularSet = new Set(POPULAR_BRANDS);
     const popular = POPULAR_BRANDS.filter((item) => BRANDS.includes(item)).map((item) => ({
-      label: `⭐ ${item}`,
+      label: item,
       value: item,
     }));
     const rest = BRANDS.filter((item) => !popularSet.has(item)).map((item) => ({
@@ -152,7 +186,10 @@ const NewOrderScreen: React.FC = () => {
       value: item,
     }));
     const fallback = BODY_TYPE_OPTIONS.map((item) => ({ label: item, value: item }));
-    return Array.from(new Map([...fromDb, ...fallback].map((item) => [item.value, item])).values());
+    return [
+      { label: 'Не указан', value: '' },
+      ...Array.from(new Map([...fromDb, ...fallback].map((item) => [item.value, item])).values()),
+    ];
   }, [brand]);
 
   const validate = () => {
@@ -192,8 +229,6 @@ const NewOrderScreen: React.FC = () => {
     if (Object.keys(validationErrors).length > 0) {
       const first = validationErrors.brand ? 'Марка' : validationErrors.model ? 'Модель' : 'Год';
       document.querySelector<HTMLElement>(`#new-order-form [aria-label="${first}"]`)?.focus();
-      const missing = Object.values(validationErrors).slice(0, 3).join('; ');
-      toast(missing || 'Заполните обязательные поля', 'error');
       submitLockRef.current = false;
       return;
     }
@@ -208,7 +243,7 @@ const NewOrderScreen: React.FC = () => {
     const shouldCreateLead = creationType === 'lead' || fromLead;
 
     const order: Order = {
-      id: createId(),
+      id: (orderIdRef.current ??= createId()),
       brand: brand.trim(),
       model: model.trim(),
       year: year.trim(),
@@ -238,6 +273,7 @@ const NewOrderScreen: React.FC = () => {
       whatsappTemplateLanguage: 'ru',
     };
 
+    setSaveError('');
     setIsSubmitting(true);
     try {
       const ok = await addOrder(order);
@@ -247,9 +283,8 @@ const NewOrderScreen: React.FC = () => {
           creationType,
           mode: 'minimal',
         });
-        toast(
-          `Не удалось создать ${shouldCreateLead ? 'лид' : 'заказ'}. Проверьте свободное место в браузере и попробуйте снова.`,
-          'error',
+        setSaveError(
+          'Не удалось сохранить. Данные остались в форме. Проверьте свободное место на устройстве и попробуйте ещё раз.',
         );
         return;
       }
@@ -266,139 +301,198 @@ const NewOrderScreen: React.FC = () => {
       await logger.error('create-order', 'create_order_unexpected_failure', {
         error: serializeError(error),
       });
-      toast(
-        `Не удалось создать ${shouldCreateLead ? 'лид' : 'заказ'}. Попробуйте ещё раз.`,
-        'error',
-      );
+      setSaveError('Не удалось сохранить. Данные остались в форме — попробуйте ещё раз.');
     } finally {
       setIsSubmitting(false);
       submitLockRef.current = false;
     }
   };
 
+  const hasContent = Object.values(draftData).some((value) => value.trim());
+  const validYear =
+    /^\d{4}$/.test(year) && Number(year) >= 1980 && Number(year) <= new Date().getFullYear();
+  const ready = Boolean(brand.trim() && model.trim() && validYear);
+  const vehicleName = [brand, model, year].filter(Boolean).join(' ');
+
   return (
-    <form id="new-order-form" onSubmit={submit} className="ui-page max-w-3xl space-y-5">
+    <form id="new-order-form" onSubmit={submit} noValidate className="ui-page new-order-page">
       <PageHeader
         title={creationType === 'lead' ? 'Новая заявка' : 'Новый заказ'}
-        eyebrow="Автозапчасти · Дубай"
-        description="Начните с автомобиля. Детали и фотографии можно добавить в заказе."
+        description="Укажите автомобиль — затем добавьте запчасти."
         back={() => navigate('/orders')}
       />
-      {Object.values(draftData).some((value) => value.trim()) && (
-        <div className="ui-draft-note">
-          <span role="status">
-            {draft.status === 'unavailable'
-              ? 'Черновик не сохранён: хранилище браузера недоступно.'
-              : initialDraft
-                ? 'Черновик восстановлен. Продолжите заполнение.'
-                : 'Черновик сохраняется на этом устройстве.'}
-          </span>
-          <Button variant="ghost" onClick={resetDraft}>
-            Очистить форму
-          </Button>
-        </div>
-      )}
-      <section className={cardClass}>
-        <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-600">
-          <CarFront size={16} /> Автомобиль
-        </h2>
 
-        <label className="space-y-1">
-          <span className="text-xs font-semibold text-slate-500">Марка</span>
-          <SearchableSelect
-            label="Марка"
-            error={errors.brand}
-            value={brand}
-            placeholder="Выберите марку"
-            options={brandOptions}
-            required
-            onChange={(value) => {
-              setBrand(value);
-              setModel('');
-            }}
-          />
-        </label>
+      <div className="new-order-layout">
+        <div className="new-order-fields">
+          <fieldset disabled={busy} className="new-order-card">
+            <legend className="sr-only">Автомобиль</legend>
+            <div className="new-order-card-heading">
+              <span className="new-order-section-icon">
+                <CarFront size={22} aria-hidden="true" />
+              </span>
+              <div>
+                <h2>Автомобиль</h2>
+                <p>Марка, модель и год обязательны</p>
+              </div>
+            </div>
+            <div className="new-order-vehicle-grid">
+              <OrderVehiclePicker
+                label="Марка"
+                error={errors.brand}
+                value={brand}
+                placeholder="Выберите марку"
+                options={brandOptions}
+                featuredCount={POPULAR_BRANDS.filter((item) => BRANDS.includes(item)).length}
+                required
+                onChange={(value) => {
+                  updateField('brand', value);
+                  if (value !== brand) {
+                    setModel('');
+                    setBodyType('');
+                  }
+                }}
+              />
+              <OrderVehiclePicker
+                required
+                label="Модель"
+                error={errors.model}
+                value={model}
+                placeholder="Выберите или введите"
+                options={modelOptions}
+                allowCustom
+                onChange={(value) => updateField('model', value)}
+              />
+              <OrderVehiclePicker
+                required
+                label="Год"
+                error={errors.year}
+                value={year}
+                placeholder="Год выпуска"
+                options={yearOptions}
+                grid
+                onChange={(value) => updateField('year', value)}
+              />
+              <OrderVehiclePicker
+                label="Кузов"
+                value={bodyType}
+                placeholder="Не указан"
+                options={bodyTypeOptions}
+                allowCustom
+                onChange={(value) => updateField('bodyType', value)}
+              />
+            </div>
+            <p className="new-order-field-note">Кузов можно указать позже.</p>
+          </fieldset>
 
-        <label className="space-y-1">
-          <span className="text-xs font-semibold text-slate-500">Модель</span>
-          <SearchableSelect
-            required
-            label="Модель"
-            error={errors.model}
-            value={model}
-            placeholder="Введите модель"
-            options={modelOptions}
-            allowCustom
-            noOptionsText="Начните вводить модель"
-            onChange={setModel}
-          />
-        </label>
+          <fieldset disabled={busy} className="new-order-card new-order-client-card">
+            <legend className="sr-only">Клиент</legend>
+            <div className="new-order-card-heading">
+              <span className="new-order-section-icon is-neutral">
+                <UserRound size={21} aria-hidden="true" />
+              </span>
+              <div>
+                <h2>Клиент</h2>
+                <p>Необязательно · можно добавить позже</p>
+              </div>
+            </div>
+            <Field label="Имя клиента">
+              <input
+                type="text"
+                name="clientName"
+                autoComplete="name"
+                maxLength={120}
+                value={clientName}
+                onChange={(event) => updateField('clientName', event.target.value)}
+                placeholder="Например, Александр"
+                className="ui-input"
+              />
+            </Field>
+          </fieldset>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">Год</span>
-            <SearchableSelect
-              required
-              label="Год"
-              error={errors.year}
-              value={year}
-              placeholder="Выберите год"
-              options={yearOptions}
-              noOptionsText="Год не найден"
-              onChange={setYear}
-            />
-          </label>
-
-          <label className="space-y-1">
-            <span className="text-xs font-semibold text-slate-500">
-              Кузов <span className="font-medium text-slate-400">необязательно</span>
+          <div className={`new-order-draft ${draft.status === 'unavailable' ? 'has-warning' : ''}`}>
+            <span role="status">
+              {draft.status === 'unavailable' ? (
+                <CircleAlert size={16} aria-hidden="true" />
+              ) : (
+                <FileCheck2 size={16} aria-hidden="true" />
+              )}
+              {draft.status === 'unavailable'
+                ? 'Черновик не сохранён. Не закрывайте форму.'
+                : restoredDraft && hasContent
+                  ? 'Черновик восстановлен'
+                  : draft.status === 'saved'
+                    ? 'Черновик сохранён на устройстве'
+                    : 'Черновик сохраняется автоматически'}
             </span>
-            <input
-              type="text"
-              value={bodyType}
-              list="new-order-body-type-options"
-              onChange={(event) => setBodyType(event.target.value)}
-              placeholder="Напишите тип кузова"
-              className={inputClass}
-            />
-            <datalist id="new-order-body-type-options">
-              {bodyTypeOptions.map((option) => (
-                <option key={option.value} value={option.value} />
-              ))}
-            </datalist>
-          </label>
+            {hasContent && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setShowReset(true)}
+                aria-label="Очистить форму"
+              >
+                <RotateCcw size={16} aria-hidden="true" /> Очистить
+              </button>
+            )}
+          </div>
         </div>
-      </section>
 
-      <section className={cardClass}>
-        <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-600">
-          <UserRound size={16} /> Клиент
-        </h2>
-        <label className="space-y-1">
-          <span className="text-xs font-semibold text-slate-500">
-            Имя клиента <span className="font-medium text-slate-400">необязательно</span>
-          </span>
-          <input
-            type="text"
-            name="clientName"
-            autoComplete="name"
-            value={clientName}
-            onChange={(event) => setClientName(event.target.value)}
-            placeholder="Имя клиента"
-            className={inputClass}
-          />
-        </label>
-      </section>
-
-      <div className="screen-action-dock">
-        <Button type="submit" loading={isSubmitting || isSyncing} className="w-full">
-          {isSubmitting || isSyncing
-            ? 'Сохраняем...'
-            : creationType === 'lead'
-              ? 'Создать лид'
-              : 'Создать заказ'}
-        </Button>
+        <section className="new-order-summary" aria-labelledby="new-order-summary-title">
+          <div className={`new-order-summary-icon ${ready ? 'is-ready' : ''}`}>
+            {ready ? <Check size={24} aria-hidden="true" /> : <Plus size={24} aria-hidden="true" />}
+          </div>
+          <h2 id="new-order-summary-title">
+            {ready ? 'Всё готово к созданию' : 'Начнём с автомобиля'}
+          </h2>
+          <p className={`new-order-vehicle-preview ${vehicleName ? 'has-value' : ''}`}>
+            {vehicleName || 'Выберите марку, модель и год выпуска.'}
+          </p>
+          {clientName.trim() && (
+            <p className="new-order-client-preview">
+              <UserRound size={15} aria-hidden="true" />
+              {clientName.trim()}
+            </p>
+          )}
+          <div className="new-order-next">
+            <span>
+              <ArrowRight size={16} aria-hidden="true" /> После создания
+            </span>
+            <p>Добавьте нужные запчасти, фотографии и предложения поставщиков.</p>
+          </div>
+          {saveError && (
+            <div ref={saveErrorRef} tabIndex={-1} role="alert" className="new-order-save-error">
+              <CircleAlert size={18} aria-hidden="true" />
+              <p>{saveError}</p>
+            </div>
+          )}
+          <Button type="submit" loading={busy} icon={ArrowRight} className="new-order-submit">
+            {busy ? 'Сохраняем…' : creationType === 'lead' ? 'Создать заявку' : 'Создать заказ'}
+          </Button>
+          <p className="new-order-submit-note">
+            {creationType === 'lead' ? 'Заявку' : 'Заказ'} можно дополнить и изменить позже.
+          </p>
+        </section>
       </div>
+      {showReset && (
+        <Dialog
+          title="Очистить черновик?"
+          onClose={() => setShowReset(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setShowReset(false)}>
+                Продолжить заполнение
+              </Button>
+              <Button variant="danger" onClick={resetDraft}>
+                Очистить форму
+              </Button>
+            </>
+          }
+        >
+          <p className="ui-description">
+            Выбранный автомобиль и имя клиента будут удалены из этой формы.
+          </p>
+        </Dialog>
+      )}
     </form>
   );
 };

@@ -1,3 +1,4 @@
+import { selectVehicle } from './helpers/vehicle';
 import { expect, Page, test } from '@playwright/test';
 
 const SUPABASE_REQUEST = /https:\/\/[^/]*supabase\.co\/.*/;
@@ -16,29 +17,13 @@ async function gotoHash(page: Page, path: string) {
   await page.waitForLoadState('networkidle').catch(() => undefined);
 }
 
-async function selectSearchableDropdown(
-  page: Page,
-  trigger: ReturnType<Page['locator']>,
-  query: string,
-) {
-  await trigger.click();
-  const dropdown = page
-    .locator('div.absolute')
-    .filter({ has: page.locator('input') })
-    .last();
-  await expect(dropdown).toBeVisible();
-  await dropdown.locator('input').fill(query);
-  await dropdown.locator('button').first().click();
-}
-
 async function createOrderFromManualRequest(page: Page) {
   await gotoHash(page, '/#/new');
   await expect(page.locator('form#new-order-form')).toBeVisible();
 
-  await selectSearchableDropdown(page, page.getByRole('button', { name: 'Марка' }), 'BMW');
-  await page.getByPlaceholder('Введите модель').fill('X5');
-  await page.getByPlaceholder('Введите модель').press('Enter');
-  await selectSearchableDropdown(page, page.getByRole('button', { name: 'Год' }), '2018');
+  await selectVehicle(page, 'Марка', 'BMW');
+  await selectVehicle(page, 'Модель', 'X5');
+  await selectVehicle(page, 'Год', '2018');
 
   await page.locator('input[name="clientName"]').fill('E2E Full Prepay Buyer');
   await page.locator('form#new-order-form button[type="submit"]').click();

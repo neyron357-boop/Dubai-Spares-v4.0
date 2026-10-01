@@ -1,10 +1,11 @@
+import { selectVehicle } from './helpers/vehicle';
 import { expect, test } from '@playwright/test';
 
 test('order draft survives reload, keyboard selection returns focus and saving clears the draft', async ({
   page,
 }) => {
   await page.goto('/#/new');
-  await page.getByPlaceholder('Введите модель').fill('Camry');
+  await selectVehicle(page, 'Модель', 'Camry');
   await page.locator('input[name="clientName"]').fill('Draft Buyer');
   await expect
     .poll(() =>
@@ -15,14 +16,14 @@ test('order draft survives reload, keyboard selection returns focus and saving c
     )
     .toBe('Camry');
   await page.reload();
-  await expect(page.getByPlaceholder('Введите модель')).toHaveValue('Camry');
+  await expect(page.getByRole('button', { name: 'Модель', exact: true })).toHaveText('Camry');
   await expect(page.locator('input[name="clientName"]')).toHaveValue('Draft Buyer');
   await page.getByRole('button', { name: 'Марка', exact: true }).click();
   const brands = page.getByRole('combobox', { name: 'Поиск: Марка', exact: true });
   await brands.fill('Toyota');
   await brands.press('Enter');
   await expect(page.getByRole('button', { name: 'Марка', exact: true })).toBeFocused();
-  await page.getByPlaceholder('Введите модель').fill('Camry');
+  await selectVehicle(page, 'Модель', 'Camry');
   await page.getByRole('button', { name: 'Год', exact: true }).click();
   const years = page.getByRole('combobox', { name: 'Поиск: Год', exact: true });
   await years.fill('2020');

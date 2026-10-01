@@ -1,3 +1,4 @@
+import { selectVehicle } from './helpers/vehicle';
 import { expect, test } from '@playwright/test';
 
 test('production app precaches unvisited screens and reloads without internet', async ({
@@ -33,22 +34,9 @@ test('production app precaches unvisited screens and reloads without internet', 
     .getByRole('link', { name: 'Новый', exact: true })
     .click();
   await expect(page.locator('form#new-order-form')).toBeVisible();
-  await page.getByRole('button', { name: 'Марка', exact: true }).click();
-  const dropdown = page
-    .locator('div.absolute')
-    .filter({ has: page.locator('input') })
-    .last();
-  await dropdown.locator('input').fill('Toyota');
-  await dropdown.locator('button').first().click();
-  await page.getByPlaceholder('Введите модель').fill('Camry');
-  await page.getByPlaceholder('Введите модель').press('Enter');
-  await page.getByRole('button', { name: 'Год', exact: true }).click();
-  const years = page
-    .locator('div.absolute')
-    .filter({ has: page.locator('input') })
-    .last();
-  await years.locator('input').fill('2020');
-  await years.locator('button').first().click();
+  await selectVehicle(page, 'Марка', 'Toyota');
+  await selectVehicle(page, 'Модель', 'Camry');
+  await selectVehicle(page, 'Год', '2020');
   await page.locator('input[name="clientName"]').fill('Offline Buyer');
   await page.locator('form#new-order-form button[type="submit"]').click();
   await page.waitForURL(/#\/order\//);
